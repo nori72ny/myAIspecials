@@ -35,6 +35,26 @@ describe('PWA durable artifact revisions', () => {
     expect(restored?.[0].id).toBe('demo:v38');
     expect(restored?.at(-1)?.id).toBe('demo:v101');
   });
+  it('restores recent revisions when a legacy 64-entry journal exceeds the aggregate size cap', () => {
+    const big = '日'.repeat(900_000);
+    const legacy = Array.from({ length: 15 }, (_, i) => ({
+      id: `large:v${i + 1}`, content: big,
+      createdAt: i, source: 'direct-touch' as const,
+    }));
+    const restored = recover(legacy, big);
+    expect(restored).toHaveLength(11);
+    expect(restored?.[0].id).toBe('large:v5');
+    expect(restored?.at(-1)?.id).toBe('large:v15');
+    expect(restored?.reduce((total, v) => total + v.content.length, 0)).toBeLessThanOrEqual(10_000_000);
+  });
+
+  it('ignores an oversized old version but never accepts an oversized latest version', () => {
+    const tooLarge = { ...history[0], content: 'x'.repeat(1_000_001) };
+    const restored = recover([tooLarge, history[1]], '<main>編集済み</main>');
+    expect(restored).toEqual([history[1]]);
+    expect(recover([history[0], tooLarge], tooLarge.content)).toBeUndefined();
+  });
+
   it('rejects oversized individual revisions and invalid last content', () => {
     expect(recover([{ ...history[1], content: 'X'.repeat(1_000_001) }], '<main>編集済み</main>')).toBeUndefined();
     expect(recover(history, 'different')).toBeUndefined();
