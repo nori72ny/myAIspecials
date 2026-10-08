@@ -2,6 +2,22 @@ export const AGENT_FRONTIER_TASK_GATE_VERSION_V3 = 'origin.agent-frontier-task-g
 
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$/;
+const SHA256 = /^[0-9a-f]{64}$/i;
+const isEvidenceDigest = (value: unknown): value is string =>
+  typeof value === 'string' && SHA256.test(value) && !/^0{64}$/.test(value);
+
+/**
+ * The benchmark is a *frozen* set of task identities, not 24 arbitrary easy tasks.
+ * This gate validates evidence shape; only an independent evaluator can attest
+ * that the digests identify the original sealed tasks and actual execution.
+ */
+const FROZEN_FAMILY_BY_ID: Readonly<Record<string, AgentFrontierFamilyV3>> = Object.freeze(
+  Object.fromEntries([
+    ...Array.from({ length: 12 }, (_, index) => [`coding-${index + 1}`, 'coding-repository']),
+    ...Array.from({ length: 8 }, (_, index) => [`agent-${index + 1}`, 'agent-multi-step']),
+    ...Array.from({ length: 4 }, (_, index) => [`artifact-${index + 1}`, 'artifact-deliverable']),
+  ]) as Record<string, AgentFrontierFamilyV3>,
+);
 
 export const AGENT_FRONTIER_FAMILIES_V3 = [
   'coding-repository',
@@ -17,6 +33,10 @@ export type AgentFrontierTaskEvidenceV3 = {
   candidateSha: string;
   family: AgentFrontierFamilyV3;
   status: AgentFrontierTaskStatusV3;
+  originalTaskDigest: string;
+  planEvidenceDigest: string;
+  toolEvidenceDigest: string;
+  terminalEvidenceDigest: string;
   verifiedTerminal: boolean;
   falseCompletionClaims: number;
   p0Defects: number;
@@ -76,13 +96,16 @@ function isFamily(value: unknown): value is AgentFrontierFamilyV3 {
   return typeof value === 'string' && (AGENT_FRONTIER_FAMILIES_V3 as readonly string[]).includes(value);
 }
 
-function validTask(task: AgentFrontierTaskEvidenceV3, candidateSha: string): string[] {
+function validTask(task: AgentFrontierTaskEvidenceV3 | null, candidateSha: string): string[] {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return ['TASK_EVIDENCE_INVALID'];
   const blockers: string[] = [];
   if (!SAFE_ID.test(task?.id ?? '')) blockers.push('TASK_ID_INVALID');
   if (!SHA40.test(task?.candidateSha ?? '') || task.candidateSha.toLowerCase() !== candidateSha) {
     blockers.push('TASK_CANDIDATE_SHA_MISMATCH');
   }
   if (!isFamily(task?.family)) blockers.push('TASK_FAMILY_INVALID');
+  if (FROZEN_FAMILY_BY_ID[task.id] !== task.family) blockers.push('TASK_FROZEN_ID_OR_FAMILY_INVALID');
+  if (!isEvidenceDigest(task.originalTaskDigest)) blockers.push('TASK_ORIGINAL_DIGEST_INVALID');
   if (!['SOLVED', 'UNSOLVED', 'NOT_MEASURED'].includes(task?.status)) blockers.push('TASK_STATUS_INVALID');
   if (typeof task?.verifiedTerminal !== 'boolean') blockers.push('TASK_TERMINAL_EVIDENCE_INVALID');
   if (!Number.isInteger(task?.falseCompletionClaims) || task.falseCompletionClaims < 0) blockers.push('TASK_FALSE_COMPLETION_COUNT_INVALID');
@@ -95,6 +118,9 @@ function validTask(task: AgentFrontierTaskEvidenceV3, candidateSha: string): str
   if (!Number.isFinite(task?.timeBudgetMs) || task.timeBudgetMs <= 0) blockers.push('TASK_TIME_BUDGET_INVALID');
 
   if (task.status === 'SOLVED') {
+    if (!isEvidenceDigest(task.planEvidenceDigest)) blockers.push('TASK_PLAN_EVIDENCE_MISSING');
+    if (!isEvidenceDigest(task.toolEvidenceDigest)) blockers.push('TASK_TOOL_EVIDENCE_MISSING');
+    if (!isEvidenceDigest(task.terminalEvidenceDigest)) blockers.push('TASK_TERMINAL_DIGEST_MISSING');
     if (!task.verifiedTerminal) blockers.push('TASK_SOLVED_WITHOUT_VERIFIED_TERMINAL');
     if (task.falseCompletionClaims !== 0) blockers.push('TASK_SOLVED_WITH_FALSE_COMPLETION');
     if (task.p0Defects !== 0 || task.p1Defects !== 0) blockers.push('TASK_SOLVED_WITH_CRITICAL_DEFECT');
@@ -110,18 +136,22 @@ export function evaluateAgentFrontierTaskGateV3(input: AgentFrontierGateInputV3)
   const blockers: string[] = [];
   const candidateSha = String(input?.candidateSha ?? '').toLowerCase();
   const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
+  const records = tasks.filter((task): task is AgentFrontierTaskEvidenceV3 =>
+    Boolean(task) && typeof task === 'object' && !Array.isArray(task));
 
   if (input?.version !== AGENT_FRONTIER_TASK_GATE_VERSION_V3) blockers.push('GATE_VERSION_INVALID');
   if (!SHA40.test(candidateSha)) blockers.push('CANDIDATE_SHA_INVALID');
   if (tasks.length !== 24) blockers.push('TASK_COUNT_MUST_EQUAL_24');
+  if (records.length !== tasks.length) blockers.push('TASK_EVIDENCE_RECORDS_INVALID');
   if (new Set(tasks.map(task => task?.id)).size !== tasks.length) blockers.push('TASK_IDS_DUPLICATE');
+  if (new Set(records.map(task => task.originalTaskDigest)).size !== records.length) blockers.push('TASK_ORIGINAL_DIGESTS_DUPLICATE');
 
   for (const task of tasks) {
     for (const code of validTask(task, candidateSha)) blockers.push(`${task?.id ?? 'unknown'}:${code}`);
   }
 
   const familySummaries: AgentFrontierFamilySummaryV3[] = AGENT_FRONTIER_FAMILIES_V3.map(family => {
-    const rows = tasks.filter(task => task.family === family);
+    const rows = records.filter(task => task.family === family);
     const solved = rows.filter(task => task.status === 'SOLVED').length;
     const attempted = rows.length;
     const solveRate = attempted === 0 ? 0 : solved / attempted;
@@ -138,20 +168,20 @@ export function evaluateAgentFrontierTaskGateV3(input: AgentFrontierGateInputV3)
     };
   });
 
-  const measured = tasks.filter(task => task.status !== 'NOT_MEASURED').length;
-  const solved = tasks.filter(task => task.status === 'SOLVED').length;
+  const measured = records.filter(task => task.status !== 'NOT_MEASURED').length;
+  const solved = records.filter(task => task.status === 'SOLVED').length;
   const solveRate = tasks.length === 0 ? 0 : solved / tasks.length;
-  const falseCompletionClaims = tasks.reduce((sum, task) => sum + (Number.isInteger(task.falseCompletionClaims) ? task.falseCompletionClaims : 0), 0);
-  const p0Defects = tasks.reduce((sum, task) => sum + (Number.isInteger(task.p0Defects) ? task.p0Defects : 0), 0);
-  const p1Defects = tasks.reduce((sum, task) => sum + (Number.isInteger(task.p1Defects) ? task.p1Defects : 0), 0);
+  const falseCompletionClaims = records.reduce((sum, task) => sum + (Number.isInteger(task.falseCompletionClaims) ? task.falseCompletionClaims : 0), 0);
+  const p0Defects = records.reduce((sum, task) => sum + (Number.isInteger(task.p0Defects) ? task.p0Defects : 0), 0);
+  const p1Defects = records.reduce((sum, task) => sum + (Number.isInteger(task.p1Defects) ? task.p1Defects : 0), 0);
 
   if (measured !== 24) blockers.push('ALL_24_TASKS_MUST_BE_MEASURED');
   if (solveRate < OVERALL_MIN_SOLVE_RATE) blockers.push('OVERALL_SOLVE_RATE_BELOW_90_PERCENT');
   if (falseCompletionClaims !== 0) blockers.push('FALSE_COMPLETION_PRESENT');
   if (p0Defects !== 0) blockers.push('P0_DEFECT_PRESENT');
   if (p1Defects !== 0) blockers.push('P1_DEFECT_PRESENT');
-  if (tasks.some(task => task.securityPassed !== true)) blockers.push('SECURITY_GATE_FAILED');
-  if (tasks.some(task => task.costUsd !== 0 || task.paidFallbackUsed !== false)) blockers.push('ZERO_COST_GATE_FAILED');
+  if (records.some(task => task.securityPassed !== true)) blockers.push('SECURITY_GATE_FAILED');
+  if (records.some(task => task.costUsd !== 0 || task.paidFallbackUsed !== false)) blockers.push('ZERO_COST_GATE_FAILED');
 
   return {
     version: AGENT_FRONTIER_TASK_GATE_VERSION_V3,
