@@ -292,6 +292,20 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
   });
 
+  it('requires reconciliation when dispatch returns no trustworthy receipt', async () => {
+    const actions = deps();
+    actions.executeAndVerify = vi.fn(async () => undefined as unknown as Awaited<ReturnType<AgentMultiToolSupervisorDepsV31['executeAndVerify']>>);
+    const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
+    expect(result).toMatchObject({
+      status: 'blocked',
+      code: 'AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED',
+      verified: false,
+    });
+    expect(result.completedSteps).toHaveLength(0);
+    expect(actions.verifyTrustedTerminal).not.toHaveBeenCalled();
+    expect(actions.executeAndVerify).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects accessor-backed parameters without evaluating a getter before approval', async () => {
     const actions = deps();
     const readGetter = vi.fn(() => { throw new Error('unapproved getter execution'); });
@@ -321,7 +335,8 @@ describe('Agent V3.1 bounded multi-tool supervisor', () => {
     actions.executeAndVerify = vi.fn(async () => { throw new Error('secret provider token 123'); });
     const result = await executeAgentMultiToolSequenceV31('run-supervisor-1', researchToDocument, actions);
     expect(result.status).toBe('blocked');
-    expect(result.code).toBe('AGENT_MULTI_TOOL_STEP_FAILED');
+    expect(result.code).toBe('AGENT_MULTI_TOOL_EXECUTION_RECONCILIATION_REQUIRED');
+    expect(result.completedSteps).toHaveLength(0);
     expect(JSON.stringify(result)).not.toContain('secret provider token');
 
     const ambiguous = await executeAgentMultiToolSequenceV31('run-supervisor-1', 'いい感じに進めて', actions);
