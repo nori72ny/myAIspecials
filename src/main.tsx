@@ -187,7 +187,26 @@ function PersonalReleaseRoot() {
   useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#030712' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { if (!dirtyDuringHydration.current.messages) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } } if (!dirtyDuringHydration.current.sessions) setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
-  useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
+  useEffect(() => {
+    if (!isHydrated || storageReadFailed) return;
+    const snapshot = snapshotFromState(messages, sessions, artifacts);
+    const pendingRevision = document.documentElement.dataset.originDirectTouchPending;
+    // A matching revision must be included in the exact snapshot persisted here.
+    // Neither React state acceptance nor elapsed debounce time is durable proof.
+    const revisionRecorded = Boolean(pendingRevision?.startsWith('commit:')
+      && artifacts.some((artifact) => artifact.revisions?.some((revision) => revision.id === pendingRevision.slice(7))));
+    const timer = window.setTimeout(() => {
+      void originIndexedDbAdapter.save(snapshot).then((result) => {
+        setStorageHealth(result === 'saved' ? 'ready' : result);
+        if (result === 'saved' && revisionRecorded
+          && document.documentElement.dataset.originDirectTouchPending === pendingRevision) {
+          document.documentElement.dataset.originDirectTouchPending = 'false';
+          window.dispatchEvent(new Event('origin:pwa-safe-apply'));
+        }
+      });
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages: persistableConversationMessages(messages) }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };
