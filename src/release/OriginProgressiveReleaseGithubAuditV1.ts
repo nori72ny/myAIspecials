@@ -70,6 +70,7 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
   const main = input?.main;
   const checks = input?.checks;
   const reviews = input?.reviews;
+  const checkRows = Array.isArray(checks?.check_runs) ? checks.check_runs : [];
   const candidateSha = validSha(pull?.head?.sha) ? pull.head.sha : null;
   const mainSha = validSha(main?.commit?.sha) ? main.commit.sha : null;
   const blockers: OriginGithubReleaseBlockerV1[] = [];
@@ -93,11 +94,11 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
   // Duplicate check names from old reruns must not be silently considered valid.
   // Every required result must appear once, be completed, and have conclusion success.
   const missingOrFailedChecks = REQUIRED_ORIGIN_RELEASE_CHECKS_V1.filter(name => {
-    const matches = checks?.check_runs?.filter(row => row?.name === name) ?? [];
+    const matches = checkRows.filter(row => row?.name === name);
     return matches.length !== 1 || matches[0]?.status !== 'completed' || matches[0]?.conclusion !== 'success';
   });
   if (missingOrFailedChecks.length
-    || checks?.check_runs?.some(row => row?.conclusion === 'failure' || row?.conclusion === 'cancelled' || row?.conclusion === 'timed_out')) {
+    || checkRows.some(row => row?.conclusion === 'failure' || row?.conclusion === 'cancelled' || row?.conclusion === 'timed_out')) {
     blockers.push('REQUIRED_CI_NOT_GREEN');
   }
 
