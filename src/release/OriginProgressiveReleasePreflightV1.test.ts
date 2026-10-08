@@ -98,6 +98,28 @@ describe('Origin Progressive Release Preflight V1', () => {
     expect(evaluate({ ...valid(), featureId }).blockers).toContain('INVALID_SINGLE_FEATURE_SCOPE');
   });
 
+  it.each([null, undefined, false, true, 1, 0, '', 'approved', [], ['approved'], {}])(
+    'returns BLOCKED without throwing for an invalid top-level attestation (%j)',
+    evidence => {
+      const verdict = evaluate(evidence as unknown as OriginProgressiveReleaseEvidenceV1);
+      expect(verdict.canPublish).toBe(false);
+      expect(verdict.blockers).toContain('EXACT_HEAD_MISMATCH');
+      expect(verdict.blockers).toContain('OWNER_APPROVAL_MISSING');
+      expect(verdict.blockers).toContain('PREPUBLISH_GATE_NOT_ENFORCED');
+    },
+  );
+
+  it('rejects malformed nested approvals and absent visual state without exceptions', () => {
+    const data = valid();
+    for (const approval of [false, 'approved', [], { headSha: sha }, { identityVerified: true }]) {
+      const verdict = evaluate({ ...data, ownerApproval: approval } as unknown as OriginProgressiveReleaseEvidenceV1);
+      expect(verdict.canPublish).toBe(false);
+      expect(verdict.blockers).toContain('OWNER_APPROVAL_MISSING');
+    }
+    expect(evaluate({ ...data, uiChanged: null } as unknown as OriginProgressiveReleaseEvidenceV1).blockers)
+      .toContain('OWNER_VISUAL_APPROVAL_MISSING');
+  });
+
   it('never accepts malformed strings in place of verified evidence booleans', () => {
     const input = valid();
     const report = evaluate({ ...input, mainProtected: 'true', zeroCostVerified: 'true', actualCostUsd: '0' } as unknown as OriginProgressiveReleaseEvidenceV1);
