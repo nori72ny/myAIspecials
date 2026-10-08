@@ -33,6 +33,18 @@ describe('live GitHub evidence audit (read-only)', () => {
     expect(audit({ ...input, reviews: [{ state: 'APPROVED', commit_id: main, user: { login: 'reviewer' } }] })
       .blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
   });
+  it('rejects a change request despite an earlier current-SHA approval', () => {
+    const snapshot = good();
+    const reviews = [...snapshot.reviews!, {
+      state: 'CHANGES_REQUESTED', commit_id: sha, user: { login: 'reviewer-2' },
+    }];
+    expect(audit({ ...snapshot, reviews }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
+  it('rejects a missing PR author identity instead of trusting a nonempty reviewer', () => {
+    const snapshot = good();
+    const pull = { ...snapshot.pull!, user: undefined };
+    expect(audit({ ...snapshot, pull }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
+  });
   it('rejects missing, failed, and duplicate required checks', () => {
     const input = good();
     const rows = [...input.checks!.check_runs];
