@@ -25,6 +25,14 @@ export type AgentMultiToolStepOutcomeV31 = {
 };
 
 export type AgentMultiToolSupervisorDepsV31 = {
+  /**
+   * Atomically reserve the run identifier across every instance before any approval
+   * is consumed or tool is dispatched. The backing store must be durable and
+   * must retain this reservation across exceptions, restarts and until all
+   * associated authorization capabilities have expired or been reconciled.
+   * Never use a process-local Set as the Production implementation.
+   */
+  reserveRunOnce: (runId: string, goalDigest: string) => Promise<boolean>;
   /** A trusted resolver supplies actual operation arguments, not the model's claims. */
   prepareParams: (step: AgentMultiToolStepV31, prior: readonly AgentMultiToolVerifiedStepV31[]) => Promise<unknown>;
   /** Real backing store must guarantee one-time atomic consumption even across replicas. */
@@ -173,6 +181,9 @@ function approvalBinding(runId: string, goalDigest: string, step: AgentMultiTool
       goalDigest,
       stepId: step.id,
       toolName: step.toolName,
+      reasonCode: step.reasonCode,
+      approvalBoundary: step.approvalBoundary,
+      dependsOn: [...step.dependsOn],
       params: canonicalParams(params),
       // Bind the complete verified predecessor operation, not just its output.
       // Different approved inputs can produce identical output digests.
@@ -190,11 +201,12 @@ function finish(status: AgentMultiToolSupervisorResultV31['status'], code: strin
   // Never report observed "$0" or "no paid fallback" for an uncertain execution.
   // These claims require every tool step to have trusted terminal cost evidence.
   const allVerified = status === 'completed';
-  return {
-    status, verified: allVerified, code, completedSteps,
+  const receipt = Object.freeze(completedSteps.map(row => Object.freeze({ ...row })));
+  return Object.freeze({
+    status, verified: allVerified, code, completedSteps: receipt,
     freeOnly: true, costUsd: allVerified ? 0 : null,
     paidFallbackUsed: allVerified ? false : null,
-  };
+  });
 }
 
 /**
@@ -218,6 +230,17 @@ export async function executeAgentMultiToolSequenceV31(
   if (!plan.ok || plan.version !== AGENT_MULTI_TOOL_PLAN_VERSION_V31
     || plan.bounded !== true || plan.steps.length < 1 || plan.steps.length > 3)
     return finish('blocked', 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED', []);
+
+  // A single operation approval protects that operation, but does not prevent
+  // separate concurrent runs using the same run ID with different parameters.
+  // Claim the entire run once before any tool-specific approval or dispatch.
+  try {
+    const reserved = await deps.reserveRunOnce(runId, goalDigest);
+    if (reserved !== true)
+      return finish('blocked', 'AGENT_MULTI_TOOL_RUN_ALREADY_RESERVED', []);
+  } catch {
+    return finish('blocked', 'AGENT_MULTI_TOOL_RUN_RESERVATION_UNAVAILABLE', []);
+  }
 
   const completed: AgentMultiToolVerifiedStepV31[] = [];
   for (let i = 0; i < plan.steps.length; i += 1) {
