@@ -447,6 +447,27 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
   });
 
+  it('atomically preserves multiple Direct Touch fields in one revision', () => {
+    const changes: ArtifactBlock[] = [];
+    render(<ArtifactWorkspace artifact={{ ...artifact, content: '<main><p>First</p><p>Second</p></main>' }}
+      isOpen language="ja" onClose={() => undefined} onArtifactRevision={(v) => changes.push(v)} />);
+    fireEvent.click(screen.getByTestId('artifact-action-edit'));
+    const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
+    expect(frame.getAttribute('data-origin-srcdoc')).toContain('__originDirectTouchEdits');
+    act(() => window.dispatchEvent(new MessageEvent('message', {
+      source: frame.contentWindow,
+      data: {
+        source: 'ORIGIN_DIRECT_TOUCH',
+        type: 'commit',
+        edits: [{ index: 0, text: 'First updated' }, { index: 1, text: 'Second updated' }],
+      },
+    })));
+    expect(changes).toHaveLength(1);
+    expect(changes[0].revision).toBe(2);
+    expect(changes[0].content).toContain('First updated');
+    expect(changes[0].content).toContain('Second updated');
+  });
+
   it('blocks PWA updates for real Direct Touch iframe edits but ignores forged messages', () => {
     delete document.documentElement.dataset.originDirectTouchPending;
     try {
