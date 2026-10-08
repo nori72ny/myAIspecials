@@ -77,3 +77,25 @@ Vercel参考: https://vercel.com/docs/rest-api/checks-v2/list-all-checks-for-a-p
 - This is a read-only evidence evaluator, not enforcement activation. Live branch-protection permissions, Vercel alias hold, independent model evaluation and release approvals remain unverified. No production changes.
 
 **設定の重複検査:** Vercel Checks V2 の GET は `blocks` を省略してプロジェクトの全チェックを取得すること。最初から `blocks=deployment-alias` を指定すると、同名だが `blocks=none` のチェックがサーバー側で除外され、重複に気づかず合格する欠陥を招く。監査は**全チェックの取得後**に名前の一意性・ブロック条件・source identityを検証する。
+
+## 承認済みVercelチェックの実行元ID固定
+
+Vercel API が返す「チェック名」と「Webhook/連携元IDが存在する」だけで
+公開許可を出すことは禁止。同じチェック名と異なるWebhook IDで偽装が可能なため、
+運用者が保護された別経路で事前確認・固定した実行元IDと完全一致を必須とする。
+
+- 保護された信頼済みCI環境に `VERCEL_RELEASE_CHECK_SOURCE_KIND` と
+  `VERCEL_RELEASE_CHECK_SOURCE_ID` を設定する。
+- `KIND` は `webhook`、`integration`、`git-provider` のいずれか。
+  `ID` は承認したVercel側の `webhookId`、`externalResourceId`、
+  またはGitHub `externalCheckName` と完全一致させる。
+  GitHub外部チェックは `source.provider=github` も必須。
+- 設定未投入、予期しない実行元、空値、不正値は
+  `TRUSTED_CHECK_SOURCE_NOT_CONFIGURED` /
+  `REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING` で閉じる。
+- この参照値は、プルリクエスト内のJSONやPRコメント、ブラウザー入力を
+  そのまま信用せず、保護された独立した設定から読み込む。
+  PRで変更可能なコードに高権限 `VERCEL_TOKEN` を渡してはならない。
+- これは「設定照合」に限定される。必ず非合格デプロイでの
+  **本番エイリアス割当拒否を実測**し、Owner exact-head承認と
+  実回答の独立評価が揃うまで本番公開は停止する。
