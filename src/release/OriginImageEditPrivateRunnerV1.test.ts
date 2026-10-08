@@ -28,7 +28,14 @@ describe('Image edit private held-out runner V1', () => {
     expect(workflow).toContain('if(value.taskCount!==16) process.exit(4);');
     expect(inspector).not.toContain('tasks: corpus.tasks');
     expect(inspector).not.toContain('instruction:');
-    expect(inspector).not.toContain('sourceImageDataUrl');
+    // Raw source images are decoded privately before Cloudflare inference.
+    // Only the whitelisted public metadata payload must exclude source data.
+    expect(inspector).toContain('task.sourceImageDataUrl');
+    const output = inspector.split('process.stdout.write(JSON.stringify({')[1];
+    expect(output).toBeDefined();
+    expect(output).not.toContain('sourceImageDataUrl');
+    expect(output).not.toContain('instruction: task.instruction');
+    expect(output).toContain('sourceImageSha256s');
   });
 
   it('requires live zero-cost raster readiness before consuming the corpus', () => {
