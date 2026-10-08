@@ -398,7 +398,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'unauthorized overwrite' }] },
     })));
     expect(saved).toHaveLength(0);
-    expect(document.documentElement.dataset.originDirectTouchPending).not.toMatch(/^commit:/);
+    expect(document.documentElement.dataset.originDirectTouchPending ?? '').not.toMatch(/^commit:/);
   });
 
   it('stores an approved Direct Touch text delta as an immutable new revision', () => {
