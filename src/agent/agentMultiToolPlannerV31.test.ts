@@ -48,6 +48,23 @@ describe('Agent v3.1 bounded multi-tool planner', () => {
     expect(plan).toEqual({ ok: false, code: 'AGENT_MULTI_TOOL_PLAN_UNSUPPORTED' });
   });
 
+  it.each([
+    'このファイルを編集しないでテストして',
+    'このファイルを編集せずにテストして',
+    'このファイルは修正不要なのでテストして',
+    'do not modify this file; run tests',
+  ])('never schedules a file writer for an explicit non-edit instruction: %s', goal => {
+    const plan = planAgentToolSequenceV31(goal);
+    expect(plan.ok).toBe(false);
+  });
+
+  it('keeps instructions about how to edit a file read-only when researching a proposal', () => {
+    const plan = planAgentToolSequenceV31('このファイルの編集方法を調べて提案書を作って');
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.steps.map(step => step.toolName)).toEqual(['web_search_grounding', 'document_generator']);
+  });
+
   it('fails closed for an unsupported side-effect combination', () => {
     expect(planAgentToolSequenceV31('提案書と画像を同時に作って')).toEqual({
       ok: false,
