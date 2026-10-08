@@ -542,6 +542,7 @@ describe("groundedResearchSynthesisV12", () => {
       "| --- | --- |",
       "| A | 100円 |",
       "| B | 120円 [S2](https://example.org/two) |",
+      "| C | 100円 [S1](https://example.com/one) |",
     ].join("\n");
     expect(validateGroundedResearchSynthesis(table, sources)).toEqual(
       expect.objectContaining({ ok: false, code: "UNCITED_FACTUAL_UNIT" }),
