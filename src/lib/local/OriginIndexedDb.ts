@@ -74,7 +74,9 @@ export const originIndexedDbAdapter: OriginStorageAdapter = {
     try {
       database = await openOriginDatabase();
       const transaction = database.transaction(ORIGIN_LOCAL_STORE, 'readwrite');
-      await requestResult(transaction.objectStore(ORIGIN_LOCAL_STORE).put(snapshot, ORIGIN_LOCAL_SNAPSHOT_KEY));
+      const put = transaction.objectStore(ORIGIN_LOCAL_STORE).put(snapshot, ORIGIN_LOCAL_SNAPSHOT_KEY);
+      const committed = awaitOriginIdbCommit(transaction);
+      await Promise.all([requestResult(put), committed]);
       return 'saved';
     } catch (error) {
       return isQuotaExceeded(error) ? 'quota' : typeof indexedDB === 'undefined' ? 'unavailable' : 'failed';
