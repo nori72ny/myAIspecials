@@ -363,6 +363,41 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it("accepts supported comma-grouped store subtraction", () => {
+    const evidence = [{ ...sources[0], excerpt: "先月350店、今月1,200店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は1,200店 − 350店 = 850店です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("accepts supported comma-grouped yen addition", () => {
+    const evidence = [{ ...sources[0], excerpt: "売上は1,200円、追加分は3,400円。" }];
+    expect(validateGroundedResearchSynthesis(
+      "1,200円 + 3,400円 = 4,600円です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("rejects an incorrect arithmetic result with grouped operands", () => {
+    const evidence = [{ ...sources[0], excerpt: "売上は1,200円、追加分は3,400円。" }];
+    expect(validateGroundedResearchSynthesis(
+      "1,200円 + 3,400円 = 4,601円です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects malformed comma grouping instead of matching a numeric fragment", () => {
+    const evidence = [{ ...sources[0], excerpt: "店舗は120店と350店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "1,20店 + 350店 = 470店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("does not convert grouped headcounts into unsupported store counts", () => {
+    const evidence = [{ ...sources[0], excerpt: "人数は1,200人と350人。" }];
+    expect(validateGroundedResearchSynthesis(
+      "1,200店 − 350店 = 850店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("rejects an ISO date assembled from distinct evidence dates", () => {
     const evidence = [{ ...sources[0], excerpt: "Events: 2026-09-20 and 2025-10-24." }];
     expect(validateGroundedResearchSynthesis("Event: 2026-10-24.[S1](https://example.com/one)", evidence)).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
