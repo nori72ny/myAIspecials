@@ -239,6 +239,49 @@ describe('AgentWorkspaceView v3', () => {
     ]);
   });
 
+  it('cancels a dispatched Coding V1.4 job through the server instead of only aborting browser polling', async () => {
+    const goal = 'TypeScript の不具合を修正して';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse('code_interpreter'), 201);
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
+      if (url === '/api/agent/v3/execute') return json({
+        ok: true,
+        status: 'running',
+        runId: 'run-test-1',
+        jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+        bridgeToken: 'scoped-bridge-token',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }, 202);
+      if (url === '/api/agent/v3/coding/status') return new Promise<Response>(() => undefined);
+      if (url === '/api/agent/v3/coding/cancel') {
+        expect(init?.method).toBe('POST');
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        expect(JSON.parse(String(init?.body))).toEqual({
+          runId: 'run-test-1',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          bridgeToken: 'scoped-bridge-token',
+        });
+        return json({ ok: true, status: 'cancelled', codingStatus: 'cancelled', cancelRequested: true });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '実行中のCodingジョブを中止' }));
+    await screen.findByText(/Codingジョブはサーバー側で中止されました/);
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent/v3/coding/cancel')).toBe(true);
+    expect(screen.queryByText(/Coding V1\.4 の最終4検証が完了しました/)).toBeNull();
+  });
+
   it('fails closed when owner approval authentication is rejected', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
