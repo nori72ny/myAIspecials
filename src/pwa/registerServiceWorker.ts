@@ -13,6 +13,11 @@ function announceUpdateReady() {
 
 function hasUnsavedUserWork(): boolean {
   if (document.visibilityState !== 'visible' || activeCompositionCount > 0) return true;
+  // Direct Touch editors live in an opaque-origin iframe. The top document cannot
+  // query their contenteditable fields. Block the entire editing session and
+  // any in-flight iframe edits until the parent acknowledges their revision.
+  if (document.documentElement.dataset.originDirectTouchPending === 'true'
+    || document.querySelector('[data-testid="artifact-direct-touch-status"]')) return true;
   const textInputs = Array.from(document.querySelectorAll('textarea, input[type="text"], input[type="search"]'));
   if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
   // Drafts in accessible rich-text editors must be treated like textarea drafts.
