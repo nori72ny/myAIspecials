@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { auditOriginGithubReleaseSnapshotV1 as audit, REQUIRED_ORIGIN_RELEASE_CHECKS_V1 as required, type OriginGithubReleaseSnapshotV1 } from './OriginProgressiveReleaseGithubAuditV1.js';
 
 const sha = 'b'.repeat(40);
@@ -61,5 +62,14 @@ describe('live GitHub evidence audit (read-only)', () => {
       const report = audit(value as unknown as OriginGithubReleaseSnapshotV1);
       expect(report.githubReadyForFurtherReview).toBe(false);
     }
+  });
+  it('the standalone live audit fails closed when configuration is missing', () => {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/audit-progressive-release-github.ts'], {
+      env: { ...process.env, GITHUB_REPOSITORY: '', ORIGIN_AUDIT_PR_NUMBER: '' },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('BLOCKED');
   });
 });
