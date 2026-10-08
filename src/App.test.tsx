@@ -408,6 +408,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     expect(frame.getAttribute('data-origin-srcdoc')!).toContain('data-origin-direct-touch-root');
     expect(frame.getAttribute('data-origin-srcdoc')!).toContain("source:'ORIGIN_DIRECT_TOUCH'");
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain('oncompositionstart=');
+    expect(frame.getAttribute('data-origin-srcdoc')!).toContain('oncompositionend=');
     act(() => window.dispatchEvent(new MessageEvent('message', { source: window, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Forged' }] } })));
     expect(revisions).toHaveLength(0);
     act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, data: { source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Edited safely' }] } })));
