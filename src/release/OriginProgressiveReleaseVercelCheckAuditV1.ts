@@ -11,6 +11,16 @@
  */
 export const ORIGIN_VERCEL_RELEASE_CHECK_NAME = "ORIGIN Exact-SHA Release Gate" as const;
 
+/**
+ * Inject ONLY from protected and independently approved server-side config.
+ * An arbitrary provider check with the same name must not be able to
+ * impersonate this production release gate.
+ */
+export type OriginVercelTrustedCheckSourceV1 = Readonly<{
+  kind: "webhook" | "integration" | "git-provider";
+  identity: string;
+}>;
+
 export type OriginVercelCheckAuditV1 = Readonly<{
   schemaVersion: "origin.vercel-checks-audit.v1";
   projectId: string;
@@ -19,6 +29,7 @@ export type OriginVercelCheckAuditV1 = Readonly<{
   blockers: readonly (
     | "VERCEL_CHECK_API_EVIDENCE_MISSING"
     | "REQUIRED_DEPLOYMENT_ALIAS_CHECK_MISSING"
+    | "TRUSTED_CHECK_SOURCE_NOT_CONFIGURED"
   )[];
 }>;
 
@@ -34,20 +45,23 @@ function record(value: unknown): Record<string, unknown> | null {
  */
 function hasIdentifiableVercelCheckSource(
   item: Record<string, unknown>,
+  expected: OriginVercelTrustedCheckSourceV1 | undefined,
 ): boolean {
   const source = record(item.source);
-  if (!source || typeof item.sourceKind !== "string" || item.sourceKind.length === 0) return false;
-  const value = (key: string) =>
-    typeof source[key] === "string" && (source[key] as string).trim().length > 0;
+  if (!source || !expected || typeof expected.identity !== "string"
+    || !/^[A-Za-z0-9_.:-]{4,160}$/.test(expected.identity)
+    || typeof item.sourceKind !== "string") return false;
   if (source.kind === "webhook") {
-    return item.sourceKind === "webhook" && value("webhookId");
+    return expected.kind === "webhook" && item.sourceKind === "webhook"
+      && source.webhookId === expected.identity;
   }
   if (source.kind === "integration") {
-    return item.sourceKind === "integration" && value("externalResourceId");
+    return expected.kind === "integration" && item.sourceKind === "integration"
+      && source.externalResourceId === expected.identity;
   }
   if (source.kind === "git-provider") {
-    return item.sourceKind === "git-provider" && source.provider === "github"
-      && value("externalCheckName");
+    return expected.kind === "git-provider" && item.sourceKind === "git-provider"
+      && source.provider === "github" && source.externalCheckName === expected.identity;
   }
   return false;
 }
@@ -63,6 +77,7 @@ function explicitlyTargetsProduction(item: Record<string, unknown>): boolean {
 export function auditOriginVercelChecksV1(
   payload: unknown,
   projectId: string,
+  trustedSource?: OriginVercelTrustedCheckSourceV1,
 ): OriginVercelCheckAuditV1 {
   const response = record(payload);
   const rows = Array.isArray(response?.checks) ? response.checks : null;
@@ -81,6 +96,10 @@ export function auditOriginVercelChecksV1(
         && typeof check.blocks === "string";
     });
   if (!complete) blockers.push("VERCEL_CHECK_API_EVIDENCE_MISSING");
+  if (!trustedSource || !/^[A-Za-z0-9_.:-]{4,160}$/.test(trustedSource.identity ?? "")
+    || !["webhook", "integration", "git-provider"].includes(trustedSource.kind)) {
+    blockers.push("TRUSTED_CHECK_SOURCE_NOT_CONFIGURED");
+  }
 
   const named = complete && rows !== null
     ? rows.filter(item => record(item)!.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME)
@@ -92,7 +111,7 @@ export function auditOriginVercelChecksV1(
     return c.name === ORIGIN_VERCEL_RELEASE_CHECK_NAME
       && c.blocks === "deployment-alias"
       && typeof c.id === "string" && c.id.length > 0
-      && hasIdentifiableVercelCheckSource(c)
+      && hasIdentifiableVercelCheckSource(c, trustedSource)
       && explicitlyTargetsProduction(c);
   }) : null;
   if (!matched || matched.length !== 1) {
@@ -116,6 +135,7 @@ export async function fetchAndAuditOriginVercelChecksV1(input: {
   projectId: string;
   teamId: string;
   token: string;
+  trustedSource?: OriginVercelTrustedCheckSourceV1;
   fetchImpl?: typeof fetch;
 }): Promise<OriginVercelCheckReadbackV1> {
   if (!/^prj_[A-Za-z0-9]+$/.test(input.projectId)
@@ -143,7 +163,7 @@ export async function fetchAndAuditOriginVercelChecksV1(input: {
     if (!response.ok) return { ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" };
     // Never return the raw response, request token, or arbitrary error text.
     const payload = await response.json() as unknown;
-    return { ok: true, audit: auditOriginVercelChecksV1(payload, input.projectId) };
+    return { ok: true, audit: auditOriginVercelChecksV1(payload, input.projectId, input.trustedSource) };
   } catch {
     return { ok: false, code: "VERCEL_CHECK_READBACK_UNAVAILABLE" };
   }
