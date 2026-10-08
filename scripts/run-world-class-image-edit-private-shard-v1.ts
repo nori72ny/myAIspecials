@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readBoundedWorldClassEvalResponseV1 } from '../src/release/OriginWorldClassImageEvalBoundedResponseV1.js';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -57,7 +58,7 @@ function safeCode(value: unknown, fallback: string): string {
 
 async function responseJson(response: Response): Promise<Record<string, unknown> | null> {
   try {
-    const value = await response.json();
+    const value = JSON.parse((await readBoundedWorldClassEvalResponseV1(response, 64 * 1024)).toString('utf8')) as unknown;
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch {
     return null;
@@ -182,7 +183,7 @@ async function evaluateEditCase(
     };
   }
 
-  const bytes = Buffer.from(await response.arrayBuffer());
+  const bytes = await readBoundedWorldClassEvalResponseV1(response, MAX_OUTPUT_BYTES);
   const mime = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   const typedMime = mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp' ? mime : null;
   const outputImageSha256 = sha256(bytes);
