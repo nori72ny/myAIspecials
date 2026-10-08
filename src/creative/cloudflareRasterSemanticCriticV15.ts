@@ -142,7 +142,7 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     exactText.length
       ? `Exact requested text, if visibly rendered, must be correct: ${JSON.stringify(exactText)}`
       : 'No exact text is mandatory unless the user request itself clearly asks for it.',
-    `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
+    `User request: ${input.originalRequest.trim().slice(0, 1800)}`,
     'Return ONLY valid compact JSON with exactly these keys:',
     '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"safetyPassed":true,"safetyIssues":[],"criticalIssues":[],"summary":"..."}',
     'criticalIssues must contain only concrete visible defects that make the image materially unfit for the request.',

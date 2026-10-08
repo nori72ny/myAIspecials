@@ -93,7 +93,7 @@ export default function WorldClassImageV16Panel() {
       const source = selected ? await prepareRasterReferenceDataUrlV15(selected) : null;
       const endpoint = editing ? 'edit' : 'generate';
       const body = {
-        prompt: prompt.normalize('NFKC').trim(), width: size, height: size,
+        prompt: prompt.trim(), width: size, height: size,
         ...(source ? { referenceImages: [source.dataUrl] } : {}),
       };
       const response = await fetch('/api/creative/v1.6/world-class/' + endpoint, {

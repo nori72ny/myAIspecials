@@ -302,7 +302,7 @@ export async function generateCloudflareRasterImageV15(
 
   const width = typeof input.width === 'number' ? input.width : 1024;
   const height = typeof input.height === 'number' ? input.height : 1024;
-  const prompt = input.prompt.normalize('NFKC').trim();
+  const prompt = input.prompt.trim();
   if (!prompt || prompt.length > 2048) throw new Error('INVALID_RASTER_PROMPT');
 
   const references = input.referenceImages ?? [];
@@ -327,7 +327,7 @@ export async function generateCloudflareRasterImageV15(
   if (!proof.ok) throw new Error(proof.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
 
   const form = new FormData();
-  const negative = input.negativePrompt?.normalize('NFKC').trim().slice(0, 1000) ?? '';
+  const negative = input.negativePrompt?.trim().slice(0, 1000) ?? '';
   const editInstruction = references.length
     ? [
         'Reference images are attached in index order starting at image 0.',
