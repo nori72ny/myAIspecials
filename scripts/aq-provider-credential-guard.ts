@@ -67,7 +67,7 @@ export function checkOriginAqCredentialBoundary(
 
   if (
     !hasLiveProviderKey
-    || ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"].some(key => Boolean(env[key]?.trim()))
+    || SECRET_ENV_KEYS.some(key => key !== "OPENROUTER_API_KEY" && Boolean(env[key]?.trim()))
   ) {
     return { ok: false, code: "AQ_CREDENTIAL_GUARD_ALTERNATE_PROVIDER_BLOCKED" };
   }
