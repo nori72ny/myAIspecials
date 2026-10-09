@@ -15,7 +15,24 @@ const okay = () => ({
   alias: { alias: fixtureEnv.ORIGIN_PRODUCTION_ALIAS, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, deploymentId: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID },
   deployment: { id: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, readyState: "READY", meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA } },
 });
-function fakeApi(x = okay()) {
+type ProbeFixture = {
+  id: string;
+  projectId: string;
+  readyState: string;
+  target: string | null;
+  meta: { githubCommitSha: string };
+};
+
+const withProbe = (): ReturnType<typeof okay> & { probe: ProbeFixture } => ({
+  ...okay(),
+  probe: {
+    id: "dpl_PROBE123", projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
+    readyState: "READY", target: "production",
+    meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
+  },
+});
+
+function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay()) {
   return vi.fn(async (input, options) => {
     expect(options.method).toBe("GET");
     expect(options.redirect).toBe("error");
@@ -74,11 +91,7 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
   });
 
   it("proves a READY same-SHA production-target probe did not replace the live alias, but never approves first main push", async () => {
-    const x = { ...okay(), probe: {
-      id: "dpl_PROBE123", projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
-      readyState: "READY", target: "production",
-      meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
-    } };
+    const x = withProbe();
     const fake = fakeApi(x);
     const output = await verifyVercelReleaseHold({
       ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: "dpl_PROBE123",
@@ -100,11 +113,7 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     ["wrong-id", (x) => { x.probe.id = "dpl_OTHER123"; }],
     ["alias-was-moved", (x) => { x.alias.deploymentId = "dpl_PROBE123"; }],
   ])("fails closed on staged production probe %s", async (_name, mutate) => {
-    const x = { ...okay(), probe: {
-      id: "dpl_PROBE123", projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
-      readyState: "READY", target: "production",
-      meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
-    } };
+    const x = withProbe();
     mutate(x);
     await expect(verifyVercelReleaseHold({
       ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: "dpl_PROBE123",
