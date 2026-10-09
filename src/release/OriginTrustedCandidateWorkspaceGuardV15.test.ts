@@ -23,6 +23,15 @@ async function seedTrustedVerificationBaseline(root: string): Promise<void> {
 }
 
 describe('trusted candidate workspace guard', () => {
+  it('pins the patched Handlebars 4.7.10 registry tarball integrity in the trusted lockfile', async () => {
+    const lock = JSON.parse(await readFile(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
+    expect(lock.packages['node_modules/handlebars'].version).toBe('4.7.10');
+    expect(lock.packages['node_modules/handlebars'].integrity).toBe('sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==');
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-verified-registry-integrity-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+  });
+
   it('requires actual diff to equal the candidate report and remain inside required paths', () => {
     expect(() => assertTrustedCandidateDiffScopeV15({
       actualPaths: ['src/a.ts', 'src/b.ts'],

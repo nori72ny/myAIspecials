@@ -12,7 +12,7 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     // The previously allowed lockfile blob af4354... contains vulnerable Handlebars 4.7.9.
     // Its trust grant is intentionally revoked rather than bypassing the baseline gate.
     // Reviewed dev-only Handlebars 4.7.10 security patch, exact npm registry SHA-512 pinned.
-    'd65254317a1da69242c78243f58eb94fb132a7d4',
+    '024096d6025b65086277c9990a35b051bcd3b202',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
