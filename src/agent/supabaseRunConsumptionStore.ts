@@ -1,4 +1,5 @@
-import { Pool, type QueryResult } from 'pg';
+import { Pool, type PoolClient, type QueryResult } from 'pg';
+import { randomUUID } from 'node:crypto';
 import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 
 const RUN_ID_PATTERN = /^run-[A-Za-z0-9-]{8,100}$/;
@@ -6,6 +7,7 @@ const MAX_TTL_MS = 15 * 60 * 1000;
 
 export interface AgentReplaySqlExecutor {
   query<T extends Record<string, unknown> = Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<QueryResult<T>>;
+  connect?(): Promise<Pick<PoolClient, 'query' | 'release'>>;
 }
 
 export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStore {
@@ -31,6 +33,60 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
     );
 
     return result.rowCount === 1;
+  }
+  /**
+   * One minute's requests are counted in the existing server-only replay ledger.
+   * A transaction-scoped advisory lock serializes all contenders for the same
+   * pseudonymous caller across serverless instances and PostgreSQL connections.
+   * No new schema, API policy, client data, or per-instance counter is trusted.
+   * Missing DB permission/connection/timeout MUST reject the request.
+   */
+  async claimAgentRateSlot(identityHash: string): Promise<boolean> {
+    if (!/^[0-9a-f]{32}$/.test(identityHash)) throw new Error('AGENT_RATE_IDENTITY_INVALID');
+    if (typeof this.database.connect !== 'function') throw new Error('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+    const client = await this.database.connect();
+    let inTransaction = false;
+    try {
+      await client.query('BEGIN');
+      inTransaction = true;
+      await client.query("SET LOCAL statement_timeout = '2500ms'");
+      // Use an exclusive per-identity transaction lock, not a SELECT/INSERT
+      // count race; lock before taking a fresh READ COMMITTED snapshot.
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', ['origin-agent-post-v3:' + identityHash]);
+      const time = await client.query<{ minute: string }>(
+        'SELECT floor(extract(epoch from clock_timestamp()) / 60)::bigint AS minute',
+      );
+      const minute = Number(time.rows[0]?.minute);
+      if (!Number.isSafeInteger(minute) || minute < 0) throw new Error('AGENT_RATE_DATABASE_CLOCK_INVALID');
+      const prefix = `run-ratelimit-${identityHash}-${minute.toString(36)}-`;
+      const count = await client.query<{ total: number }>(
+        "SELECT count(*)::integer AS total FROM public.origin_agent_consumed_runs WHERE run_id >= $1 AND run_id < ($1 || '~')",
+        [prefix],
+      );
+      const total = Number(count.rows[0]?.total);
+      if (!Number.isInteger(total) || total < 0) throw new Error('AGENT_RATE_DATABASE_COUNT_INVALID');
+      if (total >= 60) {
+        await client.query('ROLLBACK');
+        inTransaction = false;
+        return false;
+      }
+      const slot = `${prefix}${randomUUID().replace(/-/g, '')}`;
+      // Keep last-minute evidence briefly for crash recovery, then the
+      // existing consumption-store cleanup reclaims expired replay rows.
+      const expiresAt = (minute + 2) * 60_000;
+      await client.query(
+        'INSERT INTO public.origin_agent_consumed_runs (run_id, expires_at) VALUES ($1, to_timestamp($2 / 1000.0))',
+        [slot, expiresAt],
+      );
+      await client.query('COMMIT');
+      inTransaction = false;
+      return true;
+    } catch {
+      if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
+      throw new Error('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+    } finally {
+      client.release();
+    }
   }
 }
 
