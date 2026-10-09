@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const HOST = "https://api.vercel.com";
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -36,7 +37,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   ), "ORIGIN_PRODUCTION_ALIAS_INVALID");
   const deploymentId = required(env, "ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID", VERCEL_DEPLOYMENT);
   const sha = required(env, "ORIGIN_EXPECTED_PRODUCTION_SHA", FULL_SHA);
-  const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const config = JSON.parse(readFileSync(resolve(process.cwd(), "vercel.json"), "utf8"));
   verifyStaticGitConfig(config);
 
   async function readVercelJson(path) {
