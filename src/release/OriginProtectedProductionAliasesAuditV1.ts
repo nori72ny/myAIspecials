@@ -133,3 +133,71 @@ export function auditOriginProtectedProductionAliasesV1(
     blockers: Object.freeze([...blockers]),
   });
 }
+
+
+/**
+ * Read only via the official Vercel API. Call from a trusted protected
+ * environment running pinned independently reviewed code, NEVER from a
+ * pull-request checkout with a privileged VERCEL_TOKEN.
+ *
+ * Snapshot MUST originate from protected pre-deployment evidence. It must not
+ * come from the candidate SHA's PR body, preview HTML or user-entered state.
+ */
+export async function fetchAndAuditOriginProtectedProductionAliasesV1(args: {
+  readonly token: string;
+  readonly teamId: string;
+  readonly projectId: string;
+  readonly snapshot: unknown;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<OriginProductionAliasHoldVerdictV1> {
+  const reject = (reason: string): OriginProductionAliasHoldVerdictV1 => Object.freeze({
+    schemaVersion: 'origin.protected-production-aliases.v1' as const,
+    allProtectedProductionAliasesHeld: false,
+    firstNewMainPushNegativePathVerified: false as const,
+    productionPromotionAuthorized: false as const,
+    blockers: Object.freeze([reason]),
+  });
+  const { token, teamId, projectId, snapshot } = args;
+  const s = record(snapshot) ? snapshot : {};
+  const mappings = s.deploymentsByHostname;
+  if (typeof token !== 'string' || token.length < 8
+    || typeof teamId !== 'string' || !/^team_[A-Za-z0-9]{8,}$/.test(teamId)
+    || !validProject(projectId)
+    || s.projectId !== projectId || !validSha(s.approvedSha)
+    || !record(mappings) || Object.keys(mappings).length !== 3
+    || ORIGIN_PROTECTED_PRODUCTION_HOSTS.some(h => !validDeployment(mappings[h]))) {
+    return reject('TRUSTED_PRODUCTION_SNAPSHOT_INVALID');
+  }
+  const urls = ORIGIN_PROTECTED_PRODUCTION_HOSTS.map(host =>
+    `https://api.vercel.com/v4/aliases/${encodeURIComponent(host)}?teamId=${teamId}`);
+  const ids = [...new Set(ORIGIN_PROTECTED_PRODUCTION_HOSTS.map(host => mappings[host]))] as string[];
+  const deploymentUrls = ids.map(id =>
+    `https://api.vercel.com/v13/deployments/${id}?teamId=${teamId}`);
+  async function readVercel(url: string): Promise<unknown> {
+    const res = await (args.fetchImpl ?? fetch)(url, {
+      method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+    });
+    if (!res.ok || res.redirected) throw new Error('VERCEL_READBACK_HTTP_ERROR');
+    const declaredSize = res.headers.get('content-length');
+    if (declaredSize !== null && (!/^\d{1,6}$/.test(declaredSize)
+      || Number(declaredSize) > 65536)) throw new Error('VERCEL_READBACK_TOO_LARGE');
+    const body = await res.text();
+    if (Buffer.byteLength(body, 'utf8') > 65536) throw new Error('VERCEL_READBACK_TOO_LARGE');
+    return JSON.parse(body) as unknown;
+  }
+  try {
+    // Query each real alias and each expected immutable deployment ID.
+    // Reading only the primary host was insufficient in the first-main incident.
+    const [aliases, deployments] = await Promise.all([
+      Promise.all(urls.map(readVercel)),
+      Promise.all(deploymentUrls.map(readVercel)),
+    ]);
+    return auditOriginProtectedProductionAliasesV1(snapshot, aliases, deployments);
+  } catch {
+    // Do not log raw Vercel API data, response details or credentials.
+    return reject('VERCEL_PROTECTED_ALIAS_READBACK_UNAVAILABLE');
+  }
+}
