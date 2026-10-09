@@ -136,3 +136,11 @@ GitHubのbranch protectionの**実データ**取得権限がなければ`BRANCH_
 GitHub保護ルールの required_status_checks に名前だけの contexts があり、対応する checks[].app_id が欠落した場合、同名のCI実行結果が成功でも公開可能とはしない。必須のチェックすべてについて、正の安全な整数のアプリIDと実際の check_runs[].app.id の一致を要求する。app_id=-1（any app）、未設定、重複した check 名、矛盾したアプリIDはすべて `BRANCH_RULES_UNVERIFIED` と `REQUIRED_CI_NOT_GREEN` の対象とする。
 
 GitHubの /branches/main 概要レスポンスで取得済みの現行設定には、10件すべてで実行アプリIDが明示されている（CodeQL=57789、その他9件=15368）。これは同名CIの偽装対策を検証する参考情報だが、詳細なレビュー強制・管理者例外・本番Vercel alias-hold を証明するものではなく、単独で公開権限を付与しない。
+
+## 独立48問の使い捨てコーパスを古いmain候補に消費しない
+
+48問の非公開評価は原則一度きりのコーパス予約を伴う。セキュリティ修正 #933・公開制御 #922 の統合前に回答精度 #930 を評価してしまうと、必須main更新後の新SHAで再評価が必要となり、貴重な非公開問題を消費する。
+
+信頼済みmain上の `trusted-answer-quality-v2.yml` は、秘密情報や非公開コーパスにアクセスする**前**と、評価実行・予約の**直前**の2地点で `assert-trusted-answer-candidate-topology-v2.ts` を実行する。GitHubの実際の現在main HEADを `github.sha` に照合し、`compare/mainSha...candidateSha?per_page=1` の base / merge_base と behind_by を検証する。PR候補は最新mainの子孫（ahead、behind=0）以外を拒否する。mainと同一SHAで測定する特別な PR_NUMBER=0 パスだけ identical を受理する。
+
+手順：安全な独立レビューとOwner exact-SHA承認→依存する #933 と #922 を適切な順序でmainに統合→#930を最新mainへ更新→exact-head全CI/実機レビュー→48問予約・実モデル評価。評価の前にlatest mainが動けば拒否し、保護された評価器を再起動して新SHAを再確定する。実際にmainが古い候補より先に進んだ場合の拒否はテストされているが、現在このワークフローをまだmainへ反映していないため、実運用への適用は未完了である。
