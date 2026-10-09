@@ -386,7 +386,7 @@ function hasUnsupportedCountMeasure(
  */
 function hasMalformedGroupedQuantity(unit: string): boolean {
   const normalized = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
-  const quantity = /(?<![0-9.,])[-+]?[ \t]*([$¥€£]?)[ \t]*(\d[\d,]*(?:\.\d+)?)[ \t]*(円|店舗|店|件|人|ドル|usd|jpy|eur|gbp|%|万|億|兆)?(?![0-9.,])/gi;
+  const quantity = /(?<![0-9.,])[-+]?[ \t]*([$¥€£]?)[ \t]*(\d[\d,]*(?:\.\d+)?)[ \t]*(円|店舗|店|件|人|名|社|台|個|回|ドル|usd|jpy|eur|gbp|%|万|億|兆)?(?![0-9.,])/gi;
   for (const match of normalized.matchAll(quantity)) {
     const [, currency, amount, unitSuffix] = match;
     if (!amount.includes(",") || (!currency && !unitSuffix)) continue;
