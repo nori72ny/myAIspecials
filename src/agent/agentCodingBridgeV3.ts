@@ -265,9 +265,16 @@ export class AgentCodingBridgeV3 {
 
   async start(runId: string, goal: string, now = Date.now()): Promise<AgentCodingBridgeStartV3> {
     if (typeof runId !== 'string' || !runId.startsWith('run-')) throw new Error('AGENT_CODING_RUN_ID_INVALID');
+    // Passing undefined to the backward-compatible key parser would otherwise
+    // silently create an unpinned job. Never dispatch a new Coding job without
+    // the exact release checkout committed to its durable identity.
+    const sourceSha = this.env.VERCEL_GIT_COMMIT_SHA ?? this.env.ORIGIN_RELEASE_SHA;
+    if (!sourceSha || !/^[0-9a-f]{40}$/i.test(sourceSha)) {
+      throw new Error('AGENT_CODING_SOURCE_REVISION_INVALID');
+    }
     const envelope = createCodingJobEnvelopeV14({
       ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
-      targetKey: codingAgentTargetKeyForRunV14(runId, this.env.VERCEL_GIT_COMMIT_SHA ?? this.env.ORIGIN_RELEASE_SHA),
+      targetKey: codingAgentTargetKeyForRunV14(runId, sourceSha),
       goal,
     }, this.env, now);
     const created = await this.jobStore.create(envelope, now);
