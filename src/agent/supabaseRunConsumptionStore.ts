@@ -70,7 +70,6 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
       if (!Number.isInteger(total) || total < 0) throw new Error('AGENT_RATE_DATABASE_COUNT_INVALID');
       if (total >= 60) {
         await client.query('ROLLBACK');
-        inTransaction = false;
         return false;
       }
       const slot = `${prefix}${randomUUID().replace(/-/g, '')}`;
@@ -82,7 +81,6 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
         [slot, expiresAt],
       );
       await client.query('COMMIT');
-      inTransaction = false;
       return true;
     } catch {
       if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
