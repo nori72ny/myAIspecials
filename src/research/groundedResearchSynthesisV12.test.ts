@@ -349,6 +349,29 @@ describe("groundedResearchSynthesisV12", () => {
     }
   });
 
+  it("does not reclassify cited fractional headcounts as event counts", () => {
+    const evidence = [{ ...sources[0], excerpt: "平均参加者は2.5人、完了した処理は4.25件。" }];
+    expect(validateGroundedResearchSynthesis(
+      "平均参加者は2.5件です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    expect(validateGroundedResearchSynthesis(
+      "完了した処理は4.25人です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    expect(validateGroundedResearchSynthesis(
+      "平均参加者は２．５人、完了した処理は4.25件です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
+  it("preserves count units for scientific-notation quantities without parsing exponent tails as new counts", () => {
+    const evidence = [{ ...sources[0], excerpt: "処理数は1e3件、スタッフは3人。" }];
+    expect(validateGroundedResearchSynthesis(
+      "処理数は1e3人です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    expect(validateGroundedResearchSynthesis(
+      "処理数は1E3件です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+  });
+
   it("retains valid compact count arithmetic without spaces while rejecting swapped subtrahend units", () => {
     const evidence = [{ ...sources[0], excerpt: "前月120店、今月135店。" }];
     expect(validateGroundedResearchSynthesis(
