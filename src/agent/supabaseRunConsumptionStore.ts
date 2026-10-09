@@ -59,8 +59,11 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
       const minute = Number(time.rows[0]?.minute);
       if (!Number.isSafeInteger(minute) || minute < 0) throw new Error('AGENT_RATE_DATABASE_CLOCK_INVALID');
       const prefix = `run-ratelimit-${identityHash}-${minute.toString(36)}-`;
+      // PostgreSQL collations do not order '~' after alphanumeric text on
+      // every cluster. The prefix is server-generated [a-z0-9-] only;
+      // a parameterized LIKE expression is exact and locale-independent.
       const count = await client.query<{ total: number }>(
-        "SELECT count(*)::integer AS total FROM public.origin_agent_consumed_runs WHERE run_id >= $1 AND run_id < ($1 || '~')",
+        "SELECT count(*)::integer AS total FROM public.origin_agent_consumed_runs WHERE run_id LIKE ($1 || '%')",
         [prefix],
       );
       const total = Number(count.rows[0]?.total);
