@@ -322,11 +322,48 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
     if (leftUnit && (!sourceMeasures.has(`${leftToken}${leftUnit}`)
       || !sourceMeasures.has(`${rightToken}${leftUnit}`))) continue;
     allowed.add(`${resultToken}${numericSuffix}`);
+    // Preserve the unit binding alongside the scalar arithmetic result.
+    // Otherwise 135店 - 120店 = 15店 could spuriously authorize 15人.
+    if (resultUnit === "店舗" || resultUnit === "店" || resultUnit === "件" || resultUnit === "人") {
+      allowed.add(`measure:${resultToken}@${resultUnit === "店舗" ? "店" : resultUnit}`);
+    }
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
     allowed.add(`${operator === "+" ? "+" : "-"}${rightToken}${numericSuffix}`);
   }
   return allowed;
+}
+
+/** Counts are unit-bearing facts. The numeric-token scanner intentionally
+ * ignores Japanese classifiers for generic numeric checks, but that cannot
+ * promote "120人" in evidence into a supported claim of "120件/店".
+ * Restrict this measure guard to exact Japanese count units (not prose such
+ * as "monthly", dates, or ratios), keeping explicitly verified arithmetic.
+ */
+function hasUnsupportedCountMeasure(
+  unit: string,
+  citedEvidence: string,
+  verifiedDerived: ReadonlySet<string>,
+): boolean {
+  const count = /(?<![0-9.,])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12}))[ \\t]{0,8}(店舗|店|件|人)(?![0-9.,])/g;
+  const normalizedEvidence = citedEvidence.normalize("NFKC").replace(/\u2212/g, "-");
+  const evidenceMeasures = new Set<string>();
+  for (const found of normalizedEvidence.matchAll(count)) {
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "");
+    const category = found[2] === "店舗" ? "店" : found[2];
+    evidenceMeasures.add(`${amount}@${category}`);
+  }
+
+  const normalizedClaim = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  for (const found of normalizedClaim.matchAll(count)) {
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "");
+    const category = found[2] === "店舗" ? "店" : found[2];
+    const key = `${amount}@${category}`;
+    if (!evidenceMeasures.has(key) && !verifiedDerived.has(`measure:${key}`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Block invalid comma grouping in quantities before token normalization can
@@ -465,6 +502,15 @@ export function validateGroundedResearchSynthesis(
     // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
     const supportedNumbers = new Set(numericTokens(evidenceText));
     const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers, evidenceText);
+    // Every reported human/event/store count must preserve the cited unit,
+    // not merely reuse a digit found beside a different unit in the source.
+    if (hasUnsupportedCountMeasure(unit, evidenceText, verifiedResults)) {
+      return {
+        ok: false,
+        code: "UNSUPPORTED_NUMERIC_TOKEN",
+        detail: "Count quantity/unit pairing was absent from cited evidence.",
+      };
+    }
     // Metadata dates prove when we retrieved or revised a record, NOT when
     // the underlying real-world event happened. Grant only the matching
     // calendar date for explicit metadata claims, never timestamp hour digits.
