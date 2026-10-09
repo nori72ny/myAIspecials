@@ -25,6 +25,39 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
+  it('requires separated operator authentication and an exact existing Coding job for recovery', async () => {
+    const operatorEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+      ORIGIN_AGENT_OPERATOR_SECRET: 'b'.repeat(48) };
+    const recover = vi.fn(async (runId: string, jobId: string) => ({
+      ok: true as const, runId, jobId, status: 'running' as const,
+      bridgeToken: 'fresh-run-bound-token', expiresAt: new Date(Date.now() + 50_000).toISOString(),
+      freeOnly: true as const, costUsd: 0 as const, paidFallbackUsed: false as const,
+    }));
+    const bridge = { recover } as unknown as AgentCodingBridgeV3;
+    const query = { runId: 'run-recovery-test', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' };
+    const app = appFor(operatorEnv, undefined, bridge);
+    const unauthenticated = await request(app).post('/api/agent/v3/coding/recover').send(query);
+    expect(unauthenticated.status).toBe(401);
+    const signingSecret = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_APPROVAL_SECRET}`).send(query);
+    expect(signingSecret.status).toBe(401);
+    const malformed = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_OPERATOR_SECRET}`)
+      .send({ runId: 'run-../bad', jobId: query.jobId });
+    expect(malformed.status).toBe(400);
+    expect(recover).not.toHaveBeenCalled();
+    const success = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_OPERATOR_SECRET}`).send(query);
+    expect(success.status).toBe(200);
+    expect(success.body).toMatchObject({ ...query, status: 'running', ok: true, paidFallbackUsed: false });
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(recover).toHaveBeenCalledWith(query.runId, query.jobId);
+    const noSeparation = await request(appFor(env, undefined, bridge)).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`).send(query);
+    expect(noSeparation.status).toBe(503);
+    expect(recover).toHaveBeenCalledTimes(1);
+  });
+
   it('does not certify an echoed document artifact as completed', async () => {
     const app = appFor(env, { consume: async () => true });
     const goal = 'Create a sales report.';
