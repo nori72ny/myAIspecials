@@ -359,7 +359,16 @@ function hasUnsupportedCountMeasure(
     const amount = found[1].replace(/,/g, "").replace(/^\+/, "");
     const category = found[2] === "店舗" ? "店" : found[2];
     const key = `${amount}@${category}`;
-    if (!evidenceMeasures.has(key) && !verifiedDerived.has(`measure:${key}`)) {
+    // In a joined subtraction such as 135店-120店=15店, the minus is a
+    // verified binary operator, not a negative source count. Only permit
+    // this case if the equation was explicitly checked and the positive
+    // operand also has the exact matching unit in evidence.
+    const verifiedBinarySubtrahend = amount.startsWith("-")
+      && verifiedDerived.has(amount)
+      && evidenceMeasures.has(`${amount.slice(1)}@${category}`);
+    if (!evidenceMeasures.has(key)
+      && !verifiedDerived.has(`measure:${key}`)
+      && !verifiedBinarySubtrahend) {
       return true;
     }
   }
