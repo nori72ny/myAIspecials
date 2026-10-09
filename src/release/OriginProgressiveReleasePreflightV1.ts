@@ -35,6 +35,13 @@ export interface OriginProgressiveReleaseEvidenceV1 {
   readonly requiredChecksAndReviewEnforced: boolean;
   /** Must be verified against actual Vercel project deployment settings. */
   readonly productionDomainHeldUntilChecksPass: boolean;
+  /**
+   * Independent trusted readback of ALL three ORIGIN Production aliases
+   * against a snapshot captured before any main push or deployment. Primary
+   * domain stability alone is NOT sufficient: Vercel default aliases can move.
+   * Not a substitute for a native auto-assignment hold/negative-path test.
+   */
+  readonly allProtectedProductionAliasesHeld: boolean;
   readonly exactHeadRequiredChecksGreen: boolean;
   readonly reviewedHeadSha: string | null;
   readonly uiChanged: boolean;
@@ -102,7 +109,8 @@ export function evaluateOriginProgressiveReleasePreflightV1(
   }
   if (input.mainProtected !== true) blockers.push('UNPROTECTED_MAIN');
   if (input.requiredChecksAndReviewEnforced !== true
-    || input.productionDomainHeldUntilChecksPass !== true) {
+    || input.productionDomainHeldUntilChecksPass !== true
+    || input.allProtectedProductionAliasesHeld !== true) {
     blockers.push('PREPUBLISH_GATE_NOT_ENFORCED');
   }
   if (input.exactHeadRequiredChecksGreen !== true) blockers.push('EXACT_HEAD_CI_NOT_GREEN');
