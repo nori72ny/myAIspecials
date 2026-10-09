@@ -431,6 +431,25 @@ describe('AgentCodingBridgeV3', () => {
     expect(jobStore.requestCancel).not.toHaveBeenCalled();
   });
 
+  it('never creates or dispatches an unpinned Coding job when release SHA is missing or malformed', async () => {
+    const existing = record('queued');
+    const store = {
+      create: vi.fn(async () => existing),
+      getJob: vi.fn(async () => existing),
+      requestCancel: vi.fn(async () => existing),
+    };
+    const dispatch = vi.fn(async () => { throw new Error('MUST_NOT_DISPATCH'); });
+    for (const sha of [undefined, '', 'unknown', 'z'.repeat(40)]) {
+      const bridge = new AgentCodingBridgeV3({
+        ...env, VERCEL_GIT_COMMIT_SHA: sha, ORIGIN_RELEASE_SHA: undefined,
+      }, store, { get: vi.fn(async () => null) }, dispatch);
+      await expect(bridge.start('run-unpinned-blocked', 'Fix a unit test')).rejects
+        .toThrow('AGENT_CODING_SOURCE_REVISION_INVALID');
+    }
+    expect(store.create).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('restores only an owner-bound and run-matched durable job without new dispatch', async () => {
     const runId = 'run-recovery-test';
     const created = { ...record('queued'), targetKey: codingAgentTargetKeyForRunV14(runId) };
