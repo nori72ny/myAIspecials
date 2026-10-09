@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ORIGIN_PROTECTED_PRODUCTION_HOSTS as hosts,
   auditOriginProtectedProductionAliasesV1 as audit,
+  fetchAndAuditOriginProtectedProductionAliasesV1 as fetchAndAudit,
   type OriginTrustedProductionAliasSnapshotV1,
 } from './OriginProtectedProductionAliasesAuditV1.js';
 
@@ -20,7 +21,7 @@ const good = () => {
   return {
     snapshot,
     aliases: hosts.map(host => ({
-      alias: host,
+      alias: host as string,
       deploymentId: snapshot.deploymentsByHostname[host],
       projectId,
     })),
@@ -100,5 +101,87 @@ describe('ORIGIN real three-Production-alias hold auditing', () => {
     const withoutProject = v.aliases.map(({ alias, deploymentId }) => ({ alias, deploymentId }));
     expect(audit(v.snapshot, withoutProject, v.deployments).allProtectedProductionAliasesHeld)
       .toBe(true);
+  });
+});
+
+
+describe('trusted live Vercel three-domain readback (read-only)', () => {
+  const teamId = 'team_2oPfSS7sHa4Db1asn4C0IJkq';
+  const token = 'test-only-never-real-token';
+
+  function fakeVercel(v: ReturnType<typeof good>, opts: {
+    movedSecondary?: boolean;
+    reject?: boolean;
+  } = {}) {
+    const calls: string[] = [];
+    const mock = (async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      calls.push(url);
+      expect(init?.method).toBe('GET');
+      expect(init?.redirect).toBe('error');
+      expect((init?.headers as Record<string, string>)?.authorization).toBe('Bearer ' + token);
+      expect(url.startsWith('https://api.vercel.com/')).toBe(true);
+      expect(url.endsWith('?teamId=' + teamId)).toBe(true);
+      if (opts.reject) return new Response('error', { status: 503 });
+      if (url.includes('/v4/aliases/')) {
+        const alias = v.aliases.find(row => url.includes(encodeURIComponent(row.alias)));
+        if (!alias) return new Response('{}', { status: 404 });
+        return Response.json(opts.movedSecondary && alias.alias === hosts[2]
+          ? { ...alias, deploymentId: newMain } : alias);
+      }
+      if (url.includes('/v13/deployments/')) {
+        const dep = v.deployments.find(row => url.includes(row.id));
+        return dep ? Response.json(dep) : new Response('{}', { status: 404 });
+      }
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+    return { mock, calls };
+  }
+
+  it('fetches exactly 3 approved hostname rows and both unique expected deployment IDs', async () => {
+    const v = good();
+    const { mock, calls } = fakeVercel(v);
+    const out = await fetchAndAudit({
+      token, teamId, projectId, snapshot: v.snapshot, fetchImpl: mock,
+    });
+    expect(out.allProtectedProductionAliasesHeld).toBe(true);
+    expect(out.firstNewMainPushNegativePathVerified).toBe(false);
+    expect(out.productionPromotionAuthorized).toBe(false);
+    expect(calls).toHaveLength(5);
+    expect(calls.filter(url => url.includes('/v4/aliases/'))).toHaveLength(3);
+    expect(calls.filter(url => url.includes('/v13/deployments/'))).toHaveLength(2);
+  });
+
+  it('detects actual secondary alias drift with the primary left unchanged', async () => {
+    const v = good();
+    const { mock } = fakeVercel(v, { movedSecondary: true });
+    const out = await fetchAndAudit({
+      token, teamId, projectId, snapshot: v.snapshot, fetchImpl: mock,
+    });
+    expect(out.allProtectedProductionAliasesHeld).toBe(false);
+    expect(out.blockers).toContain('PROTECTED_ALIAS_MOVED');
+  });
+
+  it('does not call Vercel at all without a valid trusted snapshot', async () => {
+    const v = good();
+    const { mock, calls } = fakeVercel(v);
+    const out = await fetchAndAudit({
+      token, teamId, projectId, snapshot: {
+        ...v.snapshot, deploymentsByHostname: { [hosts[0]]: oldPrimary },
+      }, fetchImpl: mock,
+    });
+    expect(out.allProtectedProductionAliasesHeld).toBe(false);
+    expect(out.blockers).toContain('TRUSTED_PRODUCTION_SNAPSHOT_INVALID');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fails closed on Vercel API errors without leaking response or credentials', async () => {
+    const v = good();
+    const { mock } = fakeVercel(v, { reject: true });
+    const out = await fetchAndAudit({
+      token, teamId, projectId, snapshot: v.snapshot, fetchImpl: mock,
+    });
+    expect(out.blockers).toEqual(['VERCEL_PROTECTED_ALIAS_READBACK_UNAVAILABLE']);
+    expect(JSON.stringify(out)).not.toContain(token);
   });
 });
