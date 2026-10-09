@@ -85,6 +85,24 @@ async function runProbe(
   });
   const answer = response.choices?.[0]?.message?.content;
   const servedModel = response.model;
+  const served = typeof servedModel === "string" ? servedModel.trim() : "";
+  const answerText = typeof answer === "string" ? answer.trim() : "";
+  const expected = probeId === "identity" ? "ORIGIN_FREE_CALIBRATION_OK" : "391";
+  const actualCost = response.usage?.cost;
+  const upstreamCost = response.usage?.cost_details?.upstream_inference_cost;
+  const byok = response.usage?.is_byok;
+  const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\\.0+)$/.test(v));
+  // Fail closed BEFORE consuming the next provider request.
+  if (served !== modelId && served !== modelId.slice(0, -5)) {
+    throw Error("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
+  }
+  if (!zero(actualCost) || (upstreamCost !== undefined && !zero(upstreamCost))
+      || byok === true || byok === "true") {
+    throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
+  }
+  if (answerText !== expected || response.choices?.[0]?.error || response.error) {
+    throw Error("AQ_FREE_CALIBRATION_INCORRECT_ANSWER");
+  }
   return {
     probeId,
     requestedModel: modelId,
