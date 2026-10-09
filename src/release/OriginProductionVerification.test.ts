@@ -32,7 +32,7 @@ async function runVerifier(baseUrl: string, overrides: NodeJS.ProcessEnv = {}) {
 }
 
 describe("ORIGIN production verification", () => {
-  it("keeps the post-merge workflow tied to successful main validation", () => {
+  it("requires an explicit main dispatch after manual production promotion", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/ci.yml"),
       "utf8",
@@ -40,7 +40,7 @@ describe("ORIGIN production verification", () => {
 
     expect(workflow).toContain("production-smoke:");
     expect(workflow).toContain("needs: build-and-test");
-    expect(workflow).toContain("github.event_name == 'push'");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
     expect(workflow).toContain("ORIGIN_EXPECTED_SHA: ${{ github.sha }}");
     expect(workflow).toContain("node scripts/verify-production-deployment.mjs");
