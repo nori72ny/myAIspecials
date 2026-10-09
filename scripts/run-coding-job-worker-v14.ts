@@ -6,14 +6,13 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CODING_JOB_ID_PATTERN } from '../src/agent/codingJobCryptoV14.js';
+import { isTrustedCodingWorkerTargetV14 } from '../src/agent/codingAgentTargetKeyV14.js';
 import { buildCodingJobResultV14 } from '../src/agent/codingJobResultV14.js';
 import { captureCodingJobExecutionEvidenceV14 } from '../src/agent/codingJobExecutionEvidenceV14.js';
 import { createCodingJobResultStoreFromEnvV14 } from '../src/agent/codingJobResultStoreV14.js';
 import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobWorkerCheckpointV14 } from '../src/agent/codingJobWorkerV14.js';
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import { executeOriginProvider, type OriginProviderExecutionRequest } from '../src/legacy/originProviderClient.js';
-
-const TARGET_KEY = 'origin:self';
 
 function logTruncatedRequiredTool(request: OriginProviderExecutionRequest, code: string): void {
   const candidate = request.requiredTool?.name;
@@ -37,7 +36,7 @@ async function main(): Promise<void> {
   try {
     await copyTrustedCheckout(checkout, workspace);
     const resolveTarget = async (targetKey: string): Promise<CodingJobResolvedTargetV14> => {
-      if (targetKey !== TARGET_KEY) throw new Error('CODING_WORKER_TARGET_BLOCKED');
+      if (!isTrustedCodingWorkerTargetV14(targetKey)) throw new Error('CODING_WORKER_TARGET_BLOCKED');
       return { root: workspace, trustedWorkspaceApproved: true };
     };
     const verify = async (root: string, checkpoint?: CodingJobWorkerCheckpointV14) => {
