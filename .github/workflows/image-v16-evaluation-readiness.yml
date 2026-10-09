@@ -1,0 +1,55 @@
+name: Image V1.6 Quality Evaluation Readiness (No Inference)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/production-world-class-image-safety.yml'
+      - '.github/workflows/world-class-image-*.yml'
+      - '.github/workflows/image-v16-evaluation-readiness.yml'
+      - 'src/creative/**'
+      - 'src/release/**'
+      - 'scripts/check-world-class-image-evaluation-readiness-v16*'
+      - 'docs/IMAGE_V16_EVALUATION_READINESS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-v16-readiness-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  no-inference-preflight:
+    name: Verify evaluation prerequisites without Cloudflare or sealed data
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact untrusted source SHA read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22 (no npm or model credentials required)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+
+      - name: Validate static readiness gate negative cases
+        run: node --test scripts/check-world-class-image-evaluation-readiness-v16.test.mjs
+
+      - name: Produce safe readiness report, never quality-pass evidence
+        env:
+          ORIGIN_EVAL_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/check-world-class-image-evaluation-readiness-v16.mjs
+
+      - name: Upload sanitized, explicitly non-qualifying readiness manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-v16-readiness-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/image-v16-evaluation-readiness.json
+          retention-days: 30
+          if-no-files-found: ignore
