@@ -16,13 +16,13 @@ import {
   type CodingJobResultV14,
 } from './codingJobResultV14.js';
 import { validCodingJobExecutionEvidenceV14 } from './codingJobExecutionEvidenceV14.js';
+import { codingAgentTargetKeyForRunV14 } from './codingAgentTargetKeyV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type {
   CodingJobPublicRecordV14,
   PostgresCodingJobStoreV14,
 } from './supabaseCodingJobStoreV14.js';
 
-const FIXED_TARGET_KEY = 'origin:self';
 const BRIDGE_TOKEN_TTL_MS = 30 * 60 * 1000;
 const MAX_TOKEN_BYTES = 2048;
 
@@ -262,7 +262,7 @@ export class AgentCodingBridgeV3 {
     if (typeof runId !== 'string' || !runId.startsWith('run-')) throw new Error('AGENT_CODING_RUN_ID_INVALID');
     const envelope = createCodingJobEnvelopeV14({
       ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
-      targetKey: FIXED_TARGET_KEY,
+      targetKey: codingAgentTargetKeyForRunV14(runId),
       goal,
     }, this.env, now);
     const created = await this.jobStore.create(envelope, now);
@@ -290,6 +290,43 @@ export class AgentCodingBridgeV3 {
       costUsd: 0,
       paidFallbackUsed: false,
     };
+  }
+
+  /**
+   * Operator-authenticated read-only recovery after browser restart or bearer
+   * expiration. The immutable target_key proves the original run/job binding;
+   * mere knowledge of a random job ID is never sufficient authorization.
+   *
+   * Never dispatches, creates, cancels, or resets the durable job.
+   */
+  async recover(runId: string, jobId: string, now = Date.now()): Promise<AgentCodingBridgeStartV3 | {
+    ok: false;
+    runId: string;
+    jobId: string;
+    status: 'blocked';
+    code: string;
+    freeOnly: true;
+    costUsd: 0;
+    paidFallbackUsed: false;
+  }> {
+    let targetKey: string;
+    try {
+      targetKey = codingAgentTargetKeyForRunV14(runId);
+    } catch {
+      return { ok: false, runId, jobId, status: 'blocked', code: 'AGENT_CODING_RECOVERY_INVALID',
+        freeOnly: true, costUsd: 0, paidFallbackUsed: false };
+    }
+    const ownerHash = hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, this.env);
+    const record = await this.jobStore.getJob(jobId, ownerHash);
+    if (!record || record.targetKey !== targetKey || !Number.isSafeInteger(record.expiresAt)
+      || record.expiresAt <= now || record.expiresAt > now + 7 * 24 * 60 * 60_000) {
+      return { ok: false, runId, jobId, status: 'blocked', code: 'AGENT_CODING_RECOVERY_UNAVAILABLE',
+        freeOnly: true, costUsd: 0, paidFallbackUsed: false };
+    }
+    const token = issueBridgeToken(runId, jobId, this.env, now, record.expiresAt);
+    return { ok: true, runId, jobId, status: 'running', bridgeToken: token.token,
+      expiresAt: new Date(token.expiresAt).toISOString(),
+      freeOnly: true, costUsd: 0, paidFallbackUsed: false };
   }
 
   async cancel(
