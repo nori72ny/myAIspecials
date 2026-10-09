@@ -251,6 +251,17 @@ export async function runCodingSessionV14(request: CodingSessionRequest, deps: C
       for (const [filePath, expectedContent] of expected) {
         if (digest(await readRepositoryFile(root, filePath)) !== digest(expectedContent)) stop('CODING_WORKSPACE_CHANGED_DURING_CHECKS');
       }
+      // A timed-out or externally killed verification cannot be diagnosed as a
+      // code-level test assertion failure. Do not feed incomplete timeout logs
+      // back into the model as a repair request or spend another repair round.
+      // Keep the already-written diff non-published and fail closed; a separate
+      // fresh run must establish all four terminal checks before verification.
+      if (summaries.some(check => check.timedOut)) {
+        result.status = 'blocked';
+        result.code = 'CODING_VERIFICATION_TIMEOUT';
+        record({ action: 'stopped', attempt, code: result.code });
+        return result;
+      }
       failedChecks = summaries.filter(check => !check.ok || check.exitCode !== 0 || check.timedOut).map(check => check.kind);
       diagnostics = checks.filter(check => failedChecks.includes(check.kind)).map(check => ({
         kind: check.kind,
