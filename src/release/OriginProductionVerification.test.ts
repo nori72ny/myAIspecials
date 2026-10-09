@@ -42,6 +42,10 @@ describe("ORIGIN production verification", () => {
     expect(workflow).toContain("needs: build-and-test");
     expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
+    expect(workflow).toContain("default: prepublish");
+    expect(workflow).toContain("          - prepublish");
+    expect(workflow).toContain("          - postpublish");
+    expect(workflow).toContain("inputs.verification_phase == 'postpublish'");
     expect(workflow).toContain("ORIGIN_EXPECTED_SHA: ${{ github.sha }}");
     expect(workflow).toContain("node scripts/verify-production-deployment.mjs");
     expect(workflow).not.toContain("VERCEL_TOKEN");
