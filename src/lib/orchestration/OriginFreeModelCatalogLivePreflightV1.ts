@@ -35,6 +35,8 @@ export interface OriginLiveFreeModelCatalogVerdictV1 {
   readonly schemaVersion: "origin.live-free-model-catalog-preflight.v1";
   readonly modelId: string;
   readonly catalogEligible: boolean;
+  /** Public catalog may omit per-request pricing. This is NOT a billing receipt. */
+  readonly catalogRequestPriceKnownZero: boolean;
   readonly liveInferenceVerified: false;
   readonly billingReceiptsVerified: false;
   readonly productionPromotionAllowed: false;
@@ -47,9 +49,13 @@ function isExactZero(value: unknown): boolean {
   return value === 0 || (typeof value === "string" && ZERO.test(value));
 }
 function priceIsZero(row: OriginFreeCatalogRowV1): boolean {
+  // OpenRouter's public catalog commonly omits request price. Permit an
+  // *inference calibration candidate* if prompt/completion are exactly $0;
+  // any nonzero/unknown *present* request price fails closed. A real inference
+  // MUST still enforce provider.max_price.request=0 and verify billing receipts.
   return isExactZero(row.pricing?.prompt)
     && isExactZero(row.pricing?.completion)
-    && isExactZero(row.pricing?.request);
+    && (row.pricing?.request === undefined || isExactZero(row.pricing.request));
 }
 function rows(value: OriginFreeCatalogPayloadV1): OriginFreeCatalogRowV1[] | null {
   if (!value || !Array.isArray(value.data) || value.data.length > 512) return null;
@@ -100,6 +106,11 @@ export function auditOriginLiveFreeModelCatalogV1(
     schemaVersion: "origin.live-free-model-catalog-preflight.v1",
     modelId,
     catalogEligible: unique.length === 0,
+    catalogRequestPriceKnownZero: Boolean(search?.length === 1 && zdr?.length > 0
+      && search[0].id === modelId && search[0].pricing?.request !== undefined
+      && isExactZero(search[0].pricing.request)
+      && zdr.some(row => row.id === modelId && row.pricing?.request !== undefined
+        && isExactZero(row.pricing.request))),
     liveInferenceVerified: false,
     billingReceiptsVerified: false,
     productionPromotionAllowed: false,
