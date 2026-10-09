@@ -318,6 +318,44 @@ describe("groundedResearchSynthesisV12", () => {
     expect(validateGroundedResearchSynthesis("Balance is -100.5.[S1](https://example.com/one)", evidence)).toEqual({ ok: true, usedSourceIds: ["S1"] });
   });
 
+  it("rejects an identical numeric value falsely promoted from people to stores", () => {
+    const evidence = [{ ...sources[0], excerpt: "参加者は120人です。" }];
+    expect(validateGroundedResearchSynthesis(
+      "店舗数は120店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
+  it("rejects identical source numbers claimed with the wrong counting unit", () => {
+    const evidence = [{ ...sources[0], excerpt: "今月は120件、参加者は50人、出店は7店。" }];
+    for (const answer of [
+      "今月は120人です。[S1](https://example.com/one)",
+      "参加者は50件です。[S1](https://example.com/one)",
+      "出店は7人です。[S1](https://example.com/one)",
+    ]) {
+      expect(validateGroundedResearchSynthesis(answer, evidence))
+        .toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    }
+  });
+
+  it("accepts exact evidence units and equivalent 店/店舗 classifiers", () => {
+    const evidence = [{ ...sources[0], excerpt: "参加者は120人、販売数は50件、店舗は7店舗。" }];
+    for (const answer of [
+      "参加者は120人。[S1](https://example.com/one)",
+      "販売数は50件。[S1](https://example.com/one)",
+      "店舗は7店。[S1](https://example.com/one)",
+    ]) {
+      expect(validateGroundedResearchSynthesis(answer, evidence))
+        .toEqual({ ok: true, usedSourceIds: ["S1"] });
+    }
+  });
+
+  it("does not permit a different unit to borrow an otherwise valid arithmetic result", () => {
+    const evidence = [{ ...sources[0], excerpt: "前月120店、今月135店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は135店 − 120店 = 15店です。15人も増えました。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("accepts exactly verified store growth arithmetic using cited values", () => {
     const evidence = [{ ...sources[0], excerpt: "前月は120店、今月は135店。" }];
     expect(validateGroundedResearchSynthesis(
