@@ -10,6 +10,15 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      verification_phase:
+        description: 'prepublish validates main without querying the old live URL; postpublish verifies the promoted live SHA'
+        required: true
+        type: choice
+        default: prepublish
+        options:
+          - prepublish
+          - postpublish
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -196,7 +205,7 @@ jobs:
     name: Verify main SHA in Vercel production
     # Auto-deploy from main is forbidden: run only after a separately approved
     # manual production promotion, using workflow_dispatch on exact main.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.verification_phase == 'postpublish'
     needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
