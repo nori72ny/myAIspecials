@@ -234,6 +234,16 @@ jobs:
       - name: Install only trusted evaluator dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      # The preflight job can finish while protected main or the PR HEAD
+      # changes. Revalidate before touching the sealed corpus in this job.
+      # The later ancestry check immediately before reservation is retained.
+      - name: Revalidate main ancestry before reading sealed corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: node --import tsx scripts/assert-trusted-answer-candidate-topology-v2.ts
+
       - name: Fetch sealed corpus into trusted runner temp
         env:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
