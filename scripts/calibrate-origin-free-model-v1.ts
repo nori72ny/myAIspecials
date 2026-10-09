@@ -91,7 +91,7 @@ async function runProbe(
   const actualCost = response.usage?.cost;
   const upstreamCost = response.usage?.cost_details?.upstream_inference_cost;
   const byok = response.usage?.is_byok;
-  const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\\.0+)$/.test(v));
+  const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\.0+)$/.test(v));
   // Fail closed BEFORE consuming the next provider request.
   if (served !== modelId && served !== modelId.slice(0, -5)) {
     throw Error("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
