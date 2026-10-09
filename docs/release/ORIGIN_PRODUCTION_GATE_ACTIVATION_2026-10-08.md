@@ -2,6 +2,16 @@
 
 Status: **NOT ACTIVE / DO NOT MERGE** (2026-10-08 JST). This is an activation runbook, not evidence of completed external configuration.
 
+## 2026-10-10 supplemental incident and release HOLD (supersedes 2026-10-08 snapshot below)
+
+**Current accepted main:** `0240d00827930c49e08b0863265ea98b25f8282f`; security bootstrap #933 and manual-publishing source gate #946 are already merged. Historical statements below describing `main` still on SHA `437f4f0a`, unprotected, or allowing automatic git deployment are **dated 2026-10-08 evidence only**, not current facts.
+
+**Actual first-new-main negative-path FAILED** on 2026-10-09: although the primary `origin-personal.vercel.app` alias stayed on approved SHA `437f4f0a...`, both Vercel *default* production aliases switched to a READY Production deployment of newer main SHA `0240d008...`. This was observed through authenticated Vercel alias/deployment reads, not simulated. The two default aliases were manually restored to approved Production deployment `dpl_AV9BVPv2kjDcUJxHu6BoW45PGJJh` at previous SHA. The primary remained on `dpl_EQC4xWGW9hY9SkzkxXuTwxs7uLrP`; all three served HTTP 200 and the old release SHA afterward. See release incident record in GitHub issue #942.
+
+**New read-only check on PR #922:** `OriginProtectedProductionAliasesAuditV1` requires a pre-captured, independently trusted snapshot of ALL three protected hostnames and underlying deployment IDs; it reads the live Vercel aliases and immutable deployments and checks each project's ID, `target:production`, READY, and the approved SHA. It reads aliases **twice**, surrounding deployment inspection, so a move that occurs between the first and second observation also BLOCKS. Missing snapshot, incomplete inventory, wrong target, drift, HTTP error, invalid content or permissions BLOCK. Even a passing snapshot comparison explicitly retains `firstNewMainPushNegativePathVerified:false` and `productionPromotionAuthorized:false`. This is necessary readback evidence, **never native automatic-domain hold**. Protected runner must execute independently reviewed pinned code; no `VERCEL_TOKEN` in PR checkout.
+
+**Still mandatory before ANY new main merge/Production publish:** independently verify a platform-native hold that also protects both default aliases on a first *new* main SHA; retain actual negative-path proof, nonauthor exact-head GitHub APPROVED review, Owner scope/SHA approval, and separately scored provider-backed public 40 + sealed 48 answer-quality cases with cost evidence. Main source `vercel.json` declaring `main:false`, the canonical alias holding, or green CI are individually insufficient. Do not trigger another live first-new-main push to test a claimed hold.
+
 ## Verified current state
 
 - Production is Vercel project `origin-personal`, with latest inspected main/deployment SHA `437f4f0a5c66c0d9add7f65e72369f9787931f7a`.
