@@ -249,7 +249,9 @@ export function evaluateOriginImageBlindBenchmarkV15(
     || !FULL_SHA.test(input.evaluatorSha)
     || !DIGEST.test(input.corpusSha256)
     || !input.originSystemId.trim()
-    || unique(input.referenceSystemIds.filter(Boolean)).length !== REQUIRED_REFERENCES
+    || input.referenceSystemIds.length !== REQUIRED_REFERENCES
+    || unique(input.referenceSystemIds).length !== REQUIRED_REFERENCES
+    || input.referenceSystemIds.some((systemId) => !systemId.trim())
     || input.referenceSystemIds.includes(input.originSystemId)
     || !Number.isInteger(input.executionBudgetMs)
     || input.executionBudgetMs < 1_000

@@ -128,4 +128,31 @@ describe('ORIGIN image edit blind benchmark v1', () => {
     expect(report.blockers).toContain('IMAGE_EDIT_BENCHMARK_EVIDENCE_STALE_OR_FUTURE');
     expect(report.blockers).toContain('IMAGE_EDIT_BENCHMARK_REQUIRES_16_CASES');
   });
+
+  it('rejects repeated, extra or empty reference identities before scoring', () => {
+    for (const referenceSystemIds of [
+      ['ref-a', 'ref-b', 'ref-c', 'ref-c'],
+      ['ref-a', 'ref-b', 'ref-c', ''],
+      ['ref-a', 'ref-b', 'ref-b'],
+    ]) {
+      const base = input();
+      const report = evaluateOriginImageEditBlindBenchmarkV1({ ...base, referenceSystemIds }, NOW);
+      expect(report.passed).toBe(false);
+      expect(report.blockers).toContain('IMAGE_EDIT_BENCHMARK_INPUT_INVALID');
+    }
+  });
+
+  it('cannot count an edit as a win when both blind judges independently prefer a reference', () => {
+    const base = input();
+    const cases = base.cases.map((item) => ({
+      ...item,
+      judges: item.judges.map((judge) => ({ ...judge, firstChoiceBlindKey: 'D' })),
+    }));
+    const report = evaluateOriginImageEditBlindBenchmarkV1({ ...base, cases }, NOW);
+    expect(report.passed).toBe(false);
+    expect(report.losses).toBe(16);
+    expect(report.wins).toBe(0);
+    expect(report.blockers).toContain('IMAGE_EDIT_BENCHMARK_WIN_RATE_LT_50');
+  });
+
 });

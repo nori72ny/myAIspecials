@@ -12,7 +12,8 @@ function requiredEnv(name: string): string {
 
 async function main(): Promise<void> {
   const candidateSha = requiredEnv('ORIGIN_IMAGE_CANDIDATE_SHA').toLowerCase();
-  requiredEnv('OPENROUTER_API_KEY');
+  requiredEnv('CLOUDFLARE_ACCOUNT_ID');
+  requiredEnv('CLOUDFLARE_API_TOKEN');
   if (!/^[a-f0-9]{40}$/.test(candidateSha)) {
     throw new Error('WORLD_CLASS_IMAGE_PREFLIGHT_CANDIDATE_SHA_INVALID');
   }
@@ -49,9 +50,12 @@ async function main(): Promise<void> {
     if (
       !body
       || body.evaluationReady !== true
-      || body.providerReady !== true
+      || body.primaryReady !== true
+      || body.freeOnly !== true
+      || body.costUsd !== 0
+      || body.paidFallbackEnabled !== false
       || body.releaseSha !== candidateSha
-      || body.provider !== 'openrouter-image-api'
+      || body.provider !== 'cloudflare-workers-ai-free'
       || typeof body.model !== 'string'
     ) {
       throw new Error('WORLD_CLASS_IMAGE_PREFLIGHT_PROVIDER_NOT_READY');
@@ -62,6 +66,9 @@ async function main(): Promise<void> {
       model: body.model,
       provider: body.provider,
       evaluationReady: true,
+      freeOnly: true,
+      totalCostUsd: 0,
+      paidFallbackEnabled: false,
     }) + '\n');
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

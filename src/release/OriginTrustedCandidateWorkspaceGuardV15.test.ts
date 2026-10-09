@@ -23,6 +23,15 @@ async function seedTrustedVerificationBaseline(root: string): Promise<void> {
 }
 
 describe('trusted candidate workspace guard', () => {
+  it('pins the patched Handlebars 4.7.10 registry tarball integrity in the trusted lockfile', async () => {
+    const lock = JSON.parse(await readFile(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
+    expect(lock.packages['node_modules/handlebars'].version).toBe('4.7.10');
+    expect(lock.packages['node_modules/handlebars'].integrity).toBe('sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==');
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-verified-registry-integrity-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+  });
+
   it('requires actual diff to equal the candidate report and remain inside required paths', () => {
     expect(() => assertTrustedCandidateDiffScopeV15({
       actualPaths: ['src/a.ts', 'src/b.ts'],
@@ -77,6 +86,31 @@ describe('trusted candidate workspace guard', () => {
     await writeFile(path.join(root, 'vitest.config.ts'), 'export default {};\n');
     await expect(assertTrustedCandidateVerificationBaselineV15(root))
       .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_CONFIG_SET_MISMATCH');
+  });
+
+  it('pins the officially verified Handlebars 4.7.10 tarball SHA-512 in the trusted lockfile', async () => {
+    const locked = JSON.parse(await readFile(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
+    expect(locked.packages['node_modules/handlebars']).toMatchObject({
+      version: '4.7.10',
+      integrity: 'sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg==',
+    });
+    const root = await mkdtemp(path.join(os.tmpdir(), 'origin-workspace-handlebars-pin-'));
+    await seedTrustedVerificationBaseline(root);
+    await expect(assertTrustedCandidateVerificationBaselineV15(root)).resolves.toBeUndefined();
+    const file = path.join(root, 'package-lock.json');
+    const modified = JSON.parse(await readFile(file, 'utf8'));
+    modified.packages['node_modules/handlebars'].integrity = 'sha512-FAKE';
+    await writeFile(file, JSON.stringify(modified, null, 2) + '\n');
+    await expect(assertTrustedCandidateVerificationBaselineV15(root))
+      .rejects.toThrow('TRUSTED_CANDIDATE_VERIFICATION_BASELINE_MISMATCH');
+  });
+
+  it('does not retain the formerly trusted vulnerable Handlebars 4.7.9 lockfile blob', async () => {
+    const source = await readFile(path.resolve(process.cwd(),
+      'src/release/OriginTrustedCandidateWorkspaceGuardV15.ts'), 'utf8');
+    const oldGitBlob = 'af43541852474fb8a1a1e4fffbb745b4ab601237';
+    // Keep the former SHA absent from active grant syntax, while allowing an explanatory comment.
+    expect(source).not.toContain("'" + oldGitBlob + "',");
   });
 
   it('rejects a modified lockfile even when its JSON remains valid', async () => {

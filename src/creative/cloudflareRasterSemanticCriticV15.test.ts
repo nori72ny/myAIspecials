@@ -175,6 +175,32 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
+  it('rejects an oversized AI-critic JSON response rather than buffering unlimited output', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ answer: 'x'.repeat(65_536) }));
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '安全な商品写真', bytes: png(), mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('maintains the full-body abort deadline for Cloudflare AI-critic fetches', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
+    await critiqueCloudflareRasterSemanticV15({
+      originalRequest: 'プロ仕様の商品写真', bytes: png(), mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+    const signal = (fetchMock.mock.calls[3]?.[1] as RequestInit).signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+  });
+
   it('rejects malformed model output instead of guessing a score', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))

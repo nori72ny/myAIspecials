@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readRasterDimensionsV15 } from '../creative/rasterImageProviderV15.js';
 
 import { IMAGE_EDIT_FAMILIES_V1, type ImageEditFamilyV1 } from './OriginImageEditBlindBenchmarkV1';
 
@@ -84,7 +85,19 @@ export function validateImageEditPrivateCorpusV1(
       blockers.push(`IMAGE_EDIT_PRIVATE_CORPUS_SOURCE_INVALID:${task.caseId}`);
     } else {
       const bytes = Buffer.from(match[2] ?? '', 'base64');
-      if (bytes.length < 64 || bytes.length > MAX_REFERENCE_BYTES || !DIGEST.test(task.sourceImageSha256) || sha256(bytes) !== task.sourceImageSha256) {
+      const mime = match[1] as 'image/png' | 'image/jpeg' | 'image/webp';
+      const signatureValid = mime === 'image/png'
+        ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        : mime === 'image/jpeg'
+          ? bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8
+          : bytes.subarray(0, 4).toString('ascii') === 'RIFF'
+            && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+      const dimensions = signatureValid ? readRasterDimensionsV15(bytes, mime) : null;
+      if (bytes.length < 64 || bytes.length > MAX_REFERENCE_BYTES
+        || !DIGEST.test(task.sourceImageSha256) || sha256(bytes) !== task.sourceImageSha256
+        || !dimensions || dimensions.width < 1 || dimensions.height < 1
+        || dimensions.width >= MAX_DIMENSION_EXCLUSIVE
+        || dimensions.height >= MAX_DIMENSION_EXCLUSIVE) {
         blockers.push(`IMAGE_EDIT_PRIVATE_CORPUS_SOURCE_INVALID:${task.caseId}`);
       }
     }

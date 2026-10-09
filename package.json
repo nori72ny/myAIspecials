@@ -32,6 +32,7 @@
     "eval:claude-code-parity": "tsx scripts/evaluate-claude-code-parity-gate.ts",
     "eval:world-class-quality": "tsx scripts/evaluate-trusted-world-class-quality-gate-v2.ts",
     "eval:image-blind-quality": "tsx scripts/evaluate-image-blind-quality-v15.ts",
+    "eval:image-edit-blind-quality": "tsx scripts/evaluate-image-edit-blind-quality-v1.ts",
     "eval:heldout-agent": "tsx scripts/evaluate-general-agent-heldout-v2.ts",
     "eval:heldout-agent:trusted": "tsx scripts/evaluate-general-agent-heldout-trusted-v2.ts",
     "eval:artifact-blind-quality": "tsx scripts/evaluate-artifact-blind-quality-v1.ts",
@@ -51,8 +52,11 @@
     "inspect:image-private-corpus": "tsx scripts/inspect-image-private-corpus-v1.ts",
     "eval:image-private": "tsx scripts/run-image-private-heldout-v1.ts",
     "eval:image-private-world-class": "tsx scripts/run-world-class-image-private-heldout-v2.ts",
+    "eval:image-private-shards-verify": "tsx scripts/verify-world-class-image-private-shards-v1.ts",
     "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
     "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts",
+    "eval:image-edit-private-world-class-shard": "tsx scripts/run-world-class-image-edit-private-shard-v1.ts",
+    "eval:image-edit-private-shards-verify": "tsx scripts/verify-world-class-image-edit-private-shards-v1.ts",
     "eval:aq-budgeted-day": "tsx scripts/run-aq-budgeted-day.ts"
   },
   "dependencies": {
@@ -103,5 +107,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "handlebars": "4.7.10"
   }
 }

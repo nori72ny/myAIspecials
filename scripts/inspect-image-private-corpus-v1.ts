@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { planImageWorkersFreeShardsV1 } from '../src/release/OriginImageWorkersFreeShardPlanV1.js';
 import { gunzipSync } from 'node:zlib';
 
 import {
@@ -23,11 +24,19 @@ try{
 const blockers=validateImagePrivateCorpusV1(corpus);
 if(blockers.length) throw new Error('IMAGE_PRIVATE_CORPUS_VALIDATION_FAILED');
 
+const corpusDigest = createHash('sha256').update(raw).digest('hex');
+const shardPlan = planImageWorkersFreeShardsV1(corpus.candidateSha, corpusDigest, corpus.tasks);
+
 process.stdout.write(JSON.stringify({
   schemaVersion:'origin.image-private-corpus-metadata.v1',
   corpusId:corpus.corpusId,
-  corpusDigest:createHash('sha256').update(raw).digest('hex'),
+  corpusDigest,
   candidateSha:corpus.candidateSha.toLowerCase(),
   executionBudgetMs:corpus.executionBudgetMs,
   taskCount:corpus.tasks.length,
+  shardPlanDigest: shardPlan.planDigest,
+  shardCount: shardPlan.shards.length,
+  shards: shardPlan.shards.map(({ index, caseIds, taskDigests, estimatedGenerationNeurons }) => ({
+    index, caseIds, taskDigests, estimatedGenerationNeurons,
+  })),
 })+'\n');

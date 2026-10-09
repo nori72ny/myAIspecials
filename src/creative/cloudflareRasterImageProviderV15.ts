@@ -5,6 +5,7 @@ import type {
   RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
+import { readBoundedCloudflareRasterBodyV15, readBoundedCloudflareRasterJsonV15 } from './cloudflareRasterResponseLimitV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
 const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
@@ -39,13 +40,11 @@ function credentials(env: NodeJS.ProcessEnv) {
 }
 
 async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchImpl(url, { ...init, signal: controller.signal, redirect: 'error', cache: 'no-store' });
-  } finally {
-    clearTimeout(timer);
-  }
+  // Do not cancel the timeout at response-headers time. Keep the signal alive
+  // for the entire streamed body, where a stalled Cloudflare response can hang.
+  return fetchImpl(url, {
+    ...init, signal: AbortSignal.timeout(timeoutMs), redirect: 'error', cache: 'no-store',
+  });
 }
 
 function headers(token: string, jsonBody = true): HeadersInit {
@@ -84,17 +83,21 @@ async function verifyWorkersFreePlan(
     10_000,
   );
   if (!settings.ok) return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
-  const settingsBody = await settings.json().catch(() => null) as CloudflareEnvelope | null;
+  const settingsBody = await readBoundedCloudflareRasterJsonV15(settings, 256 * 1024).catch(() => null) as CloudflareEnvelope | null;
   const settingsResult = settingsBody?.result && typeof settingsBody.result === 'object' && !Array.isArray(settingsBody.result)
     ? settingsBody.result as Record<string, unknown>
     : null;
+  // HTTP 200 alone does not mean Cloudflare accepted a billing/plan query.
+  if (settingsBody?.success !== true || !settingsResult) {
+    return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
   const usageModel = typeof settingsResult?.default_usage_model === 'string'
     ? settingsResult.default_usage_model.toLowerCase()
     : '';
   if (usageModel === 'standard' || usageModel === 'unbound') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
   }
-  if (usageModel && usageModel !== 'bundled') {
+  if (usageModel !== 'bundled') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 
@@ -105,9 +108,11 @@ async function verifyWorkersFreePlan(
     10_000,
   );
   if (!subscriptions.ok) return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_READ_REQUIRED' };
-  const subscriptionsBody = await subscriptions.json().catch(() => null) as CloudflareEnvelope | null;
+  const subscriptionsBody = await readBoundedCloudflareRasterJsonV15(subscriptions, 256 * 1024).catch(() => null) as CloudflareEnvelope | null;
   const rows = Array.isArray(subscriptionsBody?.result) ? subscriptionsBody!.result as Subscription[] : null;
-  if (!rows) return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  if (subscriptionsBody?.success !== true || !rows) {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
 
   for (const row of rows) {
     if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;
@@ -140,7 +145,7 @@ async function verifyWorkersFreePlan(
           : 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
     };
   }
-  const schemaBody = await schema.json().catch(() => null) as CloudflareEnvelope | null;
+  const schemaBody = await readBoundedCloudflareRasterJsonV15(schema, 1024 * 1024).catch(() => null) as CloudflareEnvelope | null;
   const schemaResult = schemaBody?.result && typeof schemaBody.result === 'object' && !Array.isArray(schemaBody.result)
     ? schemaBody.result as Record<string, unknown>
     : null;
@@ -297,7 +302,7 @@ export async function generateCloudflareRasterImageV15(
 
   const width = typeof input.width === 'number' ? input.width : 1024;
   const height = typeof input.height === 'number' ? input.height : 1024;
-  const prompt = input.prompt.normalize('NFKC').trim();
+  const prompt = input.prompt.trim();
   if (!prompt || prompt.length > 2048) throw new Error('INVALID_RASTER_PROMPT');
 
   const references = input.referenceImages ?? [];
@@ -322,7 +327,7 @@ export async function generateCloudflareRasterImageV15(
   if (!proof.ok) throw new Error(proof.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
 
   const form = new FormData();
-  const negative = input.negativePrompt?.normalize('NFKC').trim().slice(0, 1000) ?? '';
+  const negative = input.negativePrompt?.trim().slice(0, 1000) ?? '';
   const editInstruction = references.length
     ? [
         'Reference images are attached in index order starting at image 0.',
@@ -366,11 +371,12 @@ export async function generateCloudflareRasterImageV15(
   let bytes: Buffer;
   const responseType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (responseType.startsWith('image/')) {
-    const raw = Buffer.from(await response.arrayBuffer());
-    if (!raw.length || raw.length > MAX_IMAGE_BYTES) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    const raw = await readBoundedCloudflareRasterBodyV15(response, MAX_IMAGE_BYTES);
+    if (!raw.length) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
     bytes = raw;
   } else {
-    bytes = decodeCloudflareResult(await response.json());
+    // Base64 JSON adds ~33% overhead; never buffer arbitrary upstream bodies.
+    bytes = decodeCloudflareResult(await readBoundedCloudflareRasterJsonV15(response, 17 * 1024 * 1024));
   }
 
   const mimeType = imageMime(bytes);

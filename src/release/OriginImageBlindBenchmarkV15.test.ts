@@ -227,4 +227,18 @@ describe('ORIGIN image blind benchmark v2', () => {
     expect(report.passed).toBe(false);
     expect(report.blockers).toContain('IMAGE_BENCHMARK_EVIDENCE_STALE_OR_FUTURE');
   });
+
+  it('rejects reference lists with repeated or blank identities instead of silently truncating them', () => {
+    for (const referenceSystemIds of [
+      ['ref-a', 'ref-b', 'ref-c', 'ref-c'],
+      ['ref-a', 'ref-b', 'ref-c', ''],
+      ['ref-a', 'ref-b', 'ref-b'],
+    ]) {
+      const base = input();
+      const report = evaluateOriginImageBlindBenchmarkV15({ ...base, referenceSystemIds }, NOW);
+      expect(report.passed).toBe(false);
+      expect(report.blockers).toContain('IMAGE_BENCHMARK_INPUT_INVALID');
+    }
+  });
+
 });

@@ -1,0 +1,133 @@
+name: World-class image 12-shard authenticated collection V1
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact evaluated main SHA
+        required: true
+        type: string
+      corpus_digest:
+        description: Frozen evaluator-owned sealed corpus digest
+        required: true
+        type: string
+      plan_digest:
+        description: Frozen 12-shard plan SHA-256
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: origin-world-class-image-free-authenticated-collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      # Refuse exposure of confidential images in public Actions artifacts.
+      - name: Verify approved private evaluator repository before any data access
+        id: private_repo_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: ${{ vars.ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" != "true" || "${{ github.repository_visibility }}" != "private" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_REQUIRED' >&2
+            exit 73
+          fi
+          if [[ -z "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" || "$GITHUB_REPOSITORY" != "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_ALLOWLIST_REQUIRED' >&2
+            exit 74
+          fi
+          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private' 2>/dev/null)" || {
+            echo 'IMAGE_EVAL_REPOSITORY_METADATA_UNAVAILABLE' >&2
+            exit 75
+          }
+          if [[ "$actual" != "true" ]]; then
+            echo 'IMAGE_EVAL_REPOSITORY_BECAME_PUBLIC' >&2
+            exit 76
+          fi
+
+      - name: Checkout exact evaluated candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install locked validator dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify immutable exact-main SHA
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CORPUS_DIGEST: ${{ inputs.corpus_digest }}
+          PLAN_DIGEST: ${{ inputs.plan_digest }}
+        run: |
+          set -euo pipefail
+          test "$CANDIDATE_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$CORPUS_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$PLAN_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+
+      - name: Authenticate and download exactly 12 successful shard artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_IMAGE_CORPUS_DIGEST: ${{ inputs.corpus_digest }}
+          ORIGIN_IMAGE_SHARD_PLAN_DIGEST: ${{ inputs.plan_digest }}
+          ORIGIN_IMAGE_SHARD_BUNDLE_ROOT: ${{ github.workspace }}/test-results/image-free-shards-collected
+        run: node --import tsx scripts/collect-world-class-image-free-shards-v1.ts
+
+      - name: Install Chromium for independent image decoding
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify actual bytes of all 24 images and complete sealed task coverage
+        env:
+          ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_IMAGE_SHARD_PLAN_DIGEST: ${{ inputs.plan_digest }}
+          ORIGIN_IMAGE_SHARD_BUNDLE_ROOT: ${{ github.workspace }}/test-results/image-free-shards-collected
+        run: npm run eval:image-private-shards-verify
+
+      - name: Validate both trust reports keep the world-class publication gate closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const dir='test-results/image-free-shards-collected/';
+          const p=JSON.parse(fs.readFileSync(dir+'github-provenance.json','utf8'));
+          const l=JSON.parse(fs.readFileSync(dir+'local-integrity-report.json','utf8'));
+          if(!p.trustedGithubRunAndArtifactMetadata || !p.downloadedViaAuthenticatedGithubCLI
+            || !l.localBytesAndMetadataIntegrityPassed || l.imageCaseCount!==24
+            || p.productionQualified!==false || l.productionQualified!==false
+            || p.independentBlindQualityPassed!==false
+            || l.independentBlindQualityPassed!==false) process.exit(62);
+          NODE
+
+      - name: Upload provenance and integrity reports, not sealed private prompts
+        if: ${{ always() && steps.private_repo_guard.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-12shard-provenance-and-local-integrity-${{ inputs.candidate_sha }}
+          path: |
+            test-results/image-free-shards-collected/github-provenance.json
+            test-results/image-free-shards-collected/local-integrity-report.json
+          retention-days: 90
+          if-no-files-found: ignore

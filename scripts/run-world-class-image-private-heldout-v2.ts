@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readBoundedWorldClassEvalResponseV1 } from '../src/release/OriginWorldClassImageEvalBoundedResponseV1.js';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -11,6 +12,7 @@ import { createWorldClassImageV16Router } from '../src/creative/worldClassImageV
 import { readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
 import { scoreRasterPixelsV15 } from '../src/creative/rasterTechnicalCriticV15.js';
 import { critiqueCloudflareRasterSemanticV15 } from '../src/creative/cloudflareRasterSemanticCriticV15.js';
+import { planImageWorkersFreeShardsV1 } from '../src/release/OriginImageWorkersFreeShardPlanV1.js';
 import type { ImageBenchmarkOutputV15, ImageTechnicalEvidenceV15 } from '../src/release/OriginImageBlindBenchmarkV15.js';
 import {
   validateImagePrivateCorpusV1,
@@ -77,7 +79,7 @@ function safeCode(value: unknown, fallback: string): string {
 
 async function errorJson(response: Response): Promise<Record<string, unknown> | null> {
   try {
-    const value = await response.json();
+    const value = JSON.parse((await readBoundedWorldClassEvalResponseV1(response, 64 * 1024)).toString('utf8')) as unknown;
     return value && typeof value === 'object' && !Array.isArray(value)
       ? value as Record<string, unknown>
       : null;
@@ -171,7 +173,6 @@ async function evaluateCase(
   budgetMs: number,
   outputDir: string,
   candidateSha: string,
-  maxImageCostUsd: number,
   runtimeEnv: NodeJS.ProcessEnv,
 ): Promise<CandidateCaseEvidence> {
   const started = Date.now();
@@ -205,7 +206,7 @@ async function evaluateCase(
       effectivePromptSha256: sha256(prompt),
       output: {
         blindKey: 'ORIGIN',
-        systemId: 'origin-world-class-v16',
+        systemId: 'origin-world-class-zero-cost',
         role: 'origin',
         executionStatus: 'failed',
         durationMs: Date.now() - started,
@@ -239,7 +240,7 @@ async function evaluateCase(
       effectivePromptSha256: sha256(prompt),
       output: {
         blindKey: 'ORIGIN',
-        systemId: 'origin-world-class-v16',
+        systemId: 'origin-world-class-zero-cost',
         role: 'origin',
         executionStatus: classifyFailure(response.status, code),
         durationMs: Date.now() - started,
@@ -257,7 +258,7 @@ async function evaluateCase(
     };
   }
 
-  const bytes = Buffer.from(await response.arrayBuffer());
+  const bytes = await readBoundedWorldClassEvalResponseV1(response, MAX_PERSISTED_IMAGE_BYTES);
   const mime = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   const typedMime = mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp' ? mime : null;
   const actualSha = sha256(bytes);
@@ -298,14 +299,14 @@ async function evaluateCase(
       && response.headers.get('x-origin-release-sha') === candidateSha
       && response.headers.get('x-origin-world-class-evaluation') === 'true'
       && !response.headers.get('x-origin-world-class-qualified-sha')
-      && response.headers.get('x-origin-free-only') === 'false'
+      && response.headers.get('x-origin-free-only') === 'true'
       && response.headers.get('x-origin-paid-fallback') === 'false'
       && response.headers.get('x-origin-secret-delivery') === 'server-only'
-      && providerId === 'openrouter-image-api'
+      && response.headers.get('x-origin-visual-quality-tier') === 'world-class-free'
+      && providerId === 'cloudflare-workers-ai-free'
       && Boolean(modelId)
       && Number.isFinite(costUsd)
-      && costUsd >= 0
-      && costUsd <= maxImageCostUsd
+      && costUsd === 0
   );
 
   let semantic: CandidateCaseEvidence['semantic'] = null;
@@ -342,7 +343,8 @@ async function evaluateCase(
     deliveryIntegrityPassed,
   };
 
-  const passed = Object.values(technical).every(Boolean);
+  // Safety clearance is insufficient: content fidelity and text/composition critique must pass.
+  const passed = Object.values(technical).every(Boolean) && semantic?.passed === true;
   if (!Number.isInteger(caseIndex) || caseIndex < 0 || caseIndex >= 24) {
     throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CASE_INDEX_INVALID');
   }
@@ -354,6 +356,7 @@ async function evaluateCase(
     && dimensionsValid
     && technicalCriticPassed
     && semantic?.safetyPassed === true
+    && semantic?.passed === true
     && deliveryIntegrityPassed;
 
   if (networkWriteSafe) {
@@ -374,7 +377,7 @@ async function evaluateCase(
     effectivePromptSha256: sha256(prompt),
     output: {
       blindKey: 'ORIGIN',
-      systemId: 'origin-world-class-v16',
+      systemId: 'origin-world-class-zero-cost',
       role: 'origin',
       executionStatus: 'completed',
       durationMs: Date.now() - started,
@@ -386,7 +389,9 @@ async function evaluateCase(
       : (semanticFailureCode
         ?? (semantic?.safetyPassed === false
           ? 'WORLD_CLASS_IMAGE_PRIVATE_OUTPUT_SAFETY_FAILED'
-          : 'WORLD_CLASS_IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED')),
+          : semantic?.passed === false
+            ? 'WORLD_CLASS_IMAGE_PRIVATE_SEMANTIC_QUALITY_FAILED'
+            : 'WORLD_CLASS_IMAGE_PRIVATE_TECHNICAL_VALIDATION_FAILED')),
     providerId,
     modelId,
     costUsd: Number.isFinite(costUsd) ? costUsd : null,
@@ -400,7 +405,17 @@ async function evaluateCase(
 async function main(): Promise<void> {
   const candidateSha = requiredEnv('ORIGIN_IMAGE_CANDIDATE_SHA').toLowerCase();
   const expectedCorpusId = requiredEnv('ORIGIN_IMAGE_CORPUS_ID');
-  requiredEnv('OPENROUTER_API_KEY');
+  const pinnedUtcDay = requiredEnv('ORIGIN_IMAGE_SHARD_UTC_DAY');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pinnedUtcDay)
+    || new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_MISMATCH');
+  }
+  const shardIndexText = requiredEnv('ORIGIN_IMAGE_SHARD_INDEX');
+  const expectedPlanDigest = requiredEnv('ORIGIN_IMAGE_SHARD_PLAN_DIGEST').toLowerCase();
+  if (!/^(?:0|[1-9][0-9]?)$/.test(shardIndexText) || !/^[a-f0-9]{64}$/.test(expectedPlanDigest)) {
+    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_INPUT_INVALID');
+  }
+  const shardIndex = Number(shardIndexText);
   requiredEnv('CLOUDFLARE_ACCOUNT_ID');
   requiredEnv('CLOUDFLARE_API_TOKEN');
 
@@ -408,25 +423,12 @@ async function main(): Promise<void> {
     throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CANDIDATE_SHA_INVALID');
   }
 
-  const maxImageCostUsd = Number(process.env.ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD ?? '0.25');
-  const maxTotalCostUsd = Number(process.env.ORIGIN_IMAGE_WORLD_CLASS_MAX_TOTAL_COST_USD ?? '6');
-  if (
-    !Number.isFinite(maxImageCostUsd)
-    || maxImageCostUsd < 0.01
-    || maxImageCostUsd > 1
-    || !Number.isFinite(maxTotalCostUsd)
-    || maxTotalCostUsd < maxImageCostUsd
-    || maxTotalCostUsd > 10
-  ) {
-    throw new Error('WORLD_CLASS_IMAGE_PRIVATE_COST_CAP_INVALID');
-  }
-
   const runtimeEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
     ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
     ORIGIN_RELEASE_SHA: candidateSha,
-    ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD: String(maxImageCostUsd),
+    ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS: '2',
     VERCEL_ENV: 'preview',
     NODE_ENV: 'test',
   };
@@ -461,9 +463,13 @@ async function main(): Promise<void> {
     const statusBody = await errorJson(status);
     if (
       statusBody?.evaluationReady !== true
-      || statusBody?.providerReady !== true
+      || statusBody?.primaryReady !== true
       || statusBody?.releaseSha !== candidateSha
-      || statusBody?.provider !== 'openrouter-image-api'
+      || statusBody?.provider !== 'cloudflare-workers-ai-free'
+      || statusBody?.model !== '@cf/black-forest-labs/flux-2-klein-9b'
+      || statusBody?.freeOnly !== true
+      || statusBody?.costUsd !== 0
+      || statusBody?.paidFallbackEnabled !== false
     ) {
       throw new Error('WORLD_CLASS_IMAGE_PRIVATE_PROVIDER_NOT_READY');
     }
@@ -488,17 +494,26 @@ async function main(): Promise<void> {
     if (corpus.candidateSha.toLowerCase() !== candidateSha) blockers.push('WORLD_CLASS_IMAGE_PRIVATE_CORPUS_SHA_MISMATCH');
     if (blockers.length) throw new Error('WORLD_CLASS_IMAGE_PRIVATE_CORPUS_VALIDATION_FAILED');
 
+    if (new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_ROLLOVER');
+    }
     const cases: CandidateCaseEvidence[] = [];
     const runBlockers: string[] = [];
     const corpusDigest = sha256(raw);
+    const plan = planImageWorkersFreeShardsV1(candidateSha, corpusDigest, corpus.tasks);
+    if (plan.planDigest !== expectedPlanDigest || !plan.shards[shardIndex]) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_PLAN_MISMATCH');
+    }
+    const shard = plan.shards[shardIndex];
+    const chosenCaseIds = new Set(shard.caseIds);
+    if (chosenCaseIds.size !== shard.caseIds.length || shard.caseIds.length > 2) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_CASE_SET_INVALID');
+    }
     let totalCostUsd = 0;
 
     await fs.mkdir(imagesDir, { recursive: true });
     for (const [caseIndex, task] of corpus.tasks.entries()) {
-      if (totalCostUsd >= maxTotalCostUsd && caseIndex < corpus.tasks.length) {
-        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_REACHED');
-        break;
-      }
+      if (!chosenCaseIds.has(task.caseId)) continue;
       const item = await evaluateCase(
         baseUrl,
         browser,
@@ -507,22 +522,26 @@ async function main(): Promise<void> {
         corpus.executionBudgetMs,
         imagesDir,
         candidateSha,
-        maxImageCostUsd,
         runtimeEnv,
       );
       cases.push(item);
+      if (item.providerId !== 'cloudflare-workers-ai-free' || item.modelId !== '@cf/black-forest-labs/flux-2-klein-9b') {
+        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_EXACT_MODEL_DRIFT:' + item.caseId);
+      }
       if (item.costUsd !== null) totalCostUsd += item.costUsd;
+      if (item.costUsd !== 0) runBlockers.push(`WORLD_CLASS_IMAGE_PRIVATE_NONZERO_COST:${item.caseId}`);
       if (item.output.durationMs > corpus.executionBudgetMs) {
         runBlockers.push(`WORLD_CLASS_IMAGE_PRIVATE_EXECUTION_BUDGET_EXCEEDED:${item.caseId}`);
       }
-      if (totalCostUsd > maxTotalCostUsd) {
-        runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_EXCEEDED');
-        break;
-      }
     }
 
-    if (cases.length !== corpus.tasks.length) {
-      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_INCOMPLETE_CASE_SET');
+    if (new Date().toISOString().slice(0, 10) !== pinnedUtcDay) {
+      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_UTC_DAY_ROLLOVER');
+    }
+    if (cases.length !== shard.caseIds.length
+      || cases.some((item, index) => item.caseId !== shard.caseIds[index]
+        || item.taskDigest !== shard.taskDigests[index])) {
+      runBlockers.push('WORLD_CLASS_IMAGE_PRIVATE_INCOMPLETE_SHARD_CASE_SET');
     }
 
     const identities = new Set(
@@ -542,6 +561,10 @@ async function main(): Promise<void> {
       candidateSha,
       executionBudgetMs: corpus.executionBudgetMs,
       dimensionPolicy: 'provider-native-1k-nearest-supported-ratio-within-3pct',
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
+      fullCorpusCases: 24,
       tasks: corpus.tasks.map((task) => ({
         caseId: task.caseId,
         family: task.family,
@@ -560,11 +583,15 @@ async function main(): Promise<void> {
       corpusDigest,
       candidateSha,
       evaluatorSha: candidateSha,
-      originSystemId: 'origin-world-class-v16',
+      originSystemId: 'origin-world-class-zero-cost',
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
+      fullCorpusCases: 24,
       executionBudgetMs: corpus.executionBudgetMs,
       providerIdentities: [...identities],
-      maxImageCostUsd,
-      maxTotalCostUsd,
+      maxImageCostUsd: 0,
+      maxTotalCostUsd: 0,
       totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
       cases,
       blockers: [...new Set(runBlockers)],
@@ -573,7 +600,8 @@ async function main(): Promise<void> {
     const completed = cases.filter((item) => item.output.executionStatus === 'completed').length;
     const technicallyPassed = cases.filter(
       (item) => item.output.executionStatus === 'completed'
-        && Object.values(item.output.technical).every(Boolean),
+        && Object.values(item.output.technical).every(Boolean)
+        && item.semantic?.passed === true,
     ).length;
 
     await fs.writeFile(path.join(outputRoot, 'candidate-summary.json'), JSON.stringify({
@@ -582,6 +610,9 @@ async function main(): Promise<void> {
       corpusDigest,
       candidateSha,
       attempted: cases.length,
+      evaluationMode: 'single-free-shard',
+      planDigest: plan.planDigest,
+      shardIndex,
       completed,
       technicallyPassed,
       providerIdentityCount: identities.size,
@@ -596,11 +627,40 @@ async function main(): Promise<void> {
         })),
     }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 
+    await fs.writeFile(path.join(outputRoot, 'shard-manifest.json'), JSON.stringify({
+      schemaVersion: 'origin.image-workers-free-shard-manifest.v1',
+      candidateSha,
+      corpusId: corpus.corpusId,
+      corpusDigest,
+      planDigest: plan.planDigest,
+      shardIndex,
+      expectedCaseIds: [...shard.caseIds],
+      expectedTaskDigests: [...shard.taskDigests],
+      caseIds: cases.map(item => item.caseId),
+      outputSha256s: cases.map(item => item.output.imageSha256),
+      freeOnly: cases.every(item => item.costUsd === 0) && totalCostUsd === 0,
+      totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
+      // Provider quota telemetry is deliberately NOT fabricated by this runner.
+      trustedQuotaUsageVerified: false,
+      trustedProvenanceVerified: false,
+      blindBenchmarkPassed: false,
+      productionQualified: false,
+      githubRunId: process.env.GITHUB_RUN_ID || null,
+      utcDay: pinnedUtcDay,
+      blockers: [...new Set(runBlockers)],
+    }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+
+    if (runBlockers.length > 0 || cases.some(item => item.failureCode !== null)) {
+      throw new Error('WORLD_CLASS_IMAGE_PRIVATE_SHARD_FAILED');
+    }
+
     process.stdout.write(JSON.stringify({
-      event: 'world-class-image-private-round-completed',
+      event: 'world-class-image-private-shard-completed',
       corpusId: corpus.corpusId,
       corpusDigest,
       candidateSha,
+      planDigest: plan.planDigest,
+      shardIndex,
       attempted: cases.length,
       completed,
       technicallyPassed,

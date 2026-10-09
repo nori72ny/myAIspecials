@@ -89,7 +89,7 @@ export function compileWorldClassImagePromptV16(
   rawPrompt: string,
   editing: boolean,
 ): WorldClassImagePromptPlanV16 {
-  const prompt = rawPrompt.normalize('NFKC').trim();
+  const prompt = rawPrompt.trim();
   if (!prompt) throw new Error('WORLD_CLASS_IMAGE_PROMPT_EMPTY');
 
   const profile = classify(prompt);
