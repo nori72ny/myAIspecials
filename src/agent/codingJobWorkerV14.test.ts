@@ -84,6 +84,27 @@ describe('V1.4 durable coding worker controller', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it('durably blocks a wrong checkout revision without calling the model or altering files', async () => {
+    const { root, envelope, lease } = await fixture();
+    const store = new FakeStore(lease);
+    const execute = vi.fn();
+    const verify = vi.fn(async () => green());
+    const result = await runCodingJobWorkerV14(envelope.jobId, 'gha:123:1', {
+      store, env, execute,
+      resolveTarget: async () => { throw new Error('CODING_WORKER_SOURCE_REVISION_MISMATCH'); },
+      verify,
+    });
+    expect(result).toEqual({
+      jobId: envelope.jobId, state: 'blocked', code: 'CODING_WORKER_SOURCE_REVISION_MISMATCH',
+    });
+    expect(store.completion).toEqual({
+      status: 'blocked', code: 'CODING_WORKER_SOURCE_REVISION_MISMATCH', paths: [],
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(verify).not.toHaveBeenCalled();
+    expect(await readFile(path.join(root, 'src/math.js'), 'utf8')).toContain('a - b');
+  });
+
   it('recovers from exact-match model proposals by one bounded fresh replan without loosening patch matching', async () => {
     const { root, envelope, lease } = await fixture();
     const store = new FakeStore(lease);
