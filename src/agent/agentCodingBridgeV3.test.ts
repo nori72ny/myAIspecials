@@ -389,6 +389,48 @@ describe('AgentCodingBridgeV3', () => {
   });
 
 
+  it('validates an already verified job against its immutable creation SHA after the app is updated', async () => {
+    const runId = 'run-old-production-release';
+    const jobId = 'coding-AAAAAAAAAAAAAAAAAAAAAA';
+    const createdSha = 'a'.repeat(40);
+    const currentSha = 'c'.repeat(40);
+    const terminal = {
+      ...record('verified'),
+      targetKey: codingAgentTargetKeyForRunV14(runId, createdSha),
+    };
+    const result = verifiedResult();
+    const jobStore = {
+      create: vi.fn(async () => terminal),
+      getJob: vi.fn(async () => terminal),
+      requestCancel: vi.fn(async () => terminal),
+    };
+    const resultStore = { get: vi.fn(async () => 'ciphertext') };
+    const bridge = new AgentCodingBridgeV3({
+      ...env, ORIGIN_RELEASE_SHA: currentSha,
+    }, jobStore, resultStore,
+    async () => { throw new Error('RECOVERY_MUST_NOT_REDISPATCH'); },
+    () => result);
+    const recovered = await bridge.recover(runId, jobId);
+    expect(recovered.ok).toBe(true);
+    if (!recovered.ok) throw new Error('EXPECTED_RECOVERY');
+    const polled = await bridge.poll(runId, jobId, recovered.bridgeToken);
+    expect(polled).toMatchObject({ ok: true, status: 'completed', verified: true });
+    const crossRun = await bridge.recover('run-unrelated', jobId);
+    expect(crossRun.ok).toBe(false);
+
+    const forgedResult = { ...result,
+      executionEvidence: { ...result.executionEvidence!, sourceRevision: currentSha },
+    };
+    const forgedBridge = new AgentCodingBridgeV3({ ...env, ORIGIN_RELEASE_SHA: currentSha },
+      jobStore, resultStore, async () => { throw new Error('NO_DISPATCH'); }, () => forgedResult);
+    const malformed = await forgedBridge.poll(runId, jobId, recovered.bridgeToken);
+    expect(malformed).toMatchObject({
+      ok: false, status: 'blocked', verified: false, code: 'AGENT_CODING_VERIFICATION_INCOMPLETE',
+    });
+    expect(jobStore.create).not.toHaveBeenCalled();
+    expect(jobStore.requestCancel).not.toHaveBeenCalled();
+  });
+
   it('restores only an owner-bound and run-matched durable job without new dispatch', async () => {
     const runId = 'run-recovery-test';
     const created = { ...record('queued'), targetKey: codingAgentTargetKeyForRunV14(runId) };
