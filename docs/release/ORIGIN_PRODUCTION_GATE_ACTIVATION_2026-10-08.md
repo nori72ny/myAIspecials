@@ -130,3 +130,9 @@ APIが返した同名の公開チェックでも、`deletedAt`が非NULLなら�
 GitHubのbranch protectionが必須チェックにアプリID (`required_status_checks.checks[].app_id`) を指定した場合、チェック名が一致して成功していても十分ではない。
 実際の `check-runs[].app.id` が承認済み `app_id` と完全一致することを監査する。異なる実行元、appの欠落、`app_id: -1`（any app）、不正値、同一チェック名で矛盾する複数app指定は、`REQUIRED_CI_NOT_GREEN` とする。
 GitHubのbranch protectionの**実データ**取得権限がなければ`BRANCH_RULES_UNVERIFIED`のまま。PRコメントや同名のチェック表示から実行元を推測して解除しない。
+
+## 必須CIすべての実行アプリIDを明示的に固定する
+
+GitHub保護ルールの required_status_checks に名前だけの contexts があり、対応する checks[].app_id が欠落した場合、同名のCI実行結果が成功でも公開可能とはしない。必須のチェックすべてについて、正の安全な整数のアプリIDと実際の check_runs[].app.id の一致を要求する。app_id=-1（any app）、未設定、重複した check 名、矛盾したアプリIDはすべて `BRANCH_RULES_UNVERIFIED` と `REQUIRED_CI_NOT_GREEN` の対象とする。
+
+GitHubの /branches/main 概要レスポンスで取得済みの現行設定には、10件すべてで実行アプリIDが明示されている（CodeQL=57789、その他9件=15368）。これは同名CIの偽装対策を検証する参考情報だが、詳細なレビュー強制・管理者例外・本番Vercel alias-hold を証明するものではなく、単独で公開権限を付与しない。
