@@ -16,7 +16,7 @@ function fakeApi(options: {
   driftDomain?: string; patch?: Record<string, unknown>;
   statusCode?: number; mime?: string; raw?: string;
 } = {}) {
-  return vi.fn(async (url: string, init: {method: string; redirect: string; headers: {accept: string}}) => {
+  return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     expect(init).toMatchObject({
       method: "GET", redirect: "error", headers: { accept: "application/json" },
     });
