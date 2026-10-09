@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import express, { type Router } from 'express';
+import { createHash, createHmac } from 'node:crypto';
+import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { verifyBeforeReportingCompletion } from './completionVerificationGate.js';
@@ -12,6 +12,8 @@ import { approvalDigest, type AgentApprovalOperation } from './agentApproval.js'
 import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPlan, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability } from './agentV3Capability.js';
 import { selectAgentToolV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
+import { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
+import { createOriginChatRateLimiter, requireSafeOriginChatRequest } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -25,10 +27,43 @@ const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('h
  */
 export interface AgentRunConsumptionStore {
   consume(runId: string, expiresAt: number): Promise<boolean>;
+  claimAgentRateSlot?(identityHash: string): Promise<boolean>;
 }
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore): Router {
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, codingBridge?: AgentCodingBridgeV3): Router {
   const router = express.Router();
+  // Use one limiter instance across every POST control-plane endpoint.
+  // Place both guards directly on each route so auth, state mutation and
+  // signed capability paths cannot accidentally bypass protection.
+  const safePost = requireSafeOriginChatRequest(env);
+  const limitPost = createOriginChatRateLimiter(Date.now, ['POST']);
+  // A process-local limiter alone cannot stop distributed credential attacks.
+  // Fail closed on all Agent POST endpoints if the mutating Agent→Coding
+  // feature is enabled without an atomic, shared PostgreSQL limiter.
+  const sharedPost = (req: Request, res: Response, next: NextFunction): void => {
+    if (env.ORIGIN_AGENT_CODING_BRIDGE_ENABLED !== 'true') { next(); return; }
+    const secret = env.ORIGIN_AGENT_APPROVAL_SECRET;
+    const address = req.ip || req.socket.remoteAddress;
+    if (!consumptionStore?.claimAgentRateSlot || !secret || Buffer.byteLength(secret, 'utf8') < 32 || !address) {
+      res.status(503).json({ ok: false, code: 'AGENT_RATE_SHARED_STORE_UNAVAILABLE', protocolVersion: 3 });
+      return;
+    }
+    const identity = createHmac('sha256', secret)
+      .update('origin-agent-rate-limit-v3\\0', 'utf8')
+      .update(address, 'utf8')
+      .digest('hex').slice(0, 32);
+    void consumptionStore.claimAgentRateSlot(identity).then(allowed => {
+      if (res.headersSent) return;
+      if (!allowed) {
+        res.setHeader('Retry-After', '60');
+        res.status(429).json({ ok: false, code: 'AGENT_RATE_GLOBALLY_LIMITED', protocolVersion: 3, retryable: true, retryAfterSeconds: 60 });
+        return;
+      }
+      next();
+    }).catch(() => {
+      if (!res.headersSent) res.status(503).json({ ok: false, code: 'AGENT_RATE_SHARED_STORE_UNAVAILABLE', protocolVersion: 3 });
+    });
+  };
 
   router.get('/api/agent/v3/status', (_req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -45,6 +80,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       credentialSeparationConfigured: authorizationMode === 'agent-operator',
       replayProtectionConfigured,
       replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
+      codingBridgeConfigured: Boolean(codingBridge),
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -56,13 +92,16 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/plan', (req, res) => {
+  router.post('/api/agent/v3/plan', safePost, limitPost, sharedPost, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
     const selected = selectAgentToolV3(goal.trim());
     if ('code' in selected) {
       return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
+    }
+    if (selected.toolName === 'code_interpreter' && !codingBridge) {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     const run = new AgentRunSession();
     run.transition('planning');
@@ -85,7 +124,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/approval', (req, res) => {
+  router.post('/api/agent/v3/approval', safePost, limitPost, sharedPost, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
@@ -100,7 +139,16 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
     }
+    if (toolName === 'code_interpreter' && !codingBridge) {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
+    if (toolName === 'code_interpreter') {
+      const codingGoal = params && typeof params === 'object' && !Array.isArray(params) ? (params as Record<string, unknown>).goal : undefined;
+      if (typeof codingGoal !== 'string' || !codingGoal.trim() || digestGoal(codingGoal.trim()) !== plan.digest) {
+        return res.status(403).json({ ok: false, code: 'AGENT_PLAN_GOAL_MISMATCH' });
+      }
+    }
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
     const capability = issueApprovalCapability(runId, approvalDigest(operation), env, approvalNow);
     return res.status(201).json({
@@ -113,7 +161,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/cancel', (req, res) => {
+  router.post('/api/agent/v3/cancel', safePost, limitPost, sharedPost, (req, res) => {
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     const { runId, planToken } = req.body ?? {};
@@ -159,7 +207,65 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
-  router.post('/api/agent/v3/execute', (req, res) => {
+  router.post('/api/agent/v3/coding/recover', safePost, limitPost, sharedPost, (req, res) => {
+    if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
+    if (agentOperatorAuthorizationModeV3(env) !== 'agent-operator' || !agentOperatorConfiguredV3(env)) {
+      return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
+    }
+    if (!authenticateAgentOperatorV3(req, env)) {
+      return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    }
+    const { runId, jobId } = req.body ?? {};
+    if (typeof runId !== 'string' || !/^run-[A-Za-z0-9-]{1,100}$/.test(runId)
+      || typeof jobId !== 'string' || !/^coding-[A-Za-z0-9_-]{22}$/.test(jobId)) {
+      return res.status(400).json({ ok: false, code: 'AGENT_CODING_RECOVERY_INVALID' });
+    }
+    void (async () => {
+      try {
+        const state = await codingBridge.recover(runId, jobId);
+        if (!res.headersSent) return res.status(state.ok ? 200 : 404).json({ protocolVersion: 3, ...state });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_RECOVERY_UNAVAILABLE', protocolVersion: 3 });
+      }
+    })();
+    return undefined;
+  });
+
+  router.post('/api/agent/v3/coding/status', safePost, limitPost, sharedPost, (req, res) => {
+    if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
+    const { runId, jobId, bridgeToken } = req.body ?? {};
+    if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    if (typeof jobId !== 'string' || !jobId.startsWith('coding-')) return res.status(400).json({ ok: false, code: 'INVALID_CODING_JOB_ID' });
+    if (typeof bridgeToken !== 'string') return res.status(403).json({ ok: false, code: 'AGENT_CODING_BRIDGE_TOKEN_REQUIRED' });
+    void (async () => {
+      try {
+        const state = await codingBridge.poll(runId, jobId, bridgeToken);
+        if (!res.headersSent) return res.status(state.ok ? 200 : 422).json({ protocolVersion: 3, ...state });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_STATUS_UNAVAILABLE', protocolVersion: 3, runId });
+      }
+    })();
+    return undefined;
+  });
+
+  router.post('/api/agent/v3/coding/cancel', safePost, limitPost, sharedPost, (req, res) => {
+    if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
+    const { runId, jobId, bridgeToken } = req.body ?? {};
+    if (typeof runId !== 'string' || !runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    if (typeof jobId !== 'string' || !jobId.startsWith('coding-')) return res.status(400).json({ ok: false, code: 'INVALID_CODING_JOB_ID' });
+    if (typeof bridgeToken !== 'string') return res.status(403).json({ ok: false, code: 'AGENT_CODING_BRIDGE_TOKEN_REQUIRED' });
+    void (async () => {
+      try {
+        const state = await codingBridge.cancel(runId, jobId, bridgeToken);
+        if (!res.headersSent) return res.status(state.ok ? 200 : 422).json({ protocolVersion: 3, ...state });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_CANCEL_UNAVAILABLE', protocolVersion: 3, runId });
+      }
+    })();
+    return undefined;
+  });
+
+  router.post('/api/agent/v3/execute', safePost, limitPost, sharedPost, (req, res) => {
     const { runId, toolName, params, approvalToken } = req.body ?? {};
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
@@ -188,6 +294,20 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
           return;
         }
         if (!consumed) return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_CONSUMED', protocolVersion: 3, runId });
+        if (toolName === 'code_interpreter') {
+          if (!codingBridge) {
+            if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE', protocolVersion: 3, runId });
+            return;
+          }
+          const codingGoal = typeof toolParams.goal === 'string' ? toolParams.goal.trim() : '';
+          if (!codingGoal) {
+            if (!res.headersSent) return res.status(400).json({ ok: false, code: 'AGENT_CODING_GOAL_REQUIRED', protocolVersion: 3, runId });
+            return;
+          }
+          const started = await codingBridge.start(runId, codingGoal);
+          if (!res.headersSent) return res.status(202).json({ protocolVersion: 3, ...started });
+          return;
+        }
         const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
         const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
         const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact

@@ -39,6 +39,51 @@ function exactCreateProposal(context: CodingContext): CodingProposalBatch | null
   if (!content.length || containsLikelySecret(content)) return null;
   return { edits: [], creates: [{ path: filePath, content }] };
 }
+/**
+ * Strict, explicitly-scoped literal replacement for requests whose complete
+ * before/after bytes are already given by the owner. The model must never
+ * invent an anchor or use whitespace/fuzzy matching on this path.
+ *
+ * Example:
+ * Replace exactly one occurrence of "a - b" with "a + b" in file \`math.js\`. Do not modify any other file.
+ */
+function exactReplaceProposal(context: CodingContext): CodingProposalBatch | null {
+  if (context.attempt !== 0 || typeof context.goal !== 'string') return null;
+  const goal = context.goal.trim();
+  const english = /^Replace exactly one occurrence of ("(?:\\.|[^"\\\r\n])*") with ("(?:\\.|[^"\\\r\n])*") in file \`([^\`\r\n]{1,240})\`\. Do not modify any other file\.$/i.exec(goal);
+  const japanese = english ? null
+    : /^ファイル \`([^\`\r\n]{1,240})\` の文字列 ("(?:\\.|[^"\\\r\n])*") を ("(?:\\.|[^"\\\r\n])*") に完全一致で1箇所だけ置換してください。他のファイルは変更しないでください。$/.exec(goal);
+  if (!english && !japanese) return null;
+  const filePath = (english?.[3] ?? japanese?.[1]) as string;
+  const beforeJson = (english?.[1] ?? japanese?.[2]) as string;
+  const afterJson = (english?.[2] ?? japanese?.[3]) as string;
+  const editable = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
+  const creatable = [...new Set(context.creatablePaths ?? [])];
+  if (editable.length !== 1 || editable[0] !== filePath || creatable.length !== 0
+    || context.files.length !== 1 || context.files[0]?.path !== filePath) {
+    throw new Error('CODING_MODEL_EDIT_SCOPE_INVALID');
+  }
+  if (containsLikelySecret(context.goal) || containsLikelySecret(context.files[0].content)) {
+    throw new Error('CODING_MODEL_CONTEXT_BLOCKED');
+  }
+  let search: unknown;
+  let replacement: unknown;
+  try {
+    search = JSON.parse(beforeJson);
+    replacement = JSON.parse(afterJson);
+  } catch {
+    throw new Error('CODING_MODEL_EDIT_INVALID');
+  }
+  if (typeof search !== 'string' || typeof replacement !== 'string') {
+    throw new Error('CODING_MODEL_EDIT_INVALID');
+  }
+  // Reuse the *same* exact-match uniqueness, path scope, secret and mutation
+  // count validator as normal model proposals; never implement a softer edit.
+  return parseCodingProposal(JSON.stringify({
+    edits: [{ path: filePath, search, replacement }],
+  }), context);
+}
+
 function proposalTool(context: CodingContext): OriginProviderRequiredTool {
   const editablePaths = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
   const creatablePaths = [...new Set(context.creatablePaths ?? [])];
@@ -247,7 +292,7 @@ export function createCodingPlannerV14(options: {
   const env = options.env ?? process.env;
   const execute = options.execute ?? executeOriginProvider;
   return async context => {
-    const deterministic = exactCreateProposal(context);
+    const deterministic = exactCreateProposal(context) ?? exactReplaceProposal(context);
     if (deterministic) return deterministic;
     const selected = buildOriginExecutionPlan({ goal: context.goal, taskType: 'implementation', requiresCodeChanges: true }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) });
     if (selected.ok === false) throw new Error(selected.code);

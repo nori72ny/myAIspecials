@@ -4,13 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { approvalDigest } from './agentApproval.js';
 import { issueApprovalCapability, issuePlanCapability } from './agentV3Capability.js';
+import type { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
 
 const env = { ORIGIN_AGENT_APPROVAL_SECRET: 'x'.repeat(40) };
 
-function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionStore) {
+function appFor(testEnv: NodeJS.ProcessEnv = env, store?: AgentRunConsumptionStore, codingBridge?: AgentCodingBridgeV3) {
   const app = express();
   app.use(express.json());
-  app.use(createAgentOrchestratorV3Router(testEnv, store));
+  app.use(createAgentOrchestratorV3Router(testEnv, store, codingBridge));
   return app;
 }
 
@@ -24,13 +25,128 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
-  it.each([
-    ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
-    ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
-    ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
-  ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
+  it('requires separated operator authentication and an exact existing Coding job for recovery', async () => {
+    const operatorEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+      ORIGIN_AGENT_OPERATOR_SECRET: 'b'.repeat(48) };
+    const recover = vi.fn(async (runId: string, jobId: string) => ({
+      ok: true as const, runId, jobId, status: 'running' as const,
+      bridgeToken: 'fresh-run-bound-token', expiresAt: new Date(Date.now() + 50_000).toISOString(),
+      freeOnly: true as const, costUsd: 0 as const, paidFallbackUsed: false as const,
+    }));
+    const bridge = { recover } as unknown as AgentCodingBridgeV3;
+    const query = { runId: 'run-recovery-test', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' };
+    const app = appFor(operatorEnv, undefined, bridge);
+    const unauthenticated = await request(app).post('/api/agent/v3/coding/recover').send(query);
+    expect(unauthenticated.status).toBe(401);
+    const signingSecret = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_APPROVAL_SECRET}`).send(query);
+    expect(signingSecret.status).toBe(401);
+    const malformed = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_OPERATOR_SECRET}`)
+      .send({ runId: 'run-../bad', jobId: query.jobId });
+    expect(malformed.status).toBe(400);
+    expect(recover).not.toHaveBeenCalled();
+    const success = await request(app).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${operatorEnv.ORIGIN_AGENT_OPERATOR_SECRET}`).send(query);
+    expect(success.status).toBe(200);
+    expect(success.body).toMatchObject({ ...query, status: 'running', ok: true, paidFallbackUsed: false });
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(recover).toHaveBeenCalledWith(query.runId, query.jobId);
+    const noSeparation = await request(appFor(env, undefined, bridge)).post('/api/agent/v3/coding/recover')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`).send(query);
+    expect(noSeparation.status).toBe(503);
+    expect(recover).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when Coding is enabled but the global PostgreSQL budget is unavailable', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const unavailable = await request(appFor(enabledEnv)).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+
+    const localOnly = await request(appFor(enabledEnv, { consume: async () => true }))
+      .post('/api/agent/v3/plan').send({ goal: 'Describe repository files' });
+    expect(localOnly.status).toBe(503);
+    expect(localOnly.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+  });
+
+  it('shares the same pseudonymous distributed quota across plan and execute routes', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const claimAgentRateSlot = vi.fn(async (_identityHash: string) => true);
+    const app = appFor(enabledEnv, { consume: async () => true, claimAgentRateSlot });
+    const planned = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(planned.status).toBe(201);
+    const invalidApproval = await request(app).post('/api/agent/v3/execute')
+      .send({ runId: 'run-test-case', approvalToken: 'bad', toolName: 'repository_explorer' });
+    expect(invalidApproval.status).toBe(401);
+    expect(claimAgentRateSlot).toHaveBeenCalledTimes(2);
+    const first = claimAgentRateSlot.mock.calls[0]?.[0];
+    const second = claimAgentRateSlot.mock.calls[1]?.[0];
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    expect(first).toBe(second);
+    expect(first).not.toContain('127.0.0.1');
+
+    claimAgentRateSlot.mockResolvedValue(false);
+    const limited = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('AGENT_RATE_GLOBALLY_LIMITED');
+    expect(limited.headers['retry-after']).toBe('60');
+  });
+
+  it('stops privileged calls when the distributed limiter itself errors', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const claimAgentRateSlot = vi.fn(async () => { throw new Error('database connection private'); });
+    const app = appFor(enabledEnv, { consume: async () => true, claimAgentRateSlot });
+    const response = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+    expect(JSON.stringify(response.body)).not.toContain('database connection private');
+  });
+
+  it('bounds repeated operator credential guesses across Agent routes with one shared rate bucket', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      const operatorEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+        ORIGIN_AGENT_OPERATOR_SECRET: 'b'.repeat(48) };
+      const recover = vi.fn();
+      const app = appFor(operatorEnv, undefined, { recover } as unknown as AgentCodingBridgeV3);
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const res = await request(app).post('/api/agent/v3/coding/recover')
+          .send({ runId: 'run-protected', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+        expect(res.status).toBe(401);
+      }
+      const ninth = await request(app).post('/api/agent/v3/coding/recover')
+        .send({ runId: 'run-protected', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+      expect(ninth.status).toBe(429);
+      expect(ninth.body.code).toBe('CHAT_RATE_LIMITED');
+      expect(ninth.headers['retry-after']).toBeDefined();
+      const crossRoute = await request(app).post('/api/agent/v3/execute')
+        .send({ runId: 'run-protected', toolName: 'repository_explorer', approvalToken: 'x' });
+      expect(crossRoute.status).toBe(429);
+      expect(recover).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('rejects forged browser origins on the general Agent execution endpoint', async () => {
     const app = appFor(env, { consume: async () => true });
-    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const response = await request(app).post('/api/agent/v3/execute')
+      .set('Origin', 'https://unauthorized.example')
+      .send({ runId: 'run-safe-test', toolName: 'repository_explorer', approvalToken: 'invalid' });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('CROSS_ORIGIN_REQUEST_BLOCKED');
+  });
+
+  it('does not certify an echoed document artifact as completed', async () => {
+    const app = appFor(env, { consume: async () => true });
+    const goal = 'Create a sales report.';
+    const toolName = 'document_generator';
+    const params = { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' };
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
@@ -43,8 +159,112 @@ describe('agent orchestrator v3', () => {
     expect(result.status).toBe(422);
     expect(result.body.code).toBe('ARTIFACT_VERIFICATION_FAILED');
     expect(result.body.status).not.toBe('completed');
-    expect(result.body.artifact).toBeUndefined();
-    expect(result.body.checkpoint).toBeUndefined();
+  });
+
+  it('binds coding approval to the original planned goal and reports dispatch as running', async () => {
+    const start = vi.fn(async (runId: string) => ({
+      ok: true as const,
+      runId,
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      status: 'running' as const,
+      bridgeToken: 'bridge-token',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const poll = vi.fn(async (runId: string, jobId: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'running' as const,
+      codingStatus: 'running' as const,
+      verified: false as const,
+      resultCode: null,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = { start, poll } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+    const status = await request(app).get('/api/agent/v3/status');
+    expect(status.body.codingBridgeConfigured).toBe(true);
+    const goal = 'Repair this code bug.';
+    const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
+    expect(plan.status).toBe(201);
+    expect(plan.body.selectedTool).toBe('code_interpreter');
+
+    const mismatch = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: plan.body.runId,
+        planToken: plan.body.planToken,
+        toolName: 'code_interpreter',
+        params: { goal: 'Do a different coding task.' },
+      });
+    expect(mismatch.status).toBe(403);
+    expect(mismatch.body.code).toBe('AGENT_PLAN_GOAL_MISMATCH');
+
+    const params = { goal };
+    const approval = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName: 'code_interpreter', params });
+    expect(approval.status).toBe(201);
+
+    const executeResult = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: plan.body.runId,
+        approvalToken: approval.body.approvalToken,
+        toolName: 'code_interpreter',
+        params,
+      });
+    expect(executeResult.status).toBe(202);
+    expect(executeResult.body).toMatchObject({
+      ok: true,
+      status: 'running',
+      jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+      costUsd: 0,
+      paidFallbackUsed: false,
+    });
+    expect(executeResult.body.status).not.toBe('completed');
+    expect(start).toHaveBeenCalledWith(plan.body.runId, goal);
+  });
+
+  it('uses the exact bridge capability for polling and never infers completion', async () => {
+    const poll = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'running' as const,
+      codingStatus: 'repairing' as const,
+      verified: false as const,
+      resultCode: null,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = { start: vi.fn(), poll } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+
+    const missingCapability = await request(app).post('/api/agent/v3/coding/status')
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(missingCapability.status).toBe(403);
+    expect(missingCapability.body.code).toBe('AGENT_CODING_BRIDGE_TOKEN_REQUIRED');
+    expect(poll).not.toHaveBeenCalled();
+
+    const crossOrigin = await request(app).post('/api/agent/v3/coding/status')
+      .set('Origin', 'https://attacker.example')
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(crossOrigin.status).toBe(403);
+    expect(crossOrigin.body.code).toBe('CROSS_ORIGIN_REQUEST_BLOCKED');
+    expect(poll).not.toHaveBeenCalled();
+
+    const response = await request(app).post('/api/agent/v3/coding/status')
+      .send({ runId: 'run-coding-status', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ status: 'running', verified: false, codingStatus: 'repairing' });
+    expect(poll).toHaveBeenCalledWith('run-coding-status', 'coding-AAAAAAAAAAAAAAAAAAAAAA', 'bound-token');
   });
 
   it('reports readiness and legacy credential compatibility truthfully', async () => {
@@ -61,6 +281,7 @@ describe('agent orchestrator v3', () => {
       credentialSeparationConfigured: false,
       replayProtectionConfigured: true,
       replayProtection: 'shared-atomic',
+      codingBridgeConfigured: false,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -77,6 +298,7 @@ describe('agent orchestrator v3', () => {
       credentialSeparationConfigured: false,
       replayProtectionConfigured: false,
       replayProtection: 'unavailable',
+      codingBridgeConfigured: false,
       secretDelivery: 'unavailable',
     });
   });
@@ -338,4 +560,54 @@ describe('agent orchestrator v3', () => {
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
   });
+  it('fails at plan time when coding execution is unavailable', async () => {
+    const response = await request(appFor(env, { consume: async () => true }))
+      .post('/api/agent/v3/plan')
+      .send({ goal: 'Repair this TypeScript bug.' });
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      ok: false,
+      code: 'AGENT_CODE_GENERATION_UNAVAILABLE',
+      protocolVersion: 3,
+    });
+  });
+
+  it('propagates coding cancellation through the exact bridge capability', async () => {
+    const cancelCoding = vi.fn(async (runId: string, jobId: string, bridgeToken: string) => ({
+      ok: true as const,
+      runId,
+      jobId,
+      status: 'cancelling' as const,
+      codingStatus: 'running' as const,
+      cancelRequested: true as const,
+      freeOnly: true as const,
+      costUsd: 0 as const,
+      paidFallbackUsed: false as const,
+    }));
+    const bridge = {
+      start: vi.fn(),
+      poll: vi.fn(),
+      cancel: cancelCoding,
+    } as unknown as AgentCodingBridgeV3;
+    const app = appFor(env, { consume: async () => true }, bridge);
+
+    const missingCapability = await request(app).post('/api/agent/v3/coding/cancel')
+      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(missingCapability.status).toBe(403);
+    expect(missingCapability.body.code).toBe('AGENT_CODING_BRIDGE_TOKEN_REQUIRED');
+    expect(cancelCoding).not.toHaveBeenCalled();
+
+    const response = await request(app).post('/api/agent/v3/coding/cancel')
+      .send({ runId: 'run-cancel-code', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA', bridgeToken: 'bound-token' });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      status: 'cancelling',
+      codingStatus: 'running',
+      cancelRequested: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    });
+    expect(cancelCoding).toHaveBeenCalledWith('run-cancel-code', 'coding-AAAAAAAAAAAAAAAAAAAAAA', 'bound-token');
+  });
+
 });
