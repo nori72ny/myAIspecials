@@ -318,7 +318,7 @@ export class AgentCodingBridgeV3 {
     }
     const ownerHash = hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, this.env);
     const record = await this.jobStore.getJob(jobId, ownerHash);
-    if (!record || record.targetKey !== targetKey || !Number.isSafeInteger(record.expiresAt)
+    if (!record || record.jobId !== jobId || record.targetKey !== targetKey || !Number.isSafeInteger(record.expiresAt)
       || record.expiresAt <= now || record.expiresAt > now + 7 * 24 * 60 * 60_000) {
       return { ok: false, runId, jobId, status: 'blocked', code: 'AGENT_CODING_RECOVERY_UNAVAILABLE',
         freeOnly: true, costUsd: 0, paidFallbackUsed: false };
