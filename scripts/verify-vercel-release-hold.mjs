@@ -122,6 +122,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     assert.equal(deployment.projectId ?? deployment.project?.id, project, "PRODUCTION_DEPLOYMENT_PROJECT_MISMATCH");
     assert.equal(deployment.meta?.githubCommitSha?.toLowerCase(), sha, "PRODUCTION_DEPLOYMENT_SHA_MISMATCH");
     assert.equal(deployment.readyState, "READY", "PRODUCTION_DEPLOYMENT_NOT_READY");
+    assert.equal(deployment.target, "production", "PRODUCTION_DEPLOYMENT_WRONG_TARGET");
   }
 
   if (probe) {
