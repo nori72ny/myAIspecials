@@ -241,6 +241,7 @@ describe('AgentWorkspaceView v3', () => {
 
   it('runs a server-planned coding task asynchronously and waits for verified four-check evidence', async () => {
     const goal = 'このTypeScriptコードのバグを分析して';
+    let codingStatusCalls = 0;
     const verificationChecks = ['typecheck', 'lint', 'test', 'build'].map((kind) => ({
       kind,
       ok: true,
@@ -278,10 +279,24 @@ describe('AgentWorkspaceView v3', () => {
       }
       if (url === '/api/agent/v3/coding/status') {
         expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        codingStatusCalls += 1;
         expect(JSON.parse(String(init?.body))).toEqual({
           runId: 'run-test-1',
           jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
-          bridgeToken: 'bridge-token',
+          bridgeToken: codingStatusCalls === 1 ? 'bridge-token' : 'bridge-token-2',
+        });
+        if (codingStatusCalls === 1) return json({
+          ok: true,
+          status: 'running',
+          codingStatus: 'running',
+          verified: false,
+          runId: 'run-test-1',
+          jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA',
+          bridgeToken: 'bridge-token-2',
+          expiresAt: new Date(Date.now() + 120_000).toISOString(),
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
         });
         return json({
           ok: true,
@@ -336,6 +351,7 @@ describe('AgentWorkspaceView v3', () => {
       '/api/agent/v3/plan',
       '/api/agent/v3/approval',
       '/api/agent/v3/execute',
+      '/api/agent/v3/coding/status',
       '/api/agent/v3/coding/status',
     ]);
   });
