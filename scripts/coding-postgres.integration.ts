@@ -123,6 +123,12 @@ describe('Agent V3 cross-instance Postgres quota', { timeout: 25000 }, () => {
     )`);
     await db.query('alter table public.origin_agent_consumed_runs enable row level security');
     await db.query('revoke all on public.origin_agent_consumed_runs from anon, authenticated');
+    // Mirror the production expiry index. Expired auth-failure entries must
+    // be reclaimed without deleting any live cancellation/replay tombstone.
+    await db.query('create index origin_agent_consumed_runs_expiry_idx on public.origin_agent_consumed_runs(expires_at)');
+    await db.query(`insert into public.origin_agent_consumed_runs (run_id, consumed_at, expires_at) values
+      ('run-expired-auth-budget', clock_timestamp() - interval '5 minutes', clock_timestamp() - interval '4 minutes'),
+      ('run-live-replay-marker', clock_timestamp(), clock_timestamp() + interval '10 minutes')`);
     const stores = Array.from({ length: 3 }, () => new PostgresAgentRunConsumptionStore(db));
     const identity = randomBytes(16).toString('hex');
     const outcome = await Promise.all(Array.from({ length: 65 }, (_, i) =>
@@ -134,6 +140,10 @@ describe('Agent V3 cross-instance Postgres quota', { timeout: 25000 }, () => {
       "select count(*)::text as tally from public.origin_agent_consumed_runs where run_id like 'run-ratelimit-%'",
     );
     assert.equal(Number(rows.rows[0].tally), 61);
+    const retained = await db.query<{ run_id: string }>(
+      "select run_id from public.origin_agent_consumed_runs where run_id in ('run-expired-auth-budget','run-live-replay-marker')",
+    );
+    assert.deepEqual(retained.rows.map(row => row.run_id), ['run-live-replay-marker']);
     for (const role of ['anon', 'authenticated']) {
       assert.equal((await db.query<{ allowed: boolean }>(
         'select has_table_privilege($1, $2, $3) as allowed',
