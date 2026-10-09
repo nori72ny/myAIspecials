@@ -345,7 +345,7 @@ function hasUnsupportedCountMeasure(
   citedEvidence: string,
   verifiedDerived: ReadonlySet<string>,
 ): boolean {
-  const count = /(?<![0-9.,])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12}))[ \\t]{0,8}(店舗|店|件|人)(?![0-9.,])/g;
+  const count = /(?<![0-9.,])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12}))[ \t]{0,8}(店舗|店|件|人)(?![0-9.,])/g;
   const normalizedEvidence = citedEvidence.normalize("NFKC").replace(/\u2212/g, "-");
   const evidenceMeasures = new Set<string>();
   for (const found of normalizedEvidence.matchAll(count)) {
