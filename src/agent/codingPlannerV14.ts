@@ -287,7 +287,7 @@ export function createCodingPlannerV14(options: {
   const env = options.env ?? process.env;
   const execute = options.execute ?? executeOriginProvider;
   return async context => {
-    const deterministic = exactCreateProposal(context);
+    const deterministic = exactCreateProposal(context) ?? exactReplaceProposal(context);
     if (deterministic) return deterministic;
     const selected = buildOriginExecutionPlan({ goal: context.goal, taskType: 'implementation', requiresCodeChanges: true }, { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) });
     if (selected.ok === false) throw new Error(selected.code);
