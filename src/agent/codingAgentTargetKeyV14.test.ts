@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codingAgentTargetKeyForRunV14, isTrustedCodingWorkerTargetV14 } from './codingAgentTargetKeyV14.js';
+import { codingAgentTargetKeyForRunV14, codingAgentTargetKeyMatchesRunV14, codingAgentPinnedRevisionV14, isTrustedCodingWorkerTargetV14 } from './codingAgentTargetKeyV14.js';
 
 describe('durable Agent to Coding target binding', () => {
   it('generates an immutable path-free run association accepted only by the worker allowlist', () => {
@@ -12,6 +12,23 @@ describe('durable Agent to Coding target binding', () => {
     expect(a.length).toBeLessThanOrEqual(128);
     expect(isTrustedCodingWorkerTargetV14(a)).toBe(true);
     expect(isTrustedCodingWorkerTargetV14('origin:self')).toBe(true);
+  });
+
+  it('pins the exact original source SHA without changing owner association or exceeding the SQL key bound', () => {
+    const run = 'run-original-release';
+    const original = 'A'.repeat(40);
+    const old = codingAgentTargetKeyForRunV14(run);
+    const pinned = codingAgentTargetKeyForRunV14(run, original);
+    expect(pinned).toBe(`${old}/${'a'.repeat(40)}`);
+    expect(pinned.length).toBeLessThanOrEqual(128);
+    expect(isTrustedCodingWorkerTargetV14(pinned)).toBe(true);
+    expect(codingAgentPinnedRevisionV14(pinned)).toBe('a'.repeat(40));
+    expect(codingAgentTargetKeyMatchesRunV14(run, pinned)).toBe(true);
+    expect(codingAgentTargetKeyMatchesRunV14(run, old)).toBe(true);
+    expect(codingAgentTargetKeyMatchesRunV14('run-another', pinned)).toBe(false);
+    expect(codingAgentPinnedRevisionV14(old)).toBeNull();
+    expect(() => codingAgentTargetKeyForRunV14(run, 'unknown')).toThrow('AGENT_CODING_SOURCE_REVISION_INVALID');
+    expect(() => codingAgentTargetKeyForRunV14(run, '')).toThrow('AGENT_CODING_SOURCE_REVISION_INVALID');
   });
 
   it.each([
