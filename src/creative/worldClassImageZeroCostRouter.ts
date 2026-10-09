@@ -32,6 +32,12 @@ function releaseSha(env: NodeJS.ProcessEnv): string {
   const value = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA ?? '';
   return FULL_SHA.test(value) ? value.toLowerCase() : 'unknown';
 }
+function explicitlyEnabled(env: NodeJS.ProcessEnv): boolean {
+  // In real Production a qualified SHA is necessary but never sufficient:
+  // an Owner-approved release also requires an explicit server-side switch.
+  return env.VERCEL_ENV?.trim().toLowerCase() !== 'production'
+    || bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED');
+}
 function qualified(env: NodeJS.ProcessEnv): boolean {
   const current = releaseSha(env);
   const approved = env.ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA?.trim().toLowerCase() ?? '';
@@ -173,13 +179,13 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
       && cloudflare?.model === EXACT_WORLD_CLASS_MODEL_V16
       && cloudflare.ready && cloudflare.zeroCostVerified && !cloudflare.paidFallbackEnabled
     );
-    const ready = isQualified && primaryReady;
+    const ready = isQualified && primaryReady && explicitlyEnabled(env);
     const evaluationReady = Boolean(primaryReady && (isQualified || evaluationBypassAllowed(env)));
     return res.status(ready ? 200 : 503).json({
       ok: ready,
       ready,
       evaluationReady,
-      enabled: true,
+      enabled: explicitlyEnabled(env),
       qualified: isQualified,
       releaseSha: releaseSha(env),
       qualifiedSha: env.ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA?.trim().toLowerCase() || null,
@@ -217,6 +223,10 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
       );
     }
 
+    if (!explicitlyEnabled(env)) {
+      return fail(res, 503, 'WORLD_CLASS_IMAGE_PRODUCTION_DISABLED',
+        '画像生成・編集機能はOwner承認によるProduction有効化まで利用できません。');
+    }
     if (!qualified(env) && !evaluationBypassAllowed(env)) {
       return fail(res, 503, 'WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED', 'blind品質評価を通過したexact SHAだけが本番利用できます。');
     }

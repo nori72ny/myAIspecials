@@ -217,6 +217,47 @@ describe('V1.6 image editing strict reference integrity', () => {
     expect(critic.exactText).toContain('全角ＡＢＣ');
   });
 
+  it('requires a separate Owner-controlled Production enable flag even after SHA/model approval', async () => {
+    const instance = express();
+    instance.use(express.json({ limit: '3mb' }));
+    instance.use(createWorldClassImageZeroCostRouter({
+      VERCEL_ENV: 'production',
+      NODE_ENV: 'production',
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+    }));
+    const status = await request(instance).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(503);
+    expect(status.body.qualified).toBe(true);
+    expect(status.body.enabled).toBe(false);
+    const disabledResponse = await request(instance).post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '安全な広告画像' });
+    expect(disabledResponse.status).toBe(503);
+    expect(disabledResponse.body.code).toBe('WORLD_CLASS_IMAGE_PRODUCTION_DISABLED');
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it('allows a fully qualified Production route only with explicit activation', async () => {
+    mocks.generate.mockResolvedValue(result(image(112)));
+    const instance = express();
+    instance.use(express.json({ limit: '3mb' }));
+    instance.use(createWorldClassImageZeroCostRouter({
+      VERCEL_ENV: 'production',
+      NODE_ENV: 'production',
+      ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+      ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS: '1',
+    }));
+    const status = await request(instance).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({ ready: true, qualified: true, enabled: true });
+    const response = await request(instance).post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '安全な広告画像', width: 256, height: 256 });
+    expect(response.status).toBe(200);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+  });
+
   it('does not accept an unmodified source as a successful edit', async () => {
     const original = image(12);
     mocks.generate.mockResolvedValue(result(original));
