@@ -67,6 +67,16 @@ describe('V1.6 world-class image edit Free-only private shard runner', () => {
     expect(publicPayload).toContain('instructionSha256s');
   });
 
+  it('independently decodes each successful edit output before qualifying or saving it', () => {
+    expect(source).toContain('verifyEditCandidatePixelsDecodedV1(bytes, typedMime, task.width, task.height)');
+    expect(source).toContain('await img.decode()');
+    expect(source).toContain('context.getImageData(0, 0, 2, 2)');
+    expect(source).toContain('IMAGE_EDIT_PRIVATE_OUTPUT_BROWSER_DECODE_FAILED');
+    expect(source).toContain('const pixelsQualified = qualified && actualPixelsDecoded');
+    expect(source).toContain('if (pixelsQualified && typedMime)');
+    expect(source).toContain('failureCode: pixelsQualified ? null');
+  });
+
   it('limits account-wide daily quota shared with image generation, preserving real release gates', () => {
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).toContain("github.ref == 'refs/heads/main'");

@@ -115,6 +115,50 @@ async function verifyAllEditSourcesDecodedV1(tasks: readonly ImageEditPrivateTas
   }
 }
 
+/**
+ * Inspect actual candidate edit pixels in Chromium before claiming a technically
+ * qualified shard output. MIME magic and dimensions alone cannot prove that an
+ * image decodes. This check never writes source images or edit instructions.
+ */
+async function verifyEditCandidatePixelsDecodedV1(
+  bytes: Buffer,
+  mime: 'image/png' | 'image/jpeg' | 'image/webp',
+  expectedWidth: number,
+  expectedHeight: number,
+): Promise<boolean> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    try {
+      const decoded = await page.evaluate(async ({ dataUrl }) => {
+        const img = new Image();
+        img.src = dataUrl;
+        await Promise.race([
+          img.decode(),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('DECODE_TIMEOUT')), 8_000);
+          }),
+        ]);
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 2;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('IMAGE_EDIT_CANDIDATE_NO_CANVAS');
+        context.drawImage(img, 0, 0, 2, 2);
+        const rgba = context.getImageData(0, 0, 2, 2).data;
+        if (rgba.length !== 16) throw new Error('IMAGE_EDIT_CANDIDATE_PIXELS_INVALID');
+        return { width: img.naturalWidth, height: img.naturalHeight };
+      }, { dataUrl: `data:${mime};base64,${bytes.toString('base64')}` });
+      return decoded.width === expectedWidth && decoded.height === expectedHeight;
+    } finally {
+      await page.close();
+    }
+  } catch {
+    return false;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function evaluateEditCase(
   baseUrl: string,
   task: ImageEditPrivateTaskV1,
@@ -223,7 +267,14 @@ async function evaluateEditCase(
     && !identicalToSource
   );
 
-  if (qualified && typedMime) {
+  // A structurally plausible but corrupt file must never be counted as a
+  // successful edit or persisted as a candidate image for blind comparison.
+  const actualPixelsDecoded = qualified && typedMime
+    ? await verifyEditCandidatePixelsDecodedV1(bytes, typedMime, task.width, task.height)
+    : false;
+  const pixelsQualified = qualified && actualPixelsDecoded;
+
+  if (pixelsQualified && typedMime) {
     await fs.writeFile(
       path.join(outputDir, `case-${String(caseIndex + 1).padStart(2, '0')}.${extension(typedMime)}`),
       bytes,
@@ -248,7 +299,10 @@ async function evaluateEditCase(
     deliveryIntegrityPassed,
     providerId,
     modelId,
-    failureCode: qualified ? null : identicalToSource ? 'IMAGE_EDIT_PRIVATE_IDENTICAL_FALSE_EDIT' : 'IMAGE_EDIT_PRIVATE_OUTPUT_VALIDATION_FAILED',
+    failureCode: pixelsQualified ? null : identicalToSource
+      ? 'IMAGE_EDIT_PRIVATE_IDENTICAL_FALSE_EDIT'
+      : qualified ? 'IMAGE_EDIT_PRIVATE_OUTPUT_BROWSER_DECODE_FAILED'
+      : 'IMAGE_EDIT_PRIVATE_OUTPUT_VALIDATION_FAILED',
   };
 }
 
