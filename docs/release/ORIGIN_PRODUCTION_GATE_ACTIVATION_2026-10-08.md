@@ -124,3 +124,9 @@ PR headに実際に紐づいた独立40問評価と秘密48問評価の証拠が
 本番公開に関するChecks V2の読み取り専用レスポンスは、取得先が公式APIでも無条件に信頼しない。監査では、生JSONをパースする**前**に宣言されたContent-Lengthと実際の受信バイト数を独立して検証し、256 KiBを超えるレスポンス、異常なContent-Length、JSON不正を`VERCEL_CHECK_READBACK_UNAVAILABLE`として拒否する。トークンやレスポンス生データはログに出さない。
 
 APIが返した同名の公開チェックでも、`deletedAt`が非NULLなら、過去の設定として公開制御証拠に数えない。同名チェックの全件重複検査は維持する。実環境から取得した設定・承認済み実行元ID・不合格時の本番エイリアス保留の3点が揃わない限り公開許可は出さない。これらはソースコードテストだけで実証されたとは言わない。
+
+## GitHub必須チェックの実行アプリID照合
+
+GitHubのbranch protectionが必須チェックにアプリID (`required_status_checks.checks[].app_id`) を指定した場合、チェック名が一致して成功していても十分ではない。
+実際の `check-runs[].app.id` が承認済み `app_id` と完全一致することを監査する。異なる実行元、appの欠落、`app_id: -1`（any app）、不正値、同一チェック名で矛盾する複数app指定は、`REQUIRED_CI_NOT_GREEN` とする。
+GitHubのbranch protectionの**実データ**取得権限がなければ`BRANCH_RULES_UNVERIFIED`のまま。PRコメントや同名のチェック表示から実行元を推測して解除しない。
