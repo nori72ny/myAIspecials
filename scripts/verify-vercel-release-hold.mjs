@@ -6,7 +6,7 @@ const FULL_SHA = /^[0-9a-f]{40}$/;
 const VERCEL_PROJECT = /^prj_[a-zA-Z0-9]+$/;
 const VERCEL_TEAM = /^team_[a-zA-Z0-9]+$/;
 const VERCEL_DEPLOYMENT = /^dpl_[a-zA-Z0-9]+$/;
-const ALIAS = /^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?)+$/;
+const ALIAS_CHARS = /^[a-z0-9.-]+$/;
 const MAX_RESPONSE_BYTES = 300_000;
 
 function required(env, name, pattern) {
@@ -27,7 +27,13 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   const token = required(env, "VERCEL_TOKEN", /^\S{10,}$/);
   const project = required(env, "ORIGIN_VERCEL_PROJECT_ID", VERCEL_PROJECT);
   const team = required(env, "ORIGIN_VERCEL_TEAM_ID", VERCEL_TEAM);
-  const alias = required(env, "ORIGIN_PRODUCTION_ALIAS", ALIAS);
+  const alias = env.ORIGIN_PRODUCTION_ALIAS;
+  assert.equal(typeof alias, "string", "ORIGIN_PRODUCTION_ALIAS_MISSING");
+  assert.ok(alias.length >= 4 && alias.length <= 253 && ALIAS_CHARS.test(alias), "ORIGIN_PRODUCTION_ALIAS_INVALID");
+  const labels = alias.split(".");
+  assert.ok(labels.length >= 2 && labels.every((label) =>
+    label.length >= 1 && label.length <= 63 && !label.startsWith("-") && !label.endsWith("-")
+  ), "ORIGIN_PRODUCTION_ALIAS_INVALID");
   const deploymentId = required(env, "ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID", VERCEL_DEPLOYMENT);
   const sha = required(env, "ORIGIN_EXPECTED_PRODUCTION_SHA", FULL_SHA);
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));

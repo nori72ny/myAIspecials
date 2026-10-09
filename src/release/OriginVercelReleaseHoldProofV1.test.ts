@@ -56,6 +56,20 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     mutate(x);
     await expect(verifyVercelReleaseHold(fixtureEnv, fakeApi(x))).rejects.toThrow();
   });
+  it.each([
+    ["nested repeated labels", "0." + "00.".repeat(30_000)],
+    ["single label", "localhost"],
+    ["empty label", "origin..vercel.app"],
+    ["hyphen-prefixed label", "-origin.vercel.app"],
+    ["trailing hyphen label", "origin-.vercel.app"],
+    ["invalid path", "origin.vercel.app/health"],
+    ["oversized label", "a".repeat(64) + ".vercel.app"],
+    ["mixed uppercase hostname", "ORIGIN.vercel.app"],
+  ])("rejects adversarial hostname: %s without making HTTP calls", async (_case, alias) => {
+    const f = vi.fn();
+    await expect(verifyVercelReleaseHold({ ...fixtureEnv, ORIGIN_PRODUCTION_ALIAS: alias }, f)).rejects.toThrow("ORIGIN_PRODUCTION_ALIAS_INVALID");
+    expect(f).not.toHaveBeenCalled();
+  });
   it("denies absent authentication before sending any HTTP request", async () => {
     const f = vi.fn();
     await expect(verifyVercelReleaseHold({ ...fixtureEnv, VERCEL_TOKEN: undefined }, f)).rejects.toThrow("VERCEL_TOKEN_MISSING");
