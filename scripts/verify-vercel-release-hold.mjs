@@ -9,6 +9,14 @@ const VERCEL_TEAM = /^team_[a-zA-Z0-9]+$/;
 const VERCEL_DEPLOYMENT = /^dpl_[a-zA-Z0-9]+$/;
 const ALIAS_CHARS = /^[a-z0-9.-]+$/;
 const MAX_RESPONSE_BYTES = 300_000;
+// These three domains are advertised by the ORIGIN Vercel project. The
+// Project Domains API returns only the primary one; inspecting it alone
+// would miss movement of the two default Vercel production aliases.
+export const PROTECTED_ORIGIN_ALIASES = Object.freeze([
+  "origin-personal.vercel.app",
+  "origin-personal-nori72nyprivate-6923s-projects.vercel.app",
+  "origin-personal-git-main-nori72nyprivate-6923s-projects.vercel.app"
+]);
 
 function required(env, name, pattern) {
   const value = env[name];
@@ -35,6 +43,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   assert.ok(labels.length >= 2 && labels.every((label) =>
     label.length >= 1 && label.length <= 63 && !label.startsWith("-") && !label.endsWith("-")
   ), "ORIGIN_PRODUCTION_ALIAS_INVALID");
+  assert.equal(alias, PROTECTED_ORIGIN_ALIASES[0], "ORIGIN_PRIMARY_ALIAS_MISMATCH");
   const deploymentId = required(env, "ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID", VERCEL_DEPLOYMENT);
   const sha = required(env, "ORIGIN_EXPECTED_PRODUCTION_SHA", FULL_SHA);
   const config = JSON.parse(readFileSync(resolve(process.cwd(), "vercel.json"), "utf8"));
@@ -70,9 +79,10 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     assert.match(probeId, VERCEL_DEPLOYMENT, "ORIGIN_STAGED_PROBE_DEPLOYMENT_ID_INVALID");
     assert.notEqual(probeId, deploymentId, "ORIGIN_STAGED_PROBE_NOT_DISTINCT");
   }
-  const [projectInfo, aliasInfo, deployment, probe] = await Promise.all([
+  const [projectInfo, aliasInfos, deployment, probe] = await Promise.all([
     readVercelJson("/v9/projects/" + project),
-    readVercelJson("/v4/aliases/" + alias),
+    Promise.all(PROTECTED_ORIGIN_ALIASES.map((name) =>
+      readVercelJson("/v4/aliases/" + name))),
     readVercelJson("/v13/deployments/" + deploymentId),
     probeId ? readVercelJson("/v13/deployments/" + probeId) : Promise.resolve(null),
   ]);
@@ -81,9 +91,12 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   // that omits unlisted fields or normalizes missing values to false.
   assert.equal(projectInfo.id, project, "VERCEL_PROJECT_MISMATCH");
   assert.equal(projectInfo.autoAssignCustomDomains, false, "VERCEL_NATIVE_AUTO_ASSIGN_NOT_VERIFIED");
-  assert.equal(aliasInfo.projectId, project, "PRODUCTION_ALIAS_PROJECT_MISMATCH");
-  assert.equal(aliasInfo.alias, alias, "PRODUCTION_ALIAS_NAME_MISMATCH");
-  assert.equal(aliasInfo.deploymentId, deploymentId, "PRODUCTION_ALIAS_MOVED");
+  for (let index = 0; index < PROTECTED_ORIGIN_ALIASES.length; index += 1) {
+    const observed = aliasInfos[index];
+    assert.equal(observed.projectId, project, "PRODUCTION_ALIAS_PROJECT_MISMATCH");
+    assert.equal(observed.alias, PROTECTED_ORIGIN_ALIASES[index], "PRODUCTION_ALIAS_NAME_MISMATCH");
+    assert.equal(observed.deploymentId, deploymentId, "PRODUCTION_ALIAS_MOVED");
+  }
   assert.equal(deployment.projectId ?? deployment.project?.id, project, "PRODUCTION_DEPLOYMENT_PROJECT_MISMATCH");
   assert.equal(deployment.meta?.githubCommitSha?.toLowerCase(), sha, "PRODUCTION_DEPLOYMENT_SHA_MISMATCH");
   assert.equal(deployment.readyState, "READY", "PRODUCTION_DEPLOYMENT_NOT_READY");
@@ -94,7 +107,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     assert.equal(probe.readyState, "READY", "STAGED_PROBE_NOT_READY");
     assert.equal(probe.target, "production", "STAGED_PROBE_NOT_PRODUCTION_TARGET");
     assert.equal(probe.meta?.githubCommitSha?.toLowerCase(), sha, "STAGED_PROBE_UNTRUSTED_SHA");
-    assert.notEqual(aliasInfo.deploymentId, probeId, "STAGED_PROBE_AUTO_PROMOTED");
+    assert.ok(aliasInfos.every((observed) => observed.deploymentId !== probeId), "STAGED_PROBE_AUTO_PROMOTED");
   }
 
   // Same-SHA staging cannot prove what happens on the FIRST new main push.
@@ -102,6 +115,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     status: "native-custom-domain-and-current-alias-verified",
     productionAlias: alias,
     deploymentId,
+    verifiedProductionAliases: PROTECTED_ORIGIN_ALIASES,
     observedSha: sha,
     autoAssignCustomDomains: false,
     sameShaProductionProbeVerified: Boolean(probe),

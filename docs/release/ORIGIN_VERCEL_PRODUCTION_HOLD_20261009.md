@@ -29,6 +29,24 @@ The read-only `scripts/verify-vercel-release-hold.mjs` now accepts optional `ORI
 
 **Still blocking main merge:** third-party exact-head APPROVED review, Owner authorization, independently verified project-level native hold and a safe approach to first NEW main commit. The staging probe strengthens evidence but does not waive any blocker.
 
+## Three-domain alias drift and fail-closed verification
+
+A 2026-10-09 same-SHA `production` staged deployment
+`dpl_AV9BVPv2kjDcUJxHu6BoW45PGJJh` left the primary
+`origin-personal.vercel.app` alias unchanged, **but did reassign**:
+- `origin-personal-nori72nyprivate-6923s-projects.vercel.app`
+- `origin-personal-git-main-nori72nyprivate-6923s-projects.vercel.app`
+
+Both moved to the staging deployment even though its code SHA was unchanged.
+`GET /v9/projects/{id}/domains` lists only the primary domain, so it is
+**not a complete source** for Vercel default production alias inventory.
+The read-only release verifier must check the explicit three protected
+aliases via `GET /v4/aliases/{name}` and fail if **any** one moved.
+Future alias additions require independent release inventory update.
+No further `create_deployment(target:"production")` dry runs: the connector
+does not provide the safe `--skip-domain` option that Vercel CLI supports.
+This change is a safety gate, not proof of a safe first new-main push.
+
 ## Mandatory first-merge bootstrap caution
 
 Vercel may have to ingest a new `vercel.json` configuration before it becomes effective. A Git merge of this PR **must not be used as an experiment** to discover whether the first push will auto-promote. First establish and verify a **separate Vercel-side production hold** or another independently tested protection preventing domain assignment. The current API connector does not return existing `commandForIgnoringBuildStep` or effective Production Deployment Checks, so these must be inspected by an authorized release reviewer before changing settings. Do not overwrite unknown existing project configuration.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { verifyStaticGitConfig, verifyVercelReleaseHold } from "../../scripts/verify-vercel-release-hold.mjs";
+import { PROTECTED_ORIGIN_ALIASES, verifyStaticGitConfig, verifyVercelReleaseHold } from "../../scripts/verify-vercel-release-hold.mjs";
 
 const fixtureEnv = {
   VERCEL_TOKEN: "a-read-only-test-token",
@@ -32,7 +32,7 @@ const withProbe = (): ReturnType<typeof okay> & { probe: ProbeFixture } => ({
   },
 });
 
-function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay()) {
+function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay(), aliasOverrides: Record<string, { deploymentId?: string; projectId?: string }> = {}) {
   return vi.fn(async (input, options) => {
     expect(options.method).toBe("GET");
     expect(options.redirect).toBe("error");
@@ -41,7 +41,11 @@ function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay())
     expect(url.origin).toBe("https://api.vercel.com");
     expect(url.searchParams.get("teamId")).toBe(fixtureEnv.ORIGIN_VERCEL_TEAM_ID);
     const val = url.pathname.includes("/projects/") ? x.project
-      : url.pathname.includes("/aliases/") ? x.alias
+      : url.pathname.includes("/aliases/") ? {
+        ...x.alias,
+        alias: decodeURIComponent(url.pathname.slice("/v4/aliases/".length)),
+        ...(aliasOverrides[decodeURIComponent(url.pathname.slice("/v4/aliases/".length))] ?? {}),
+      }
       : url.pathname.endsWith("/dpl_PROBE123") ? x.probe : x.deployment;
     return new Response(JSON.stringify(val), { status: 200, headers: { "content-type": "application/json" } });
   });
@@ -52,9 +56,10 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
   it("verifies current native flag, alias and deployment SHA but never claims first-merge proof", async () => {
     const mock = fakeApi();
     const result = await verifyVercelReleaseHold(fixtureEnv, mock);
-    expect(mock).toHaveBeenCalledTimes(3);
+    expect(mock).toHaveBeenCalledTimes(5);
     expect(result).toMatchObject({
       status: "native-custom-domain-and-current-alias-verified",
+      verifiedProductionAliases: PROTECTED_ORIGIN_ALIASES,
       autoAssignCustomDomains: false,
       firstMainPushNegativePathVerified: false,
       independentReviewerApproved: false,
@@ -96,7 +101,7 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     const output = await verifyVercelReleaseHold({
       ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: "dpl_PROBE123",
     }, fake);
-    expect(fake).toHaveBeenCalledTimes(4);
+    expect(fake).toHaveBeenCalledTimes(6);
     expect(output).toMatchObject({
       sameShaProductionProbeVerified: true,
       firstMainPushNegativePathVerified: false,
@@ -127,6 +132,21 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
         ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: probeId,
       }, client)).rejects.toThrow();
       expect(client).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(PROTECTED_ORIGIN_ALIASES.slice(1))("fails closed if secondary protected alias %s moved during production staging", async (name) => {
+    const mock = fakeApi(okay(), { [name]: { deploymentId: "dpl_UNEXPECTED123" } });
+    await expect(verifyVercelReleaseHold(fixtureEnv, mock)).rejects.toThrow("PRODUCTION_ALIAS_MOVED");
+  });
+
+  it("checks every protected alias; the project-domains API alone is insufficient", async () => {
+    const mock = fakeApi();
+    const result = await verifyVercelReleaseHold(fixtureEnv, mock);
+    expect(result.verifiedProductionAliases).toEqual(PROTECTED_ORIGIN_ALIASES);
+    const requests = mock.mock.calls.map((call) => String(call[0]));
+    for (const hostname of PROTECTED_ORIGIN_ALIASES) {
+      expect(requests).toContain("https://api.vercel.com/v4/aliases/" + hostname + "?teamId=team_TEST1234");
     }
   });
 
