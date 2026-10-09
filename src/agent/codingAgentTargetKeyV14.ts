@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 // No target key is ever interpreted as a filesystem path.
 const LEGACY_TARGET = 'origin:self';
 const AGENT_TARGET_PREFIX = 'origin:self/agent/';
-const AGENT_RUN_ID = /^run-[A-Za-z0-9-]{8,100}$/;
+const AGENT_RUN_ID = /^run-[A-Za-z0-9-]{1,100}$/;
 const AGENT_TARGET = /^origin:self\/agent\/[0-9a-f]{64}$/;
 
 export function codingAgentTargetKeyForRunV14(runId: string): string {
