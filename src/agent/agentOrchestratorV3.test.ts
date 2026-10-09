@@ -58,6 +58,55 @@ describe('agent orchestrator v3', () => {
     expect(recover).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed when Coding is enabled but the global PostgreSQL budget is unavailable', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const unavailable = await request(appFor(enabledEnv)).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+
+    const localOnly = await request(appFor(enabledEnv, { consume: async () => true }))
+      .post('/api/agent/v3/plan').send({ goal: 'Describe repository files' });
+    expect(localOnly.status).toBe(503);
+    expect(localOnly.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+  });
+
+  it('shares the same pseudonymous distributed quota across plan and execute routes', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const claimAgentRateSlot = vi.fn(async () => true);
+    const app = appFor(enabledEnv, { consume: async () => true, claimAgentRateSlot });
+    const planned = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(planned.status).toBe(201);
+    const invalidApproval = await request(app).post('/api/agent/v3/execute')
+      .send({ runId: 'run-test-case', approvalToken: 'bad', toolName: 'repository_explorer' });
+    expect(invalidApproval.status).toBe(401);
+    expect(claimAgentRateSlot).toHaveBeenCalledTimes(2);
+    const first = claimAgentRateSlot.mock.calls[0]?.[0];
+    const second = claimAgentRateSlot.mock.calls[1]?.[0];
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    expect(first).toBe(second);
+    expect(first).not.toContain('127.0.0.1');
+
+    claimAgentRateSlot.mockResolvedValue(false);
+    const limited = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('AGENT_RATE_GLOBALLY_LIMITED');
+    expect(limited.headers['retry-after']).toBe('60');
+  });
+
+  it('stops privileged calls when the distributed limiter itself errors', async () => {
+    const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
+    const claimAgentRateSlot = vi.fn(async () => { throw new Error('database connection private'); });
+    const app = appFor(enabledEnv, { consume: async () => true, claimAgentRateSlot });
+    const response = await request(app).post('/api/agent/v3/plan')
+      .send({ goal: 'Describe repository files' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AGENT_RATE_SHARED_STORE_UNAVAILABLE');
+    expect(JSON.stringify(response.body)).not.toContain('database connection private');
+  });
+
   it('bounds repeated operator credential guesses across Agent routes with one shared rate bucket', async () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
     try {
