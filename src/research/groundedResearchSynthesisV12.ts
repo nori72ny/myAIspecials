@@ -345,18 +345,21 @@ function hasUnsupportedCountMeasure(
   citedEvidence: string,
   verifiedDerived: ReadonlySet<string>,
 ): boolean {
-  const count = /(?<![0-9.,])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12}))[ \t]{0,8}(店舗|店|件|人)(?![0-9.,])/g;
+  // Match the ENTIRE quantity, including fractional and scientific notation.
+  // Integer-only matching would let 2.5件 justify 2.5人 (or misread the
+  // exponent tail of 1e3件 as a separate 3件).
+  const count = /(?<![0-9.,A-Za-z])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,8})?(?:e[+-]?[0-9]{1,3})?)[ \t]{0,8}(店舗|店|件|人)(?![0-9.,A-Za-z])/gi;
   const normalizedEvidence = citedEvidence.normalize("NFKC").replace(/\u2212/g, "-");
   const evidenceMeasures = new Set<string>();
   for (const found of normalizedEvidence.matchAll(count)) {
-    const amount = found[1].replace(/,/g, "").replace(/^\+/, "");
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
     const category = found[2] === "店舗" ? "店" : found[2];
     evidenceMeasures.add(`${amount}@${category}`);
   }
 
   const normalizedClaim = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
   for (const found of normalizedClaim.matchAll(count)) {
-    const amount = found[1].replace(/,/g, "").replace(/^\+/, "");
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
     const category = found[2] === "店舗" ? "店" : found[2];
     const key = `${amount}@${category}`;
     // In a joined subtraction such as 135店-120店=15店, the minus is a
