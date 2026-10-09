@@ -237,6 +237,38 @@ jobs:
       # The preflight job can finish while protected main or the PR HEAD
       # changes. Revalidate before touching the sealed corpus in this job.
       # The later ancestry check immediately before reservation is retained.
+      - name: Revalidate exact candidate PR binding before reading sealed corpus
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          if [ "$PR_NUMBER" = '0' ]; then
+            if [ "$CANDIDATE_SHA" != "$GITHUB_SHA" ]; then
+              echo 'AQ_V2_MAIN_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION' >&2
+              exit 2
+            fi
+          else
+            curl --fail --silent --show-error \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              -o pr.json
+            node <<'NODE'
+          const fs=require('node:fs');
+          const pr=JSON.parse(fs.readFileSync('pr.json','utf8'));
+          const fail=code=>{console.error(code);process.exit(2);};
+          if(pr?.state!=='open') fail('AQ_V2_CANDIDATE_PR_NOT_OPEN_AT_EXECUTION');
+          if(pr?.base?.ref!=='main') fail('AQ_V2_CANDIDATE_BASE_INVALID_AT_EXECUTION');
+          if(pr?.head?.repo?.full_name!==process.env.GITHUB_REPOSITORY) fail('AQ_V2_CANDIDATE_FORK_BLOCKED_AT_EXECUTION');
+          if(pr?.head?.sha!==process.env.CANDIDATE_SHA) fail('AQ_V2_CANDIDATE_SHA_CHANGED_BEFORE_EXECUTION');
+          NODE
+            rm -f pr.json
+          fi
+
       - name: Revalidate main ancestry before reading sealed corpus
         env:
           GH_TOKEN: ${{ github.token }}
