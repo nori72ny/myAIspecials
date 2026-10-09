@@ -1,6 +1,13 @@
 # ORIGIN Answer Accuracy — first incremental release gate
 
-**Scope:** answer accuracy only. No image-generation, PWA, Agent, Coding or UI features are included in this release candidate. Source: PR #930 based on production main `437f4f0a5c66c0d9add7f65e72369f9787931f7a`.
+**Scope:** answer accuracy only. No image-generation, PWA, Agent, Coding or UI features are included in this release candidate. Source: original draft PR #930; this release candidate is rebuilt from protected `main` `1a9a88cb9571fce078eb0d729f007f7ac8e26e88` on `fix/answer-accuracy-current-main-20261010`. The original draft was behind current main by 23 commits. The new branch preserves the existing manual-production hold, three-domain health attestation, and security lockfile; those files were not replaced from the old draft.
+
+## Candidate scope and constraints (2026-10-10)
+
+- Exactly 12 answer/runtime/evaluation source and test files plus this release document differ from `main` at initial port. No CI workflow, Vercel configuration, dependency lockfile, release security guard, or main production alias changed.
+- Added Japanese counter checks for 名/人, 社, 台, 個, 回, and stricter malformed-grouping checks with regression tests. This is not evidence of a live-model accuracy improvement until a real independent benchmark is completed.
+- The `main` Git deployment hold in `vercel.json` is a repository configuration assertion, not independently verified proof of live Vercel native domain admission policy. The last known canonical alias still serves old production SHA `437f4f0a5c66c0d9add7f65e72369f9787931f7a`.
+- Production promotion is **BLOCKED** until latest exact-head CI, independent review, live zero-cost paired quality measurement, native all-domain release-hold proof, Owner exact-SHA visual acceptance, and a safe same-build stage/promotion/rollback path are all independently verified.
 
 ## Shipped into the review candidate
 
