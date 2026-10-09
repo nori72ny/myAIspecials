@@ -172,8 +172,15 @@ export function createWorldClassImageZeroCostRouter(env: NodeJS.ProcessEnv = pro
   const router = Router();
 
   router.get('/api/creative/v1.6/world-class/status', async (_req, res) => {
-    const cloudflare = await getCloudflareRasterStatusV15(env).catch(() => null);
+    res.setHeader('Cache-Control', 'no-store');
     const isQualified = qualified(env);
+    const canProbeProvider = explicitlyEnabled(env)
+      && (isQualified || evaluationBypassAllowed(env));
+    // Never amplify unauthenticated status polling into Cloudflare API traffic
+    // before release qualification or while the Owner Production switch is off.
+    const cloudflare = canProbeProvider
+      ? await getCloudflareRasterStatusV15(env).catch(() => null)
+      : null;
     const primaryReady = Boolean(
       (env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || EXACT_WORLD_CLASS_MODEL_V16) === EXACT_WORLD_CLASS_MODEL_V16
       && cloudflare?.model === EXACT_WORLD_CLASS_MODEL_V16
