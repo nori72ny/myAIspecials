@@ -6,7 +6,7 @@
 
 Current `vercel.json` on `main` has `git.deploymentEnabled.main=true`. Vercel Git integration can deploy Production automatically on a main push. Meanwhile `DEPLOYMENT.md` and the Owner contract require an independently approved Production action after Git source acceptance. These conditions conflict.
 
-The reviewed fix changes `main` to `false` while preserving `'**': false` and `'release-*': true` in `vercel.json`. The production CI's automatic push hook is also moved to a post-publication manual `workflow_dispatch`. Tests in `scripts/verify-manual-production-hold.test.mjs` reject accidental reversal.
+The reviewed fix changes `main` to `false` while preserving `'**': false` and `'release-*': true` in `vercel.json`. The production CI's automatic push hook is also moved to a post-publication manual `workflow_dispatch`. Tests in `scripts/verify-manual-production-hold.node-check.mjs` reject accidental reversal.
 
 Source: https://vercel.com/docs/project-configuration/git-configuration
 
