@@ -23,7 +23,9 @@ function fakeApi(x = okay()) {
     const url = new URL(input);
     expect(url.origin).toBe("https://api.vercel.com");
     expect(url.searchParams.get("teamId")).toBe(fixtureEnv.ORIGIN_VERCEL_TEAM_ID);
-    const val = url.pathname.includes("/projects/") ? x.project : url.pathname.includes("/aliases/") ? x.alias : x.deployment;
+    const val = url.pathname.includes("/projects/") ? x.project
+      : url.pathname.includes("/aliases/") ? x.alias
+      : url.pathname.endsWith("/dpl_PROBE123") ? x.probe : x.deployment;
     return new Response(JSON.stringify(val), { status: 200, headers: { "content-type": "application/json" } });
   });
 }
@@ -70,6 +72,55 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     await expect(verifyVercelReleaseHold({ ...fixtureEnv, ORIGIN_PRODUCTION_ALIAS: alias }, f)).rejects.toThrow("ORIGIN_PRODUCTION_ALIAS_INVALID");
     expect(f).not.toHaveBeenCalled();
   });
+
+  it("proves a READY same-SHA production-target probe did not replace the live alias, but never approves first main push", async () => {
+    const x = { ...okay(), probe: {
+      id: "dpl_PROBE123", projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
+      readyState: "READY", target: "production",
+      meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
+    } };
+    const fake = fakeApi(x);
+    const output = await verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: "dpl_PROBE123",
+    }, fake);
+    expect(fake).toHaveBeenCalledTimes(4);
+    expect(output).toMatchObject({
+      sameShaProductionProbeVerified: true,
+      firstMainPushNegativePathVerified: false,
+      independentReviewerApproved: false,
+      productionPromotionAuthorized: false,
+    });
+  });
+
+  it.each([
+    ["non-ready", (x) => { x.probe.readyState = "BUILDING"; }],
+    ["preview-target", (x) => { x.probe.target = null; }],
+    ["wrong-sha", (x) => { x.probe.meta.githubCommitSha = "b".repeat(40); }],
+    ["wrong-project", (x) => { x.probe.projectId = "prj_OTHER123"; }],
+    ["wrong-id", (x) => { x.probe.id = "dpl_OTHER123"; }],
+    ["alias-was-moved", (x) => { x.alias.deploymentId = "dpl_PROBE123"; }],
+  ])("fails closed on staged production probe %s", async (_name, mutate) => {
+    const x = { ...okay(), probe: {
+      id: "dpl_PROBE123", projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
+      readyState: "READY", target: "production",
+      meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
+    } };
+    mutate(x);
+    await expect(verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: "dpl_PROBE123",
+    }, fakeApi(x))).rejects.toThrow();
+  });
+
+  it("rejects malformed or identical staging probe identifiers before any network request", async () => {
+    for (const probeId of ["../bad", "dpl_OTHER?", fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID]) {
+      const client = vi.fn();
+      await expect(verifyVercelReleaseHold({
+        ...fixtureEnv, ORIGIN_STAGED_PROBE_DEPLOYMENT_ID: probeId,
+      }, client)).rejects.toThrow();
+      expect(client).not.toHaveBeenCalled();
+    }
+  });
+
   it("denies absent authentication before sending any HTTP request", async () => {
     const f = vi.fn();
     await expect(verifyVercelReleaseHold({ ...fixtureEnv, VERCEL_TOKEN: undefined }, f)).rejects.toThrow("VERCEL_TOKEN_MISSING");
