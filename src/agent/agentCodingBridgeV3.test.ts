@@ -206,21 +206,34 @@ describe('AgentCodingBridgeV3', () => {
     if ('code' in response) expect(response.code).toBe('AGENT_CODING_VERIFICATION_INCOMPLETE');
   });
 
-  it('rejects a verified result when the deployment release SHA cannot be determined', async () => {
-    const created = record('queued');
+  it('rejects an old unpinned verified result if a subsequent deployment has no resolvable SHA', async () => {
+    const created = record('queued'); // Legacy origin:self job, intentionally no SHA pin.
     const terminal = record('verified');
+    const store = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => terminal),
+      requestCancel: vi.fn(async () => terminal),
+    };
+    const results = { get: vi.fn(async () => 'ciphertext') };
+    const dispatch = vi.fn(async () => ({
+      accepted: true as const,
+      jobId: created.jobId,
+      repository: 'nori72ny/myAIspecials' as const,
+      workflow: 'coding-job-worker-v14.yml' as const,
+      ref: 'main' as const,
+    }));
+    const started = await new AgentCodingBridgeV3(
+      env, store, results, dispatch, () => verifiedResult(),
+    ).start('run-agent-missing-release', 'Repair a bug.');
     const deploymentWithoutSha = { ...env, ORIGIN_RELEASE_SHA: undefined, VERCEL_GIT_COMMIT_SHA: undefined };
-    const bridge = new AgentCodingBridgeV3(
-      deploymentWithoutSha,
-      { create: async () => created, getJob: async () => terminal, requestCancel: async () => terminal } as any,
-      { get: async () => 'ciphertext' } as any,
-      async () => ({ accepted: true as const, jobId: created.jobId, repository: 'nori72ny/myAIspecials' as const, workflow: 'coding-job-worker-v14.yml' as const, ref: 'main' as const }),
-      () => verifiedResult(),
+    const reopened = new AgentCodingBridgeV3(
+      deploymentWithoutSha, store, results, dispatch, () => verifiedResult(),
     );
-    const started = await bridge.start('run-agent-missing-release', 'Repair a bug.');
-    const response = await bridge.poll('run-agent-missing-release', started.jobId, started.bridgeToken);
+    const response = await reopened.poll('run-agent-missing-release', started.jobId, started.bridgeToken);
     expect(response.status).toBe('blocked');
     expect(response.ok).toBe(false);
+    expect(store.create).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledTimes(1); // Poll never redispatches.
   });
 
   it('binds polling to the exact run and coding job', async () => {
