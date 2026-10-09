@@ -43,3 +43,40 @@ This standalone PR carries only missing read-only runtime validation,
 not the overlapping bootstrap configuration or other unfinished features.
 Review it as a single isolated candidate. The original release-control
 tracking issue is [#942](https://github.com/nori72ny/myAIspecials/issues/942).
+
+## Follow-up audit — 2026-10-10 JST
+
+The authoritative Vercel user-event endpoint was queried read-only for this
+project, event type `deployment`, from `2026-10-09T13:00:00Z` through
+`2026-10-09T14:40:00Z`. Unlike the normalized deployment listing, its records
+identify the application through which the two relevant builds were created:
+
+| Event ID | Deployment ID | Exact source SHA | Event attribution |
+| --- | --- | --- | --- |
+| `uev_rOPxbiHHSrI1etO4imVaosMC` | `dpl_B2RjFGaDhb8JCfHLrGaV8yNR7Xxh` | `0240d00827930c49e08b0863265ea98b25f8282f` | Production deployment via ChatGPT |
+| `uev_FbFlusx7TNnDngdP6ZL1tCiJ` | `dpl_Cy9SjFuE8M5KWHYbXUhDHMtfixXN` | `b8a702287815207166974c580f06f4df76973d41` | Production deployment via ChatGPT |
+
+Both matching records have `via.name=ChatGPT` and `payload.target=production`.
+Consequently these builds must not be reported as proof that a Git webhook
+ignored `git.deploymentEnabled.main:false`. They are attributed to the app
+deployment path; this observation does not establish why the caller chose
+Production, the request's domain-assignment options, or durable platform hold.
+The earlier secondary-alias movement remains a real incident. Future release
+audits must distinguish Git admission controls from explicit API/CLI deployment
+and promotion controls. Source Git configuration alone does not attest the latter.
+
+Read-only alias checks at this checkpoint still found the primary domain on
+`dpl_EQC4xWGW9hY9SkzkxXuTwxs7uLrP` and both secondary domains on
+`dpl_AV9BVPv2kjDcUJxHu6BoW45PGJJh`. The normalized project response still omitted
+effective native source/alias admission controls. No new Production deployment,
+promotion, alias reassignment, or main merge was performed in this audit.
+
+### Bounded live-health reads
+
+The checker now limits bytes **while consuming** the response stream and cancels
+it immediately after exceeding 4096 bytes. Previously `response.text()` consumed
+the entire response before applying the limit. It also requests no cached response
+and validates the actual JSON media type instead of accepting a substring inside
+another content type. Regression tests cover cancellation without end-of-stream,
+the exact byte boundary with split UTF-8 characters, and misleading media types.
+These are monitoring hardening changes, not an authorization to publish.

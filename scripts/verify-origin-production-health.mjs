@@ -13,6 +13,30 @@ export const ORIGIN_PRODUCTION_DOMAINS = Object.freeze([
 const SHA = /^[0-9a-f]{40}$/;
 const MAX_BYTES = 4096;
 
+async function readBoundedBody(response) {
+  assert.ok(response.body, "ORIGIN_HEALTH_EMPTY_RESPONSE");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      assert.ok(size <= MAX_BYTES, "ORIGIN_HEALTH_RESPONSE_OVERSIZED");
+      chunks.push(value);
+    }
+    assert.ok(size > 0, "ORIGIN_HEALTH_EMPTY_RESPONSE");
+    return Buffer.concat(chunks, size).toString("utf8");
+  } catch (error) {
+    // Stop the network stream without allowing cleanup to mask the failure.
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function verifyOriginProductionHealth(env = process.env, client = fetch) {
   const rawSnapshot = env.ORIGIN_EXPECTED_HEALTH_SHA_MAP_JSON;
   assert.equal(typeof rawSnapshot, "string", "ORIGIN_HEALTH_SNAPSHOT_MISSING");
@@ -35,15 +59,14 @@ export async function verifyOriginProductionHealth(env = process.env, client = f
     const response = await client("https://" + domain + "/api/health", {
       method: "GET",
       redirect: "error",
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", "cache-control": "no-cache, no-store" },
+      cache: "no-store",
       signal: AbortSignal.timeout(15000),
     });
     assert.equal(response.status, 200, "ORIGIN_HEALTH_BAD_HTTP");
-    assert.ok(response.headers.get("content-type")?.toLowerCase().includes("application/json"),
+    assert.equal(response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase(), "application/json",
       "ORIGIN_HEALTH_BAD_CONTENT_TYPE");
-    const body = await response.text();
-    assert.ok(body.length > 0 && Buffer.byteLength(body, "utf8") <= MAX_BYTES,
-      "ORIGIN_HEALTH_RESPONSE_OVERSIZED");
+    const body = await readBoundedBody(response);
     let health;
     try { health = JSON.parse(body); } catch { throw Error("ORIGIN_HEALTH_BAD_JSON"); }
     assert.ok(health && typeof health === "object" && !Array.isArray(health),

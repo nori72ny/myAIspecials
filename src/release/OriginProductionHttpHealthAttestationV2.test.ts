@@ -18,7 +18,8 @@ function fakeApi(options: {
 } = {}) {
   return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     expect(init).toMatchObject({
-      method: "GET", redirect: "error", headers: { accept: "application/json" },
+      method: "GET", redirect: "error", cache: "no-store",
+      headers: { accept: "application/json", "cache-control": "no-cache, no-store" },
     });
     const host = String(url).replace(/^https:\/\//, "").replace(/\/api\/health$/, "");
     expect(ORIGIN_PRODUCTION_DOMAINS).toContain(host);
@@ -63,11 +64,43 @@ describe("read-only ORIGIN Production 3-domain live health attestation", () => {
   it.each([
     ["http-503", { statusCode: 503 }],
     ["bad-mime", { mime: "text/plain" }],
+    ["misleading-mime", { mime: "text/plain; note=application/json" }],
     ["invalid-json", { raw: "{invalid" }],
     ["array", { raw: "[]" }],
     ["too-large", { raw: JSON.stringify({ payload: "x".repeat(5000) }) }],
   ])("rejects malformed HTTP %s", async (_label, options) => {
     await expect(verifyOriginProductionHealth(env(), fakeApi(options))).rejects.toThrow();
+  });
+
+  it("cancels an oversized chunked response before reading its remainder", async () => {
+    const cancelled = vi.fn();
+    let pulls = 0;
+    const client = vi.fn(async () => new Response(new ReadableStream({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new Uint8Array(4097));
+      },
+      cancel: cancelled,
+    }, { highWaterMark: 0 }), { headers: { "content-type": "application/json" } }));
+    await expect(verifyOriginProductionHealth(env(), client))
+      .rejects.toThrow("ORIGIN_HEALTH_RESPONSE_OVERSIZED");
+    expect(pulls).toBe(3);
+    expect(cancelled).toHaveBeenCalledTimes(3);
+  });
+
+  it("accepts valid JSON at the byte limit, including split UTF-8 characters", async () => {
+    const client = vi.fn(async (url: RequestInfo | URL) => {
+      const host = new URL(String(url)).hostname;
+      const json = JSON.stringify({ ...healthy(expected()[host]), note: "確認" });
+      const bytes = new TextEncoder().encode(json + " ".repeat(4096 - Buffer.byteLength(json)));
+      return new Response(new ReadableStream({
+        start(controller) {
+          for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+          controller.close();
+        },
+      }), { headers: { "content-type": "application/json; charset=utf-8" } });
+    });
+    expect((await verifyOriginProductionHealth(env(), client)).checked).toHaveLength(3);
   });
 
   it.each([
