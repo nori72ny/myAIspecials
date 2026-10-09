@@ -106,9 +106,10 @@ describe("project-native Git webhook policy evidence (never a release permit)", 
     const absent = fakeApi();
     await expect(verifyVercelReleaseHold(env, absent))
       .rejects.toThrow("VERCEL_NATIVE_GIT_PRODUCTION_BLOCK_UNVERIFIED");
-    const accepted = fakeApi({
+    const acceptedFixture = {
       ...okay(), project: { ...okay().project, deploymentPolicy: reviewedProductionPolicy() },
-    });
+    };
+    const accepted = fakeApi(acceptedFixture);
     const result = await verifyVercelReleaseHold(env, accepted);
     expect(result.projectGitWebhookProductionBlocked).toBe(true);
     expect(result.firstMainPushNegativePathVerified).toBe(false);
