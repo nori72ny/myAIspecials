@@ -191,11 +191,16 @@ export async function fetchAndAuditOriginProtectedProductionAliasesV1(args: {
   try {
     // Query each real alias and each expected immutable deployment ID.
     // Reading only the primary host was insufficient in the first-main incident.
-    const [aliases, deployments] = await Promise.all([
-      Promise.all(urls.map(readVercel)),
-      Promise.all(deploymentUrls.map(readVercel)),
-    ]);
-    return auditOriginProtectedProductionAliasesV1(snapshot, aliases, deployments);
+    const before = await Promise.all(urls.map(readVercel));
+    const deployments = await Promise.all(deploymentUrls.map(readVercel));
+    const after = await Promise.all(urls.map(readVercel));
+    // Default Vercel aliases may be reassigned while immutable deployment
+    // metadata is being checked. Both observations must independently match
+    // the approved pre-push snapshot. This narrows the read-time race window;
+    // it does NOT provide a platform-native hold on future Git/main pushes.
+    const first = auditOriginProtectedProductionAliasesV1(snapshot, before, deployments);
+    if (!first.allProtectedProductionAliasesHeld) return first;
+    return auditOriginProtectedProductionAliasesV1(snapshot, after, deployments);
   } catch {
     // Do not log raw Vercel API data, response details or credentials.
     return reject('VERCEL_PROTECTED_ALIAS_READBACK_UNAVAILABLE');
