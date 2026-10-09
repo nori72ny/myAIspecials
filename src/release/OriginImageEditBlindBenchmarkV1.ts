@@ -158,7 +158,9 @@ export function evaluateOriginImageEditBlindBenchmarkV1(
     || !FULL_SHA.test(input.evaluatorSha)
     || !DIGEST.test(input.corpusSha256)
     || !input.originSystemId.trim()
-    || unique(input.referenceSystemIds.filter(Boolean)).length !== REQUIRED_REFERENCES
+    || input.referenceSystemIds.length !== REQUIRED_REFERENCES
+    || unique(input.referenceSystemIds).length !== REQUIRED_REFERENCES
+    || input.referenceSystemIds.some((systemId) => !systemId.trim())
     || input.referenceSystemIds.includes(input.originSystemId)
     || !Number.isInteger(input.executionBudgetMs)
     || input.executionBudgetMs < 1_000
@@ -197,6 +199,7 @@ export function evaluateOriginImageEditBlindBenchmarkV1(
     const expectedRefs = [...input.referenceSystemIds].sort();
     const actualRefs = refs.map((output) => output.systemId).sort();
     const blindKeys = item.outputs.map((output) => output.blindKey);
+    const systemIds = item.outputs.map((output) => output.systemId);
     if (
       item.outputs.length !== REQUIRED_REFERENCES + 1
       || origin.length !== 1
@@ -204,6 +207,8 @@ export function evaluateOriginImageEditBlindBenchmarkV1(
       || refs.length !== REQUIRED_REFERENCES
       || actualRefs.some((value, index) => value !== expectedRefs[index])
       || unique(blindKeys).length !== blindKeys.length
+      || unique(systemIds).length !== item.outputs.length
+      || item.outputs.some((output) => !output.systemId.trim())
       || item.outputs.some((output) => !output.blindKey.trim() || !DIGEST.test(output.imageSha256) || !Number.isInteger(output.durationMs) || output.durationMs < 0)
     ) {
       blockers.push(`IMAGE_EDIT_BENCHMARK_OUTPUT_SET_INVALID:${item.caseId}`);
@@ -242,8 +247,16 @@ export function evaluateOriginImageEditBlindBenchmarkV1(
     for (const axis of IMAGE_EDIT_AXES_V1) axisValues[axis].push(originScores[axis]);
     const originMean = mean(originScores);
     const bestRefMean = Math.max(...refs.map((ref) => mean(averaged.get(ref.blindKey)!)));
-    if (originMean > bestRefMean + CASE_MARGIN) wins += 1;
-    else if (originMean + CASE_MARGIN < bestRefMean) losses += 1;
+    // Numeric ratings cannot override an independent majority for a reference.
+    // Match the generation lane's recorded first-choice preference rule.
+    const firstChoices = new Map(blindKeys.map((key) => [key, 0]));
+    for (const judge of item.judges) {
+      firstChoices.set(judge.firstChoiceBlindKey, (firstChoices.get(judge.firstChoiceBlindKey) ?? 0) + 1);
+    }
+    const originChoices = firstChoices.get(origin[0].blindKey) ?? 0;
+    const topReferenceChoices = Math.max(...refs.map((ref) => firstChoices.get(ref.blindKey) ?? 0));
+    if (originMean > bestRefMean + CASE_MARGIN && originChoices >= topReferenceChoices) wins += 1;
+    else if (originMean + CASE_MARGIN < bestRefMean || originChoices < topReferenceChoices) losses += 1;
     else ties += 1;
   }
 
