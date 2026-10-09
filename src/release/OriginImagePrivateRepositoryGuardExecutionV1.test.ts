@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -52,45 +51,40 @@ function execute(script: string, scenario: {
   approved?: string;
   liveApi?: 'private' | 'public' | 'error';
 }) {
-  const fakeBin = mkdtempSync(path.join(os.tmpdir(), 'origin-private-guard-'));
-  try {
-    const gh = path.join(fakeBin, 'gh');
-    writeFileSync(gh, [
-      '#!/bin/sh',
-      'test "$1" = api || exit 40',
-      'test "$2" = "repos/$GITHUB_REPOSITORY" || exit 41',
-      'test "$3" = --jq || exit 42',
-      'test "$4" = .private || exit 43',
-      'case "$MOCK_LIVE_REPOSITORY" in',
-      '  private) echo true ;;',
-      '  public) echo false ;;',
-      '  *) exit 44 ;;',
-      'esac',
-      '',
-    ].join('\n'));
-    chmodSync(gh, 0o700);
-    const eventPrivate = String(scenario.eventPrivate ?? true);
-    const visibility = scenario.visibility ?? 'private';
-    const literalScript = script
-      .replaceAll('${{ github.event.repository.private }}', eventPrivate)
-      .replaceAll('${{ github.repository_visibility }}', visibility);
-    expect(literalScript).not.toContain('${{');
-    const result = spawnSync('bash', ['-c', literalScript], {
-      encoding: 'utf8',
-      timeout: 4000,
-      env: {
-        PATH: fakeBin + path.delimiter + process.env.PATH,
-        GITHUB_REPOSITORY: 'owner/private-image-eval',
-        GH_TOKEN: 'synthetic-no-secret-token',
-        EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: scenario.approved ?? 'owner/private-image-eval',
-        MOCK_LIVE_REPOSITORY: scenario.liveApi ?? 'private',
-      },
-    });
-    expect(result.error).toBeUndefined();
-    return { status: result.status, stderr: result.stderr };
-  } finally {
-    rmSync(fakeBin, { recursive: true, force: true });
-  }
+  const eventPrivate = String(scenario.eventPrivate ?? true);
+  const visibility = scenario.visibility ?? 'private';
+  const literalScript = script
+    .replaceAll('${{ github.event.repository.private }}', eventPrivate)
+    .replaceAll('${{ github.repository_visibility }}', visibility);
+  expect(literalScript).not.toContain('${{');
+
+  // Define a shell-local fake of the GitHub CLI. Hardened Coding Sandbox mounts
+  // /tmp noexec: mock executables written there would fail *all valid cases*
+  // with status 75, even though the real workflow bash guard is correct.
+  // A Bash function avoids filesystem execution and keeps this test hermetic.
+  const fakeGitHubApi = [
+    'gh() {',
+    '  [[ "$1" = api && "$2" = "repos/$GITHUB_REPOSITORY" && "$3" = --jq && "$4" = .private ]] || return 40',
+    '  case "$MOCK_LIVE_REPOSITORY" in',
+    "    private) printf 'true\\n' ;;",
+    "    public) printf 'false\\n' ;;",
+    '    *) return 44 ;;',
+    '  esac',
+    '}',
+  ].join('\\n');
+  const result = spawnSync('bash', ['-c', fakeGitHubApi + '\\n' + literalScript], {
+    encoding: 'utf8',
+    timeout: 4000,
+    env: {
+      PATH: process.env.PATH,
+      GITHUB_REPOSITORY: 'owner/private-image-eval',
+      GH_TOKEN: 'synthetic-no-secret-token',
+      EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: scenario.approved ?? 'owner/private-image-eval',
+      MOCK_LIVE_REPOSITORY: scenario.liveApi ?? 'private',
+    },
+  });
+  expect(result.error).toBeUndefined();
+  return { status: result.status, stderr: result.stderr };
 }
 
 describe('Image evaluation: execute every private-repository gate without secrets', () => {
