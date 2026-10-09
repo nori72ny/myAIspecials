@@ -379,6 +379,15 @@ describe("groundedResearchSynthesisV12", () => {
     )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
   });
 
+  it("rejects malformed comma groups for added counter categories", () => {
+    const evidence = [{ ...sources[0], excerpt: "導入企業は120社、端末は120台。" }];
+    for (const alleged of ["1,20社", "1,20台", "1,20名", "1,20個", "1,20回"]) {
+      expect(validateGroundedResearchSynthesis(
+        `報告値は${alleged}。[S1](https://example.com/one)`, evidence,
+      )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    }
+  });
+
   it("does not reclassify cited fractional headcounts as event counts", () => {
     const evidence = [{ ...sources[0], excerpt: "平均参加者は2.5人、完了した処理は4.25件。" }];
     expect(validateGroundedResearchSynthesis(
