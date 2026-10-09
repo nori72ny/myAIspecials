@@ -181,8 +181,10 @@ function verifyBridgeToken(
     return payload.v === 1
       && payload.runId === runId
       && payload.jobId === jobId
+      && typeof payload.exp === 'number'
       && Number.isSafeInteger(payload.exp)
       && payload.exp > now
+      && typeof payload.maxExp === 'number'
       && Number.isSafeInteger(payload.maxExp)
       && payload.maxExp >= payload.exp
       ? payload as BridgePayload : null;
