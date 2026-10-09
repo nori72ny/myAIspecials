@@ -50,7 +50,7 @@ function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture; secondary?
         ...(aliasOverrides[decodeURIComponent(url.pathname.slice("/v4/aliases/".length))] ?? {}),
       }
       : url.pathname.endsWith("/dpl_PROBE123") ? x.probe
-      : url.pathname.endsWith("/dpl_SECOND123") ? x.secondary : x.deployment;
+      : url.pathname.endsWith("/dpl_SECOND123") ? (x.secondary ?? { ...x.deployment, id: "dpl_SECOND123" }) : x.deployment;
     return new Response(JSON.stringify(val), { status: 200, headers: { "content-type": "application/json" } });
   });
 }
