@@ -25,6 +25,9 @@ const request: OriginProviderExecutionRequest = {
     estimatedCostUsd: 0,
     timeoutMs: 20_000,
     requiresOwnerApproval: false,
+    qualityObjective: "max-quality-within-verified-zero-cost",
+    qualitySelectionPolicy: "benchmark-preferred-when-current-otherwise-retain-audited-route",
+    qualityEvidenceStatus: "audited-route-no-superiority-claim",
     reason: 'trusted evaluator',
     providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
     modelEvidence: {
