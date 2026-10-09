@@ -58,6 +58,8 @@ export type AgentCodingBridgePollV3 =
       status: 'running';
       codingStatus: CodingJobPublicRecordV14['status'];
       verified: false;
+      bridgeToken: string;
+      expiresAt: string;
       resultCode: string | null;
       freeOnly: true;
       costUsd: 0;
@@ -119,6 +121,8 @@ type BridgePayload = {
   runId: string;
   jobId: string;
   exp: number;
+  /** Absolute job lifetime; rolling 30-minute polling must never extend this cap. */
+  maxExp: number;
 };
 
 function approvalSecret(env: NodeJS.ProcessEnv): Buffer {
@@ -141,12 +145,15 @@ function issueBridgeToken(
   jobId: string,
   env: NodeJS.ProcessEnv,
   now: number,
+  maxExp: number,
 ): { token: string; expiresAt: number } {
+  if (!Number.isSafeInteger(maxExp) || maxExp <= now) throw new Error('AGENT_CODING_BRIDGE_LIFETIME_INVALID');
   const payload: BridgePayload = {
     v: 1,
     runId,
     jobId,
-    exp: now + BRIDGE_TOKEN_TTL_MS,
+    exp: Math.min(now + BRIDGE_TOKEN_TTL_MS, maxExp),
+    maxExp,
   };
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   return {
@@ -161,24 +168,26 @@ function verifyBridgeToken(
   jobId: string,
   env: NodeJS.ProcessEnv,
   now: number,
-): boolean {
-  if (!token || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES) return false;
+): BridgePayload | null {
+  if (!token || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES) return null;
   const parts = token.split('.');
-  if (parts.length !== 2) return false;
+  if (parts.length !== 2) return null;
   const [encoded, signature] = parts;
   const expected = Buffer.from(signPayload(encoded, env), 'utf8');
   const presented = Buffer.from(signature, 'utf8');
-  if (expected.length !== presented.length || !timingSafeEqual(expected, presented)) return false;
+  if (expected.length !== presented.length || !timingSafeEqual(expected, presented)) return null;
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as Partial<BridgePayload>;
     return payload.v === 1
       && payload.runId === runId
       && payload.jobId === jobId
-      && typeof payload.exp === 'number'
-      && Number.isFinite(payload.exp)
-      && payload.exp > now;
+      && Number.isSafeInteger(payload.exp)
+      && payload.exp > now
+      && Number.isSafeInteger(payload.maxExp)
+      && payload.maxExp >= payload.exp
+      ? payload as BridgePayload : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -265,7 +274,9 @@ export class AgentCodingBridgeV3 {
       throw error;
     }
 
-    const capability = issueBridgeToken(runId, created.jobId, this.env, now);
+    // The Coding envelope lives for up to 24 hours. Keep bearer capabilities
+    // short-lived and renewable only while a valid run-bound token is presented.
+    const capability = issueBridgeToken(runId, created.jobId, this.env, now, envelope.expiresAt);
     return {
       ok: true,
       runId,
@@ -378,7 +389,8 @@ export class AgentCodingBridgeV3 {
     bridgeToken: string,
     now = Date.now(),
   ): Promise<AgentCodingBridgePollV3> {
-    if (!verifyBridgeToken(bridgeToken, runId, jobId, this.env, now)) {
+    const bridgeAuth = verifyBridgeToken(bridgeToken, runId, jobId, this.env, now);
+    if (!bridgeAuth) {
       return {
         ok: false,
         runId,
@@ -487,6 +499,9 @@ export class AgentCodingBridgeV3 {
       };
     }
 
+    // Rotate the capability on an authenticated nonterminal read only. Bound
+    // its absolute lifetime to the original encrypted Coding job envelope.
+    const renewed = issueBridgeToken(runId, jobId, this.env, now, bridgeAuth.maxExp);
     return {
       ok: true,
       runId,
@@ -494,6 +509,8 @@ export class AgentCodingBridgeV3 {
       status: 'running',
       codingStatus: record.status,
       verified: false,
+      bridgeToken: renewed.token,
+      expiresAt: new Date(renewed.expiresAt).toISOString(),
       resultCode: record.resultCode,
       freeOnly: true,
       costUsd: 0,
