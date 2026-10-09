@@ -86,6 +86,28 @@ function configuredCheckNames(protection: OriginGithubReleaseSnapshotV1['mainPro
   ])];
 }
 
+/** Every required check must be bound to an explicitly trusted GitHub App.
+ * A context-only branch rule, absent app_id, -1 (any app), or duplicate row
+ * does not authenticate a successful check-run with that display name.
+ */
+function pinnedRequiredCheckApps(
+  protection: OriginGithubReleaseSnapshotV1['mainProtection'],
+): Map<string, number> | null {
+  const rules = protection?.required_status_checks;
+  const entries = rules?.checks;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) return null;
+  const pins = new Map<string, number>();
+  for (const row of entries) {
+    if (!row || typeof row.context !== 'string' || row.context.trim() !== row.context
+      || row.context.length === 0 || row.context.length > 200
+      || !Number.isSafeInteger(row.app_id) || Number(row.app_id) <= 0
+      || pins.has(row.context)) return null;
+    pins.set(row.context, Number(row.app_id));
+  }
+  if (!configuredCheckNames(protection).every(name => pins.has(name))) return null;
+  return pins;
+}
+
 // A protected=true summary flag alone does not attest enforced CI, reviews,
 // stale-approval dismissal or admin coverage. Missing 403 responses fail closed.
 function verifiedMainBranchRules(protection: OriginGithubReleaseSnapshotV1['mainProtection']): boolean {
@@ -100,7 +122,9 @@ function verifiedMainBranchRules(protection: OriginGithubReleaseSnapshotV1['main
     || protection.allow_force_pushes?.enabled !== false
     || protection.allow_deletions?.enabled !== false) return false;
   const required = new Set(configuredCheckNames(protection));
-  return REQUIRED_ORIGIN_RELEASE_CHECKS_V1.every(name => required.has(name));
+  const pinned = pinnedRequiredCheckApps(protection);
+  return pinned !== null
+    && REQUIRED_ORIGIN_RELEASE_CHECKS_V1.every(name => required.has(name) && pinned.has(name));
 }
 
 export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSnapshotV1): OriginGithubReleaseAuditV1 {
@@ -138,26 +162,15 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     ...REQUIRED_ORIGIN_RELEASE_CHECKS_V1,
     ...configuredCheckNames(input?.mainProtection),
   ])];
-  const boundApps = new Map<string, number>();
-  for (const configured of input?.mainProtection?.required_status_checks?.checks ?? []) {
-    const name = configured?.context;
-    // app_id=-1 explicitly allows ANY app to impersonate this check.
-    // A malformed/conflicting app pin also fails closed when provided.
-    if (typeof name === 'string' && configured
-      && Object.prototype.hasOwnProperty.call(configured, 'app_id')) {
-      const appId = configured.app_id;
-      const pin = Number.isSafeInteger(appId) && Number(appId) > 0
-        ? Number(appId) : -1;
-      const existing = boundApps.get(name);
-      boundApps.set(name, existing !== undefined && existing !== pin ? -1 : pin);
-    }
-  }
+  const boundApps = pinnedRequiredCheckApps(input?.mainProtection);
+  // Never accept a name-only check-run when the effective protection omits
+  // an app pin. This is separate from checking whether the CI result passed.
   const missingOrFailedChecks = requiredNames.filter(name => {
     const matches = checkRows.filter(row => row?.name === name);
     if (matches.length !== 1 || matches[0]?.status !== 'completed'
       || matches[0]?.conclusion !== 'success') return true;
-    const expectedApp = boundApps.get(name);
-    return expectedApp !== undefined && matches[0]?.app?.id !== expectedApp;
+    const expectedApp = boundApps?.get(name);
+    return expectedApp === undefined || matches[0]?.app?.id !== expectedApp;
   });
   if (missingOrFailedChecks.length
     || checkRows.some(row => row?.conclusion === 'failure' || row?.conclusion === 'cancelled' || row?.conclusion === 'timed_out')) {
