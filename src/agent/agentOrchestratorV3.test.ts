@@ -58,6 +58,41 @@ describe('agent orchestrator v3', () => {
     expect(recover).toHaveBeenCalledTimes(1);
   });
 
+  it('bounds repeated operator credential guesses across Agent routes with one shared rate bucket', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      const operatorEnv = { ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+        ORIGIN_AGENT_OPERATOR_SECRET: 'b'.repeat(48) };
+      const recover = vi.fn();
+      const app = appFor(operatorEnv, undefined, { recover } as unknown as AgentCodingBridgeV3);
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const res = await request(app).post('/api/agent/v3/coding/recover')
+          .send({ runId: 'run-protected', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+        expect(res.status).toBe(401);
+      }
+      const ninth = await request(app).post('/api/agent/v3/coding/recover')
+        .send({ runId: 'run-protected', jobId: 'coding-AAAAAAAAAAAAAAAAAAAAAA' });
+      expect(ninth.status).toBe(429);
+      expect(ninth.body.code).toBe('CHAT_RATE_LIMITED');
+      expect(ninth.headers['retry-after']).toBeDefined();
+      const crossRoute = await request(app).post('/api/agent/v3/execute')
+        .send({ runId: 'run-protected', toolName: 'repository_explorer', approvalToken: 'x' });
+      expect(crossRoute.status).toBe(429);
+      expect(recover).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('rejects forged browser origins on the general Agent execution endpoint', async () => {
+    const app = appFor(env, { consume: async () => true });
+    const response = await request(app).post('/api/agent/v3/execute')
+      .set('Origin', 'https://unauthorized.example')
+      .send({ runId: 'run-safe-test', toolName: 'repository_explorer', approvalToken: 'invalid' });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('CROSS_ORIGIN_REQUEST_BLOCKED');
+  });
+
   it('does not certify an echoed document artifact as completed', async () => {
     const app = appFor(env, { consume: async () => true });
     const goal = 'Create a sales report.';
