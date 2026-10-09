@@ -65,6 +65,16 @@ describe('V1.4 workflow coverage', () => {
     expect(workflow).toContain('exit 2');
   });
 
+  it('requires checkout SHA pin validation before the model and persists mismatched source as blocked', () => {
+    const hostedWorker = readWorkflow('scripts/run-coding-job-worker-v14.ts');
+    const controller = readWorkflow('src/agent/codingJobWorkerV14.ts');
+    const bridge = readWorkflow('src/agent/agentCodingBridgeV3.ts');
+    expect(hostedWorker).toContain('codingAgentCheckoutMatchesTargetV14(targetKey, executionEvidence.sourceRevision)');
+    expect(hostedWorker).toContain("throw new Error('CODING_WORKER_SOURCE_REVISION_MISMATCH');");
+    expect(controller).toContain("'blocked', 'CODING_WORKER_SOURCE_REVISION_MISMATCH', []");
+    expect(bridge).toContain("throw new Error('AGENT_CODING_SOURCE_REVISION_INVALID')");
+  });
+
   it('waits beyond a freshly renewed lease before hosted recovery', () => {
     const workflow = readWorkflow('.github/workflows/coding-job-worker-v14.yml');
     expect(CODING_WORKER_RECOVERY_WAIT_SECONDS).toBeGreaterThan(CODING_WORKER_LEASE_SECONDS);
