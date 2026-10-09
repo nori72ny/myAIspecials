@@ -120,6 +120,63 @@ describe('live GitHub evidence audit (read-only)', () => {
     const pull = { ...snapshot.pull!, user: undefined };
     expect(audit({ ...snapshot, pull }).blockers).toContain('EXACT_HEAD_REVIEW_MISSING');
   });
+  it('requires a pinned GitHub App identity to match the actual check-run app', () => {
+    const input = good();
+    const expectedAppId = 15368;
+    const appRules = {
+      ...input.mainProtection!,
+      required_status_checks: {
+        strict: true,
+        checks: required.map((context, i) =>
+          i === 0 ? { context, app_id: expectedAppId } : { context }),
+      },
+    };
+    const legitimateRuns = input.checks!.check_runs.map((row, i) =>
+      i === 0 ? { ...row, app: { id: expectedAppId } } : row);
+    expect(audit({ ...input, mainProtection: appRules, checks: {
+      total_count: legitimateRuns.length, check_runs: legitimateRuns,
+    } }).githubReadyForFurtherReview).toBe(true);
+
+    for (const checkRun of [
+      { ...legitimateRuns[0], app: { id: expectedAppId + 1 } },
+      { ...legitimateRuns[0], app: undefined },
+      { ...legitimateRuns[0], app: null },
+    ]) {
+      const check_runs = [checkRun, ...legitimateRuns.slice(1)];
+      const result = audit({ ...input, mainProtection: appRules,
+        checks: { total_count: check_runs.length, check_runs } });
+      expect(result.githubReadyForFurtherReview).toBe(false);
+      expect(result.missingOrFailedChecks).toContain(required[0]);
+      expect(result.blockers).toContain('REQUIRED_CI_NOT_GREEN');
+    }
+  });
+
+  it('rejects explicitly unrestricted, malformed and contradictory GitHub App pins', () => {
+    const input = good();
+    const context = required[0];
+    for (const appId of [-1, 0, NaN, '15368']) {
+      const rules = { strict: true,
+        checks: [{ context, app_id: appId }, ...required.slice(1).map(name => ({ context: name }))] };
+      const checkRuns = input.checks!.check_runs.map((r, i) =>
+        i === 0 ? { ...r, app: { id: 15368 } } : r);
+      const result = audit({ ...input, mainProtection: {
+        ...input.mainProtection!, required_status_checks: rules,
+      }, checks: { total_count: checkRuns.length, check_runs: checkRuns } }
+        as OriginGithubReleaseSnapshotV1);
+      expect(result.githubReadyForFurtherReview).toBe(false);
+      expect(result.missingOrFailedChecks).toContain(context);
+    }
+    const conflicting = audit({ ...input, mainProtection: {
+      ...input.mainProtection!, required_status_checks: {
+        strict: true,
+        checks: [{ context, app_id: 15368 }, { context, app_id: 15369 },
+          ...required.slice(1).map(name => ({ context: name }))],
+      },
+    }, checks: { total_count: required.length, check_runs: input.checks!.check_runs.map((r, i) =>
+      i === 0 ? { ...r, app: { id: 15368 } } : r) } });
+    expect(conflicting.missingOrFailedChecks).toContain(context);
+  });
+
   it('rejects missing, failed, and duplicate required checks', () => {
     const input = good();
     const rows = [...input.checks!.check_runs];
