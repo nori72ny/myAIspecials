@@ -57,6 +57,18 @@ No further `create_deployment(target:"production")` dry runs: the connector
 does not provide the safe `--skip-domain` option that Vercel CLI supports.
 This change is a safety gate, not proof of a safe first new-main push.
 
+## Native Vercel deployment-source allowlist: stronger first-main safety candidate
+
+The authenticated Vercel project Update API schema exposes a `deploymentPolicy.deploymentSources` rule scoped to `{type:"system",target:"production"}`. Provider-webhook Git pushes are classified `git`, while manual CLI or direct owner REST deployment are `cli` and `rest-api` respectively. A project-scoped **enabled Production allowlist permitting only reviewed manual sources** may provide a platform-level block against accidental Git-webhook Production builds, without depending on a new `vercel.json` being read at first main merge. **This is a candidate configuration, not proof that the currently connected Hobby project supports or enforces it.**
+
+The read-only `auditVercelNativeProductionGitSourcePolicy()` now rejects missing or opaque effective API readback, disabled or duplicate rules, non-Production rules, ambiguous multi-environment rules and any rule permitting `git` or other automatic sources. An independently authorized release verifier may request strict inspection with `ORIGIN_REQUIRE_NATIVE_GIT_PRODUCTION_BLOCK=true`; missing proof then fails with `VERCEL_NATIVE_GIT_PRODUCTION_BLOCK_UNVERIFIED`. The ordinary audit reports `projectGitWebhookProductionBlocked:false` unless the project-specific exact policy is present. **In either case** `firstMainPushNegativePathVerified:false` and `productionPromotionAuthorized:false` remain mandatory until independently tested and approved.
+
+**Proposed policy shape for a qualified operator to review, not an instruction to execute blindly:**
+```json
+{"deploymentPolicy":{"deploymentSources":[{"enabled":true,"environments":[{"type":"system","target":"production"}],"sources":["cli","rest-api"]}]}}
+```
+Before making *any* Vercel setting change, an authorized operator must read the existing raw project/team policies and entitlements and confirm that no unrelated Preview, protection, webhook, integration, rollback or existing release automation is lost. The current connector's normalized `get_project` response omits `deploymentPolicy` and the auto-assign setting, so it cannot provide that prerequisite or verify a PATCH's effective result. A nonreadable setting remains BLOCKED. Do not treat a source-code test, a successful PATCH acknowledgement, or a same-SHA staging probe as native first-new-main-push proof. A negative-path test itself must not create an unapproved public alias.
+
 ## Mandatory first-merge bootstrap caution
 
 Vercel may have to ingest a new `vercel.json` configuration before it becomes effective. A Git merge of this PR **must not be used as an experiment** to discover whether the first push will auto-promote. First establish and verify a **separate Vercel-side production hold** or another independently tested protection preventing domain assignment. The current API connector does not return existing `commandForIgnoringBuildStep` or effective Production Deployment Checks, so these must be inspected by an authorized release reviewer before changing settings. Do not overwrite unknown existing project configuration.
