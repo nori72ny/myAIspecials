@@ -73,7 +73,7 @@ describe('agent orchestrator v3', () => {
 
   it('shares the same pseudonymous distributed quota across plan and execute routes', async () => {
     const enabledEnv = { ...env, ORIGIN_AGENT_CODING_BRIDGE_ENABLED: 'true' };
-    const claimAgentRateSlot = vi.fn(async () => true);
+    const claimAgentRateSlot = vi.fn(async (_identityHash: string) => true);
     const app = appFor(enabledEnv, { consume: async () => true, claimAgentRateSlot });
     const planned = await request(app).post('/api/agent/v3/plan')
       .send({ goal: 'Describe repository files' });
