@@ -16,7 +16,7 @@ import {
   type CodingJobResultV14,
 } from './codingJobResultV14.js';
 import { validCodingJobExecutionEvidenceV14 } from './codingJobExecutionEvidenceV14.js';
-import { codingAgentTargetKeyForRunV14 } from './codingAgentTargetKeyV14.js';
+import { codingAgentTargetKeyForRunV14, codingAgentTargetKeyMatchesRunV14, codingAgentPinnedRevisionV14 } from './codingAgentTargetKeyV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
 import type {
   CodingJobPublicRecordV14,
@@ -204,10 +204,14 @@ function resultIsVerified(
   result: CodingJobResultV14,
   record: CodingJobPublicRecordV14,
   env: NodeJS.ProcessEnv,
+  runId: string,
 ): boolean {
   const checks = result?.verificationChecks;
   const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
-  const releaseSha = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA;
+  // New jobs pin the originating release revision in their immutable DB row.
+  // A later deployment must not invalidate a previously verified result.
+  const pinnedSha = codingAgentPinnedRevisionV14(record?.targetKey);
+  const releaseSha = pinnedSha ?? (env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA);
   const actualPaths = record?.changedPaths;
   const diffs = result?.diffs;
   // A Coding job does not prove a code change merely by passing checks.
@@ -218,6 +222,7 @@ function resultIsVerified(
     && result.costUsd === 0
     && result.gitPublished === false
     && result.deployed === false
+    && (record.targetKey === 'origin:self' || codingAgentTargetKeyMatchesRunV14(runId, record.targetKey))
     && typeof releaseSha === 'string'
     && /^[0-9a-f]{40}$/i.test(releaseSha)
     && validCodingJobExecutionEvidenceV14(result.executionEvidence)
@@ -262,7 +267,7 @@ export class AgentCodingBridgeV3 {
     if (typeof runId !== 'string' || !runId.startsWith('run-')) throw new Error('AGENT_CODING_RUN_ID_INVALID');
     const envelope = createCodingJobEnvelopeV14({
       ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
-      targetKey: codingAgentTargetKeyForRunV14(runId),
+      targetKey: codingAgentTargetKeyForRunV14(runId, this.env.VERCEL_GIT_COMMIT_SHA ?? this.env.ORIGIN_RELEASE_SHA),
       goal,
     }, this.env, now);
     const created = await this.jobStore.create(envelope, now);
@@ -309,16 +314,15 @@ export class AgentCodingBridgeV3 {
     costUsd: 0;
     paidFallbackUsed: false;
   }> {
-    let targetKey: string;
     try {
-      targetKey = codingAgentTargetKeyForRunV14(runId);
+      codingAgentTargetKeyForRunV14(runId);
     } catch {
       return { ok: false, runId, jobId, status: 'blocked', code: 'AGENT_CODING_RECOVERY_INVALID',
         freeOnly: true, costUsd: 0, paidFallbackUsed: false };
     }
     const ownerHash = hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, this.env);
     const record = await this.jobStore.getJob(jobId, ownerHash);
-    if (!record || record.jobId !== jobId || record.targetKey !== targetKey || !Number.isSafeInteger(record.expiresAt)
+    if (!record || record.jobId !== jobId || !codingAgentTargetKeyMatchesRunV14(runId, record.targetKey) || !Number.isSafeInteger(record.expiresAt)
       || record.expiresAt <= now || record.expiresAt > now + 7 * 24 * 60 * 60_000) {
       return { ok: false, runId, jobId, status: 'blocked', code: 'AGENT_CODING_RECOVERY_UNAVAILABLE',
         freeOnly: true, costUsd: 0, paidFallbackUsed: false };
@@ -494,7 +498,7 @@ export class AgentCodingBridgeV3 {
           paidFallbackUsed: false,
         };
       }
-      if (!resultIsVerified(result, record, this.env)) {
+      if (!resultIsVerified(result, record, this.env, runId)) {
         return {
           ok: false,
           runId,
