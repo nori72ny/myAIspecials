@@ -53,6 +53,19 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
       // Use an exclusive per-identity transaction lock, not a SELECT/INSERT
       // count race; lock before taking a fresh READ COMMITTED snapshot.
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', ['origin-agent-post-v3:' + identityHash]);
+      // Authentication failures alone do not call consume(), the legacy replay
+      // cleanup path. Prune at most 64 expired rows per request so repeated
+      // attempts from rotating addresses cannot grow the shared ledger forever.
+      // This uses the existing expires_at index, skips any live row locks, and
+      // never touches an unexpired replay or quota reservation.
+      await client.query(`WITH expired AS (
+        SELECT ctid FROM public.origin_agent_consumed_runs
+        WHERE expires_at < clock_timestamp()
+        ORDER BY expires_at
+        LIMIT 64 FOR UPDATE SKIP LOCKED
+      )
+      DELETE FROM public.origin_agent_consumed_runs AS ledger
+      USING expired WHERE ledger.ctid = expired.ctid`);
       const time = await client.query<{ minute: string }>(
         'SELECT floor(extract(epoch from clock_timestamp()) / 60)::bigint AS minute',
       );
