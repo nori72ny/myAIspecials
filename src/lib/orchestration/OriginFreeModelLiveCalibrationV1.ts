@@ -75,7 +75,7 @@ export function evaluateOriginFreeModelCalibrationV1(input: {
       }
       const expected = probe?.probeId === "identity" ? "ORIGIN_FREE_CALIBRATION_OK"
         : probe?.probeId === "arithmetic" ? "391" : null;
-      if (expected === null || probe.answer?.trim() !== expected) {
+      if (expected === null || probe?.answer?.trim() !== expected) {
         blockers.push("AQ_FREE_CALIBRATION_ANSWER_INVALID");
       }
     }
