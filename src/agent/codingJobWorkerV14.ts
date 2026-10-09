@@ -115,7 +115,21 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     try {
       target = await deps.resolveTarget(lease.targetKey);
       payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CODING_WORKER_SOURCE_REVISION_MISMATCH') {
+        // Immutable original release != GitHub's current checkout. Replaying the
+        // same main-branch dispatch cannot fix this deterministic mismatch.
+        // Finish as a durable blocked result BEFORE any model call or edits.
+        await heartbeat();
+        const completed = await deps.store.completeJob(
+          jobId, workerId, 'blocked', 'CODING_WORKER_SOURCE_REVISION_MISMATCH', [],
+        );
+        if (!completed) {
+          if (await deps.store.cancellationRequested(jobId, workerId)) return cancelledOrLost();
+          return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+        }
+        return { jobId, state: 'blocked', code: 'CODING_WORKER_SOURCE_REVISION_MISMATCH' };
+      }
       return { jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' };
     }
 
