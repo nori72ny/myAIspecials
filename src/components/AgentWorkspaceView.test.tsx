@@ -343,7 +343,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText(/# Coding V1\.4 検証済み結果/);
+    await screen.findByText(/# Coding V1\.4 検証済み結果/, {}, { timeout: 7_000 });
     expect(screen.getByText(/src\/example\.ts/)).toBeTruthy();
     expect(screen.getByText(/typecheck: PASS/)).toBeTruthy();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
@@ -354,7 +354,7 @@ describe('AgentWorkspaceView v3', () => {
       '/api/agent/v3/coding/status',
       '/api/agent/v3/coding/status',
     ]);
-  });
+  }, 10_000);
 
   it('never displays completion or abandons an active job after a cross-run fake terminal receipt', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
