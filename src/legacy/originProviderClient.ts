@@ -77,14 +77,21 @@ function zero(value: unknown, field: string): asserts value is 0 {
 }
 function nonzeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  // Pricing APIs may return decimal zero strings. Never coerce empty strings,
-  // booleans, arrays or objects to Number(...)=0 and mistake them for receipts.
-  const numeric = typeof value === "number" ? value
-    : typeof value === "string" && /^0(?:\\.0+)?(?:[eE][+-]?[0-9]{1,3})?$/.test(value.trim())
-      ? 0 : typeof value === "string" && value.trim().length > 0
-        ? Number(value) : NaN;
-  if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (numeric !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  if (typeof value === "string") {
+    const decimal = value.trim();
+    // Validate lexical zero; numeric conversion alone silently underflows "1e-999".
+    if (/^0(?:\.0+)?(?:[eE][+-]?[0-9]{1,3})?$/.test(decimal)) return;
+    // Other well-formed nonzero prices are hard policy violations.
+    if (/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]{1,3})?$/.test(decimal)) {
+      fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+    }
+    // Reject coerced values (empty, hexadecimal, booleans, objects).
+    fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  }
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
