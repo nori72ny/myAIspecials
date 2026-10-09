@@ -88,6 +88,37 @@ describe('coding model protocol', () => {
     });
     expect(execute).not.toHaveBeenCalled();
   });
+  it('accepts an explicitly bounded Japanese exact-text change without a model or paid provider', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "ファイル `math.js` の文字列 \"a - b\" を \"a + b\" に完全一致で1箇所だけ置換してください。他のファイルは変更しないでください。",
+      files: [{ path: 'math.js', content: 'export const subtract = (a,b) => a - b;', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).resolves.toEqual({
+      edits: [{ path: 'math.js', search: 'a - b', replacement: 'a + b' }],
+      creates: [],
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses Japanese exact replacement when the target text appears twice', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "ファイル `math.js` の文字列 \"a - b\" を \"a + b\" に完全一致で1箇所だけ置換してください。他のファイルは変更しないでください。",
+      files: [{ path: 'math.js', content: 'a - b; a - b;', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).rejects.toThrow('CODING_MODEL_EDIT_MATCH_INVALID');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('uses strict trusted literal replacement without a provider when the owner gives unique exact bytes', async () => {
     const exact: CodingContext = {
       ...context,
