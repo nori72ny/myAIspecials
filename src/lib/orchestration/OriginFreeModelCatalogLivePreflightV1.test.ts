@@ -25,6 +25,7 @@ describe("Origin read-only live free-model catalog preflight V1", () => {
       schemaVersion: "origin.live-free-model-catalog-preflight.v1",
       modelId,
       catalogEligible: true,
+      catalogRequestPriceKnownZero: true,
       liveInferenceVerified: false,
       billingReceiptsVerified: false,
       productionPromotionAllowed: false,
@@ -54,7 +55,6 @@ describe("Origin read-only live free-model catalog preflight V1", () => {
     { prompt: "0.000001", completion: "0", request: "0" },
     { prompt: "0", completion: "0.000001", request: "0" },
     { prompt: "0", completion: "0", request: "0.001" },
-    { prompt: "0", completion: "0", request: undefined },
     { prompt: null, completion: "0", request: "0" },
     { prompt: "NaN", completion: "0", request: "0" },
     { prompt: -0.0001, completion: "0", request: "0" },
@@ -64,6 +64,18 @@ describe("Origin read-only live free-model catalog preflight V1", () => {
       ...evidence(), search: { data: [makeRow(modelId, pricing)] },
     });
     expect(output.blockers).toContain("AQ_FREE_MODEL_PRICE_UNVERIFIED");
+  });
+  it("accepts catalog candidate with omitted request price but NEVER treats request billing as proven", () => {
+    const price = { prompt: "0", completion: "0" };
+    const output = auditOriginLiveFreeModelCatalogV1({
+      ...evidence(), search: { data: [makeRow(modelId, price)] },
+      zdrZeroPrice: { data: [makeRow(modelId, price)] },
+    });
+    expect(output.catalogEligible).toBe(true);
+    expect(output.catalogRequestPriceKnownZero).toBe(false);
+    expect(output.liveInferenceVerified).toBe(false);
+    expect(output.billingReceiptsVerified).toBe(false);
+    expect(output.productionPromotionAllowed).toBe(false);
   });
   it("rejects free model lacking a ZDR + $0 endpoint in independently filtered catalog", () => {
     const output = auditOriginLiveFreeModelCatalogV1({
