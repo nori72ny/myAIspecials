@@ -159,10 +159,10 @@ describe('live GitHub evidence audit (read-only)', () => {
         checks: [{ context, app_id: appId }, ...required.slice(1).map(name => ({ context: name }))] };
       const checkRuns = input.checks!.check_runs.map((r, i) =>
         i === 0 ? { ...r, app: { id: 15368 } } : r);
-      const result = audit({ ...input, mainProtection: {
+      const malformedSnapshot = { ...input, mainProtection: {
         ...input.mainProtection!, required_status_checks: rules,
-      }, checks: { total_count: checkRuns.length, check_runs: checkRuns } }
-        as OriginGithubReleaseSnapshotV1);
+      }, checks: { total_count: checkRuns.length, check_runs: checkRuns } };
+      const result = audit(malformedSnapshot as unknown as OriginGithubReleaseSnapshotV1);
       expect(result.githubReadyForFurtherReview).toBe(false);
       expect(result.missingOrFailedChecks).toContain(context);
     }
