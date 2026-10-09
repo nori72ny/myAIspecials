@@ -410,6 +410,16 @@ export default function AgentWorkspaceView() {
         return;
       }
       if (!response.ok || receipt.ok !== true) {
+        if (receipt.ok === false && receipt.status === 'blocked'
+          && receipt.runId === target.runId && receipt.jobId === target.jobId
+          && receipt.verified === false && receipt.freeOnly === true
+          && receipt.costUsd === 0 && receipt.paidFallbackUsed === false
+          && ['blocked', 'failed'].includes(receipt.codingStatus ?? '')) {
+          setActiveCoding(null);
+          setPhase('failed');
+          setLog(current => [...current, `保存済みCodingジョブは検証未完了で終了しました: ${receipt.code ?? 'AGENT_CODING_BLOCKED'}`]);
+          return;
+        }
         throw new Error(receipt.code ?? 'AGENT_CODING_STATUS_UNAVAILABLE');
       }
       if (receipt.status === 'completed') {
@@ -440,9 +450,13 @@ export default function AgentWorkspaceView() {
   }, []);
 
   const recoverCoding = useCallback(async () => {
-    if (!capability?.codingBridgeConfigured || activeCoding || recoveryPending || phase === 'executing') return;
+    if (!capability?.codingBridgeConfigured || recoveryPending || (phase === 'executing' && !activeCoding)) return;
     const runId = recoveryRunId.trim();
     const jobId = recoveryJobId.trim();
+    if (activeCoding && (activeCoding.runId !== runId || activeCoding.jobId !== jobId)) {
+      setLog(current => [...current, '別のCodingジョブが実行・確認中です。終了を確認してから復旧してください。']);
+      return;
+    }
     const credential = recoveryCredentialRef.current?.value.trim() ?? '';
     if (!/^run-[A-Za-z0-9-]{1,100}$/.test(runId) || !/^coding-[A-Za-z0-9_-]{22}$/.test(jobId) || !credential) {
       setLog(current => [...current, '復旧には元のRun ID、Coding Job ID、専用Agentオペレーター認証キーが必要です。']);
@@ -775,7 +789,7 @@ export default function AgentWorkspaceView() {
           <label htmlFor="coding-recovery-key" className="block font-semibold">専用Agentオペレーター認証キー</label>
           <input ref={recoveryCredentialRef} id="coding-recovery-key" type="password" autoComplete="off"
             spellCheck={false} className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
-          <button type="button" onClick={() => void recoverCoding()} disabled={Boolean(activeCoding) || recoveryPending || phase === 'executing'}
+          <button type="button" onClick={() => void recoverCoding()} disabled={recoveryPending || (phase === 'executing' && !activeCoding)}
             className="origin-secondary-button min-h-11 w-full rounded-xl px-3 font-semibold disabled:opacity-50">
             {recoveryPending ? '既存ジョブを確認中…' : '本人認証して既存ジョブを復旧'}
           </button>
