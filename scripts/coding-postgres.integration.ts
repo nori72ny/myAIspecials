@@ -11,6 +11,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import { createCodingJobEnvelopeV14 } from '../src/agent/codingJobCryptoV14.js';
+import { codingAgentTargetKeyForRunV14 } from '../src/agent/codingAgentTargetKeyV14.js';
+import { AgentCodingBridgeV3 } from '../src/agent/agentCodingBridgeV3.js';
+import { CODING_JOB_OPERATOR_OWNER_BINDING_V14 } from '../src/agent/codingJobOperatorAuthV14.js';
 import { PostgresCodingJobStoreV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import { PostgresCodingJobResultStoreV14 } from '../src/agent/codingJobResultStoreV14.js';
 
@@ -126,6 +129,38 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
         }
       }
     }
+  });
+
+  it('preserves immutable Agent run association for authenticated crash recovery on real PostgreSQL', async () => {
+    const runId = 'run-postgres-durable-recovery';
+    const targetKey = codingAgentTargetKeyForRunV14(runId);
+    const envelope = createCodingJobEnvelopeV14({
+      ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
+      targetKey, goal: 'Repair a bounded coding fixture',
+    }, cryptoEnv);
+    assert.equal((await jobs.create(envelope))?.targetKey, targetKey);
+    assert.equal((await jobs.getJob(envelope.jobId, envelope.ownerHash))?.targetKey, targetKey);
+    assert.equal(await jobs.getJob(envelope.jobId, 'f'.repeat(64)), null);
+
+    let dispatchCount = 0;
+    const bridge = new AgentCodingBridgeV3({
+      ...cryptoEnv, ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+    }, jobs, results, async () => {
+      dispatchCount += 1;
+      throw new Error('RECOVERY_REDISPATCH_UNSAFE');
+    });
+    const recover = await bridge.recover(runId, envelope.jobId);
+    assert.equal(recover.ok, true);
+    assert.equal(dispatchCount, 0);
+    assert.equal((await bridge.recover('run-wrong-association', envelope.jobId)).ok, false);
+
+    assert.ok(await jobs.claimJob(envelope.jobId, worker, 120));
+    assert.equal(await jobs.startJob(envelope.jobId, worker), true);
+    assert.equal(await jobs.completeJob(envelope.jobId, worker, 'verified',
+      'CODING_VERIFIED', ['src/example.ts']), true);
+    assert.equal((await jobs.getJob(envelope.jobId, envelope.ownerHash))?.targetKey, targetKey);
+    assert.equal((await bridge.recover(runId, envelope.jobId)).ok, true);
+    assert.equal(dispatchCount, 0);
   });
 
   it('allows exactly one competing claim and hides the row from another owner', async () => {
