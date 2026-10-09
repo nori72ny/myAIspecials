@@ -78,43 +78,48 @@ jobs:
           }
 
           qualified="$(jq -r '.qualified // false' "$status_file")"
-          if [ "$qualified" = 'true' ]; then
+          enabled="$(jq -r '.enabled // false' "$status_file")"
+          if [ "$qualified" = 'true' ] && [ "$enabled" = 'true' ]; then
             test "$status_http" = '200'
             jq -e --arg sha "$CANDIDATE_SHA" '
               .ok == true and
               .ready == true and
+              .enabled == true and
               .qualified == true and
               .qualifiedSha == $sha and
               .primaryReady == true
             ' "$status_file" >/dev/null || {
               cat "$status_file" >&2
-              echo "::error title=Qualified world-class image release invalid::A qualified SHA must be provider-ready and exactly match Production."
+              echo "::error title=Approved image release invalid::A qualified and explicitly enabled SHA must prove provider readiness."
               exit 42
             }
-            echo "World-class image: QUALIFIED and live for exact SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+            echo "World-class image: EXPLICITLY ENABLED and qualified for SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
           else
+            # A qualified SHA is NOT publication authorization while the Owner's
+            # explicit ORIGIN_IMAGE_WORLD_CLASS_ENABLED Production switch is off.
             test "$status_http" = '503'
             jq -e '
               .ok == false and
               .ready == false and
-              .qualified == false
+              (.enabled == false or .qualified == false)
             ' "$status_file" >/dev/null || {
               cat "$status_file" >&2
-              echo "::error title=Unqualified image route is not fail-closed::Production must stay unavailable until exact-SHA qualification."
+              echo "::error title=World-class image kill switch failed::Unapproved or disabled Production must stay unavailable."
               exit 43
             }
 
             generate_http="$(curl --silent --show-error --connect-timeout 10 --max-time 45               -D "$headers_file"               -H 'content-type: application/json'               --data '{"prompt":"publication boundary smoke test"}'               --output "$body_file" --write-out '%{http_code}'               "${ORIGIN_PRODUCTION_URL}/api/creative/v1.6/world-class/generate")"
             test "$generate_http" = '503'
-            jq -e '
+            jq -e --argjson enabled "$enabled" '
               .ok == false and
-              (.code == "WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED" or .code == "WORLD_CLASS_IMAGE_MODE_DISABLED")
+              (if $enabled then .code == "WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED"
+                else .code == "WORLD_CLASS_IMAGE_PRODUCTION_DISABLED" end)
             ' "$body_file" >/dev/null || {
               cat "$body_file" >&2
-              echo "::error title=Unqualified world-class generation escaped boundary::Expected a fail-closed qualification response."
+              echo "::error title=World-class generation escaped release gate::The expected fail-closed Production error was absent."
               exit 44
             }
-            echo "World-class image: UNQUALIFIED and correctly fail-closed for SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+            echo "World-class image: UNAPPROVED or DISABLED, correctly fail-closed for SHA $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           jq -c '{ok,ready,enabled,qualified,releaseSha,qualifiedSha,provider,model,primaryReady,standardFallbackReady,publicationPolicy,freeOnly,costUsd,paidFallbackEnabled,paymentMethodRequired,secretDelivery}' "$status_file" >> "$GITHUB_STEP_SUMMARY"
