@@ -1,3 +1,4 @@
+import { generateAgentDocumentV3 } from './documentGenerationV3.js';
 import { createHash } from 'node:crypto';
 import { listRepository, readRepositoryFile } from './safeRepositoryReader.js';
 import { createRepositoryFileIfAbsent } from './safeRepositoryWriter.js';
@@ -12,10 +13,14 @@ export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_g
 export type ToolParams = Record<string, unknown>;
 export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
 
-type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams) => Promise<ToolResult> };
+type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams, env?: NodeJS.ProcessEnv) => Promise<ToolResult> };
 const MAX_TEXT = 12000;
 const MAX_CHECKPOINT_SNAPSHOT_BYTES = 256 * 1024;
-const textParam = (params: ToolParams, key: string) => typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
+const textParam = (params: ToolParams, key: string) => {
+  const value = typeof params[key] === 'string' ? String(params[key]) : '';
+  if (value.length > MAX_TEXT) throw new Error('AGENT_TOOL_INPUT_TOO_LARGE');
+  return value;
+};
 const sha256 = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
 const repositoryRoot = () => process.cwd();
 const readExisting = async (filePath: string): Promise<string | undefined> => {
@@ -24,10 +29,10 @@ const readExisting = async (filePath: string): Promise<string | undefined> => {
 };
 
 const registry: Record<ToolName, ToolDefinition> = {
-  // These legacy adapters only echoed caller input. Until a real generation
-  // backend and task-level verifier are wired, they cannot certify completion.
+  // Code execution still requires the isolated Coding V1.4 worker.
+  // Markdown drafting is opt-in and does not certify task-level factual quality.
   code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Code generation and repair are unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_GENERATION_UNAVAILABLE' }) },
-  document_generator: { name: 'document_generator', capability: 'read_repository', description: 'Document generation is unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_GENERATION_UNAVAILABLE' }) },
+  document_generator: { name: 'document_generator', capability: 'draft_document', description: 'Drafts Markdown with the approved zero-cost provider when explicitly enabled; factual quality remains unverified.', sideEffects: 'none', requiresApproval: true, execute: (params, env) => generateAgentDocumentV3(params, { env }) },
   web_search_grounding: {
     name: 'web_search_grounding',
     capability: 'grounded_research',
@@ -58,7 +63,7 @@ const registry: Record<ToolName, ToolDefinition> = {
   },
   image_prompt_compiler: { name: 'image_prompt_compiler', capability: 'read_repository', description: 'Compiles an image brief into a provider-neutral prompt locally.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const input = textParam(params, 'prompt'); return { ok: true, tool: 'image_prompt_compiler', artifact: input ? `Subject: ${input}\n\nCapture: natural light, coherent composition, physically plausible materials.\nQuality: fine detail, clean edges, accurate anatomy.` : 'No image brief supplied.', message: 'Image prompt compiled locally.' }; } },
   repository_explorer: { name: 'repository_explorer', capability: 'read_repository', description: 'Read-only bounded repository tree exploration with protected-path filtering.', sideEffects: 'none', requiresApproval: true, execute: async () => { const entries = await listRepository(repositoryRoot()); return { ok: true, tool: 'repository_explorer', artifact: JSON.stringify(entries), message: `Repository exploration completed (${entries.length} entries).` }; } },
-  file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); return { ok: true, tool: 'file_reader', artifact: content.slice(0, MAX_TEXT), message: 'Repository file read completed.' }; } },
+  file_reader: { name: 'file_reader', capability: 'read_repository', description: 'Read-only bounded file access with traversal, secret-path, and size protections.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const filePath = textParam(params, 'path'); if (!filePath) return { ok: false, tool: 'file_reader', message: 'A file path is required.' }; const content = await readRepositoryFile(repositoryRoot(), filePath); if (content.length > 120_000) return { ok: false, tool: 'file_reader', message: 'AGENT_FILE_READ_TOO_LARGE' }; return { ok: true, tool: 'file_reader', artifact: content, message: 'Repository file read completed.' }; } },
   file_writer: { name: 'file_writer', capability: 'write_repository', description: 'Writes repository files through bounded atomic replacement. Existing files require exact-one-match search/replacement editing; whole-file writes are restricted to genuinely new files.', sideEffects: 'write', requiresApproval: true, execute: async (params) => {
     const filePath = textParam(params, 'path');
     if (!filePath) return { ok: false, tool: 'file_writer', message: 'A file path is required.' };
@@ -84,7 +89,7 @@ const registry: Record<ToolName, ToolDefinition> = {
 
 export const toolRegistry = Object.freeze(registry);
 
-export async function executeToolWithPermission(toolName: ToolName, params: ToolParams, approval: { approved: boolean; costInUSD?: number; safetyPolicyPassed?: boolean } = { approved: false }): Promise<ToolResult> {
+export async function executeToolWithPermission(toolName: ToolName, params: ToolParams, approval: { approved: boolean; costInUSD?: number; safetyPolicyPassed?: boolean } = { approved: false }, env?: NodeJS.ProcessEnv): Promise<ToolResult> {
   const tool = toolRegistry[toolName];
   if (!tool) throw new Error('TOOL_NOT_REGISTERED');
   if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED');
@@ -92,5 +97,7 @@ export async function executeToolWithPermission(toolName: ToolName, params: Tool
   if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED');
   if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED');
   if (!isCapabilityAllowed({ capability: tool.capability, explicitIntent: approval.approved, securityPolicyPassed })) throw new Error('AGENT_CAPABILITY_DENIED');
-  return tool.execute(params);
+  // Only the V3 authenticated caller supplies drafting configuration.
+  // Older orchestration paths must not gain inference from ambient environment flags.
+  return tool.execute(params, env ?? (toolName === 'document_generator' ? {} : process.env));
 }

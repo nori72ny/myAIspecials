@@ -3,6 +3,8 @@ name: Frontier fast internal evaluation
 on:
   pull_request:
     paths:
+      - 'src/agent/**'
+      - 'scripts/prepare-agent-quality-inspection.ts'
       - 'scripts/run-general-agent-synthetic-live-v2.ts'
       - 'scripts/run-general-agent-research-live-v1.ts'
       - 'scripts/diagnose-research-search-surface.ts'
@@ -41,6 +43,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Run 12-task real Agent V3 synthetic evaluation
+        env:
+          ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT: 'true'
         run: node --import tsx scripts/run-general-agent-synthetic-live-v2.ts
 
 
@@ -73,3 +77,37 @@ jobs:
         run: node --import tsx scripts/diagnose-keyless-search-alternatives.ts
       - name: Run three-task zero-cost Research live evaluation
         run: node --import tsx scripts/run-general-agent-research-live-v1.ts
+
+  agent-inspection-packet:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Collect real local HTTP outputs and boundary evidence
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          node --import tsx scripts/prepare-agent-quality-inspection.ts "$RUNNER_TEMP/agent-inspection"
+      - name: Preserve inspection results including failed cases
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-inspection-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/agent-inspection/
+          if-no-files-found: error
+          retention-days: 30

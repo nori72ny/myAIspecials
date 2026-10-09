@@ -1,3 +1,4 @@
+import { verifyGeneralAgentArtifactEvidenceV2 } from '../src/agent/generalAgentArtifactEvidenceV2.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { promises as fs } from 'node:fs';
@@ -31,6 +32,9 @@ import {
   type AgentRunConsumptionStore,
 } from '../src/agent/agentOrchestratorV3.js';
 import { runVerification, type VerificationKind } from '../src/agent/verificationRunner.js';
+
+let cleanupAllowed = false;
+const artifactChecks: Array<{ taskId: string; code: string; httpStatus: number }> = [];
 
 const MAX_CORPUS_B64 = 4_000_000;
 const MAX_CORPUS_BYTES = 4_000_000;
@@ -86,6 +90,7 @@ function changedPaths(): string[] {
 }
 
 function resetWorkspace(): void {
+  if (!cleanupAllowed) return;
   git(['reset', '--hard', 'HEAD']);
   git(['clean', '-fd']);
 }
@@ -263,7 +268,9 @@ async function evaluateTask(
           costSafe = costSafe && responseCostSafe(execution.body);
           paidFallbackUsed = paidFallbackUsed || execution.body?.paidFallbackUsed === true;
 
-          if (execution.status === 200 && execution.body?.status === 'completed') {
+          const artifactEvidence = verifyGeneralAgentArtifactEvidenceV2(execution.body?.artifact, task.artifactExpectation);
+          artifactChecks.push({ taskId: task.id, code: artifactEvidence.code, httpStatus: execution.status });
+          if (execution.status === 200 && execution.body?.status === 'completed' && artifactEvidence.ok) {
             if (task.recoveryRequired && execution.body?.checkpoint?.status === 'self_fixed') {
               writer.push({ source: 'evaluator', kind: 'recovery-observed' });
               writer.push({ source: 'evaluator', kind: 'execution-attempted' });
@@ -287,7 +294,7 @@ async function evaluateTask(
           ) {
             writer.push({ source: 'evaluator', kind: 'capability-exercised', capability: 'verification' });
             terminal = 'blocked';
-          } else if (execution.body?.status === 'completed') {
+          } else if (execution.body?.status === 'completed' && task.artifactExpectation && !artifactEvidence.ok) {
             falseCompletion = true;
           }
         }
@@ -339,6 +346,7 @@ async function evaluateTask(
 }
 
 async function main(): Promise<void> {
+  if (process.env.ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT !== 'true') throw new Error('GENERAL_AGENT_DISPOSABLE_CHECKOUT_REQUIRED');
   const candidateSha = requiredEnv('ORIGIN_GENERAL_AGENT_CANDIDATE_SHA').toLowerCase();
   const expectedCorpusId = requiredEnv('ORIGIN_GENERAL_AGENT_CORPUS_ID');
   const encoded = requiredEnv('ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64');
@@ -370,6 +378,7 @@ async function main(): Promise<void> {
   const currentSha = git(['rev-parse', 'HEAD']).trim().toLowerCase();
   if (currentSha !== candidateSha) throw new Error('GENERAL_AGENT_PRIVATE_CHECKOUT_SHA_MISMATCH');
   if (changedPaths().length !== 0) throw new Error('GENERAL_AGENT_PRIVATE_CHECKOUT_DIRTY');
+  cleanupAllowed = true;
 
   const approvalSigningSecret = randomBytes(48).toString('hex');
   const operatorAuthSecret = randomBytes(48).toString('hex');
@@ -443,6 +452,8 @@ async function main(): Promise<void> {
       attempted: scores.length,
       solved: scores.filter(score => score.solved === true).length,
       blockersByTask: scores.map(score => ({ taskId: score.taskId, blockers: score.blockers })),
+      artifactChecks,
+      qualification: 'diagnostic-only-not-final',
     }, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 
     process.stdout.write(JSON.stringify({

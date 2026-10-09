@@ -84,7 +84,7 @@ export function createAgentOrchestratorRouter(): Router {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
           const graph: AgentTaskGraph = { goal: `resume ${toolName}`, tasks: [{ id: checkpoint.taskId, title: toolName, dependsOn: [], status: 'queued', attempts: 0, maxAttempts: 3 }] };
-          const execution = await resumeTaskGraph(graph, checkpoint.executionId, async () => runTool(toolName, (params ?? {}) as ToolParams), async (result) => result.artifact
+          const execution = await resumeTaskGraph(graph, checkpoint.executionId, async () => runTool(toolName, (params ?? {}) as ToolParams), async (result) => typeof result.artifact === 'string'
             ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, (params ?? {}) as ToolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
           if (!res.headersSent) return res.status(200).json({ ok: true, resumed: true, checkpoint, execution });
@@ -108,7 +108,7 @@ export function createAgentOrchestratorRouter(): Router {
         try {
           const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
           const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
-          const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact
+          const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => typeof result.artifact === 'string'
             ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
             : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
           const record = execution.record;

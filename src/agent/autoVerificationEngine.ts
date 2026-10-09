@@ -1,6 +1,6 @@
 import type { ToolName, ToolParams, ToolResult } from './toolRegistry.js';
 
-export type VerificationIssue = 'empty' | 'malformed' | 'syntax';
+export type VerificationIssue = 'empty' | 'malformed' | 'syntax' | 'too_large' | 'unavailable';
 
 export type VerificationResult = {
   ok: boolean;
@@ -19,7 +19,11 @@ const MAX_ARTIFACT_CHARS = 120_000;
 function detectIssues(artifact: string, toolName: ToolName): VerificationIssue[] {
   const issues: VerificationIssue[] = [];
   const value = artifact.trim();
-  if (!value) issues.push('empty');
+  if (!value && toolName !== 'file_reader') issues.push('empty');
+  if (artifact.length > MAX_ARTIFACT_CHARS) issues.push('too_large');
+  if (toolName === 'code_interpreter') issues.push('unavailable');
+  // Reading source text must not reinterpret its syntax or rewrite its contents.
+  if (toolName === 'file_reader') return issues;
   if (value.includes('\u0000') || /(?:^|\n)undefined(?:$|\n)/.test(value)) issues.push('malformed');
 
   if (toolName === 'code_interpreter' || /(?:^|\n)```(?:typescript|javascript|ts|js)?/.test(value)) {
@@ -37,26 +41,10 @@ function detectIssues(artifact: string, toolName: ToolName): VerificationIssue[]
   return [...new Set(issues)];
 }
 
-function localRepair(artifact: string, toolName: ToolName, issues: VerificationIssue[]): string {
-  if (!issues.length) return artifact.slice(0, MAX_ARTIFACT_CHARS);
-  if (issues.includes('empty')) {
-    return toolName === 'document_generator' ? '# Recovered Artifact\n\nNo usable content was returned.' : '// Recovered Artifact\n// No usable content was returned.';
-  }
-  let repaired = artifact.replace(/\u0000/g, '').replace(/\bundefined\b/g, '');
-  if (issues.includes('syntax') && toolName === 'code_interpreter') {
-    const pairs = [['(', ')'], ['[', ']'], ['{', '}']] as const;
-    for (const [open, close] of pairs) {
-      const opens = (repaired.match(new RegExp(`\\${open}`, 'g')) ?? []).length;
-      const closes = (repaired.match(new RegExp(`\\${close}`, 'g')) ?? []).length;
-      if (opens > closes) repaired += close.repeat(opens - closes);
-    }
-  }
-  return repaired.slice(0, MAX_ARTIFACT_CHARS);
-}
-
 /**
- * Verifies an artifact locally and performs at most two bounded repair passes.
- * An optional runner enables a true tool re-run while keeping the public two-argument API valid.
+ * Structural preflight only, not task-level or semantic quality certification.
+ * Never fabricate a replacement, truncate output, or repeat a write operation.
+ * Recovery requires a successful read-only tool rerun with an intact artifact.
  */
 export async function verifyAndSelfFixArtifact(
   artifact: string,
@@ -64,32 +52,35 @@ export async function verifyAndSelfFixArtifact(
   rerun?: ArtifactRunner,
   params: ToolParams = {},
 ): Promise<VerificationResult> {
-  let current = typeof artifact === 'string' ? artifact : '';
+  if (typeof artifact !== 'string') return { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['malformed'], diagnosis: 'Artifact is not a string.' };
+  let current = artifact;
   let issues = detectIssues(current, toolName);
-  if (!issues.length) return { ok: true, artifact: current.slice(0, MAX_ARTIFACT_CHARS), attempts: 0, selfFixed: false, issues: [], diagnosis: 'Artifact passed local verification.' };
+  if (toolName === 'document_generator' && typeof params.content === 'string' && current.trim() === params.content.trim()) issues.push('malformed');
+  if (!issues.length) return { ok: true, artifact: current, attempts: 0, selfFixed: false, issues: [], diagnosis: 'Artifact passed structural preflight; task-level quality is not certified.' };
 
-  for (let attempt = 1; attempt <= MAX_REPAIR_ATTEMPTS; attempt += 1) {
-    if (rerun) {
+  const canRetry = toolName === 'repository_explorer' || toolName === 'file_reader';
+  let attempts = 0;
+  if (rerun && canRetry && !issues.includes('too_large')) {
+    for (let attempt = 1; attempt <= MAX_REPAIR_ATTEMPTS; attempt += 1) {
+      attempts = attempt;
       try {
-        const rerunResult = await rerun(toolName, params);
-        if (rerunResult.artifact) current = rerunResult.artifact;
+        const result = await rerun(toolName, params);
+        if (!result.ok || result.tool !== toolName || typeof result.artifact !== 'string') continue;
+        current = result.artifact;
+        issues = detectIssues(current, toolName);
+        if (!issues.length) return { ok: true, artifact: current, attempts, selfFixed: true, issues: [], diagnosis: 'A successful read-only rerun passed structural preflight.' };
+        if (issues.includes('too_large')) break;
       } catch {
-        // Fall through to deterministic local repair; never let verification crash the agent.
+        // Failed execution is not evidence of recovery.
       }
     }
-    current = localRepair(current, toolName, issues);
-    issues = detectIssues(current, toolName);
-    if (!issues.length) {
-      return { ok: true, artifact: current, attempts: attempt, selfFixed: true, issues: [], diagnosis: 'Artifact was repaired and passed local verification.' };
-    }
   }
-
   return {
     ok: false,
     artifact: current,
-    attempts: MAX_REPAIR_ATTEMPTS,
-    selfFixed: true,
+    attempts,
+    selfFixed: false,
     issues,
-    diagnosis: `Verification failed closed after ${MAX_REPAIR_ATTEMPTS} bounded repair attempts: ${issues.join(', ')}.`,
+    diagnosis: `Artifact verification failed closed: ${issues.join(', ')}.`,
   };
 }

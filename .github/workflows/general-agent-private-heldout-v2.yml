@@ -141,6 +141,7 @@ jobs:
           ORIGIN_GENERAL_AGENT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           ORIGIN_GENERAL_AGENT_CORPUS_ID: ${{ inputs.corpus_id }}
           ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_GENERAL_AGENT_PRIVATE_CORPUS_GZIP_B64 }}
+          ORIGIN_GENERAL_AGENT_DISPOSABLE_CHECKOUT: 'true'
           ORIGIN_GENERAL_AGENT_OUTPUT_DIR: ${{ github.workspace }}/test-results/general-agent-private
         run: |
           set -euo pipefail
