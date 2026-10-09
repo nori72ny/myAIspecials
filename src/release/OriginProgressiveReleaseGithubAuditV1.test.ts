@@ -8,11 +8,11 @@ const good = (): OriginGithubReleaseSnapshotV1 => ({
   pull: { state: 'open', draft: false, head: { sha }, base: { ref: 'main', sha: main }, user: { login: 'author' } },
   main: { protected: true, commit: { sha: main } },
   mainProtection: {
-    required_status_checks: { strict: true, contexts: [...required] },
+    required_status_checks: { strict: true, contexts: [...required], checks: required.map(context => ({ context, app_id: 15368 })) },
     required_pull_request_reviews: { required_approving_review_count: 1, dismiss_stale_reviews: true },
     enforce_admins: { enabled: true }, allow_force_pushes: { enabled: false }, allow_deletions: { enabled: false },
   },
-  checks: { total_count: required.length, check_runs: required.map(name => ({ name, status: 'completed', conclusion: 'success' })) },
+  checks: { total_count: required.length, check_runs: required.map(name => ({ name, status: 'completed', conclusion: 'success', app: { id: 15368 } })) },
   reviews: [{ state: 'APPROVED', commit_id: sha, user: { login: 'reviewer' } }],
 });
 
@@ -43,11 +43,28 @@ describe('live GitHub evidence audit (read-only)', () => {
     expect(audit({ ...input, mainProtection: { ...input.mainProtection!, required_status_checks: { strict: false, contexts: [...required] } } }).blockers)
       .toContain('BRANCH_RULES_UNVERIFIED');
   });
-  it('accepts official checks context objects as equivalent to string contexts', () => {
+  it('accepts explicitly pinned official check objects without a duplicate contexts list', () => {
     const input = good();
     expect(audit({ ...input, mainProtection: {
-      ...input.mainProtection!, required_status_checks: { strict: true, checks: required.map(context => ({ context })) },
+      ...input.mainProtection!, required_status_checks: { strict: true, checks: required.map(context => ({ context, app_id: 15368 })) },
     } }).blockers).not.toContain('BRANCH_RULES_UNVERIFIED');
+  });
+
+  it('rejects name-only rules and any unpinned required check even if CI reports success', () => {
+    const input = good();
+    for (const required_status_checks of [
+      { strict: true, contexts: [...required] },
+      { strict: true, checks: required.map(context => ({ context })) },
+      { strict: true, contexts: [...required], checks: required.slice(1).map(context => ({ context, app_id: 15368 })) },
+      { strict: true, contexts: [...required], checks: required.map((context, index) =>
+        index === 0 ? { context } : { context, app_id: 15368 }) },
+    ]) {
+      const snapshot = { ...input, mainProtection: { ...input.mainProtection!, required_status_checks } };
+      const result = audit(snapshot);
+      expect(result.githubReadyForFurtherReview).toBe(false);
+      expect(result.blockers).toEqual(expect.arrayContaining(['BRANCH_RULES_UNVERIFIED', 'REQUIRED_CI_NOT_GREEN']));
+      expect(result.missingOrFailedChecks.length).toBeGreaterThan(0);
+    }
   });
   it('rejects draft PRs and a changed main', () => {
     const input = good();
@@ -127,8 +144,7 @@ describe('live GitHub evidence audit (read-only)', () => {
       ...input.mainProtection!,
       required_status_checks: {
         strict: true,
-        checks: required.map((context, i) =>
-          i === 0 ? { context, app_id: expectedAppId } : { context }),
+        checks: required.map(context => ({ context, app_id: expectedAppId })),
       },
     };
     const legitimateRuns = input.checks!.check_runs.map((row, i) =>
@@ -156,7 +172,7 @@ describe('live GitHub evidence audit (read-only)', () => {
     const context = required[0];
     for (const appId of [-1, 0, NaN, '15368']) {
       const rules = { strict: true,
-        checks: [{ context, app_id: appId }, ...required.slice(1).map(name => ({ context: name }))] };
+        checks: [{ context, app_id: appId }, ...required.slice(1).map(name => ({ context: name, app_id: 15368 }))] };
       const checkRuns = input.checks!.check_runs.map((r, i) =>
         i === 0 ? { ...r, app: { id: 15368 } } : r);
       const malformedSnapshot = { ...input, mainProtection: {
@@ -170,7 +186,7 @@ describe('live GitHub evidence audit (read-only)', () => {
       ...input.mainProtection!, required_status_checks: {
         strict: true,
         checks: [{ context, app_id: 15368 }, { context, app_id: 15369 },
-          ...required.slice(1).map(name => ({ context: name }))],
+          ...required.slice(1).map(name => ({ context: name, app_id: 15368 }))],
       },
     }, checks: { total_count: required.length, check_runs: input.checks!.check_runs.map((r, i) =>
       i === 0 ? { ...r, app: { id: 15368 } } : r) } });
@@ -214,16 +230,16 @@ describe('live GitHub evidence audit (read-only)', () => {
     const input = good();
     const extra = 'Independent answer quality';
     const rules = field === 'contexts'
-      ? { strict: true, contexts: [...required, extra] }
-      : { strict: true, checks: [...required, extra].map(context => ({ context })) };
+      ? { strict: true, contexts: [...required, extra], checks: [...required, extra].map(context => ({ context, app_id: 15368 })) }
+      : { strict: true, checks: [...required, extra].map(context => ({ context, app_id: 15368 })) };
     const snapshot = { ...input, mainProtection: { ...input.mainProtection!, required_status_checks: rules } };
     expect(audit(snapshot).missingOrFailedChecks).toContain(extra);
     for (const [status, conclusion] of [['queued', null], ['completed', 'skipped'], ['completed', 'neutral']]) {
-      const check_runs = [...input.checks!.check_runs, { name: extra, status: status!, conclusion }];
+      const check_runs = [...input.checks!.check_runs, { name: extra, status: status!, conclusion, app: { id: 15368 } }];
       expect(audit({ ...snapshot, checks: { total_count: check_runs.length, check_runs } }).blockers)
         .toContain('REQUIRED_CI_NOT_GREEN');
     }
-    const check_runs = [...input.checks!.check_runs, { name: extra, status: 'completed', conclusion: 'success' }];
+    const check_runs = [...input.checks!.check_runs, { name: extra, status: 'completed', conclusion: 'success', app: { id: 15368 } }];
     expect(audit({ ...snapshot, checks: { total_count: check_runs.length, check_runs } }).githubReadyForFurtherReview).toBe(true);
   });
   it('the standalone live audit fails closed when configuration is missing', () => {
