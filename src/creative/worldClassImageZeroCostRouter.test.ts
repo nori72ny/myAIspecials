@@ -96,7 +96,7 @@ describe('worldClassImageZeroCostRouter', () => {
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
   });
 
-  it('rejects the evaluation bypass when the deployment environment is production', async () => {
+  it('blocks an evaluation bypass in Production before any unapproved provider call', async () => {
     const response = await request(app({
       VERCEL_GIT_COMMIT_SHA: SHA,
       ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
@@ -106,6 +106,40 @@ describe('worldClassImageZeroCostRouter', () => {
       .post('/api/creative/v1.6/world-class/generate')
       .send({ prompt: '高級な商品広告' });
 
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PRODUCTION_DISABLED');
+  });
+
+  it('requires explicit Owner production enablement even when the exact SHA is qualified', async () => {
+    const env: NodeJS.ProcessEnv = {
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+      VERCEL_ENV: 'production',
+    };
+    const status = await request(app(env)).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(503);
+    expect(status.body.enabled).toBe(false);
+    expect(status.body.ready).toBe(false);
+
+    const result = await request(app(env))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '安全な腕時計の写真' });
+    expect(result.status).toBe(503);
+    expect(result.body.code).toBe('WORLD_CLASS_IMAGE_PRODUCTION_DISABLED');
+    expect(result.headers['x-origin-visual-verified']).toBeUndefined();
+  });
+
+  it('requires exact SHA qualification even with explicit Owner production enablement', async () => {
+    const response = await request(app({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      VERCEL_ENV: 'production',
+      ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
+      ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
+      NODE_ENV: 'test',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '安全な腕時計の写真' });
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
   });
