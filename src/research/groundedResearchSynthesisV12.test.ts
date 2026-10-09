@@ -349,6 +349,36 @@ describe("groundedResearchSynthesisV12", () => {
     }
   });
 
+  it("rejects a cited number re-labeled with a different Japanese counter", () => {
+    for (const [sourceUnit, allegedUnit] of [
+      ["件", "社"], ["社", "件"], ["台", "個"], ["個", "回"],
+      ["回", "名"], ["名", "台"],
+    ]) {
+      const evidence = [{ ...sources[0], excerpt: `合計は4${sourceUnit}です。` }];
+      expect(validateGroundedResearchSynthesis(
+        `合計は4${allegedUnit}です。[S1](https://example.com/one)`, evidence,
+      )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+    }
+  });
+
+  it("supports 名/人 equivalence while keeping distinct organization, device and occurrence units", () => {
+    const peopleByName = [{ ...sources[0], excerpt: "担当者は6名。" }];
+    const peopleByPerson = [{ ...sources[0], excerpt: "担当者は6人。" }];
+    expect(validateGroundedResearchSynthesis(
+      "担当者は6人です。[S1](https://example.com/one)", peopleByName,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    expect(validateGroundedResearchSynthesis(
+      "担当者は6名です。[S1](https://example.com/one)", peopleByPerson,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    const counts = [{ ...sources[0], excerpt: "導入は2社、追加予定は3社。" }];
+    expect(validateGroundedResearchSynthesis(
+      "合計は2社+3社=5社です。[S1](https://example.com/one)", counts,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    expect(validateGroundedResearchSynthesis(
+      "合計は2社+3社=5件です。[S1](https://example.com/one)", counts,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("does not reclassify cited fractional headcounts as event counts", () => {
     const evidence = [{ ...sources[0], excerpt: "平均参加者は2.5人、完了した処理は4.25件。" }];
     expect(validateGroundedResearchSynthesis(
