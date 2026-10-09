@@ -175,6 +175,30 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
+  router.post('/api/agent/v3/coding/recover', (req, res) => {
+    if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
+    if (agentOperatorAuthorizationModeV3(env) !== 'agent-operator' || !agentOperatorConfiguredV3(env)) {
+      return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
+    }
+    if (!authenticateAgentOperatorV3(req, env)) {
+      return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    }
+    const { runId, jobId } = req.body ?? {};
+    if (typeof runId !== 'string' || !/^run-[A-Za-z0-9-]{1,100}$/.test(runId)
+      || typeof jobId !== 'string' || !/^coding-[A-Za-z0-9_-]{22}$/.test(jobId)) {
+      return res.status(400).json({ ok: false, code: 'AGENT_CODING_RECOVERY_INVALID' });
+    }
+    void (async () => {
+      try {
+        const state = await codingBridge.recover(runId, jobId);
+        if (!res.headersSent) return res.status(state.ok ? 200 : 404).json({ protocolVersion: 3, ...state });
+      } catch {
+        if (!res.headersSent) return res.status(503).json({ ok: false, code: 'AGENT_CODING_RECOVERY_UNAVAILABLE', protocolVersion: 3 });
+      }
+    })();
+    return undefined;
+  });
+
   router.post('/api/agent/v3/coding/status', (req, res) => {
     if (!codingBridge) return res.status(503).json({ ok: false, code: 'AGENT_CODING_BRIDGE_UNAVAILABLE' });
     const { runId, jobId, bridgeToken } = req.body ?? {};
