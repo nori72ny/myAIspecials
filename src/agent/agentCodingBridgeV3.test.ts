@@ -318,4 +318,74 @@ describe('AgentCodingBridgeV3', () => {
     expect(jobStore.requestCancel).not.toHaveBeenCalled();
   });
 
+
+  it('rotates a valid polling capability across the original 30-minute deadline without granting an expired token', async () => {
+    const created = record('queued');
+    const store = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => created),
+    };
+    const bridge = new AgentCodingBridgeV3(env, store, { get: vi.fn(async () => null) },
+      async jobId => ({
+        accepted: true as const,
+        jobId,
+        repository: 'nori72ny/myAIspecials' as const,
+        workflow: 'coding-job-worker-v14.yml' as const,
+        ref: 'main' as const,
+      }));
+    const now = Date.now();
+    const started = await bridge.start('run-rolling-capability', 'Repair bug safely.', now);
+    const renewed = await bridge.poll('run-rolling-capability', started.jobId, started.bridgeToken, now + 29 * 60_000);
+    expect(renewed.ok).toBe(true);
+    expect(renewed.status).toBe('running');
+    if (!renewed.ok || renewed.status !== 'running') throw new Error('EXPECTED_RUNNING');
+    expect(renewed.bridgeToken).not.toBe(started.bridgeToken);
+    expect(Date.parse(renewed.expiresAt)).toBeGreaterThan(Date.parse(started.expiresAt));
+    const stale = await bridge.poll('run-rolling-capability', started.jobId, started.bridgeToken, now + 31 * 60_000);
+    expect(stale.ok).toBe(false);
+    if ('code' in stale) expect(stale.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+    const continued = await bridge.poll('run-rolling-capability', started.jobId, renewed.bridgeToken, now + 58 * 60_000);
+    expect(continued.ok).toBe(true);
+    expect(continued.status).toBe('running');
+    const wrongRun = await bridge.poll('run-not-authorized', started.jobId, renewed.bridgeToken, now + 58 * 60_000);
+    expect(wrongRun.ok).toBe(false);
+    if ('code' in wrongRun) expect(wrongRun.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+  });
+
+  it('does not extend a rolling bearer capability beyond the original durable Coding job TTL', async () => {
+    const created = record('queued');
+    const store = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => created),
+    };
+    const bridge = new AgentCodingBridgeV3(env, store, { get: vi.fn(async () => null) },
+      async jobId => ({
+        accepted: true as const,
+        jobId,
+        repository: 'nori72ny/myAIspecials' as const,
+        workflow: 'coding-job-worker-v14.yml' as const,
+        ref: 'main' as const,
+      }));
+    const now = Date.now();
+    const started = await bridge.start('run-absolute-cap', 'Repair bug safely.', now);
+    let token = started.bridgeToken;
+    let finalExpiry = Date.parse(started.expiresAt);
+    for (let minutes = 25; minutes < 24 * 60; minutes += 25) {
+      const state = await bridge.poll('run-absolute-cap', started.jobId, token, now + minutes * 60_000);
+      expect(state.ok).toBe(true);
+      expect(state.status).toBe('running');
+      if (!state.ok || state.status !== 'running') throw new Error('EXPECTED_RUNNING');
+      token = state.bridgeToken;
+      finalExpiry = Date.parse(state.expiresAt);
+      expect(finalExpiry).toBeLessThanOrEqual(now + 24 * 60 * 60_000);
+    }
+    expect(finalExpiry).toBe(now + 24 * 60 * 60_000);
+    const exhausted = await bridge.poll('run-absolute-cap', started.jobId, token, now + 24 * 60 * 60_000);
+    expect(exhausted.ok).toBe(false);
+    if ('code' in exhausted) expect(exhausted.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+  });
+
+
 });
