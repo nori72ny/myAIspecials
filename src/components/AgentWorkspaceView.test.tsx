@@ -239,6 +239,65 @@ describe('AgentWorkspaceView v3', () => {
     })) } })).toBe(false);
   });
 
+  it('restores a previously dispatched job after a reload without dispatching another job', async () => {
+    const runId = 'run-recovery-ui';
+    const jobId = 'coding-AAAAAAAAAAAAAAAAAAAAAA';
+    let pollCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/coding/recover') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer dedicated-owner-operator');
+        expect(JSON.parse(String(init?.body))).toEqual({ runId, jobId });
+        return json({ ok: true, runId, jobId, status: 'running', bridgeToken: 'new-capability',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      }
+      if (url === '/api/agent/v3/coding/status') {
+        pollCount += 1;
+        expect(JSON.parse(String(init?.body))).toEqual({
+          runId, jobId, bridgeToken: pollCount === 1 ? 'new-capability' : 'rotated-capability',
+        });
+        if (pollCount === 1) return json({
+          ok: true, runId, jobId, status: 'running', codingStatus: 'repairing',
+          verified: false, bridgeToken: 'rotated-capability',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+        });
+        return json({
+          ok: true, runId, jobId, status: 'completed', codingStatus: 'verified',
+          verified: true, freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+          result: { schemaVersion: 1, sessionStatus: 'verified', repairRounds: 1,
+            diffs: [{ path: 'src/recovery.ts', kind: 'modified', before: 'bad', after: 'good',
+              beforeTruncated: false, afterTruncated: false, previewAvailable: true }],
+            verificationChecks: (['typecheck', 'lint', 'test', 'build'] as const).map(kind => ({
+              kind, ok: true, exitCode: 0, timedOut: false, attempt: 1,
+            })),
+            freeOnly: true, costUsd: 0, gitPublished: false, deployed: false },
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AgentWorkspaceView />);
+    await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.change(screen.getByLabelText('Run ID'), { target: { value: runId } });
+    fireEvent.change(screen.getByLabelText('Coding Job ID'), { target: { value: jobId } });
+    fireEvent.change(screen.getByLabelText('専用Agentオペレーター認証キー'), {
+      target: { value: 'dedicated-owner-operator' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '本人認証して既存ジョブを復旧' }));
+    await screen.findByText(/保存済みCoding状態: repairing/);
+    fireEvent.click(screen.getByRole('button', { name: 'Codingの最新状態を再取得' }));
+    await screen.findByText(/# Coding V1\.4 検証済み結果/);
+    expect(screen.getByText(/src\/recovery\.ts/)).toBeTruthy();
+    expect(screen.getByText(/typecheck: PASS/)).toBeTruthy();
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      '/api/agent/v3/status', '/api/agent/v3/coding/recover',
+      '/api/agent/v3/coding/status', '/api/agent/v3/coding/status',
+    ]);
+  });
+
   it('runs a server-planned coding task asynchronously and waits for verified four-check evidence', async () => {
     const goal = 'このTypeScriptコードのバグを分析して';
     let codingStatusCalls = 0;
