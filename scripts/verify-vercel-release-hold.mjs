@@ -62,10 +62,19 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     }
   }
 
-  const [projectInfo, aliasInfo, deployment] = await Promise.all([
+  // A staging probe is optional and must be the same already-trusted SHA.
+  // Its purpose is only to prove the alias did not switch on this one
+  // Production-target build. It never attests that a NEW main push is safe.
+  const probeId = env.ORIGIN_STAGED_PROBE_DEPLOYMENT_ID?.trim();
+  if (probeId !== undefined) {
+    assert.match(probeId, VERCEL_DEPLOYMENT, "ORIGIN_STAGED_PROBE_DEPLOYMENT_ID_INVALID");
+    assert.notEqual(probeId, deploymentId, "ORIGIN_STAGED_PROBE_NOT_DISTINCT");
+  }
+  const [projectInfo, aliasInfo, deployment, probe] = await Promise.all([
     readVercelJson("/v9/projects/" + project),
     readVercelJson("/v4/aliases/" + alias),
     readVercelJson("/v13/deployments/" + deploymentId),
+    probeId ? readVercelJson("/v13/deployments/" + probeId) : Promise.resolve(null),
   ]);
 
   // This must be the raw project API response, not a connector summary
@@ -79,14 +88,23 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   assert.equal(deployment.meta?.githubCommitSha?.toLowerCase(), sha, "PRODUCTION_DEPLOYMENT_SHA_MISMATCH");
   assert.equal(deployment.readyState, "READY", "PRODUCTION_DEPLOYMENT_NOT_READY");
 
-  // Crucial limitation: native custom-domain hold is NOT proof that
-  // an untested first merge cannot create a default *.vercel.app alias.
+  if (probe) {
+    assert.equal(probe.id, probeId, "STAGED_PROBE_ID_MISMATCH");
+    assert.equal(probe.projectId ?? probe.project?.id, project, "STAGED_PROBE_PROJECT_MISMATCH");
+    assert.equal(probe.readyState, "READY", "STAGED_PROBE_NOT_READY");
+    assert.equal(probe.target, "production", "STAGED_PROBE_NOT_PRODUCTION_TARGET");
+    assert.equal(probe.meta?.githubCommitSha?.toLowerCase(), sha, "STAGED_PROBE_UNTRUSTED_SHA");
+    assert.notEqual(aliasInfo.deploymentId, probeId, "STAGED_PROBE_AUTO_PROMOTED");
+  }
+
+  // Same-SHA staging cannot prove what happens on the FIRST new main push.
   return {
     status: "native-custom-domain-and-current-alias-verified",
     productionAlias: alias,
     deploymentId,
     observedSha: sha,
     autoAssignCustomDomains: false,
+    sameShaProductionProbeVerified: Boolean(probe),
     firstMainPushNegativePathVerified: false,
     independentReviewerApproved: false,
     productionPromotionAuthorized: false,
