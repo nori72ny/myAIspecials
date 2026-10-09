@@ -40,6 +40,14 @@ export function codingAgentPinnedRevisionV14(targetKey: string): string | null {
   return AGENT_TARGET_PINNED.test(targetKey) ? targetKey.slice(-40) : null;
 }
 
+/** A pinned job must only be executed from the release that created it. */
+export function codingAgentCheckoutMatchesTargetV14(targetKey: string, workerRevision: string): boolean {
+  if (!isTrustedCodingWorkerTargetV14(targetKey) || typeof workerRevision !== 'string'
+    || !/^[0-9a-f]{40}$/.test(workerRevision)) return false;
+  const pinned = codingAgentPinnedRevisionV14(targetKey);
+  return pinned === null || pinned === workerRevision;
+}
+
 export function isTrustedCodingWorkerTargetV14(targetKey: string): boolean {
   return targetKey === LEGACY_TARGET
     || (typeof targetKey === 'string' && (AGENT_TARGET.test(targetKey) || AGENT_TARGET_PINNED.test(targetKey)));
