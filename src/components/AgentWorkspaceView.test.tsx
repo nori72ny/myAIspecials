@@ -281,6 +281,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<AgentWorkspaceView />);
     await screen.findByText('Agent v3 基盤を確認済み');
+    fireEvent.click(screen.getByText('既存Codingジョブを復旧する'));
     fireEvent.change(screen.getByLabelText('Run ID'), { target: { value: runId } });
     fireEvent.change(screen.getByLabelText('Coding Job ID'), { target: { value: jobId } });
     fireEvent.change(screen.getByLabelText('専用Agentオペレーター認証キー'), {
