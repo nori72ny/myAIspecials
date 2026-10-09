@@ -296,11 +296,11 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
   // Every numeric group and spacing run is bounded against untrusted text.
   const integer = String.raw`(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})`;
   const expression = new RegExp(
-    String.raw`(?<![0-9.,])(${integer})(店|店舗|件|人|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}(${integer})(店|店舗|件|人|円)?[ \t]{0,8}[=＝][ \t]{0,8}(${integer})(店|店舗|件|人|円)?(?![0-9.,])`,
+    String.raw`(?<![0-9.,])(${integer})(店舗|店|件|人|名|社|台|個|回|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}(${integer})(店舗|店|件|人|名|社|台|個|回|円)?[ \t]{0,8}[=＝][ \t]{0,8}(${integer})(店舗|店|件|人|名|社|台|個|回|円)?(?![0-9.,])`,
     "g",
   );
   const sourceMeasures = new Set<string>();
-  const measurePattern = /[+-]?[0-9][0-9,]*(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?[ \t]{0,8}(?:店舗|店|件|人|円)/gi;
+  const measurePattern = /[+-]?[0-9][0-9,]*(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?[ \t]{0,8}(?:店舗|店|件|人|名|社|台|個|回|円)/gi;
   for (const measure of citedEvidence.normalize("NFKC").matchAll(measurePattern)) {
     sourceMeasures.add(measure[0].replace(/[ ,\t]/g, ""));
   }
@@ -324,8 +324,9 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
     allowed.add(`${resultToken}${numericSuffix}`);
     // Preserve the unit binding alongside the scalar arithmetic result.
     // Otherwise 135店 - 120店 = 15店 could spuriously authorize 15人.
-    if (resultUnit === "店舗" || resultUnit === "店" || resultUnit === "件" || resultUnit === "人") {
-      allowed.add(`measure:${resultToken}@${resultUnit === "店舗" ? "店" : resultUnit}`);
+    if (["店舗", "店", "件", "人", "名", "社", "台", "個", "回"].includes(resultUnit)) {
+      const countUnit = resultUnit === "店舗" ? "店" : resultUnit === "名" ? "人" : resultUnit;
+      allowed.add(`measure:${resultToken}@${countUnit}`);
     }
     // Numeric tokenization retains the binary sign of the second operand.
     // It is permitted only inside this specifically verified expression.
@@ -339,6 +340,7 @@ function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<str
  * promote "120人" in evidence into a supported claim of "120件/店".
  * Restrict this measure guard to exact Japanese count units (not prose such
  * as "monthly", dates, or ratios), keeping explicitly verified arithmetic.
+ * 人 and 名 denote the same person counter, but 社/台/個/回 are distinct.
  */
 function hasUnsupportedCountMeasure(
   unit: string,
@@ -348,19 +350,19 @@ function hasUnsupportedCountMeasure(
   // Match the ENTIRE quantity, including fractional and scientific notation.
   // Integer-only matching would let 2.5件 justify 2.5人 (or misread the
   // exponent tail of 1e3件 as a separate 3件).
-  const count = /(?<![0-9.,A-Za-z])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,8})?(?:e[+-]?[0-9]{1,3})?)[ \t]{0,8}(店舗|店|件|人)(?![0-9.,A-Za-z])/gi;
+  const count = /(?<![0-9.,A-Za-z])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,8})?(?:e[+-]?[0-9]{1,3})?)[ \t]{0,8}(店舗|店|件|人|名|社|台|個|回)(?![0-9.,A-Za-z])/gi;
   const normalizedEvidence = citedEvidence.normalize("NFKC").replace(/\u2212/g, "-");
   const evidenceMeasures = new Set<string>();
   for (const found of normalizedEvidence.matchAll(count)) {
     const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
-    const category = found[2] === "店舗" ? "店" : found[2];
+    const category = found[2] === "店舗" ? "店" : found[2] === "名" ? "人" : found[2];
     evidenceMeasures.add(`${amount}@${category}`);
   }
 
   const normalizedClaim = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
   for (const found of normalizedClaim.matchAll(count)) {
     const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
-    const category = found[2] === "店舗" ? "店" : found[2];
+    const category = found[2] === "店舗" ? "店" : found[2] === "名" ? "人" : found[2];
     const key = `${amount}@${category}`;
     // In a joined subtraction such as 135店-120店=15店, the minus is a
     // verified binary operator, not a negative source count. Only permit
