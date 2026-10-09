@@ -16,7 +16,7 @@ const fixtureEnv = {
 const okay = () => ({
   project: { id: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, autoAssignCustomDomains: false },
   alias: { alias: fixtureEnv.ORIGIN_PRODUCTION_ALIAS, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, deploymentId: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID },
-  deployment: { id: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, readyState: "READY", meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA } },
+  deployment: { id: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID, readyState: "READY", target: "production", meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA } },
 });
 type ProbeFixture = {
   id: string;
@@ -79,6 +79,7 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     ["deployment-project-mismatch", (x) => { x.deployment.projectId = "prj_OTHER123"; }],
     ["commit-mismatch", (x) => { x.deployment.meta.githubCommitSha = "b".repeat(40); }],
     ["nonready", (x) => { x.deployment.readyState = "ERROR"; }],
+    ["preview-in-primary", (x) => { x.deployment.target = "preview"; }],
   ])("rejects %s", async (_name, mutate) => {
     const x = okay();
     mutate(x);
@@ -175,6 +176,25 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     expect(mock).toHaveBeenCalledTimes(6);
     expect(result.verifiedAliasDeploymentIds).toEqual(expected);
     expect(result.firstMainPushNegativePathVerified).toBe(false);
+  });
+
+  it("rejects a preview-target secondary alias even with the correct trusted SHA", async () => {
+    const secondaryId = "dpl_SECOND123";
+    const aliasTargets = Object.fromEntries(PROTECTED_ORIGIN_ALIASES.map((name, i) =>
+      [name, i === 0 ? fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID : secondaryId]));
+    const x = {
+      ...okay(),
+      secondary: {
+        id: secondaryId, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
+        readyState: "READY", target: "preview" as const,
+        meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
+      },
+    };
+    const overrides = Object.fromEntries(PROTECTED_ORIGIN_ALIASES.slice(1)
+      .map(name => [name, { deploymentId: secondaryId }]));
+    await expect(verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON: JSON.stringify(aliasTargets),
+    }, fakeApi(x, overrides))).rejects.toThrow("PRODUCTION_DEPLOYMENT_WRONG_TARGET");
   });
 
   it("denies per-domain drift even if primary alias and all deployed SHAs are correct", async () => {
