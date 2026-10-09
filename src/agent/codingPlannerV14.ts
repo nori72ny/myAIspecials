@@ -49,9 +49,14 @@ function exactCreateProposal(context: CodingContext): CodingProposalBatch | null
  */
 function exactReplaceProposal(context: CodingContext): CodingProposalBatch | null {
   if (context.attempt !== 0 || typeof context.goal !== 'string') return null;
-  const match = /^Replace exactly one occurrence of ("(?:\\.|[^"\\\r\n])*") with ("(?:\\.|[^"\\\r\n])*") in file \`([^\`\r\n]{1,240})\`\. Do not modify any other file\.$/i.exec(context.goal.trim());
-  if (!match) return null;
-  const [, beforeJson, afterJson, filePath] = match;
+  const goal = context.goal.trim();
+  const english = /^Replace exactly one occurrence of ("(?:\\.|[^"\\\r\n])*") with ("(?:\\.|[^"\\\r\n])*") in file \`([^\`\r\n]{1,240})\`\. Do not modify any other file\.$/i.exec(goal);
+  const japanese = english ? null
+    : /^ファイル \`([^\`\r\n]{1,240})\` の文字列 ("(?:\\.|[^"\\\r\n])*") を ("(?:\\.|[^"\\\r\n])*") に完全一致で1箇所だけ置換してください。他のファイルは変更しないでください。$/.exec(goal);
+  if (!english && !japanese) return null;
+  const filePath = (english?.[3] ?? japanese?.[1]) as string;
+  const beforeJson = (english?.[1] ?? japanese?.[2]) as string;
+  const afterJson = (english?.[2] ?? japanese?.[3]) as string;
   const editable = [...new Set(context.editablePaths ?? context.files.map(file => file.path))];
   const creatable = [...new Set(context.creatablePaths ?? [])];
   if (editable.length !== 1 || editable[0] !== filePath || creatable.length !== 0
