@@ -210,7 +210,7 @@ function resultIsVerified(
   const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
   // New jobs pin the originating release revision in their immutable DB row.
   // A later deployment must not invalidate a previously verified result.
-  const pinnedSha = codingAgentPinnedRevisionV14(record?.targetKey);
+  const pinnedSha = codingAgentPinnedRevisionV14(record.targetKey);
   const releaseSha = pinnedSha ?? (env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA);
   const actualPaths = record?.changedPaths;
   const diffs = result?.diffs;
