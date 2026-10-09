@@ -46,7 +46,8 @@ aliases via `GET /v4/aliases/{name}` against a pre-approved snapshot
 deployment IDs and fail if **any** one moved. This snapshot must be
 captured before any operation, not copied from post-event live state.
 All distinct expected deployment IDs must belong to the project, be
-READY, and report the exact pre-approved `ORIGIN_EXPECTED_PRODUCTION_SHA`.
+READY, have `target:production` (never a Preview deployment), and report
+the exact pre-approved `ORIGIN_EXPECTED_PRODUCTION_SHA`.
 Using one identical deployment ID for all hosts creates false failures
 when Vercel has served same-SHA code from two different deployments.
 Missing, extra, malformed or unexpected primary mappings fail closed.
