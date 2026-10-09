@@ -33,7 +33,7 @@ export interface OriginGithubReleaseSnapshotV1 {
   } | null;
   /** Effective main branch protection details from the authenticated GitHub API. */
   readonly mainProtection: {
-    readonly required_status_checks?: { readonly strict?: boolean; readonly contexts?: readonly string[]; readonly checks?: readonly { readonly context?: string }[] } | null;
+    readonly required_status_checks?: { readonly strict?: boolean; readonly contexts?: readonly string[]; readonly checks?: readonly { readonly context?: string; readonly app_id?: number }[] } | null;
     readonly required_pull_request_reviews?: { readonly required_approving_review_count?: number; readonly dismiss_stale_reviews?: boolean } | null;
     readonly enforce_admins?: { readonly enabled?: boolean } | null;
     readonly allow_force_pushes?: { readonly enabled?: boolean } | null;
@@ -45,6 +45,8 @@ export interface OriginGithubReleaseSnapshotV1 {
       readonly name: string;
       readonly status: string;
       readonly conclusion: string | null;
+      /** GitHub Checks API identifies the actual submitting GitHub App. */
+      readonly app?: { readonly id?: number } | null;
     }[];
   } | null;
   readonly reviews: readonly {
@@ -136,9 +138,28 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
     ...REQUIRED_ORIGIN_RELEASE_CHECKS_V1,
     ...configuredCheckNames(input?.mainProtection),
   ])];
+  const boundApps = new Map<string, number>();
+  for (const configured of input?.mainProtection?.required_status_checks?.checks ?? []) {
+    const name = configured?.context;
+    // app_id=-1 explicitly means any application may provide this check.
+    // That is not sufficient evidence of an app identity for release controls.
+    if (typeof name === 'string' && Number.isSafeInteger(configured?.app_id)
+      && Number(configured.app_id) > 0) {
+      const existing = boundApps.get(name);
+      if (existing !== undefined && existing !== configured.app_id) {
+        // Contradictory protection entries cannot be used as positive proof.
+        boundApps.set(name, -1);
+      } else {
+        boundApps.set(name, Number(configured.app_id));
+      }
+    }
+  }
   const missingOrFailedChecks = requiredNames.filter(name => {
     const matches = checkRows.filter(row => row?.name === name);
-    return matches.length !== 1 || matches[0]?.status !== 'completed' || matches[0]?.conclusion !== 'success';
+    if (matches.length !== 1 || matches[0]?.status !== 'completed'
+      || matches[0]?.conclusion !== 'success') return true;
+    const expectedApp = boundApps.get(name);
+    return expectedApp !== undefined && matches[0]?.app?.id !== expectedApp;
   });
   if (missingOrFailedChecks.length
     || checkRows.some(row => row?.conclusion === 'failure' || row?.conclusion === 'cancelled' || row?.conclusion === 'timed_out')) {
