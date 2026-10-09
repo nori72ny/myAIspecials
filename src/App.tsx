@@ -4,6 +4,7 @@ import { Menu, Plus, Settings } from 'lucide-react';
 import OriginAnswerMarkdown from './components/personal/OriginAnswerMarkdown';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
+import { appendOriginArtifactRevision } from './pwa/artifactRevisionLedger';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
@@ -174,7 +175,15 @@ const prepareDirectTouchMarkup = (content: string) => {
   targets.forEach((target, index) => {
     target.setAttribute('data-origin-direct-touch-index', String(index));
     target.setAttribute('contenteditable', 'plaintext-only');
-    target.setAttribute('oninput', `window.clearTimeout(window.__originDirectTouchTimer);var node=this;window.__originDirectTouchTimer=window.setTimeout(function(){try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:[{index:${index},text:String(node.textContent||'')}],timestamp:Date.now()},'*')}catch(_){ }},420);`);
+    target.setAttribute('oncompositionstart', `window.__originDirectTouchComposing=(window.__originDirectTouchComposing||0)+1;window.clearTimeout(window.__originDirectTouchTimer);try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }`);
+    // Coalesce all edited targets into one revision. One timer per iframe must
+    // never discard the prior target when a user quickly edits another field.
+    const onEditFinalized = `try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'editing'},'*')}catch(_){ }var pending=window.__originDirectTouchEdits||(window.__originDirectTouchEdits=Object.create(null));pending[${index}]=String(this.textContent||'');window.clearTimeout(window.__originDirectTouchTimer);if((window.__originDirectTouchComposing||0)>0)return;window.__originDirectTouchTimer=window.setTimeout(function(){var batch=window.__originDirectTouchEdits||Object.create(null);window.__originDirectTouchEdits=Object.create(null);var edits=Object.keys(batch).map(function(key){return{index:Number(key),text:String(batch[key])}});try{parent.postMessage({source:'ORIGIN_DIRECT_TOUCH',type:'commit',edits:edits,timestamp:Date.now()},'*')}catch(_){ }},420);`;
+    target.setAttribute('oninput', onEditFinalized);
+    // IME composition may be cancelled without producing a follow-up input.
+    // Reconcile the current text even on compositionend to clear the
+    // transient edit marker after the same safe debounce/commit pathway.
+    target.setAttribute('oncompositionend', `window.__originDirectTouchComposing=Math.max(0,(window.__originDirectTouchComposing||0)-1);${onEditFinalized}`);
     target.spellcheck = true;
   });
   return documentModel.body.innerHTML;
@@ -910,26 +919,43 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       if (!event.data || typeof event.data !== 'object') return;
       const data = event.data as { source?: string; type?: string; message?: string; edits?: unknown; timestamp?: number };
       const isBoundaryMessage = data.source === 'ORIGIN_SANDBOX_BOUNDARY' && (data.type === 'ready' || data.type === 'runtime-error');
-      const isDirectTouchCommit = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && isDirectTouchEdits(data.edits);
-      if (!isBoundaryMessage && !isDirectTouchCommit) return;
+      const isDirectTouchEditing = data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'editing' && isDirectEditing;
+      const isDirectTouchCommit = isDirectEditing && data.source === 'ORIGIN_DIRECT_TOUCH' && data.type === 'commit' && isDirectTouchEdits(data.edits);
+      if (!isBoundaryMessage && !isDirectTouchCommit && !isDirectTouchEditing) return;
+      if (isDirectTouchEditing) {
+        document.documentElement.dataset.originDirectTouchPending = 'true';
+        return;
+      }
       if (data.source === 'ORIGIN_SANDBOX_BOUNDARY') {
         if (data.type === 'runtime-error') { cleanLoadConfirmed.current = false; setSandboxError(data.message || 'Unknown runtime error'); }
         if (data.type === 'ready' && artifact && typeof data.timestamp === 'number') { cleanLoadConfirmed.current = true; setLastKnownGood({ ...artifact, content: workingContent }); }
       }
       if (isDirectTouchCommit && artifact) {
         const nextContent = applyDirectTouchEdits(workingContent, data.edits);
-        if (nextContent === workingContent) return;
-        const priorRevisions = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-        const nextRevision = { id: `${artifact.id}:v${priorRevisions.length + 1}`, content: nextContent, createdAt: Date.now(), source: 'direct-touch' as const };
-        const nextArtifact = { ...artifact, content: nextContent, revision: priorRevisions.length + 1, revisions: [...priorRevisions, nextRevision] };
+        if (nextContent === workingContent) {
+          // A user may type then undo back to the identical content. No new
+          // revision needs saving, but its transient iframe editing marker
+          // must not block future PWA updates forever. Never clear a pending
+          // commit:<id> marker that has not yet been durably persisted.
+          if (document.documentElement.dataset.originDirectTouchPending === 'true') {
+            document.documentElement.dataset.originDirectTouchPending = 'false';
+            window.dispatchEvent(new Event('origin:pwa-safe-apply'));
+          }
+          return;
+        }
+        const { revision, revisions, latest: nextRevision } = appendOriginArtifactRevision(artifact, nextContent, 'direct-touch');
+        const nextArtifact = { ...artifact, content: nextContent, revision, revisions };
         cleanLoadConfirmed.current = false;
         setWorkingContent(nextContent);
+        // A React state update is not durable: IndexedDB writes are debounced.
+        // Only the production persistence layer may release this exact revision.
+        document.documentElement.dataset.originDirectTouchPending = `commit:${nextRevision.id}`;
         onArtifactRevision?.(nextArtifact);
       }
     };
     window.addEventListener('message', onSandboxMessage);
     return () => window.removeEventListener('message', onSandboxMessage);
-  }, [artifact, workingContent]);
+  }, [artifact, workingContent, isDirectEditing]);
   const postPresentationCommand = (type: 'presentation-start' | 'presentation-exit' | 'presentation-next' | 'presentation-prev') => previewRef.current?.contentWindow?.postMessage({ source: 'ORIGIN_PRESENTATION', type }, '*');
   useEffect(() => {
     if (!isPresentation) { postPresentationCommand('presentation-exit'); return; }
@@ -1026,9 +1052,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   };
   const restorePreviousVersion = () => {
     if (!artifact || !priorRevision) return;
-    const history = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-    const nextRevision = { id: `${artifact.id}:v${history.length + 1}`, content: priorRevision.content, createdAt: Date.now(), source: 'restore' as const };
-    const nextArtifact: ArtifactBlock = { ...artifact, content: priorRevision.content, revision: history.length + 1, revisions: [...history, nextRevision] };
+    const { revision, revisions } = appendOriginArtifactRevision(artifact, priorRevision.content, 'restore');
+    const nextArtifact: ArtifactBlock = { ...artifact, content: priorRevision.content, revision, revisions };
     cleanLoadConfirmed.current = false;
     setWorkingContent(priorRevision.content);
     setIsDiffInspectorOpen(false);
@@ -1040,10 +1065,9 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   const commitCodeRevision = () => {
     if (!syntaxResult.valid) { setActiveTab('code'); codeEditorRef.current?.focus(); return false; }
     if (workingContent !== artifact.content) {
-      const history = artifact.revisions ?? [{ id: `${artifact.id}:v1`, content: artifact.content, createdAt: 0, source: 'generated' as const }];
-      const revision: ArtifactRevision = { id: `${artifact.id}:v${history.length + 1}`, content: workingContent, createdAt: Date.now(), source: 'direct-touch' };
+      const { revision, revisions } = appendOriginArtifactRevision(artifact, workingContent, 'direct-touch');
       cleanLoadConfirmed.current = false;
-      onArtifactRevision?.({ ...artifact, content: workingContent, revision: history.length + 1, revisions: [...history, revision] });
+      onArtifactRevision?.({ ...artifact, content: workingContent, revision, revisions });
     }
     setIsDirectEditing(false);
     setActiveTab(isRenderable ? 'preview' : 'code');
