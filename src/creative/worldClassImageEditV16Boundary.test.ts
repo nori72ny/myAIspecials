@@ -64,6 +64,36 @@ beforeEach(() => {
   });
 });
 describe('V1.6 image editing strict reference integrity', () => {
+  it('does not contact Cloudflare for an unqualified public image status check', async () => {
+    const unqualified = express();
+    unqualified.use(express.json({ limit: '3mb' }));
+    unqualified.use(createWorldClassImageZeroCostRouter({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
+      VERCEL_ENV: 'preview',
+    }));
+    const status = await request(unqualified).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(503);
+    expect(status.body.ready).toBe(false);
+    expect(status.headers['cache-control']).toBe('no-store');
+    expect(mocks.providerStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Cloudflare metadata API idle until explicit Owner production activation', async () => {
+    const disabled = express();
+    disabled.use(express.json({ limit: '3mb' }));
+    disabled.use(createWorldClassImageZeroCostRouter({
+      VERCEL_GIT_COMMIT_SHA: SHA,
+      ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: SHA,
+      VERCEL_ENV: 'production',
+    }));
+    const status = await request(disabled).get('/api/creative/v1.6/world-class/status');
+    expect(status.status).toBe(503);
+    expect(status.body.enabled).toBe(false);
+    expect(status.headers['cache-control']).toBe('no-store');
+    expect(mocks.providerStatus).not.toHaveBeenCalled();
+  });
+
   it('blocks an unbenchmarked 4B model even if its Free plan is ready', async () => {
     mocks.providerStatus.mockResolvedValue({
       configured: true, ready: true, zeroCostVerified: true, paidFallbackEnabled: false,
