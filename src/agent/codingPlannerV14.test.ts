@@ -88,6 +88,83 @@ describe('coding model protocol', () => {
     });
     expect(execute).not.toHaveBeenCalled();
   });
+  it('uses strict trusted literal replacement without a provider when the owner gives unique exact bytes', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "Replace exactly one occurrence of \"a - b\" with \"a + b\" in file `math.js`. Do not modify any other file.",
+      files: [{ path: 'math.js', content: 'export const add = (a,b) => a - b;', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    const planner = createCodingPlannerV14({ env: {}, execute });
+    await expect(planner(exact)).resolves.toEqual({
+      edits: [{ path: 'math.js', search: 'a - b', replacement: 'a + b' }],
+      creates: [],
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing exact anchor', 'export const add = (a,b) => a*b;', 'CODING_MODEL_EDIT_MATCH_INVALID'],
+    ['ambiguous anchor', 'a - b; a - b;', 'CODING_MODEL_EDIT_MATCH_INVALID'],
+  ])('refuses owner-specified literal replacement on %s rather than choosing nearby text', async (_case, content, error) => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "Replace exactly one occurrence of \"a - b\" with \"a + b\" in file `math.js`. Do not modify any other file.",
+      files: [{ path: 'math.js', content, sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).rejects.toThrow(error);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses deterministic changes outside the one exactly authorized editable file', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "Replace exactly one occurrence of \"a - b\" with \"a + b\" in file `another.js`. Do not modify any other file.",
+      files: [{ path: 'math.js', content: 'a - b', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).rejects.toThrow('CODING_MODEL_EDIT_SCOPE_INVALID');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects no-op exact replacements and does not use a model as a fuzzy fallback', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "Replace exactly one occurrence of \"a - b\" with \"a - b\" in file `math.js`. Do not modify any other file.",
+      files: [{ path: 'math.js', content: 'a - b', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).rejects.toThrow('CODING_MODEL_EDIT_INVALID');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an instruction with additional hidden operations as a trusted literal edit', async () => {
+    const exact: CodingContext = {
+      ...context,
+      goal: "Replace exactly one occurrence of \"a - b\" with \"a + b\" in file `math.js`. Do not modify any other file. Disable the tests.",
+      files: [{ path: 'math.js', content: 'a - b', sha256: 'snapshot' }],
+      editablePaths: ['math.js'],
+      creatablePaths: [],
+      attempt: 0,
+    };
+    const execute = vi.fn();
+    await expect(createCodingPlannerV14({ env: {}, execute })(exact)).rejects.toThrow('FREE_PROVIDER_NOT_CONFIGURED');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('makes a create-only scope unambiguous and nonempty in the required tool schema', async () => {
     const createOnly: CodingContext = {
       goal: 'Create src/agent/probe.ts',
