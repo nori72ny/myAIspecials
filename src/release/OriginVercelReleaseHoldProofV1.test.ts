@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PROTECTED_ORIGIN_ALIASES, verifyStaticGitConfig, verifyVercelReleaseHold } from "../../scripts/verify-vercel-release-hold.mjs";
+import { PROTECTED_ORIGIN_ALIASES, auditVercelNativeProductionGitSourcePolicy, verifyStaticGitConfig, verifyVercelReleaseHold } from "../../scripts/verify-vercel-release-hold.mjs";
 
 const fixtureEnv = {
   VERCEL_TOKEN: "a-read-only-test-token",
@@ -55,6 +55,66 @@ function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture; secondary?
   });
 }
 afterEach(() => vi.restoreAllMocks());
+
+const reviewedProductionPolicy = () => ({
+  deploymentSources: [{
+    enabled: true,
+    environments: [{ type: "system", target: "production" }],
+    sources: ["cli", "rest-api"],
+  }],
+});
+
+describe("project-native Git webhook policy evidence (never a release permit)", () => {
+  it("recognizes one explicit production manual-source allowlist and rejects Git webhooks", () => {
+    const project = { deploymentPolicy: reviewedProductionPolicy() };
+    expect(auditVercelNativeProductionGitSourcePolicy(project)).toBe(true);
+    expect(auditVercelNativeProductionGitSourcePolicy({
+      deploymentPolicy: { deploymentSources: [{
+        ...reviewedProductionPolicy().deploymentSources[0],
+        sources: ["git", "cli"],
+      }] },
+    })).toBe(false);
+  });
+
+  it("fails closed on unknown, inherited, overlapping or malformed source policy", () => {
+    const rule = reviewedProductionPolicy().deploymentSources[0];
+    for (const project of [
+      {}, { deploymentPolicy: null }, { deploymentPolicy: { deploymentSources: null } },
+      { deploymentPolicy: { deploymentSources: "unknown" } },
+      { deploymentPolicy: { deploymentSources: [{ ...rule, enabled: false }] } },
+      { deploymentPolicy: { deploymentSources: [{ ...rule, sources: [] }] } },
+      { deploymentPolicy: { deploymentSources: [{ ...rule, sources: ["cli", "cli"] }] } },
+      { deploymentPolicy: { deploymentSources: [{ ...rule, sources: ["deploy-hook"] }] } },
+      { deploymentPolicy: { deploymentSources: [{ ...rule, environments: [] }] } },
+      { deploymentPolicy: { deploymentSources: [rule, rule] } },
+      { deploymentPolicy: { deploymentSources: [{
+        ...rule, environments: [
+          { type: "system", target: "production" },
+          { type: "system", target: "preview" },
+        ],
+      }] } },
+      { deploymentPolicy: { deploymentSources: [{
+        ...rule, environments: [{ type: "system", target: "preview" }],
+      }] } },
+    ]) {
+      expect(auditVercelNativeProductionGitSourcePolicy(project)).toBe(false);
+    }
+  });
+
+  it("requires actual native policy readback only when requested by the protected release audit", async () => {
+    const env = { ...fixtureEnv, ORIGIN_REQUIRE_NATIVE_GIT_PRODUCTION_BLOCK: "true" };
+    const absent = fakeApi();
+    await expect(verifyVercelReleaseHold(env, absent))
+      .rejects.toThrow("VERCEL_NATIVE_GIT_PRODUCTION_BLOCK_UNVERIFIED");
+    const accepted = fakeApi({
+      ...okay(), project: { ...okay().project, deploymentPolicy: reviewedProductionPolicy() },
+    });
+    const result = await verifyVercelReleaseHold(env, accepted);
+    expect(result.projectGitWebhookProductionBlocked).toBe(true);
+    expect(result.firstMainPushNegativePathVerified).toBe(false);
+    expect(result.productionPromotionAuthorized).toBe(false);
+  });
+});
 
 describe("exact-SHA Vercel release hold proof, read-only and fail closed", () => {
   it("verifies current native flag, alias and deployment SHA but never claims first-merge proof", async () => {
