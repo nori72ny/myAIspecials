@@ -45,7 +45,7 @@ jobs:
     - name: Enforce owner-approved manual production deployment
       run: |
         node scripts/verify-manual-production-hold.mjs
-        node --test scripts/verify-manual-production-hold.test.mjs
+        node --test scripts/verify-manual-production-hold.node-check.mjs
     - name: Install dependencies (Clean Install)
       run: npm ci
     - name: Run production dependency security audit
