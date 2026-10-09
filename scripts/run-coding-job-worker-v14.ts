@@ -10,6 +10,7 @@ import { buildCodingJobResultV14 } from '../src/agent/codingJobResultV14.js';
 import { captureCodingJobExecutionEvidenceV14 } from '../src/agent/codingJobExecutionEvidenceV14.js';
 import { createCodingJobResultStoreFromEnvV14 } from '../src/agent/codingJobResultStoreV14.js';
 import { runCodingJobWorkerV14, type CodingJobResolvedTargetV14, type CodingJobWorkerCheckpointV14 } from '../src/agent/codingJobWorkerV14.js';
+import { codingWorkerOutcomeExitCodeV14 } from '../src/agent/codingWorkerOutcomeExitV14.js';
 import { createCodingJobStoreFromEnvV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import { executeOriginProvider, type OriginProviderExecutionRequest } from '../src/legacy/originProviderClient.js';
 
@@ -71,7 +72,7 @@ async function main(): Promise<void> {
       leaseSeconds: WORKER_LEASE_SECONDS,
     });
     console.log(JSON.stringify({ jobId: outcome.jobId, state: outcome.state, code: outcome.code }));
-    if (outcome.state === 'retryable' || outcome.state === 'lease_lost') process.exitCode = 2;
+    process.exitCode = codingWorkerOutcomeExitCodeV14(outcome.state);
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
