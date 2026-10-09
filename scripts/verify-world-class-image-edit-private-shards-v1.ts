@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import { readBoundedImageEvaluationArtifactV1 } from './read-bounded-image-evaluation-artifact-v1.js';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
@@ -15,9 +16,8 @@ function sha256(value: Buffer | string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 async function readJson(file: string): Promise<Row> {
-  const stat = await fs.lstat(file);
-  requireValid(stat.isFile() && stat.size > 0 && stat.size <= 4_000_000, 'JSON_SIZE_INVALID');
-  const raw: unknown = JSON.parse(await fs.readFile(file, 'utf8'));
+  const jsonBytes = await readBoundedImageEvaluationArtifactV1(file, 4_000_000);
+  const raw: unknown = JSON.parse(jsonBytes.toString('utf8'));
   requireValid(raw && typeof raw === 'object' && !Array.isArray(raw), 'JSON_OBJECT_INVALID');
   return raw as Row;
 }
@@ -161,10 +161,8 @@ async function verify() {
           && /\.(png|webp|jpg)$/.test(name));
         requireValid(candidates.length === 1, 'EDIT_IMAGE_FILENAME_INVALID');
         const filepath = path.join(imageDir, candidates[0]);
-        const file = await fs.lstat(filepath);
-        requireValid(file.isFile() && file.size >= 1024 && file.size <= 12 * 1024 * 1024,
-          'EDIT_IMAGE_SIZE_INVALID');
-        const image = await fs.readFile(filepath);
+        const image = await readBoundedImageEvaluationArtifactV1(filepath, 12 * 1024 * 1024);
+        requireValid(image.length >= 1024, 'EDIT_IMAGE_SIZE_INVALID');
         requireValid(sha256(image) === imageSha, 'EDIT_IMAGE_BYTES_CHANGED');
         const mime = candidates[0].endsWith('.png') ? 'image/png'
           : candidates[0].endsWith('.webp') ? 'image/webp' : 'image/jpeg';

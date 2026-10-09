@@ -30,6 +30,9 @@ describe('V1.6 private editing trusted eight-shard receipt integrity', () => {
     expect(audit).toContain('item.sourceImageSha256 === shard.sourceImageSha256s[index]');
     expect(audit).toContain('item.instructionSha256 === shard.instructionSha256s[index]');
     expect(audit).toContain('sha256(image) === imageSha');
+    expect(audit).toContain('readBoundedImageEvaluationArtifactV1(filepath, 12 * 1024 * 1024)');
+    expect(audit).not.toContain('await fs.lstat(filepath)');
+    expect(audit).not.toContain('await fs.readFile(filepath)');
     expect(audit).toContain('item.identicalToSource === false');
     expect(audit).toContain('!seenImages.has(imageSha)');
     expect(audit).toContain('await img.decode()');

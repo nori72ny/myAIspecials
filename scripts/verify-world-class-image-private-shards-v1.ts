@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import { readBoundedImageEvaluationArtifactV1 } from './read-bounded-image-evaluation-artifact-v1.js';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { readRasterDimensionsV15 } from '../src/creative/rasterImageCriticV15.js';
@@ -13,9 +14,8 @@ function digest(data: string | Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 async function readJson(file: string): Promise<J> {
-  const info = await fs.lstat(file);
-  need(info.isFile() && info.size > 0 && info.size <= 5_000_000, 'JSON_FILE_INVALID');
-  const data: unknown = JSON.parse(await fs.readFile(file, 'utf8'));
+  const jsonBytes = await readBoundedImageEvaluationArtifactV1(file, 5_000_000);
+  const data: unknown = JSON.parse(jsonBytes.toString('utf8'));
   need(data && typeof data === 'object' && !Array.isArray(data), 'JSON_OBJECT_INVALID');
   return data as J;
 }
@@ -142,9 +142,8 @@ async function main() {
       const names = files.filter(name => name.startsWith(prefix) && /\.(png|webp|jpg)$/.test(name));
       need(names.length === 1, 'OUTPUT_FILENAME_INVALID');
       const imgPath = path.join(imageDir, names[0]);
-      const st = await fs.lstat(imgPath);
-      need(st.isFile() && st.size >= 1024 && st.size <= 16 * 1024 * 1024, 'IMAGE_SIZE_INVALID');
-      const bytes = await fs.readFile(imgPath);
+      const bytes = await readBoundedImageEvaluationArtifactV1(imgPath, 16 * 1024 * 1024);
+      need(bytes.length >= 1024, 'IMAGE_SIZE_INVALID');
       need(digest(bytes) === outputHash, 'IMAGE_BYTES_SHA256_MISMATCH');
       const mime = names[0].endsWith('.png') ? 'image/png'
         : names[0].endsWith('.webp') ? 'image/webp' : 'image/jpeg';
