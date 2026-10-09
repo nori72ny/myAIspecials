@@ -514,6 +514,11 @@ export default function AgentWorkspaceView() {
             return;
           }
           if (poll.status !== 'running') throw new Error(poll.code ?? 'AGENT_CODING_TERMINAL_UNVERIFIED');
+          if (poll.runId !== plan.runId || poll.jobId !== result.jobId
+            || poll.verified !== false || poll.freeOnly !== true
+            || poll.costUsd !== 0 || poll.paidFallbackUsed !== false) {
+            throw new Error('AGENT_CODING_RUNNING_RECEIPT_INVALID');
+          }
           // A live 30-minute capability rotates on validated nonterminal polls,
           // but its absolute deadline remains the durable Coding job lifetime.
           if (typeof poll.bridgeToken !== 'string' || typeof poll.expiresAt !== 'string') {
