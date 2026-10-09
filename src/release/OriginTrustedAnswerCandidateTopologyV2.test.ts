@@ -80,7 +80,7 @@ describe("trusted sealed AQ V2 candidate topology", () => {
 
   it("rechecks current main before opening sealed corpus and again before one-shot reservation", () => {
     const workflow = readFileSync(
-      new URL("../../.github/workflows/trusted-answer-quality-v2.yml", import.meta.url),
+      "./.github/workflows/trusted-answer-quality-v2.yml",
       "utf8",
     );
     const evaluate = workflow.split("\n  evaluate:\n")[1];
