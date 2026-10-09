@@ -104,6 +104,12 @@ jobs:
             rm -f pr.json
           fi
 
+      - name: Verify current main ancestry before any sealed evaluation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: node --import tsx scripts/assert-trusted-answer-candidate-topology-v2.ts
       - name: Verify required trusted-run secrets before reserving the one-shot corpus
         env:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
@@ -275,6 +281,12 @@ jobs:
             rm -f pr.json
           fi
 
+      - name: Verify current main ancestry before any sealed evaluation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: node --import tsx scripts/assert-trusted-answer-candidate-topology-v2.ts
       - name: Verify secret boundary before execution
         env:
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
