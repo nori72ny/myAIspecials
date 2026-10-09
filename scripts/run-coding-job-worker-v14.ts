@@ -6,7 +6,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CODING_JOB_ID_PATTERN } from '../src/agent/codingJobCryptoV14.js';
-import { isTrustedCodingWorkerTargetV14 } from '../src/agent/codingAgentTargetKeyV14.js';
+import { isTrustedCodingWorkerTargetV14, codingAgentCheckoutMatchesTargetV14 } from '../src/agent/codingAgentTargetKeyV14.js';
 import { buildCodingJobResultV14 } from '../src/agent/codingJobResultV14.js';
 import { captureCodingJobExecutionEvidenceV14 } from '../src/agent/codingJobExecutionEvidenceV14.js';
 import { createCodingJobResultStoreFromEnvV14 } from '../src/agent/codingJobResultStoreV14.js';
@@ -38,6 +38,9 @@ async function main(): Promise<void> {
     await copyTrustedCheckout(checkout, workspace);
     const resolveTarget = async (targetKey: string): Promise<CodingJobResolvedTargetV14> => {
       if (!isTrustedCodingWorkerTargetV14(targetKey)) throw new Error('CODING_WORKER_TARGET_BLOCKED');
+      if (!codingAgentCheckoutMatchesTargetV14(targetKey, executionEvidence.sourceRevision)) {
+        throw new Error('CODING_WORKER_SOURCE_REVISION_MISMATCH');
+      }
       return { root: workspace, trustedWorkspaceApproved: true };
     };
     const verify = async (root: string, checkpoint?: CodingJobWorkerCheckpointV14) => {
