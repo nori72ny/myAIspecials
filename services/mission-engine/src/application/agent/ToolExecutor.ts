@@ -1,6 +1,5 @@
 import { RuntimeMetrics } from "./RuntimeMetrics.js";
 import https from "https";
-import http from "http";
 import dns from "dns";
 import net from "net";
 import { URL } from "url";
@@ -10,6 +9,24 @@ import nodePath from "path";
 const MAX_LEGACY_READ_BYTES = 2 * 1024 * 1024;
 const BLOCKED_SEGMENTS = new Set([".git", "node_modules", "dist", "build", "coverage", ".next", ".vercel"]);
 const SECRET_NAME = /(^|[\\/])(\.env(?:\..*)?|.*\.(pem|key|p12|pfx))$/i;
+const SENSITIVE_URL_QUERY_NAMES = new Set([
+  "accesskey",
+  "accesstoken",
+  "apikey",
+  "authorization",
+  "auth",
+  "credential",
+  "key",
+  "password",
+  "secret",
+  "signature",
+  "token",
+]);
+
+function normalizeUrlQueryName(value: string): string {
+  return value.toLowerCase().replaceAll("-", "").replaceAll("_", "").replaceAll(".", "");
+}
+
 
 export function isSafeIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -48,14 +65,31 @@ export function isWhitelistedDomain(hostname: string): boolean {
   return whitelist.some((domain) => lower === domain || lower.endsWith(`.${domain}`));
 }
 
+export function validateSecureFetchUrl(urlStr: string): URL {
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(urlStr); } catch { throw new Error("Invalid URL format."); }
+  if (parsedUrl.protocol !== "https:") throw new Error("Access denied: HTTPS is required.");
+  if (parsedUrl.username || parsedUrl.password) throw new Error("Access denied: URL credentials are prohibited.");
+  if (parsedUrl.port && parsedUrl.port !== "443") throw new Error("Access denied: Non-standard HTTPS ports are prohibited.");
+  const hostname = parsedUrl.hostname;
+  if (hostname.toLowerCase() === "localhost") throw new Error("Access denied: Localhost domain is prohibited.");
+  if (!isWhitelistedDomain(hostname)) throw new Error(`Access denied: Domain "${hostname}" is not whitelisted.`);
+  for (const queryName of parsedUrl.searchParams.keys()) {
+    if (SENSITIVE_URL_QUERY_NAMES.has(normalizeUrlQueryName(queryName))) {
+      throw new Error("Access denied: Secret-like URL query parameters are prohibited.");
+    }
+  }
+  parsedUrl.hash = "";
+  return parsedUrl;
+}
+
 export async function secureFetch(urlStr: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let parsedUrl: URL;
-    try { parsedUrl = new URL(urlStr); } catch { return reject(new Error("Invalid URL format.")); }
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") return reject(new Error("Access denied: Only HTTP and HTTPS schemes are allowed."));
+    try { parsedUrl = validateSecureFetchUrl(urlStr); } catch (error) {
+      return reject(error instanceof Error ? error : new Error("Access denied: Invalid URL."));
+    }
     const hostname = parsedUrl.hostname;
-    if (hostname.toLowerCase() === "localhost") return reject(new Error("Access denied: Localhost domain is prohibited."));
-    if (!isWhitelistedDomain(hostname)) return reject(new Error(`Access denied: Domain "${hostname}" is not whitelisted.`));
     dns.lookup(hostname, { all: true }, (dnsErr, addresses) => {
       if (dnsErr) return reject(new Error(`DNS lookup failed: ${dnsErr.message}`));
       if (!areSafeLookupAddresses(addresses)) return reject(new Error("Access denied: Unsafe or empty IP address resolution."));
@@ -68,10 +102,8 @@ export async function secureFetch(urlStr: string): Promise<string> {
         if (!isSafeIp(address)) return callback(new Error("Access denied: Unsafe IP address resolved at connection."));
         callback(null, address, family);
       });
-      const isHttps = parsedUrl.protocol === "https:";
-      const agent = isHttps ? new https.Agent({ lookup: secureLookup, keepAlive: false }) : new http.Agent({ lookup: secureLookup, keepAlive: false });
-      const requestModule = isHttps ? https : http;
-      const req = requestModule.request(urlStr, { method: "GET", agent, headers: { "User-Agent": "MissionEngineSecureFetch/1.2", Host: hostname }, timeout: 5000 }, (res) => {
+      const agent = new https.Agent({ lookup: secureLookup, keepAlive: false });
+      const req = https.request(parsedUrl, { method: "GET", agent, headers: { "User-Agent": "MissionEngineSecureFetch/1.3", Host: hostname }, timeout: 5000 }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400) return reject(new Error(`Access denied: Redirects are prohibited (HTTP ${res.statusCode}).`));
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`Fetch error: HTTP status ${res.statusCode ?? "unknown"}`));
         let body = "";
