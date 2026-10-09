@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   assertOriginTrustedAnswerCandidateTopologyV2 as assertAncestry,
@@ -75,5 +76,24 @@ describe("trusted sealed AQ V2 candidate topology", () => {
       .toThrow("AQ_V2_CANDIDATE_TOPOLOGY_INPUT_INVALID");
     expect(() => assertAncestry({ ...valid(), candidateSha: main }))
       .toThrow("AQ_V2_CANDIDATE_OUTDATED_MAIN");
+  });
+
+  it("rechecks current main before opening sealed corpus and again before one-shot reservation", () => {
+    const workflow = readFileSync(
+      new URL("../../.github/workflows/trusted-answer-quality-v2.yml", import.meta.url),
+      "utf8",
+    );
+    const evaluate = workflow.split("\n  evaluate:\n")[1];
+    expect(evaluate).toBeDefined();
+    const early = evaluate.indexOf("name: Revalidate main ancestry before reading sealed corpus");
+    const fetch = evaluate.indexOf("name: Fetch sealed corpus into trusted runner temp");
+    const late = evaluate.indexOf("name: Verify current main ancestry before any sealed evaluation");
+    const reserve = evaluate.indexOf("name: Reserve exact candidate and sealed corpus before provider execution");
+    const run = evaluate.indexOf("name: Run 48 leased cases through the trusted boundary");
+    expect(early).toBeGreaterThanOrEqual(0);
+    expect(fetch).toBeGreaterThan(early);
+    expect(late).toBeGreaterThan(fetch);
+    expect(reserve).toBeGreaterThan(late);
+    expect(run).toBeGreaterThan(reserve);
   });
 });
