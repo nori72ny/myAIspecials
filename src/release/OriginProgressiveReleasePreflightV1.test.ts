@@ -61,8 +61,6 @@ describe('Origin Progressive Release Preflight V1', () => {
     ['unenforced required checks', { requiredChecksAndReviewEnforced: false }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
     ['auto-promoted domain without deployment hold', { productionDomainHeldUntilChecksPass: false }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
     ['only primary alias held but default domains were auto-promoted', { allProtectedProductionAliasesHeld: false }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
-    ['missing 3-domain predeployment snapshot', { allProtectedProductionAliasesHeld: undefined }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
-    ['spoofed three-domain hold string', { allProtectedProductionAliasesHeld: 'true' }, 'PREPUBLISH_GATE_NOT_ENFORCED'],
     ['failed or pending CI', { exactHeadRequiredChecksGreen: false }, 'EXACT_HEAD_CI_NOT_GREEN'],
     ['stale review', { reviewedHeadSha: main }, 'CODE_REVIEW_NOT_CURRENT'],
     ['unreviewed PR', { reviewedHeadSha: null }, 'CODE_REVIEW_NOT_CURRENT'],
@@ -86,6 +84,17 @@ describe('Origin Progressive Release Preflight V1', () => {
     const report = evaluate({ ...valid(), ...mutation });
     expect(report.canPublish).toBe(false);
     expect(report.blockers).toContain(reason);
+  });
+
+  it('rejects missing or string-spoofed three-domain hold evidence', () => {
+    for (const reportedHold of [undefined, null, 'true', 'approved', 1]) {
+      const verdict = evaluate({
+        ...valid(),
+        allProtectedProductionAliasesHeld: reportedHold,
+      } as unknown as OriginProgressiveReleaseEvidenceV1);
+      expect(verdict.canPublish).toBe(false);
+      expect(verdict.blockers).toContain('PREPUBLISH_GATE_NOT_ENFORCED');
+    }
   });
 
   it('never substitutes main-only AQ 40-case success for the candidate exact-head quality result', () => {
