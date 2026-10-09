@@ -474,8 +474,9 @@ export default function AgentWorkspaceView() {
         ].join('\n'));
         setLog((current) => [...current, `Coding V1.4 job started: ${result.jobId}`, 'typecheck / lint / test / build の検証完了を待っています。']);
 
-        const expiresAt = Date.parse(result.expiresAt);
+        let expiresAt = Date.parse(result.expiresAt);
         if (!Number.isFinite(expiresAt)) throw new Error('AGENT_CODING_BRIDGE_EXPIRY_INVALID');
+        let bridgeToken = result.bridgeToken;
         let lastStatus = '';
         while (Date.now() < expiresAt) {
           const pollResponse = await fetch('/api/agent/v3/coding/status', {
@@ -485,7 +486,7 @@ export default function AgentWorkspaceView() {
             body: JSON.stringify({
               runId: plan.runId,
               jobId: result.jobId,
-              bridgeToken: result.bridgeToken,
+              bridgeToken,
             }),
             signal: controller.signal,
           });
@@ -513,6 +514,18 @@ export default function AgentWorkspaceView() {
             return;
           }
           if (poll.status !== 'running') throw new Error(poll.code ?? 'AGENT_CODING_TERMINAL_UNVERIFIED');
+          // A live 30-minute capability rotates on validated nonterminal polls,
+          // but its absolute deadline remains the durable Coding job lifetime.
+          if (typeof poll.bridgeToken !== 'string' || typeof poll.expiresAt !== 'string') {
+            throw new Error('AGENT_CODING_BRIDGE_RENEWAL_INVALID');
+          }
+          const nextExpiry = Date.parse(poll.expiresAt);
+          if (!Number.isFinite(nextExpiry) || nextExpiry <= Date.now()) {
+            throw new Error('AGENT_CODING_BRIDGE_RENEWAL_INVALID');
+          }
+          bridgeToken = poll.bridgeToken;
+          expiresAt = nextExpiry;
+          setActiveCoding({ runId: plan.runId, jobId: result.jobId, bridgeToken });
           if (poll.codingStatus && poll.codingStatus !== lastStatus) {
             lastStatus = poll.codingStatus;
             setLog((current) => [...current, `Coding status: ${poll.codingStatus}`]);
