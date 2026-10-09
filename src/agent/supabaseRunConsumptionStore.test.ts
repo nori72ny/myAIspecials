@@ -51,6 +51,7 @@ describe('PostgresAgentRunConsumptionStore', () => {
       'BEGIN',
       "SET LOCAL statement_timeout = '2500ms'",
       expect.stringContaining('pg_advisory_xact_lock'),
+      expect.stringContaining('LIMIT 64 FOR UPDATE SKIP LOCKED'),
       expect.stringContaining('floor(extract(epoch'),
       expect.stringContaining('count(*)::integer'),
       expect.stringContaining('INSERT INTO public.origin_agent_consumed_runs'),
@@ -58,8 +59,10 @@ describe('PostgresAgentRunConsumptionStore', () => {
     ]);
     // A lexical upper bound with '~' silently misses rows under some PG
     // collations, allowing all 65 concurrent requests through.
-    expect(queries[4]).toContain("WHERE run_id LIKE ($1 || '%')");
-    const insertValues = clientQuery.mock.calls[5]?.[1] as unknown[];
+    expect(queries[5]).toContain("WHERE run_id LIKE ($1 || '%')");
+    expect(queries[3]).toContain('expires_at < clock_timestamp()');
+    expect(queries[3]).toContain('ORDER BY expires_at');
+    const insertValues = clientQuery.mock.calls[6]?.[1] as unknown[];
     expect(insertValues[0]).toMatch(/^run-ratelimit-[0-9a-f]{32}-[0-9a-z]+-[0-9a-f]{32}$/);
     expect(insertValues[1]).toBe((30_000_000 + 2) * 60_000);
     expect(release).toHaveBeenCalledTimes(1);
