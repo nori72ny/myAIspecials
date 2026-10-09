@@ -467,7 +467,7 @@ export default function AgentWorkspaceView() {
       setPhase('executing');
       setPlan(null);
       setArtifact(['# Coding V1.4 復旧', '', `Run: ${runId}`, `Job: ${jobId}`,
-        '既存ジョブを再取得しました。新しい実行は行っていません。', '4検証を確認するまでは完了ではありません。'].join('\\n'));
+        '既存ジョブを再取得しました。新しい実行は行っていません。', '4検証を確認するまでは完了ではありません。'].join('\n'));
       setLog(current => [...current, '元のRun/Job/Ownerを認証したうえで既存ジョブの読取を再開しました。']);
       await refreshRecoveredCoding(active);
     } catch (error) {
