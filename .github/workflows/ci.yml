@@ -33,6 +33,10 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
+    - name: Enforce owner-approved manual production deployment
+      run: |
+        node scripts/verify-manual-production-hold.mjs
+        node --test scripts/verify-manual-production-hold.test.mjs
     - name: Run Secret Scanning (Gitleaks)
       uses: gitleaks/gitleaks-action@v2
       env:
@@ -190,7 +194,9 @@ jobs:
 
   production-smoke:
     name: Verify main SHA in Vercel production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Auto-deploy from main is forbidden: run only after a separately approved
+    # manual production promotion, using workflow_dispatch on exact main.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
