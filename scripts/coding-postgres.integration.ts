@@ -133,7 +133,8 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
 
   it('preserves immutable Agent run association for authenticated crash recovery on real PostgreSQL', async () => {
     const runId = 'run-postgres-durable-recovery';
-    const targetKey = codingAgentTargetKeyForRunV14(runId);
+    const sourceRevision = 'a'.repeat(40);
+    const targetKey = codingAgentTargetKeyForRunV14(runId, sourceRevision);
     const envelope = createCodingJobEnvelopeV14({
       ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
       targetKey, goal: 'Repair a bounded coding fixture',
