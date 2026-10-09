@@ -73,3 +73,23 @@ Those values must not be turned true by static CI.
 **Do not trigger** a deprecated 24-case same-day workflow; Free 9B budget makes
 that unsafe. No Cloudflare token, private prompt or reference image is required
 or allowed in the preflight gate.
+
+## Mandatory private evaluator security boundary
+
+The source repository `nori72ny/myAIspecials` is **public**. Never submit sealed
+prompts, reference images or their preserving outputs to a public GitHub Actions
+artifact store. The seven sensitive generation/edit held-out, shard and
+collector workflows must reject the public repo **before checkout or data access**.
+Each job requires all three checks: GitHub event/context reports private; the
+repository variable `ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY` exactly allowlists
+the current repository name; an authenticated live GitHub API query verifies
+`private: true`. No variable setting can make the public repository safe.
+
+A separately approved, access-restricted **private evaluator repository** or
+independently assessed encrypted artifact store must be established while
+preserving exact candidate/corpus provenance, frozen main and Owner approval.
+Repository visibility might change *after* artifacts are created; private
+repositories and artifact retention policies need independent access review.
+The offline static readiness check still reports
+`approvedPrivateEvaluationRepositoryVerified=false` and cannot authorize
+actual Cloudflare calls or Production release.

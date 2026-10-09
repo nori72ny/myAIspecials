@@ -30,6 +30,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      # Refuse exposure of confidential images in public Actions artifacts.
+      - name: Verify approved private evaluator repository before any data access
+        id: private_repo_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: ${{ vars.ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" != "true" || "${{ github.repository_visibility }}" != "private" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_REQUIRED' >&2
+            exit 73
+          fi
+          if [[ -z "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" || "$GITHUB_REPOSITORY" != "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_ALLOWLIST_REQUIRED' >&2
+            exit 74
+          fi
+          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private' 2>/dev/null)" || {
+            echo 'IMAGE_EVAL_REPOSITORY_METADATA_UNAVAILABLE' >&2
+            exit 75
+          }
+          if [[ "$actual" != "true" ]]; then
+            echo 'IMAGE_EVAL_REPOSITORY_BECAME_PUBLIC' >&2
+            exit 76
+          fi
+
       - name: Checkout exact evaluated candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -96,7 +122,7 @@ jobs:
           NODE
 
       - name: Upload provenance and integrity reports, not sealed private prompts
-        if: always()
+        if: ${{ always() && steps.private_repo_guard.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: image-12shard-provenance-and-local-integrity-${{ inputs.candidate_sha }}

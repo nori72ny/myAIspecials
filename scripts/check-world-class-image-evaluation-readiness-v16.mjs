@@ -3,7 +3,30 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const PRIVATE_IMAGE_EVALUATION_WORKFLOWS_V16 = Object.freeze([
+  '.github/workflows/image-edit-private-heldout-v1.yml',
+  '.github/workflows/image-private-heldout-v1.yml',
+  '.github/workflows/world-class-image-private-heldout-v2.yml',
+  '.github/workflows/world-class-image-private-shards-v1.yml',
+  '.github/workflows/world-class-image-edit-private-shards-v1.yml',
+  '.github/workflows/world-class-image-private-collect-v1.yml',
+  '.github/workflows/world-class-image-edit-private-collect-v1.yml',
+]);
+
 export const IMAGE_EVALUATION_STATIC_RULES_V16 = Object.freeze([
+  ...PRIVATE_IMAGE_EVALUATION_WORKFLOWS_V16.map(file => ({
+    id: 'private-repository-guard:' + file.slice(file.lastIndexOf('/') + 1),
+    file,
+    tests: [
+      /    steps:\n      # Refuse exposure of confidential images in public Actions artifacts\./,
+      /id: private_repo_guard/,
+      /github\.event\.repository\.private/,
+      /github\.repository_visibility/,
+      /ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY/,
+      /gh api "repos\/\$GITHUB_REPOSITORY" --jq '\.private'/,
+      /IMAGE_EVAL_REPOSITORY_BECAME_PUBLIC/,
+    ],
+  })),
   {
     id: 'generation-shards',
     file: '.github/workflows/world-class-image-private-shards-v1.yml',
@@ -127,6 +150,7 @@ export function inspectImageEvaluationReadinessV16(candidateSha, readText) {
     staticGatePassed,
     genuineQualityEvaluationExecuted: false,
     liveCloudflareFreeQuotaVerified: false,
+    approvedPrivateEvaluationRepositoryVerified: false,
     independentBlindComparisonPassed: false,
     productionQualified: false,
     productionReleaseAuthorized: false,
@@ -140,6 +164,7 @@ export function inspectImageEvaluationReadinessV16(candidateSha, readText) {
     blockers: [
       ...checks.filter(c => !c.passed).map(c => 'STATIC_CHECK_FAILED:' + c.id),
       'PROTECTED_MAIN_ONLY_LIVE_EVALUATION_NOT_AUTHORIZED',
+      'APPROVED_PRIVATE_IMAGE_EVALUATION_REPOSITORY_NOT_LIVE_VERIFIED',
       'SEALED_GENERATION_AND_EDIT_CORPUS_PROVENANCE_NOT_ATTESTED',
       'CLOUDFLARE_FREE_PLAN_AND_DAILY_QUOTA_NOT_LIVE_VERIFIED',
       'TWENTY_DISTINCT_UTC_ACCOUNT_DAYS_AND_FORTY_REAL_OUTPUTS_NOT_ATTESTED',

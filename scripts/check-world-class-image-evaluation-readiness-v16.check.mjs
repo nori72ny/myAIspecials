@@ -77,5 +77,27 @@ test('readiness gate remains static: no secret or inference dependency in script
   const source = read('scripts/check-world-class-image-evaluation-readiness-v16.mjs');
   assert.equal(/\bfetch\s*\(/.test(source), false);
   assert.equal(/\bCLOUDFLARE_API_TOKEN\b/.test(source), false);
-  assert.equal(IMAGE_EVALUATION_STATIC_RULES_V16.length, 10);
+  assert.equal(IMAGE_EVALUATION_STATIC_RULES_V16.length, 17);
+});
+
+test('all seven held-out workflows enforce an authenticated private allowlist before checkout', () => {
+  const guarded = IMAGE_EVALUATION_STATIC_RULES_V16.filter(rule => rule.id.startsWith('private-repository-guard:'));
+  assert.equal(guarded.length, 7);
+  for (const rule of guarded) {
+    const source = read(rule.file);
+    for (const job of source.split('    steps:\n').slice(1)) {
+      const gate = job.indexOf('id: private_repo_guard');
+      const checkout = job.indexOf('uses: actions/checkout@');
+      assert.ok(gate >= 0 && checkout > gate, rule.file + ': guard must precede checkout');
+    }
+    for (const marker of ['ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY', 'github.event.repository.private', 'github.repository_visibility']) {
+      const report = inspectImageEvaluationReadinessV16(sha, path =>
+        path === rule.file ? source.replaceAll(marker, 'DISABLED_PRIVACY_GATE') : read(path));
+      assert.equal(report.staticGatePassed, false, rule.file + ': missing ' + marker);
+      assert.equal(report.approvedPrivateEvaluationRepositoryVerified, false);
+    }
+    const stripped = source.replaceAll("gh api \"repos/$GITHUB_REPOSITORY\" --jq '.private'", 'echo true');
+    const report = inspectImageEvaluationReadinessV16(sha, path => path === rule.file ? stripped : read(path));
+    assert.equal(report.staticGatePassed, false, rule.file + ': live authenticated check removed');
+  }
 });
