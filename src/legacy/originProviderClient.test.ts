@@ -68,9 +68,9 @@ describe("executeOriginProvider", () => {
         },
         usage: { costUsd: 0 },
       } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>;
-      expect(() => assertOriginZeroCostExecutionResult({ ...safe, actualCostUsd: tiny }))
+      expect(() => assertOriginZeroCostExecutionResult({ ...safe, actualCostUsd: tiny } as unknown as typeof safe))
         .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
-      expect(() => assertOriginZeroCostExecutionResult({ ...safe, usage: { costUsd: tiny } }))
+      expect(() => assertOriginZeroCostExecutionResult({ ...safe, usage: { costUsd: tiny } } as unknown as typeof safe))
         .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
     },
   );
@@ -82,7 +82,7 @@ describe("executeOriginProvider", () => {
     [{ usage: { cost: 0, cost_details: { upstream_inference_cost: 1e-18 } } }, "tiny upstream charge"],
     [{ is_free: "false" }, "false-like free flag in a nonboolean field"],
     [{ usage: { cost: 0, is_byok: "true" } }, "truthy BYOK string"],
-  ] as const)("blocks the exact-zero contract for %s (%s)", async (overrides) => {
+  ] as const)("blocks the exact-zero contract for %s (%s)", async (overrides, _description) => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload(
       overrides as Record<string, unknown>,
     )), { status: 200, headers: { "Content-Type": "application/json" } }));
