@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codingAgentTargetKeyForRunV14, codingAgentTargetKeyMatchesRunV14, codingAgentPinnedRevisionV14, isTrustedCodingWorkerTargetV14 } from './codingAgentTargetKeyV14.js';
+import { codingAgentTargetKeyForRunV14, codingAgentTargetKeyMatchesRunV14, codingAgentPinnedRevisionV14, codingAgentCheckoutMatchesTargetV14, isTrustedCodingWorkerTargetV14 } from './codingAgentTargetKeyV14.js';
 
 describe('durable Agent to Coding target binding', () => {
   it('generates an immutable path-free run association accepted only by the worker allowlist', () => {
@@ -29,6 +29,16 @@ describe('durable Agent to Coding target binding', () => {
     expect(codingAgentPinnedRevisionV14(old)).toBeNull();
     expect(() => codingAgentTargetKeyForRunV14(run, 'unknown')).toThrow('AGENT_CODING_SOURCE_REVISION_INVALID');
     expect(() => codingAgentTargetKeyForRunV14(run, '')).toThrow('AGENT_CODING_SOURCE_REVISION_INVALID');
+  });
+
+  it('blocks pinned checkouts when the actual trusted worker commit differs', () => {
+    const target = codingAgentTargetKeyForRunV14('run-bound', 'a'.repeat(40));
+    expect(codingAgentCheckoutMatchesTargetV14(target, 'a'.repeat(40))).toBe(true);
+    expect(codingAgentCheckoutMatchesTargetV14(target, 'b'.repeat(40))).toBe(false);
+    expect(codingAgentCheckoutMatchesTargetV14('origin:self', 'a'.repeat(40))).toBe(true);
+    expect(codingAgentCheckoutMatchesTargetV14(codingAgentTargetKeyForRunV14('run-bound'), 'a'.repeat(40))).toBe(true);
+    expect(codingAgentCheckoutMatchesTargetV14(target, 'unknown')).toBe(false);
+    expect(codingAgentCheckoutMatchesTargetV14('origin:self/agent/../escape', 'a'.repeat(40))).toBe(false);
   });
 
   it.each([
