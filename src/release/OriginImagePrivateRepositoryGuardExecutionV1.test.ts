@@ -71,8 +71,8 @@ function execute(script: string, scenario: {
     '    *) return 44 ;;',
     '  esac',
     '}',
-  ].join('\\n');
-  const result = spawnSync('bash', ['-c', fakeGitHubApi + '\\n' + literalScript], {
+  ].join('\n');
+  const result = spawnSync('bash', ['-c', fakeGitHubApi + '\n' + literalScript], {
     encoding: 'utf8',
     timeout: 4000,
     env: {
