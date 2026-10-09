@@ -11,21 +11,6 @@ on:
         description: Evaluator-owned synthetic private image corpus id
         required: true
         type: string
-      confirm_paid_evaluation:
-        description: Explicitly authorize paid image evaluation within the declared caps
-        required: true
-        type: boolean
-        default: false
-      max_image_cost_usd:
-        description: Hard per-image cost cap
-        required: true
-        type: string
-        default: '0.25'
-      max_total_cost_usd:
-        description: Hard total candidate-round cost cap
-        required: true
-        type: string
-        default: '6.00'
 
 permissions:
   contents: read
@@ -37,13 +22,39 @@ concurrency:
 
 jobs:
   preflight:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_paid_evaluation == true }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       can_start: ${{ steps.one_shot.outputs.can_start }}
       corpus_digest: ${{ steps.metadata.outputs.corpus_digest }}
     steps:
+      # Refuse exposure of confidential images in public Actions artifacts.
+      - name: Verify approved private evaluator repository before any data access
+        id: private_repo_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: ${{ vars.ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" != "true" || "${{ github.repository_visibility }}" != "private" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_REQUIRED' >&2
+            exit 73
+          fi
+          if [[ -z "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" || "$GITHUB_REPOSITORY" != "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_ALLOWLIST_REQUIRED' >&2
+            exit 74
+          fi
+          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private' 2>/dev/null)" || {
+            echo 'IMAGE_EVAL_REPOSITORY_METADATA_UNAVAILABLE' >&2
+            exit 75
+          }
+          if [[ "$actual" != "true" ]]; then
+            echo 'IMAGE_EVAL_REPOSITORY_BECAME_PUBLIC' >&2
+            exit 76
+          fi
+
       - name: Checkout exact main candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -59,33 +70,42 @@ jobs:
       - name: Install evaluator dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Verify exact candidate binding and spend inputs
+      - name: Verify exact candidate binding and zero-cost policy
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          MAX_IMAGE_COST_USD: ${{ inputs.max_image_cost_usd }}
-          MAX_TOTAL_COST_USD: ${{ inputs.max_total_cost_usd }}
         shell: bash
         run: |
           set -euo pipefail
           test "$CANDIDATE_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -z "$(git status --porcelain)"
-          MAX_IMAGE_COST_USD="$MAX_IMAGE_COST_USD" MAX_TOTAL_COST_USD="$MAX_TOTAL_COST_USD" node <<'NODE'
-          const per=Number(process.env.MAX_IMAGE_COST_USD);
-          const total=Number(process.env.MAX_TOTAL_COST_USD);
-          if(!Number.isFinite(per)||per<0.01||per>1) process.exit(2);
-          if(!Number.isFinite(total)||total<per||total>10) process.exit(3);
-          NODE
+          node -e "process.stdout.write('zero-cost-only\n')"
 
-      - name: Prove OpenRouter image model readiness before sealed corpus access
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-          ORIGIN_IMAGE_WORLD_CLASS_MODEL: openai/gpt-image-2.5-sunburst
+      - name: Block unsafe one-day 24-case FLUX 9B Free benchmark
+        shell: bash
         run: |
           set -euo pipefail
-          test -n "$OPENROUTER_API_KEY"
-          node --import tsx scripts/preflight-world-class-image-v16.ts
+          # The old one-shot benchmark would exhaust Workers Free and permanently burn its corpus marker.
+          # Shard execution and immutable multi-day aggregation must be installed before enabling real inference.
+          node --import tsx --input-type=module <<'NODE'
+          import { monolithicImageFreePlanIsSafeV1 } from './src/release/OriginImageWorkersFreeShardPlanV1.ts';
+          if (!monolithicImageFreePlanIsSafeV1(24)) {
+            console.error('WORLD_CLASS_IMAGE_PRIVATE_MULTI_DAY_SHARDING_REQUIRED');
+            process.exit(42);
+          }
+          NODE
+
+      - name: Prove Cloudflare Free image readiness before sealed corpus access
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b'
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          ORIGIN_RASTER_LIVE_QUALIFICATION='true' npm run qualify:raster-live
 
       - name: Verify sealed corpus metadata only after provider preflight
         id: metadata
@@ -149,7 +169,7 @@ jobs:
           },null,2)+'\n');
           NODE
 
-      - name: Preserve one-shot marker before paid candidate execution
+      - name: Preserve one-shot marker before zero-cost candidate execution
         if: steps.one_shot.outputs.can_start == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -164,6 +184,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
+      # Refuse exposure of confidential images in public Actions artifacts.
+      - name: Verify approved private evaluator repository before any data access
+        id: private_repo_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY: ${{ vars.ORIGIN_PRIVATE_IMAGE_EVAL_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" != "true" || "${{ github.repository_visibility }}" != "private" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_REQUIRED' >&2
+            exit 73
+          fi
+          if [[ -z "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" || "$GITHUB_REPOSITORY" != "$EXPECTED_PRIVATE_IMAGE_EVAL_REPOSITORY" ]]; then
+            echo 'IMAGE_EVAL_PRIVATE_REPOSITORY_ALLOWLIST_REQUIRED' >&2
+            exit 74
+          fi
+          actual="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private' 2>/dev/null)" || {
+            echo 'IMAGE_EVAL_REPOSITORY_METADATA_UNAVAILABLE' >&2
+            exit 75
+          }
+          if [[ "$actual" != "true" ]]; then
+            echo 'IMAGE_EVAL_REPOSITORY_BECAME_PUBLIC' >&2
+            exit 76
+          fi
+
       - name: Checkout exact candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -184,21 +230,19 @@ jobs:
 
       - name: Run sealed 24-case world-class image candidate round
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64 }}
           ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           ORIGIN_IMAGE_CORPUS_ID: ${{ inputs.corpus_id }}
-          ORIGIN_IMAGE_WORLD_CLASS_MODEL: openai/gpt-image-2.5-sunburst
-          ORIGIN_IMAGE_WORLD_CLASS_MAX_COST_USD: ${{ inputs.max_image_cost_usd }}
-          ORIGIN_IMAGE_WORLD_CLASS_MAX_TOTAL_COST_USD: ${{ inputs.max_total_cost_usd }}
+          ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b'
+          ORIGIN_IMAGE_ZERO_COST_MAX_ATTEMPTS: '2'
           ORIGIN_IMAGE_OUTPUT_DIR: ${{ github.workspace }}/test-results/image-private-world-class
         run: |
           set -euo pipefail
           npm run eval:image-private-world-class
 
-      - name: Verify sanitized evidence surface
+      - name: Verify sanitized evidence and exact zero-cost execution
         shell: bash
         run: |
           set -euo pipefail
@@ -207,6 +251,15 @@ jobs:
           test -f test-results/image-private-world-class/candidate-summary.json
           test -d test-results/image-private-world-class/candidate-images
           test -z "$(find test-results/image-private-world-class -type f \( -name '*corpus*' -o -name '*prompt*' \) -print)"
+          node <<'NODE'
+          const fs=require('node:fs');
+          const evidence=JSON.parse(fs.readFileSync('test-results/image-private-world-class/candidate-evidence.json','utf8'));
+          const summary=JSON.parse(fs.readFileSync('test-results/image-private-world-class/candidate-summary.json','utf8'));
+          if(evidence.totalCostUsd!==0 || summary.totalCostUsd!==0) process.exit(31);
+          if(!Array.isArray(evidence.cases) || evidence.cases.some((c)=>c.costUsd!==0)) process.exit(32);
+          if(!Array.isArray(evidence.providerIdentities) || evidence.providerIdentities.some((x)=>!String(x).startsWith('cloudflare-workers-ai-free::'))) process.exit(33);
+          if(Array.isArray(evidence.blockers) && evidence.blockers.some((x)=>String(x).includes('NONZERO_COST'))) process.exit(34);
+          NODE
 
       - name: Upload candidate images and sanitized evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
