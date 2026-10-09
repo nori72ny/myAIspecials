@@ -293,6 +293,10 @@ export default function AgentWorkspaceView() {
   // An ephemeral, run-bound cancellation capability. Never persisted to a browser store.
   const [activeCoding, setActiveCoding] = useState<{ runId: string; jobId: string; bridgeToken: string } | null>(null);
   const [codingCancelPending, setCodingCancelPending] = useState(false);
+  const [recoveryRunId, setRecoveryRunId] = useState('');
+  const [recoveryJobId, setRecoveryJobId] = useState('');
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const recoveryCredentialRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -390,6 +394,90 @@ export default function AgentWorkspaceView() {
     }
   }, [capability?.ready, goal, phase]);
 
+  const refreshRecoveredCoding = useCallback(async (
+    target: { runId: string; jobId: string; bridgeToken: string },
+  ) => {
+    try {
+      const response = await fetch('/api/agent/v3/coding/status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store', body: JSON.stringify(target),
+      });
+      const receipt = await response.json() as AgentExecutionResponse;
+      if (isConfirmedCodingCancellationReceipt(receipt, target.runId, target.jobId)) {
+        setActiveCoding(null);
+        setPhase('failed');
+        setLog(current => [...current, 'Codingジョブはサーバー上で中止済みです。完了として扱いません。']);
+        return;
+      }
+      if (!response.ok || receipt.ok !== true) {
+        throw new Error(receipt.code ?? 'AGENT_CODING_STATUS_UNAVAILABLE');
+      }
+      if (receipt.status === 'completed') {
+        if (!isVerifiedCodingReceipt(receipt, target.runId, target.jobId) || !receipt.result) {
+          throw new Error('AGENT_CODING_RECEIPT_INVALID');
+        }
+        setArtifact(verifiedCodingArtifact(receipt.result));
+        setPhase('completed');
+        setActiveCoding(null);
+        setPlan(null);
+        setLog(current => [...current, '保存済みCodingジョブの4検証と成果物を確認しました。']);
+        return;
+      }
+      if (receipt.status !== 'running' || receipt.runId !== target.runId || receipt.jobId !== target.jobId
+        || receipt.verified !== false || receipt.freeOnly !== true || receipt.costUsd !== 0
+        || receipt.paidFallbackUsed !== false || typeof receipt.bridgeToken !== 'string'
+        || typeof receipt.expiresAt !== 'string' || Date.parse(receipt.expiresAt) <= Date.now()) {
+        throw new Error('AGENT_CODING_RUNNING_RECEIPT_INVALID');
+      }
+      setActiveCoding({ runId: target.runId, jobId: target.jobId, bridgeToken: receipt.bridgeToken });
+      setPhase('executing');
+      setLog(current => [...current, `保存済みCoding状態: ${receipt.codingStatus ?? 'unknown'}（検証完了ではありません）`]);
+    } catch (error) {
+      // Network uncertainty is not a failed or verified durable task. Keep the
+      // run-bound recovery capability available for an authenticated recheck.
+      setLog(current => [...current, `Coding状態を確認できません: ${(error as Error).message}。サーバー上のジョブは継続している可能性があります。`]);
+    }
+  }, []);
+
+  const recoverCoding = useCallback(async () => {
+    if (!capability?.codingBridgeConfigured || activeCoding || recoveryPending || phase === 'executing') return;
+    const runId = recoveryRunId.trim();
+    const jobId = recoveryJobId.trim();
+    const credential = recoveryCredentialRef.current?.value.trim() ?? '';
+    if (!/^run-[A-Za-z0-9-]{1,100}$/.test(runId) || !/^coding-[A-Za-z0-9_-]{22}$/.test(jobId) || !credential) {
+      setLog(current => [...current, '復旧には元のRun ID、Coding Job ID、専用Agentオペレーター認証キーが必要です。']);
+      return;
+    }
+    setRecoveryPending(true);
+    try {
+      const response = await fetch('/api/agent/v3/coding/recover', {
+        method: 'POST', headers: authorizationHeaders(credential), cache: 'no-store',
+        body: JSON.stringify({ runId, jobId }),
+      });
+      const body = await response.json() as AgentExecutionResponse;
+      if (!response.ok || body.ok !== true || body.status !== 'running'
+        || body.runId !== runId || body.jobId !== jobId
+        || body.freeOnly !== true || body.costUsd !== 0 || body.paidFallbackUsed !== false
+        || typeof body.bridgeToken !== 'string' || typeof body.expiresAt !== 'string'
+        || Date.parse(body.expiresAt) <= Date.now()) {
+        throw new Error(body.code ?? 'AGENT_CODING_RECOVERY_UNAVAILABLE');
+      }
+      const active = { runId, jobId, bridgeToken: body.bridgeToken };
+      setActiveCoding(active);
+      setPhase('executing');
+      setPlan(null);
+      setArtifact(['# Coding V1.4 復旧', '', `Run: ${runId}`, `Job: ${jobId}`,
+        '既存ジョブを再取得しました。新しい実行は行っていません。', '4検証を確認するまでは完了ではありません。'].join('\\n'));
+      setLog(current => [...current, '元のRun/Job/Ownerを認証したうえで既存ジョブの読取を再開しました。']);
+      await refreshRecoveredCoding(active);
+    } catch (error) {
+      setLog(current => [...current, `Codingジョブを復旧できません: ${(error as Error).message}。新規実行は行っていません。`]);
+    } finally {
+      if (recoveryCredentialRef.current) recoveryCredentialRef.current.value = '';
+      setRecoveryPending(false);
+    }
+  }, [activeCoding, capability?.codingBridgeConfigured, phase, recoveryJobId, recoveryPending, recoveryRunId, refreshRecoveredCoding]);
+
   const approveAndExecute = useCallback(async () => {
     if (!plan || phase !== 'awaiting_approval') return;
     const credential = credentialInputRef.current?.value.trim() ?? '';
@@ -470,7 +558,9 @@ export default function AgentWorkspaceView() {
           'コード変更ジョブを開始しました。',
           '検証済みの終端結果が届くまで完了扱いにはしません。',
           '',
+          `Run: ${plan.runId}`,
           `Job: ${result.jobId}`,
+          '復旧用Run IDとJob IDを控えてください。認証キー・実行トークンは保存しません。',
         ].join('\n'));
         setLog((current) => [...current, `Coding V1.4 job started: ${result.jobId}`, 'typecheck / lint / test / build の検証完了を待っています。']);
 
@@ -672,6 +762,28 @@ export default function AgentWorkspaceView() {
             {codingCancelPending ? '中止を確認中…' : '実行中のCodingジョブを中止'}
           </button>}
         </section>}
+
+        {capability?.codingBridgeConfigured && <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">既存Codingジョブを復旧する</summary>
+          <p className="mb-2 leading-5 text-slate-500">タブ再起動や認証トークン失効後に使用します。元のRun IDとJob IDを入力してください。新しいCoding実行は作成しません。</p>
+          <label htmlFor="coding-recovery-run" className="block font-semibold">Run ID</label>
+          <input id="coding-recovery-run" value={recoveryRunId} onChange={event => setRecoveryRunId(event.target.value)}
+            autoComplete="off" maxLength={104} placeholder="run-..." className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <label htmlFor="coding-recovery-job" className="block font-semibold">Coding Job ID</label>
+          <input id="coding-recovery-job" value={recoveryJobId} onChange={event => setRecoveryJobId(event.target.value)}
+            autoComplete="off" maxLength={29} placeholder="coding-..." className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <label htmlFor="coding-recovery-key" className="block font-semibold">専用Agentオペレーター認証キー</label>
+          <input ref={recoveryCredentialRef} id="coding-recovery-key" type="password" autoComplete="off"
+            spellCheck={false} className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <button type="button" onClick={() => void recoverCoding()} disabled={Boolean(activeCoding) || recoveryPending || phase === 'executing'}
+            className="origin-secondary-button min-h-11 w-full rounded-xl px-3 font-semibold disabled:opacity-50">
+            {recoveryPending ? '既存ジョブを確認中…' : '本人認証して既存ジョブを復旧'}
+          </button>
+        </details>}
+        {activeCoding && <button type="button" onClick={() => void refreshRecoveredCoding(activeCoding)}
+          className="origin-secondary-button mt-2 min-h-11 w-full rounded-xl px-3 text-xs font-semibold">
+          Codingの最新状態を再取得
+        </button>}
 
         <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
