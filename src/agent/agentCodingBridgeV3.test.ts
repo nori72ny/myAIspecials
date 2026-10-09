@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentCodingBridgeV3 } from './agentCodingBridgeV3.js';
+import { codingAgentTargetKeyForRunV14 } from './codingAgentTargetKeyV14.js';
 import type { CodingJobResultV14 } from './codingJobResultV14.js';
 import type { CodingJobPublicRecordV14 } from './supabaseCodingJobStoreV14.js';
 
@@ -385,6 +386,54 @@ describe('AgentCodingBridgeV3', () => {
     const exhausted = await bridge.poll('run-absolute-cap', started.jobId, token, now + 24 * 60 * 60_000);
     expect(exhausted.ok).toBe(false);
     if ('code' in exhausted) expect(exhausted.code).toBe('AGENT_CODING_BRIDGE_TOKEN_INVALID');
+  });
+
+
+  it('restores only an owner-bound and run-matched durable job without new dispatch', async () => {
+    const runId = 'run-recovery-test';
+    const created = { ...record('queued'), targetKey: codingAgentTargetKeyForRunV14(runId) };
+    const jobStore = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => created),
+    };
+    const dispatch = vi.fn(async () => { throw new Error('RECOVERY_MUST_NOT_DISPATCH'); });
+    const bridge = new AgentCodingBridgeV3(env, jobStore, { get: vi.fn(async () => null) }, dispatch);
+    const restored = await bridge.recover(runId, created.jobId);
+    expect(restored).toMatchObject({
+      ok: true, status: 'running', runId, jobId: created.jobId,
+      freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(jobStore.create).not.toHaveBeenCalled();
+    expect(jobStore.requestCancel).not.toHaveBeenCalled();
+    expect(jobStore.getJob).toHaveBeenCalledWith(created.jobId, expect.stringMatching(/^[0-9a-f]{64}$/));
+    if (!restored.ok) throw new Error('RECOVERY_EXPECTED');
+    expect((await bridge.poll(runId, created.jobId, restored.bridgeToken)).status).toBe('running');
+    expect((await bridge.recover('run-other', created.jobId)).ok).toBe(false);
+    expect((await bridge.recover('run-recovery-test', 'coding-BBBBBBBBBBBBBBBBBBBBBB')).ok).toBe(false);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('denies recovery after the durable job expires and never extends a terminal job lifetime', async () => {
+    const runId = 'run-recovery-expired';
+    const now = Date.now();
+    const created = { ...record('verified'), targetKey: codingAgentTargetKeyForRunV14(runId), expiresAt: now + 60_000 };
+    const store = {
+      create: vi.fn(async () => created),
+      getJob: vi.fn(async () => created),
+      requestCancel: vi.fn(async () => created),
+    };
+    const bridge = new AgentCodingBridgeV3(env, store, { get: vi.fn(async () => null) });
+    const resumed = await bridge.recover(runId, created.jobId, now);
+    expect(resumed.ok).toBe(true);
+    if (!resumed.ok) throw new Error('RECOVERY_EXPECTED');
+    expect(Date.parse(resumed.expiresAt)).toBe(now + 60_000);
+    const expired = await bridge.recover(runId, created.jobId, now + 60_000);
+    expect(expired.ok).toBe(false);
+    expect(expired).toMatchObject({ code: 'AGENT_CODING_RECOVERY_UNAVAILABLE' });
+    expect(store.create).not.toHaveBeenCalled();
+    expect(store.requestCancel).not.toHaveBeenCalled();
   });
 
 
