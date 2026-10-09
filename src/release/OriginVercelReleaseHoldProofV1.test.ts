@@ -8,6 +8,9 @@ const fixtureEnv = {
   ORIGIN_PRODUCTION_ALIAS: "origin-personal.vercel.app",
   ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID: "dpl_TEST1234",
   ORIGIN_EXPECTED_PRODUCTION_SHA: "a".repeat(40),
+  ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON: JSON.stringify(Object.fromEntries(
+    PROTECTED_ORIGIN_ALIASES.map((name) => [name, "dpl_TEST1234"])
+  )),
 };
 
 const okay = () => ({
@@ -32,7 +35,7 @@ const withProbe = (): ReturnType<typeof okay> & { probe: ProbeFixture } => ({
   },
 });
 
-function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay(), aliasOverrides: Record<string, { deploymentId?: string; projectId?: string }> = {}) {
+function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture; secondary?: ProbeFixture } = okay(), aliasOverrides: Record<string, { deploymentId?: string; projectId?: string }> = {}) {
   return vi.fn(async (input, options) => {
     expect(options.method).toBe("GET");
     expect(options.redirect).toBe("error");
@@ -46,7 +49,8 @@ function fakeApi(x: ReturnType<typeof okay> & { probe?: ProbeFixture } = okay(),
         alias: decodeURIComponent(url.pathname.slice("/v4/aliases/".length)),
         ...(aliasOverrides[decodeURIComponent(url.pathname.slice("/v4/aliases/".length))] ?? {}),
       }
-      : url.pathname.endsWith("/dpl_PROBE123") ? x.probe : x.deployment;
+      : url.pathname.endsWith("/dpl_PROBE123") ? x.probe
+      : url.pathname.endsWith("/dpl_SECOND123") ? x.secondary : x.deployment;
     return new Response(JSON.stringify(val), { status: 200, headers: { "content-type": "application/json" } });
   });
 }
@@ -148,6 +152,60 @@ describe("exact-SHA Vercel release hold proof, read-only and fail closed", () =>
     for (const hostname of PROTECTED_ORIGIN_ALIASES) {
       expect(requests).toContain("https://api.vercel.com/v4/aliases/" + hostname + "?teamId=team_TEST1234");
     }
+  });
+
+  it("accepts a signed-off per-domain snapshot with two READY deployments at the same trusted SHA", async () => {
+    const secondaryId = "dpl_SECOND123";
+    const alternateNames = PROTECTED_ORIGIN_ALIASES.slice(1);
+    const expected = Object.fromEntries(PROTECTED_ORIGIN_ALIASES.map((name, index) =>
+      [name, index === 0 ? fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID : secondaryId]));
+    const x = {
+      ...okay(),
+      secondary: {
+        id: secondaryId, projectId: fixtureEnv.ORIGIN_VERCEL_PROJECT_ID,
+        readyState: "READY", target: "production" as const,
+        meta: { githubCommitSha: fixtureEnv.ORIGIN_EXPECTED_PRODUCTION_SHA },
+      },
+    };
+    const overrides = Object.fromEntries(alternateNames.map((name) => [name, { deploymentId: secondaryId }]));
+    const mock = fakeApi(x, overrides);
+    const result = await verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON: JSON.stringify(expected),
+    }, mock);
+    expect(mock).toHaveBeenCalledTimes(6);
+    expect(result.verifiedAliasDeploymentIds).toEqual(expected);
+    expect(result.firstMainPushNegativePathVerified).toBe(false);
+  });
+
+  it("denies per-domain drift even if primary alias and all deployed SHAs are correct", async () => {
+    const targets = Object.fromEntries(PROTECTED_ORIGIN_ALIASES.map((name, index) =>
+      [name, index === 0 ? "dpl_TEST1234" : "dpl_SECOND123"]));
+    const mock = fakeApi(okay(), { [PROTECTED_ORIGIN_ALIASES[1]]: { deploymentId: "dpl_SECOND123" } });
+    await expect(verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON: JSON.stringify(targets),
+    }, mock)).rejects.toThrow("PRODUCTION_ALIAS_MOVED");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["not-json", "{bad-json"],
+    ["missing-secondary", JSON.stringify({ [PROTECTED_ORIGIN_ALIASES[0]]: "dpl_TEST1234" })],
+    ["extra-alias", JSON.stringify(Object.fromEntries([
+      ...PROTECTED_ORIGIN_ALIASES.map((name) => [name, "dpl_TEST1234"]),
+      ["unreviewed.example.com", "dpl_OTHER123"],
+    ]))],
+    ["malformed-target", JSON.stringify(Object.fromEntries(
+      PROTECTED_ORIGIN_ALIASES.map((name, index) => [name, index === 1 ? "../bad" : "dpl_TEST1234"])
+    ))],
+    ["unexpected-primary", JSON.stringify(Object.fromEntries(
+      PROTECTED_ORIGIN_ALIASES.map((name) => [name, "dpl_OTHER123"])
+    ))],
+  ])("rejects an unreviewed production alias snapshot %s before network access", async (_name, data) => {
+    const mock = vi.fn();
+    await expect(verifyVercelReleaseHold({
+      ...fixtureEnv, ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON: data,
+    }, mock)).rejects.toThrow();
+    expect(mock).not.toHaveBeenCalled();
   });
 
   it("denies absent authentication before sending any HTTP request", async () => {

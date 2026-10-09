@@ -46,6 +46,24 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   assert.equal(alias, PROTECTED_ORIGIN_ALIASES[0], "ORIGIN_PRIMARY_ALIAS_MISMATCH");
   const deploymentId = required(env, "ORIGIN_EXPECTED_PRODUCTION_DEPLOYMENT_ID", VERCEL_DEPLOYMENT);
   const sha = required(env, "ORIGIN_EXPECTED_PRODUCTION_SHA", FULL_SHA);
+  // This owner-reviewed snapshot must be captured BEFORE the operation,
+  // not inferred from a potentially already-moved live alias.
+  const snapshotJson = env.ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON;
+  assert.equal(typeof snapshotJson, "string", "PRODUCTION_ALIAS_SNAPSHOT_MISSING");
+  assert.ok(snapshotJson.length <= 2000, "PRODUCTION_ALIAS_SNAPSHOT_OVERSIZED");
+  let expectedAliasTargets;
+  try { expectedAliasTargets = JSON.parse(snapshotJson); }
+  catch { throw Error("PRODUCTION_ALIAS_SNAPSHOT_INVALID_JSON"); }
+  assert.ok(expectedAliasTargets && typeof expectedAliasTargets === "object" &&
+    !Array.isArray(expectedAliasTargets), "PRODUCTION_ALIAS_SNAPSHOT_INVALID");
+  assert.deepEqual(Object.keys(expectedAliasTargets).sort(),
+    [...PROTECTED_ORIGIN_ALIASES].sort(), "PRODUCTION_ALIAS_SNAPSHOT_INCOMPLETE");
+  for (const name of PROTECTED_ORIGIN_ALIASES) {
+    assert.equal(typeof expectedAliasTargets[name], "string", "PRODUCTION_ALIAS_SNAPSHOT_TARGET_INVALID");
+    assert.match(expectedAliasTargets[name], VERCEL_DEPLOYMENT, "PRODUCTION_ALIAS_SNAPSHOT_TARGET_INVALID");
+  }
+  assert.equal(expectedAliasTargets[alias], deploymentId, "PRODUCTION_PRIMARY_SNAPSHOT_MISMATCH");
+  const expectedDeploymentIds = [...new Set(PROTECTED_ORIGIN_ALIASES.map((name) => expectedAliasTargets[name]))];
   const config = JSON.parse(readFileSync(resolve(process.cwd(), "vercel.json"), "utf8"));
   verifyStaticGitConfig(config);
 
@@ -79,11 +97,12 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     assert.match(probeId, VERCEL_DEPLOYMENT, "ORIGIN_STAGED_PROBE_DEPLOYMENT_ID_INVALID");
     assert.notEqual(probeId, deploymentId, "ORIGIN_STAGED_PROBE_NOT_DISTINCT");
   }
-  const [projectInfo, aliasInfos, deployment, probe] = await Promise.all([
+  const [projectInfo, aliasInfos, deploymentInfos, probe] = await Promise.all([
     readVercelJson("/v9/projects/" + project),
     Promise.all(PROTECTED_ORIGIN_ALIASES.map((name) =>
       readVercelJson("/v4/aliases/" + name))),
-    readVercelJson("/v13/deployments/" + deploymentId),
+    Promise.all(expectedDeploymentIds.map((id) =>
+      readVercelJson("/v13/deployments/" + id))),
     probeId ? readVercelJson("/v13/deployments/" + probeId) : Promise.resolve(null),
   ]);
 
@@ -95,11 +114,15 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     const observed = aliasInfos[index];
     assert.equal(observed.projectId, project, "PRODUCTION_ALIAS_PROJECT_MISMATCH");
     assert.equal(observed.alias, PROTECTED_ORIGIN_ALIASES[index], "PRODUCTION_ALIAS_NAME_MISMATCH");
-    assert.equal(observed.deploymentId, deploymentId, "PRODUCTION_ALIAS_MOVED");
+    assert.equal(observed.deploymentId, expectedAliasTargets[observed.alias], "PRODUCTION_ALIAS_MOVED");
   }
-  assert.equal(deployment.projectId ?? deployment.project?.id, project, "PRODUCTION_DEPLOYMENT_PROJECT_MISMATCH");
-  assert.equal(deployment.meta?.githubCommitSha?.toLowerCase(), sha, "PRODUCTION_DEPLOYMENT_SHA_MISMATCH");
-  assert.equal(deployment.readyState, "READY", "PRODUCTION_DEPLOYMENT_NOT_READY");
+  for (let index = 0; index < expectedDeploymentIds.length; index += 1) {
+    const deployment = deploymentInfos[index];
+    assert.equal(deployment.id, expectedDeploymentIds[index], "PRODUCTION_DEPLOYMENT_ID_MISMATCH");
+    assert.equal(deployment.projectId ?? deployment.project?.id, project, "PRODUCTION_DEPLOYMENT_PROJECT_MISMATCH");
+    assert.equal(deployment.meta?.githubCommitSha?.toLowerCase(), sha, "PRODUCTION_DEPLOYMENT_SHA_MISMATCH");
+    assert.equal(deployment.readyState, "READY", "PRODUCTION_DEPLOYMENT_NOT_READY");
+  }
 
   if (probe) {
     assert.equal(probe.id, probeId, "STAGED_PROBE_ID_MISMATCH");
@@ -116,6 +139,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     productionAlias: alias,
     deploymentId,
     verifiedProductionAliases: PROTECTED_ORIGIN_ALIASES,
+    verifiedAliasDeploymentIds: expectedAliasTargets,
     observedSha: sha,
     autoAssignCustomDomains: false,
     sameShaProductionProbeVerified: Boolean(probe),

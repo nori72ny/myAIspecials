@@ -41,7 +41,16 @@ Both moved to the staging deployment even though its code SHA was unchanged.
 `GET /v9/projects/{id}/domains` lists only the primary domain, so it is
 **not a complete source** for Vercel default production alias inventory.
 The read-only release verifier must check the explicit three protected
-aliases via `GET /v4/aliases/{name}` and fail if **any** one moved.
+aliases via `GET /v4/aliases/{name}` against a pre-approved snapshot
+`ORIGIN_EXPECTED_PRODUCTION_ALIAS_TARGETS_JSON` of exact per-hostname
+deployment IDs and fail if **any** one moved. This snapshot must be
+captured before any operation, not copied from post-event live state.
+All distinct expected deployment IDs must belong to the project, be
+READY, and report the exact pre-approved `ORIGIN_EXPECTED_PRODUCTION_SHA`.
+Using one identical deployment ID for all hosts creates false failures
+when Vercel has served same-SHA code from two different deployments.
+Missing, extra, malformed or unexpected primary mappings fail closed.
+This check is not authorization to rebaseline an unapproved alias move.
 Future alias additions require independent release inventory update.
 No further `create_deployment(target:"production")` dry runs: the connector
 does not provide the safe `--skip-domain` option that Vercel CLI supports.
