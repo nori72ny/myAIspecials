@@ -29,7 +29,7 @@ or free Cloudflare account availability, nor approval to enable a Production fea
 ## What this PR can prove without live inference
 
 The `image-v16-evaluation-readiness.yml` workflow and local
-`node --test scripts/check-world-class-image-evaluation-readiness-v16.test.mjs`
+`node --test scripts/check-world-class-image-evaluation-readiness-v16.check.mjs`
 run a deliberately offline static evaluation. They check that:
 
 - 24/12 generation and 16/8 editing plans, exact SHA and manual main-only

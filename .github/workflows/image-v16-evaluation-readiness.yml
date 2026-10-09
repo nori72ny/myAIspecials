@@ -38,7 +38,7 @@ jobs:
           node-version: '22.x'
 
       - name: Validate static readiness gate negative cases
-        run: node --test scripts/check-world-class-image-evaluation-readiness-v16.test.mjs
+        run: node --test scripts/check-world-class-image-evaluation-readiness-v16.check.mjs
 
       - name: Produce safe readiness report, never quality-pass evidence
         env:
