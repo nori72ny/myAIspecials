@@ -16,7 +16,7 @@ export type GroundedResearchSynthesisValidation =
 type SynthesisSource = Pick<
   OriginResearchSource,
   "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceType" | "sourceAuthority"
->;
+> & Partial<Pick<OriginResearchSource, "retrievedAt" | "revisionTimestamp">>;
 
 const CITATION_PATTERN = /\[S(\d+)\]\((https:\/\/[^)\s]+)\)/g;
 const URL_PATTERN = /https:\/\/[^\s)]+/g;
@@ -35,6 +35,15 @@ function safeHttpsUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+
+function evidenceTimestamp(value: string | undefined): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return null;
+  const normalized = new Date(time).toISOString();
+  return normalized.slice(0, 19) === value.slice(0, 19) ? normalized : null;
 }
 
 function compactExcerpt(value: string): string {
@@ -152,6 +161,7 @@ export function buildGroundedResearchSynthesisInstruction(
       "Answer the user's actual question first, then explain the strongest supporting evidence, conflicts, and uncertainty.",
       "Every factual paragraph or bullet must include one or more exact inline citations copied from the packet, for example [S1](https://example.com/).",
       "Never invent a source ID, URL, date, number, product name, organization, or quotation.",
+      "retrievedAt is the retrieval time; revisionTimestamp is the source revision time, not its publication date or the date of an event. Recent editing does not prove the facts are current. If a date is absent, leave it unknown.",
       "Treat sourceAuthority=official-domain-match only as a deterministic match to the user's requested official-domain constraint; it is not independent proof that the content is true or authoritative.",
       "Treat sourceAuthority=secondary-reference as secondary reference material. Never upgrade it to a primary source.",
       "Do not call a source official, primary, authoritative, verified, or true unless that status is explicitly supported by sourceAuthority in the evidence packet.",
@@ -169,6 +179,7 @@ export function buildGroundedResearchSynthesisInstruction(
     "ユーザーの質問への答えを最初に示し、その後に主要根拠・相違点・不確実性を整理してください。",
     "事実を含む各段落・箇条書きには、証拠パケットにある完全一致のインライン引用を1つ以上付けてください。例: [S1](https://example.com/)",
     "ソースID、URL、日付、数値、製品名、組織名、引用文を捏造しないでください。",
+    "retrievedAt は取得日時、revisionTimestamp はソース改訂日時です。公開日や出来事の日付と混同しないでください。最近の編集だけで内容が最新とは断定せず、日時がない場合は不明としてください。",
     "sourceAuthority=official-domain-match は、ユーザーが指定した公式ドメイン条件とホスト名が決定的に一致したことだけを意味し、内容の真実性や権威性の独立証明ではありません。",
     "sourceAuthority=secondary-reference は二次参照資料として扱い、一次情報へ格上げしないでください。",
     "証拠パケットの sourceAuthority で裏付けられていない限り、公式・一次情報・権威ある・検証済み・真実などと断定しないでください。",
@@ -199,6 +210,8 @@ export function buildGroundedResearchSynthesisPrompt(
       `domain_json: ${JSON.stringify(domain)}`,
       `evidenceLevel_json: ${JSON.stringify(source.evidenceLevel)}`,
       `freshness_json: ${JSON.stringify(source.freshness)}`,
+      `retrievedAt_json: ${JSON.stringify(evidenceTimestamp(source.retrievedAt))}`,
+      `revisionTimestamp_json: ${JSON.stringify(evidenceTimestamp(source.revisionTimestamp))}`,
       `sourceAuthority_json: ${JSON.stringify(source.sourceAuthority ?? (source.sourceType === "encyclopedia" ? "secondary-reference" : "unclassified"))}`,
       `excerpt_json: ${JSON.stringify(compactExcerpt(source.excerpt))}`,
       `citation_token: [${id}](${source.url})`,
@@ -251,18 +264,135 @@ export function buildGroundedResearchSynthesisPrompt(
   ].filter(Boolean).join("\n");
 }
 
-function normalizedEvidenceText(value: string): string {
-  return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
+function numericTokens(value: string): string[] {
+  const normalized = value.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-")
+    .replace(/\d+つ目の資料/g, "資料");
+  const dates: string[] = [];
+  // Keep a date intact: separate year/month/day matches can fabricate a new date.
+  const withoutDates = normalized.replace(
+    /(?<!\d)(\d{4})(?:-(\d{2})-(\d{2})|年\s*(\d{1,2})月\s*(\d{1,2})日)(?!\d)/g,
+    (_match, year: string, isoMonth: string | undefined, isoDay: string | undefined, jaMonth: string | undefined, jaDay: string | undefined) => {
+      const month = (isoMonth ?? jaMonth ?? "").padStart(2, "0");
+      const day = (isoDay ?? jaDay ?? "").padStart(2, "0");
+      dates.push(`date:${year}-${month}-${day}`);
+      return " ";
+    },
+  );
+  const matches = withoutDates.match(/[+-]?(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  // Single-digit counts are factual values too; only explicit source-list labels are excluded above.
+  const numbers = matches.map((token) => token.replace(/[\\s,，]/g, "").toLowerCase());
+  return [...new Set([...dates, ...numbers])];
 }
 
-function numericTokens(value: string): string[] {
-  const withoutCitations = value.replace(CITATION_PATTERN, " ");
-  const matches = withoutCitations.normalize("NFKC").match(/(?:[$¥€£]\s*)?\d[\d,]*(?:\.\d+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
-  return [...new Set(matches.map((token) => token.replace(/[\s,，]/g, "").toLowerCase()).filter((token) => {
-    const digits = token.match(/\d/g)?.length ?? 0;
-    const hasSemanticSuffix = /[%円ドル]|usd|jpy|eur|gbp|年|月|日|万|億|兆/i.test(token);
-    return digits >= 2 || hasSemanticSuffix;
-  }))];
+/**
+ * Permit only a visibly shown, exactly correct, safe-integer + / − result.
+ * Both operands must appear as whole numeric tokens in this unit's cited
+ * evidence. This does not authorize unsourced estimates or unshown arithmetic.
+ */
+function verifiedDerivedArithmeticTokens(unit: string, evidence: ReadonlySet<string>, citedEvidence: string): Set<string> {
+  const allowed = new Set<string>();
+  // Accept canonical thousands grouping as well as plain integers, but never
+  // match a fragment of malformed punctuation (e.g. "1,20店" => "20店").
+  // Every numeric group and spacing run is bounded against untrusted text.
+  const integer = String.raw`(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})`;
+  const expression = new RegExp(
+    String.raw`(?<![0-9.,])(${integer})(店舗|店|件|人|名|社|台|個|回|円)?[ \t]{0,8}([+\-−])[ \t]{0,8}(${integer})(店舗|店|件|人|名|社|台|個|回|円)?[ \t]{0,8}[=＝][ \t]{0,8}(${integer})(店舗|店|件|人|名|社|台|個|回|円)?(?![0-9.,])`,
+    "g",
+  );
+  const sourceMeasures = new Set<string>();
+  const measurePattern = /[+-]?[0-9][0-9,]*(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?[ \t]{0,8}(?:店舗|店|件|人|名|社|台|個|回|円)/gi;
+  for (const measure of citedEvidence.normalize("NFKC").matchAll(measurePattern)) {
+    sourceMeasures.add(measure[0].replace(/[ ,\t]/g, ""));
+  }
+  for (const match of unit.normalize("NFKC").matchAll(expression)) {
+    const [, leftText, leftUnit = "", operator, rightText, rightUnit = "", resultText, resultUnit = ""] = match;
+    if (leftUnit !== rightUnit || leftUnit !== resultUnit) continue;
+    const leftToken = leftText.replace(/,/g, "");
+    const rightToken = rightText.replace(/,/g, "");
+    const resultToken = resultText.replace(/,/g, "");
+    const left = Number(leftToken), right = Number(rightToken), expected = Number(resultToken);
+    if (![left, right, expected].every(Number.isSafeInteger)) continue;
+    if (operator === "+" ? left + right !== expected : left - right !== expected) continue;
+    // The numeric scanner preserves "円" but treats counters such as 店/件
+    // as ordinary surrounding words. Match its exact normalized token form.
+    const numericSuffix = leftUnit === "円" ? "円" : "";
+    if (!evidence.has(`${leftToken}${numericSuffix}`) || !evidence.has(`${rightToken}${numericSuffix}`)) continue;
+    // Prevent converting unrelated source measures into store counts: if the
+    // answer names a unit, each cited operand must explicitly carry that unit.
+    if (leftUnit && (!sourceMeasures.has(`${leftToken}${leftUnit}`)
+      || !sourceMeasures.has(`${rightToken}${leftUnit}`))) continue;
+    allowed.add(`${resultToken}${numericSuffix}`);
+    // Preserve the unit binding alongside the scalar arithmetic result.
+    // Otherwise 135店 - 120店 = 15店 could spuriously authorize 15人.
+    if (["店舗", "店", "件", "人", "名", "社", "台", "個", "回"].includes(resultUnit)) {
+      const countUnit = resultUnit === "店舗" ? "店" : resultUnit === "名" ? "人" : resultUnit;
+      allowed.add(`measure:${resultToken}@${countUnit}`);
+    }
+    // Numeric tokenization retains the binary sign of the second operand.
+    // It is permitted only inside this specifically verified expression.
+    allowed.add(`${operator === "+" ? "+" : "-"}${rightToken}${numericSuffix}`);
+  }
+  return allowed;
+}
+
+/** Counts are unit-bearing facts. The numeric-token scanner intentionally
+ * ignores Japanese classifiers for generic numeric checks, but that cannot
+ * promote "120人" in evidence into a supported claim of "120件/店".
+ * Restrict this measure guard to exact Japanese count units (not prose such
+ * as "monthly", dates, or ratios), keeping explicitly verified arithmetic.
+ * 人 and 名 denote the same person counter, but 社/台/個/回 are distinct.
+ */
+function hasUnsupportedCountMeasure(
+  unit: string,
+  citedEvidence: string,
+  verifiedDerived: ReadonlySet<string>,
+): boolean {
+  // Match the ENTIRE quantity, including fractional and scientific notation.
+  // Integer-only matching would let 2.5件 justify 2.5人 (or misread the
+  // exponent tail of 1e3件 as a separate 3件).
+  const count = /(?<![0-9.,A-Za-z])([+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,8})?(?:e[+-]?[0-9]{1,3})?)[ \t]{0,8}(店舗|店|件|人|名|社|台|個|回)(?![0-9.,A-Za-z])/gi;
+  const normalizedEvidence = citedEvidence.normalize("NFKC").replace(/\u2212/g, "-");
+  const evidenceMeasures = new Set<string>();
+  for (const found of normalizedEvidence.matchAll(count)) {
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
+    const category = found[2] === "店舗" ? "店" : found[2] === "名" ? "人" : found[2];
+    evidenceMeasures.add(`${amount}@${category}`);
+  }
+
+  const normalizedClaim = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  for (const found of normalizedClaim.matchAll(count)) {
+    const amount = found[1].replace(/,/g, "").replace(/^\+/, "").toLowerCase();
+    const category = found[2] === "店舗" ? "店" : found[2] === "名" ? "人" : found[2];
+    const key = `${amount}@${category}`;
+    // In a joined subtraction such as 135店-120店=15店, the minus is a
+    // verified binary operator, not a negative source count. Only permit
+    // this case if the equation was explicitly checked and the positive
+    // operand also has the exact matching unit in evidence.
+    const verifiedBinarySubtrahend = amount.startsWith("-")
+      && verifiedDerived.has(amount)
+      && evidenceMeasures.has(`${amount.slice(1)}@${category}`);
+    if (!evidenceMeasures.has(key)
+      && !verifiedDerived.has(`measure:${key}`)
+      && !verifiedBinarySubtrahend) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Block invalid comma grouping in quantities before token normalization can
+ * erase the comma and accidentally equate e.g. 1,20円 with 120円.
+ * Unlabelled lists (e.g. "1,2,3") are not interpreted as grouped quantities.
+ */
+function hasMalformedGroupedQuantity(unit: string): boolean {
+  const normalized = unit.replace(CITATION_PATTERN, " ").normalize("NFKC").replace(/\u2212/g, "-");
+  const quantity = /(?<![0-9.,])[-+]?[ \t]*([$¥€£]?)[ \t]*(\d[\d,]*(?:\.\d+)?)[ \t]*(円|店舗|店|件|人|名|社|台|個|回|ドル|usd|jpy|eur|gbp|%|万|億|兆)?(?![0-9.,])/gi;
+  for (const match of normalized.matchAll(quantity)) {
+    const [, currency, amount, unitSuffix] = match;
+    if (!amount.includes(",") || (!currency && !unitSuffix)) continue;
+    if (!/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(amount)) return true;
+  }
+  return false;
 }
 
 function citedSourceIds(value: string): string[] {
@@ -273,16 +403,40 @@ function citedSourceIds(value: string): string[] {
   return [...ids];
 }
 
+/** Tables have structural, non-factual header/divider rows. Keep data rows
+ * subject to exact citation and numeric evidence validation. */
+function isMarkdownTableDivider(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return false;
+  const withoutEdgePipes = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = withoutEdgePipes.split("|");
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
 function factualUnits(text: string): string[] {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (!normalized) return [];
-  return normalized
-    .split(/\n\s*\n/)
-    .flatMap((block) => block.split("\n").map((line) => line.trim()).filter(Boolean))
-    .filter((line) => !HEADING_PATTERN.test(line))
-    .filter((line) => !SHORT_NONFACTUAL_PATTERN.test(line))
-    .map((line) => line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim())
-    .filter(Boolean);
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  const units: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (isMarkdownTableDivider(line) || /^-{3,}$/.test(line)) continue;
+    // A pipe-table header is a label, not a fact. Never exempt a header
+    // containing numbers: dated/numeric claims still need evidence.
+    if (line.includes("|") && isMarkdownTableDivider(lines[index + 1] ?? "")
+      && !/[0-9０-９]/.test(line)) continue;
+    if (SHORT_NONFACTUAL_PATTERN.test(line)) continue;
+    if (HEADING_PATTERN.test(line)) {
+      const heading = line.replace(HEADING_PATTERN, "").trim();
+      // A numerical heading can assert facts even outside ordinary prose.
+      if (!/[0-9０-９]/.test(heading)) continue;
+      units.push(heading);
+      continue;
+    }
+    const content = line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim();
+    if (content) units.push(content);
+  }
+  return units;
 }
 
 export function validateGroundedResearchSynthesis(
@@ -295,12 +449,20 @@ export function validateGroundedResearchSynthesis(
   const bounded = sources.slice(0, 8);
   const sourceMap = new Map<string, string>();
   const sourceEvidence = new Map<string, string>();
+  const sourceDateMetadata = new Map<string, { retrieved: string | null; revised: string | null }>();
   bounded.forEach((source, index) => {
     const id = sourceId(index);
     const normalized = safeHttpsUrl(source.url);
     if (normalized) {
       sourceMap.set(id, normalized);
-      sourceEvidence.set(id, normalizedEvidenceText(`${source.title}\n${source.excerpt}`));
+      // Retrieval/revision timestamps are transport metadata, not claims in
+      // the source. A date quoted as an event must be present in the actual
+      // cited title/excerpt, not merely in the fetch timestamp.
+      sourceEvidence.set(id, [source.title, compactExcerpt(source.excerpt)].join("\n"));
+      sourceDateMetadata.set(id, {
+        retrieved: evidenceTimestamp(source.retrievedAt)?.slice(0, 10) ?? null,
+        revised: evidenceTimestamp(source.revisionTimestamp)?.slice(0, 10) ?? null,
+      });
     }
   });
 
@@ -326,7 +488,7 @@ export function validateGroundedResearchSynthesis(
     }
   }
 
-  const requiredCoverage = Math.min(2, sourceMap.size);
+  const requiredCoverage = Math.max(1, Math.min(2, sourceMap.size));
   if (used.size < requiredCoverage) {
     return {
       ok: false,
@@ -345,10 +507,40 @@ export function validateGroundedResearchSynthesis(
       };
     }
 
+    if (hasMalformedGroupedQuantity(unit)) {
+      return { ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN", detail: "Quantity used invalid thousands separators." };
+    }
+
     const ids = citedSourceIds(unit);
     const evidenceText = ids.map((id) => sourceEvidence.get(id) ?? "").join("\n");
+    // Compare whole numeric tokens; substring matches can silently change magnitude or sign.
+    const supportedNumbers = new Set(numericTokens(evidenceText));
+    const verifiedResults = verifiedDerivedArithmeticTokens(unit, supportedNumbers, evidenceText);
+    // Every reported human/event/store count must preserve the cited unit,
+    // not merely reuse a digit found beside a different unit in the source.
+    if (hasUnsupportedCountMeasure(unit, evidenceText, verifiedResults)) {
+      return {
+        ok: false,
+        code: "UNSUPPORTED_NUMERIC_TOKEN",
+        detail: "Count quantity/unit pairing was absent from cited evidence.",
+      };
+    }
+    // Metadata dates prove when we retrieved or revised a record, NOT when
+    // the underlying real-world event happened. Grant only the matching
+    // calendar date for explicit metadata claims, never timestamp hour digits.
+    const explicitlyRetrieved = /(?:取得日|取得日時|参照日|retriev(?:al|ed)\s+(?:date|on))/i.test(unit);
+    const explicitlyRevised = /(?:改訂日|改定日|更新日時|revision\s+date|revised\s+on)/i.test(unit);
+    const makesEventClaim = /(?:開催日|発生日|出来事|イベント|事件|published\s+on|event|occurred)/i.test(unit);
+    const metadataDates = new Set<string>();
+    if (!makesEventClaim) {
+      for (const id of ids) {
+        const metadata = sourceDateMetadata.get(id);
+        if (explicitlyRetrieved && metadata?.retrieved) metadataDates.add(`date:${metadata.retrieved}`);
+        if (explicitlyRevised && metadata?.revised) metadataDates.add(`date:${metadata.revised}`);
+      }
+    }
     for (const token of numericTokens(unit)) {
-      if (!normalizedEvidenceText(evidenceText).includes(normalizedEvidenceText(token))) {
+      if (!supportedNumbers.has(token) && !verifiedResults.has(token) && !metadataDates.has(token)) {
         return {
           ok: false,
           code: "UNSUPPORTED_NUMERIC_TOKEN",
