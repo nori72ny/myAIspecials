@@ -111,9 +111,11 @@ describe('trusted live Vercel three-domain readback (read-only)', () => {
 
   function fakeVercel(v: ReturnType<typeof good>, opts: {
     movedSecondary?: boolean;
+    moveAfterDeploymentRead?: boolean;
     reject?: boolean;
   } = {}) {
     const calls: string[] = [];
+    let deploymentReadStarted = false;
     const mock = (async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
       const url = String(input);
       calls.push(url);
@@ -126,10 +128,12 @@ describe('trusted live Vercel three-domain readback (read-only)', () => {
       if (url.includes('/v4/aliases/')) {
         const alias = v.aliases.find(row => url.includes(encodeURIComponent(row.alias)));
         if (!alias) return new Response('{}', { status: 404 });
-        return Response.json(opts.movedSecondary && alias.alias === hosts[2]
+        return Response.json((opts.movedSecondary || (opts.moveAfterDeploymentRead && deploymentReadStarted))
+          && alias.alias === hosts[2]
           ? { ...alias, deploymentId: newMain } : alias);
       }
       if (url.includes('/v13/deployments/')) {
+        deploymentReadStarted = true;
         const dep = v.deployments.find(row => url.includes(row.id));
         return dep ? Response.json(dep) : new Response('{}', { status: 404 });
       }
@@ -147,8 +151,8 @@ describe('trusted live Vercel three-domain readback (read-only)', () => {
     expect(out.allProtectedProductionAliasesHeld).toBe(true);
     expect(out.firstNewMainPushNegativePathVerified).toBe(false);
     expect(out.productionPromotionAuthorized).toBe(false);
-    expect(calls).toHaveLength(5);
-    expect(calls.filter(url => url.includes('/v4/aliases/'))).toHaveLength(3);
+    expect(calls).toHaveLength(8);
+    expect(calls.filter(url => url.includes('/v4/aliases/'))).toHaveLength(6);
     expect(calls.filter(url => url.includes('/v13/deployments/'))).toHaveLength(2);
   });
 
@@ -160,6 +164,18 @@ describe('trusted live Vercel three-domain readback (read-only)', () => {
     });
     expect(out.allProtectedProductionAliasesHeld).toBe(false);
     expect(out.blockers).toContain('PROTECTED_ALIAS_MOVED');
+  });
+
+  it('rejects a default alias that moves AFTER the first matching read', async () => {
+    const v = good();
+    const { mock, calls } = fakeVercel(v, { moveAfterDeploymentRead: true });
+    const out = await fetchAndAudit({
+      token, teamId, projectId, snapshot: v.snapshot, fetchImpl: mock,
+    });
+    expect(calls).toHaveLength(8);
+    expect(out.allProtectedProductionAliasesHeld).toBe(false);
+    expect(out.blockers).toContain('PROTECTED_ALIAS_MOVED');
+    expect(out.firstNewMainPushNegativePathVerified).toBe(false);
   });
 
   it('does not call Vercel at all without a valid trusted snapshot', async () => {
