@@ -1,34 +1,47 @@
 name: Production Raster Readiness Gate
 
 on:
-  workflow_run:
-    workflows:
-      - Production Release CI/CD
-    branches:
-      - main
-    types:
-      - completed
+  # Git main acceptance is only PREPUBLICATION validation. This workflow
+  # inspects LIVE Production and must be run AFTER an approved promotion.
   workflow_dispatch:
+    inputs:
+      promoted_sha:
+        description: 'Exact 40-character SHA already serving Production'
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-raster-readiness-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: production-raster-readiness-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   verify-production-raster:
     name: Verify production raster runtime is live and free-only
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Require explicit already-promoted exact main SHA
+        env:
+          PROMOTED_SHA: ${{ inputs.promoted_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PROMOTED_SHA" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "::error title=Missing immutable publication evidence::An exact 40-character promoted SHA is required."
+            exit 90
+          }
+          [ "$PROMOTED_SHA" = "$GITHUB_SHA" ] || {
+            echo "::error title=Wrong main revision::Promoted SHA must equal the exact main revision selected for this manual run."
+            exit 91
+          }
       - name: Bind gate to exact successful main release
         env:
-          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -39,7 +52,7 @@ jobs:
       - name: Verify production still serves the exact successful main SHA
         env:
           ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
-          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
