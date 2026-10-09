@@ -20,6 +20,11 @@ or free Cloudflare account availability, nor approval to enable a Production fea
 - Independent judges must inspect the real 24 generated and 16 edited results,
   compare against frozen baselines blind to source, and record prompt adherence,
   anatomy/geometry, text fidelity, source preservation, safety and usefulness.
+- The generation comparison uses `npm run eval:image-blind-quality -- <24-case-evidence.json>`.
+  The editing comparison uses `npm run eval:image-edit-blind-quality -- <16-case-evidence.json>`.
+  Both commands evaluate submitted, previously collected independent blind-judge
+  scores offline and return a failing exit status on a failed quality gate.
+  They do **not** generate references, collect judge scores or attest their provenance.
 
 ## What this PR can prove without live inference
 
@@ -34,7 +39,10 @@ run a deliberately offline static evaluation. They check that:
 - Cloudflare 9B, SHA qualification, Production Owner enablement and fail-closed
   safety mode remain in the server router;
 - production post-release verification checks **both** SHA qualification and
-  explicit Owner enablement.
+  explicit Owner enablement;
+- both 24-case and 16-case blind benchmark scorers require three fixed
+  references and at least two independent source-blind judges per case,
+  and the editing evaluator has an executable CLI.
 
 Run `ORIGIN_EVAL_CANDIDATE_SHA=$(git rev-parse HEAD) node scripts/check-world-class-image-evaluation-readiness-v16.mjs`
 to write `test-results/image-v16-evaluation-readiness.json`. Its status fields

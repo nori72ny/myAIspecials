@@ -44,6 +44,25 @@ test('removing the Owner Production activation check blocks static readiness', (
   assert.ok(report.blockers.includes('STATIC_CHECK_FAILED:runtime-release-gate'));
 });
 
+test('removing the independent blind-edit evaluator fails readiness despite good technical CI', () => {
+  const report = inspectImageEvaluationReadinessV16(sha, filename =>
+    filename.endsWith('OriginImageEditBlindBenchmarkV1.ts')
+      ? read(filename).replace('REQUIRED_JUDGES = 2', 'REQUIRED_JUDGES = 1')
+      : read(filename));
+  assert.equal(report.staticGatePassed, false);
+  assert.ok(report.blockers.includes('STATIC_CHECK_FAILED:blind-editing-independent-review'));
+  assert.equal(report.independentBlindComparisonPassed, false);
+});
+
+test('missing runnable edit blind-judge command fails readiness', () => {
+  const report = inspectImageEvaluationReadinessV16(sha, filename =>
+    filename.endsWith('evaluate-image-edit-blind-quality-v1.ts')
+      ? 'export const noJudge = true;'
+      : read(filename));
+  assert.equal(report.staticGatePassed, false);
+  assert.ok(report.blockers.includes('STATIC_CHECK_FAILED:blind-editing-judge-cli'));
+});
+
 test('a missing required file fails closed, never claims real images were evaluated', () => {
   const report = inspectImageEvaluationReadinessV16(sha, filename => {
     if (filename.endsWith('production-world-class-image-safety.yml')) throw new Error('Not found');
@@ -58,5 +77,5 @@ test('readiness gate remains static: no secret or inference dependency in script
   const source = read('scripts/check-world-class-image-evaluation-readiness-v16.mjs');
   assert.equal(/\bfetch\s*\(/.test(source), false);
   assert.equal(/\bCLOUDFLARE_API_TOKEN\b/.test(source), false);
-  assert.equal(IMAGE_EVALUATION_STATIC_RULES_V16.length, 7);
+  assert.equal(IMAGE_EVALUATION_STATIC_RULES_V16.length, 10);
 });

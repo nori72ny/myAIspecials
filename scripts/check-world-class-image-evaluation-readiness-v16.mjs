@@ -59,6 +59,36 @@ export const IMAGE_EVALUATION_STATIC_RULES_V16 = Object.freeze([
     tests: [/dailyNeurons: 10_000/, /maxCasesPerShard: 2/, /requiresLiveFreePlanAndQuotaProof: true/, /maxGenerationAttemptsPerCase: 2/],
   },
   {
+    id: 'blind-generation-independent-review',
+    file: 'src/release/OriginImageBlindBenchmarkV15.ts',
+    tests: [
+      /REQUIRED_REFERENCES = 3/,
+      /REQUIRED_JUDGES = 2/,
+      /REQUIRED_CASES = IMAGE_FAMILIES_V15.length \* REQUIRED_CASES_PER_FAMILY/,
+      /IMAGE_BENCHMARK_INDEPENDENT_JUDGES_LT_2/,
+      /IMAGE_BENCHMARK_REQUIRES_24_CASES/,
+    ],
+  },
+  {
+    id: 'blind-editing-independent-review',
+    file: 'src/release/OriginImageEditBlindBenchmarkV1.ts',
+    tests: [
+      /REQUIRED_REFERENCES = 3/,
+      /REQUIRED_JUDGES = 2/,
+      /REQUIRED_CASES = IMAGE_EDIT_FAMILIES_V1.length \* REQUIRED_CASES_PER_FAMILY/,
+      /IMAGE_EDIT_BENCHMARK_INDEPENDENT_JUDGES_LT_2/,
+      /IMAGE_EDIT_BENCHMARK_REQUIRES_16_CASES/,
+    ],
+  },
+  {
+    id: 'blind-editing-judge-cli',
+    file: 'scripts/evaluate-image-edit-blind-quality-v1.ts',
+    tests: [
+      /evaluateOriginImageEditBlindBenchmarkV1/,
+      /if \(!report.passed\) process.exit\(1\)/,
+    ],
+  },
+  {
     id: 'protection-of-production',
     file: '.github/workflows/production-world-class-image-safety.yml',
     tests: [
