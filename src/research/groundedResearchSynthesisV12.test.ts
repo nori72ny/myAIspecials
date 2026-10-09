@@ -349,6 +349,16 @@ describe("groundedResearchSynthesisV12", () => {
     }
   });
 
+  it("retains valid compact count arithmetic without spaces while rejecting swapped subtrahend units", () => {
+    const evidence = [{ ...sources[0], excerpt: "前月120店、今月135店。" }];
+    expect(validateGroundedResearchSynthesis(
+      "純増は135店-120店=15店です。[S1](https://example.com/one)", evidence,
+    )).toEqual({ ok: true, usedSourceIds: ["S1"] });
+    expect(validateGroundedResearchSynthesis(
+      "純増は135店-120人=15店です。[S1](https://example.com/one)", evidence,
+    )).toEqual(expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }));
+  });
+
   it("does not permit a different unit to borrow an otherwise valid arithmetic result", () => {
     const evidence = [{ ...sources[0], excerpt: "前月120店、今月135店。" }];
     expect(validateGroundedResearchSynthesis(
