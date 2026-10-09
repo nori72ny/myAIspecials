@@ -141,17 +141,15 @@ export function auditOriginGithubReleaseSnapshotV1(input: OriginGithubReleaseSna
   const boundApps = new Map<string, number>();
   for (const configured of input?.mainProtection?.required_status_checks?.checks ?? []) {
     const name = configured?.context;
-    // app_id=-1 explicitly means any application may provide this check.
-    // That is not sufficient evidence of an app identity for release controls.
-    if (typeof name === 'string' && Number.isSafeInteger(configured?.app_id)
-      && Number(configured.app_id) > 0) {
+    // app_id=-1 explicitly allows ANY app to impersonate this check.
+    // A malformed/conflicting app pin also fails closed when provided.
+    if (typeof name === 'string' && configured
+      && Object.prototype.hasOwnProperty.call(configured, 'app_id')) {
+      const appId = configured.app_id;
+      const pin = Number.isSafeInteger(appId) && Number(appId) > 0
+        ? Number(appId) : -1;
       const existing = boundApps.get(name);
-      if (existing !== undefined && existing !== configured.app_id) {
-        // Contradictory protection entries cannot be used as positive proof.
-        boundApps.set(name, -1);
-      } else {
-        boundApps.set(name, Number(configured.app_id));
-      }
+      boundApps.set(name, existing !== undefined && existing !== pin ? -1 : pin);
     }
   }
   const missingOrFailedChecks = requiredNames.filter(name => {
