@@ -49,6 +49,22 @@ describe('V1.4 workflow coverage', () => {
     expect(worker).toContain('leaseSeconds: WORKER_LEASE_SECONDS');
   });
 
+  it('maps hosted worker status to durable verified completion, not a green dispatch', () => {
+    const entry = readWorkflow('scripts/run-coding-job-worker-v14.ts');
+    const workflow = readWorkflow('.github/workflows/coding-job-worker-v14.yml');
+    const mapping = readWorkflow('src/agent/codingWorkerOutcomeExitV14.ts');
+
+    expect(entry).toContain('process.exitCode = codingWorkerOutcomeExitCodeV14(outcome.state);');
+    expect(entry).not.toContain("if (outcome.state === 'retryable' || outcome.state === 'lease_lost') process.exitCode = 2;");
+    expect(mapping).toContain("if (state === 'verified') return 0;");
+    expect(mapping).toContain("if (state === 'retryable' || state === 'lease_lost') return 2;");
+    expect(mapping).toContain('return 1;');
+    expect(workflow).toContain('if [ "$status" -eq 0 ]; then');
+    expect(workflow).toContain('if [ "$status" -ne 2 ]; then');
+    expect(workflow).toContain('exit "$status"');
+    expect(workflow).toContain('exit 2');
+  });
+
   it('waits beyond a freshly renewed lease before hosted recovery', () => {
     const workflow = readWorkflow('.github/workflows/coding-job-worker-v14.yml');
     expect(CODING_WORKER_RECOVERY_WAIT_SECONDS).toBeGreaterThan(CODING_WORKER_LEASE_SECONDS);
