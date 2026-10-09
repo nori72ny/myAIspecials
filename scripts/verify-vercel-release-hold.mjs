@@ -32,6 +32,34 @@ export function verifyStaticGitConfig(vercelConfig) {
   assert.equal(vercelConfig.github?.autoAlias, false, "GITHUB_AUTO_ALIAS_NOT_HELD");
 }
 
+/**
+ * Optional, independent project-side Git webhook block evidence.
+ *
+ * Vercel classifies the Git provider webhook as "git", distinct from CLI
+ * and REST-API deployments. Require exactly one explicit Production-scoped
+ * allowlist rule permitting only CLI/manual REST sources. A missing policy,
+ * unsupported API shape, inherited/ambiguous rule, or Git allowance is NOT
+ * evidence that the first new main commit will be safely held.
+ *
+ * Even a true result is not an authorized first-main-push negative-path test.
+ */
+export function auditVercelNativeProductionGitSourcePolicy(projectInfo) {
+  const rules = projectInfo?.deploymentPolicy?.deploymentSources;
+  if (!Array.isArray(rules) || rules.length > 20) return false;
+  const production = rules.filter((rule) => Array.isArray(rule?.environments)
+    && rule.environments.some((env) => env?.type === "system" && env.target === "production"));
+  if (production.length !== 1) return false;
+  const rule = production[0];
+  if (rule.enabled !== true
+    || !Array.isArray(rule.sources) || rule.sources.length === 0
+    || new Set(rule.sources).size !== rule.sources.length
+    || !rule.sources.every((source) => source === "cli" || source === "rest-api")) return false;
+  // An ambiguous rule mixing Production with another environment is not
+  // sufficient evidence of independently configured production isolation.
+  return rule.environments.length === 1 && rule.environments[0]?.type === "system"
+    && rule.environments[0]?.target === "production";
+}
+
 export async function verifyVercelReleaseHold(env = process.env, client = fetch) {
   const token = required(env, "VERCEL_TOKEN", /^\S{10,}$/);
   const project = required(env, "ORIGIN_VERCEL_PROJECT_ID", VERCEL_PROJECT);
@@ -110,6 +138,13 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
   // that omits unlisted fields or normalizes missing values to false.
   assert.equal(projectInfo.id, project, "VERCEL_PROJECT_MISMATCH");
   assert.equal(projectInfo.autoAssignCustomDomains, false, "VERCEL_NATIVE_AUTO_ASSIGN_NOT_VERIFIED");
+  const projectGitSourcePolicyBlocked = auditVercelNativeProductionGitSourcePolicy(projectInfo);
+  // A privileged independent release audit can enforce proof of this
+  // additional Git-webhook block without weakening the default read-only
+  // audit or relying on project metadata omitted by summary connectors.
+  if (env.ORIGIN_REQUIRE_NATIVE_GIT_PRODUCTION_BLOCK === "true") {
+    assert.equal(projectGitSourcePolicyBlocked, true, "VERCEL_NATIVE_GIT_PRODUCTION_BLOCK_UNVERIFIED");
+  }
   for (let index = 0; index < PROTECTED_ORIGIN_ALIASES.length; index += 1) {
     const observed = aliasInfos[index];
     assert.equal(observed.projectId, project, "PRODUCTION_ALIAS_PROJECT_MISMATCH");
@@ -143,6 +178,7 @@ export async function verifyVercelReleaseHold(env = process.env, client = fetch)
     verifiedAliasDeploymentIds: expectedAliasTargets,
     observedSha: sha,
     autoAssignCustomDomains: false,
+    projectGitWebhookProductionBlocked: projectGitSourcePolicyBlocked,
     sameShaProductionProbeVerified: Boolean(probe),
     firstMainPushNegativePathVerified: false,
     independentReviewerApproved: false,
