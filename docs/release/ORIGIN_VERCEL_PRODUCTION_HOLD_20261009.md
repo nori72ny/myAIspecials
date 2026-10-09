@@ -21,6 +21,14 @@
 
 Official Vercel documentation: https://vercel.com/docs/project-configuration/git-configuration and https://vercel.com/docs/deployments/promoting-a-deployment .
 
+## Authenticated same-SHA production staging evidence (2026-10-09)
+
+A new Vercel deployment `dpl_AV9BVPv2kjDcUJxHu6BoW45PGJJh` was deliberately built from **the same already-approved source** `437f4f0a5c66c0d9add7f65e72369f9787931f7a`, with target `production`, and reached READY. The primary alias `origin-personal.vercel.app` still resolved to prior current READY deployment `dpl_EQC4xWGW9hY9SkzkxXuTwxs7uLrP` after the staged build finished. This is real native staging/alias behavior, **not** a first-new-main-push simulation.
+
+The read-only `scripts/verify-vercel-release-hold.mjs` now accepts optional `ORIGIN_STAGED_PROBE_DEPLOYMENT_ID`. A trusted, credential-protected verifier can set it to the staging deployment ID and check project, target, readiness, identical trusted SHA, distinct deployment identity, and unchanged current alias. It fails closed on missing/moved/incorrect evidence and **always** returns `firstMainPushNegativePathVerified:false`. Do not supply Vercel tokens in public PR logs; run only in a restricted approved environment. Current Vercel connector redacts the effective project auto-assign field, so no authenticated effective-setting assertion has been demonstrated via that connector.
+
+**Still blocking main merge:** third-party exact-head APPROVED review, Owner authorization, independently verified project-level native hold and a safe approach to first NEW main commit. The staging probe strengthens evidence but does not waive any blocker.
+
 ## Mandatory first-merge bootstrap caution
 
 Vercel may have to ingest a new `vercel.json` configuration before it becomes effective. A Git merge of this PR **must not be used as an experiment** to discover whether the first push will auto-promote. First establish and verify a **separate Vercel-side production hold** or another independently tested protection preventing domain assignment. The current API connector does not return existing `commandForIgnoringBuildStep` or effective Production Deployment Checks, so these must be inspected by an authorized release reviewer before changing settings. Do not overwrite unknown existing project configuration.
