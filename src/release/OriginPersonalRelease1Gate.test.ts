@@ -174,15 +174,21 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(lighthouseConfig.ci?.assert?.assertions?.["categories:best-practices"]).toEqual(["error", { minScore: 0.9 }]);
   });
 
-  it("reserves automatic Vercel deployments for main and explicit release candidates", () => {
+  it("holds main Git auto-promotion while retaining approved release candidate previews", () => {
     const vercelConfig = JSON.parse(readRepositoryFile("vercel.json")) as {
       git?: { deploymentEnabled?: Record<string, boolean> };
+      github?: { autoAlias?: boolean };
     };
     expect(vercelConfig.git?.deploymentEnabled).toEqual({
       "**": false,
-      main: true,
+      main: false,
       "release-*": true,
     });
+    expect(vercelConfig.github?.autoAlias).toBe(false);
+    const runbook = readRepositoryFile("docs/release/ORIGIN_VERCEL_PRODUCTION_HOLD_20261009.md");
+    expect(runbook).toContain("Owner");
+    expect(runbook).toContain("first-merge");
+    expect(runbook).toContain("do **not** merge");
   });
 
 });
