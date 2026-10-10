@@ -91,6 +91,23 @@ describe("free model live two-probe calibration V1", () => {
       expect(verdict.blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
     },
   );
+  it("accepts documented null upstream cost ONLY for verified non-BYOK $0", () => {
+    const safe = probes();
+    safe[0] = { ...safe[0], upstreamCostUsd: null, usageCostUsd: 0, isByok: false };
+    expect(evaluate(safe).eligibleForIndependentProviderReview).toBe(true);
+
+    const byok = probes();
+    byok[0] = { ...byok[0], upstreamCostUsd: null, usageCostUsd: 0, isByok: true };
+    expect(evaluate(byok).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+
+    const unknown = probes();
+    unknown[0] = { ...unknown[0], upstreamCostUsd: null, usageCostUsd: 0, isByok: undefined };
+    expect(evaluate(unknown).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+
+    const paid = probes();
+    paid[0] = { ...paid[0], upstreamCostUsd: null, usageCostUsd: 0.000001, isByok: false };
+    expect(evaluate(paid).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+  });
   it("rejects fallback, non-ZDR provider and any unbounded max-price", () => {
     const x = probes();
     x[0] = { ...x[0], providerPolicy: { ...policy, zdr: false as true } };
