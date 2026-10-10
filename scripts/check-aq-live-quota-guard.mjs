@@ -5,6 +5,7 @@ const WINDOW_SECONDS = 86_400;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
+const CALIBRATION_WORKFLOW = "aq-free-provider-calibration.yml";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -31,7 +32,7 @@ async function githubJson(url, token, fetchImpl = fetch) {
 }
 
 function reservedArtifact(name, workflow) {
-  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW) {
+  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW || workflow === CALIBRATION_WORKFLOW) {
     return name === "aq-live-quota-reservation";
   }
   if (workflow === LEGACY_WORKFLOW) return name.startsWith("aq-live-research-shard");
@@ -95,7 +96,7 @@ export async function checkLiveQuota({
   fetchImpl = fetch,
 }) {
   const reservations = await Promise.all(
-    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW].map((workflow) =>
+    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW, CALIBRATION_WORKFLOW].map((workflow) =>
       latestReservedAt({
         repository,
         workflow,
