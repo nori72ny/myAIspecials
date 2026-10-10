@@ -10,6 +10,15 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      verification_phase:
+        description: 'prepublish validates main without querying the old live URL; postpublish verifies the promoted live SHA'
+        required: true
+        type: choice
+        default: prepublish
+        options:
+          - prepublish
+          - postpublish
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,6 +51,10 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+    - name: Enforce owner-approved manual production deployment
+      run: |
+        node scripts/verify-manual-production-hold.mjs
+        node --test scripts/verify-manual-production-hold.node-check.mjs
     - name: Install dependencies (Clean Install)
       run: npm ci
     - name: Run production dependency security audit
@@ -132,7 +145,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox]
+        browser: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -147,44 +160,6 @@ jobs:
         env:
           ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
           ORIGIN_ISOLATION_BROWSERS: ${{ matrix.browser }}
-        run: |
-          TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
-          app_pid=$!
-          trap 'kill "$app_pid"' EXIT
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error http://127.0.0.1:4173/api/health >/dev/null; then break; fi
-            if [ "$attempt" -eq 30 ]; then echo "Local release server did not become ready."; exit 1; fi
-            sleep 1
-          done
-          npm run test:artifact-isolation
-
-  # WebKit's apt install on the hosted runner stalls on large Ubuntu mirrors
-  # and can cancel an otherwise green exact-SHA release CI. The official image
-  # carries the matching, preinstalled browser and system libraries.
-  artifact-preview-isolation-webkit:
-    name: Artifact isolation (webkit)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
-      options: --user 1001
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Verify pinned WebKit/browser version
-        run: |
-          node -e "const p=require('./node_modules/playwright/package.json');if(p.version!=='1.61.1')process.exit(2)"
-          test -d /ms-playwright
-      - run: npm run build
-      - name: Exercise isolated preview boundary
-        env:
-          ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
-          ORIGIN_ISOLATION_BROWSERS: webkit
         run: |
           TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
           app_pid=$!
@@ -228,7 +203,9 @@ jobs:
 
   production-smoke:
     name: Verify main SHA in Vercel production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Auto-deploy from main is forbidden: run only after a separately approved
+    # manual production promotion, using workflow_dispatch on exact main.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.verification_phase == 'postpublish'
     needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
