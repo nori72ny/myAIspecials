@@ -27,7 +27,7 @@ type OpenRouterStreamUsage = {
   completion_tokens?: number;
   total_tokens?: number;
   cost?: unknown;
-  cost_details?: { upstream_inference_cost?: unknown };
+  cost_details?: { upstream_inference_cost?: unknown; server_tool_cost?: unknown };
   is_byok?: unknown;
 };
 
@@ -46,8 +46,11 @@ type OpenRouterStreamChunk = {
 };
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const MAX_STREAM_TIMEOUT_MS = 52_000;
+// Protect server memory while buffering untrusted output until final cost proof.
+const MAX_UNVERIFIED_STREAM_CHARS = 200_000;
+// Bound untrusted SSE frames even when no newline arrives (or a single chunk is huge).
+const MAX_SSE_FRAME_CHARS = 1_000_000;
 
 const streamedText = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -59,8 +62,7 @@ const streamedText = (content: unknown): string => {
 };
 
 const allowedServedModel = (value: unknown): value is string =>
-  typeof value === "string"
-  && (value === ORIGIN_OPENROUTER_FREE_MODEL || value === OPENROUTER_CANONICAL_SERVED_MODEL);
+  typeof value === "string" && value === ORIGIN_OPENROUTER_FREE_MODEL;
 
 function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED", message: string): never {
   throw new OriginProviderError(code, message, 502, false);
@@ -68,9 +70,19 @@ function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERI
 
 function zeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
-  if (numeric !== 0) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
+  // Decimal zero and numeric zero only. Coercing "1e-9999" or whitespace
+  // through Number() would silently pass a nonzero or malformed price.
+  if (typeof value !== "number" && typeof value !== "string") {
+    policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
+  }
+  if (typeof value === "string") {
+    if (!/^(?:0|0\.0+)$/.test(value)) {
+      policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
+    }
+    return;
+  }
+  if (!Number.isFinite(value) || value < 0) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
+  if (value !== 0) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
 }
 
 function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
@@ -81,7 +93,12 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
   zeroIfPresent(chunk.pricing?.prompt, "pricing.prompt");
   zeroIfPresent(chunk.pricing?.completion, "pricing.completion");
   zeroIfPresent(chunk.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (chunk.usage?.is_byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  zeroIfPresent(chunk.usage?.cost_details?.server_tool_cost, "usage.cost_details.server_tool_cost");
+  const byok = chunk.usage?.is_byok;
+  if (byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  if (chunk.usage && Object.prototype.hasOwnProperty.call(chunk.usage, "is_byok") && byok !== false) {
+    policyFailure("PROVIDER_COST_UNVERIFIED", "BYOK課金経路の証跡を検証できません。");
+  }
 }
 
 function providerErrorType(errorType: unknown): never {
@@ -194,6 +211,8 @@ async function streamOpenRouter(
   const decoder = new TextDecoder();
   let buffer = "";
   let output = "";
+  // SSE tokens are untrusted until the final billed usage + model are verified.
+  const pendingDeltas: string[] = [];
   let servedModel = "";
   let promptTokens = 0;
   let completionTokens = 0;
@@ -232,8 +251,11 @@ async function streamOpenRouter(
       if (!servedModel) {
         throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
       }
+      if (output.length + delta.length > MAX_UNVERIFIED_STREAM_CHARS) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIからの応答サイズを検証できません。", 502, false);
+      }
       output += delta;
-      handlers.onDelta(delta);
+      pendingDeltas.push(delta);
     }
     if (typeof chunk.choices?.[0]?.finish_reason === "string") finishReason = chunk.choices[0].finish_reason;
     if (chunk.usage) {
@@ -253,12 +275,27 @@ async function streamOpenRouter(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) processLine(line);
+      // A single network chunk may contain many valid SSE events. Bound each
+      // individual frame, not the aggregate bytes of the network chunk.
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        if (newline > MAX_SSE_FRAME_CHARS) {
+          throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+        }
+        processLine(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        if (doneSeen) break;
+        newline = buffer.indexOf("\n");
+      }
+      if (buffer.length > MAX_SSE_FRAME_CHARS) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+      }
       if (doneSeen) break;
     }
     buffer += decoder.decode();
+    if (buffer.length > MAX_SSE_FRAME_CHARS) {
+      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+    }
     if (buffer.trim()) processLine(buffer);
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
@@ -296,6 +333,9 @@ async function streamOpenRouter(
     usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
+  // Release no content before [DONE], verified terminal usage.cost===0,
+  // exact served :free identity, full completion and all metadata checks.
+  for (const delta of pendingDeltas) handlers.onDelta(delta);
   return result;
 }
 

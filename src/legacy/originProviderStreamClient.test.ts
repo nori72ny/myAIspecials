@@ -53,7 +53,7 @@ describe("executeOriginProviderStream", () => {
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }).slice(0, 37),
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }).slice(37),
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "IGIN" }, finish_reason: null }] }),
-        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0 } }),
+        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
         "data: [DONE]\n\n",
       ]);
     });
@@ -69,7 +69,7 @@ describe("executeOriginProviderStream", () => {
     }));
   });
 
-  it("fails closed when the terminal usage cost is non-zero, after never retrying", async () => {
+  it("never reveals upstream deltas when the terminal usage cost is non-zero", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: null }] }),
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0.000001 } }),
@@ -78,8 +78,83 @@ describe("executeOriginProviderStream", () => {
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
-    expect(deltas).toEqual(["partial"]);
+    expect(deltas).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { is_byok: true, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { is_byok: "false", expectedCode: "PROVIDER_COST_UNVERIFIED" },
+    { is_byok: 0, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+    { is_byok: null, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+  ])("never forwards streamed output with invalid explicit BYOK evidence: %j", async ({ is_byok, expectedCode }) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "private-buffer" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, is_byok } }),
+      "data: [DONE]\\n\\n".replace(/\\n/g, "\n"),
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: expectedCode, retryable: false });
+    expect(deltas).toEqual([]);
+  });
+
+  it("does not release text when terminal usage proof is absent", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "unverified" }, finish_reason: "stop" }] }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE" });
+    expect(deltas).toEqual([]);
+  });
+
+  it("does not release text if terminal usage.cost is absent", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "unverified" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { prompt_tokens: 3, completion_tokens: 2 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_COST_UNVERIFIED" });
+    expect(deltas).toEqual([]);
+  });
+
+  it("discards buffered text when any later chunk switches to a paid model", async () => {
+    const paidAlias = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "do not show" }, finish_reason: null }] }),
+      event({ model: paidAlias, choices: [{ delta: { content: "or this" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(deltas).toEqual([]);
+  });
+
+  it("does not emit bounded-buffer overflow beyond a maximum of 200000 chars", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "a".repeat(200001) }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
+    expect(deltas).toEqual([]);
   });
 
   it("rejects a substituted served model before forwarding its content", async () => {
@@ -90,6 +165,112 @@ describe("executeOriginProviderStream", () => {
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never forwards the canonical paid alias even when the provider reports zero cost", async () => {
+    const paidCanonicalId = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: paidCanonicalId, choices: [{ delta: { content: "hidden-paid-content" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: text => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { pricing: { prompt: 1e-18, completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: "1e-9999", completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: " ", completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: false, completion: "0" }, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+  ])("rejects coerced or tiny positive streamed prices before forwarding output: %j", async ({ expectedCode, ...metadata }) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, ...metadata, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: expectedCode, retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts many small valid SSE events delivered in one large network chunk", async () => {
+    const events = Array.from({ length: 6_000 }, () =>
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "x" }, finish_reason: null }] }),
+    );
+    const fetchMock = vi.fn(async () => streamingResponse([
+      events.join(""),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    );
+    expect(result.text).toHaveLength(6_000);
+    expect(deltas.join("")).toHaveLength(6_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { charge: 0.000000000000000001, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { charge: "0.000000000000000001", expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { charge: "0.000000", expectedCode: null },
+    { charge: 0, expectedCode: null },
+  ])("verifies server-tool billing evidence in streamed usage: %j", async ({ charge, expectedCode }) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "verified" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, cost_details: { server_tool_cost: charge } } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const execution = executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    );
+    if (expectedCode) {
+      await expect(execution).rejects.toMatchObject({ code: expectedCode, retryable: false });
+      expect(deltas).toEqual([]);
+    } else {
+      await expect(execution).resolves.toMatchObject({ text: "verified", actualCostUsd: 0 });
+      expect(deltas).toEqual(["verified"]);
+    }
+  });
+
+  it("rejects oversized newline-free SSE frames before parsing or emitting output", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse(["data: " + "x".repeat(1_000_001)]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects hidden server-tool charges without emitting streamed text", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, cost_details: { server_tool_cost: 0.000001 } } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
     expect(deltas).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

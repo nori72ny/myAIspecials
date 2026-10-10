@@ -1,0 +1,147 @@
+name: AQ trusted free-provider calibration
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: Exact explicitly free model to test with two public prompts (no Production model switch)
+        required: true
+        type: choice
+        options:
+          - google/gemma-4-31b-it:free
+          - inclusionai/ling-3.0-flash-fin:free
+          - nvidia/nemotron-3-super-120b-a12b:free
+          - nvidia/nemotron-3-ultra-550b-a55b:free
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aq-free-provider-calibration.yml'
+      - 'scripts/check-aq-live-quota-guard.mjs'
+      - 'scripts/calibrate-origin-free-model-v1.ts'
+      - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
+      - 'src/lib/orchestration/OriginFreeModelLiveCalibrationV1.ts'
+  schedule:
+    # Weekly rather than daily: a successful two-probe reservation must not
+    # starve the frozen 40-case benchmark's shared 24-hour provider quota.
+    - cron: '47 0 * * 1'
+
+permissions:
+  contents: read
+  actions: read
+
+# Same lock as final-AQ and unified-lane provider tests. Do not cancel a
+# running provider evaluation, replace credentials, or promote anything.
+concurrency:
+  group: origin-aq-live-unified-lane-shard
+  cancel-in-progress: false
+
+jobs:
+  calibrate-public-only:
+    # Absolutely no secrets on pull_request, untrusted commits, or previews.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ORIGIN_FREE_MODEL_CANDIDATE: ${{ inputs.model_id || 'google/gemma-4-31b-it:free' }}
+    steps:
+      - name: Checkout exact protected main SHA only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies with lifecycle scripts disabled
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Confirm exact approved candidate and credential presence
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          case "$ORIGIN_FREE_MODEL_CANDIDATE" in
+            google/gemma-4-31b-it:free|inclusionai/ling-3.0-flash-fin:free|nvidia/nemotron-3-super-120b-a12b:free|nvidia/nemotron-3-ultra-550b-a55b:free) ;;
+            *) echo 'AQ_CALIBRATION_MODEL_NOT_APPROVED' >&2; exit 3 ;;
+          esac
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo 'AQ_CALIBRATION_TRUSTED_CREDENTIAL_NOT_CONFIGURED' >&2
+            exit 4
+          fi
+          echo 'Confirmed trusted main and selected candidate; no credential emitted.'
+      - name: Check globally shared 24-hour provider quota
+        id: quota
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
+        run: node scripts/check-aq-live-quota-guard.mjs
+      - name: Prepare sanitized quota reservation
+        if: steps.quota.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p aq-calibration-quota
+          node <<'NODE'
+          const fs = require('node:fs');
+          const reservation = {
+            schemaVersion: 'origin.aq-live-quota-reservation.v1',
+            runId: process.env.GITHUB_RUN_ID,
+            candidateSha: process.env.GITHUB_SHA,
+            purpose: 'public-free-model-calibration',
+            maxProviderRequests: 2,
+            createdAt: new Date().toISOString(),
+          };
+          fs.writeFileSync('aq-calibration-quota/reservation.json', JSON.stringify(reservation) + '\n', { mode: 0o600 });
+          NODE
+      - name: Reserve quota BEFORE any model inference
+        if: steps.quota.outputs.allowed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aq-live-quota-reservation
+          path: aq-calibration-quota/reservation.json
+          retention-days: 2
+          if-no-files-found: error
+      - name: Run exactly two zero-price ZDR public provider probes
+        id: provider
+        if: steps.quota.outputs.allowed == 'true'
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p aq-free-calibration
+          # The operator-only CLI never prints any secret or full model response.
+          npx tsx scripts/calibrate-origin-free-model-v1.ts | tee aq-free-calibration/report.jsonl
+      - name: Preserve sanitized public calibration report
+        if: steps.provider.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aq-free-calibration-${{ github.sha }}-${{ github.run_id }}
+          path: aq-free-calibration/report.jsonl
+          retention-days: 30
+          if-no-files-found: error
+      - name: Fail closed if no two genuine model answers were verified
+        if: always()
+        shell: bash
+        env:
+          PROVIDER_STEP_OUTCOME: ${{ steps.provider.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PROVIDER_STEP_OUTCOME" != 'success' ]; then
+            echo 'AQ_FREE_CALIBRATION_NOT_MEASURED: provider execution did not succeed.' >&2
+            exit 2
+          fi
+      - name: Record release-blocking scope
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Trusted free-provider public calibration'
+            echo '- Zero-price + ZDR + no-fallback + data-collection-deny request policy is mandatory.'
+            echo '- Even a successful two-case probe is **not** independent billing/ZDR approval.'
+            echo '- Official Production-vs-candidate AQ-40 remains NOT_MEASURED until separate actual 40-pair execution.'
+            echo '- No Production deployment or alias mutation is authorized by this workflow.'
+            echo '- 24-hour quota guard may skip this run when other AQ live work has reserved provider capacity.'
+          } >> "$GITHUB_STEP_SUMMARY"
