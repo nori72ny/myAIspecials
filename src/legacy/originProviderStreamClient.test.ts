@@ -186,6 +186,21 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects hidden server-tool charges without emitting streamed text", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, cost_details: { server_tool_cost: 0.000001 } } }),
+      "data: [DONE]\\n\\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects content before forwarding when served-model evidence is absent", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
