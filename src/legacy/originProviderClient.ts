@@ -99,7 +99,11 @@ function assertBillingMetadata(payload: unknown): void {
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
   nonzeroIfPresent(data.usage?.cost_details?.server_tool_cost, "usage.cost_details.server_tool_cost");
-  if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  const byok = data.usage?.is_byok;
+  if (byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  if (data.usage && Object.prototype.hasOwnProperty.call(data.usage, "is_byok") && byok !== false) {
+    fail("BYOK課金経路の証跡を検証できません。", "PROVIDER_COST_UNVERIFIED");
+  }
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
