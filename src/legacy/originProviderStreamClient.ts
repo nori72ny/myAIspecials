@@ -46,7 +46,6 @@ type OpenRouterStreamChunk = {
 };
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const MAX_STREAM_TIMEOUT_MS = 52_000;
 
 const streamedText = (content: unknown): string => {
@@ -59,8 +58,7 @@ const streamedText = (content: unknown): string => {
 };
 
 const allowedServedModel = (value: unknown): value is string =>
-  typeof value === "string"
-  && (value === ORIGIN_OPENROUTER_FREE_MODEL || value === OPENROUTER_CANONICAL_SERVED_MODEL);
+  typeof value === "string" && value === ORIGIN_OPENROUTER_FREE_MODEL;
 
 function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED", message: string): never {
   throw new OriginProviderError(code, message, 502, false);
