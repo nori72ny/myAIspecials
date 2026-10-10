@@ -61,7 +61,7 @@ export function evaluateOriginFreeModelCalibrationV1(input: {
       }
       if (!probe || !exactZero(probe.usageCostUsd)
         || (probe.upstreamCostUsd !== undefined && !exactZero(probe.upstreamCostUsd))
-        || probe.isByok === true || probe.isByok === "true") {
+        || probe.isByok !== false) {
         blockers.push("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
       }
       if (!probe
