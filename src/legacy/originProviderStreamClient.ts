@@ -271,12 +271,21 @@ async function streamOpenRouter(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // A single network chunk may contain many valid SSE events. Bound each
+      // individual frame, not the aggregate bytes of the network chunk.
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        if (newline > MAX_SSE_FRAME_CHARS) {
+          throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+        }
+        processLine(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        if (doneSeen) break;
+        newline = buffer.indexOf("\n");
+      }
       if (buffer.length > MAX_SSE_FRAME_CHARS) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
       }
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) processLine(line);
       if (doneSeen) break;
     }
     buffer += decoder.decode();
