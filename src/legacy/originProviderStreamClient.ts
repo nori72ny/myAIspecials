@@ -49,6 +49,8 @@ const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_STREAM_TIMEOUT_MS = 52_000;
 // Protect server memory while buffering untrusted output until final cost proof.
 const MAX_UNVERIFIED_STREAM_CHARS = 200_000;
+// Bound untrusted SSE frames even when no newline arrives (or a single chunk is huge).
+const MAX_SSE_FRAME_CHARS = 1_000_000;
 
 const streamedText = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -269,6 +271,9 @@ async function streamOpenRouter(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > MAX_SSE_FRAME_CHARS) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+      }
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) processLine(line);
