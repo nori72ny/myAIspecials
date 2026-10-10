@@ -17,6 +17,7 @@ function probes(): OriginFreeCalibrationProbeV1[] {
       answer: "ORIGIN_FREE_CALIBRATION_OK",
       usageCostUsd: "0",
       upstreamCostUsd: 0,
+      serverToolCostUsd: 0,
       isByok: false,
       providerPolicy: policy,
     },
@@ -27,6 +28,7 @@ function probes(): OriginFreeCalibrationProbeV1[] {
       answer: "391",
       usageCostUsd: 0,
       upstreamCostUsd: undefined,
+      serverToolCostUsd: undefined,
       isByok: false,
       providerPolicy: policy,
     },
@@ -107,6 +109,22 @@ describe("free model live two-probe calibration V1", () => {
     const paid = probes();
     paid[0] = { ...paid[0], upstreamCostUsd: null, usageCostUsd: 0.000001, isByok: false };
     expect(evaluate(paid).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+  });
+  it("rejects any reported server-tool charge, even if model inference says $0", () => {
+    const charged = probes();
+    charged[0] = {
+      ...charged[0], usageCostUsd: 0, upstreamCostUsd: null, serverToolCostUsd: 0.000001,
+      isByok: false,
+    };
+    expect(evaluate(charged).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+
+    const spoofed = probes();
+    spoofed[1] = { ...spoofed[1], serverToolCostUsd: "free" };
+    expect(evaluate(spoofed).eligibleForIndependentProviderReview).toBe(false);
+
+    const clean = probes();
+    clean[0] = { ...clean[0], serverToolCostUsd: null };
+    expect(evaluate(clean).eligibleForIndependentProviderReview).toBe(true);
   });
   it("rejects fallback, non-ZDR provider and any unbounded max-price", () => {
     const x = probes();
