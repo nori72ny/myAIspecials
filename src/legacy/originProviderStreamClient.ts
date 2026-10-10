@@ -94,7 +94,11 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
   zeroIfPresent(chunk.pricing?.completion, "pricing.completion");
   zeroIfPresent(chunk.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
   zeroIfPresent(chunk.usage?.cost_details?.server_tool_cost, "usage.cost_details.server_tool_cost");
-  if (chunk.usage?.is_byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  const byok = chunk.usage?.is_byok;
+  if (byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  if (chunk.usage && Object.prototype.hasOwnProperty.call(chunk.usage, "is_byok") && byok !== false) {
+    policyFailure("PROVIDER_COST_UNVERIFIED", "BYOK課金経路の証跡を検証できません。");
+  }
 }
 
 function providerErrorType(errorType: unknown): never {
