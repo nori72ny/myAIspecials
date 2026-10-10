@@ -27,7 +27,7 @@ type OpenRouterStreamUsage = {
   completion_tokens?: number;
   total_tokens?: number;
   cost?: unknown;
-  cost_details?: { upstream_inference_cost?: unknown };
+  cost_details?: { upstream_inference_cost?: unknown; server_tool_cost?: unknown };
   is_byok?: unknown;
 };
 
@@ -91,6 +91,7 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
   zeroIfPresent(chunk.pricing?.prompt, "pricing.prompt");
   zeroIfPresent(chunk.pricing?.completion, "pricing.completion");
   zeroIfPresent(chunk.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
+  zeroIfPresent(chunk.usage?.cost_details?.server_tool_cost, "usage.cost_details.server_tool_cost");
   if (chunk.usage?.is_byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
 }
 
