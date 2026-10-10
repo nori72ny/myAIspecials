@@ -47,6 +47,8 @@ type OpenRouterStreamChunk = {
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_STREAM_TIMEOUT_MS = 52_000;
+// Protect server memory while buffering untrusted output until final cost proof.
+const MAX_UNVERIFIED_STREAM_CHARS = 200_000;
 
 const streamedText = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -202,6 +204,8 @@ async function streamOpenRouter(
   const decoder = new TextDecoder();
   let buffer = "";
   let output = "";
+  // SSE tokens are untrusted until the final billed usage + model are verified.
+  const pendingDeltas: string[] = [];
   let servedModel = "";
   let promptTokens = 0;
   let completionTokens = 0;
@@ -240,8 +244,11 @@ async function streamOpenRouter(
       if (!servedModel) {
         throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
       }
+      if (output.length + delta.length > MAX_UNVERIFIED_STREAM_CHARS) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIからの応答サイズを検証できません。", 502, false);
+      }
       output += delta;
-      handlers.onDelta(delta);
+      pendingDeltas.push(delta);
     }
     if (typeof chunk.choices?.[0]?.finish_reason === "string") finishReason = chunk.choices[0].finish_reason;
     if (chunk.usage) {
@@ -304,6 +311,9 @@ async function streamOpenRouter(
     usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
+  // Release no content before [DONE], verified terminal usage.cost===0,
+  // exact served :free identity, full completion and all metadata checks.
+  for (const delta of pendingDeltas) handlers.onDelta(delta);
   return result;
 }
 
