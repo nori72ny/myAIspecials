@@ -186,6 +186,25 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts many small valid SSE events delivered in one large network chunk", async () => {
+    const events = Array.from({ length: 6_000 }, () =>
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "x" }, finish_reason: null }] }),
+    );
+    const fetchMock = vi.fn(async () => streamingResponse([
+      events.join(""),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      "data: [DONE]\\n\\n",
+    ]));
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    );
+    expect(result.text).toHaveLength(6_000);
+    expect(deltas.join("")).toHaveLength(6_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects oversized newline-free SSE frames before parsing or emitting output", async () => {
     const fetchMock = vi.fn(async () => streamingResponse(["data: " + "x".repeat(1_000_001)]));
     const deltas: string[] = [];
