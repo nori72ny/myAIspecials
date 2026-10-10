@@ -72,23 +72,36 @@ const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is st
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  // An exact-$0 contract must not turn a tiny real charge into a rounded zero.
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function nonzeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  if (typeof value === "string") {
+    const decimal = value.trim();
+    // Validate lexical zero; numeric conversion alone silently underflows "1e-999".
+    if (/^0(?:\.0+)?(?:[eE][+-]?[0-9]{1,3})?$/.test(decimal)) return;
+    // Other well-formed nonzero prices are hard policy violations.
+    if (/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]{1,3})?$/.test(decimal)) {
+      fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+    }
+    // Reject coerced values (empty, hexadecimal, booleans, objects).
+    fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  }
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
   const data = payload as { billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; usage?: { cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown } };
   if (data.billing_tier !== undefined && String(data.billing_tier).toLowerCase() !== "free") fail("有料の課金ティアが検出されました。", "PROVIDER_POLICY_VIOLATION");
-  if (data.is_free === false) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
+  if (data.is_free !== undefined && data.is_free !== true) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
   nonzeroIfPresent(data.pricing?.prompt, "pricing.prompt");
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  if (data.usage?.is_byok !== undefined && data.usage.is_byok !== false) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
