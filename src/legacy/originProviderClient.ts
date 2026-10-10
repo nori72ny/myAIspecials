@@ -92,12 +92,13 @@ function nonzeroIfPresent(value: unknown, field: string): void {
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
-  const data = payload as { billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; usage?: { cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown } };
+  const data = payload as { billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; usage?: { cost_details?: { upstream_inference_cost?: unknown; server_tool_cost?: unknown }; is_byok?: unknown } };
   if (data.billing_tier !== undefined && String(data.billing_tier).toLowerCase() !== "free") fail("有料の課金ティアが検出されました。", "PROVIDER_POLICY_VIOLATION");
   if (data.is_free === false) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
   nonzeroIfPresent(data.pricing?.prompt, "pricing.prompt");
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
+  nonzeroIfPresent(data.usage?.cost_details?.server_tool_cost, "usage.cost_details.server_tool_cost");
   if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
@@ -218,7 +219,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
       model?: unknown;
       choices?: Array<{ message?: OpenRouterMessage; finish_reason?: unknown; error?: { metadata?: { error_type?: unknown } } }>;
       error?: { metadata?: { error_type?: unknown } };
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number; cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown };
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number; cost_details?: { upstream_inference_cost?: unknown; server_tool_cost?: unknown }; is_byok?: unknown };
       billing_tier?: unknown;
       is_free?: unknown;
       pricing?: { prompt?: unknown; completion?: unknown };
