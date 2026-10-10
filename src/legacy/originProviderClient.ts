@@ -94,11 +94,11 @@ function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
   const data = payload as { billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; usage?: { cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown } };
   if (data.billing_tier !== undefined && String(data.billing_tier).toLowerCase() !== "free") fail("有料の課金ティアが検出されました。", "PROVIDER_POLICY_VIOLATION");
-  if (data.is_free === false) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
+  if (data.is_free !== undefined && data.is_free !== true) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
   nonzeroIfPresent(data.pricing?.prompt, "pricing.prompt");
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  if (data.usage?.is_byok !== undefined && data.usage.is_byok !== false) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");

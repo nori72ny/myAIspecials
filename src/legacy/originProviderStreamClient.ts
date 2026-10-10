@@ -87,11 +87,11 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
   if (chunk.billing_tier !== undefined && String(chunk.billing_tier).toLowerCase() !== "free") {
     policyFailure("PROVIDER_POLICY_VIOLATION", "有料の課金ティアが検出されました。");
   }
-  if (chunk.is_free === false) policyFailure("PROVIDER_POLICY_VIOLATION", "無料モデルではない証跡が検出されました。");
+  if (chunk.is_free !== undefined && chunk.is_free !== true) policyFailure("PROVIDER_POLICY_VIOLATION", "無料モデルではない証跡が検出されました。");
   zeroIfPresent(chunk.pricing?.prompt, "pricing.prompt");
   zeroIfPresent(chunk.pricing?.completion, "pricing.completion");
   zeroIfPresent(chunk.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (chunk.usage?.is_byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  if (chunk.usage?.is_byok !== undefined && chunk.usage.is_byok !== false) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
 }
 
 function providerErrorType(errorType: unknown): never {
