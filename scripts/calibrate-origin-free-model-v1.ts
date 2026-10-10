@@ -90,6 +90,7 @@ async function runProbe(
   const expected = probeId === "identity" ? "ORIGIN_FREE_CALIBRATION_OK" : "391";
   const actualCost = response.usage?.cost;
   const upstreamCost = response.usage?.cost_details?.upstream_inference_cost;
+  const serverToolCost = response.usage?.cost_details?.server_tool_cost;
   const byok = response.usage?.is_byok;
   const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\.0+)$/.test(v));
   // Fail closed BEFORE consuming the next provider request.
@@ -101,6 +102,7 @@ async function runProbe(
   // OpenRouter reports null upstream cost for ordinary non-BYOK inference.
   // Never accept that as $0 proof unless usage.is_byok is explicitly false.
   if (!zero(actualCost) || (upstreamCost != null && !zero(upstreamCost))
+      || (serverToolCost != null && !zero(serverToolCost))
       || byok !== false) {
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
@@ -114,6 +116,7 @@ async function runProbe(
     answer: typeof answer === "string" ? answer.trim() : "",
     usageCostUsd: response.usage?.cost,
     upstreamCostUsd: response.usage?.cost_details?.upstream_inference_cost,
+    serverToolCostUsd: response.usage?.cost_details?.server_tool_cost,
     isByok: response.usage?.is_byok,
     providerPolicy: POLICY,
   };
