@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
-      BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+      # Proposed new frozen comparison round: previous SHA is preserved in docs;
+      # independent approval and all three live Production domain checks required.
+      BASELINE_SHA: 437f4f0a5c66c0d9add7f65e72369f9787931f7a
       CANDIDATE_SHA: ${{ github.sha }}
       EXPECTED_SHARD_COUNT: '40'
       ORIGIN_AQ_SHARD_MODE: case-isolated
