@@ -96,8 +96,10 @@ async function runProbe(
   if (served !== modelId && served !== modelId.slice(0, -5)) {
     throw Error("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
   }
+  // Missing BYOK evidence cannot establish the strict no-BYOK condition.
+  // Reject it before the next inference call; self-reported 0 alone is insufficient.
   if (!zero(actualCost) || (upstreamCost !== undefined && !zero(upstreamCost))
-      || byok === true || byok === "true") {
+      || byok !== false) {
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
   if (answerText !== expected || response.choices?.[0]?.error || response.error) {
