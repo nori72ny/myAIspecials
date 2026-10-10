@@ -75,6 +75,15 @@ describe("free model live two-probe calibration V1", () => {
     y[1] = { ...y[1], isByok: true };
     expect(evaluate(y).blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
   });
+  it.each([undefined, null, "false", "true", true, 0, 1])(
+    "rejects missing or nonboolean BYOK evidence: %s", status => {
+      const probe = probes();
+      probe[0] = { ...probe[0], isByok: status };
+      const verdict = evaluate(probe);
+      expect(verdict.eligibleForIndependentProviderReview).toBe(false);
+      expect(verdict.blockers).toContain("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
+    },
+  );
   it("rejects fallback, non-ZDR provider and any unbounded max-price", () => {
     const x = probes();
     x[0] = { ...x[0], providerPolicy: { ...policy, zdr: false as true } };
