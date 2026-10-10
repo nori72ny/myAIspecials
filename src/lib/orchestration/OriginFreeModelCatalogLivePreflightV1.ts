@@ -118,3 +118,63 @@ export function auditOriginLiveFreeModelCatalogV1(
     availableFreeZdrToolModels: Object.freeze(availableFreeZdrToolModels),
   });
 }
+
+
+/**
+ * Authenticated read-only endpoint attestation. OpenRouter's /endpoints/zdr
+ * is a list of ZDR-qualified endpoint records, not a model-level guess.
+ * This is a prerequisite to *asking* a live model, not independent
+ * confirmation of actual routing, billing or retention on a served request.
+ */
+export function auditOriginLiveFreeZdrEndpointsV1(input: {
+  readonly modelId: string;
+  readonly endpoints: OriginFreeCatalogPayloadV1;
+}): {
+  readonly schemaVersion: "origin.live-free-zdr-endpoints.v1";
+  readonly modelId: string;
+  readonly eligibleForPublicCalibration: boolean;
+  readonly qualifyingEndpointCount: number;
+  readonly realInferenceVerified: false;
+  readonly independentBillingVerified: false;
+  readonly productionPromotionAllowed: false;
+  readonly blockers: readonly string[];
+} {
+  const modelId = typeof input?.modelId === "string" ? input.modelId : "";
+  const raw = input?.endpoints?.data;
+  const invalid = !Array.isArray(raw) || raw.length > 4096
+    || !raw.every((v: unknown) => v && typeof v === "object" && !Array.isArray(v));
+  const blockers: string[] = [];
+  if (!MODEL.test(modelId)) blockers.push("AQ_FREE_ZDR_ENDPOINT_MODEL_INVALID");
+  if (invalid) blockers.push("AQ_FREE_ZDR_ENDPOINT_PAYLOAD_INVALID");
+  let qualifyingEndpointCount = 0;
+  if (!invalid && MODEL.test(modelId)) {
+    for (const entry of raw as Record<string, unknown>[]) {
+      if (entry.model_id !== modelId) continue;
+      const prices = entry.pricing;
+      if (!prices || typeof prices !== "object" || Array.isArray(prices)) continue;
+      const pricing = prices as Record<string, unknown>;
+      // Refuse missing price fields *or* any extra nonzero/unknown category,
+      // including cache and per-request charges hidden by model-level listings.
+      if (!isExactZero(pricing.prompt) || !isExactZero(pricing.completion)
+        || !isExactZero(pricing.request)
+        || !Object.values(pricing).every(isExactZero)) continue;
+      if (entry.status !== 0
+        || typeof entry.provider_name !== "string"
+        || !entry.provider_name.trim()
+        || !Array.isArray(entry.supported_parameters)
+        || !entry.supported_parameters.includes("tools")) continue;
+      qualifyingEndpointCount += 1;
+    }
+  }
+  if (!qualifyingEndpointCount) blockers.push("AQ_FREE_ZDR_ENDPOINT_EXACT_ZERO_NOT_VERIFIED");
+  return Object.freeze({
+    schemaVersion: "origin.live-free-zdr-endpoints.v1",
+    modelId,
+    eligibleForPublicCalibration: blockers.length === 0,
+    qualifyingEndpointCount,
+    realInferenceVerified: false,
+    independentBillingVerified: false,
+    productionPromotionAllowed: false,
+    blockers: Object.freeze(blockers),
+  });
+}

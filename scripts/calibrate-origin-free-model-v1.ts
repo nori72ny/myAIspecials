@@ -6,7 +6,7 @@
  * injected OPENROUTER_API_KEY. Never logs credentials or full model replies.
  * Passing is calibration evidence only: NOT official AQ-40 or release approval.
  */
-import { auditOriginLiveFreeModelCatalogV1 } from "../src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.js";
+import { auditOriginLiveFreeModelCatalogV1, auditOriginLiveFreeZdrEndpointsV1 } from "../src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.js";
 import {
   evaluateOriginFreeModelCalibrationV1,
   type OriginFreeCalibrationProbeV1,
@@ -21,7 +21,7 @@ function required(name: string): string {
   if (!v) throw Error("AQ_FREE_CALIBRATION_REQUIRED_" + name + "_MISSING");
   return v;
 }
-async function fixedEndpointJson(path: string, init: RequestInit): Promise<Record<string, any>> {
+async function fixedEndpointJson(path: string, init: RequestInit, maxBytes = MAX_BODY): Promise<Record<string, any>> {
   // All caller paths are fixed to OpenRouter's API; never fetch candidate-
   // specified URLs or follow redirects to a different service.
   const response = await fetch(API + path, {
@@ -31,7 +31,7 @@ async function fixedEndpointJson(path: string, init: RequestInit): Promise<Recor
   });
   if (!response.ok) throw Error("AQ_FREE_CALIBRATION_UPSTREAM_" + response.status);
   const declared = Number(response.headers.get("content-length") ?? "0");
-  if (!Number.isFinite(declared) || declared > MAX_BODY) throw Error("AQ_FREE_CALIBRATION_RESPONSE_TOO_LARGE");
+  if (!Number.isFinite(declared) || declared > maxBytes) throw Error("AQ_FREE_CALIBRATION_RESPONSE_TOO_LARGE");
   const reader = response.body?.getReader();
   if (!reader) throw Error("AQ_FREE_CALIBRATION_RESPONSE_INVALID");
   const chunks: Uint8Array[] = [];
@@ -41,7 +41,7 @@ async function fixedEndpointJson(path: string, init: RequestInit): Promise<Recor
       const chunk = await reader.read();
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_BODY) throw Error("AQ_FREE_CALIBRATION_RESPONSE_TOO_LARGE");
+      if (bytes > maxBytes) throw Error("AQ_FREE_CALIBRATION_RESPONSE_TOO_LARGE");
       chunks.push(chunk.value);
     }
   } finally {
@@ -90,6 +90,7 @@ async function runProbe(
   const expected = probeId === "identity" ? "ORIGIN_FREE_CALIBRATION_OK" : "391";
   const actualCost = response.usage?.cost;
   const upstreamCost = response.usage?.cost_details?.upstream_inference_cost;
+  const serverToolCost = response.usage?.cost_details?.server_tool_cost;
   const byok = response.usage?.is_byok;
   const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\.0+)$/.test(v));
   // Fail closed BEFORE consuming the next provider request.
@@ -101,6 +102,7 @@ async function runProbe(
   // OpenRouter reports null upstream cost for ordinary non-BYOK inference.
   // Never accept that as $0 proof unless usage.is_byok is explicitly false.
   if (!zero(actualCost) || (upstreamCost != null && !zero(upstreamCost))
+      || (serverToolCost != null && !zero(serverToolCost))
       || byok !== false) {
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
@@ -114,6 +116,7 @@ async function runProbe(
     answer: typeof answer === "string" ? answer.trim() : "",
     usageCostUsd: response.usage?.cost,
     upstreamCostUsd: response.usage?.cost_details?.upstream_inference_cost,
+    serverToolCostUsd: response.usage?.cost_details?.server_tool_cost,
     isByok: response.usage?.is_byok,
     providerPolicy: POLICY,
   };
@@ -141,6 +144,23 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
+  // The public models catalog proves only that *some* ZDR variant is
+  // listed. The authenticated endpoint list additionally exposes specific
+  // ZDR endpoints and all endpoint-level price categories. Fail closed
+  // before inference when any of the required price/status fields is absent.
+  const endpoints = await fixedEndpointJson("/endpoints/zdr", {
+    method: "GET",
+    headers: { Authorization: "Bearer " + key, Accept: "application/json" },
+  }, 2 * 1024 * 1024);
+  const endpointsGate = auditOriginLiveFreeZdrEndpointsV1({ modelId, endpoints });
+  if (!endpointsGate.eligibleForPublicCalibration) {
+    process.stdout.write(JSON.stringify({
+      status: "BLOCKED", modelId, blockers: endpointsGate.blockers,
+      modelCalls: 0, productionPromotionAllowed: false,
+    }) + "\n");
+    process.exitCode = 2;
+    return;
+  }
   const probes = [
     await runProbe(modelId, key, "identity"),
     await runProbe(modelId, key, "arithmetic"),
@@ -153,6 +173,8 @@ async function main(): Promise<void> {
     ...report,
     modelCalls: probes.length,
     catalogRequestPriceKnownZero: preflight.catalogRequestPriceKnownZero,
+    exactZeroZdrEndpointCount: endpointsGate.qualifyingEndpointCount,
+    endpointPolicySelfReportedOnly: true,
   }) + "\n");
   if (!report.eligibleForIndependentProviderReview) process.exitCode = 3;
 }
