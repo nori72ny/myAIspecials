@@ -112,6 +112,15 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([null, 0, "false", "true"])("rejects malformed explicit BYOK evidence: %j", async (is_byok) => {
+    const payload = successfulProviderPayload({ usage: { cost: 0, is_byok } });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(
+      request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_COST_UNVERIFIED", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a different free model plan before network access", async () => { const fetchMock = vi.fn(); const switchedPlan = { ...plan, modelId: "google/gemma-3-27b-it:free" } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: switchedPlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
   it.each([
     { allowProviderFallbacks: true, dataCollection: "deny", requireZeroDataRetention: true },
