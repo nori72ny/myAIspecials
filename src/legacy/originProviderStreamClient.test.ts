@@ -186,6 +186,28 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { is_free: "false" },
+    { is_free: "true" },
+    { is_free: null },
+    { usage: { cost: 0, is_byok: "false" } },
+    { usage: { cost: 0, is_byok: "true" } },
+    { usage: { cost: 0, is_byok: null } },
+  ])("refuses nonboolean free or BYOK assertion without emitting streamed content: %j", async metadata => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, ...metadata,
+        choices: [{ delta: { content: "private-and-unverified" }, finish_reason: "stop" }] }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects content before forwarding when served-model evidence is absent", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
