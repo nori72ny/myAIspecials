@@ -112,6 +112,14 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts explicit non-BYOK evidence with verified zero cost", async () => {
+    const payload = successfulProviderPayload({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0, is_byok: false } });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(
+      request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch,
+    )).resolves.toMatchObject({ actualCostUsd: 0, usage: { costUsd: 0 } });
+  });
+
   it.each([null, 0, "false", "true"])("rejects malformed explicit BYOK evidence: %j", async (is_byok) => {
     const payload = successfulProviderPayload({ usage: { cost: 0, is_byok } });
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }));
