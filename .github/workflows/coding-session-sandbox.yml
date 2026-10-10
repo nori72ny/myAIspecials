@@ -55,7 +55,7 @@ jobs:
           docker pull "$trusted_image"
           # Verify the runtime major version before giving the sandbox its
           # local compatibility alias used by the existing isolation scripts.
-          docker run --rm --network none --pull never --entrypoint node "$trusted_image" --version | grep -Eq '^v22\\.'
+          docker run --rm --network none --pull never --entrypoint node "$trusted_image" --version | grep -Eq '^v22\.'
           docker tag "$trusted_image" node:22-bookworm-slim
           docker run --rm --pull never --user "$(id -u):$(id -g)" \
             --cap-drop ALL --security-opt no-new-privileges \
