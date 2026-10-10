@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - google/gemma-4-31b-it:free
+          - inclusionai/ling-3.0-flash-fin:free
           - nvidia/nemotron-3-super-120b-a12b:free
           - nvidia/nemotron-3-ultra-550b-a55b:free
   push:
@@ -62,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$ORIGIN_FREE_MODEL_CANDIDATE" in
-            google/gemma-4-31b-it:free|nvidia/nemotron-3-super-120b-a12b:free|nvidia/nemotron-3-ultra-550b-a55b:free) ;;
+            google/gemma-4-31b-it:free|inclusionai/ling-3.0-flash-fin:free|nvidia/nemotron-3-super-120b-a12b:free|nvidia/nemotron-3-ultra-550b-a55b:free) ;;
             *) echo 'AQ_CALIBRATION_MODEL_NOT_APPROVED' >&2; exit 3 ;;
           esac
           if [ -z "$OPENROUTER_API_KEY" ]; then
