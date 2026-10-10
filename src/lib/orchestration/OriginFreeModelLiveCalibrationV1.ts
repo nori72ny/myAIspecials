@@ -56,7 +56,7 @@ export function evaluateOriginFreeModelCalibrationV1(input: {
     for (const probe of probes) {
       if (!probe
         || probe.requestedModel !== modelId
-        || !(probe.servedModel === modelId || probe.servedModel === modelId.slice(0, -5))) {
+        || probe.servedModel !== modelId) {
         blockers.push("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
       }
       if (!probe || !exactZero(probe.usageCostUsd)
