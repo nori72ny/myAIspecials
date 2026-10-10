@@ -60,7 +60,9 @@ export function evaluateOriginFreeModelCalibrationV1(input: {
         blockers.push("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
       }
       if (!probe || !exactZero(probe.usageCostUsd)
-        || (probe.upstreamCostUsd !== undefined && !exactZero(probe.upstreamCostUsd))
+        // OpenRouter documents null for upstream cost on non-BYOK calls.
+        // This exception is safe only with explicit isByok=false below.
+        || (probe.upstreamCostUsd != null && !exactZero(probe.upstreamCostUsd))
         || probe.isByok !== false) {
         blockers.push("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
       }
