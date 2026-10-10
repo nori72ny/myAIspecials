@@ -7,7 +7,6 @@ on:
       - '.github/workflows/aq-free-provider-calibration.yml'
       - 'scripts/preflight-origin-live-free-model-v1.ts'
       - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
-  workflow_dispatch:
 
 permissions:
   contents: read
