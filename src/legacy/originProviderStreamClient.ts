@@ -289,6 +289,9 @@ async function streamOpenRouter(
       if (doneSeen) break;
     }
     buffer += decoder.decode();
+    if (buffer.length > MAX_SSE_FRAME_CHARS) {
+      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIのストリームフレームが大きすぎます。", 502, false);
+    }
     if (buffer.trim()) processLine(buffer);
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
