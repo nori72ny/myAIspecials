@@ -11,6 +11,8 @@ export type OriginFreeCalibrationProbeV1 = {
   readonly answer: string;
   readonly usageCostUsd: unknown;
   readonly upstreamCostUsd: unknown;
+  /** Optional provider-reported OpenRouter server-tool charge, if present. */
+  readonly serverToolCostUsd: unknown;
   readonly isByok: unknown;
   readonly providerPolicy: {
     readonly allow_fallbacks: false;
@@ -63,6 +65,7 @@ export function evaluateOriginFreeModelCalibrationV1(input: {
         // OpenRouter documents null for upstream cost on non-BYOK calls.
         // This exception is safe only with explicit isByok=false below.
         || (probe.upstreamCostUsd != null && !exactZero(probe.upstreamCostUsd))
+        || (probe.serverToolCostUsd != null && !exactZero(probe.serverToolCostUsd))
         || probe.isByok !== false) {
         blockers.push("AQ_FREE_CALIBRATION_ZERO_COST_UNVERIFIED");
       }
