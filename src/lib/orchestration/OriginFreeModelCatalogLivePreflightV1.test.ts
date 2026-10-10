@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   auditOriginLiveFreeModelCatalogV1,
+  auditOriginLiveFreeZdrEndpointsV1,
   type OriginFreeCatalogRowV1,
 } from "./OriginFreeModelCatalogLivePreflightV1.js";
 
@@ -118,4 +119,51 @@ describe("Origin read-only live free-model catalog preflight V1", () => {
       expect(output.blockers).toContain("AQ_FREE_MODEL_ID_NOT_EXPLICIT_FREE");
     },
   );
+});
+
+
+describe("authenticated ZDR endpoint price gate (read-only; not a live inference)", () => {
+  const endpointModelId = "google/gemma-4-31b-it:free";
+  const good = () => ({
+    model_id: endpointModelId,
+    provider_name: "Verified synthetic provider",
+    status: 0,
+    pricing: { prompt: "0", completion: "0.0000", request: "0", image: "0" },
+    supported_parameters: ["tools", "temperature"],
+  });
+  const check = (data: unknown, id = endpointModelId) =>
+    auditOriginLiveFreeZdrEndpointsV1({ modelId: id, endpoints: { data } });
+
+  it("accepts one eligible exact-zero ZDR endpoint ONLY for bounded public calibration", () => {
+    const result = check([good(), { ...good(), model_id: "different/paid" }]);
+    expect(result).toEqual({
+      schemaVersion: "origin.live-free-zdr-endpoints.v1",
+      modelId: endpointModelId,
+      eligibleForPublicCalibration: true,
+      qualifyingEndpointCount: 1,
+      realInferenceVerified: false,
+      independentBillingVerified: false,
+      productionPromotionAllowed: false,
+      blockers: [],
+    });
+  });
+  it.each([
+    { pricing: { prompt: "0", completion: "0", request: "0.000000000001" } },
+    { pricing: { prompt: "0", completion: "0", request: "1e-9999" } },
+    { pricing: { prompt: "0", completion: "0" } },
+    { pricing: { prompt: "0", completion: "0", request: "0", input_cache_read: "0.01" } },
+    { status: 1 },
+    { provider_name: "" },
+    { supported_parameters: ["temperature"] },
+    { model_id: "google/gemma-4-31b-it" },
+  ])("rejects endpoints with paid, missing, ambiguous, unsupported or inactive evidence: %j", patch => {
+    const result = check([{ ...good(), ...patch }]);
+    expect(result.eligibleForPublicCalibration).toBe(false);
+    expect(result.blockers).toContain("AQ_FREE_ZDR_ENDPOINT_EXACT_ZERO_NOT_VERIFIED");
+  });
+  it("rejects invalid endpoint payload and ambiguous requested paid model", () => {
+    expect(check("fake").blockers).toContain("AQ_FREE_ZDR_ENDPOINT_PAYLOAD_INVALID");
+    expect(check([good()], "google/gemma-4-31b-it").blockers).toContain("AQ_FREE_ZDR_ENDPOINT_MODEL_INVALID");
+    expect(check(Array(4097).fill(good())).blockers).toContain("AQ_FREE_ZDR_ENDPOINT_PAYLOAD_INVALID");
+  });
 });
