@@ -20,7 +20,9 @@ on:
       - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
       - 'src/lib/orchestration/OriginFreeModelLiveCalibrationV1.ts'
   schedule:
-    - cron: '47 0 * * *'
+    # Weekly rather than daily: a successful two-probe reservation must not
+    # starve the frozen 40-case benchmark's shared 24-hour provider quota.
+    - cron: '47 0 * * 1'
 
 permissions:
   contents: read
