@@ -112,6 +112,23 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { is_free: "false" },
+    { is_free: "true" },
+    { is_free: null },
+    { usage: { cost: 0, is_byok: "false" } },
+    { usage: { cost: 0, is_byok: "true" } },
+    { usage: { cost: 0, is_byok: null } },
+  ])("refuses nonboolean free or BYOK assertion in nonstream response: %j", async metadata => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload(metadata)), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(executeOriginProvider(
+      request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a different free model plan before network access", async () => { const fetchMock = vi.fn(); const switchedPlan = { ...plan, modelId: "google/gemma-3-27b-it:free" } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: switchedPlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
   it.each([
     { allowProviderFallbacks: true, dataCollection: "deny", requireZeroDataRetention: true },
