@@ -205,6 +205,31 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { charge: 0.000000000000000001, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { charge: "0.000000000000000001", expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { charge: "0.000000", expectedCode: null },
+    { charge: 0, expectedCode: null },
+  ])("verifies server-tool billing evidence in streamed usage: %j", async ({ charge, expectedCode }) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "verified" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, cost_details: { server_tool_cost: charge } } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const execution = executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    );
+    if (expectedCode) {
+      await expect(execution).rejects.toMatchObject({ code: expectedCode, retryable: false });
+      expect(deltas).toEqual([]);
+    } else {
+      await expect(execution).resolves.toMatchObject({ text: "verified", actualCostUsd: 0 });
+      expect(deltas).toEqual(["verified"]);
+    }
+  });
+
   it("rejects oversized newline-free SSE frames before parsing or emitting output", async () => {
     const fetchMock = vi.fn(async () => streamingResponse(["data: " + "x".repeat(1_000_001)]));
     const deltas: string[] = [];
