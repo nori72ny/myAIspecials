@@ -71,13 +71,24 @@ const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is st
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  // Any positive charge, however far below Number.EPSILON, violates the $0 contract.
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function nonzeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  // Do not coerce whitespace, booleans or underflowed exponent strings to 0.
+  // Decimal zero pricing is common in the OpenRouter catalogue; all other
+  // strings are unverified rather than silently rounded away.
+  if (typeof value !== "number" && typeof value !== "string") fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (typeof value === "string") {
+    if (!/^(?:0|0\.0+)$/.test(value)) {
+      if (!value || !Number.isFinite(Number(value))) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+      fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+    }
+    return;
+  }
+  if (!Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;

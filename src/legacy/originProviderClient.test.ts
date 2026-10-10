@@ -85,6 +85,33 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { usage: { cost: 1e-18 }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: 1e-18, completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: "1e-9999", completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: " ", completion: "0" }, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { pricing: { prompt: false, completion: "0" }, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+  ])("never rounds positive or malformed provider costs to zero: %j", async ({ expectedCode, ...overrides }) => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload(overrides)), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(executeOriginProvider(
+      request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: expectedCode, retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts explicitly documented zero decimal prices, not just numeric zero", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({
+      pricing: { prompt: "0.00000000", completion: "0" },
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0, cost_details: { upstream_inference_cost: "0.000000" } },
+    })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(
+      request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch,
+    )).resolves.toMatchObject({ actualCostUsd: 0, usage: { costUsd: 0 } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a different free model plan before network access", async () => { const fetchMock = vi.fn(); const switchedPlan = { ...plan, modelId: "google/gemma-3-27b-it:free" } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: switchedPlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
   it.each([
     { allowProviderFallbacks: true, dataCollection: "deny", requireZeroDataRetention: true },

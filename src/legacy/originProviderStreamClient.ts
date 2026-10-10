@@ -66,9 +66,19 @@ function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERI
 
 function zeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
-  if (numeric !== 0) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
+  // Decimal zero and numeric zero only. Coercing "1e-9999" or whitespace
+  // through Number() would silently pass a nonzero or malformed price.
+  if (typeof value !== "number" && typeof value !== "string") {
+    policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
+  }
+  if (typeof value === "string") {
+    if (!/^(?:0|0\.0+)$/.test(value)) {
+      policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
+    }
+    return;
+  }
+  if (!Number.isFinite(value) || value < 0) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
+  if (value !== 0) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
 }
 
 function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
