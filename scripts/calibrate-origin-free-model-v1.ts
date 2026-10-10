@@ -98,7 +98,9 @@ async function runProbe(
   }
   // Missing BYOK evidence cannot establish the strict no-BYOK condition.
   // Reject it before the next inference call; self-reported 0 alone is insufficient.
-  if (!zero(actualCost) || (upstreamCost !== undefined && !zero(upstreamCost))
+  // OpenRouter reports null upstream cost for ordinary non-BYOK inference.
+  // Never accept that as $0 proof unless usage.is_byok is explicitly false.
+  if (!zero(actualCost) || (upstreamCost != null && !zero(upstreamCost))
       || byok !== false) {
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
