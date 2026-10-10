@@ -1,0 +1,83 @@
+name: AQ public free ZDR catalog preflight
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aq-free-catalog-public-preflight.yml'
+      - '.github/workflows/aq-free-provider-calibration.yml'
+      - 'scripts/preflight-origin-live-free-model-v1.ts'
+      - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aq-public-catalog-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  catalog-no-secrets:
+    # Deliberately runs without OPENROUTER_API_KEY and without any GitHub
+    # write permission; untrusted PRs may use public catalog data only.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact untrusted PR HEAD with no persisted token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked packages without postinstall scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check live public catalog for two candidate models without inference
+        id: catalog
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ''
+        run: |
+          set -euo pipefail
+          mkdir -p aq-public-catalog
+          eligible=0
+          index=0
+          for candidate in google/gemma-4-31b-it:free inclusionai/ling-3.0-flash-fin:free; do
+            index=$((index + 1))
+            set +e
+            ORIGIN_FREE_MODEL_CANDIDATE="$candidate" npx tsx scripts/preflight-origin-live-free-model-v1.ts > "aq-public-catalog/candidate-$index.jsonl"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              eligible=$((eligible + 1))
+              echo "Public ZDR+zero-price TOOL candidate $index found (catalog only)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Candidate $index is unverified or blocked; no inference attempted." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          echo "eligible_count=$eligible" >> "$GITHUB_OUTPUT"
+          echo "This action has no model API credential and makes zero chat completions." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve sanitized public candidate decisions only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aq-public-free-zdr-preflight-${{ github.run_id }}
+          path: aq-public-catalog/*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Fail closed when no public free-ZDR tool candidate exists
+        if: always()
+        shell: bash
+        env:
+          ELIGIBLE_COUNT: ${{ steps.catalog.outputs.eligible_count }}
+        run: |
+          set -euo pipefail
+          if [ "$ELIGIBLE_COUNT" = 0 ] || [ -z "$ELIGIBLE_COUNT" ]; then
+            echo "AQ_FREE_ZDR_CATALOG_NO_ELIGIBLE_MODEL — production migration remains BLOCKED" >&2
+            exit 2
+          fi
+          echo "Catalog only: authenticated live cost/ZDR endpoint and 40 paired real answers NOT MEASURED." >> "$GITHUB_STEP_SUMMARY"
