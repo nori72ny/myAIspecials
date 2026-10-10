@@ -121,6 +121,17 @@ jobs:
           path: aq-free-calibration/report.jsonl
           retention-days: 30
           if-no-files-found: error
+      - name: Fail closed if no two genuine model answers were verified
+        if: always()
+        shell: bash
+        env:
+          PROVIDER_STEP_OUTCOME: ${{ steps.provider.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PROVIDER_STEP_OUTCOME" != 'success' ]; then
+            echo 'AQ_FREE_CALIBRATION_NOT_MEASURED: provider execution did not succeed.' >&2
+            exit 2
+          fi
       - name: Record release-blocking scope
         if: always()
         shell: bash
