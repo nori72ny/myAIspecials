@@ -82,6 +82,25 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { is_byok: true, expectedCode: "PROVIDER_POLICY_VIOLATION" },
+    { is_byok: "false", expectedCode: "PROVIDER_COST_UNVERIFIED" },
+    { is_byok: 0, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+    { is_byok: null, expectedCode: "PROVIDER_COST_UNVERIFIED" },
+  ])("never forwards streamed output with invalid explicit BYOK evidence: %j", async ({ is_byok, expectedCode }) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "private-buffer" }, finish_reason: "stop" }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0, is_byok } }),
+      "data: [DONE]\\n\\n".replace(/\\n/g, "\n"),
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      providerRequest, { onDelta: value => deltas.push(value) },
+      { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: expectedCode, retryable: false });
+    expect(deltas).toEqual([]);
+  });
+
   it("does not release text when terminal usage proof is absent", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "unverified" }, finish_reason: "stop" }] }),
