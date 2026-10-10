@@ -85,7 +85,7 @@ describe("executeOriginProviderStream", () => {
   it("does not release text when terminal usage proof is absent", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "unverified" }, finish_reason: "stop" }] }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
@@ -99,7 +99,7 @@ describe("executeOriginProviderStream", () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "unverified" }, finish_reason: "stop" }] }),
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { prompt_tokens: 3, completion_tokens: 2 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
@@ -114,7 +114,7 @@ describe("executeOriginProviderStream", () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "do not show" }, finish_reason: null }] }),
       event({ model: paidAlias, choices: [{ delta: { content: "or this" }, finish_reason: "stop" }], usage: { cost: 0 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
@@ -128,7 +128,7 @@ describe("executeOriginProviderStream", () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "a".repeat(200001) }, finish_reason: "stop" }] }),
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, usage: { cost: 0 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
@@ -154,7 +154,7 @@ describe("executeOriginProviderStream", () => {
     const paidCanonicalId = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: paidCanonicalId, choices: [{ delta: { content: "hidden-paid-content" }, finish_reason: "stop" }], usage: { cost: 0 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
@@ -175,7 +175,7 @@ describe("executeOriginProviderStream", () => {
   ])("rejects coerced or tiny positive streamed prices before forwarding output: %j", async ({ expectedCode, ...metadata }) => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, ...metadata, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(
