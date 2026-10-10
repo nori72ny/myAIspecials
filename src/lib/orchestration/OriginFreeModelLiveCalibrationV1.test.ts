@@ -23,7 +23,7 @@ function probes(): OriginFreeCalibrationProbeV1[] {
     {
       probeId: "arithmetic",
       requestedModel: modelId,
-      servedModel: modelId.slice(0, -5),
+      servedModel: modelId,
       answer: "391",
       usageCostUsd: 0,
       upstreamCostUsd: undefined,
@@ -54,6 +54,13 @@ describe("free model live two-probe calibration V1", () => {
   it("blocks missing or duplicate public calibration probes", () => {
     expect(evaluate(probes().slice(0,1)).blockers).toContain("AQ_FREE_CALIBRATION_SHAPE_INVALID");
     expect(evaluate([probes()[0], probes()[0]]).blockers).toContain("AQ_FREE_CALIBRATION_SHAPE_INVALID");
+  });
+  it("rejects the paid canonical alias even if usage reports zero", () => {
+    const x = probes();
+    x[0] = { ...x[0], servedModel: modelId.slice(0, -5) };
+    const verdict = evaluate(x);
+    expect(verdict.blockers).toContain("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
+    expect(verdict.eligibleForIndependentProviderReview).toBe(false);
   });
   it("rejects served model substitutions even when they are free", () => {
     const x = probes();
