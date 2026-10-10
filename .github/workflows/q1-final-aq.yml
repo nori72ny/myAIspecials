@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
-      BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
+      # Proposed new frozen comparison round: previous SHA is preserved in docs;
+      # independent approval and all three live Production domain checks required.
+      BASELINE_SHA: 437f4f0a5c66c0d9add7f65e72369f9787931f7a
       CANDIDATE_SHA: ${{ github.sha }}
       EXPECTED_SHARD_COUNT: '40'
       ORIGIN_AQ_SHARD_MODE: case-isolated
@@ -98,6 +100,13 @@ jobs:
           max="$(node -e 'const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.max))' "$output")"
           test "$count" -eq "$EXPECTED_SHARD_COUNT"
           test "$max" -eq 616
+
+      # Verify the frozen comparator against actual bytes on ALL three serving
+      # Production domains. An old historical SHA must never be mislabeled as
+      # current-Production answer-quality evidence. Read-only; no provider call.
+      - name: Verify frozen AQ baseline is what Production actually serves
+        if: steps.state.outputs.complete == 'true' || (steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true')
+        run: node runner/scripts/verify-aq-frozen-baseline-live-production.mjs
 
       - name: Create sanitized quota reservation
         if: steps.heldout_priority.outputs.pause_aq != 'true' && steps.state.outputs.complete != 'true' && steps.quota_guard.outputs.allowed == 'true'
