@@ -193,7 +193,7 @@ describe("executeOriginProviderStream", () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       events.join(""),
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0 } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     const result = await executeOriginProviderStream(
