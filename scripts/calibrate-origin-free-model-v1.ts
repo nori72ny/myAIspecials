@@ -93,7 +93,7 @@ async function runProbe(
   const byok = response.usage?.is_byok;
   const zero = (v: unknown) => v === 0 || (typeof v === "string" && /^(?:0|0\.0+)$/.test(v));
   // Fail closed BEFORE consuming the next provider request.
-  if (served !== modelId && served !== modelId.slice(0, -5)) {
+  if (served !== modelId) {
     throw Error("AQ_FREE_CALIBRATION_SERVED_MODEL_MISMATCH");
   }
   // Missing BYOK evidence cannot establish the strict no-BYOK condition.
