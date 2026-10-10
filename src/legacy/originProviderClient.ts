@@ -81,7 +81,7 @@ function nonzeroIfPresent(value: unknown, field: string): void {
   // strings are unverified rather than silently rounded away.
   if (typeof value !== "number" && typeof value !== "string") fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
   if (typeof value === "string") {
-    if (!/^(?:0|0\\.0+)$/.test(value)) {
+    if (!/^(?:0|0\.0+)$/.test(value)) {
       if (!value || !Number.isFinite(Number(value))) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
       fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
     }
