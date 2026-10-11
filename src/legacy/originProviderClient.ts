@@ -220,6 +220,15 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
     const servedModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : requestData.plan.modelId;
     if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${servedModel}` });
+    // Validate required-tool structure before provider billing metadata so malformed tool
+    // responses receive their precise contract error. Nothing is returned or emitted until
+    // all billing and routing policy checks below have also succeeded.
+    let requiredOutput: string | undefined;
+    if (requestData.requiredTool) {
+      if (choice?.finish_reason === "length") throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_TRUNCATED", "必須ツール出力が完了しませんでした。", 502, true);
+      requiredOutput = requiredToolArguments(choice?.message, requestData.requiredTool);
+    }
+
     assertBillingMetadata(data);
     promptTokens += data.usage?.prompt_tokens ?? 0;
     completionTokens += data.usage?.completion_tokens ?? 0;
@@ -227,8 +236,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     zero(data.usage?.cost, "usage.cost");
 
     if (requestData.requiredTool) {
-      if (choice?.finish_reason === "length") throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_TRUNCATED", "必須ツール出力が完了しませんでした。", 502, true);
-      output = requiredToolArguments(choice?.message, requestData.requiredTool);
+      output = requiredOutput as string;
     } else {
       const part = text(choice?.message?.content);
       if (!part) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "OpenRouterから回答を取得できません。", 502, true);
