@@ -1,0 +1,5 @@
+import { makeUnicodePdfV12 } from './unicodePdfV12.js';
+export type PdfOrientationV12='portrait'|'landscape';
+export type ExecutiveTableV12={headers:string[];rows:Array<Array<string|number|null>>};
+export function planExecutivePdfV12(title:string,table:ExecutiveTableV12){const orientation:PdfOrientationV12=table.headers.length>=6||table.headers.join('').length>54?'landscape':'portrait';const lines=[table.headers.join(' | '),...table.rows.map(r=>r.map(v=>String(v??'')).join(' | '))];const pages:Array<{heading:string;lines:string[]}>=[];for(let i=0;i<lines.length;i+=36){pages.push({heading:title,lines:(i?[lines[0],...lines.slice(i,i+36)]:lines.slice(i,i+36)).map(s=>s.slice(0,orientation==='landscape'?110:78))})}return{orientation,pages:pages.length?pages:[{heading:title,lines:[table.headers.join(' | ')]}]}}
+export async function renderExecutivePdfV12(title:string,table:ExecutiveTableV12):Promise<Buffer>{const p=planExecutivePdfV12(title,table);return makeUnicodePdfV12(title,p.pages.map((v,i)=>'['+p.orientation+' '+(i+1)+'/'+p.pages.length+']\n'+v.lines.join('\n')).join('\n\n'))}

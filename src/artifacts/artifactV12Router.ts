@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createExecutiveWorkbookV12 } from './executiveXlsxV12.js';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { artifactSelfTestV12Async, generateArtifactV12Async, type ArtifactFormulaCell, type ArtifactRequest, type ArtifactType } from './artifactGeneratorV12.js';
 
@@ -22,6 +23,8 @@ const isCell = (value: unknown) => value === null
 export function createArtifactV12Router() {
   const router = Router();
 
+  router.get('/api/artifacts/v1.2/executive-xlsx/status', (_req, res) => res.status(200).json({ok:true,version:'V12',sheets:3,formulaPolicy:'absolute-cross-sheet-references',freeOnly:true,paidFallbackEnabled:false}));
+  router.get('/api/artifacts/v1.2/executive-xlsx', (_req, res) => { const bytes=createExecutiveWorkbookV12(); res.setHeader('Cache-Control','no-store'); res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); res.setHeader('Content-Disposition','attachment; filename="origin-executive-v12.xlsx"'); return res.status(200).send(bytes); });
   router.get('/api/artifacts/v1.2/status', async (_req, res) => {
     const selfTest = await artifactSelfTestV12Async();
     return res.status(200).json({
