@@ -86,7 +86,7 @@ describe("executeOriginProviderStream", () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: null }] }),
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0, is_byok } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
