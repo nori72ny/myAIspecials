@@ -61,34 +61,44 @@ const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
 export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => {
   if (typeof value !== "string") return null;
   return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null);
 };
-const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && ((ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model) || (provider === "openrouter" && model === OPENROUTER_CANONICAL_SERVED_MODEL));
+const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  // Any positive charge, however far below Number.EPSILON, violates the $0 contract.
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function nonzeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  // Do not coerce whitespace, booleans or underflowed exponent strings to 0.
+  // Decimal zero pricing is common in the OpenRouter catalogue; all other
+  // strings are unverified rather than silently rounded away.
+  if (typeof value !== "number" && typeof value !== "string") fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (typeof value === "string") {
+    if (!/^(?:0|0\.0+)$/.test(value)) {
+      if (!value || !Number.isFinite(Number(value))) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+      fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+    }
+    return;
+  }
+  if (!Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (value !== 0) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
   const data = payload as { billing_tier?: unknown; is_free?: unknown; pricing?: { prompt?: unknown; completion?: unknown }; usage?: { cost_details?: { upstream_inference_cost?: unknown }; is_byok?: unknown } };
   if (data.billing_tier !== undefined && String(data.billing_tier).toLowerCase() !== "free") fail("有料の課金ティアが検出されました。", "PROVIDER_POLICY_VIOLATION");
-  if (data.is_free === false) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
+  if (data.is_free !== undefined && data.is_free !== true) fail("無料モデルではない証跡が検出されました。", "PROVIDER_POLICY_VIOLATION");
   nonzeroIfPresent(data.pricing?.prompt, "pricing.prompt");
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  if (data.usage?.is_byok !== undefined && data.usage.is_byok !== false) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
@@ -101,7 +111,7 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
   const validStrategy = evidence.strategy === "adaptive-primary";
   const validFallback = evidence.fallbackUsed === false;
-  const validServedModel = evidence.requestedModel === evidence.servedModel || evidence.servedModel === OPENROUTER_CANONICAL_SERVED_MODEL;
+  const validServedModel = evidence.requestedModel === evidence.servedModel;
   if (!validStrategy || !validFallback || !validServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
@@ -218,7 +228,8 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     if (errorType === "rate_limit_exceeded") throw http(429);
     if (errorType === "timeout") throw http(504);
     if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
-    const servedModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : requestData.plan.modelId;
+    // Missing provider-reported model identity is not proof of the requested :free route.
+    const servedModel = typeof data.model === "string" ? data.model.trim() : "";
     if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${servedModel}` });
     assertBillingMetadata(data);
     promptTokens += data.usage?.prompt_tokens ?? 0;

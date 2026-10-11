@@ -18,9 +18,149 @@ export function requiresOriginFutureReleaseInformation(message: string): boolean
     || /\b(?:future|next[- ]generation)\s+(?:AI|models?)\b/i.test(message);
 }
 
+/**
+ * Strip user-quoted source text in one left-to-right scan. A multi-alternative
+ * regex with open-ended Japanese quotation spans permits polynomial backtracking
+ * on an input containing thousands of unmatched 「 / 『 openers.
+ */
+function withoutQuotedSourceText(message: string): string {
+  const result: string[] = [];
+  let closing: string | null = null;
+  for (let index = 0; index < message.length; index += 1) {
+    const char = message[index];
+    if (closing !== null) {
+      if (closing === "```" && message.slice(index, index + 3) === "```") {
+        index += 2;
+        closing = null;
+        result.push(" ");
+      } else if (char === closing) {
+        closing = null;
+        result.push(" ");
+      } else if (closing === '"' && char === "\n") {
+        closing = null;
+        result.push("\n");
+      }
+      continue;
+    }
+    if (message.slice(index, index + 3) === "```") {
+      closing = "```";
+      index += 2;
+      result.push(" ");
+    } else if (char === "「" || char === "『" || char === '"') {
+      closing = char === "「" ? "」" : char === "『" ? "』" : '"';
+      result.push(" ");
+    } else {
+      result.push(char);
+    }
+  }
+  return result.join("");
+}
+
+/**
+ * Scan task separators literally with bounded windows. Repeated newlines must
+ * not create a new regex starting position with overlapping wildcard searches.
+ */
+function hasJapaneseAdditionalTask(text: string, kind: "research" | "current"): boolean {
+  const separators = ["それとは別に", "そのうえで", "その上で", "あわせて", "併せて", "さらに", "加えて", "また", "、", "，", "。", "！", "？", "\n"];
+  const researchVerbs = ["検索して", "検索する", "調査して", "調査する", "リサーチして", "リサーチする", "調べて", "調べる"];
+  const sourceTerms = ["出典", "一次情報", "公開情報"];
+  const currentWords = ["最新", "今日", "現在"];
+  const factKinds = ["バージョン", "ニュース", "モデル", "レート", "情報", "天気", "料金", "価格", "株価", "相場", "仕様", "状況", "結果", "為替"];
+  const askWords = ["教え", "確認", "調べ", "示し", "提示"];
+  for (let index = 0; index < text.length; index += 1) {
+    for (const sep of separators) {
+      if (!text.startsWith(sep, index)) continue;
+      const span = text.slice(index + sep.length, index + sep.length + 100);
+      if (kind === "research") {
+        if (researchVerbs.some(verb => { const at = span.indexOf(verb); return at >= 0 && at <= 80; })) return true;
+        for (const source of sourceTerms) {
+          let at = span.indexOf(source);
+          while (at >= 0 && at <= 80) {
+            const near = span.slice(at + source.length, at + source.length + 16);
+            if (near.includes("確認")) return true;
+            at = span.indexOf(source, at + 1);
+          }
+        }
+        continue;
+      }
+      for (const word of currentWords) {
+        let at = span.indexOf(word);
+        while (at >= 0 && at <= 80) {
+          const after = span.slice(at + word.length).replace(/^の/, "");
+          const firstBoundary = [..."。！？\n"].reduce((pos, ch) => {
+            const found = after.indexOf(ch);
+            return found < 0 ? pos : Math.min(pos, found);
+          }, after.length);
+          const phrase = after.slice(0, firstBoundary);
+          for (const topic of factKinds) {
+            let found = phrase.indexOf(topic);
+            while (found >= 0 && found <= 16) {
+              const next = phrase.slice(found + topic.length, found + topic.length + 24);
+              if (askWords.some(ask => next.includes(ask))) return true;
+              found = phrase.indexOf(topic, found + 1);
+            }
+          }
+          at = span.indexOf(word, at + 1);
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Detect English follow-up tasks without overlapping wildcard regexes on raw
+ * user input. Tokenization and bounded forward scans are linear in length,
+ * including adversarial runs of newlines or punctuation.
+ */
+function hasEnglishAdditionalTask(text: string, kind: "research" | "current"): boolean {
+  const tokens = text.toLowerCase().match(/[a-z]+(?:'[a-z]+)?|[.!?\n]/g) ?? [];
+  const separators = new Set(["and", "also", "additionally", "then", ".", "!", "?", "\n"]);
+  const explicitResearch = new Set(["research", "search", "verify"]);
+  const requestVerbs = new Set(["tell", "show", "give", "check", "confirm", "find"]);
+  const freshness = new Set(["latest", "current", "today", "today's"]);
+  const topics = new Set(["information", "news", "weather", "pricing", "price", "prices", "exchange", "rate", "rates", "status", "results", "result", "version", "versions", "model", "models"]);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const marker = tokens[index];
+    if (!separators.has(marker) && !(marker === "in" && tokens[index + 1] === "addition")) continue;
+    const segment: string[] = [];
+    const first = marker === "in" ? index + 2 : index + 1;
+    for (let next = first; next < tokens.length && next < first + 24; next += 1) {
+      const token = tokens[next];
+      if (token === "." || token === "!" || token === "?" || token === "\n") break;
+      segment.push(token);
+    }
+    if (kind === "research") {
+      const lead = segment.slice(0, 6);
+      if (lead.some(token => explicitResearch.has(token))) return true;
+      if (lead.some((token, offset) => token === "look" && lead[offset + 1] === "up")) return true;
+      if (lead.some((token, offset) => (token === "find" || token === "check")
+        && (lead[offset + 1] === "sources" || lead[offset + 1] === "source"
+          || (lead[offset + 1] === "the" && (lead[offset + 2] === "sources" || lead[offset + 2] === "source"))))) return true;
+      continue;
+    }
+    const firstRequest = segment.findIndex((token, offset) => offset < 6 && requestVerbs.has(token));
+    if (firstRequest < 0) continue;
+    const firstFreshness = segment.findIndex((token, offset) => offset > firstRequest && offset <= firstRequest + 12 && freshness.has(token));
+    if (firstFreshness < 0) continue;
+    if (segment.some((token, offset) => offset > firstFreshness && offset <= firstFreshness + 8 && topics.has(token))) return true;
+  }
+  return false;
+}
+
 function isTransformOnlyRequest(message: string): boolean {
-  return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
+  const transformsSuppliedContent = /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキスト|議事録|調査結果|リサーチ結果).{0,40}(?:要約|短く|書き換え|整え|翻訳|校正|修正)/s.test(message)
     || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread|reformat)\b.{0,48}\b(?:this|following|provided|text|passage|document|research\s+(?:result|report|brief))\b/is.test(message);
+  if (!transformsSuppliedContent) return false;
+
+  // An explicit additional research task must not be suppressed by the
+  // transformation shortcut. Quoted/fenced source text is not a task request.
+  const requestText = withoutQuotedSourceText(message);
+  const additionalResearch = hasJapaneseAdditionalTask(requestText, "research")
+    || hasEnglishAdditionalTask(requestText, "research");
+  const additionalCurrentFacts = hasJapaneseAdditionalTask(requestText, "current")
+    || hasEnglishAdditionalTask(requestText, "current");
+  return !additionalResearch && !additionalCurrentFacts;
 }
 
 function isHypotheticalFreshnessFailureRequest(message: string): boolean {
@@ -115,7 +255,11 @@ export function requiresOriginGroundedResearch(message: string): boolean {
   if (requiresOriginCurrentInformation(message)) return true;
 
   return /(?:検索|調査|リサーチ)(?:を)?(?:して|してください|して下さい|する|してほしい)|(?:一次情報|出典|公開情報).{0,12}(?:を)?(?:調べ|確認|探|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
-    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
+    || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+(?:the\s+)?sources?|check\s+(?:the\s+)?sources?|verify\s+(?:the\s+)?sources?)\b/i.test(message)
+    // Share the same explicit follow-up semantics as the transformation guard.
+    // Without this, the shortcut notices an added task but the final router
+    // still drops it (e.g. "translate ... and check the sources").
+    || hasEnglishAdditionalTask(withoutQuotedSourceText(message), "research");
 }
 
 export function requiresOriginCurrentInformation(message: string): boolean {
@@ -160,12 +304,13 @@ export function originChatSystemInstruction(
 - Decide which missing items would materially change the result. Ask only those. Ask one to three focused questions per turn, prioritized by impact, and use concrete choices or short examples when that makes answering easier. Do not dump a long generic questionnaire on the user.
 - Continue the clarification loop across turns until the material unknowns are resolved. Reuse every answer already given in the conversation, update the requirement brief silently, and never repeat a question that the user has already answered.
 - If the user explicitly says to leave details to ORIGIN, choose sensible low-risk defaults, state the important assumptions briefly, and proceed. If the request is already sufficiently specified, proceed immediately without unnecessary questions.
+- If one part is blocked by a genuinely material unknown, complete the independent, reversible parts with the information already supplied and clearly identify the remaining blocker. Do not invent required facts or imply the blocked work was completed.
 - For small, reversible, low-stakes requests, prefer useful assumptions over interrogation. For pure rewriting, summarization, translation, formatting, or transformation of supplied content, do not ask follow-up questions unless a missing choice would genuinely change the requested transformation.
 - Before a substantial custom deliverable, when ambiguity still exists after clarification, briefly restate the understood requirements and ask for confirmation only if getting them wrong would cause meaningful rework. Otherwise proceed.
 - After producing a first version, treat user feedback as new requirements: preserve accepted parts, change only what the feedback requires, and continue refining until the result fits the user's actual use case.
-- For routine explanatory or comparison answers, default to a one-to-three sentence bottom line followed by three to five prioritized key points. For complex multi-part requests, use as many distinct points as needed—within the six-section limit—to cover every material requirement without filler. Put the most decision-relevant information first.
-- Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Do not use a Markdown table unless the user explicitly asks for a table.
-- Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.
+- For routine explanatory or comparison answers, start with a concise direct answer and add only the key points needed. For complex multi-part requests, use as many distinct points as needed to cover every material requirement without filler. Put the most decision-relevant information first.
+- Write for a phone screen: use one idea per paragraph, descriptive headings when useful, and compact lists. Use a compact Markdown table when it makes options or exact mappings easier to compare; use prose when a table would be wide, repetitive, or unnecessary. Follow the user's explicit format preference.
+- Use only as many sections as the task needs. Remove duplicated headings, repeated claims, generic filler, and repeated summaries; do not omit a requested item to fit an arbitrary section count.
 - Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.
 - Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.
 - Prefer specific recommendations, examples, and ready-to-use wording over generic advice.
