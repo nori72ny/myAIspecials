@@ -71,14 +71,14 @@ const pid = (value: unknown): AllowedZeroCostProvider | null => {
 const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && ((ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model) || (provider === "openrouter" && model === OPENROUTER_CANONICAL_SERVED_MODEL));
 function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (Math.abs(value) > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  if (typeof value !== "number" || !Number.isFinite(value)) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (value !== 0 || !Object.is(value, 0)) fail(`${field} が厳密な$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function nonzeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
   const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
-  if (numeric > Number.EPSILON) fail(`${field} が$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
+  if (!Number.isFinite(numeric)) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
+  if (numeric !== 0 || !Object.is(numeric, 0)) fail(`${field} が厳密な$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
 }
 function assertBillingMetadata(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
@@ -88,7 +88,7 @@ function assertBillingMetadata(payload: unknown): void {
   nonzeroIfPresent(data.pricing?.prompt, "pricing.prompt");
   nonzeroIfPresent(data.pricing?.completion, "pricing.completion");
   nonzeroIfPresent(data.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (data.usage?.is_byok === true) fail("BYOK課金経路は$0境界で許可されません。", "PROVIDER_POLICY_VIOLATION");
+  if (data.usage?.is_byok !== false) fail("is_byok=false の明示的な証跡がないため遮断しました。", "PROVIDER_POLICY_VIOLATION");
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
