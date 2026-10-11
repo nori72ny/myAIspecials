@@ -381,3 +381,15 @@ a[href]:focus-visible {
     min-width: 44px;
   }
 }
+
+
+/* Keep the Composer's native focus treatment from drawing a sharp blue frame. */
+textarea:focus,
+textarea:focus-visible,
+input:focus,
+input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+}
