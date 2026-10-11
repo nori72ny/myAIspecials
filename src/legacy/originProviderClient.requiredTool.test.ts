@@ -46,7 +46,7 @@ function response(message: Record<string, unknown>, finish_reason = 'tool_calls'
   return new Response(JSON.stringify({
     model: ORIGIN_OPENROUTER_FREE_MODEL,
     choices: [{ message, finish_reason }],
-    usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18, cost: 0 },
+    usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18, cost: 0, is_byok: false },
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 

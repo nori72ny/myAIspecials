@@ -69,8 +69,17 @@ function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERI
 function zeroIfPresent(value: unknown, field: string): void {
   if (value === undefined || value === null) return;
   const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric < 0) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
-  if (numeric !== 0) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が0ドル固定ポリシーを満たしません。`);
+  if (!Number.isFinite(numeric)) policyFailure("PROVIDER_COST_UNVERIFIED", `${field} を検証できません。`);
+  if (numeric !== 0 || !Object.is(numeric, 0)) policyFailure("PROVIDER_POLICY_VIOLATION", `${field} が厳密な0ドル固定ポリシーを満たしません。`);
+}
+
+function assertExactUsageCost(value: unknown): asserts value is 0 {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    policyFailure("PROVIDER_COST_UNVERIFIED", "usage.cost を数値の0として検証できません。");
+  }
+  if (value !== 0 || !Object.is(value, 0)) {
+    policyFailure("PROVIDER_POLICY_VIOLATION", "usage.cost が厳密な0ドル固定ポリシーを満たしません。");
+  }
 }
 
 function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
@@ -81,7 +90,7 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
   zeroIfPresent(chunk.pricing?.prompt, "pricing.prompt");
   zeroIfPresent(chunk.pricing?.completion, "pricing.completion");
   zeroIfPresent(chunk.usage?.cost_details?.upstream_inference_cost, "usage.cost_details.upstream_inference_cost");
-  if (chunk.usage?.is_byok === true) policyFailure("PROVIDER_POLICY_VIOLATION", "BYOK課金経路は0ドル固定境界で許可されません。");
+  if (chunk.usage && chunk.usage.is_byok !== false) policyFailure("PROVIDER_POLICY_VIOLATION", "is_byok=false の明示的な証跡がないため遮断しました。");
 }
 
 function providerErrorType(errorType: unknown): never {
@@ -232,8 +241,8 @@ async function streamOpenRouter(
       if (!servedModel) {
         throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
       }
+      // Hold all text privately until terminal billing and routing evidence passes.
       output += delta;
-      handlers.onDelta(delta);
     }
     if (typeof chunk.choices?.[0]?.finish_reason === "string") finishReason = chunk.choices[0].finish_reason;
     if (chunk.usage) {
@@ -241,10 +250,7 @@ async function streamOpenRouter(
       promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
       completionTokens = chunk.usage.completion_tokens ?? completionTokens;
       totalTokens = chunk.usage.total_tokens ?? totalTokens;
-      if (chunk.usage.cost === undefined || chunk.usage.cost === null) {
-        policyFailure("PROVIDER_COST_UNVERIFIED", "usage.cost を検証できません。");
-      }
-      zeroIfPresent(chunk.usage.cost, "usage.cost");
+      assertExactUsageCost(chunk.usage.cost);
     }
   };
 
@@ -296,6 +302,8 @@ async function streamOpenRouter(
     usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
+  // Release the complete response only after stream termination and all billing checks pass.
+  handlers.onDelta(output);
   return result;
 }
 
