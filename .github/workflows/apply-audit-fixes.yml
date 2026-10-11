@@ -1,0 +1,343 @@
+name: Auto Apply Security Audit Fixes
+
+on:
+  workflow_dispatch: # 社長のワンクリック承認で手動起動
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.js 環境セットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 依存関係のインストール
+        run: npm ci || npm install
+
+      - name: 1. zeroCostValidator.ts 厳格実装 (P0-A)
+        run: |
+          cat << 'EOF' > src/utils/zeroCostValidator.ts
+          export class ZeroCostValidationError extends Error {
+            constructor(message: string, public readonly actualValue: unknown) {
+              super(`[ZeroCostValidationError] ${message} (Received: ${JSON.stringify(actualValue)})`);
+              this.name = 'ZeroCostValidationError';
+            }
+          }
+
+          export function isStrictZeroCost(cost: unknown): cost is 0 {
+            if (typeof cost !== 'number') return false;
+            if (!Number.isFinite(cost) || Number.isNaN(cost)) return false;
+            if (cost !== 0) return false;
+            return Object.is(cost, 0);
+          }
+
+          export function assertStrictZeroCost(cost: unknown): asserts cost is 0 {
+            if (!isStrictZeroCost(cost)) {
+              throw new ZeroCostValidationError(
+                'Cost verification failed: Value must be strictly +0. Negative values, floating epsilon, and non-numeric types are rejected.',
+                cost
+              );
+            }
+          }
+
+          export interface ZeroCostInput {
+            costUsd?: unknown;
+            [key: string]: unknown;
+          }
+
+          export function validateZeroCost(input: ZeroCostInput): void {
+            if (!input || typeof input !== 'object') {
+              throw new ZeroCostValidationError('Input must be a valid object', input);
+            }
+            assertStrictZeroCost(input.costUsd);
+          }
+          EOF
+
+      - name: 2. originProviderClient.ts 厳格実装 (P0-A & P0-B)
+        run: |
+          cat << 'EOF' > src/legacy/originProviderClient.ts
+          import { assertStrictZeroCost, ZeroCostValidationError } from '../utils/zeroCostValidator';
+
+          export interface ProviderResponseMetadata {
+            costUsd: unknown;
+            is_byok: unknown;
+            [key: string]: unknown;
+          }
+
+          export interface ProviderResponse {
+            text: string;
+            metadata: ProviderResponseMetadata;
+          }
+
+          export class OriginSecurityPolicyError extends Error {
+            constructor(message: string) {
+              super(`[OriginSecurityPolicyError] ${message}`);
+              this.name = 'OriginSecurityPolicyError';
+            }
+          }
+
+          export function validateProviderResponse(metadata: ProviderResponseMetadata): void {
+            if (metadata.is_byok !== false) {
+              throw new OriginSecurityPolicyError(
+                `BYOK violation: is_byok must be explicitly boolean false. Received: ${JSON.stringify(metadata.is_byok)}`
+              );
+            }
+            try {
+              assertStrictZeroCost(metadata.costUsd);
+            } catch (error) {
+              if (error instanceof ZeroCostValidationError) {
+                throw new OriginSecurityPolicyError(error.message);
+              }
+              throw error;
+            }
+          }
+
+          export async function requestOriginProvider(
+            payload: Record<string, unknown>,
+            fetchFn: typeof fetch = fetch
+          ): Promise<ProviderResponse> {
+            const response = await fetchFn('/api/origin-provider', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error(`Provider HTTP Error: ${response.status}`);
+            const data = (await response.json()) as ProviderResponse;
+            if (!data || typeof data !== 'object' || !data.metadata) {
+              throw new OriginSecurityPolicyError('Provider response missing required metadata');
+            }
+            validateProviderResponse(data.metadata);
+            return data;
+          }
+          EOF
+
+      - name: 3. originProviderStreamClient.ts 完全バッファリング刷新 (P0-B)
+        run: |
+          cat << 'EOF' > src/legacy/originProviderStreamClient.ts
+          import { validateProviderResponse, ProviderResponseMetadata } from './originProviderClient';
+
+          export interface StreamHandlers {
+            onDelta: (chunk: string) => void;
+            onComplete: (fullText: string) => void;
+            onError: (error: Error) => void;
+          }
+
+          export interface StreamChunkUsage {
+            is_byok?: unknown;
+            costUsd?: unknown;
+            [key: string]: unknown;
+          }
+
+          export interface StreamEventPayload {
+            type?: 'delta' | 'metadata' | 'done';
+            delta?: string;
+            usage?: StreamChunkUsage;
+            metadata?: ProviderResponseMetadata;
+          }
+
+          export async function streamOriginProvider(
+            payload: Record<string, unknown>,
+            handlers: StreamHandlers,
+            fetchFn: typeof fetch = fetch
+          ): Promise<void> {
+            const bufferedDeltas: string[] = [];
+            let responseMetadata: ProviderResponseMetadata | null = null;
+            let isCompleted = false;
+
+            try {
+              const response = await fetchFn('/api/origin-provider/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              if (!response.ok || !response.body) throw new Error(`SSE Connection failed: ${response.status}`);
+
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder('utf-8');
+              let buffer = '';
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || !trimmed.startsWith('data:')) continue;
+                  const dataStr = trimmed.replace(/^data:\s*/, '');
+                  if (dataStr === '[DONE]') {
+                    isCompleted = true;
+                    continue;
+                  }
+                  const parsed = JSON.parse(dataStr) as StreamEventPayload;
+
+                  if (parsed.delta && typeof parsed.delta === 'string') {
+                    bufferedDeltas.push(parsed.delta);
+                  }
+                  if (parsed.metadata) {
+                    responseMetadata = parsed.metadata;
+                  } else if (parsed.usage) {
+                    responseMetadata = {
+                      costUsd: parsed.usage.costUsd,
+                      is_byok: parsed.usage.is_byok,
+                    };
+                  }
+                  if (parsed.type === 'done') {
+                    isCompleted = true;
+                  }
+                }
+              }
+
+              if (!responseMetadata) {
+                throw new Error('Streaming terminated without receiving verification metadata.');
+              }
+              validateProviderResponse(responseMetadata);
+
+              if (!isCompleted) {
+                throw new Error('Stream ended prematurely without completion signal.');
+              }
+
+              for (const delta of bufferedDeltas) {
+                handlers.onDelta(delta);
+              }
+              handlers.onComplete(bufferedDeltas.join(''));
+            } catch (error) {
+              bufferedDeltas.length = 0;
+              handlers.onError(error instanceof Error ? error : new Error(String(error)));
+            }
+          }
+          EOF
+
+      - name: 4. src/index.css トークン一元化 (#0A0A0A)
+        run: |
+          cat << 'EOF' > src/index.css
+          @tailwind base;
+          @tailwind components;
+          @tailwind utilities;
+
+          :root {
+            --bg-primary: #0A0A0A;
+            --bg-secondary: #121212;
+            --bg-tertiary: #1E1E1E;
+            --text-primary: #FFFFFF;
+            --text-secondary: #A0A0A0;
+            --text-muted: #666666;
+            --border-subtle: #222222;
+            --border-strong: #333333;
+          }
+
+          body {
+            background-color: var(--bg-primary) !important;
+            color: var(--text-primary);
+            min-height: 100vh;
+          }
+          EOF
+
+      - name: 5. 監査対応テストファイルを配置
+        run: |
+          mkdir -p src/utils/__tests__
+          mkdir -p src/legacy/__tests__
+
+          cat << 'EOF' > src/utils/__tests__/zeroCostValidator.test.ts
+          import { describe, it, expect } from 'vitest';
+          import { isStrictZeroCost, assertStrictZeroCost, validateZeroCost, ZeroCostValidationError } from '../zeroCostValidator';
+
+          describe('P0-A: ゼロコスト厳格検証', () => {
+            it('0 および +0 のみ許可', () => {
+              expect(isStrictZeroCost(0)).toBe(true);
+              expect(isStrictZeroCost(+0)).toBe(true);
+              expect(() => assertStrictZeroCost(0)).not.toThrow();
+              expect(() => validateZeroCost({ costUsd: 0 })).not.toThrow();
+            });
+            it('-0, 負数を拒絶', () => {
+              expect(isStrictZeroCost(-0)).toBe(false);
+              expect(isStrictZeroCost(-1)).toBe(false);
+              expect(isStrictZeroCost(-0.0000001)).toBe(false);
+              expect(() => assertStrictZeroCost(-0)).toThrow(ZeroCostValidationError);
+            });
+            it('微小正数, EPSILON, NaN, 型不整合を拒絶', () => {
+              expect(isStrictZeroCost(0.01)).toBe(false);
+              expect(isStrictZeroCost(Number.EPSILON)).toBe(false);
+              expect(isStrictZeroCost(NaN)).toBe(false);
+              expect(isStrictZeroCost('0')).toBe(false);
+              expect(isStrictZeroCost(null)).toBe(false);
+            });
+          });
+          EOF
+
+          cat << 'EOF' > src/legacy/__tests__/originProviderClient.test.ts
+          import { describe, it, expect } from 'vitest';
+          import { validateProviderResponse, OriginSecurityPolicyError } from '../originProviderClient';
+
+          describe('P0-A / P0-B: 通常クライアント セキュリティ検証', () => {
+            it('正常系: costUsd: 0 かつ is_byok: false のみ合格', () => {
+              expect(() => validateProviderResponse({ costUsd: 0, is_byok: false })).not.toThrow();
+            });
+            it('is_byok: true, null, undefined, 文字列を全数拒絶', () => {
+              expect(() => validateProviderResponse({ costUsd: 0, is_byok: true })).toThrow(OriginSecurityPolicyError);
+              expect(() => validateProviderResponse({ costUsd: 0, is_byok: 'false' as any })).toThrow(OriginSecurityPolicyError);
+              expect(() => validateProviderResponse({ costUsd: 0, is_byok: null as any })).toThrow(OriginSecurityPolicyError);
+            });
+            it('costUsd 負数・微小値を拒絶', () => {
+              expect(() => validateProviderResponse({ costUsd: -1, is_byok: false })).toThrow(OriginSecurityPolicyError);
+              expect(() => validateProviderResponse({ costUsd: 0.0001, is_byok: false })).toThrow(OriginSecurityPolicyError);
+            });
+          });
+          EOF
+
+          cat << 'EOF' > src/legacy/__tests__/originProviderStreamClient.test.ts
+          import { describe, it, expect, vi } from 'vitest';
+          import { streamOriginProvider } from '../originProviderStreamClient';
+
+          function createMockStream(sseLines: string[]): Response {
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+              start(c) {
+                for (const l of sseLines) c.enqueue(encoder.encode(l + '\n\n'));
+                c.close();
+              },
+            });
+            return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+          }
+
+          describe('P0-B: SSE ストリーミング完全保留・リーク防止検証', () => {
+            it('正常系: 検証合格時のみ delta が届くこと', async () => {
+              const sse = ['data: {"delta": "A"}', 'data: {"usage": {"costUsd": 0, "is_byok": false}}', 'data: [DONE]'];
+              const onDelta = vi.fn(), onComplete = vi.fn(), onError = vi.fn();
+              await streamOriginProvider({}, { onDelta, onComplete, onError }, vi.fn().mockResolvedValue(createMockStream(sse)) as any);
+              expect(onDelta).toHaveBeenCalledTimes(1);
+              expect(onComplete).toHaveBeenCalled();
+            });
+            it('異常系: コスト違反時は onDelta が厳密に 0 回であること', async () => {
+              const sse = ['data: {"delta": "Secret"}', 'data: {"usage": {"costUsd": 0.01, "is_byok": false}}', 'data: [DONE]'];
+              const onDelta = vi.fn(), onComplete = vi.fn(), onError = vi.fn();
+              await streamOriginProvider({}, { onDelta, onComplete, onError }, vi.fn().mockResolvedValue(createMockStream(sse)) as any);
+              expect(onDelta).toHaveBeenCalledTimes(0);
+              expect(onError).toHaveBeenCalled();
+            });
+          });
+          EOF
+
+      - name: 6. 型チェック & 単体テストの厳格実行 (安全ゲート)
+        run: |
+          npx tsc --noEmit
+          npx vitest run src/utils/__tests__/zeroCostValidator.test.ts src/legacy/__tests__/originProviderClient.test.ts src/legacy/__tests__/originProviderStreamClient.test.ts
+
+      - name: 7. 安全確認後に自動コミット & プッシュ
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/utils/zeroCostValidator.ts src/legacy/originProviderClient.ts src/legacy/originProviderStreamClient.ts src/index.css src/utils/__tests__/zeroCostValidator.test.ts src/legacy/__tests__/originProviderClient.test.ts src/legacy/__tests__/originProviderStreamClient.test.ts
+          git commit -m "fix(security): resolve all P0 audit issues with verified zero-cost and buffered SSE"
+          git push origin main
