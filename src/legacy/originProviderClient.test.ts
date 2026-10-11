@@ -54,6 +54,65 @@ describe("executeOriginProvider", () => {
     { allowProviderFallbacks: false, dataCollection: "provider-free-tier", requireZeroDataRetention: true },
     { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: false },
   ])("rejects an unsafe provider data policy before egress", async (providerDataPolicy) => { const fetchMock = vi.fn(); const unsafePlan = { ...plan, providerDataPolicy } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: unsafePlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
+  it.each([Number.MIN_VALUE, Number.EPSILON / 2, 1e-18])(
+    "rejects a positive executor-reported charge smaller than the historical epsilon (%s)",
+    tiny => {
+      const safe = {
+        text: "confidential answer", actualCostUsd: 0,
+        providerDataPolicy: plan.providerDataPolicy,
+        routingEvidence: {
+          requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+          servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+          strategy: "adaptive-primary", provider: "OpenRouter",
+          attempt: 1 as const, fallbackUsed: false as const,
+        },
+        usage: { costUsd: 0 },
+      } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>;
+      expect(() => assertOriginZeroCostExecutionResult({ ...safe, actualCostUsd: tiny } as unknown as typeof safe))
+        .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
+      expect(() => assertOriginZeroCostExecutionResult({ ...safe, usage: { costUsd: tiny } } as unknown as typeof safe))
+        .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
+    },
+  );
+
+  it.each([
+    [{ usage: { cost: Number.MIN_VALUE } }, "positive subnormal usage cost"],
+    [{ pricing: { prompt: "1e-999", completion: "0" } }, "underflowed positive pricing"],
+    [{ pricing: { prompt: "5e-324", completion: "0" } }, "subnormal decimal string price"],
+    [{ usage: { cost: 0, cost_details: { upstream_inference_cost: 1e-18 } } }, "tiny upstream charge"],
+    [{ is_free: "false" }, "false-like free flag in a nonboolean field"],
+    [{ usage: { cost: 0, is_byok: "true" } }, "truthy BYOK string"],
+  ] as const)("blocks the exact-zero contract for %s (%s)", async (overrides, _description) => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload(
+      overrides as Record<string, unknown>,
+    )), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+  });
+
+  it.each(["", " ", "0x0", false, [], {}])(
+    "rejects ambiguously coercible model pricing rather than treating %j as zero",
+    async unsafe => {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({
+        pricing: { prompt: unsafe, completion: "0" },
+      })), { status: 200, headers: { "Content-Type": "application/json" } }));
+      await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+        .rejects.toMatchObject({ code: "PROVIDER_COST_UNVERIFIED", retryable: false });
+    },
+  );
+
+  it.each(["0", "0.000000", "0e-12"])(
+    "accepts explicitly zero-valued decimal price metadata %s",
+    async promptPrice => {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({
+        is_free: true, pricing: { prompt: promptPrice, completion: "0.0" },
+        usage: { cost: 0, is_byok: false, cost_details: { upstream_inference_cost: "0" } },
+      })), { status: 200, headers: { "Content-Type": "application/json" } }));
+      await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+        .resolves.toMatchObject({ actualCostUsd: 0 });
+    },
+  );
+
   it("rejects a response when zero cost cannot be verified", async () => { const payload = successfulProviderPayload({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_COST_UNVERIFIED", retryable: false }); });
   it("discards the response when a nonzero cost is reported", async () => { const payload = successfulProviderPayload({ usage: { cost: 0.000001 } }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); });
   it.each([[{ billing_tier: "paid" }, "a paid billing tier"], [{ is_free: false }, "an explicit paid-model flag"], [{ pricing: { prompt: "0.000001", completion: "0" } }, "nonzero model pricing"], [{ usage: { cost: 0, cost_details: { upstream_inference_cost: 0.000001 } } }, "an upstream inference charge"], [{ usage: { cost: 0, is_byok: true } }, "a bring-your-own-key billing route"]] as const)("discards zero-cost-looking responses containing %s", async (overrides, _description) => { const payload = successfulProviderPayload(overrides as Record<string, unknown>); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); });
