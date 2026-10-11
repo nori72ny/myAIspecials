@@ -23,6 +23,14 @@
 
 :root { --bg-primary: #0A0A0A !important; }
 
+/* Keep the initial dark home screen readable against the enforced #0A0A0A canvas. */
+.origin-app main div:has(> [data-testid="origin-core-logo"]) > h1 {
+  color: #FFFFFF !important;
+}
+.origin-app main div:has(> [data-testid="origin-core-logo"]) > p {
+  color: #C2C7CE !important;
+}
+
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
