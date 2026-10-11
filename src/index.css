@@ -24,8 +24,8 @@
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-primary: oklch(0.975 0.008 95);
-  --bg-surface: oklch(1 0 0);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(1 0 0);
   --bg-surface-muted: oklch(0.944 0.009 95);
   --bg-elevated: oklch(0.99 0.004 95);
   --text-primary: oklch(0.235 0.012 250);
@@ -47,8 +47,8 @@
 :root[data-theme="dark"],
 .dark {
   color-scheme: dark;
-  --bg-primary: oklch(0.155 0.016 255);
-  --bg-surface: oklch(0.205 0.018 255);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(0.205 0.018 255);
   --bg-surface-muted: oklch(0.255 0.02 255);
   --bg-elevated: oklch(0.235 0.019 255);
   --text-primary: oklch(0.945 0.01 250);
@@ -68,8 +68,8 @@
 }
 
 :root[data-theme="light"][data-design-theme="luxury"] {
-  --bg-primary: oklch(0.973 0.014 80);
-  --bg-surface: oklch(0.996 0.006 85);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(0.996 0.006 85);
   --bg-surface-muted: oklch(0.941 0.019 82);
   --bg-elevated: oklch(0.984 0.009 82);
   --text-primary: oklch(0.245 0.026 35);
@@ -89,8 +89,8 @@
 }
 
 :root[data-theme="dark"][data-design-theme="luxury"] {
-  --bg-primary: oklch(0.17 0.022 40);
-  --bg-surface: oklch(0.222 0.025 38);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(0.222 0.025 38);
   --bg-surface-muted: oklch(0.275 0.027 40);
   --bg-elevated: oklch(0.245 0.025 40);
   --text-primary: oklch(0.948 0.015 82);
@@ -110,8 +110,8 @@
 }
 
 :root[data-theme="light"][data-design-theme="glass"] {
-  --bg-primary: oklch(0.968 0.017 220);
-  --bg-surface: oklch(0.99 0.008 220 / 0.88);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(0.99 0.008 220 / 0.88);
   --bg-surface-muted: oklch(0.93 0.024 225 / 0.9);
   --bg-elevated: oklch(0.977 0.014 220 / 0.94);
   --text-primary: oklch(0.24 0.028 240);
@@ -131,8 +131,8 @@
 }
 
 :root[data-theme="dark"][data-design-theme="glass"] {
-  --bg-primary: oklch(0.16 0.032 245);
-  --bg-surface: oklch(0.22 0.033 245 / 0.87);
+  --bg-primary: #0A0A0A !important;
+--bg-surface: oklch(0.22 0.033 245 / 0.87);
   --bg-surface-muted: oklch(0.28 0.038 242 / 0.9);
   --bg-elevated: oklch(0.25 0.035 243 / 0.92);
   --text-primary: oklch(0.95 0.016 220);
