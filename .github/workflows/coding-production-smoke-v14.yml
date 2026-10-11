@@ -128,6 +128,15 @@ jobs:
           done
           if [ "$start_status" != '202' ]; then
             record_scheduled_quota_skip "$start_code"
+            # A preview-target Vercel deployment can be assigned the production alias,
+            # but VERCEL_ENV remains "preview"; the server intentionally returns this
+            # explicit code rather than permitting a production-only smoke operation.
+            # Report this as a non-verified skip, not a passing Coding test.
+            if [ "$start_status" = '404' ] && [ "$start_code" = 'CODING_SMOKE_NOT_AVAILABLE' ]; then
+              echo "Coding smoke skipped: deployment is not running in Vercel Production environment; authenticated smoke was not bypassed."
+              printf '### ORIGIN Coding V1.4 production smoke\n\n- Result: skipped (not verified)\n- Reason: `CODING_SMOKE_NOT_AVAILABLE` (deployment environment is not Production)\n- Release SHA health gate: passed\n- Authentication bypass: none\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             echo "Coding smoke start failed: $start_code" >&2
             exit 1
           fi
