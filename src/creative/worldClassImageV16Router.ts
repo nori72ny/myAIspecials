@@ -175,6 +175,7 @@ function sensitive(body: unknown): boolean {
   return detectSensitiveConversation([{ role: 'user', content: text }]).length > 0;
 }
 
+function rgbV16(c:string):number[]{if(!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.trim()))throw new Error('INVALID_VECTOR_COLOR');let h=c.trim().slice(1);if(h.length===3)h=h.split('').map(v=>v+v).join('');return[0,2,4].map(i=>parseInt(h.slice(i,i+2),16)/255)}function lumV16(c:string){return rgbV16(c).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0)}export function contrastRatioV16(a:string,b:string){const x=lumV16(a),y=lumV16(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05)}export function isWcagAaaContrastV16(a:string,b:string){return contrastRatioV16(a,b)>=7}export function composeVectorPathV16(p:string){if(typeof p!=='string'||!p.length||p.length>8000||/[<>"'&]|url|script/i.test(p)||!/^[MmLlHhVvCcSsQqTtAaZz0-9eE+.,\-\s]+$/.test(p))throw new Error('INVALID_VECTOR_PATH');const n=p.match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/gi)||[];if(n.length>2000||n.some(v=>!Number.isFinite(Number(v))||Math.abs(Number(v))>100000))throw new Error('INVALID_VECTOR_COORDINATE');return p.trim().replace(/\s+/g,' ')}
 export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
