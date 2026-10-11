@@ -2,6 +2,7 @@ import { Children, isValidElement, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { OriginLanguage } from '../../i18n';
+import MarkdownTableV12 from '../MarkdownTableV12';
 
 type OriginAnswerMarkdownProps = {
   content: string;
@@ -77,11 +78,7 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
                 : `外部画像は自動表示しません${alt ? `：${alt}` : ''}`}
             </span>
           ),
-          table: ({ children }) => (
-            <div className="origin-answer-table-scroll" role="region" aria-label={language === 'en' ? 'Scrollable answer table' : '横にスクロールできる回答表'} tabIndex={0}>
-              <table>{children}</table>
-            </div>
-          ),
+          table: ({ children }) => <MarkdownTableV12 language={language}>{children}</MarkdownTableV12>,
         }}
       >
         {content}
