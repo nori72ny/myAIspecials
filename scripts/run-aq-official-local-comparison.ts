@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { checkOriginAqCredentialBoundary, createOriginAqChildEnvironment } from "./aq-provider-credential-guard.js";
 import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../src/lib/orchestration/OriginFreeModelCatalog.js";
 import {
   createOriginAnswerQualityFrozenCorpus,
@@ -100,20 +101,12 @@ async function validateTarget(target: LocalTarget): Promise<void> {
 }
 
 async function buildTarget(target: LocalTarget): Promise<void> {
-  const buildEnv = { ...process.env };
-  delete buildEnv.OPENROUTER_API_KEY;
-  delete buildEnv.GEMINI_API_KEY;
-  delete buildEnv.ANTHROPIC_API_KEY;
-  delete buildEnv.OPENAI_API_KEY;
+  const buildEnv = createOriginAqChildEnvironment(process.env, { sha: target.sha, phase: "build" });
 
   try {
     await exec("npm", ["run", "build"], {
       cwd: target.root,
-      env: {
-        ...buildEnv,
-        NODE_ENV: "production",
-        ORIGIN_RELEASE_SHA: target.sha,
-      },
+      env: buildEnv,
       timeout: 180_000,
       maxBuffer: 64 * 1024,
       encoding: "utf8",
@@ -126,12 +119,9 @@ async function buildTarget(target: LocalTarget): Promise<void> {
 function startTarget(target: LocalTarget): ChildProcess {
   return spawn(process.execPath, ["dist/server.cjs"], {
     cwd: target.root,
-    env: {
-      ...process.env,
-      NODE_ENV: "production",
-      PORT: String(target.port),
-      ORIGIN_RELEASE_SHA: target.sha,
-    },
+    env: createOriginAqChildEnvironment(process.env, {
+      sha: target.sha, phase: "runtime", port: target.port,
+    }),
     stdio: ["ignore", "ignore", "ignore"],
   });
 }
@@ -204,6 +194,18 @@ function sanitizedResult(
 }
 
 async function main(): Promise<void> {
+  // The existing benchmark server inherits process.env, including provider
+  // credentials. An unreviewed PR checkout MUST NOT be evaluated this way.
+  // Trusted per-case proxy isolation is required before any premerge live AQ.
+  const credentialBoundary = checkOriginAqCredentialBoundary({
+    baselineSha: requiredEnv("ORIGIN_AQ_BASELINE_SHA"),
+    candidateSha: requiredEnv("ORIGIN_AQ_CANDIDATE_SHA"),
+    env: process.env,
+  });
+  if (credentialBoundary.ok === false) {
+    throw new Error(credentialBoundary.code);
+  }
+
   const baselineRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_BASELINE_ROOT"));
   const candidateRoot = await fs.realpath(requiredEnv("ORIGIN_AQ_CANDIDATE_ROOT"));
   const baselineSha = requiredEnv("ORIGIN_AQ_BASELINE_SHA");

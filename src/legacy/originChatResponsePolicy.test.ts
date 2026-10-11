@@ -117,4 +117,165 @@ describe("originChatResponsePolicy", () => {
       "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
   });
+  it.each([
+    ["この文章を要約し、最新の料金を調べてください。", true],
+    ["この資料を短くしてください。さらに出典を検索してください。", true],
+    ["この調査結果を要約してください。また一次情報を確認してください。", true],
+    ["Summarize this report and research current competitor prices.", true],
+    ["Rewrite the provided text, then look up the latest exchange rate.", true],
+    ["Translate this passage and also verify the sources.", true],
+    ["この文章を要約してください。『さらに最新の料金を調べてください。』", false],
+    ['Summarize this passage: "Also research current competitor prices."', false],
+    ["この文章を要約してください。\n\`\`\`text\nさらに最新の料金を調べてください。\n\`\`\`", false],
+    ["この文章を要約し、読みやすい表現にしてください。", false],
+  ])("preserves additional research requests outside supplied source text: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
+  it.each([
+    [
+        "この文章を要約してください。最新の料金を調べてください。",
+        true
+    ],
+    [
+        "この資料を要約してください。\n現在の仕様を調べてください。",
+        true
+    ],
+    [
+        "この文章を校正してください。出典を確認してください。",
+        true
+    ],
+    [
+        "Summarize this report. Search for current competitor prices.",
+        true
+    ],
+    [
+        "Translate this passage.\nPlease look up the latest exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text.\n- Find sources for this claim.",
+        true
+    ],
+    [
+        "Proofread this document.\n2. Verify the sources.",
+        true
+    ],
+    [
+        "Summarize this passage: \"Search for current competitor prices.\"",
+        false
+    ],
+    [
+        "この文章を要約してください。『最新の料金を調べてください。』",
+        false
+    ],
+    [
+        "Summarize this passage.\n```text\nSearch for current competitor prices.\n```",
+        false
+    ],
+    [
+        "この文章を要約してください。読みやすい表現にしてください。",
+        false
+    ],
+    [
+        "Summarize this research report. Keep it under 200 words.",
+        false
+    ]
+])("preserves research in separate task sentences: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+  });
+
+  it.each([
+    [
+        "この文章を要約して、現在の価格も教えてください。",
+        true
+    ],
+    [
+        "この資料を短くしてください。最新の仕様を確認してください。",
+        true
+    ],
+    [
+        "この文章を翻訳してください。さらに今日の為替レートを提示してください。",
+        true
+    ],
+    [
+        "Summarize this report and tell me the current price.",
+        true
+    ],
+    [
+        "Translate this passage. Please show today's exchange rate.",
+        true
+    ],
+    [
+        "Rewrite this text, then check the latest version.",
+        true
+    ],
+    [
+        "この文章を要約してください。『現在の価格も教えてください。』",
+        false
+    ],
+    [
+        "Summarize this passage: \"Tell me the current price.\"",
+        false
+    ],
+    [
+        "Summarize this report. Preserve the supplied current pricing.",
+        false
+    ],
+    [
+        "この文章を要約してください。現在の価格という表現を残してください。",
+        false
+    ]
+])("preserves explicit current-fact tasks after transformations: %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
+  it("scans untrusted English separators in linear bounded windows without losing fresh-fact tasks", () => {
+    const manySeparators = "\n".repeat(20_000);
+    expect(requiresOriginGroundedResearch("Summarize this report." + manySeparators + "Search for current prices.")).toBe(true);
+    expect(requiresOriginCurrentInformation("Translate this passage." + manySeparators + "Please show today's exchange rate.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Summarize this report." + manySeparators + "Keep the supplied words.")).toBe(false);
+    expect(requiresOriginCurrentInformation("Translate this passage." + manySeparators + "Preserve current pricing terminology.")).toBe(false);
+  });
+
+  it("preserves ordinary English mixed-task meaning with multiple separators", () => {
+    expect(requiresOriginGroundedResearch("Summarize the following text, and please verify the sources.")).toBe(true);
+    expect(requiresOriginCurrentInformation("Rewrite this text, and also check the latest model version.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Summarize this text. Please find sources for the claim.")).toBe(true);
+    expect(requiresOriginGroundedResearch('Summarize this passage: "Please search for updated prices."')).toBe(false);
+  });
+
+  it("does not confuse ordinary editing verbs with external source research", () => {
+    expect(requiresOriginGroundedResearch("Summarize this report and check its spelling.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Rewrite this text, then find a concise title.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Translate this passage and look for grammar mistakes.")).toBe(false);
+    expect(requiresOriginGroundedResearch("Summarize this report, then find sources for the facts.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Translate this passage, and check the sources.")).toBe(true);
+    expect(requiresOriginGroundedResearch("Rewrite this text, and look up its latest specification.")).toBe(true);
+  });
+
+  it("handles thousands of unmatched Japanese quotation openers without launching a quoted research task", () => {
+    for (const marker of ["「", "『"]) {
+      const unclosedSource = "この文章を要約してください。" + marker.repeat(20_000) + "さらに現在の価格を調べてください。";
+      expect(requiresOriginGroundedResearch(unclosedSource)).toBe(false);
+      expect(requiresOriginCurrentInformation(unclosedSource)).toBe(false);
+    }
+  });
+
+  it("keeps additional current-fact requests outside properly quoted spans", () => {
+    const message = "この文章を要約してください。『現在の価格を教えてください』さらに最新の仕様を確認してください。";
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
+  });
+
+  it("classifies legitimate additional fresh-fact tasks after huge newline runs", () => {
+    const externalTask = "この文章を要約してください。" + "\n".repeat(20_000) + "最新の料金を調べてください。";
+    expect(requiresOriginGroundedResearch(externalTask)).toBe(true);
+    expect(requiresOriginCurrentInformation(externalTask)).toBe(true);
+    const quotedTask = "この文章を要約してください。『" + "\n".repeat(20_000) + "最新の料金を調べてください。』";
+    expect(requiresOriginGroundedResearch(quotedTask)).toBe(false);
+    expect(requiresOriginCurrentInformation(quotedTask)).toBe(false);
+  });
+
 });
