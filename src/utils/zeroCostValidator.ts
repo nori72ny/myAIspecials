@@ -10,7 +10,9 @@ export function validateZeroCost(input: ZeroCostValidationInput): ZeroCostValida
   if (!input.freeOnly) return { ok: false, reason: "free-only-disabled" };
   if (input.fallbackRequested) return { ok: false, reason: "paid-fallback-forbidden" };
   if (typeof input.costUsd !== "number" || !Number.isFinite(input.costUsd)) return { ok: false, reason: "unknown-cost" };
-  if (input.costUsd > 0) return { ok: false, reason: "nonzero-cost" };
+  // A verified zero is the single IEEE-754 +0 value. Reject negative values, -0,
+  // and every positive value (including sub-EPSILON amounts) without tolerances.
+  if (input.costUsd !== 0 || !Object.is(input.costUsd, 0)) return { ok: false, reason: "nonzero-cost" };
   const model = `${input.provider ?? ""}/${input.modelId ?? ""}`.toLowerCase();
   if (!model.trim() || /paid|premium|proprietary/.test(model)) return { ok: false, reason: "paid-model" };
   return { ok: true, reason: "verified-zero-cost" };
