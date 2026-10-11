@@ -53,14 +53,14 @@ describe("executeOriginProviderStream", () => {
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }).slice(0, 37),
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }).slice(37),
         event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "IGIN" }, finish_reason: null }] }),
-        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0 } }),
+        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
         "data: [DONE]\n\n",
       ]);
     });
     const deltas: string[] = [];
     const result = await executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(deltas).toEqual(["OR", "IGIN"]);
+    expect(deltas).toEqual(["ORIGIN"]);
     expect(result).toEqual(expect.objectContaining({
       text: "ORIGIN",
       actualCostUsd: 0,
@@ -72,19 +72,30 @@ describe("executeOriginProviderStream", () => {
   it("fails closed when the terminal usage cost is non-zero, after never retrying", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: null }] }),
-      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0.000001 } }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0.000001, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
-    expect(deltas).toEqual(["partial"]);
+    expect(deltas).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null, true, "false"])( "rejects missing or non-boolean false BYOK metadata without emitting text", async (is_byok) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0, is_byok } }),
+      "data: [DONE]\\n\\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(deltas).toEqual([]);
   });
 
   it("rejects a substituted served model before forwarding its content", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ model: "paid-or-substituted-model", choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      event({ model: "paid-or-substituted-model", choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
@@ -96,7 +107,7 @@ describe("executeOriginProviderStream", () => {
 
   it("rejects content before forwarding when served-model evidence is absent", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
@@ -108,7 +119,7 @@ describe("executeOriginProviderStream", () => {
 
   it("fails closed on a truncated stream without DONE and does not retry", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "stop" }], usage: { cost: 0 } }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
@@ -117,7 +128,7 @@ describe("executeOriginProviderStream", () => {
 
   it("does not issue continuation calls when a streamed answer hits the output limit", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "length" }], usage: { cost: 0 } }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "length" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
