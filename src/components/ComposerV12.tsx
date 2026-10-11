@@ -7,7 +7,7 @@ const ComposerV12=forwardRef<HTMLTextAreaElement,Props>(function ComposerV12({cl
    {...props}
    ref={ref}
    data-origin-composer="v12"
-   className={["focus:outline-none","focus:ring-0","focus:border-transparent","focus-visible:outline-none","focus-visible:ring-0","focus-visible:border-transparent","outline-none","!outline-none","focus:!outline-none","focus-visible:!outline-none","!shadow-none","focus:!shadow-none","focus-visible:!shadow-none",className].filter(Boolean).join(" ")}
+   className={["focus:outline-none","focus:ring-0","focus:border-transparent","focus-visible:outline-none","focus-visible:ring-0","focus-visible:border-transparent","outline-none","ring-0","border-transparent","!outline-none","focus:!outline-none","focus-visible:!outline-none","!shadow-none","focus:!shadow-none","focus-visible:!shadow-none",className].filter(Boolean).join(" ")}
   />
   <style>{`
    textarea[data-origin-composer="v12"],
