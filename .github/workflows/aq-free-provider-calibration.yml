@@ -41,9 +41,8 @@ jobs:
     # Absolutely no secrets on pull_request, untrusted commits, or previews.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push')
     runs-on: ubuntu-24.04
-    # Configure this GitHub Environment with required reviewers and store
-    # OPENROUTER_API_KEY there; do not use a repository-wide secret for calibration.
-    environment: origin-free-model-calibration
+    # The repository secret is exposed only to this job on protected main;
+    # PR code and preview refs are excluded by the job-level condition above.
     timeout-minutes: 20
     env:
       ORIGIN_FREE_MODEL_CANDIDATE: ${{ inputs.model_id || 'google/gemma-4-31b-it:free' }}
