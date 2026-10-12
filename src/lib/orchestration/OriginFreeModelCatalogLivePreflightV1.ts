@@ -126,6 +126,79 @@ export function auditOriginLiveFreeModelCatalogV1(
  * This is a prerequisite to *asking* a live model, not independent
  * confirmation of actual routing, billing or retention on a served request.
  */
+type DiagnosticStateV1 = "pass" | "fail" | "undefined";
+
+function diagnosticStateV1(value: unknown, predicate: (value: unknown) => boolean): DiagnosticStateV1 {
+  if (value === undefined || value === null) return "undefined";
+  return predicate(value) ? "pass" : "fail";
+}
+
+/**
+ * Emit only categorical preflight diagnostics. Never log endpoint payloads,
+ * provider responses, credentials, prompts, or raw pricing values.
+ */
+function logOriginFreeZdrPreflightDiagnosticsV1(
+  modelId: string,
+  endpoints: readonly Record<string, unknown>[],
+): void {
+  const requested = modelId.toLowerCase();
+  const exact = endpoints.filter(entry =>
+    typeof entry.model_id === "string" && entry.model_id.toLowerCase() === requested);
+  const partial = endpoints.filter(entry =>
+    typeof entry.model_id === "string"
+    && entry.model_id.toLowerCase() !== requested
+    && (entry.model_id.toLowerCase().includes(requested)
+      || requested.includes(entry.model_id.toLowerCase())
+      || entry.model_id.toLowerCase() === modelId.replace(/:free$/i, "").toLowerCase()));
+  console.info("[ORIGIN preflight] ZDR model matching", {
+    requestedModelId: modelId,
+    requestedHasFreeSuffix: /:free$/i.test(modelId),
+    exactMatchCount: exact.length,
+    partialMatchCount: partial.length,
+    endpointCount: endpoints.length,
+  });
+
+  for (const [kind, matches] of [["exact", exact], ["partial", partial]] as const) {
+    for (const entry of matches) {
+      const index = endpoints.indexOf(entry);
+      const prices = entry.pricing;
+      const pricing = prices && typeof prices === "object" && !Array.isArray(prices)
+        ? prices as Record<string, unknown>
+        : undefined;
+      const priceResults: Record<string, DiagnosticStateV1> = {};
+      if (!pricing) {
+        priceResults.pricing = prices === undefined || prices === null ? "undefined" : "fail";
+      } else {
+        for (const [key, value] of Object.entries(pricing)) {
+          // Sanitize arbitrary property names before logging; values are never logged.
+          const safeKey = /^[a-zA-Z0-9_.-]{1,40}$/.test(key) ? key : "other";
+          priceResults[safeKey] = diagnosticStateV1(value, isExactZero);
+        }
+        for (const key of ["prompt", "completion", "request"]) {
+          if (!(key in pricing)) priceResults[key] = "undefined";
+        }
+      }
+      console.info("[ORIGIN preflight] ZDR endpoint diagnostic", {
+        matchKind: kind,
+        endpointIndex: index,
+        modelIdExactFreeSuffix: typeof entry.model_id === "string" && entry.model_id.toLowerCase() === requested,
+        priceResults,
+        status: diagnosticStateV1(entry.status, value => value === 0),
+        provider_name: diagnosticStateV1(entry.provider_name,
+          value => typeof value === "string" && value.trim().length > 0),
+        tools_supported_parameters: diagnosticStateV1(entry.supported_parameters,
+          value => Array.isArray(value) && value.includes("tools")),
+      });
+    }
+  }
+}
+
+/**
+ * Authenticated read-only endpoint attestation. OpenRouter's /endpoints/zdr
+ * is a list of ZDR-qualified endpoint records, not a model-level guess.
+ * This is a prerequisite to *asking* a live model, not independent
+ * confirmation of actual routing, billing or retention on a served request.
+ */
 export function auditOriginLiveFreeZdrEndpointsV1(input: {
   readonly modelId: string;
   readonly endpoints: OriginFreeCatalogPayloadV1;
@@ -147,6 +220,11 @@ export function auditOriginLiveFreeZdrEndpointsV1(input: {
   if (!MODEL.test(modelId)) blockers.push("AQ_FREE_ZDR_ENDPOINT_MODEL_INVALID");
   if (invalid) blockers.push("AQ_FREE_ZDR_ENDPOINT_PAYLOAD_INVALID");
   let qualifyingEndpointCount = 0;
+  if (!invalid && Array.isArray(raw)) {
+    // Diagnostics run on the same bounded, already-validated payload and
+    // deliberately expose only counts, property names and pass/fail/undefined.
+    logOriginFreeZdrPreflightDiagnosticsV1(modelId, raw as Record<string, unknown>[]);
+  }
   if (!invalid && MODEL.test(modelId)) {
     for (const entry of raw as Record<string, unknown>[]) {
       if (entry.model_id !== modelId) continue;
