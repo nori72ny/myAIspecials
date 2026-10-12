@@ -134,6 +134,19 @@ export function auditOriginLiveFreeZdrEndpointsV1(input: {
   readonly modelId: string;
   readonly eligibleForPublicCalibration: boolean;
   readonly qualifyingEndpointCount: number;
+  readonly diagnostics: {
+    readonly endpointCount: number | null;
+    readonly exactModelIdMatchCount: number;
+    readonly partialModelIdMatchCount: number;
+    readonly inspectedMatches: readonly {
+      readonly modelIdMatch: "exact" | "partial";
+      readonly pricing: Readonly<Record<string, "pass" | "fail" | "undefined">>;
+      readonly status: "pass" | "fail" | "undefined";
+      readonly providerName: "pass" | "fail" | "undefined";
+      readonly tools: "pass" | "fail" | "undefined";
+    }[];
+    readonly truncated: boolean;
+  };
   readonly realInferenceVerified: false;
   readonly independentBillingVerified: false;
   readonly productionPromotionAllowed: false;
@@ -146,25 +159,60 @@ export function auditOriginLiveFreeZdrEndpointsV1(input: {
   const blockers: string[] = [];
   if (!MODEL.test(modelId)) blockers.push("AQ_FREE_ZDR_ENDPOINT_MODEL_INVALID");
   if (invalid) blockers.push("AQ_FREE_ZDR_ENDPOINT_PAYLOAD_INVALID");
-  let qualifyingEndpointCount = 0;
-  if (!invalid && MODEL.test(modelId)) {
-    for (const entry of raw as Record<string, unknown>[]) {
-      if (entry.model_id !== modelId) continue;
-      const prices = entry.pricing;
-      if (!prices || typeof prices !== "object" || Array.isArray(prices)) continue;
-      const pricing = prices as Record<string, unknown>;
-      // Refuse missing price fields *or* any extra nonzero/unknown category,
-      // including cache and per-request charges hidden by model-level listings.
-      if (!isExactZero(pricing.prompt) || !isExactZero(pricing.completion)
-        || !isExactZero(pricing.request)
-        || !Object.values(pricing).every(isExactZero)) continue;
-      if (entry.status !== 0
-        || typeof entry.provider_name !== "string"
-        || !entry.provider_name.trim()
-        || !Array.isArray(entry.supported_parameters)
-        || !entry.supported_parameters.includes("tools")) continue;
-      qualifyingEndpointCount += 1;
+
+  const entries = invalid ? [] : raw as Record<string, unknown>[];
+  const exact = entries.filter(entry => entry.model_id === modelId);
+  const partial = entries.filter(entry => typeof entry.model_id === "string"
+    && entry.model_id !== modelId
+    && (entry.model_id.includes(modelId) || modelId.includes(entry.model_id as string)
+      || entry.model_id.replace(/:free$/i, "") === modelId.replace(/:free$/i, "")));
+  const matches = entries.flatMap(entry => {
+    const id = entry.model_id;
+    const match = id === modelId ? "exact"
+      : typeof id === "string" && (id.includes(modelId) || modelId.includes(id)
+        || id.replace(/:free$/i, "") === modelId.replace(/:free$/i, ""))
+        ? "partial" : null;
+    return match ? [{ entry, match }] : [];
+  });
+  const state = (value: unknown): "pass" | "fail" | "undefined" =>
+    value === undefined ? "undefined" : isExactZero(value) ? "pass" : "fail";
+  const inspectedMatches = matches.slice(0, 50).map(({ entry, match }) => {
+    const prices = entry.pricing;
+    const pricing = prices && typeof prices === "object" && !Array.isArray(prices)
+      ? prices as Record<string, unknown> : null;
+    const priceResults: Record<string, "pass" | "fail" | "undefined"> = {};
+    for (const key of ["prompt", "completion", "request"]) {
+      priceResults[key] = pricing ? state(pricing[key]) : "undefined";
     }
+    if (pricing) {
+      for (const key of Object.keys(pricing).sort()) {
+        if (!(key in priceResults)) priceResults[key] = state(pricing[key]);
+      }
+    }
+    return {
+      modelIdMatch: match as "exact" | "partial",
+      pricing: Object.freeze(priceResults),
+      status: entry.status === undefined ? "undefined" as const : entry.status === 0 ? "pass" as const : "fail" as const,
+      providerName: entry.provider_name === undefined ? "undefined" as const
+        : typeof entry.provider_name === "string" && Boolean(entry.provider_name.trim()) ? "pass" as const : "fail" as const,
+      tools: entry.supported_parameters === undefined ? "undefined" as const
+        : Array.isArray(entry.supported_parameters) && entry.supported_parameters.includes("tools") ? "pass" as const : "fail" as const,
+    };
+  });
+  let qualifyingEndpointCount = 0;
+  for (const entry of exact) {
+    const prices = entry.pricing;
+    if (!prices || typeof prices !== "object" || Array.isArray(prices)) continue;
+    const pricing = prices as Record<string, unknown>;
+    if (!isExactZero(pricing.prompt) || !isExactZero(pricing.completion)
+      || !isExactZero(pricing.request)
+      || !Object.values(pricing).every(isExactZero)) continue;
+    if (entry.status !== 0
+      || typeof entry.provider_name !== "string"
+      || !entry.provider_name.trim()
+      || !Array.isArray(entry.supported_parameters)
+      || !entry.supported_parameters.includes("tools")) continue;
+    qualifyingEndpointCount += 1;
   }
   if (!qualifyingEndpointCount) blockers.push("AQ_FREE_ZDR_ENDPOINT_EXACT_ZERO_NOT_VERIFIED");
   return Object.freeze({
@@ -172,6 +220,13 @@ export function auditOriginLiveFreeZdrEndpointsV1(input: {
     modelId,
     eligibleForPublicCalibration: blockers.length === 0,
     qualifyingEndpointCount,
+    diagnostics: Object.freeze({
+      endpointCount: invalid ? null : entries.length,
+      exactModelIdMatchCount: exact.length,
+      partialModelIdMatchCount: partial.length,
+      inspectedMatches: Object.freeze(inspectedMatches),
+      truncated: matches.length > 50,
+    }),
     realInferenceVerified: false,
     independentBillingVerified: false,
     productionPromotionAllowed: false,

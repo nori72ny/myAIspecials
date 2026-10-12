@@ -156,6 +156,7 @@ async function main(): Promise<void> {
   if (!endpointsGate.eligibleForPublicCalibration) {
     process.stdout.write(JSON.stringify({
       status: "BLOCKED", modelId, blockers: endpointsGate.blockers,
+      preflightDiagnostics: endpointsGate.diagnostics,
       modelCalls: 0, productionPromotionAllowed: false,
     }) + "\n");
     process.exitCode = 2;
