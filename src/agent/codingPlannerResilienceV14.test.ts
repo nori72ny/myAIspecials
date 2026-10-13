@@ -1,9 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { createResilientCodingPlannerV14 } from './codingPlannerResilienceV14.js';
 import type { CodingContext } from './codingSessionV14.js';
 import type { OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, ORIGIN_OPENROUTER_FREE_MODEL } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog.js';
+
+// Keep provider-policy unit tests deterministic as real evidence deadlines advance.
+const originalDateNow = Date.now;
+Date.now = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+afterAll(() => { Date.now = originalDateNow; });
 
 const context: CodingContext = {
   goal: 'Fix addition',
