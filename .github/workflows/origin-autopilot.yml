@@ -180,7 +180,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          set -euo pipefail
           test -s "$RUNNER_TEMP/origin-autopilot-changed.json"
           git diff --check
           git status --short
