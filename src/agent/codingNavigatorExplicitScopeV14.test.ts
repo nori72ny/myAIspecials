@@ -1,10 +1,16 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
 import type { CodingDiscoveryContext } from './codingSessionV14.js';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog.js';
+
+// Keep provider-policy unit tests deterministic as real evidence deadlines advance.
+const originalDateNow = Date.now;
+Date.now = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+afterAll(() => { Date.now = originalDateNow; });
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
