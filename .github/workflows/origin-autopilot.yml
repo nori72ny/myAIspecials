@@ -14,7 +14,7 @@ on:
         required: true
         type: string
 
-# Read-only by default; write permissions are scoped to the single publishing job.
+# Read-only artifact-only workflow: generated patches are never pushed or published automatically.
 permissions: read-all
 
 concurrency:
@@ -34,12 +34,9 @@ jobs:
        startsWith(github.event.comment.body, '/origin-autopilot'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    outputs:
-      branch: ${{ steps.task.outputs.branch }}
     permissions:
       contents: read
     env:
-      TASK_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
       TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
       ORIGIN_AUTOPILOT_MODEL: qwen/qwen3-coder:free
     steps:
