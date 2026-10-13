@@ -15,7 +15,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: write
 
@@ -119,9 +119,9 @@ jobs:
             });
             if (!response.ok) throw new Error('AUTOPILOT_BLOCKED: provider request failed; no fallback attempted');
             const data = await response.json();
-            if (data.model !== model || data.usage?.is_byok === true) throw new Error('AUTOPILOT_BLOCKED: unexpected model or BYOK route');
+            if (data.model !== model || data.usage?.is_byok !== false) throw new Error('AUTOPILOT_BLOCKED: unexpected model or BYOK status');
             const usage = data.usage;
-            if (usage && Number(usage.cost ?? 0) !== 0) throw new Error('AUTOPILOT_BLOCKED: non-zero usage cost');
+            if (!usage || usage.cost == null || Number(usage.cost) !== 0) throw new Error('AUTOPILOT_BLOCKED: response did not explicitly prove zero cost');
             return { text: data.choices?.[0]?.message?.content ?? '', finish: data.choices?.[0]?.finish_reason ?? 'unknown', usage };
           }
           const original = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
