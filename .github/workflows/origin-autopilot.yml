@@ -156,6 +156,14 @@ jobs:
                 execFileSync('git', ['clean', '-fd']);
                 throw new Error('AUTOPILOT_BLOCKED: patch changed a forbidden path');
               }
+              // Freeze the exact patch contents in the index BEFORE tests run.
+              // The publish step must never stage test-generated or post-test modifications.
+              execFileSync('git', ['add', '--', ...changed]);
+              execFileSync('git', ['diff', '--cached', '--check'], { stdio: 'inherit' });
+              const stagedBeforeTests = listNames(['diff', '--cached', '--name-only', '-z']).sort();
+              if (JSON.stringify(stagedBeforeTests) !== JSON.stringify(changed)) {
+                throw new Error('AUTOPILOT_BLOCKED: staged patch differs from the allowlisted patch');
+              }
               const testEnv = { ...process.env }; delete testEnv.OPENROUTER_API_KEY; delete testEnv.GH_TOKEN; delete testEnv.TASK_TEXT;
               const typecheck = spawnSync('npm', ['run', 'typecheck'], { encoding: 'utf8', timeout: 8 * 60 * 1000, env: testEnv });
               const tests = typecheck.status === 0 ? spawnSync('npm', ['test', '--', '--run'], { encoding: 'utf8', timeout: 12 * 60 * 1000, env: testEnv }) : null;
@@ -191,7 +199,6 @@ jobs:
           set -euo pipefail
           git config user.name "ORIGIN Auto-Pilot"
           git config user.email "origin-autopilot[bot]@users.noreply.github.com"
-          git add src tests scripts
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { execFileSync } from 'node:child_process';
@@ -202,6 +209,8 @@ jobs:
           if (!staged.length || staged.some(p => !allowed(p)) || JSON.stringify(staged) !== JSON.stringify(approved)) {
             throw new Error('AUTOPILOT_BLOCKED: staged paths differ from the validated patch path set');
           }
+          // Refuse if tests or later steps changed any tracked file after the tested index was frozen.
+          execFileSync('git', ['diff', '--exit-code'], { stdio: 'inherit' });
           execFileSync('git', ['diff', '--cached', '--check'], { stdio: 'inherit' });
           NODE
           git commit -m "autopilot: implement owner-requested task"
