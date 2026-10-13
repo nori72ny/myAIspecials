@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  autonomous-task:
+  generate-and-test:
     # Only the repository owner can start this workflow. For issue_comment,
     # require an explicit command; ordinary conversation never executes code.
     if: >-
@@ -34,10 +34,10 @@ jobs:
        startsWith(github.event.comment.body, '/origin-autopilot'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      branch: ${{ steps.task.outputs.branch }}
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+      contents: read
     env:
       TASK_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
       TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
@@ -184,51 +184,135 @@ jobs:
           }
           throw new Error('AUTOPILOT_FAILED: tests did not pass after initial attempt and three repairs');
           NODE
-      - name: Confirm tests and changed-file allowlist before publishing
+      - name: Freeze validated patch artifact (no publishing credentials in this job)
+        if: success()
         shell: bash
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/origin-autopilot-changed.json"
-          git diff --check
-          git status --short
-      - name: Commit and push isolated branch
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const root = process.env.RUNNER_TEMP + '/origin-autopilot-artifact';
+          fs.mkdirSync(root, { recursive: true });
+          const run = (args) => execFileSync('git', args, { encoding: 'buffer' }).toString('utf8').split('\0').filter(Boolean).sort();
+          const approved = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-changed.json', 'utf8')).sort();
+          const allowed = (p) => typeof p === 'string' && /^(src|tests|scripts)\/[A-Za-z0-9._/-]+$/.test(p) &&
+            !p.split('/').some(part => part === '.' || part === '..') &&
+            !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+          if (!approved.length || approved.some(p => !allowed(p))) throw new Error('AUTOPILOT_BLOCKED: invalid manifest path');
+          const staged = run(['diff', '--cached', '--name-only', '-z']);
+          if (JSON.stringify(staged) !== JSON.stringify(approved)) throw new Error('AUTOPILOT_BLOCKED: tested index differs from manifest');
+          execFileSync('git', ['diff', '--exit-code'], { stdio: 'inherit' });
+          execFileSync('git', ['diff', '--cached', '--check'], { stdio: 'inherit' });
+          const patch = execFileSync('git', ['diff', '--cached', '--binary', 'HEAD'], { encoding: 'buffer' });
+          if (!patch.length) throw new Error('AUTOPILOT_BLOCKED: empty patch');
+          fs.writeFileSync(root + '/patch.diff', patch);
+          fs.writeFileSync(root + '/changed.json', JSON.stringify(approved) + '\n');
+          NODE
+      - name: Upload validated patch and manifest
         if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origin-autopilot-patch-${ github.run_id }}
+          path: ${ runner.temp }}/origin-autopilot-artifact/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-reviewed-patch:
+    needs: generate-and-test
+    if: needs.generate-and-test.result == 'success' && needs.generate-and-test.outputs.branch != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      TASK_ISSUE: ${ github.event.issue.number || inputs.issue_number }}
+      TASK_BRANCH: ${ needs.generate-and-test.outputs.branch }}
+    steps:
+      - name: Checkout trusted default branch without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Download patch artifact (never execute artifact content)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: origin-autopilot-patch-${ github.run_id }}
+          path: ${ runner.temp }}/origin-autopilot-artifact
+      - name: Validate manifest and patch paths before applying
+        shell: bash
         run: |
           set -euo pipefail
-          git config user.name "ORIGIN Auto-Pilot"
-          git config user.email "origin-autopilot[bot]@users.noreply.github.com"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const root = process.env.RUNNER_TEMP + '/origin-autopilot-artifact';
+          const manifest = JSON.parse(fs.readFileSync(root + '/changed.json', 'utf8'));
+          const patch = fs.readFileSync(root + '/patch.diff', 'utf8');
+          const allowed = (p) => typeof p === 'string' && /^(src|tests|scripts)\/[A-Za-z0-9._/-]+$/.test(p) &&
+            !p.split('/').some(part => part === '.' || part === '..') &&
+            !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+          if (!Array.isArray(manifest) || !manifest.length || manifest.some(p => !allowed(p))) throw new Error('AUTOPILOT_BLOCKED: invalid artifact manifest');
+          const listed = [];
+          for (const line of patch.split('\n')) {
+            if (!line.startsWith('diff --git ')) continue;
+            const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+            if (!match || match[1] !== match[2] || !allowed(match[1])) throw new Error('AUTOPILOT_BLOCKED: unsafe patch header');
+            listed.push(match[1]);
+          }
+          const unique = [...new Set(listed)].sort();
+          const expected = [...new Set(manifest)].sort();
+          if (!unique.length || JSON.stringify(unique) !== JSON.stringify(expected)) throw new Error('AUTOPILOT_BLOCKED: patch and manifest differ');
+          if (!patch.startsWith('diff --git ')) throw new Error('AUTOPILOT_BLOCKED: malformed patch');
+          NODE
+      - name: Apply validated patch without executing generated code
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check "$RUNNER_TEMP/origin-autopilot-artifact/patch.diff"
+          git apply "$RUNNER_TEMP/origin-autopilot-artifact/patch.diff"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { execFileSync } from 'node:child_process';
           const run = (args) => execFileSync('git', args, { encoding: 'buffer' }).toString('utf8').split('\0').filter(Boolean).sort();
-          const approved = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-changed.json', 'utf8')).sort();
-          const staged = run(['diff', '--cached', '--name-only', '-z']);
-          const allowed = (p) => /^(src|tests|scripts)\//.test(p) && !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
-          if (!staged.length || staged.some(p => !allowed(p)) || JSON.stringify(staged) !== JSON.stringify(approved)) {
-            throw new Error('AUTOPILOT_BLOCKED: staged paths differ from the validated patch path set');
-          }
-          // Refuse if tests or later steps changed any tracked file after the tested index was frozen.
-          execFileSync('git', ['diff', '--exit-code'], { stdio: 'inherit' });
+          const manifest = [...new Set(JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-artifact/changed.json', 'utf8')))].sort();
+          const actual = [...new Set([...run(['diff', '--name-only', '-z']), ...run(['ls-files', '--others', '--exclude-standard', '-z'])])].sort();
+          if (JSON.stringify(actual) !== JSON.stringify(manifest)) throw new Error('AUTOPILOT_BLOCKED: applied patch differs from tested manifest');
+          const allowed = (p) => /^(src|tests|scripts)\/[A-Za-z0-9._/-]+$/.test(p) &&
+            !p.split('/').some(part => part === '.' || part === '..') &&
+            !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+          if (!actual.length || actual.some(p => !allowed(p))) throw new Error('AUTOPILOT_BLOCKED: forbidden applied path');
+          execFileSync('git', ['add', '--', ...actual]);
           execFileSync('git', ['diff', '--cached', '--check'], { stdio: 'inherit' });
+          const staged = run(['diff', '--cached', '--name-only', '-z']);
+          if (JSON.stringify(staged) !== JSON.stringify(manifest)) throw new Error('AUTOPILOT_BLOCKED: staged paths differ from manifest');
           NODE
-          git commit -m "autopilot: implement owner-requested task"
-          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "${{ steps.task.outputs.branch }}"
-      - name: Open PR and notify the originating issue
-        if: success()
+      - name: Commit and push isolated branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          PR_URL="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "${{ steps.task.outputs.branch }}" --title "autopilot: owner-requested task" --body "## ORIGIN Auto-Pilot\n\n- Generated on an isolated branch from an owner-only task.\n- `npm run typecheck` and `npm test` passed in the isolated runner.\n- Model: `qwen/qwen3-coder:free`; no paid fallback.\n- ZDR routing was requested on each inference.\n- This PR does not deploy or change production defaults.\n- Human review and protected-branch CI are still required.")
-          printf 'PR_URL=%s\n' "$PR_URL" >> "$GITHUB_ENV"
-          gh issue comment "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --body "社長、完了しました。プレビューはこちらです。\n\nPR: $PR_URL\n\nプレビューが Vercel から発行されるまで PR の Checks / Deployments を確認してください。本番公開してよろしければ承認と返信してください。"
-      - name: Publish sanitized failure notice
-        if: failure() && github.event_name == 'issue_comment'
+          git config user.name "ORIGIN Auto-Pilot"
+          git config user.email "origin-autopilot[bot]@users.noreply.github.com"
+          git commit -m "autopilot: implement owner-requested task"
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "$TASK_BRANCH"
+      - name: Open PR and notify the originating issue
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${ github.token }}
         shell: bash
         run: |
-          gh issue comment "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --body "ORIGIN Auto-Pilot は安全ゲートまたは検証により停止しました。詳細ログには機密情報を含めず、原因コードを確認してください。本番設定は変更していません。"
+          set -euo pipefail
+          PR_URL="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$TASK_BRANCH" --title "autopilot: owner-requested task" --body "## ORIGIN Auto-Pilot
+
+          - Generated and tested in a separate read-only job.
+          - Publisher validates patch paths and manifest, and never executes generated code.
+          - \`npm run typecheck\` and \`npm test\` passed in the isolated runner.
+          - Model: \`qwen/qwen3-coder:free\`; no paid fallback.
+          - ZDR routing was requested on each inference.
+          - This PR does not deploy or change production defaults.
+          - Human review and protected-branch CI are still required.")
+          gh issue comment "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --body "ORIGIN Auto-Pilot の検証済み変更をPRにしました: $PR_URL
+
+          PRのCIとレビューを確認してください。本番公開は自動実行しません。"
