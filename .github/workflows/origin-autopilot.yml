@@ -141,10 +141,19 @@ jobs:
               lastFailure = 'Patch was not applicable.';
             } else {
               execFileSync('git', ['apply', process.env.RUNNER_TEMP + '/origin-autopilot.patch']);
-              const changed = execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-              const allowed = changed.length > 0 && changed.every(p => /^(src|tests|scripts)\//.test(p) && !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p));
+              // Include both tracked diffs and untracked files; git diff alone misses new files.
+              const listNames = (args) => execFileSync('git', args, { encoding: 'buffer' })
+                .toString('utf8').split('\0').filter(Boolean);
+              const changed = [...new Set([
+                ...listNames(['diff', '--name-only', '-z']),
+                ...listNames(['ls-files', '--others', '--exclude-standard', '-z']),
+              ])].sort();
+              const isAllowedPath = (p) => /^(src|tests|scripts)\//.test(p) &&
+                !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+              const allowed = changed.length > 0 && changed.every(isAllowedPath);
               if (!allowed) {
                 execFileSync('git', ['reset', '--hard', 'HEAD']);
+                execFileSync('git', ['clean', '-fd']);
                 throw new Error('AUTOPILOT_BLOCKED: patch changed a forbidden path');
               }
               const testEnv = { ...process.env }; delete testEnv.OPENROUTER_API_KEY; delete testEnv.GH_TOKEN; delete testEnv.TASK_TEXT;
@@ -158,6 +167,8 @@ jobs:
               lastFailure = (typecheck.status !== 0 ? typecheck.stdout + '\n' + typecheck.stderr : '') + (tests && tests.status !== 0 ? tests.stdout + '\n' + tests.stderr : '');
               lastFailure = lastFailure.slice(-10000);
               execFileSync('git', ['reset', '--hard', 'HEAD']);
+              // The runner starts from a clean checkout; remove patch-created untracked files before repair.
+              execFileSync('git', ['clean', '-fd']);
             }
             if (attempt === 3) break;
             messages.push({ role: 'assistant', content: result.text });
@@ -168,6 +179,7 @@ jobs:
       - name: Confirm tests and changed-file allowlist before publishing
         shell: bash
         run: |
+          set -euo pipefail
           set -euo pipefail
           test -s "$RUNNER_TEMP/origin-autopilot-changed.json"
           git diff --check
@@ -181,6 +193,18 @@ jobs:
           git config user.name "ORIGIN Auto-Pilot"
           git config user.email "origin-autopilot[bot]@users.noreply.github.com"
           git add src tests scripts
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const run = (args) => execFileSync('git', args, { encoding: 'buffer' }).toString('utf8').split('\0').filter(Boolean).sort();
+          const approved = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-changed.json', 'utf8')).sort();
+          const staged = run(['diff', '--cached', '--name-only', '-z']);
+          const allowed = (p) => /^(src|tests|scripts)\//.test(p) && !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+          if (!staged.length || staged.some(p => !allowed(p)) || JSON.stringify(staged) !== JSON.stringify(approved)) {
+            throw new Error('AUTOPILOT_BLOCKED: staged paths differ from the validated patch path set');
+          }
+          execFileSync('git', ['diff', '--cached', '--check'], { stdio: 'inherit' });
+          NODE
           git commit -m "autopilot: implement owner-requested task"
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push origin "${{ steps.task.outputs.branch }}"
       - name: Open PR and notify the originating issue
