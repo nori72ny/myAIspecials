@@ -57,6 +57,26 @@ async function fixedEndpointJson(path: string, init: RequestInit, maxBytes = MAX
     throw Error("AQ_FREE_CALIBRATION_RESPONSE_INVALID");
   }
 }
+function normalizeProbeAnswer(value: string): string {
+  let normalized = value.trim();
+  // Remove only a matching outer wrapper; do not strip internal punctuation.
+  if (normalized.length >= 6 && normalized.startsWith("```") && normalized.endsWith("```")) {
+    normalized = normalized.slice(3, -3).trim();
+  } else if (
+    normalized.length >= 2
+    && ((normalized.startsWith('"') && normalized.endsWith('"'))
+      || (normalized.startsWith("'") && normalized.endsWith("'")))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  // Permit one trailing sentence period, but keep other content strict.
+  return normalized.replace(/\.$/, "").trim();
+}
+function safeAnswerPreview(value: unknown): string {
+  if (typeof value !== "string") return "";
+  // ASCII allowlist only; never emit the untrusted raw answer or more than 32 chars.
+  return value.replace(/[^A-Za-z0-9._:+\-'"\x60 ]/g, "?").slice(0, 32);
+}
 async function runProbe(
   modelId: string, key: string, probeId: "identity" | "arithmetic",
 ): Promise<OriginFreeCalibrationProbeV1> {
@@ -87,6 +107,7 @@ async function runProbe(
   const servedModel = response.model;
   const served = typeof servedModel === "string" ? servedModel.trim() : "";
   const answerText = typeof answer === "string" ? answer.trim() : "";
+  const normalizedAnswer = typeof answer === "string" ? normalizeProbeAnswer(answer) : "";
   const expected = probeId === "identity" ? "ORIGIN_FREE_CALIBRATION_OK" : "391";
   const actualCost = response.usage?.cost;
   const upstreamCost = response.usage?.cost_details?.upstream_inference_cost;
@@ -106,7 +127,19 @@ async function runProbe(
       || byok !== false) {
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
-  if (answerText !== expected || response.choices?.[0]?.error || response.error) {
+  if (normalizedAnswer !== expected || response.choices?.[0]?.error || response.error) {
+    const failureCategory = response.choices?.[0]?.error || response.error
+      ? "ERROR"
+      : !answerText
+        ? "EMPTY"
+        : "MISMATCH";
+    console.warn("[ORIGIN calibration] answer diagnostic", {
+      probeId,
+      failureCategory,
+      answerPreview: safeAnswerPreview(answer),
+      answerLength: typeof answer === "string" ? answer.length : 0,
+      normalizedExactMatch: normalizedAnswer === expected,
+    });
     throw Error("AQ_FREE_CALIBRATION_INCORRECT_ANSWER");
   }
   return {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,12 @@ import type { CodingCheck } from './codingSessionV14.js';
 import type { CodingJobCompletionStatusV14, CodingJobPublicRecordV14 } from './supabaseCodingJobStoreV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog.js';
+
+// Keep provider-policy unit tests deterministic as real evidence deadlines advance.
+const originalDateNow = Date.now;
+Date.now = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+afterAll(() => { Date.now = originalDateNow; });
 
 const roots: string[] = [];
 const kinds = ['typecheck', 'lint', 'test', 'build'] as const;

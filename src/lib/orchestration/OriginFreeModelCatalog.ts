@@ -20,10 +20,10 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-10-03T05:21:56.844Z",
-    reviewAfter: "2026-10-13T05:21:56.843Z",
+    verifiedAt: "2026-10-13T13:40:00.000Z",
+    reviewAfter: "2026-10-23T13:40:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model, provider-directory, and ZDR documentation were rechecked on 2026-09-29 JST: the fixed inclusionai/ling-3.0-flash-sante:free route remains listed as Free, the eligible NovitaAI endpoint is marked no-training and zero-retention, and OpenRouter documents provider.zdr=true for restricting routing to ZDR endpoints. Runtime separately requires data-collection deny, ZDR, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
+    sourceDescription: "OpenRouter official model page was rechecked on 2026-10-13: the fixed inclusionai/ling-3.0-flash-sante:free alias is listed as Free and supports tool calling. This review timestamp is not, by itself, proof of a specific live ZDR endpoint or a billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
   },
 ] as const;
 

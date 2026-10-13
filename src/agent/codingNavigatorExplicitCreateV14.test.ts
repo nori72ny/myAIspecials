@@ -2,11 +2,17 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
 import type { CodingDiscoveryContext } from './codingSessionV14.js';
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import { ORIGIN_OPENROUTER_FREE_MODEL, DEFAULT_ORIGIN_PROVIDER_DATA_POLICY } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog.js';
+
+// Keep provider-policy unit tests deterministic as real evidence deadlines advance.
+const originalDateNow = Date.now;
+Date.now = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+afterAll(() => { Date.now = originalDateNow; });
 
 const result = (text: string): OriginProviderExecutionResult => ({
   text,
