@@ -37,7 +37,6 @@ jobs:
     permissions:
       contents: read
     env:
-      TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
       TASK_ISSUE: ${{ inputs.issue_number || github.event.issue.number }}
       ORIGIN_AUTOPILOT_MODEL: qwen/qwen3-coder:free
     steps:
@@ -75,6 +74,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Create isolated task branch and save task
         id: task
+        env:
+          TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
         shell: bash
         run: |
           set -euo pipefail
