@@ -38,6 +38,7 @@ jobs:
       contents: read
     env:
       TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
+      TASK_ISSUE: ${{ inputs.issue_number || github.event.issue.number }}
       ORIGIN_AUTOPILOT_MODEL: qwen/qwen3-coder:free
     steps:
       - name: Checkout trusted default branch without persisted credentials
