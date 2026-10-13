@@ -154,7 +154,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     });
     expect(state.aborted).toBe(true);
     expect(state.requests).toHaveLength(2);
-    expect(state.requests?.map((request) => request.model)).toEqual(['inclusionai/ling-3.0-flash-sante:free', 'inclusionai/ling-3.0-flash-sante:free']);
+    expect(state.requests?.map((request) => request.model)).toEqual(['apodex/apodex-1.1-mini:free', 'apodex/apodex-1.1-mini:free']);
     expect(state.requests?.[1]?.messages.at(-1)?.content).toContain('落ち着いたネイビーに変更');
     expect(state.requests?.[1]?.messages.at(-1)?.content).toContain('Original draft');
   });
@@ -554,7 +554,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
   });
 
   test('discards paid successful responses and shows a zero-cost safe-waiting state', async ({ page }) => {
-    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    const model = 'apodex/apodex-1.1-mini:free';
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
       contentType: 'application/json',
