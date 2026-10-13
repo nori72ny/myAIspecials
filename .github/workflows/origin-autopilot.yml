@@ -146,8 +146,13 @@ jobs:
                 ...listNames(['diff', '--name-only', '-z']),
                 ...listNames(['ls-files', '--others', '--exclude-standard', '-z']),
               ])].sort();
-              const isAllowedPath = (p) => /^(src|tests|scripts)\//.test(p) &&
-                !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+              const isAllowedPath = (p) => {
+                if (!/^(src|tests|scripts)\//.test(p)) return false;
+                // Auto-Pilot must not modify core model routing, cost, privacy, or orchestration policy.
+                if (/^src\/lib\/(orchestration|providers?|ai)\//i.test(p)) return false;
+                if (/^src\/[^/]*?(model|provider|pricing|cost|fallback|quota|zdr|privacy|policy)[^/]*$/i.test(p)) return false;
+                return !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
+              };
               const allowed = changed.length > 0 && changed.every(isAllowedPath);
               if (!allowed) {
                 execFileSync('git', ['reset', '--hard', 'HEAD']);
@@ -196,6 +201,8 @@ jobs:
           const approved = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-changed.json', 'utf8')).sort();
           const allowed = (p) => typeof p === 'string' && /^(src|tests|scripts)\/[A-Za-z0-9._/-]+$/.test(p) &&
             !p.split('/').some(part => part === '.' || part === '..') &&
+            !/^src\/lib\/(orchestration|providers?|ai)\//i.test(p) &&
+            !/^src\/[^/]*?(model|provider|pricing|cost|fallback|quota|zdr|privacy|policy)[^/]*$/i.test(p) &&
             !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
           if (!approved.length || approved.some(p => !allowed(p))) throw new Error('AUTOPILOT_BLOCKED: invalid manifest path');
           const staged = run(['diff', '--cached', '--name-only', '-z']);
