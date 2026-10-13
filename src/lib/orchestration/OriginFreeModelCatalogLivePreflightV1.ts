@@ -49,13 +49,25 @@ function isExactZero(value: unknown): boolean {
   return value === 0 || (typeof value === "string" && ZERO.test(value));
 }
 function priceIsZero(row: OriginFreeCatalogRowV1): boolean {
-  // OpenRouter's public catalog commonly omits request price. Permit an
-  // *inference calibration candidate* if prompt/completion are exactly $0;
-  // any nonzero/unknown *present* request price fails closed. A real inference
-  // MUST still enforce provider.max_price.request=0 and verify billing receipts.
-  return isExactZero(row.pricing?.prompt)
-    && isExactZero(row.pricing?.completion)
-    && (row.pricing?.request === undefined || isExactZero(row.pricing.request));
+  // OpenRouter's catalog may omit per-request pricing. Prompt and completion
+  // must always be explicit zero; request may be absent/undefined only. Every
+  // other present price category must also be exactly zero.
+  const pricing = row.pricing;
+  if (!pricing || !isExactZero(pricing.prompt) || !isExactZero(pricing.completion)) {
+    return false;
+  }
+  return Object.entries(pricing).every(([key, value]) =>
+    (key === "request" && value === undefined) || isExactZero(value));
+}
+function freeModelBaseId(modelId: string): string {
+  return modelId.replace(/:free$/i, "");
+}
+/** ZDR records may identify the base model without OpenRouter's :free alias. */
+function matchesZdrModelId(endpointModelId: unknown, requestedFreeModelId: string): boolean {
+  if (typeof endpointModelId !== "string" || !MODEL.test(requestedFreeModelId)) return false;
+  const endpointId = endpointModelId.toLowerCase();
+  const requestedId = requestedFreeModelId.toLowerCase();
+  return endpointId === requestedId || endpointId === freeModelBaseId(requestedId);
 }
 function rows(value: OriginFreeCatalogPayloadV1): OriginFreeCatalogRowV1[] | null {
   if (!value || !Array.isArray(value.data) || value.data.length > 512) return null;
@@ -81,7 +93,7 @@ export function auditOriginLiveFreeModelCatalogV1(
     : [];
   if (search && zdr && MODEL.test(modelId)) {
     const seen = search.filter(r => r.id === modelId);
-    const zeroZdr = zdr.filter(r => r.id === modelId);
+    const zeroZdr = zdr.filter(r => matchesZdrModelId(r.id, modelId));
     if (seen.length > 1 || zeroZdr.length > 1) {
       blockers.push("AQ_FREE_MODEL_CATALOG_DUPLICATE");
     }
@@ -109,8 +121,8 @@ export function auditOriginLiveFreeModelCatalogV1(
     catalogRequestPriceKnownZero: Boolean(search?.length === 1 && zdr?.length > 0
       && search[0].id === modelId && search[0].pricing?.request !== undefined
       && isExactZero(search[0].pricing.request)
-      && zdr.some(row => row.id === modelId && row.pricing?.request !== undefined
-        && isExactZero(row.pricing.request))),
+      && zdr.some(row => matchesZdrModelId(row.id, modelId)
+        && row.pricing?.request !== undefined && isExactZero(row.pricing.request))),
     liveInferenceVerified: false,
     billingReceiptsVerified: false,
     productionPromotionAllowed: false,
@@ -227,15 +239,16 @@ export function auditOriginLiveFreeZdrEndpointsV1(input: {
   }
   if (!invalid && MODEL.test(modelId)) {
     for (const entry of raw as Record<string, unknown>[]) {
-      if (entry.model_id !== modelId) continue;
+      if (!matchesZdrModelId(entry.model_id, modelId)) continue;
       const prices = entry.pricing;
       if (!prices || typeof prices !== "object" || Array.isArray(prices)) continue;
       const pricing = prices as Record<string, unknown>;
-      // Refuse missing price fields *or* any extra nonzero/unknown category,
-      // including cache and per-request charges hidden by model-level listings.
+      // Prompt/completion must be explicit zero. Request pricing may be
+      // omitted/undefined by OpenRouter; if present it must be exactly zero.
+      // All other present price categories (including cache charges) must be zero.
       if (!isExactZero(pricing.prompt) || !isExactZero(pricing.completion)
-        || !isExactZero(pricing.request)
-        || !Object.values(pricing).every(isExactZero)) continue;
+        || !Object.entries(pricing).every(([key, value]) =>
+          (key === "request" && value === undefined) || isExactZero(value))) continue;
       if (entry.status !== 0
         || typeof entry.provider_name !== "string"
         || !entry.provider_name.trim()
