@@ -97,7 +97,10 @@ async function runProbe(
         { role: "system", content: "Answer exactly, without explanation. Public synthetic test only." },
         { role: "user", content: prompt },
       ],
-      max_tokens: 64,
+      // Keep the response budget bounded but leave room for providers that
+      // account for hidden reasoning tokens within the completion budget.
+      // Still exactly two calls; zero-price/ZDR/no-fallback gates remain mandatory.
+      max_tokens: 256,
       temperature: 0,
       usage: { include: true },
       provider: POLICY,
@@ -128,16 +131,41 @@ async function runProbe(
     throw Error("AQ_FREE_CALIBRATION_COST_NOT_VERIFIED_ZERO");
   }
   if (normalizedAnswer !== expected || response.choices?.[0]?.error || response.error) {
+    const choice = response.choices?.[0];
+    const message = choice?.message;
+    const finishReasonRaw = choice?.finish_reason;
+    const finishReason = ["stop", "length", "content_filter", "tool_calls", "function_call"]
+      .includes(finishReasonRaw) ? finishReasonRaw : finishReasonRaw == null ? "missing" : "other";
+    const contentType = answer == null ? (answer === null ? "null" : "missing")
+      : typeof answer === "string" ? "string"
+      : Array.isArray(answer) ? "array" : typeof answer;
+    const completionTokens = response.usage?.completion_tokens;
+    const reasoningTokens = response.usage?.completion_tokens_details?.reasoning_tokens;
     const failureCategory = response.choices?.[0]?.error || response.error
       ? "ERROR"
       : !answerText
-        ? "EMPTY"
+        ? (finishReason === "length" ? "EMPTY_LENGTH_LIMIT"
+          : typeof message?.reasoning === "string" && message.reasoning.length > 0
+            ? "EMPTY_CONTENT_WITH_REASONING"
+            : "EMPTY")
         : "MISMATCH";
+    // Structural metadata only: never log reasoning text, full response bodies,
+    // provider error messages, prompts, credentials, or raw content.
     console.warn("[ORIGIN calibration] answer diagnostic", {
       probeId,
       failureCategory,
-      answerPreview: safeAnswerPreview(answer),
+      finishReason,
+      usagePresent: Boolean(response.usage),
+      completionTokens: Number.isSafeInteger(completionTokens) ? completionTokens : null,
+      reasoningTokens: Number.isSafeInteger(reasoningTokens) ? reasoningTokens : null,
+      promptTokens: Number.isSafeInteger(response.usage?.prompt_tokens) ? response.usage.prompt_tokens : null,
+      answerContentType: contentType,
       answerLength: typeof answer === "string" ? answer.length : 0,
+      messageHasReasoning: typeof message?.reasoning === "string" && message.reasoning.length > 0,
+      reasoningLength: typeof message?.reasoning === "string" ? message.reasoning.length : 0,
+      messageHasReasoningDetails: Array.isArray(message?.reasoning_details) && message.reasoning_details.length > 0,
+      responseHasError: Boolean(response.error),
+      choiceHasError: Boolean(choice?.error),
       normalizedExactMatch: normalizedAnswer === expected,
     });
     throw Error("AQ_FREE_CALIBRATION_INCORRECT_ANSWER");
