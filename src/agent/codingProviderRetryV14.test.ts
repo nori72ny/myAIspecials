@@ -1,8 +1,14 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { createBoundedCodingProviderExecuteV14 } from './codingProviderRetryV14.js';
 import type { OriginProviderExecutionRequest } from '../legacy/originProviderClient.js';
 import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog.js';
+
+// Keep provider-policy unit tests deterministic as real evidence deadlines advance.
+const originalDateNow = Date.now;
+Date.now = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+afterAll(() => { Date.now = originalDateNow; });
 
 const selected = buildOriginExecutionPlan(
   { goal: 'Create a fail-closed probe', taskType: 'implementation', requiresCodeChanges: true },
