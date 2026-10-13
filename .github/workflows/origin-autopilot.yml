@@ -37,8 +37,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      GH_TOKEN: ${{ github.token }}
       TASK_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
       TASK_TEXT: ${{ inputs.task || github.event.comment.body }}
       ORIGIN_AUTOPILOT_MODEL: qwen/qwen3-coder:free
@@ -54,6 +52,8 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Verify owner, task, free pricing, and ZDR routing policy
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +88,8 @@ jobs:
           echo "Task accepted from owner command; branch isolated."
       - name: Generate and validate patch with bounded self-repair (max 3 repairs)
         id: repair
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -143,8 +145,9 @@ jobs:
                 execFileSync('git', ['reset', '--hard', 'HEAD']);
                 throw new Error('AUTOPILOT_BLOCKED: patch changed a forbidden path');
               }
-              const typecheck = spawnSync('npm', ['run', 'typecheck'], { encoding: 'utf8', timeout: 8 * 60 * 1000 });
-              const tests = typecheck.status === 0 ? spawnSync('npm', ['test', '--', '--run'], { encoding: 'utf8', timeout: 12 * 60 * 1000 }) : null;
+              const testEnv = { ...process.env }; delete testEnv.OPENROUTER_API_KEY; delete testEnv.GH_TOKEN; delete testEnv.TASK_TEXT;
+              const typecheck = spawnSync('npm', ['run', 'typecheck'], { encoding: 'utf8', timeout: 8 * 60 * 1000, env: testEnv });
+              const tests = typecheck.status === 0 ? spawnSync('npm', ['test', '--', '--run'], { encoding: 'utf8', timeout: 12 * 60 * 1000, env: testEnv }) : null;
               if (typecheck.status === 0 && tests?.status === 0) {
                 fs.writeFileSync(process.env.RUNNER_TEMP + '/origin-autopilot-changed.json', JSON.stringify(changed));
                 console.log(JSON.stringify({ result: 'tests_passed', attempt: attempt + 1, changedFiles: changed.length, typecheck: 'pass', tests: 'pass', model: result.text ? model : 'none', cost: result.usage?.cost ?? 'unreported' }));
