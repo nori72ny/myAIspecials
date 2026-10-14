@@ -149,4 +149,38 @@ describe("shared AQ live provider quota guard", () => {
       includeCurrentRunReservations: false,
     }))).resolves.toBeNull();
   });
+  it("paginates beyond the first 100 runs to find an older active reservation", async () => {
+    const recentRuns = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      created_at: new Date(NOW - 60_000).toISOString(),
+    }));
+    const olderRun = {
+      id: 101,
+      created_at: new Date(NOW - 86_500_000).toISOString(),
+    };
+    const fetchImpl = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+        if (url.includes("page=1")) return jsonResponse({ workflow_runs: recentRuns });
+        if (url.includes("page=2")) return jsonResponse({ workflow_runs: [olderRun] });
+      }
+      const match = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
+      if (match) {
+        const runId = Number(match[1]);
+        return jsonResponse({
+          artifacts: runId === 101
+            ? [{ name: "aq-live-quota-reservation", created_at: RESERVED_AT }]
+            : [],
+        });
+      }
+      throw new Error("Unexpected GitHub API URL");
+    });
+
+    await expect(latestReservedAt(quotaArgs(fetchImpl))).resolves.toBe(RESERVED_AT);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("page=2"),
+      expect.any(Object),
+    );
+  });
+
 });
