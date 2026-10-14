@@ -231,11 +231,7 @@ describe("AQ live quota guard readiness", () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
-        const status = new URL(url).searchParams.get("status");
-        if (status === "in_progress") {
-          return response({ workflow_runs: [{ id: runId, status: "in_progress", created_at: "2026-09-17T00:00:00.000Z" }] });
-        }
-        return response({ workflow_runs: [] });
+        return response({ workflow_runs: [{ id: runId, status: "in_progress", created_at: "2026-09-17T00:00:00.000Z", updated_at: new Date(nowMs).toISOString() }] });
       }
       if (url.includes(`/actions/runs/${runId}/artifacts?`)) {
         const parsed = new URL(url);
