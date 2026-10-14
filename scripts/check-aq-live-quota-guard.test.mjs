@@ -56,7 +56,7 @@ describe("shared AQ live provider quota guard", () => {
           artifacts: [{ name: "aq-live-quota-reservation", created_at: RESERVED_AT }],
         });
       }
-      if (url.includes("/actions/workflows/") && url.endsWith("/runs?per_page=30")) {
+      if (url.includes("/actions/workflows/") && url.includes("/runs?per_page=100&page=1")) {
         return jsonResponse({ workflow_runs: [] });
       }
       throw new Error("Unexpected GitHub API URL");
