@@ -104,6 +104,7 @@ export async function latestReservedAt({
       if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
+    }
 
     // Process the whole page before stopping so even the first run older than
     // 24h is checked for an artifact created shortly after the run began.
