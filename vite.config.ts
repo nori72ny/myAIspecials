@@ -5,7 +5,6 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
 import {defineConfig, type Plugin} from 'vite';
-import {createOriginApp} from './src/server/createOriginApp';
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,7 +45,12 @@ function originPwaReleasePlugin(): Plugin {
 function originApiDevPlugin(): Plugin {
   return {
     name: 'origin-api-dev',
-    configureServer(server) {
+    async configureServer(server) {
+      // Load the production server graph only when the Vite dev server starts.
+      // Vitest imports this config too; an eager import needlessly loads the full
+      // application/server graph for every isolated test process and can amplify
+      // memory pressure during test collection.
+      const {createOriginApp} = await import('./src/server/createOriginApp');
       server.middlewares.use(createOriginApp());
     },
   };
