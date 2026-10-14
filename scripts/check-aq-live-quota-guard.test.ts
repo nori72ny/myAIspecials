@@ -29,7 +29,12 @@ function fetchWithReservation(
         return response({
           workflow_runs:
             createdAt && name === workflow
-              ? [{ id: 123, created_at: "2026-09-17T00:00:00.000Z" }]
+              ? [{
+                  id: 123,
+                  status: "completed",
+                  created_at: "2026-09-17T00:00:00.000Z",
+                  updated_at: new Date(nowMs).toISOString(),
+                }]
               : [],
         });
       }
@@ -116,7 +121,9 @@ describe("AQ live quota guard readiness", () => {
         return response({
           workflow_runs: [{
             id: Number(currentRunId),
+            status: "completed",
             created_at: "2026-09-17T00:00:00.000Z",
+            updated_at: new Date(nowMs).toISOString(),
           }],
         });
       }
@@ -155,21 +162,31 @@ describe("AQ live quota guard readiness", () => {
   it("paginates beyond the first 100 workflow runs to find an active reservation", async () => {
     const recentRuns = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
-      // A page can contain an old queued run while a later page still contains
-      // a run whose reservation artifact was uploaded recently.
+      status: "completed",
       created_at: new Date(nowMs - 60_000).toISOString(),
+      updated_at: new Date(nowMs - 60_000).toISOString(),
     }));
-    recentRuns[99].created_at = new Date(nowMs - 2 * 86_400_000).toISOString();
+    // Old queued runs must still be inspected because they can upload a
+    // reservation artifact after waiting in the queue for more than 24 hours.
+    recentRuns[99] = {
+      id: 100,
+      status: "queued",
+      created_at: new Date(nowMs - 3 * 86_400_000).toISOString(),
+      updated_at: new Date(nowMs - 3 * 86_400_000).toISOString(),
+    };
     const olderRun = {
       id: 101,
-      created_at: new Date(nowMs - 3 * 86_400_000).toISOString(),
+      status: "queued",
+      created_at: new Date(nowMs - 4 * 86_400_000).toISOString(),
+      updated_at: new Date(nowMs - 4 * 86_400_000).toISOString(),
     };
     const reservationAt = new Date(nowMs - 60_000).toISOString();
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
-        if (url.includes("page=1")) return response({ workflow_runs: recentRuns });
-        if (url.includes("page=2")) return response({ workflow_runs: [olderRun] });
+        const page = new URL(url).searchParams.get("page");
+        if (page === "1") return response({ workflow_runs: recentRuns });
+        if (page === "2") return response({ workflow_runs: [olderRun] });
       }
       const match = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
       if (match) {
