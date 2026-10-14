@@ -146,6 +146,10 @@ jobs:
           for (let attempt = 0; attempt <= 3; attempt++) {
             const result = await generate(messages);
             if (!result.text.trim()) throw new Error('AUTOPILOT_BLOCKED: model returned an empty patch');
+            // Bound untrusted model output before writing or applying it.
+            if (Buffer.byteLength(result.text, 'utf8') > 256 * 1024) {
+              throw new Error('AUTOPILOT_BLOCKED: generated patch exceeds 256 KiB');
+            }
             fs.writeFileSync(process.env.RUNNER_TEMP + '/origin-autopilot.patch', result.text);
             const check = spawnSync('git', ['apply', '--check', process.env.RUNNER_TEMP + '/origin-autopilot.patch'], { encoding: 'utf8' });
             if (check.status !== 0) {
@@ -159,6 +163,21 @@ jobs:
                 ...listNames(['diff', '--name-only', '-z']),
                 ...listNames(['ls-files', '--others', '--exclude-standard', '-z']),
               ])].sort();
+              if (changed.length > 40) {
+                execFileSync('git', ['reset', '--hard', 'HEAD']);
+                execFileSync('git', ['clean', '-fd']);
+                throw new Error('AUTOPILOT_BLOCKED: patch changes more than 40 files');
+              }
+              // Reject symlinks: a path under an allowed directory must not redirect writes or tests outside it.
+              const symlinks = changed.filter((p) => {
+                try { return fs.lstatSync(p).isSymbolicLink(); }
+                catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
+              });
+              if (symlinks.length) {
+                execFileSync('git', ['reset', '--hard', 'HEAD']);
+                execFileSync('git', ['clean', '-fd']);
+                throw new Error('AUTOPILOT_BLOCKED: symbolic links are not allowed in generated patches');
+              }
               const isAllowedPath = (p) => {
                 if (!/^(src|tests|scripts)\//.test(p)) return false;
                 // Auto-Pilot must not modify core model routing, cost, privacy, or orchestration policy.
