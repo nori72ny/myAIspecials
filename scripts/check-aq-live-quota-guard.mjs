@@ -52,11 +52,14 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  // Do not stop based on workflow-run timestamps: a queued run can create its
-  // reservation artifact much later. Only artifact.created_at determines quota age.
-  // Continue until the workflow-run listing is exhausted; API failures fail closed.
+  // Completed runs whose metadata is older than the quota window cannot contain
+  // a newer artifact: updated_at tracks the run's last state change. Always scan
+  // queued/in-progress runs, regardless of age, because they may upload later.
+  // API failures fail closed. Artifacts are paginated so a reservation is not
+  // hidden behind unrelated artifacts.
   let page = 1;
   let latest = null;
+  const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
 
   while (true) {
     const runsUrl =
@@ -66,17 +69,21 @@ export async function latestReservedAt({
     if (runs.length === 0) break;
 
     for (const run of runs) {
-    if (!run) continue;
-    if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+      if (!run) continue;
+      if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+      const active = run.status === "queued" || run.status === "in_progress";
+      const lastChangedMs = Date.parse(run.updated_at ?? run.created_at ?? "");
+      if (!active && (!Number.isFinite(lastChangedMs) || lastChangedMs < cutoffMs)) continue;
 
-    const artifactsUrl =
-      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
-    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts)
-      ? artifactsPayload.artifacts
-      : [];
-
-    for (const artifact of artifacts) {
+      let artifactPage = 1;
+      while (true) {
+        const artifactsUrl =
+          `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${artifactPage}`;
+        const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
+        const artifacts = Array.isArray(artifactsPayload?.artifacts)
+          ? artifactsPayload.artifacts
+          : [];
+        for (const artifact of artifacts) {
       if (
         !artifact
         || typeof artifact.name !== "string"
@@ -102,7 +109,10 @@ export async function latestReservedAt({
       const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
       if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
-    }
+        }
+        if (artifacts.length < 100) break;
+        artifactPage += 1;
+      }
     }
 
     if (runs.length < 100) break;
