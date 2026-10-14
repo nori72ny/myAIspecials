@@ -154,6 +154,14 @@ jobs:
                 if (/^src\/(?:[^/]+\/)*[^/]*?(model|provider|pricing|cost|fallback|quota|zdr|privacy|policy)[^/]*$/i.test(p)) return false;
                 return !/(^|\/)(auth|security|billing|production|deployment|secrets?)(\/|\.|$)/i.test(p);
               };
+              // Existing tests are trusted controls: the model may add new tests, but must not rewrite or delete existing tests to make its own patch pass.
+              const isTracked = (p) => spawnSync('git', ['ls-files', '--error-unmatch', '--', p], { stdio: 'ignore' }).status === 0;
+              const modifiedExistingTests = changed.filter((p) => p.startsWith('tests/') && isTracked(p));
+              if (modifiedExistingTests.length) {
+                execFileSync('git', ['reset', '--hard', 'HEAD']);
+                execFileSync('git', ['clean', '-fd']);
+                throw new Error('AUTOPILOT_BLOCKED: existing tests cannot be modified; add a new test file instead');
+              }
               const allowed = changed.length > 0 && changed.every(isAllowedPath);
               if (!allowed) {
                 execFileSync('git', ['reset', '--hard', 'HEAD']);
