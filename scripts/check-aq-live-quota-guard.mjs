@@ -77,7 +77,10 @@ export async function latestReservedAt({
     for (const run of runs) {
       if (!run) continue;
       if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
-      const active = run.status === "queued" || run.status === "in_progress";
+      // GitHub can hold runs in requested/pending/waiting states before execution.
+      // Treat every non-terminal queue state as active regardless of age so it
+      // cannot be skipped before it uploads a reservation artifact.
+      const active = ["queued", "in_progress", "requested", "pending", "waiting"].includes(run.status);
       const lastChangedMs = Date.parse(run.updated_at ?? run.created_at ?? "");
       // Completed-run timestamps determine whether artifact inspection can be
       // skipped. Invalid metadata cannot safely prove a run is outside the
@@ -104,10 +107,9 @@ export async function latestReservedAt({
             continue;
           }
 
-          // GitHub may retain expired artifacts in the listing. They cannot represent
-          // an active reservation; all valid reservations have a 2-day retention,
-          // longer than this 24-hour quota window.
-          if (artifact.expired === true) continue;
+          // Count matching reservations by created_at even when GitHub marks the
+          // artifact expired. Artifact availability/retention must not erase a quota
+          // reservation that was created inside the 24-hour window.
 
           const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
           const reservedMs = Date.parse(reservedAt);
