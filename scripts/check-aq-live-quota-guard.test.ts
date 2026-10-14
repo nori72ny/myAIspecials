@@ -258,6 +258,82 @@ describe("AQ live quota guard readiness", () => {
     expect(requestedPages).toContain("2");
   });
 
+  it("counts a recent reservation even when GitHub marks its artifact expired", async () => {
+    const previous = new Date(nowMs - 30_000).toISOString();
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+        return response({
+          workflow_runs: [{
+            id: 457,
+            status: "completed",
+            created_at: "2026-09-17T00:00:00.000Z",
+            updated_at: new Date(nowMs).toISOString(),
+          }],
+        });
+      }
+      if (url.includes("/actions/runs/457/artifacts?")) {
+        return response({
+          artifacts: [{
+            name: "aq-live-quota-reservation",
+            created_at: previous,
+            expired: true,
+          }],
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(latestReservedAt({
+      repository,
+      workflow: "aq-free-provider-calibration.yml",
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).resolves.toBe(previous);
+  });
+
+  it("checks old requested, pending, and waiting runs for late reservations", async () => {
+    const previous = new Date(nowMs - 30_000).toISOString();
+    const states = ["requested", "pending", "waiting"];
+    for (const [index, status] of states.entries()) {
+      const runId = 460 + index;
+      const fetchImpl = async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+          return response({
+            workflow_runs: [{
+              id: runId,
+              status,
+              created_at: "2026-09-17T00:00:00.000Z",
+              updated_at: "2026-09-17T00:00:00.000Z",
+            }],
+          });
+        }
+        if (url.includes(`/actions/runs/${runId}/artifacts?`)) {
+          return response({
+            artifacts: [{
+              name: "aq-live-quota-reservation",
+              created_at: previous,
+              expired: false,
+            }],
+          });
+        }
+        throw new Error(`unexpected URL: ${url}`);
+      };
+
+      await expect(latestReservedAt({
+        repository,
+        workflow: "aq-free-provider-calibration.yml",
+        currentRunId,
+        token,
+        nowMs,
+        fetchImpl: fetchImpl as typeof fetch,
+      })).resolves.toBe(previous);
+    }
+  });
+
   it("fails closed when a completed run has an invalid timestamp", async () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
