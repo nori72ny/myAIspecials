@@ -52,13 +52,21 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+  // Page through recent workflow runs so a reservation cannot disappear merely
+  // because more than 30 skipped/failed runs were created after it. The API sorts
+  // runs newest-first; inspect the first page that reaches beyond the quota window.
+  let page = 1;
   let latest = null;
+  let reachedOlderRuns = false;
 
-  for (const run of runs) {
+  while (!reachedOlderRuns) {
+    const runsUrl =
+      `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100&page=${page}`;
+    const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+    const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    if (runs.length === 0) break;
+
+    for (const run of runs) {
     if (!run) continue;
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
@@ -96,6 +104,15 @@ export async function latestReservedAt({
       if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
+
+    // Process the whole page before stopping so even the first run older than
+    // 24h is checked for an artifact created shortly after the run began.
+    reachedOlderRuns = runs.some((run) => {
+      const createdMs = Date.parse(typeof run?.created_at === "string" ? run.created_at : "");
+      return Number.isFinite(createdMs) && createdMs < nowMs - WINDOW_SECONDS * 1000;
+    });
+    if (runs.length < 100) break;
+    page += 1;
   }
 
   return latest;
