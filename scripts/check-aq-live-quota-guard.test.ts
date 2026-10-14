@@ -155,13 +155,16 @@ describe("AQ live quota guard readiness", () => {
   it("paginates beyond the first 100 workflow runs to find an active reservation", async () => {
     const recentRuns = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
+      // A page can contain an old queued run while a later page still contains
+      // a run whose reservation artifact was uploaded recently.
       created_at: new Date(nowMs - 60_000).toISOString(),
     }));
+    recentRuns[99].created_at = new Date(nowMs - 2 * 86_400_000).toISOString();
     const olderRun = {
       id: 101,
-      created_at: new Date(nowMs - 86_399_000).toISOString(),
+      created_at: new Date(nowMs - 3 * 86_400_000).toISOString(),
     };
-    const reservationAt = new Date(nowMs - 86_398_000).toISOString();
+    const reservationAt = new Date(nowMs - 60_000).toISOString();
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
