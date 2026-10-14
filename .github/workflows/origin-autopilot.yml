@@ -168,7 +168,10 @@ jobs:
               };
               // Existing tests are trusted controls: the model may add new tests, but must not rewrite or delete existing tests to make its own patch pass.
               const isTracked = (p) => spawnSync('git', ['ls-files', '--error-unmatch', '--', p], { stdio: 'ignore' }).status === 0;
-              const modifiedExistingTests = changed.filter((p) => p.startsWith('tests/') && isTracked(p));
+              const isTestFile = (p) => p.startsWith('tests/') ||
+                /(^|\/)(__tests__|__fixtures__)\//i.test(p) ||
+                /\.(test|spec)\.[^/]+$/i.test(p);
+              const modifiedExistingTests = changed.filter((p) => isTestFile(p) && isTracked(p));
               if (modifiedExistingTests.length) {
                 execFileSync('git', ['reset', '--hard', 'HEAD']);
                 execFileSync('git', ['clean', '-fd']);
