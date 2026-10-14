@@ -73,7 +73,13 @@ jobs:
     - name: Run unit tests
       env:
         NODE_OPTIONS: --max-old-space-size=6144
-      run: npm run test -- --maxWorkers=1
+      # Keep each Vitest shard in a fresh process to cap retained module-graph memory.
+      run: |
+        set -e
+        for shard in 1/4 2/4 3/4 4/4; do
+          echo "Running unit-test shard ${shard}"
+          npm run test -- --maxWorkers=1 --shard="${shard}"
+        done
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
       with:
