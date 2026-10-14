@@ -168,7 +168,7 @@ describe("AQ live quota guard readiness", () => {
         if (url.includes("page=1")) return response({ workflow_runs: recentRuns });
         if (url.includes("page=2")) return response({ workflow_runs: [olderRun] });
       }
-      const match = url.match(/\\/actions\\/runs\\/(\\d+)\\/artifacts/);
+      const match = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
       if (match) {
         return response({
           artifacts: [{
