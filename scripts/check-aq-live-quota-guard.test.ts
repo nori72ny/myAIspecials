@@ -15,7 +15,7 @@ function response(value: unknown) {
 
 function fetchWithReservation(
   createdAt: string | null,
-  workflow: "aq-live-lane-shard.yml" | "q1-final-aq.yml" = "aq-live-lane-shard.yml",
+  workflow: "aq-live-lane-shard.yml" | "q1-final-aq.yml" | "aq-free-provider-calibration.yml" = "aq-live-lane-shard.yml",
 ) {
   return async (input: string | URL | Request) => {
     const url = String(input);
