@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkLiveQuota } from "./check-aq-live-quota-guard.mjs";
+import { checkLiveQuota, latestReservedAt } from "./check-aq-live-quota-guard.mjs";
 
 const repository = "owner/repo";
 const token = "test-token";
@@ -151,4 +151,43 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
     expect(result.nextAllowedAt).toBe("2026-09-20T05:22:46.000Z");
   });
+
+  it("paginates beyond the first 100 workflow runs to find an active reservation", async () => {
+    const recentRuns = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      created_at: new Date(nowMs - 60_000).toISOString(),
+    }));
+    const olderRun = {
+      id: 101,
+      created_at: new Date(nowMs - 86_399_000).toISOString(),
+    };
+    const reservationAt = new Date(nowMs - 86_398_000).toISOString();
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+        if (url.includes("page=1")) return response({ workflow_runs: recentRuns });
+        if (url.includes("page=2")) return response({ workflow_runs: [olderRun] });
+      }
+      const match = url.match(/\\/actions\\/runs\\/(\\d+)\\/artifacts/);
+      if (match) {
+        return response({
+          artifacts: [{
+            name: "aq-live-quota-reservation",
+            created_at: Number(match[1]) === 101 ? reservationAt : null,
+          }].filter((artifact) => artifact.created_at !== null),
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(latestReservedAt({
+      repository,
+      workflow: "aq-free-provider-calibration.yml",
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).resolves.toBe(reservationAt);
+  });
+
 });
