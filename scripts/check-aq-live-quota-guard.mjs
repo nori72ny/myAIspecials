@@ -57,77 +57,72 @@ export async function latestReservedAt({
   // queued/in-progress runs, regardless of age, because they may upload later.
   // API failures fail closed. Artifacts are paginated so a reservation is not
   // hidden behind unrelated artifacts.
+  // Completed runs may have been queued for longer than the quota window and
+  // still upload a fresh reservation after starting. GitHub's workflow-runs API
+  // cannot filter by updated_at, so inspect run metadata across pages; only fetch
+  // artifact listings for active runs or recently updated completed runs. This
+  // preserves late-queued reservation correctness while avoiding artifact calls
+  // for old completed runs. API failures fail closed; artifact pages are paginated.
+  let page = 1;
   let latest = null;
   const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
-  const recentCreatedAfter = new Date(cutoffMs).toISOString();
 
-  // The API's created filter bounds completed-run discovery to the 24-hour
-  // reservation window. Active runs are queried independently without a date
-  // filter so old queued/in-progress runs are never missed.
-  const runQueries = [
-    { status: "queued", created: null },
-    { status: "in_progress", created: null },
-    { status: "completed", created: `>${recentCreatedAfter}` },
-  ];
+  while (true) {
+    const runsUrl =
+      `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100&page=${page}`;
+    const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+    const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    if (runs.length === 0) break;
 
-  for (const query of runQueries) {
-    let page = 1;
-    while (true) {
-      const params = new URLSearchParams({ per_page: "100", page: String(page), status: query.status });
-      if (query.created) params.set("created", query.created);
-      const runsUrl =
-        `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?${params.toString()}`;
-      const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-      const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
-      if (runs.length === 0) break;
+    for (const run of runs) {
+      if (!run) continue;
+      if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+      const active = run.status === "queued" || run.status === "in_progress";
+      const lastChangedMs = Date.parse(run.updated_at ?? run.created_at ?? "");
+      if (!active && (!Number.isFinite(lastChangedMs) || lastChangedMs < cutoffMs)) continue;
 
-      for (const run of runs) {
-        if (!run) continue;
-        if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
-
-        let artifactPage = 1;
-        while (true) {
-          const artifactsUrl =
-            `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${artifactPage}`;
-          const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-          const artifacts = Array.isArray(artifactsPayload?.artifacts)
-            ? artifactsPayload.artifacts
-            : [];
-          for (const artifact of artifacts) {
-            if (
-              !artifact
-              || typeof artifact.name !== "string"
-              || !reservedArtifact(artifact.name, workflow)
-            ) {
-              continue;
-            }
-
-            // GitHub may retain expired artifacts in the listing. They cannot represent
-            // an active reservation; all valid reservations have a 2-day retention,
-            // longer than this 24-hour quota window.
-            if (artifact.expired === true) continue;
-
-            const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
-            const reservedMs = Date.parse(reservedAt);
-            // A malformed matching reservation must fail closed, not silently free quota.
-            if (!Number.isFinite(reservedMs)) {
-              throw new Error("AQ_LIVE_QUOTA_RESERVATION_TIMESTAMP_INVALID");
-            }
-
-            // Future timestamps are treated as reservations too (e.g. clock skew),
-            // preventing malformed/future metadata from opening a quota bypass.
-            const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-            if (ageSeconds >= WINDOW_SECONDS) continue;
-            if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
+      let artifactPage = 1;
+      while (true) {
+        const artifactsUrl =
+          `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${artifactPage}`;
+        const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
+        const artifacts = Array.isArray(artifactsPayload?.artifacts)
+          ? artifactsPayload.artifacts
+          : [];
+        for (const artifact of artifacts) {
+          if (
+            !artifact
+            || typeof artifact.name !== "string"
+            || !reservedArtifact(artifact.name, workflow)
+          ) {
+            continue;
           }
-          if (artifacts.length < 100) break;
-          artifactPage += 1;
-        }
-      }
 
-      if (runs.length < 100) break;
-      page += 1;
+          // GitHub may retain expired artifacts in the listing. They cannot represent
+          // an active reservation; all valid reservations have a 2-day retention,
+          // longer than this 24-hour quota window.
+          if (artifact.expired === true) continue;
+
+          const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
+          const reservedMs = Date.parse(reservedAt);
+          // A malformed matching reservation must fail closed, not silently free quota.
+          if (!Number.isFinite(reservedMs)) {
+            throw new Error("AQ_LIVE_QUOTA_RESERVATION_TIMESTAMP_INVALID");
+          }
+
+          // Future timestamps are treated as reservations too (e.g. clock skew),
+          // preventing malformed/future metadata from opening a quota bypass.
+          const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
+          if (ageSeconds >= WINDOW_SECONDS) continue;
+          if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
+        }
+        if (artifacts.length < 100) break;
+        artifactPage += 1;
+      }
     }
+
+    if (runs.length < 100) break;
+    page += 1;
   }
 
   return latest;
