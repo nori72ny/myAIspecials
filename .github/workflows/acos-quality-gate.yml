@@ -41,7 +41,7 @@ jobs:
         run: npm run typecheck
 
       - name: Run Core Unit Tests
-        run: npm run test -- --maxWorkers=1 --minWorkers=1 --reporter=junit --outputFile=vitest-junit.xml
+        run: npm run test -- --maxWorkers=1 --reporter=junit --outputFile=vitest-junit.xml
 
       - name: Preserve Core Test Diagnostics
         if: always()
