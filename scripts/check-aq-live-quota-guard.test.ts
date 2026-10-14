@@ -210,6 +210,68 @@ describe("AQ live quota guard readiness", () => {
     })).resolves.toBe(reservationAt);
   });
 
+  it("bounds completed-run discovery to the 24-hour creation window while querying old active runs separately", async () => {
+    const urls: string[] = [];
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      urls.push(url);
+      return response({ workflow_runs: [] });
+    };
+
+    await latestReservedAt({
+      repository,
+      workflow: "aq-free-provider-calibration.yml",
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    expect(urls.some((url) => url.includes("status=queued") && !url.includes("created="))).toBe(true);
+    expect(urls.some((url) => url.includes("status=in_progress") && !url.includes("created="))).toBe(true);
+    const completed = urls.find((url) => url.includes("status=completed"));
+    expect(completed).toContain("created=");
+    expect(decodeURIComponent(completed ?? "")).toContain("created=>2026-09-19T04:00:00.000Z");
+  });
+
+  it("paginates artifact listings to find a reservation after the first 100 unrelated artifacts", async () => {
+    const runId = 123;
+    const reservationAt = new Date(nowMs - 30_000).toISOString();
+    const requestedPages: string[] = [];
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+        const status = new URL(url).searchParams.get("status");
+        if (status === "in_progress") {
+          return response({ workflow_runs: [{ id: runId, status: "in_progress", created_at: "2026-09-17T00:00:00.000Z" }] });
+        }
+        return response({ workflow_runs: [] });
+      }
+      if (url.includes(`/actions/runs/${runId}/artifacts?`)) {
+        const parsed = new URL(url);
+        const page = parsed.searchParams.get("page") ?? "1";
+        requestedPages.push(page);
+        if (page === "1") {
+          return response({ artifacts: Array.from({ length: 100 }, (_, i) => ({ name: `unrelated-${i}`, created_at: reservationAt })) });
+        }
+        if (page === "2") {
+          return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: reservationAt, expired: false }] });
+        }
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(latestReservedAt({
+      repository,
+      workflow: "aq-free-provider-calibration.yml",
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).resolves.toBe(reservationAt);
+    expect(requestedPages).toContain("2");
+  });
+
   it("fails closed on a future-dated reservation rather than opening quota", async () => {
     const future = new Date(nowMs + 60_000).toISOString();
     const result = await checkLiveQuota({
