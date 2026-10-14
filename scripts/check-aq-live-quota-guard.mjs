@@ -78,12 +78,22 @@ export async function latestReservedAt({
         continue;
       }
 
+      // GitHub may retain expired artifacts in the listing. They cannot represent
+      // an active reservation; all valid reservations have a 2-day retention,
+      // longer than this 24-hour quota window.
+      if (artifact.expired === true) continue;
+
       const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
       const reservedMs = Date.parse(reservedAt);
-      if (!Number.isFinite(reservedMs)) continue;
+      // A malformed matching reservation must fail closed, not silently free quota.
+      if (!Number.isFinite(reservedMs)) {
+        throw new Error("AQ_LIVE_QUOTA_RESERVATION_TIMESTAMP_INVALID");
+      }
 
+      // Future timestamps are treated as reservations too (e.g. clock skew),
+      // preventing malformed/future metadata from opening a quota bypass.
       const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+      if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
   }
