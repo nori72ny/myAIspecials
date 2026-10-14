@@ -83,6 +83,18 @@ jobs:
           test -n "$TASK_SLUG"
           BRANCH="autopilot/issue-$TASK_SLUG-run-$GITHUB_RUN_ID"
           git checkout -b "$BRANCH"
+          # Reject empty or oversized task input instead of silently truncating it later.
+          node --input-type=module <<'NODE'
+          const task = process.env.TASK_TEXT ?? '';
+          if (!task.trim()) {
+            console.error('AUTOPILOT_BLOCKED: task is empty');
+            process.exit(1);
+          }
+          if ([...task].length > 12000) {
+            console.error('AUTOPILOT_BLOCKED: task exceeds 12000 Unicode code points');
+            process.exit(1);
+          }
+          NODE
           printf '%s' "$TASK_TEXT" > "$RUNNER_TEMP/origin-autopilot-task.txt"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           # Remove task text from environment before tests and build steps.
