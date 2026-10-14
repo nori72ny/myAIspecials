@@ -79,7 +79,13 @@ export async function latestReservedAt({
       if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
       const active = run.status === "queued" || run.status === "in_progress";
       const lastChangedMs = Date.parse(run.updated_at ?? run.created_at ?? "");
-      if (!active && (!Number.isFinite(lastChangedMs) || lastChangedMs < cutoffMs)) continue;
+      // Completed-run timestamps determine whether artifact inspection can be
+      // skipped. Invalid metadata cannot safely prove a run is outside the
+      // quota window, so fail closed instead of silently ignoring that run.
+      if (!active && !Number.isFinite(lastChangedMs)) {
+        throw new Error("AQ_LIVE_QUOTA_RUN_TIMESTAMP_INVALID");
+      }
+      if (!active && lastChangedMs < cutoffMs) continue;
 
       let artifactPage = 1;
       while (true) {
