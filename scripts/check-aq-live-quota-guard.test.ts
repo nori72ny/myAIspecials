@@ -210,28 +210,18 @@ describe("AQ live quota guard readiness", () => {
     })).resolves.toBe(reservationAt);
   });
 
-  it("bounds completed-run discovery to the 24-hour creation window while querying old active runs separately", async () => {
-    const urls: string[] = [];
-    const fetchImpl = async (input: string | URL | Request) => {
-      const url = String(input);
-      urls.push(url);
-      return response({ workflow_runs: [] });
-    };
-
-    await latestReservedAt({
+  it("keeps a recently updated completed run even when it was created before the 24-hour window", async () => {
+    const previous = new Date(nowMs - 30_000).toISOString();
+    const result = await latestReservedAt({
       repository,
       workflow: "aq-free-provider-calibration.yml",
       currentRunId,
       token,
       nowMs,
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchWithReservation(previous, "aq-free-provider-calibration.yml") as typeof fetch,
     });
 
-    expect(urls.some((url) => url.includes("status=queued") && !url.includes("created="))).toBe(true);
-    expect(urls.some((url) => url.includes("status=in_progress") && !url.includes("created="))).toBe(true);
-    const completed = urls.find((url) => url.includes("status=completed"));
-    expect(completed).toContain("created=");
-    expect(decodeURIComponent(completed ?? "")).toContain("created=>2026-09-19T04:00:00.000Z");
+    expect(result).toBe(previous);
   });
 
   it("paginates artifact listings to find a reservation after the first 100 unrelated artifacts", async () => {
