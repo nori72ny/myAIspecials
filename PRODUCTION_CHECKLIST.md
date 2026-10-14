@@ -132,3 +132,22 @@ Production Readyと判断するには、少なくとも次が必要です。
 - Secret非露出
 - rollback確認
 - 既知制約と残余リスクの承認
+
+
+## Addendum: live model and answer-quality gate — 2026-10-14
+
+Current free-model candidate: `apodex/apodex-1.1-mini:free` ([Draft PR #977](https://github.com/nori72ny/myAIspecials/pull/977)). Candidate status does not mean live verified. Historical model IDs and historical verification dates above are not current proof.
+
+| Required evidence | Current verdict |
+|---|---|
+| Two non-empty live calibration responses | NOT VERIFIED |
+| Exact served model matches pinned candidate | NOT VERIFIED |
+| Explicit `usage.cost === 0` for each response | NOT VERIFIED |
+| `usage.is_byok === false` | NOT VERIFIED |
+| ZDR and data-collection-deny policy verified | NOT VERIFIED |
+| No paid or alternate-model fallback | NOT VERIFIED |
+| AQ-40 completed shards = 40 | NOT VERIFIED; last inspected artifact had 0/40 |
+| AQ-40 qualification verdict | NOT MEASURED |
+| Production alias change approved | NO |
+
+A successful GitHub Actions conclusion with provider steps skipped is not evidence that the model or answer-quality gate passed. Do not merge/promote the model candidate until evidence is complete and exact-head CI passes.
