@@ -71,7 +71,7 @@ jobs:
     - name: Build the app
       run: npm run build
     - name: Run unit tests
-      run: npm run test -- --maxWorkers=2
+      run: npm run test -- --maxWorkers=1 --minWorkers=1
     - name: Cache Playwright Browsers
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
       with:
