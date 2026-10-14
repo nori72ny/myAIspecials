@@ -43,7 +43,13 @@ jobs:
       - name: Run Core Unit Tests
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: npm run test -- --maxWorkers=1 --reporter=junit --outputFile=vitest-junit.xml
+        # Fresh Vitest process per shard prevents the monolithic run from exhausting the heap.
+        run: |
+          set -e
+          for shard in 1/4 2/4 3/4 4/4; do
+            echo "Running core unit-test shard ${shard}"
+            npm run test -- --maxWorkers=1 --shard="${shard}" --reporter=junit --outputFile="vitest-junit-${shard//\//-}.xml"
+          done
 
       - name: Preserve Core Test Diagnostics
         if: always()
