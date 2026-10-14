@@ -41,6 +41,8 @@ jobs:
         run: npm run typecheck
 
       - name: Run Core Unit Tests
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run test -- --maxWorkers=1 --reporter=junit --outputFile=vitest-junit.xml
 
       - name: Preserve Core Test Diagnostics
