@@ -258,6 +258,32 @@ describe("AQ live quota guard readiness", () => {
     expect(requestedPages).toContain("2");
   });
 
+  it("fails closed when a completed run has an invalid timestamp", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs?")) {
+        return response({
+          workflow_runs: [{
+            id: 456,
+            status: "completed",
+            created_at: "2026-09-17T00:00:00.000Z",
+            updated_at: "not-a-timestamp",
+          }],
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(latestReservedAt({
+      repository,
+      workflow: "aq-free-provider-calibration.yml",
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_RUN_TIMESTAMP_INVALID");
+  });
+
   it("fails closed on a future-dated reservation rather than opening quota", async () => {
     const future = new Date(nowMs + 60_000).toISOString();
     const result = await checkLiveQuota({
