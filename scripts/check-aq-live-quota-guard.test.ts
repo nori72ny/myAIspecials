@@ -210,7 +210,8 @@ describe("AQ live quota guard readiness", () => {
     })).resolves.toBe(reservationAt);
   });
 
-}
+  });
+
   it("fails closed on a future-dated reservation rather than opening quota", async () => {
     const future = new Date(nowMs + 60_000).toISOString();
     const result = await checkLiveQuota({
@@ -226,4 +227,6 @@ describe("AQ live quota guard readiness", () => {
     expect(result.nextAllowedAt).toBe(new Date(Date.parse(future) + 86_400_000).toISOString());
     expect(result.remainingSeconds).toBe(86_460);
   });
+});
+
 });
