@@ -34,7 +34,7 @@ function fetchWithReservation(
         return response({
           workflow_runs:
             createdAt && name === workflow
-              ? [{ id: 123, created_at: "2026-09-17T00:00:00.000Z" }]
+              ? [{ id: 123, created_at: "2026-09-20T02:00:00.000Z" }]
               : [],
         });
       }
@@ -150,7 +150,7 @@ describe("AQ live quota guard readiness", () => {
           return response({ workflow_runs: Array.from({ length: 100 }, () => ({ id: Number(currentRunId) })) });
         }
         if (workflow === "aq-live-lane-shard.yml" && page === 2) {
-          return response({ workflow_runs: [{ id: 123 }] });
+          return response({ workflow_runs: [{ id: 123, created_at: "2026-09-20T02:00:00.000Z" }] });
         }
         return response({ workflow_runs: [] });
       }
@@ -262,7 +262,7 @@ describe("AQ live quota guard readiness", () => {
         return response({
           workflow_runs: [{
             id: Number(currentRunId),
-            created_at: "2026-09-17T00:00:00.000Z",
+            created_at: "2026-09-20T02:00:00.000Z",
           }],
         });
       }
