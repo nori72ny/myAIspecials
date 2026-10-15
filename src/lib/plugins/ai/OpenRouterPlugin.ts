@@ -128,6 +128,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
             model: modelId,
             messages: [{ role: "user", content: prompt }],
             provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
+            usage: { include: true },
             temperature: options?.temperature ?? 0.7,
             max_tokens: options?.max_tokens
           }),
@@ -170,6 +171,24 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         }
 
         const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
+
+        // The request policy is not sufficient evidence on its own. Verify the
+        // actual served model and reported usage before exposing any answer.
+        const servedModel = typeof data.model === "string" ? data.model.trim() : "";
+        const canonicalServedModel = modelId.replace(/:free$/, "");
+        if (servedModel !== modelId && servedModel !== canonicalServedModel) {
+          throw new OpenRouterError("PROVIDER_ROUTING_UNVERIFIED", 502, requestId);
+        }
+        const responseUsage = data.usage;
+        const isZeroCost = (value: unknown): boolean =>
+          value === 0 || (typeof value === "string" && /^(?:0|0\\.0+)$/.test(value));
+        if (!responseUsage || !isZeroCost(responseUsage.cost) || responseUsage.is_byok !== false
+          || (responseUsage.cost_details?.upstream_inference_cost != null
+            && !isZeroCost(responseUsage.cost_details.upstream_inference_cost))
+          || (responseUsage.cost_details?.server_tool_cost != null
+            && !isZeroCost(responseUsage.cost_details.server_tool_cost))) {
+          throw new OpenRouterError("PROVIDER_COST_UNVERIFIED", 502, requestId);
+        }
 
         if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
           throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);
