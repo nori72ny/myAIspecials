@@ -74,7 +74,7 @@ describe("AQ live unified lane quota workflow", () => {
     expect(value).toContain("AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'");
   });
 
-  it("uses a trusted pinned guard and scopes provider credentials to inference only", () => {
+  it("pins trusted guard and blocks secrets in PR lane", () => {
     const value = read(workflowPath);
     expect(value).toContain("name: Checkout quota guard from trusted pinned snapshot");
     expect(value).toContain("ref: 51d22e2f9647e1851e0a596203299ca6c582fc45");
