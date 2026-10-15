@@ -99,8 +99,14 @@ export async function latestReservedAt({
     const createdMs = Date.parse(typeof run.created_at === "string" ? run.created_at : "");
     const startedMs = Date.parse(typeof run.run_started_at === "string" ? run.run_started_at : "");
     const updatedMs = Date.parse(typeof run.updated_at === "string" ? run.updated_at : "");
+    const runTimestamps = [createdMs, startedMs, updatedMs];
+    // A future run timestamp is impossible evidence for quota history. Do not
+    // skip artifact inspection or authorize a provider request on that basis.
+    if (runTimestamps.some((value) => Number.isFinite(value) && value > nowMs)) {
+      throw new Error("AQ_LIVE_QUOTA_FUTURE_RUN_TIMESTAMP");
+    }
     const active = run.status === "queued" || run.status === "in_progress";
-    const recentMetadata = [createdMs, startedMs, updatedMs].some(
+    const recentMetadata = runTimestamps.some(
       (value) => Number.isFinite(value) && value >= cutoffMs && value <= nowMs,
     );
     if (!active && !recentMetadata
