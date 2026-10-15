@@ -13,24 +13,6 @@ on:
           - nvidia/nemotron-3-super-120b-a12b:free
           - nvidia/nemotron-3-ultra-550b-a55b:free
           - apodex/apodex-1.1-mini:free
-      bypass_quota_guard:
-        description: "Emergency 2-probe calibration: bypass 24h shared quota guard"
-        required: false
-        type: boolean
-        default: false
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/aq-free-provider-calibration.yml'
-      - 'scripts/check-aq-live-quota-guard.mjs'
-      - 'scripts/calibrate-origin-free-model-v1.ts'
-      - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
-      - 'src/lib/orchestration/OriginFreeModelLiveCalibrationV1.ts'
-      - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
-  schedule:
-    # Weekly rather than daily: a successful two-probe reservation must not
-    # starve the frozen 40-case benchmark's shared 24-hour provider quota.
-    - cron: '47 0 * * 1'
 
 permissions:
   contents: read
@@ -45,7 +27,7 @@ concurrency:
 jobs:
   calibrate-public-only:
     # Absolutely no secrets on pull_request, untrusted commits, or previews.
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     # The repository secret is exposed only to this job on protected main;
     # PR code and preview refs are excluded by the job-level condition above.
@@ -87,7 +69,7 @@ jobs:
           AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
         run: node scripts/check-aq-live-quota-guard.mjs
       - name: Prepare sanitized quota reservation
-        if: steps.quota.outputs.allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.bypass_quota_guard == true)
+        if: steps.quota.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +87,7 @@ jobs:
           fs.writeFileSync('aq-calibration-quota/reservation.json', JSON.stringify(reservation) + '\n', { mode: 0o600 });
           NODE
       - name: Reserve quota BEFORE any model inference
-        if: steps.quota.outputs.allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.bypass_quota_guard == true)
+        if: steps.quota.outputs.allowed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: aq-live-quota-reservation
@@ -114,7 +96,7 @@ jobs:
           if-no-files-found: error
       - name: Run exactly two zero-price ZDR public provider probes
         id: provider
-        if: steps.quota.outputs.allowed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.bypass_quota_guard == true)
+        if: steps.quota.outputs.allowed == 'true'
         shell: bash
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -131,13 +113,18 @@ jobs:
           path: aq-free-calibration/report.jsonl
           retention-days: 30
           if-no-files-found: error
-      - name: Fail closed if no two genuine model answers were verified
+      - name: Distinguish quota skip from calibration failure
         if: always()
         shell: bash
         env:
+          QUOTA_ALLOWED: ${{ steps.quota.outputs.allowed }}
           PROVIDER_STEP_OUTCOME: ${{ steps.provider.outcome }}
         run: |
           set -euo pipefail
+          if [ "$QUOTA_ALLOWED" = 'false' ] && [ "$PROVIDER_STEP_OUTCOME" = 'skipped' ]; then
+            echo 'AQ_FREE_CALIBRATION_SKIPPED_QUOTA: no provider request was made.'
+            exit 0
+          fi
           if [ "$PROVIDER_STEP_OUTCOME" != 'success' ]; then
             echo 'AQ_FREE_CALIBRATION_NOT_MEASURED: provider execution did not succeed.' >&2
             exit 2
@@ -152,6 +139,6 @@ jobs:
             echo '- Even a successful two-case probe is **not** independent billing/ZDR approval.'
             echo '- Official Production-vs-candidate AQ-40 remains NOT_MEASURED until separate actual 40-pair execution.'
             echo '- No Production deployment or alias mutation is authorized by this workflow.'
+            echo '- Manual dispatch only; no push or scheduled provider requests.'
             echo '- 24-hour quota guard may skip this run when other AQ live work has reserved provider capacity.'
-            if [ "${{ github.event_name }}" = 'workflow_dispatch' ] && [ "${{ inputs.bypass_quota_guard }}" = 'true' ]; then echo '- Emergency quota bypass was explicitly enabled for this manual run; the two-request reservation and strict provider checks remain required.'; fi
           } >> "$GITHUB_STEP_SUMMARY"
