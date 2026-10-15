@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parse } from "yaml";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { load: parse } = require("js-yaml") as { load: (input: string) => unknown };
 
 import { describe, expect, it } from "vitest";
 
