@@ -22,7 +22,7 @@ on:
       - 'scripts/calibrate-origin-free-model-v1.ts'
       - 'src/lib/orchestration/OriginFreeModelCatalogLivePreflightV1.ts'
       - 'src/lib/orchestration/OriginFreeModelLiveCalibrationV1.ts'
-      - 'src/lib/orchestration/OriginFreeModelCatalogPreflightV1.ts'
+      - 'src/lib/orchestration/OriginFreeModelCatalog.ts'
   schedule:
     # Weekly rather than daily: a successful two-probe reservation must not
     # starve the frozen 40-case benchmark's shared 24-hour provider quota.
