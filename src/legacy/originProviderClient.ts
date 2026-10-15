@@ -97,7 +97,7 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   zero(result.usage?.costUsd, "usage.costUsd");
   const evidence = result.routingEvidence;
   const provider = pid(evidence?.provider);
-  if (!evidence || !provider || !allowedServedModel(provider, evidence.servedModel)) fail("許可された無料Provider/Modelの証跡を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
+  if (!evidence || !provider || !allowedRequestModel(provider, evidence.requestedModel) || !allowedServedModel(provider, evidence.servedModel)) fail("許可された無料Provider/Modelの証跡を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedModel && evidence.requestedModel !== expectedModel) fail("要求モデルが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
   const validStrategy = evidence.strategy === "adaptive-primary";
