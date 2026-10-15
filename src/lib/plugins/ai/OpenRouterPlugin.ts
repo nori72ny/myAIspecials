@@ -87,7 +87,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       Logger.info(`[OpenRouterPlugin] Running generateText in explicit mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
     }
-    if (!this._apiKey) {
+    if (!this._apiKey || (process.env.NODE_ENV === "production" && this._apiKey.startsWith("mock-"))) {
       throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503);
     }
 
