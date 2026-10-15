@@ -133,6 +133,21 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("fails closed when the ten-page workflow-run scan is still saturated", async () => {
+    let pageRequests = 0;
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        pageRequests += 1;
+        return response({ workflow_runs: Array.from({ length: 100 }, () => ({ id: Number(currentRunId) })) });
+      }
+      if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    await expect(checkLiveQuota({ repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch }))
+      .rejects.toThrow("AQ_LIVE_QUOTA_RUN_PAGINATION_LIMIT");
+    expect(pageRequests).toBe(10);
+  });
   it("counts the calibration workflow reservation in the shared quota", async () => {
     const previous = "2026-09-19T05:22:46.000Z";
     const result = await checkLiveQuota({
