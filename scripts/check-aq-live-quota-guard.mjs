@@ -123,10 +123,17 @@ export async function latestReservedAt({
 
       const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
       const reservedMs = Date.parse(reservedAt);
-      if (!Number.isFinite(reservedMs)) continue;
+      // A reservation marker with an invalid timestamp makes quota history
+      // ambiguous. Fail closed rather than treating malformed evidence as no use.
+      if (!Number.isFinite(reservedMs)) {
+        throw new Error("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+      }
+      if (reservedMs > nowMs) {
+        throw new Error("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
+      }
 
       const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+      if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
   }
