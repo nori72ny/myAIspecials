@@ -83,6 +83,8 @@ describe("AQ live unified lane quota workflow", () => {
     const jobEnv = value.match(/  compare:[\s\S]*?\n    steps:/)?.[0] ?? "";
     expect(jobEnv).not.toContain("OPENROUTER_API_KEY");
     const inference = value.match(/- name: Run exact-SHA lane shard comparison[\s\S]*?\n        run:/)?.[0] ?? "";
-    expect(inference).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
+    expect(value).not.toContain("OPENROUTER_API_KEY");
+    expect(value).toContain("if: false");
+    expect(inference).not.toContain("OPENROUTER_API_KEY");
   });
 });
