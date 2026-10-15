@@ -234,6 +234,20 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("fails closed when a reservation artifact has an invalid timestamp", async () => {
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchWithReservation("not-a-date") as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+  });
+
+  it("fails closed when a reservation timestamp is in the future", async () => {
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchWithReservation("2026-09-20T04:00:01.000Z") as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
+  });
+
   it("fails closed when the bounded run scan cannot prove completeness", async () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = new URL(String(input));
