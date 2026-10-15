@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workflowPath = ".github/workflows/aq-live-lane-shard.yml";
+const calibrationWorkflowPath = ".github/workflows/aq-free-provider-calibration.yml";
 const guardPath = "scripts/check-aq-live-quota-guard.mjs";
 
 function read(path: string): string {
@@ -57,5 +58,30 @@ describe("AQ live unified lane quota workflow", () => {
     expect(value).toContain("ci/aq-live-lane-chat-*");
     expect(value).toContain("ci/aq-live-lane-coding-*");
     expect(value).toContain("ci/aq-live-lane-artifact-*");
+  });
+  it("restricts calibration to explicit manual dispatch with no quota bypass or schedule", () => {
+    const value = read(calibrationWorkflowPath);
+    expect(value).toContain("workflow_dispatch:");
+    expect(value).not.toContain("schedule:");
+    expect(value).not.toContain("  push:");
+    expect(value).not.toContain("bypass_quota_guard");
+    expect(value).toContain("github.event_name == 'workflow_dispatch'");
+    expect(value).toContain("AQ_FREE_CALIBRATION_SKIPPED_QUOTA");
+  });
+
+  it("counts current-run reservations on lane reruns", () => {
+    const value = read(workflowPath);
+    expect(value).toContain("AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'");
+  });
+
+  it("uses a trusted pinned guard and scopes provider credentials to inference only", () => {
+    const value = read(workflowPath);
+    expect(value).toContain("name: Checkout quota guard from trusted main snapshot");
+    expect(value).toContain("ref: 51d22e2f9647e1851e0a596203299ca6c582fc45");
+    expect(value).not.toContain("name: Checkout quota guard exact PR head");
+    const jobEnv = value.match(/  compare:[\\s\\S]*?\\n    steps:/)?.[0] ?? "";
+    expect(jobEnv).not.toContain("OPENROUTER_API_KEY");
+    const inference = value.match(/- name: Run exact-SHA lane shard comparison[\\s\\S]*?\\n        run:/)?.[0] ?? "";
+    expect(inference).toContain("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
   });
 });
