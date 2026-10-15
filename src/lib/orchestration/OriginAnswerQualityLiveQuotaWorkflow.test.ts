@@ -110,7 +110,7 @@ describe("AQ live unified lane quota workflow", () => {
     expect(calibrationTrigger?.schedule).toBeUndefined();
     expect(calibration.jobs?.["calibrate-public-only"]?.if)
       .toBe("github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
-    expect(calibration.jobs?.["calibrate-public-only"]?.concurrency?.group)
-      .toBe(job.concurrency?.group);
+    expect(calibration.concurrency?.group)
+      .toBe(workflow.concurrency?.group);
   });
 });
