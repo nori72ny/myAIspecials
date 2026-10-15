@@ -199,6 +199,26 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("fails closed when the bounded run scan cannot prove completeness", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/actions/workflows/")) {
+        const workflow = url.pathname.split("/").at(-2);
+        if (workflow === "aq-live-lane-shard.yml") {
+          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: 10_000 + i })) });
+        }
+        return response({ workflow_runs: [] });
+      }
+      if (url.pathname.includes("/actions/runs/")) return response({ artifacts: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_GITHUB_PAGE_LIMIT:workflow_runs");
+  });
+
   it("allows execution exactly at the 24-hour boundary", async () => {
     const previous = "2026-09-19T04:00:00.000Z";
     const result = await checkLiveQuota({
