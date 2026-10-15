@@ -88,10 +88,25 @@ export async function latestReservedAt({
     uniqueRuns.set(String(run.id), run);
   }
   let latest = null;
+  const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
 
   for (const run of uniqueRuns.values()) {
-    if (!run) continue;
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+
+    // Enumerate run metadata broadly, but fetch artifacts only for runs that
+    // could plausibly contain a reservation created inside the active window.
+    // Missing/unparseable timestamps are not grounds to skip a run.
+    const createdMs = Date.parse(typeof run.created_at === "string" ? run.created_at : "");
+    const startedMs = Date.parse(typeof run.run_started_at === "string" ? run.run_started_at : "");
+    const updatedMs = Date.parse(typeof run.updated_at === "string" ? run.updated_at : "");
+    const active = run.status === "queued" || run.status === "in_progress";
+    const recentMetadata = [createdMs, startedMs, updatedMs].some(
+      (value) => Number.isFinite(value) && value >= cutoffMs && value <= nowMs,
+    );
+    if (!active && !recentMetadata
+      && Number.isFinite(createdMs) && Number.isFinite(startedMs) && Number.isFinite(updatedMs)) {
+      continue;
+    }
 
     const artifactsUrl =
       `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts`;
