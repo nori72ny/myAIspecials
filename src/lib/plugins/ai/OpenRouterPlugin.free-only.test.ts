@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenRouterPlugin } from "./OpenRouterPlugin";
+import { isOriginFreeOpenRouterModelId, OpenRouterPlugin } from "./OpenRouterPlugin";
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../../orchestration/OriginFreeModelCatalog";
 import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from "../../../legacy/zeroCostRoutingPolicy";
 
 afterEach(() => {
@@ -14,16 +15,29 @@ describe("OpenRouterPlugin zero-cost policy", () => {
     process.env.FREE_ONLY = "false";
     try {
       const plugin = new OpenRouterPlugin("mock-test-key");
-      await expect(plugin.generateText("google/gemma-4-31b-it:free", "hello"))
+      await expect(plugin.generateText(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, "hello"))
         .resolves.toContain("Mock");
-      await expect(plugin.generateText("google/gemma-4-31b-it:free-extra", "hello"))
-        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
-      await expect(plugin.generateText("google/gemma-4-31b-it:free:free", "hello"))
-        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
-      await expect(plugin.generateText("vendor/model-free", "hello"))
-        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
-      await expect(plugin.generateText("openrouter/auto", "hello"))
-        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
+      for (const rejected of [
+        "google/gemma-4-31b-it:free",
+        "inclusionai/ling-3.0-flash-sante:FREE",
+        "inclusionai/ling-3.0-flash-sante:Free",
+        "openrouter/auto:free",
+        "openrouter/auto",
+        "inclusionai/ling-3.0-flash-sante:free-extra",
+        "inclusionai/ling-3.0-flash-sante:free:free",
+        "inclusionai/ling-3.0-flash-sante-free",
+        " inclusionai/ling-3.0-flash-sante:free",
+        "inclusionai/ling-3.0-flash-sante:free\\n",
+        "inclusionai/ling-3.0-flash-sante:free,google/gemma-4-31b-it:free",
+        "inclusionai%2fling-3.0-flash-sante%3afree",
+        "vendor/fake-model:free",
+      ]) {
+        expect(isOriginFreeOpenRouterModelId(rejected), rejected).toBe(false);
+        await expect(plugin.generateText(rejected, "hello"))
+          .rejects.toMatchObject({ message: "FREE_MODEL_UNAVAILABLE", statusCode: 400 });
+      }
+      expect(isOriginFreeOpenRouterModelId(null)).toBe(false);
+      expect(isOriginFreeOpenRouterModelId(42)).toBe(false);
     } finally {
       if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = oldNodeEnv;
@@ -47,7 +61,7 @@ describe("OpenRouterPlugin zero-cost policy", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       const plugin = new OpenRouterPlugin("test-key");
-      await expect(plugin.generateText("google/gemma-4-31b-it:free", "hello"))
+      await expect(plugin.generateText(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, "hello"))
         .resolves.toBe("verified response");
       const request = fetchMock.mock.calls[0]?.[1];
       expect(request).toBeDefined();
@@ -60,7 +74,7 @@ describe("OpenRouterPlugin zero-cost policy", () => {
         max_price: { prompt: 0, completion: 0, request: 0 },
       });
       await expect(plugin.generateText("google/gemma-4-31b-it", "hello"))
-        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
+        .rejects.toMatchObject({ message: "FREE_MODEL_UNAVAILABLE", statusCode: 400 });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
