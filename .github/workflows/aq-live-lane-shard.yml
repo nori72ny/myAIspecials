@@ -32,7 +32,6 @@ jobs:
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4611'
       ORIGIN_AQ_CANDIDATE_PORT: '4612'
 
@@ -55,10 +54,10 @@ jobs:
           esac
           echo "lane=$lane" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout quota guard exact PR head
+      - name: Checkout quota guard from trusted main snapshot
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: 51d22e2f9647e1851e0a596203299ca6c582fc45
           path: guard
           persist-credentials: false
 
@@ -67,6 +66,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
         run: |
           set -euo pipefail
           node guard/scripts/check-aq-live-quota-guard.mjs
@@ -161,6 +161,7 @@ jobs:
         working-directory: candidate
         shell: bash
         env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ORIGIN_AQ_SHARD_INDEX: ${{ steps.shard.outputs.index }}
           ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
           ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
