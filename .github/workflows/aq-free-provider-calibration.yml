@@ -26,8 +26,11 @@ concurrency:
 
 jobs:
   calibrate-public-only:
-    # Absolutely no secrets on pull_request, untrusted commits, or previews.
+    # Environment protection must require main-only deployment and owner approval.
+    # The environment-scoped secret is intentionally distinct from repository secrets.
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment:
+      name: aq-live
     runs-on: ubuntu-24.04
     # The repository secret is exposed only to this job on protected main;
     # PR code and preview refs are excluded by the job-level condition above.
@@ -50,7 +53,7 @@ jobs:
       - name: Confirm exact approved candidate and credential presence
         shell: bash
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.AQ_LIVE_OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
           case "$ORIGIN_FREE_MODEL_CANDIDATE" in
@@ -99,7 +102,7 @@ jobs:
         if: steps.quota.outputs.allowed == 'true'
         shell: bash
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.AQ_LIVE_OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
           mkdir -p aq-free-calibration
