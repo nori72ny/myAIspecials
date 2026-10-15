@@ -16,7 +16,9 @@ describe("AQ live unified lane quota workflow", () => {
     const guard = read(guardPath);
 
     expect(workflow).toContain("node guard/scripts/check-aq-live-quota-guard.mjs");
-    expect(guard).toContain("actions/runs/${run.id}/artifacts?per_page=100");
+    expect(guard).toContain("actions/runs/${run.id}/artifacts");
+    expect(guard).toContain("per_page=${API_PAGE_SIZE}&page=${page}");
+    expect(guard).toContain("AQ_LIVE_QUOTA_GITHUB_PAGE_LIMIT:${arrayKey}");
     expect(guard).toContain('name === "aq-live-quota-reservation"');
     expect(guard).toContain('name.startsWith("aq-live-research-shard")');
     expect(guard).not.toContain('.conclusion != "skipped"');
