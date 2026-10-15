@@ -2,6 +2,8 @@ import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const WINDOW_SECONDS = 86_400;
+const API_PAGE_SIZE = 100;
+const MAX_API_PAGES = 10;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
@@ -31,6 +33,28 @@ async function githubJson(url, token, fetchImpl = fetch) {
   return response.json();
 }
 
+async function githubJsonPages(url, arrayKey, token, fetchImpl = fetch) {
+  const collected = [];
+
+  for (let page = 1; page <= MAX_API_PAGES; page += 1) {
+    const separator = url.includes("?") ? "&" : "?";
+    const pageUrl = `${url}${separator}per_page=${API_PAGE_SIZE}&page=${page}`;
+    const payload = await githubJson(pageUrl, token, fetchImpl);
+    const items = payload?.[arrayKey];
+
+    if (!Array.isArray(items)) {
+      throw new Error(`AQ_LIVE_QUOTA_GITHUB_INVALID_LIST:${arrayKey}`);
+    }
+
+    collected.push(...items);
+    if (items.length < API_PAGE_SIZE) return collected;
+  }
+
+  // A full final page does not prove the scan is complete. Fail closed rather
+  // than authorizing a live request when more reservation records may exist.
+  throw new Error(`AQ_LIVE_QUOTA_GITHUB_PAGE_LIMIT:${arrayKey}`);
+}
+
 function reservedArtifact(name, workflow) {
   if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW || workflow === CALIBRATION_WORKFLOW) {
     return name === "aq-live-quota-reservation";
@@ -48,10 +72,14 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
+  // A reservation artifact cannot predate its workflow run. Restrict the run
+  // listing to the quota window so old repository history does not consume the
+  // bounded scan or API quota. The timestamp is URL-encoded because GitHub's
+  // created filter uses the ">" operator.
+  const cutoff = new Date(nowMs - WINDOW_SECONDS * 1000).toISOString();
   const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?created=%3E${encodeURIComponent(cutoff)}`;
+  const runs = await githubJsonPages(runsUrl, "workflow_runs", token, fetchImpl);
   let latest = null;
 
   for (const run of runs) {
@@ -59,11 +87,8 @@ export async function latestReservedAt({
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
     const artifactsUrl =
-      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
-    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts)
-      ? artifactsPayload.artifacts
-      : [];
+      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts`;
+    const artifacts = await githubJsonPages(artifactsUrl, "artifacts", token, fetchImpl);
 
     for (const artifact of artifacts) {
       if (
