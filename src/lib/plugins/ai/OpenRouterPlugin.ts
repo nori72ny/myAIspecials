@@ -181,7 +181,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         }
         const responseUsage = data.usage;
         const isZeroCost = (value: unknown): boolean =>
-          value === 0 || (typeof value === "string" && /^(?:0|0\\.0+)$/.test(value));
+          value === 0 || (typeof value === "string" && /^(?:0|0\.0+)$/.test(value));
         if (!responseUsage || !isZeroCost(responseUsage.cost) || responseUsage.is_byok !== false
           || (responseUsage.cost_details?.upstream_inference_cost != null
             && !isZeroCost(responseUsage.cost_details.upstream_inference_cost))
