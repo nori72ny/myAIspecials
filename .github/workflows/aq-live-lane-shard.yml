@@ -26,7 +26,9 @@ concurrency:
 
 jobs:
   compare:
-    if: startsWith(github.event.pull_request.head.ref, 'ci/aq-live-lane-')
+    # SECURITY HOLD: never expose provider credentials to PR-controlled evaluator/server code.
+    # Re-enable only after the live evaluator is moved to a trusted, pinned runner that never inherits secrets into candidate processes.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
@@ -160,7 +162,6 @@ jobs:
         working-directory: candidate
         shell: bash
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ORIGIN_AQ_SHARD_INDEX: ${{ steps.shard.outputs.index }}
           ORIGIN_AQ_BASELINE_ROOT: ${{ github.workspace }}/baseline
           ORIGIN_AQ_CANDIDATE_ROOT: ${{ github.workspace }}/candidate
@@ -169,7 +170,6 @@ jobs:
           ORIGIN_AQ_OUTPUT_PATH: ${{ github.workspace }}/aq-results/lane-shard.json
         run: |
           set -euo pipefail
-          test -n "$OPENROUTER_API_KEY"
           npm run eval:aq-local-comparison-shard
 
       - name: Inspect sanitized lane shard output
