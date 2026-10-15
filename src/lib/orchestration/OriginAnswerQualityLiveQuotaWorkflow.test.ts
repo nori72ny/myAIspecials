@@ -116,4 +116,10 @@ describe("AQ live unified lane quota workflow", () => {
     expect(calibration.concurrency?.group)
       .toBe(workflow.concurrency?.group);
   });
+  it("allows calibration of the currently configured ORIGIN free model", () => {
+    const value = read(calibrationWorkflowPath);
+    expect(value).toContain("inclusionai/ling-3.0-flash-sante:free");
+    expect(value).toContain("ORIGIN_FREE_MODEL_CANDIDATE");
+  });
+
 });
