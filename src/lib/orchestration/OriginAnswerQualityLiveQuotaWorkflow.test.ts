@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parse } from "yaml";
 
 import { describe, expect, it } from "vitest";
 
@@ -74,17 +75,39 @@ describe("AQ live unified lane quota workflow", () => {
     expect(value).toContain("AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'");
   });
 
-  it("pins trusted guard and blocks secrets in PR lane", () => {
-    const value = read(workflowPath);
-    expect(value).toContain("name: Checkout quota guard from trusted pinned snapshot");
-    expect(value).toContain("ref: 51d22e2f9647e1851e0a596203299ca6c582fc45");
-    expect(value).not.toContain("name: Checkout quota guard exact PR head");
-    expect(value).not.toContain("ref: ${{ github.event.pull_request.head.sha }}");
-    const jobEnv = value.match(/  compare:[\s\S]*?\n    steps:/)?.[0] ?? "";
-    expect(jobEnv).not.toContain("OPENROUTER_API_KEY");
-    const inference = value.match(/- name: Run exact-SHA lane shard comparison[\s\S]*?\n        run:/)?.[0] ?? "";
-    expect(value).not.toContain("OPENROUTER_API_KEY");
-    expect(value).toContain("if: false");
-    expect(inference).not.toContain("OPENROUTER_API_KEY");
+  it("parses workflow YAML and structurally verifies the PR secret boundary", () => {
+    const workflow = parse(read(workflowPath)) as Record<string, any>;
+    const trigger = workflow.on ?? workflow["on"];
+    expect(trigger?.pull_request).toBeDefined();
+    const job = workflow.jobs?.compare;
+    expect(job).toBeDefined();
+    expect(job.if).toBe(false);
+
+    const containsSecretContext = (value: unknown): boolean => {
+      if (typeof value === "string") return /\bsecrets\b/i.test(value);
+      if (Array.isArray(value)) return value.some(containsSecretContext);
+      if (value && typeof value === "object") {
+        return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
+          /\bsecrets\b/i.test(key) || containsSecretContext(child));
+      }
+      return false;
+    };
+    expect(containsSecretContext(job)).toBe(false);
+
+    const guardCheckout = job.steps.find((step: any) =>
+      step.name === "Checkout quota guard from trusted pinned snapshot");
+    expect(guardCheckout).toBeDefined();
+    expect(guardCheckout.uses).toMatch(/^actions\/checkout@/);
+    expect(guardCheckout.with.ref).toBe("51d22e2f9647e1851e0a596203299ca6c582fc45");
+
+    const calibration = parse(read(calibrationWorkflowPath)) as Record<string, any>;
+    const calibrationTrigger = calibration.on ?? calibration["on"];
+    expect(calibrationTrigger?.workflow_dispatch).toBeDefined();
+    expect(calibrationTrigger?.push).toBeUndefined();
+    expect(calibrationTrigger?.schedule).toBeUndefined();
+    expect(calibration.jobs?.["calibrate-public-only"]?.if)
+      .toBe("github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
+    expect(calibration.jobs?.["calibrate-public-only"]?.concurrency?.group)
+      .toBe(job.concurrency?.group);
   });
 });
