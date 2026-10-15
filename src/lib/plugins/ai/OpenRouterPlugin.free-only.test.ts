@@ -18,6 +18,8 @@ describe("OpenRouterPlugin zero-cost policy", () => {
         .resolves.toContain("Mock");
       await expect(plugin.generateText("google/gemma-4-31b-it:free-extra", "hello"))
         .resolves.toBe("FREE_MODEL_UNAVAILABLE");
+      await expect(plugin.generateText("google/gemma-4-31b-it:free:free", "hello"))
+        .resolves.toBe("FREE_MODEL_UNAVAILABLE");
       await expect(plugin.generateText("vendor/model-free", "hello"))
         .resolves.toBe("FREE_MODEL_UNAVAILABLE");
       await expect(plugin.generateText("openrouter/auto", "hello"))
