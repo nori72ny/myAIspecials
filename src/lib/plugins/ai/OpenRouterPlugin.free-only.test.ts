@@ -129,11 +129,13 @@ describe("OpenRouterPlugin zero-cost policy", () => {
     };
     const invalidCases = [
       { name: "wrong served model", payload: { ...valid, model: "vendor/paid-model" }, code: "PROVIDER_ROUTING_UNVERIFIED" },
+      { name: "missing served model", payload: { ...valid, model: undefined }, code: "PROVIDER_ROUTING_UNVERIFIED" },
       { name: "missing usage", payload: { ...valid, usage: undefined }, code: "PROVIDER_COST_UNVERIFIED" },
       { name: "missing cost", payload: { ...valid, usage: { ...valid.usage, cost: undefined } }, code: "PROVIDER_COST_UNVERIFIED" },
       { name: "non-zero cost", payload: { ...valid, usage: { ...valid.usage, cost: 0.01 } }, code: "PROVIDER_COST_UNVERIFIED" },
       { name: "missing BYOK evidence", payload: { ...valid, usage: { ...valid.usage, is_byok: undefined } }, code: "PROVIDER_COST_UNVERIFIED" },
       { name: "non-zero upstream cost", payload: { ...valid, usage: { ...valid.usage, cost_details: { upstream_inference_cost: 0.01 } } }, code: "PROVIDER_COST_UNVERIFIED" },
+      { name: "non-zero server tool cost", payload: { ...valid, usage: { ...valid.usage, cost_details: { server_tool_cost: 0.01 } } }, code: "PROVIDER_COST_UNVERIFIED" },
     ];
     try {
       for (const testCase of invalidCases) {
