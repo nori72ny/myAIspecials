@@ -72,8 +72,13 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
+  // A reservation artifact cannot predate its workflow run. Restrict the run
+  // listing to the quota window so old repository history does not consume the
+  // bounded scan or API quota. The timestamp is URL-encoded because GitHub's
+  // created filter uses the ">" operator.
+  const cutoff = new Date(nowMs - WINDOW_SECONDS * 1000).toISOString();
   const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs`;
+    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?created=%3E${encodeURIComponent(cutoff)}`;
   const runs = await githubJsonPages(runsUrl, "workflow_runs", token, fetchImpl);
   let latest = null;
 
