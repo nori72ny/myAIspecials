@@ -61,7 +61,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   private isFreeModel(modelId: string): boolean {
     // Accept only an explicit OpenRouter model ID with a terminal :free suffix.
     // Substrings such as :free-extra or -free must never qualify as zero-cost.
-    return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*:free$/i.test(modelId.trim());
+    return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*:free$/i.test(modelId.trim());
   }
 
   /**
