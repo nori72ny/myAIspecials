@@ -52,8 +52,9 @@ describe("OpenRouterPlugin zero-cost policy", () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response(JSON.stringify({
         id: "test-request",
+        model: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
         choices: [{ message: { content: "verified response" } }],
-        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, cost: 0, is_byok: false },
       }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "test-request" } })
     );
     process.env.NODE_ENV = "production";
@@ -67,6 +68,7 @@ describe("OpenRouterPlugin zero-cost policy", () => {
       expect(request).toBeDefined();
       const body = JSON.parse(String(request?.body));
       expect(body.model).toBe(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL);
+      expect(body.usage).toEqual({ include: true });
       expect(body.provider).toEqual(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY);
       expect(body.provider).toMatchObject({
         allow_fallbacks: false,
@@ -111,6 +113,42 @@ describe("OpenRouterPlugin zero-cost policy", () => {
         .rejects.toMatchObject({ message: "PROVIDER_NOT_CONFIGURED", statusCode: 503 });
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
+      if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = oldNodeEnv;
+    }
+  });
+
+  it("fails closed when served-model identity or zero-cost response evidence is missing or invalid", async () => {
+    const oldNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const valid = {
+      id: "test-request",
+      model: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
+      choices: [{ message: { content: "must not escape on invalid evidence" } }],
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, cost: 0, is_byok: false },
+    };
+    const invalidCases = [
+      { name: "wrong served model", payload: { ...valid, model: "vendor/paid-model" }, code: "PROVIDER_ROUTING_UNVERIFIED" },
+      { name: "missing usage", payload: { ...valid, usage: undefined }, code: "PROVIDER_COST_UNVERIFIED" },
+      { name: "missing cost", payload: { ...valid, usage: { ...valid.usage, cost: undefined } }, code: "PROVIDER_COST_UNVERIFIED" },
+      { name: "non-zero cost", payload: { ...valid, usage: { ...valid.usage, cost: 0.01 } }, code: "PROVIDER_COST_UNVERIFIED" },
+      { name: "missing BYOK evidence", payload: { ...valid, usage: { ...valid.usage, is_byok: undefined } }, code: "PROVIDER_COST_UNVERIFIED" },
+      { name: "non-zero upstream cost", payload: { ...valid, usage: { ...valid.usage, cost_details: { upstream_inference_cost: 0.01 } } }, code: "PROVIDER_COST_UNVERIFIED" },
+    ];
+    try {
+      for (const testCase of invalidCases) {
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify(testCase.payload), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-request-id": "test-request" },
+        }));
+        vi.stubGlobal("fetch", fetchMock);
+        const plugin = new OpenRouterPlugin("test-key");
+        await expect(plugin.generateText(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, "hello"), testCase.name)
+          .rejects.toMatchObject({ message: testCase.code, statusCode: 502 });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      }
+    } finally {
+      vi.unstubAllGlobals();
       if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = oldNodeEnv;
     }
