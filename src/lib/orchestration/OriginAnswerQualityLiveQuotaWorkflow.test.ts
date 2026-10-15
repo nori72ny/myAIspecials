@@ -108,6 +108,9 @@ describe("AQ live unified lane quota workflow", () => {
     expect(calibrationTrigger?.workflow_dispatch).toBeDefined();
     expect(calibrationTrigger?.push).toBeUndefined();
     expect(calibrationTrigger?.schedule).toBeUndefined();
+    expect(calibration.jobs?.["calibrate-public-only"]?.environment?.name).toBe("aq-live");
+    expect(read(calibrationWorkflowPath)).toContain("secrets.AQ_LIVE_OPENROUTER_API_KEY");
+    expect(read(calibrationWorkflowPath)).not.toContain("secrets.OPENROUTER_API_KEY");
     expect(calibration.jobs?.["calibrate-public-only"]?.if)
       .toBe("github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'");
     expect(calibration.concurrency?.group)
