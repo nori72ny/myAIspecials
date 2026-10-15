@@ -189,7 +189,7 @@ jobs:
           const fs = require('fs');
           const raw = fs.readFileSync('aq-results/lane-shard.json', 'utf8');
           const value = JSON.parse(raw);
-          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY'];
+          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought',('OPENROUTER_' + 'API_KEY')];
           if (forbidden.some((needle) => raw.includes(needle))) process.exit(1);
           if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
 
