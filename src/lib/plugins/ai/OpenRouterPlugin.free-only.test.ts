@@ -84,4 +84,20 @@ describe("OpenRouterPlugin zero-cost policy", () => {
       else process.env.FREE_ONLY = oldFreeOnly;
     }
   });
+  it("fails closed in production when the provider key is missing instead of returning a mock answer", async () => {
+    const oldNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const plugin = new OpenRouterPlugin("");
+      await expect(plugin.generateText(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, "hello"))
+        .rejects.toMatchObject({ message: "PROVIDER_NOT_CONFIGURED", statusCode: 503 });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = oldNodeEnv;
+    }
+  });
+
 });
