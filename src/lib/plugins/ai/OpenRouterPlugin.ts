@@ -83,7 +83,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
     // Deterministic mocks are permitted only in tests or with an explicit mock key.
     // Missing production credentials must fail closed, never fabricate an AI answer.
-    if (process.env.NODE_ENV === "test" || this._apiKey.startsWith("mock-")) {
+    if (process.env.NODE_ENV === "test" || (process.env.NODE_ENV !== "production" && this._apiKey.startsWith("mock-"))) {
       Logger.info(`[OpenRouterPlugin] Running generateText in explicit mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
     }
