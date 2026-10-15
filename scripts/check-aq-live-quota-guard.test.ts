@@ -139,6 +139,41 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("finds a recent reservation from a run created more than 24 hours ago", async () => {
+    const previous = "2026-09-20T03:30:00.000Z";
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/actions/workflows/")) {
+        const workflow = url.pathname.split("/").at(-2);
+        const page = Number(url.searchParams.get("page") ?? "1");
+        if (workflow === "aq-live-lane-shard.yml" && page === 1) {
+          return response({
+            workflow_runs: [{
+              id: 123,
+              created_at: "2026-09-18T00:00:00.000Z",
+              run_started_at: "2026-09-20T03:00:00.000Z",
+              status: "completed",
+            }],
+          });
+        }
+        return response({ workflow_runs: [] });
+      }
+      if (url.pathname.endsWith("/actions/runs/123/artifacts")) {
+        return response({
+          artifacts: [{ name: "aq-live-quota-reservation", created_at: previous }],
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+  });
+
   it("finds a reservation on workflow-run page 2", async () => {
     const previous = "2026-09-19T05:22:46.000Z";
     const fetchImpl = async (input: string | URL | Request) => {
@@ -199,13 +234,55 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
-  it("fails closed when the bounded run scan cannot prove completeness", async () => {
+  it("fails closed when a reservation artifact has an invalid timestamp", async () => {
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchWithReservation("not-a-date") as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+  });
+
+  it("fails closed when a reservation timestamp is in the future", async () => {
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchWithReservation("2026-09-20T04:00:01.000Z") as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
+  });
+
+  it("fails closed when workflow-run metadata has a future timestamp", async () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = new URL(String(input));
       if (url.pathname.includes("/actions/workflows/")) {
         const workflow = url.pathname.split("/").at(-2);
         if (workflow === "aq-live-lane-shard.yml") {
-          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: 10_000 + i })) });
+          return response({
+            workflow_runs: [{
+              id: 123,
+              status: "completed",
+              created_at: "2026-09-20T04:00:01.000Z",
+              run_started_at: "2026-09-20T04:00:01.000Z",
+              updated_at: "2026-09-20T04:00:01.000Z",
+            }],
+          });
+        }
+        return response({ workflow_runs: [] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_FUTURE_RUN_TIMESTAMP");
+  });
+
+  it("fails closed when the bounded run scan cannot prove completeness", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/actions/workflows/")) {
+        const workflow = url.pathname.split("/").at(-2);
+        const page = Number(url.searchParams.get("page") ?? "1");
+        if (workflow === "aq-live-lane-shard.yml") {
+          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: page * 1000 + i + 10_000 })) });
         }
         return response({ workflow_runs: [] });
       }

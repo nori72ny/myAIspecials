@@ -72,19 +72,47 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  // A reservation artifact cannot predate its workflow run. Restrict the run
-  // listing to the quota window so old repository history does not consume the
-  // bounded scan or API quota. The timestamp is URL-encoded because GitHub's
-  // created filter uses the ">" operator.
-  const cutoff = new Date(nowMs - WINDOW_SECONDS * 1000).toISOString();
+  // Do not use the created filter here. A run may have been created more
+  // than 24 hours ago, remain queued, and only start/upload its reservation
+  // recently. A long-running run may also complete after its reservation was
+  // created. Scan the unfiltered run list and fail closed if the bounded scan
+  // cannot prove completeness.
   const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?created=%3E${encodeURIComponent(cutoff)}`;
+    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs`;
   const runs = await githubJsonPages(runsUrl, "workflow_runs", token, fetchImpl);
-  let latest = null;
-
+  const uniqueRuns = new Map();
   for (const run of runs) {
-    if (!run) continue;
+    if (!run || run.id == null) {
+      throw new Error("AQ_LIVE_QUOTA_GITHUB_INVALID_RUN");
+    }
+    uniqueRuns.set(String(run.id), run);
+  }
+  let latest = null;
+  const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
+
+  for (const run of uniqueRuns.values()) {
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+
+    // Enumerate run metadata broadly, but fetch artifacts only for runs that
+    // could plausibly contain a reservation created inside the active window.
+    // Missing/unparseable timestamps are not grounds to skip a run.
+    const createdMs = Date.parse(typeof run.created_at === "string" ? run.created_at : "");
+    const startedMs = Date.parse(typeof run.run_started_at === "string" ? run.run_started_at : "");
+    const updatedMs = Date.parse(typeof run.updated_at === "string" ? run.updated_at : "");
+    const runTimestamps = [createdMs, startedMs, updatedMs];
+    // A future run timestamp is impossible evidence for quota history. Do not
+    // skip artifact inspection or authorize a provider request on that basis.
+    if (runTimestamps.some((value) => Number.isFinite(value) && value > nowMs)) {
+      throw new Error("AQ_LIVE_QUOTA_FUTURE_RUN_TIMESTAMP");
+    }
+    const active = run.status === "queued" || run.status === "in_progress";
+    const recentMetadata = runTimestamps.some(
+      (value) => Number.isFinite(value) && value >= cutoffMs && value <= nowMs,
+    );
+    if (!active && !recentMetadata
+      && Number.isFinite(createdMs) && Number.isFinite(startedMs) && Number.isFinite(updatedMs)) {
+      continue;
+    }
 
     const artifactsUrl =
       `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts`;
@@ -101,10 +129,17 @@ export async function latestReservedAt({
 
       const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
       const reservedMs = Date.parse(reservedAt);
-      if (!Number.isFinite(reservedMs)) continue;
+      // A reservation marker with an invalid timestamp makes quota history
+      // ambiguous. Fail closed rather than treating malformed evidence as no use.
+      if (!Number.isFinite(reservedMs)) {
+        throw new Error("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+      }
+      if (reservedMs > nowMs) {
+        throw new Error("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
+      }
 
       const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+      if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
   }
