@@ -219,7 +219,8 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     if (errorType === "rate_limit_exceeded") throw http(429);
     if (errorType === "timeout") throw http(504);
     if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
-    const servedModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : requestData.plan.modelId;
+    if (typeof data.model !== "string" || !data.model.trim()) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouterの提供モデル証跡を確認できません。", 502, false, undefined, { upstreamErrorType: "served-model:missing" });
+    const servedModel = data.model.trim();
     if (!allowedServedModel(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${servedModel}` });
     // Validate required-tool structure before provider billing metadata so malformed tool
     // responses receive their precise contract error. Nothing is returned or emitted until
