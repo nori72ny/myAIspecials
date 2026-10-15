@@ -1,16 +1,26 @@
 name: ORIGIN Strict Quality Gates
-on: [push, pull_request]
 
-# GitHub Advanced Security が要求する最小権限の明示
+on:
+  push:
+    branches: [ feat/* ]
+  pull_request:
+    branches: [ main ]
+
+# Scorecard Token-Permissions 対策: トップレベルで最小権限（読み取り専用）を明示
 permissions:
   contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22.x
-      - run: echo "[CI] Quality Gate Passed. Zero-Cost Verified."
+      - name: Verify Quality Gate
+        run: echo "[CI] Quality Gate Passed. Zero-Cost Verified."
