@@ -1,6 +1,7 @@
 import { IAIProviderPlugin, AIProviderManifest } from '../../kernel/plugin/types';
 import { Logger } from '../../../../services/mission-engine/src/infrastructure/logging/Logger';
 import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../../../legacy/zeroCostRoutingPolicy';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../../orchestration/OriginFreeModelCatalog';
 
 export class OpenRouterError extends Error {
   constructor(
@@ -14,6 +15,15 @@ export class OpenRouterError extends Error {
   }
 }
 
+const ORIGIN_FREE_MODEL_IDS: ReadonlySet<string> = new Set(DEFAULT_ORIGIN_FREE_MODEL_CATALOG.map((entry) => entry.modelId));
+
+export function isOriginFreeOpenRouterModelId(modelId: unknown): modelId is string {
+  if (typeof modelId !== 'string' || modelId.length === 0 || modelId !== modelId.trim()) return false;
+  if (!/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*:free$/.test(modelId)) return false;
+  if (modelId.startsWith('openrouter/auto')) return false;
+  return ORIGIN_FREE_MODEL_IDS.has(modelId);
+}
+
 export class OpenRouterPlugin implements IAIProviderPlugin {
   public manifest: AIProviderManifest = {
     id: "plugin-openrouter",
@@ -24,8 +34,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     provider: "OpenRouter",
     models: [
       {
-        id: "google/gemini-2.5-flash:free",
-        name: "Gemini 2.5 Flash (OpenRouter Free)",
+        id: "inclusionai/ling-3.0-flash-sante:free",
+        name: "Ling 3.0 Flash Sante (OpenRouter Free)",
         speed: 8,
         cost: 0,
         quality: 8,
@@ -58,11 +68,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Helper to determine if a model ID represents an explicitly free-tier model.
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
-  private isFreeModel(modelId: string): boolean {
-    // Accept only an explicit OpenRouter model ID with a terminal :free suffix.
-    // Substrings such as :free-extra or -free must never qualify as zero-cost.
-    return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*:free$/i.test(modelId.trim());
-  }
+
 
   /**
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
@@ -70,12 +76,9 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
     // ORIGIN owner policy: paid routing is never enabled by environment overrides.
     // Tests and local scripts must not weaken the production zero-cost invariant.
-    if (!this.isFreeModel(modelId)) {
+    if (!isOriginFreeOpenRouterModelId(modelId)) {
       Logger.warn(`[OpenRouterPlugin] Blocked execution of paid or automatic model '${modelId}' under free-only constraints.`);
-      if (options?.throwOnBlock) {
-        throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
-      }
-      return "FREE_MODEL_UNAVAILABLE";
+      throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
     }
 
     // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
@@ -118,7 +121,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
             "X-Title": "Intelligence OS"
           },
           body: JSON.stringify({
-            model: modelId.trim(),
+            model: modelId,
             messages: [{ role: "user", content: prompt }],
             provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
             temperature: options?.temperature ?? 0.7,
