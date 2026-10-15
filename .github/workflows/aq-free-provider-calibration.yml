@@ -98,7 +98,7 @@ jobs:
             maxProviderRequests: 2,
             createdAt: new Date().toISOString(),
           };
-          fs.writeFileSync('aq-calibration-quota/reservation.json', JSON.stringify(reservation) + '\\n', { mode: 0o600 });
+          fs.writeFileSync('aq-calibration-quota/reservation.json', JSON.stringify(reservation) + '\n', { mode: 0o600 });
           NODE
       - name: Reserve quota BEFORE any model inference
         if: steps.quota.outputs.allowed == 'true'
