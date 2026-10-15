@@ -123,7 +123,7 @@ describe("AQ live unified lane quota workflow", () => {
       const job = parsed.jobs?.compare;
       if (!job || job.if !== false) throw new Error("AQ_PR_LIVE_JOB_MUST_REMAIN_DISABLED");
       const containsSecretContext = (value: unknown): boolean => {
-        if (typeof value === "string") return /\\bsecrets\\b/i.test(value);
+        if (typeof value === "string") return /\bsecrets\b/i.test(value);
         if (Array.isArray(value)) return value.some(containsSecretContext);
         if (value && typeof value === "object") {
           return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
@@ -142,7 +142,7 @@ describe("AQ live unified lane quota workflow", () => {
 
     const secretMutation = original.replace(
       "      ORIGIN_AQ_BASELINE_PORT:",
-      "      LEAK: \${{ toJSON(secrets) }}\\n      ORIGIN_AQ_BASELINE_PORT:",
+      "      LEAK: ${{ toJSON(secrets) }}\n      ORIGIN_AQ_BASELINE_PORT:",
     );
     expect(secretMutation).not.toBe(original);
     expect(() => assertSecure(secretMutation)).toThrow("AQ_PR_LIVE_JOB_MUST_NOT_REFERENCE_SECRETS");
