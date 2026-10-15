@@ -11,6 +11,15 @@ const request = { plan, messages: [{ role: "user" as const, content: "確認し�
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) { return { model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ message: { content: "確認結果です。" } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0, is_byok: false }, ...overrides }; }
 
 describe("executeOriginProvider", () => {
+  it("rejects a provider response with missing served-model evidence", async () => {
+    const payload = successfulProviderPayload();
+    delete (payload as { model?: string }).model;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", status: 502 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a canonical served-model slug when used as the outbound request model", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload()), { status: 200 }));
     const unsafePlan = { ...plan, modelId: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "") };
