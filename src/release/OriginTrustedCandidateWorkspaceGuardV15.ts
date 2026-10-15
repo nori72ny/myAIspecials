@@ -13,6 +13,8 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     'af43541852474fb8a1a1e4fffbb745b4ab601237',
     // 2026-10-09 Handlebars 4.7.10 security patch; external release review pending, exact blob only.
     'd3533d98f80338f81975863d08935aeb867b0e9b',
+    // AQ quota workflow static-assertion dependency update (js-yaml); exact lockfile blob only.
+    'd71aeae41f7afa62d3bd57be72ab09533678eda3',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
