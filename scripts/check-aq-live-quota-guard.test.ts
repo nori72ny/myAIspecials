@@ -157,6 +157,7 @@ describe("AQ live quota guard readiness", () => {
       if (
         url.includes("/actions/workflows/aq-live-research-shard.yml/runs")
         || url.includes("/actions/workflows/q1-final-aq.yml/runs")
+        || url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs")
       ) {
         return response({ workflow_runs: [] });
       }
