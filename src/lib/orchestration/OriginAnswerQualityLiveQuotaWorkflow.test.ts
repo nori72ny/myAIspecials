@@ -127,7 +127,7 @@ describe("AQ live unified lane quota workflow", () => {
         if (Array.isArray(value)) return value.some(containsSecretContext);
         if (value && typeof value === "object") {
           return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
-            /\\bsecrets\\b/i.test(key) || containsSecretContext(child));
+            /\bsecrets\b/i.test(key) || containsSecretContext(child));
         }
         return false;
       };
