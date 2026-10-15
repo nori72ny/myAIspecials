@@ -116,6 +116,38 @@ describe("AQ live unified lane quota workflow", () => {
     expect(calibration.concurrency?.group)
       .toBe(workflow.concurrency?.group);
   });
+  it("fails mutation tests when the PR lane is enabled or a secrets context is injected", () => {
+    const original = read(workflowPath);
+    const assertSecure = (source: string) => {
+      const parsed = parse(source) as Record<string, any>;
+      const job = parsed.jobs?.compare;
+      if (!job || job.if !== false) throw new Error("AQ_PR_LIVE_JOB_MUST_REMAIN_DISABLED");
+      const containsSecretContext = (value: unknown): boolean => {
+        if (typeof value === "string") return /\\bsecrets\\b/i.test(value);
+        if (Array.isArray(value)) return value.some(containsSecretContext);
+        if (value && typeof value === "object") {
+          return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
+            /\\bsecrets\\b/i.test(key) || containsSecretContext(child));
+        }
+        return false;
+      };
+      if (containsSecretContext(job)) throw new Error("AQ_PR_LIVE_JOB_MUST_NOT_REFERENCE_SECRETS");
+    };
+
+    expect(() => assertSecure(original)).not.toThrow();
+
+    const enabledMutation = original.replace("    if: false", "    if: true # was: if: false");
+    expect(enabledMutation).not.toBe(original);
+    expect(() => assertSecure(enabledMutation)).toThrow("AQ_PR_LIVE_JOB_MUST_REMAIN_DISABLED");
+
+    const secretMutation = original.replace(
+      "      ORIGIN_AQ_BASELINE_PORT:",
+      "      LEAK: \${{ toJSON(secrets) }}\\n      ORIGIN_AQ_BASELINE_PORT:",
+    );
+    expect(secretMutation).not.toBe(original);
+    expect(() => assertSecure(secretMutation)).toThrow("AQ_PR_LIVE_JOB_MUST_NOT_REFERENCE_SECRETS");
+  });
+
   it("allows calibration of the currently configured ORIGIN free model", () => {
     const value = read(calibrationWorkflowPath);
     expect(value).toContain("inclusionai/ling-3.0-flash-sante:free");
