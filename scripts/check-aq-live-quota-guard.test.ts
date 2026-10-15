@@ -15,7 +15,7 @@ function response(value: unknown) {
 
 function fetchWithReservation(
   createdAt: string | null,
-  workflow: "aq-live-lane-shard.yml" | "q1-final-aq.yml" = "aq-live-lane-shard.yml",
+  workflow: "aq-live-lane-shard.yml" | "q1-final-aq.yml" | "aq-free-provider-calibration.yml" = "aq-live-lane-shard.yml",
 ) {
   return async (input: string | URL | Request) => {
     const url = String(input);
@@ -23,6 +23,7 @@ function fetchWithReservation(
       "aq-live-lane-shard.yml",
       "aq-live-research-shard.yml",
       "q1-final-aq.yml",
+      "aq-free-provider-calibration.yml",
     ]) {
       if (url.includes(`/actions/workflows/${name}/runs`)) {
         return response({
@@ -107,6 +108,40 @@ describe("AQ live quota guard readiness", () => {
     expect(result.remainingSeconds).toBe(0);
   });
 
+  it("finds a reservation beyond the first 100 workflow runs", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const requestedPages: string[] = [];
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        requestedPages.push(url);
+        const page = new URL(url).searchParams.get("page");
+        if (page === "1") {
+          return response({ workflow_runs: Array.from({ length: 100 }, () => ({ id: Number(currentRunId) })) });
+        }
+        return response({ workflow_runs: [{ id: 123 }] });
+      }
+      if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
+      if (url.includes("/actions/runs/123/artifacts")) {
+        return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: previous }] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const result = await checkLiveQuota({ repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch });
+    expect(requestedPages.some((url) => new URL(url).searchParams.get("page") === "2")).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+  });
+
+  it("counts the calibration workflow reservation in the shared quota", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchWithReservation(previous, "aq-free-provider-calibration.yml") as typeof fetch,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+  });
   it("counts a prior-attempt reservation from the current workflow run when enabled", async () => {
     const previous = "2026-09-19T05:22:46.000Z";
     const fetchImpl = async (input: string | URL | Request) => {
