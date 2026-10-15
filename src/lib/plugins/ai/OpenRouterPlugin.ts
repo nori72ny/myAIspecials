@@ -1,5 +1,6 @@
 import { IAIProviderPlugin, AIProviderManifest } from '../../kernel/plugin/types';
 import { Logger } from '../../../../services/mission-engine/src/infrastructure/logging/Logger';
+import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../../../legacy/zeroCostRoutingPolicy';
 
 export class OpenRouterError extends Error {
   constructor(
@@ -58,23 +59,18 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
   private isFreeModel(modelId: string): boolean {
-    const lowerId = modelId.toLowerCase();
-    return (
-      lowerId.includes(':free') ||
-      lowerId.includes('-free') ||
-      lowerId.endsWith('/free')
-    );
+    // Accept only an explicit OpenRouter model ID with a terminal :free suffix.
+    // Substrings such as :free-extra or -free must never qualify as zero-cost.
+    return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*:free$/i.test(modelId.trim());
   }
 
   /**
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
    */
   public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
-    // This project is free-only by default. Paid routing requires an explicit local opt-out.
-    const isFreeOnly = process.env.FREE_ONLY !== "false" || options?.freeOnly === true;
-
-    // 1. Free-only enforcement / Paid model blocking
-    if (isFreeOnly && !this.isFreeModel(modelId)) {
+    // ORIGIN owner policy: paid routing is never enabled by environment overrides.
+    // Tests and local scripts must not weaken the production zero-cost invariant.
+    if (!this.isFreeModel(modelId)) {
       Logger.warn(`[OpenRouterPlugin] Blocked execution of paid or automatic model '${modelId}' under free-only constraints.`);
       if (options?.throwOnBlock) {
         throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
@@ -122,8 +118,9 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
             "X-Title": "Intelligence OS"
           },
           body: JSON.stringify({
-            model: modelId,
+            model: modelId.trim(),
             messages: [{ role: "user", content: prompt }],
+            provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
             temperature: options?.temperature ?? 0.7,
             max_tokens: options?.max_tokens
           }),
