@@ -248,6 +248,33 @@ describe("AQ live quota guard readiness", () => {
     })).rejects.toThrow("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
   });
 
+  it("fails closed when workflow-run metadata has a future timestamp", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("/actions/workflows/")) {
+        const workflow = url.pathname.split("/").at(-2);
+        if (workflow === "aq-live-lane-shard.yml") {
+          return response({
+            workflow_runs: [{
+              id: 123,
+              status: "completed",
+              created_at: "2026-09-20T04:00:01.000Z",
+              run_started_at: "2026-09-20T04:00:01.000Z",
+              updated_at: "2026-09-20T04:00:01.000Z",
+            }],
+          });
+        }
+        return response({ workflow_runs: [] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_FUTURE_RUN_TIMESTAMP");
+  });
+
   it("fails closed when the bounded run scan cannot prove completeness", async () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = new URL(String(input));
