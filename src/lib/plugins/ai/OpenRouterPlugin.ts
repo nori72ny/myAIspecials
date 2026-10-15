@@ -54,7 +54,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
   public async initialize(): Promise<void> {
     if (!this._apiKey) {
-      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
+      Logger.warn("[OpenRouterPlugin] No API key configured; live generation will fail closed.");
     } else {
       Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
     }
