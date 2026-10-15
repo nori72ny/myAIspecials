@@ -72,17 +72,24 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  // A reservation artifact cannot predate its workflow run. Restrict the run
-  // listing to the quota window so old repository history does not consume the
-  // bounded scan or API quota. The timestamp is URL-encoded because GitHub's
-  // created filter uses the ">" operator.
-  const cutoff = new Date(nowMs - WINDOW_SECONDS * 1000).toISOString();
+  // Do not use the created filter here. A run may have been created more
+  // than 24 hours ago, remain queued, and only start/upload its reservation
+  // recently. A long-running run may also complete after its reservation was
+  // created. Scan the unfiltered run list and fail closed if the bounded scan
+  // cannot prove completeness.
   const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?created=%3E${encodeURIComponent(cutoff)}`;
+    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs`;
   const runs = await githubJsonPages(runsUrl, "workflow_runs", token, fetchImpl);
+  const uniqueRuns = new Map();
+  for (const run of runs) {
+    if (!run || run.id == null) {
+      throw new Error("AQ_LIVE_QUOTA_GITHUB_INVALID_RUN");
+    }
+    uniqueRuns.set(String(run.id), run);
+  }
   let latest = null;
 
-  for (const run of runs) {
+  for (const run of uniqueRuns.values()) {
     if (!run) continue;
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
