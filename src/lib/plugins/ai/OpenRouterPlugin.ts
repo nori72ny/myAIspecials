@@ -81,10 +81,14 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
       throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
     }
 
-    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
-    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
-      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+    // Deterministic mocks are permitted only in tests or with an explicit mock key.
+    // Missing production credentials must fail closed, never fabricate an AI answer.
+    if (process.env.NODE_ENV === "test" || this._apiKey.startsWith("mock-")) {
+      Logger.info(`[OpenRouterPlugin] Running generateText in explicit mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
+    }
+    if (!this._apiKey) {
+      throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503);
     }
 
     // Legacy plugin safety: one provider attempt, zero automatic retries.
