@@ -76,7 +76,7 @@ describe("AQ live unified lane quota workflow", () => {
 
   it("uses a trusted pinned guard and scopes provider credentials to inference only", () => {
     const value = read(workflowPath);
-    expect(value).toContain("name: Checkout quota guard from trusted main snapshot");
+    expect(value).toContain("name: Checkout quota guard from trusted pinned snapshot");
     expect(value).toContain("ref: 5e2096100806a7aceabf725ee33a9669f9d6531a");
     expect(value).not.toContain("name: Checkout quota guard exact PR head");
     const jobEnv = value.match(/  compare:[\s\S]*?\n    steps:/)?.[0] ?? "";
