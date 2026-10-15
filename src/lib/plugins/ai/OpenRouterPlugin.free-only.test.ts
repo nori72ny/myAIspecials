@@ -27,7 +27,7 @@ describe("OpenRouterPlugin zero-cost policy", () => {
         "inclusionai/ling-3.0-flash-sante:free:free",
         "inclusionai/ling-3.0-flash-sante-free",
         " inclusionai/ling-3.0-flash-sante:free",
-        "inclusionai/ling-3.0-flash-sante:free\\n",
+        "inclusionai/ling-3.0-flash-sante:free\n",
         "inclusionai/ling-3.0-flash-sante:free,google/gemma-4-31b-it:free",
         "inclusionai%2fling-3.0-flash-sante%3afree",
         "vendor/fake-model:free",
@@ -66,6 +66,7 @@ describe("OpenRouterPlugin zero-cost policy", () => {
       const request = fetchMock.mock.calls[0]?.[1];
       expect(request).toBeDefined();
       const body = JSON.parse(String(request?.body));
+      expect(body.model).toBe(ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL);
       expect(body.provider).toEqual(ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY);
       expect(body.provider).toMatchObject({
         allow_fallbacks: false,
