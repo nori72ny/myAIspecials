@@ -26,13 +26,14 @@ concurrency:
 
 jobs:
   compare:
-    if: startsWith(github.event.pull_request.head.ref, 'ci/aq-live-lane-')
+    # SECURITY HOLD: never expose provider credentials to PR-controlled evaluator/server code.
+    # Re-enable only after the live evaluator is moved to a trusted, pinned runner that never inherits secrets into candidate processes.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
       BASELINE_SHA: f0c1bff22d3246d3eac3903b9def5d3aa7c1e498
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ORIGIN_AQ_BASELINE_PORT: '4611'
       ORIGIN_AQ_CANDIDATE_PORT: '4612'
 
@@ -55,10 +56,10 @@ jobs:
           esac
           echo "lane=$lane" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout quota guard exact PR head
+      - name: Checkout quota guard from trusted pinned snapshot
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: 51d22e2f9647e1851e0a596203299ca6c582fc45
           path: guard
           persist-credentials: false
 
@@ -67,6 +68,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          AQ_LIVE_INCLUDE_CURRENT_RUN_RESERVATIONS: 'true'
         run: |
           set -euo pipefail
           node guard/scripts/check-aq-live-quota-guard.mjs
@@ -138,7 +140,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$OPENROUTER_API_KEY"
           test -z "${OPENAI_API_KEY:-}"
           test -z "${ANTHROPIC_API_KEY:-}"
           test -z "${GEMINI_API_KEY:-}"
@@ -188,7 +189,7 @@ jobs:
           const fs = require('fs');
           const raw = fs.readFileSync('aq-results/lane-shard.json', 'utf8');
           const value = JSON.parse(raw);
-          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought','OPENROUTER_API_KEY'];
+          const forbidden = ['answerText','"prompt"','"messages"','chain-of-thought',('OPENROUTER_' + 'API_KEY')];
           if (forbidden.some((needle) => raw.includes(needle))) process.exit(1);
           if (value?.schemaVersion !== 'origin.aq-local-shard-result.v1') process.exit(1);
 

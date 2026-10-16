@@ -5,6 +5,9 @@ const WINDOW_SECONDS = 86_400;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
+const CALIBRATION_WORKFLOW = "aq-free-provider-calibration.yml";
+const MAX_API_PAGES = 10;
+const RUNS_PER_PAGE = 100;
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -31,7 +34,7 @@ async function githubJson(url, token, fetchImpl = fetch) {
 }
 
 function reservedArtifact(name, workflow) {
-  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW) {
+  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW || workflow === CALIBRATION_WORKFLOW) {
     return name === "aq-live-quota-reservation";
   }
   if (workflow === LEGACY_WORKFLOW) return name.startsWith("aq-live-research-shard");
@@ -47,10 +50,16 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+  const runs = [];
+  for (let page = 1; page <= MAX_API_PAGES; page += 1) {
+    const runsUrl =
+      `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=${RUNS_PER_PAGE}&page=${page}`;
+    const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+    const pageRuns = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    runs.push(...pageRuns);
+    if (pageRuns.length < RUNS_PER_PAGE) break;
+    if (page === MAX_API_PAGES) throw new Error("AQ_LIVE_QUOTA_RUN_PAGINATION_LIMIT");
+  }
   let latest = null;
 
   for (const run of runs) {
@@ -95,7 +104,7 @@ export async function checkLiveQuota({
   fetchImpl = fetch,
 }) {
   const reservations = await Promise.all(
-    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW].map((workflow) =>
+    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW, CALIBRATION_WORKFLOW].map((workflow) =>
       latestReservedAt({
         repository,
         workflow,
