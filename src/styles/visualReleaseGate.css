@@ -1,77 +1,9 @@
-/* ORIGIN Personal - World-Class High-Contrast Production CSS */
-
-/* 1. 画面全体の統一ディープブラック背景 */
-html, body {
-  background-color: #000000 !important;
-  color: #FFFFFF !important;
-  margin: 0; padding: 0;
-  max-width: 100vw; overflow-x: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Hiragino Sans", sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* 2. ヘッダーの文字・三本線・歯車アイコンを完全純白化 */
-header, .origin-header, [data-header] {
-  background-color: #000000 !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
-}
-
-/* ヘッダー内のロゴテキスト */
-header span, header h1, .origin-header span, .origin-header div {
-  color: #FFFFFF !important;
-  opacity: 1 !important;
-  font-weight: 700 !important;
-}
-
-/* ヘッダー内の全SVGアイコン（三本線メニュー、歯車アイコン等） */
-header svg, header svg path, .origin-header svg, .origin-header svg path {
-  fill: #FFFFFF !important;
-  stroke: #FFFFFF !important;
-  opacity: 1 !important;
-}
-
-/* 3. 下部入力コンテナ（白浮きを解消し、上質なダークカードへ統一） */
-.origin-composer-container, form, [data-composer-container] {
-  background-color: #000000 !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
-}
-
-/* 入力枠本体（クッキリ見えるディープスレート＆ボーダー） */
-.origin-composer-input, textarea, input[type="text"], .origin-composer-container > div:first-child {
-  background-color: #0F172A !important;
-  color: #FFFFFF !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
-  border-radius: 20px !important;
-}
-
-/* 入力プレースホルダー（薄すぎて見えない問題を解決） */
-::placeholder, textarea::placeholder, input::placeholder {
-  color: #94A3B8 !important;
-  opacity: 1 !important;
-}
-
-/* 左下の「＋」ボタン */
-button:has(svg), .origin-composer-container button:first-of-type {
-  color: #FFFFFF !important;
-}
-.origin-composer-container svg path {
-  stroke: #FFFFFF !important;
-}
-
-/* 4. 右下の送信ボタン（上向き矢印 ↑）の鮮烈発光化 */
-button[type="submit"], button:has(svg[data-icon="arrow-up"]), .origin-composer-container button:last-of-type {
-  background: linear-gradient(135deg, #0284c7, #2563eb) !important;
-  background-color: #0284c7 !important;
-  border: 1px solid rgba(255, 255, 255, 0.4) !important;
-  border-radius: 12px !important;
-  opacity: 1 !important;
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.5) !important;
-}
-
-/* 送信ボタン内の矢印（↑）アイコンを純白化 */
-button[type="submit"] svg, button[type="submit"] svg path, .origin-composer-container button:last-of-type svg path {
-  stroke: #FFFFFF !important;
-  fill: #FFFFFF !important;
-  color: #FFFFFF !important;
-  opacity: 1 !important;
-}
+/* ORIGIN Personal - GUARANTEED HIGH-CONTRAST OVERRIDES */
+html, body { background-color: #000000 !important; color: #FFFFFF !important; }
+header, .origin-header { background-color: #000000 !important; border-bottom: 1px solid rgba(255,255,255,0.2) !important; }
+header *, .origin-header * { color: #FFFFFF !important; fill: #FFFFFF !important; stroke: #FFFFFF !important; opacity: 1 !important; }
+form, div:has(> textarea), [class*="composer"] { background-color: #0F172A !important; border: 1.5px solid rgba(255,255,255,0.3) !important; border-radius: 20px !important; }
+textarea, input[type="text"] { background-color: transparent !important; color: #FFFFFF !important; }
+::placeholder, textarea::placeholder { color: #94A3B8 !important; opacity: 1 !important; }
+button[type="submit"], button:has(svg) { background: linear-gradient(135deg, #0284C7, #2563EB) !important; border: 1px solid #FFFFFF !important; border-radius: 12px !important; opacity: 1 !important; }
+button[type="submit"] *, button:has(svg) * { fill: #FFFFFF !important; stroke: #FFFFFF !important; color: #FFFFFF !important; opacity: 1 !important; }
