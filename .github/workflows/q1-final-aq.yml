@@ -1,6 +1,12 @@
 name: Q1 final AQ scheduled
 
 on:
+  # A protected-main workflow change can start one explicitly marked AQ run after merge.
+  # The shared quota guard and held-out pause remain mandatory; no bypass is added here.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/q1-final-aq.yml'
   schedule:
     - cron: '17 */3 * * *'
   workflow_dispatch:
@@ -15,7 +21,7 @@ concurrency:
 
 jobs:
   compare:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'push' || contains(github.event.head_commit.message, '[aq40-live]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:

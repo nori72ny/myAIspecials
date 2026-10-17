@@ -17,6 +17,10 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
     'fe7ee794c628063f6cc39fc13d503eb5a0becf80',
+    // Reviewed lazy-load of the server app in the Vite dev hook (PR #981).
+    '3a70c350981b9b161fdae8c859dfab41a442fbf1',
+    // Reviewed Vitest-only guard prevents Vite module-runner teardown failures.
+    'd06aaa8585ecbcf73d1b6989e7d462e8d971aac8',
   ]],
   ['tsconfig.json', ['166577ad1b6c79a81519689f71b0769e7f465ff3']],
   ['scripts/design-token-lock.js', ['a47fc4b878f84bf3b0bf303e6bf7ea5093e27803']],
