@@ -236,4 +236,57 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("fails closed when a workflow-runs response omits its collection", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) return response({ message: "unexpected API shape" });
+      if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUNS_PAYLOAD");
+  });
+
+  it("fails closed when an artifacts response omits its collection", async () => {
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        return response({ workflow_runs: [{ id: 123 }] });
+      }
+      if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
+      if (url.includes("/actions/runs/123/artifacts")) return response({ message: "unexpected API shape" });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    await expect(checkLiveQuota({
+      repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_INVALID_ARTIFACTS_PAYLOAD");
+  });
+
+  it("follows artifact pagination before deciding quota is available", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const requestedPages: string[] = [];
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        return response({ workflow_runs: [{ id: 123 }] });
+      }
+      if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
+      if (url.includes("/actions/runs/123/artifacts")) {
+        requestedPages.push(url);
+        const page = Number(new URL(url).searchParams.get("page"));
+        if (page === 1) return response({ artifacts: Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: "unrelated", created_at: previous })) });
+        if (page === 2) return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: previous }] });
+        return response({ artifacts: [] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(requestedPages.some(url => new URL(url).searchParams.get("page") === "2")).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+  });
+
 });
