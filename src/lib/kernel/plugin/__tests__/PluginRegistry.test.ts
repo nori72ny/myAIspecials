@@ -12,8 +12,8 @@ describe('PluginRegistry', () => {
     const aiProviders = registry.getAIProviders();
     expect(aiProviders.length).toBe(1);
     expect(aiProviders[0].manifest.provider).toBe("OpenRouter");
-    expect(aiProviders[0].manifest.models[0].name).toBe("Gemini 2.5 Flash (OpenRouter Free)");
-    expect(aiProviders[0].manifest.models[0].id).toBe("google/gemini-2.5-flash:free");
+    expect(aiProviders[0].manifest.models[0].name).toBe("Ling 3.0 Flash Sante (OpenRouter Free)");
+    expect(aiProviders[0].manifest.models[0].id).toBe("inclusionai/ling-3.0-flash-sante:free");
     expect(aiProviders[0].manifest.models[0].cost).toBe(0);
   });
 

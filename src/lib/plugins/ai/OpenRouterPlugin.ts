@@ -1,5 +1,7 @@
 import { IAIProviderPlugin, AIProviderManifest } from '../../kernel/plugin/types';
 import { Logger } from '../../../../services/mission-engine/src/infrastructure/logging/Logger';
+import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../../../legacy/zeroCostRoutingPolicy';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../../orchestration/OriginFreeModelCatalog';
 
 export class OpenRouterError extends Error {
   constructor(
@@ -13,6 +15,15 @@ export class OpenRouterError extends Error {
   }
 }
 
+const ORIGIN_FREE_MODEL_IDS: ReadonlySet<string> = new Set(DEFAULT_ORIGIN_FREE_MODEL_CATALOG.map((entry) => entry.modelId));
+
+export function isOriginFreeOpenRouterModelId(modelId: unknown): modelId is string {
+  if (typeof modelId !== 'string' || modelId.length === 0 || modelId !== modelId.trim()) return false;
+  if (!/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*:free$/.test(modelId)) return false;
+  if (modelId.startsWith('openrouter/auto')) return false;
+  return ORIGIN_FREE_MODEL_IDS.has(modelId);
+}
+
 export class OpenRouterPlugin implements IAIProviderPlugin {
   public manifest: AIProviderManifest = {
     id: "plugin-openrouter",
@@ -23,8 +34,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     provider: "OpenRouter",
     models: [
       {
-        id: "google/gemini-2.5-flash:free",
-        name: "Gemini 2.5 Flash (OpenRouter Free)",
+        id: "inclusionai/ling-3.0-flash-sante:free",
+        name: "Ling 3.0 Flash Sante (OpenRouter Free)",
         speed: 8,
         cost: 0,
         quality: 8,
@@ -43,7 +54,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
   public async initialize(): Promise<void> {
     if (!this._apiKey) {
-      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
+      Logger.warn("[OpenRouterPlugin] No API key configured; live generation will fail closed.");
     } else {
       Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
     }
@@ -57,35 +68,27 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Helper to determine if a model ID represents an explicitly free-tier model.
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
-  private isFreeModel(modelId: string): boolean {
-    const lowerId = modelId.toLowerCase();
-    return (
-      lowerId.includes(':free') ||
-      lowerId.includes('-free') ||
-      lowerId.endsWith('/free')
-    );
-  }
+
 
   /**
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
    */
   public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
-    // This project is free-only by default. Paid routing requires an explicit local opt-out.
-    const isFreeOnly = process.env.FREE_ONLY !== "false" || options?.freeOnly === true;
-
-    // 1. Free-only enforcement / Paid model blocking
-    if (isFreeOnly && !this.isFreeModel(modelId)) {
+    // ORIGIN owner policy: paid routing is never enabled by environment overrides.
+    // Tests and local scripts must not weaken the production zero-cost invariant.
+    if (!isOriginFreeOpenRouterModelId(modelId)) {
       Logger.warn(`[OpenRouterPlugin] Blocked execution of paid or automatic model '${modelId}' under free-only constraints.`);
-      if (options?.throwOnBlock) {
-        throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
-      }
-      return "FREE_MODEL_UNAVAILABLE";
+      throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
     }
 
-    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
-    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
-      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+    // Deterministic mocks are permitted only in tests or with an explicit mock key.
+    // Missing production credentials must fail closed, never fabricate an AI answer.
+    if (process.env.NODE_ENV === "test" || (process.env.NODE_ENV !== "production" && this._apiKey.startsWith("mock-"))) {
+      Logger.info(`[OpenRouterPlugin] Running generateText in explicit mock mode for model: ${modelId}`);
       return this.getFallbackMockResponse(prompt, modelId);
+    }
+    if (!this._apiKey || (process.env.NODE_ENV === "production" && this._apiKey.startsWith("mock-"))) {
+      throw new OpenRouterError("PROVIDER_NOT_CONFIGURED", 503);
     }
 
     // Legacy plugin safety: one provider attempt, zero automatic retries.
@@ -124,6 +127,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
           body: JSON.stringify({
             model: modelId,
             messages: [{ role: "user", content: prompt }],
+            provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
+            usage: { include: true },
             temperature: options?.temperature ?? 0.7,
             max_tokens: options?.max_tokens
           }),
@@ -166,6 +171,24 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
         }
 
         const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
+
+        // The request policy is not sufficient evidence on its own. Verify the
+        // actual served model and reported usage before exposing any answer.
+        const servedModel = typeof data.model === "string" ? data.model.trim() : "";
+        const canonicalServedModel = modelId.replace(/:free$/, "");
+        if (servedModel !== modelId && servedModel !== canonicalServedModel) {
+          throw new OpenRouterError("PROVIDER_ROUTING_UNVERIFIED", 502, requestId);
+        }
+        const responseUsage = data.usage;
+        const isZeroCost = (value: unknown): boolean =>
+          value === 0 || (typeof value === "string" && /^(?:0|0\.0+)$/.test(value));
+        if (!responseUsage || !isZeroCost(responseUsage.cost) || responseUsage.is_byok !== false
+          || (responseUsage.cost_details?.upstream_inference_cost != null
+            && !isZeroCost(responseUsage.cost_details.upstream_inference_cost))
+          || (responseUsage.cost_details?.server_tool_cost != null
+            && !isZeroCost(responseUsage.cost_details.server_tool_cost))) {
+          throw new OpenRouterError("PROVIDER_COST_UNVERIFIED", 502, requestId);
+        }
 
         if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
           throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);

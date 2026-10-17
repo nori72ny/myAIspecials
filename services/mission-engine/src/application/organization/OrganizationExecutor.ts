@@ -669,6 +669,7 @@ export class OrganizationExecutor {
           routing: result.routing
         };
       } catch (err) {
+        if (isFreeOnly && !customClient) throw err;
         console.warn("Failed to generate board directive:", err);
       }
     }
@@ -715,6 +716,7 @@ export class OrganizationExecutor {
           routing: result.routing
         };
       } catch (err) {
+        if (isFreeOnly && !customClient) throw err;
         console.warn("Failed to generate strategic plan:", err);
       }
     }
@@ -851,6 +853,7 @@ export class OrganizationExecutor {
           routing: resultDoc.routing
         };
       } catch (err) {
+        if (isFreeOnly && !customClient) throw err;
         console.warn("Failed worker executions:", err);
       }
     }
@@ -909,6 +912,7 @@ export class OrganizationExecutor {
             if (parsed.feedback) feedback = `${parsed.feedback}\n\n${resultRev.evidence}`;
           }
         } catch (err) {
+          if (isFreeOnly && !customClient) throw err;
           console.warn("Failed conducting review:", err);
         }
       }

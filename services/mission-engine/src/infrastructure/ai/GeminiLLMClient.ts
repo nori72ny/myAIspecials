@@ -26,6 +26,14 @@ export class GeminiLLMClient implements ILLMClient {
   async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-2.5-flash"): Promise<string> {
     const startTime = Date.now();
 
+    // Native Gemini calls do not provide the explicit zero-cost evidence required
+    // by ORIGIN's FREE_ONLY policy. Never demote/rewrite a model and continue
+    // against a separately billed API; fail closed and let the caller report the
+    // unavailable verified-free route instead.
+    if (process.env.FREE_ONLY === "true") {
+      throw new Error("FREE_ONLY_PROVIDER_BLOCKED: native Gemini API cannot verify zero-cost execution; use an approved OpenRouter :free route.");
+    }
+
     // The organization router may return an OpenRouter provider slug. Gemini's
     // native API only accepts Gemini model IDs, so normalize cross-provider
     // selections when this client is the active fallback.
