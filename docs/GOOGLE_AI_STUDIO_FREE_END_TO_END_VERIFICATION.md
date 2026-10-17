@@ -74,3 +74,40 @@ Until each capability has a reproducible proof, mark it UNVERIFIED. Repository i
 ## Current known blocker
 
 The current repository review has identified an AQ-40 placeholder and hardcoded zero-cost/ZDR response fields in an open draft PR. Those are not acceptable evidence. Keep the PR unmerged and do not promote to production until the real implementation, exact-SHA tests, independent audit, and free-only/privacy evidence meet the gates above.
+
+
+## World-leading competitive quality gate (mandatory before release)
+
+The owner's requirement is stricter than ordinary CI: for every implemented ORIGIN capability, measure it against strong current alternatives and improve every evidenced weakness before promotion. This is a requirement, not a claim that ORIGIN is currently world-leading.
+
+### Scoring integrity
+
+- Use a versioned, capability-specific rubric with observable criteria, fixed weights, critical-failure rules, and a documented measurement method. Freeze the rubric and test set before evaluating the candidate.
+- Compare against relevant leading products/models available at evaluation time, selected and documented by capability (answer quality, coding, image generation, agent/tool execution, mobile UX, privacy/security). Do not use one generic score for unrelated capabilities.
+- Use the same prompts/tasks, allowed tools, time/budget limits, and scoring rubric where a fair comparison is possible. Blind/randomize candidate identities for human review. Record any unavoidable differences.
+- For factual/answer tasks, use a versioned benchmark with gold answers, source/citation checks, freshness requirements where relevant, contradiction checks, and separate safety/privacy scoring. AQ-40 is a minimum regression set, not by itself proof of world leadership.
+- For coding, use reproducible hidden tests, task completion, correctness, security, regression rate, and human-reviewed maintainability; passing compilation alone is not quality proof.
+- For image generation, evaluate prompt adherence, legibility/text rendering where applicable, artifact quality, editability/workflow completion, and failure rate using a predeclared blinded rubric.
+- For agents, verify end-to-end task completion, tool-call correctness, recovery from failures, permission boundaries, prompt-injection resistance, and truthful reporting against recorded traces.
+- For UX/accessibility, combine automated checks with defined manual mobile/desktop and assistive-technology checks. Automated axe/Lighthouse results do not prove real screen-reader behavior.
+- Run repeated trials where output variance matters; report sample size, confidence intervals or variability, failure cases, and evaluator agreement. Do not cherry-pick best outputs.
+- Require at least two independent assessments for the release candidate: one trusted deterministic test runner and one genuinely separate reviewer who did not author the change. A reviewer that only reads documentation, shares the implementer's context, or lacks access to the exact candidate is not independent runtime proof.
+- External AI reviews must use a verified no-cost route and be bound to the exact candidate SHA. If free quota is exhausted or the service cannot be verified free, mark BLOCKED; never switch to paid use.
+
+### 100/100 rule
+
+A capability can be marked 100/100 only when all predeclared rubric points are evidenced, every critical gate passes, there are no unresolved critical/high findings, the exact candidate SHA is tested, and the independent reviewer signs off on that SHA. A numeric 100 cannot override a failed critical gate.
+
+- Any missing run, unavailable comparator, absent evidence, skipped test, or unverified claim is NOT_MEASURED/BLOCKED, not zero-risk and not a pass.
+- If a credible leading alternative scores higher, ORIGIN must be improved and re-evaluated. If parity/superiority cannot be demonstrated with a fair reproducible comparison, report the gap honestly; do not claim "world's best".
+- The aggregate release score is the minimum of capability critical-gate status and the documented weighted score; no averaging away a critical failure.
+- Re-run affected benchmarks after every material code, model, prompt, provider, tool, configuration, or policy change.
+- Keep before/after results and regression evidence as versioned artifacts linked to the SHA. Promotion is blocked until every required capability is 100/100 under this rubric or explicitly marked not in release scope with the owner's prior written approval. No scope exclusion may disguise a broken or advertised feature.
+
+### Mandatory report fields
+
+For each capability, publish a table/artifact with: candidate SHA; comparator names and model/product versions; date; task-set/rubric version and hash; sample size; per-case scores; aggregate and uncertainty; critical failures; safety/privacy/security results; cost evidence; independent reviewer and exact-SHA verdict; remediation commits; rerun results; and final PASS/FAIL/BLOCKED status.
+
+### Current baseline status
+
+The repository's existing `QA_REPORT.md` explicitly records answer-quality superiority as UNVERIFIED and lists competitive blind comparison, versioned answer benchmark, production behavior, physical-device checks, assistive-technology checks, and latest-SHA independent audit as unproven. The existing AI Studio evaluator audit also says it must not be used as final proof of factual correctness, independent review, or production readiness. Therefore this requirement is currently NOT SATISFIED. This document does not convert those gaps into implementation or evidence; the release gate must remain blocked until executable tests and evidence artifacts exist.
