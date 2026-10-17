@@ -450,3 +450,67 @@ for (const width of [390, 834, 1440]) {
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(content);
   });
 }
+
+test('contains dense answer content inside the 390px reading surface', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const longUrl = 'https://example.invalid/' + 'very-long-unbroken-segment-'.repeat(12);
+  const code = 'const payload = "' + 'unbroken-code-value-'.repeat(40) + '";';
+  const content = [
+    '## 判断',
+    '',
+    '日本語の長い説明でも、段落の読みやすさを保ちながら画面全体に横スクロールを発生させないことを確認します。条件や注意点を省略せず、スマートフォンでも自然に追える行間と幅で表示します。',
+    '',
+    longUrl,
+    '',
+    '| 項目 | 現在 | 条件 | 検証 | 次の行動 |',
+    '| --- | --- | --- | --- | --- |',
+    '| 非常に長い項目名 | 実行中 | ' + '長い条件'.repeat(12) + ' | 390pxで確認 | 局所スクロール |',
+    '',
+    '~~~ts',
+    code,
+    '~~~',
+  ].join('\n');
+
+  await page.route('**/api/chat', route => route.fulfill({
+    status: 200,
+    contentType: 'text/plain; charset=utf-8',
+    body: content,
+  }));
+  await page.goto('/');
+  await page.getByTestId('origin-home-request').fill('モバイル可読性を確認');
+  await page.getByTestId('start-request-button').click();
+
+  const answer = page.getByRole('article', { name: 'ORIGINの回答' });
+  await expect(answer.getByRole('heading', { name: '判断', level: 2 })).toBeVisible();
+  const tableRegion = answer.getByRole('region', { name: '横にスクロールできる回答表' });
+  await expect(tableRegion).toBeVisible();
+  const pre = answer.locator('pre');
+  await expect(pre).toBeVisible();
+
+  const metrics = await answer.evaluate((element) => {
+    const paragraph = element.querySelector('p');
+    const link = element.querySelector('a');
+    const tableScroller = element.querySelector('.origin-answer-table-scroll');
+    const codeBlock = element.querySelector('pre');
+    if (!paragraph || !link || !tableScroller || !codeBlock) return null;
+    const paragraphStyle = getComputedStyle(paragraph);
+    const linkStyle = getComputedStyle(link);
+    return {
+      paragraphPx: Number.parseFloat(paragraphStyle.fontSize),
+      paragraphLineHeightPx: Number.parseFloat(paragraphStyle.lineHeight),
+      linkOverflowWrap: linkStyle.overflowWrap,
+      tableClientWidth: tableScroller.clientWidth,
+      tableScrollWidth: tableScroller.scrollWidth,
+      codeClientWidth: codeBlock.clientWidth,
+      codeScrollWidth: codeBlock.scrollWidth,
+    };
+  });
+
+  expect(metrics).not.toBeNull();
+  expect(metrics!.paragraphPx).toBeGreaterThanOrEqual(15);
+  expect(metrics!.paragraphLineHeightPx).toBeGreaterThanOrEqual(metrics!.paragraphPx * 1.7);
+  expect(metrics!.linkOverflowWrap).toBe('anywhere');
+  expect(metrics!.tableScrollWidth).toBeGreaterThan(metrics!.tableClientWidth);
+  expect(metrics!.codeScrollWidth).toBeGreaterThan(metrics!.codeClientWidth);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
