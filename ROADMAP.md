@@ -237,3 +237,12 @@ owner approval
 ```
 
 判定不能な項目は成功扱いにせず、`UNVERIFIED`または`NOT TESTED`として残します。
+
+
+## Current release blockers — 2026-10-14
+
+The candidate free model is `apodex/apodex-1.1-mini:free` in Draft PR #977. This is not yet a live-verified or approved production model. Do not copy the historical `inclusionai/ling-3.0-flash-sante:free` record into current verification claims.
+
+The final AQ workflow run `38480324467` reported `completedShardCount: 0`, `caseCount: 0`, `qualificationStatus: NOT_MEASURED`, and `promotionEligible: false`; the workflow's overall success is not an evaluation pass because provider comparison steps were skipped. AQ-40 remains unmeasured until all 40 shards have validated evidence.
+
+Next release gates: (1) authorized dispatch of the protected two-probe live calibration, (2) evidence for exact model, non-empty responses, explicit zero cost, BYOK false, ZDR/data-collection-deny and no fallback, (3) complete baseline/candidate AQ-40 evaluation, (4) exact-head CI and independent review. Preserve zero-cost/no-paid-fallback rules and do not alter the production alias until every gate passes.
