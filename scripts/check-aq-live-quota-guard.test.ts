@@ -202,4 +202,38 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
     expect(result.nextAllowedAt).toBe("2026-09-20T05:22:46.000Z");
   });
+
+  it("follows workflow-run pagination before deciding quota is available", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const requestedPages: string[] = [];
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
+        requestedPages.push(url);
+        const page = Number(new URL(url).searchParams.get("page"));
+        if (page === 1) {
+          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: i + 1 })) });
+        }
+        if (page === 2) return response({ workflow_runs: [{ id: 500 }] });
+        return response({ workflow_runs: [] });
+      }
+      if (
+        url.includes("/actions/workflows/aq-live-research-shard.yml/runs")
+        || url.includes("/actions/workflows/q1-final-aq.yml/runs")
+        || url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs")
+      ) return response({ workflow_runs: [] });
+      if (url.includes("/actions/runs/500/artifacts")) {
+        return response({ artifacts: [{ name: "aq-live-quota-reservation", created_at: previous }] });
+      }
+      if (url.includes("/actions/runs/")) return response({ artifacts: [] });
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(requestedPages.some(url => new URL(url).searchParams.get("page") === "2")).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+  });
+
 });
