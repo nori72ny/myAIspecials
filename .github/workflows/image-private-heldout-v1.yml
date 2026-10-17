@@ -71,6 +71,9 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_RASTER_GATEWAY_URL: ${{ secrets.ORIGIN_RASTER_GATEWAY_URL }}
+          ORIGIN_RASTER_GATEWAY_SECRET: ${{ secrets.ORIGIN_RASTER_GATEWAY_SECRET }}
+          ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: ${{ secrets.ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED }}
           ORIGIN_RASTER_LIVE_QUALIFICATION: 'true'
           ORIGIN_RASTER_LIVE_EVIDENCE_PATH: ${{ github.workspace }}/test-results/raster-live-qualification-v15.json
         run: |
@@ -163,6 +166,9 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_RASTER_GATEWAY_URL: ${{ secrets.ORIGIN_RASTER_GATEWAY_URL }}
+          ORIGIN_RASTER_GATEWAY_SECRET: ${{ secrets.ORIGIN_RASTER_GATEWAY_SECRET }}
+          ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: ${{ secrets.ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED }}
           ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64: ${{ secrets.ORIGIN_IMAGE_PRIVATE_CORPUS_GZIP_B64 }}
           ORIGIN_IMAGE_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           ORIGIN_IMAGE_CORPUS_ID: ${{ inputs.corpus_id }}

@@ -7,6 +7,11 @@ import {
   generateCloudflareRasterImageV15,
   getCloudflareRasterStatusV15,
 } from './cloudflareRasterImageProviderV15.js';
+import {
+  cloudflareRasterGatewayConfiguredV15,
+  generateCloudflareRasterGatewayImageV15,
+  getCloudflareRasterGatewayStatusV15,
+} from './cloudflareRasterGatewayProviderV15.js';
 
 export const RASTER_TASKS_V15 = ['text-to-image', 'edit', 'inpaint', 'outpaint', 'variation'] as const;
 export type RasterTaskV15 = (typeof RASTER_TASKS_V15)[number];
@@ -30,8 +35,8 @@ export type RasterProviderDescriptorV15 = {
 
 export type RasterProviderRuntimeV15 = {
   descriptor: RasterProviderDescriptorV15;
-  status(env?: NodeJS.ProcessEnv): Promise<RasterProviderStatusV15>;
-  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
+  status(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterProviderStatusV15>;
+  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterImageResultV15>;
 };
 
 const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
@@ -57,11 +62,24 @@ const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
   paymentMethodRequired: false,
 };
 
-const PROVIDERS: readonly RasterProviderRuntimeV15[] = [{
-  descriptor: CLOUDFLARE_DESCRIPTOR,
-  status: (env = process.env) => getCloudflareRasterStatusV15(env),
-  generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
-}];
+const GATEWAY_DESCRIPTOR: RasterProviderDescriptorV15 = {
+  ...CLOUDFLARE_DESCRIPTOR,
+  id: 'cloudflare-workers-ai-gateway',
+  label: 'Cloudflare Workers AI server-bound gateway',
+};
+
+const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
+  {
+    descriptor: GATEWAY_DESCRIPTOR,
+    status: (env = process.env, fetchImpl) => getCloudflareRasterGatewayStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl) => generateCloudflareRasterGatewayImageV15(input, env, fetchImpl),
+  },
+  {
+    descriptor: CLOUDFLARE_DESCRIPTOR,
+    status: (env = process.env, fetchImpl) => getCloudflareRasterStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl) => generateCloudflareRasterImageV15(input, env, fetchImpl),
+  },
+];
 
 export type RasterProviderSelectionV15 =
   | {
@@ -88,8 +106,30 @@ export function rasterProviderRegistryV15(): readonly RasterProviderDescriptorV1
   return PROVIDERS.map(provider => structuredClone(provider.descriptor));
 }
 
-export function resolveRasterProviderV15(task: RasterTaskV15): RasterProviderRuntimeV15 | null {
-  return PROVIDERS.find(provider => provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
+export function rasterProviderByIdV15(id: string): RasterProviderRuntimeV15 | null {
+  return PROVIDERS.find(provider => provider.descriptor.id === id) ?? null;
+}
+
+export function resolveRasterProviderV15(
+  task: RasterTaskV15,
+  env: NodeJS.ProcessEnv = process.env,
+): RasterProviderRuntimeV15 | null {
+  if (cloudflareRasterGatewayConfiguredV15(env)) {
+    const gateway = PROVIDERS.find(provider => provider.descriptor.id === 'cloudflare-workers-ai-gateway'
+      && provider.descriptor.capabilities.some(capability => capability.task === task));
+    if (gateway) return gateway;
+  }
+  return PROVIDERS.find(provider => provider.descriptor.id !== 'cloudflare-workers-ai-gateway'
+    && provider.descriptor.capabilities.some(capability => capability.task === task)) ?? null;
+}
+
+function orderedProvidersV15(env: NodeJS.ProcessEnv): readonly RasterProviderRuntimeV15[] {
+  const gatewayReadyForSelection = cloudflareRasterGatewayConfiguredV15(env);
+  return gatewayReadyForSelection
+    ? PROVIDERS
+    : [...PROVIDERS].sort((a, b) =>
+        Number(a.descriptor.id === 'cloudflare-workers-ai-gateway')
+        - Number(b.descriptor.id === 'cloudflare-workers-ai-gateway'));
 }
 
 type RasterProviderStatusCacheV15 = Map<RasterProviderRuntimeV15, Promise<RasterProviderStatusV15>>;
@@ -120,7 +160,7 @@ async function selectRasterProviderWithCacheV15(
   }[] = [];
 
   let anySupport = false;
-  for (const provider of PROVIDERS) {
+  for (const provider of orderedProvidersV15(env)) {
     const supportsTask = provider.descriptor.capabilities.some(capability => capability.task === task);
     anySupport ||= supportsTask;
     if (!supportsTask) {

@@ -11,6 +11,9 @@ on:
       - "src/lib/orchestration/activeContextRequestStore.ts"
       - "scripts/verify-cloudflare-runtime.mjs"
       - "package.json"
+      - "infra/cloudflare-raster-gateway/**"
+      - "src/creative/cloudflareRasterGatewayWorkerV15.ts"
+      - "src/creative/cloudflareRasterGatewayWorkerV15.test.ts"
       - ".github/workflows/cloudflare-compat.yml"
 
 permissions:
@@ -37,6 +40,9 @@ jobs:
 
       - name: Validate Worker bundle without credentials
         run: npm run check:worker
+
+      - name: Validate raster gateway Worker bundle without credentials
+        run: npm run check:raster-gateway-worker
 
       - name: Verify Node production runtime
         run: node scripts/verify-node-production-runtime.mjs

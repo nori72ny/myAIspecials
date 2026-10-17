@@ -1,3 +1,4 @@
+import { isCloudflareRasterProviderIdV15 } from '../src/creative/rasterProviderIdentityV15.js';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
@@ -183,7 +184,7 @@ async function evaluateCase(
     && response.headers.get('x-origin-cost-usd')==='0'
     && response.headers.get('x-origin-paid-fallback')==='false'
     && response.headers.get('x-origin-secret-delivery')==='server-only'
-    && providerId==='cloudflare-workers-ai-free'
+    && isCloudflareRasterProviderIdV15(providerId)
     && modelId
   );
   let semantic:CandidateCaseEvidence['semantic']=null;

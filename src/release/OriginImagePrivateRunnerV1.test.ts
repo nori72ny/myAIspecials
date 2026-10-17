@@ -75,3 +75,11 @@ describe('Image private held-out runner V1',()=>{
     expect(inspector).not.toContain('prompt');
   });
 });
+
+// Both preflight and the sealed round must receive the identical server-only gateway configuration.
+it('passes gateway secrets to readiness and candidate execution without asserting zero cost', () => {
+  for (const key of ['ORIGIN_RASTER_GATEWAY_URL', 'ORIGIN_RASTER_GATEWAY_SECRET', 'ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED']) {
+    expect(workflow.split(key + ': ${{ secrets.' + key + ' }}').length - 1).toBe(2);
+  }
+  expect(workflow).not.toContain("ORIGIN_RASTER_GATEWAY_ZERO_COST_VERIFIED: 'true'");
+});
