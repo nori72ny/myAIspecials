@@ -11,45 +11,47 @@ const runner = readFileSync(
   resolve(process.cwd(), 'scripts/run-world-class-image-private-heldout-v2.ts'),
   'utf8',
 );
-const preflight = readFileSync(
-  resolve(process.cwd(), 'scripts/preflight-world-class-image-v16.ts'),
-  'utf8',
-);
 const packageJson = readFileSync(resolve(process.cwd(), 'package.json'), 'utf8');
 
 describe('World-class image private held-out runner V2', () => {
-  it('is manual-only, main-only and requires explicit paid evaluation approval', () => {
+  it('is manual-only, main-only and permanently zero-cost', () => {
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).not.toContain('\n  push:');
     expect(workflow).not.toContain('\n  pull_request:');
     expect(workflow).toContain("github.ref == 'refs/heads/main'");
-    expect(workflow).toContain('inputs.confirm_paid_evaluation == true');
-    expect(workflow).toContain("default: false");
+    expect(workflow).not.toContain('confirm_paid_evaluation');
+    expect(workflow).not.toContain('max_image_cost_usd');
+    expect(workflow).not.toContain('max_total_cost_usd');
+    expect(workflow).not.toContain('OPENROUTER_API_KEY');
   });
 
-  it('proves the real OpenRouter model before the sealed corpus is inspected', () => {
-    const provider = workflow.indexOf('Prove OpenRouter image model readiness before sealed corpus access');
+  it('proves Cloudflare Free readiness before the sealed corpus is inspected', () => {
+    const provider = workflow.indexOf('Prove Cloudflare Free image readiness before sealed corpus access');
     const corpus = workflow.indexOf('Verify sealed corpus metadata only after provider preflight');
     expect(provider).toBeGreaterThan(0);
     expect(corpus).toBeGreaterThan(provider);
-    expect(preflight).toContain('createWorldClassImageV16Router');
-    expect(preflight).toContain('evaluationReady !== true');
-    expect(preflight).toContain("provider !== 'openrouter-image-api'");
+    expect(workflow).toContain("ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b'");
+    expect(workflow).toContain("ORIGIN_RASTER_LIVE_QUALIFICATION='true' npm run qualify:raster-live");
   });
 
-  it('binds exact candidate SHA and enforces per-image and total spend caps', () => {
+  it('binds exact candidate SHA and requires exact zero-cost evidence', () => {
     expect(workflow).toContain('test "$CANDIDATE_SHA" = "$GITHUB_SHA"');
-    expect(workflow).toContain('max_image_cost_usd');
-    expect(workflow).toContain('max_total_cost_usd');
-    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_COST_CAP_INVALID');
-    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_REACHED');
-    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_TOTAL_COST_CAP_EXCEEDED');
+    expect(workflow).toContain('if(evidence.totalCostUsd!==0 || summary.totalCostUsd!==0) process.exit(31)');
+    expect(workflow).toContain('evidence.cases.some((c)=>c.costUsd!==0)');
+    expect(workflow).toContain("startsWith('cloudflare-workers-ai-free::')");
+    expect(runner).toContain('const maxImageCostUsd = 0');
+    expect(runner).toContain('const maxTotalCostUsd = 0');
+    expect(runner).toContain('WORLD_CLASS_IMAGE_PRIVATE_NONZERO_COST');
+    expect(runner).not.toContain('OPENROUTER_API_KEY');
   });
 
-  it('executes the same V1.6 world-class route that can later be published', () => {
+  it('executes the same zero-cost V1.6 compatibility route that can later be published', () => {
     expect(runner).toContain('createWorldClassImageV16Router');
     expect(runner).toContain('/api/creative/v1.6/world-class/generate');
-    expect(runner).toContain("systemId: 'origin-world-class-v16'");
+    expect(runner).toContain("systemId: 'origin-world-class-zero-cost'");
+    expect(runner).toContain("response.headers.get('x-origin-free-only') === 'true'");
+    expect(runner).toContain("providerId === 'cloudflare-workers-ai-free'");
+    expect(runner).toContain("costUsd === 0");
     expect(runner).toContain("response.headers.get('x-origin-release-sha') === candidateSha");
     expect(runner).toContain("response.headers.get('x-origin-world-class-evaluation') === 'true'");
     expect(runner).toContain("!response.headers.get('x-origin-world-class-qualified-sha')");
@@ -67,11 +69,12 @@ describe('World-class image private held-out runner V2', () => {
     );
   });
 
-  it('runs each candidate case once and does not add favorable retry fan-out', () => {
+  it('runs each candidate case once and does not add paid-provider fan-out', () => {
     expect(workflow.match(/npm run eval:image-private-world-class/g)).toHaveLength(1);
     expect(workflow).not.toContain('matrix:');
     expect(workflow).not.toContain('continue-on-error: true');
     expect(runner).not.toContain('Promise.all(corpus.tasks');
+    expect(runner).not.toContain('openrouter-image-api');
   });
 
   it('keeps sealed prompt text out of public task metadata', () => {
@@ -82,7 +85,7 @@ describe('World-class image private held-out runner V2', () => {
     expect(publicSection).toContain('taskDigest: task.taskDigest');
   });
 
-  it('registers the dedicated world-class runner command', () => {
+  it('registers the dedicated zero-cost world-class runner command', () => {
     expect(packageJson).toContain(
       '"eval:image-private-world-class": "tsx scripts/run-world-class-image-private-heldout-v2.ts"',
     );
