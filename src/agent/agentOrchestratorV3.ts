@@ -1,3 +1,4 @@
+import { documentGenerationConfiguredV3 } from './documentGenerationV3.js';
 import { createHash } from 'node:crypto';
 import express, { type Router } from 'express';
 import { executeToolWithPermission, type ToolName, type ToolParams } from './toolRegistry.js';
@@ -39,6 +40,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       ok: true,
       protocolVersion: 3,
       ready: approvalSigningConfigured && operatorAuthenticationConfigured && replayProtectionConfigured,
+      readinessScope: 'authorization-and-replay-protection',
+      unavailableTools: ['code_interpreter', ...(documentGenerationConfiguredV3(env) ? [] : ['document_generator'])],
+      documentGeneration: { configured: documentGenerationConfiguredV3(env), format: 'markdown', liveVerified: false },
+      artifactVerificationScope: 'structural-preflight-only',
+      taskQualityQualification: 'not-measured',
       approvalSigningConfigured,
       operatorAuthenticationConfigured,
       authorizationMode,
@@ -63,6 +69,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const selected = selectAgentToolV3(goal.trim());
     if ('code' in selected) {
       return res.status(422).json({ ok: false, code: selected.code, protocolVersion: 3 });
+    }
+    // Code execution must first be delegated to the isolated Coding V1.4 worker
+    // with a separate, owner-bound authorization. Do not issue a misleading
+    // approval-capability for an adapter that is explicitly unavailable.
+    if (selected.toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     const run = new AgentRunSession();
     run.transition('planning');
@@ -99,6 +111,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
+    }
+    // Old signed plans must not revive a tool whose execution backend is unavailable.
+    if (toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
     }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
@@ -171,6 +187,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!approval || approval.runId !== runId || approval.digest !== approvalDigest(operation)) {
       return res.status(403).json({ ok: false, code: 'AGENT_AUTHENTICATED_APPROVAL_REQUIRED' });
     }
+    // A still-valid approval issued by an older deployment cannot execute a
+    // disconnected coding adapter or consume a run while no worker is bound.
+    if (toolName === 'code_interpreter') {
+      return res.status(503).json({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
 
     const executionId = createExecutionId();
@@ -188,9 +209,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
           return;
         }
         if (!consumed) return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_CONSUMED', protocolVersion: 3, runId });
-        const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval);
+        const runTool = async (name: ToolName, input: ToolParams) => executeToolWithPermission(name, input, executionApproval, env);
         const graph = createAgentTaskGraph(`execute ${toolName}`, [toolName]);
-        const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => result.artifact
+        const execution = await executeNextTask(graph, async () => runTool(toolName, toolParams), async (result) => typeof result.artifact === 'string'
           ? verifyAndSelfFixArtifact(result.artifact, toolName, runTool, toolParams)
           : { ok: false, artifact: '', attempts: 0, selfFixed: false, issues: ['empty'] as const, diagnosis: 'No artifact was produced.' });
         const record = execution.record;

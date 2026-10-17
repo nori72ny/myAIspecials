@@ -24,13 +24,23 @@ describe('agent orchestrator v3', () => {
     .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
     .send({ runId, planToken: issuePlanCapability(runId, 'a'.repeat(64), env).token });
 
+  it.each(['Repair this code.', 'このTypeScriptコードのバグを分析して'])(
+    'refuses unavailable code execution during planning without creating an approval capability: %s', async goal => {
+      const response = await request(appFor(env, { consume: async () => true }))
+        .post('/api/agent/v3/plan').send({ goal });
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+      expect(response.body.runId).toBeUndefined();
+      expect(response.body.planToken).toBeUndefined();
+      expect(JSON.stringify(response.body)).not.toContain(goal);
+    },
+  );
+
   it.each([
-    ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
-    ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
     ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
   ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
     const app = appFor(env, { consume: async () => true });
-    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const goal = 'Create a sales report.';
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
@@ -47,6 +57,29 @@ describe('agent orchestrator v3', () => {
     expect(result.body.checkpoint).toBeUndefined();
   });
 
+  it('rejects old signed coding plans and approvals without consuming a run', async () => {
+    let consumed = 0;
+    const app = appFor(env, { consume: async () => { consumed++; return true; } });
+    const runId = 'run-historic-code';
+    const params = { code: 'function demo() { return 1; }' };
+    const oldPlan = issuePlanCapability(runId, 'a'.repeat(64), env, Date.now(), 'code_interpreter');
+    const approvalResponse = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId, planToken: oldPlan.token, toolName: 'code_interpreter', params });
+    expect(approvalResponse.status).toBe(503);
+    expect(approvalResponse.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    expect(approvalResponse.body.approvalToken).toBeUndefined();
+
+    const oldOperation = { action: 'execute' as const, runId, toolName: 'code_interpreter' as const, params };
+    const oldApproval = issueApprovalCapability(runId, approvalDigest(oldOperation), env);
+    const executionResponse = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ ...oldOperation, approvalToken: oldApproval.token });
+    expect(executionResponse.status).toBe(503);
+    expect(executionResponse.body).toEqual({ ok: false, code: 'AGENT_CODE_GENERATION_UNAVAILABLE', protocolVersion: 3 });
+    expect(consumed).toBe(0);
+  });
+
   it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
     const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
@@ -55,6 +88,11 @@ describe('agent orchestrator v3', () => {
       ok: true,
       protocolVersion: 3,
       ready: true,
+      readinessScope: 'authorization-and-replay-protection',
+      unavailableTools: ['code_interpreter', 'document_generator'],
+      documentGeneration: { configured: false, format: 'markdown', liveVerified: false },
+      artifactVerificationScope: 'structural-preflight-only',
+      taskQualityQualification: 'not-measured',
       approvalSigningConfigured: true,
       operatorAuthenticationConfigured: true,
       authorizationMode: 'legacy-approval-compat',
