@@ -11,6 +11,8 @@ import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
+import { directTouchRevisionDurablySaved } from './pwa/directTouchDurableUpdateGate';
+import { recoverPersistedArtifactRevisions } from './pwa/recoverPersistedArtifactRevisions';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
 import './ultra-optics.css';
@@ -123,7 +125,34 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
 function loadStoredHistory(): ConversationMessage[] { try { const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY); return raw ? parseImportedHistory(JSON.parse(raw)) : []; } catch { return []; } }
 function loadStoredSessions(): ConversationSession[] { try { const raw = window.localStorage.getItem(SESSION_STORAGE_KEY); if (!raw) return []; const parsed = JSON.parse(raw) as unknown; if (!Array.isArray(parsed)) return []; return parsed.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); } catch { return []; } }
 function loadSessionsFromSnapshot(value: unknown): ConversationSession[] { if (!Array.isArray(value)) return []; return value.slice(0, 24).flatMap((candidate, index) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<ConversationSession>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.createdAt !== 'number' || !Array.isArray(source.messages)) return []; try { return [{ id: source.id.slice(0, 128) || `session-${index}`, title: source.title.slice(0, 120), createdAt: source.createdAt, messages: parseImportedHistory({ messages: source.messages }) }]; } catch { return []; } }); }
-function parseStoredArtifacts(value: unknown): PersistedArtifact[] { if (!Array.isArray(value)) return []; return value.slice(0, 500).flatMap((candidate) => { if (!candidate || typeof candidate !== 'object') return []; const source = candidate as Partial<PersistedArtifact>; if (typeof source.id !== 'string' || typeof source.title !== 'string' || typeof source.language !== 'string' || typeof source.content !== 'string' || typeof source.isComplete !== 'boolean' || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return []; return [{ id: source.id.slice(0, 160), type: source.type, title: source.title.slice(0, 160), language: source.language.slice(0, 48), content: source.content.slice(0, 1_000_000), isComplete: source.isComplete, revision: typeof source.revision === 'number' ? Math.max(1, Math.floor(source.revision)) : undefined, revisions: undefined }]; }); }
+function parseStoredArtifacts(value: unknown): PersistedArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 500).flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const source = candidate as Partial<PersistedArtifact>;
+    if (typeof source.id !== 'string' || typeof source.title !== 'string'
+      || typeof source.language !== 'string' || typeof source.content !== 'string'
+      || typeof source.isComplete !== 'boolean'
+      || !source.type || !['code', 'markdown', 'mermaid', 'html'].includes(source.type)) return [];
+    const content = source.content.slice(0, 1_000_000);
+    // Historical versions were previously dropped on every reload, making
+    // the PWA update appear to erase the artifact's edit/restore history.
+    // The bounded parser accepts only a matching, validated durable history.
+    const revisions = recoverPersistedArtifactRevisions(source.revisions, content);
+    const revision = Number.isSafeInteger(source.revision) && Number(source.revision) >= 1
+      ? Math.min(Number(source.revision), 100_000) : revisions?.length;
+    return [{
+      id: source.id.slice(0, 160),
+      type: source.type,
+      title: source.title.slice(0, 160),
+      language: source.language.slice(0, 48),
+      content,
+      isComplete: source.isComplete,
+      revision,
+      revisions,
+    }];
+  });
+}
 function snapshotFromState(messages: ConversationMessage[], sessions: ConversationSession[], artifacts: PersistedArtifact[]): OriginPersistedSnapshot {
   return {
     version: 1,
@@ -180,6 +209,7 @@ function PersonalReleaseRoot() {
   const [updateReady, setUpdateReady] = useState(false);
   const [knowledgeContext, setKnowledgeContext] = useState('');
   const dirtyDuringHydration = useRef({ messages: false, sessions: false, artifacts: false });
+  const activeStorageSnapshot = useRef(0);
 
   const resolvedTheme = useMemo(() => settings.selectedTheme === 'dark' || settings.selectedTheme === 'light' ? settings.selectedTheme : (systemPrefersDark ? 'dark' : 'light'), [settings.selectedTheme, systemPrefersDark]);
   useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const onChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches); setSystemPrefersDark(media.matches); media.addEventListener?.('change', onChange); return () => media.removeEventListener?.('change', onChange); }, []);
@@ -187,7 +217,38 @@ function PersonalReleaseRoot() {
   useEffect(() => { const root = document.documentElement; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('light', resolvedTheme === 'light'); root.classList.toggle('dark', resolvedTheme === 'dark'); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedTheme === 'dark' ? '#030712' : '#f7f6f2'); }, [settings.language, settings.designTheme, resolvedTheme]);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { if (!dirtyDuringHydration.current.messages) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } } if (!dirtyDuringHydration.current.sessions) setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
-  useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
+  useEffect(() => {
+    if (!isHydrated || storageReadFailed) return;
+    const saveEpoch = ++activeStorageSnapshot.current;
+    // Save pending is unsafe even if a composer was cleared after submit.
+    // React state changes are not proof that a history entry is in IndexedDB.
+    document.documentElement.dataset.originStorageState = 'saving';
+    const snapshot = snapshotFromState(messages, sessions, artifacts);
+    const pendingRevision = document.documentElement.dataset.originDirectTouchPending;
+    // Neither React state acceptance nor elapsed debounce time is durable proof.
+    // Match the last committed revision to the snapshot that actually saves.
+    const timer = window.setTimeout(() => {
+      void originIndexedDbAdapter.save(snapshot).then((result) => {
+        // Old queued saves may complete after a newer user edit. They cannot
+        // mark storage as ready or activate a waiting service worker.
+        if (saveEpoch !== activeStorageSnapshot.current) return;
+        const isSaved = result === 'saved';
+        document.documentElement.dataset.originStorageState = isSaved ? 'ready' : 'degraded';
+        setStorageHealth(isSaved ? 'ready' : result);
+        if (directTouchRevisionDurablySaved(
+          pendingRevision, document.documentElement.dataset.originDirectTouchPending,
+          artifacts, result,
+        )) {
+          document.documentElement.dataset.originDirectTouchPending = 'false';
+        }
+        if (isSaved) window.dispatchEvent(new Event('origin:pwa-safe-apply'));
+      });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      if (activeStorageSnapshot.current === saveEpoch) activeStorageSnapshot.current += 1;
+    };
+  }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages: persistableConversationMessages(messages) }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };

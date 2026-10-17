@@ -517,6 +517,96 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
+  test('commits a real Direct Touch contenteditable keystroke only after durable browser storage', async ({ page }) => {
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:pwa-real-input.html\\n<main><p>Original input</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('編集結果の保存を検証');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const editable = workspace.getByTitle('プレビュー').contentFrame().locator('[data-origin-direct-touch-index="0"]');
+    await expect(editable).toHaveAttribute('contenteditable', 'plaintext-only');
+    // Real user text input, not a test-fabricated parent.postMessage.
+    await editable.fill('Updated by real input');
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /Updated by real input/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+    await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
+  });
+
+  test('preserves edits to two Direct Touch fields in one debounced revision', async ({ page }) => {
+    await page.route('**/api/chat', async route => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:multi-edit.html\\n<main><p>First original</p><p>Second original</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('2か所の文字を編集する');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const frame = workspace.getByTitle('プレビュー');
+    const body = frame.contentFrame().locator('body');
+    await expect(body.locator('[data-origin-direct-touch-index="1"]')).toBeVisible();
+    // Dispatch both authentic DOM input events in one frame evaluation; this
+    // proves that the iframe's debounce sends a single combined edit batch.
+    await body.evaluate(node => {
+      for (const [index, text] of [['0', 'First updated'], ['1', 'Second updated']]) {
+        const editable = node.querySelector(`[data-origin-direct-touch-index="${index}"]`);
+        if (!editable) throw new Error(`missing edit target ${index}`);
+        editable.textContent = text;
+        editable.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      }
+    });
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(frame).toHaveAttribute('data-origin-srcdoc', /First updated/);
+    await expect(frame).toHaveAttribute('data-origin-srcdoc', /Second updated/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+  });
+
+  test('never commits or reloads the preview mid Japanese IME composition', async ({ page }) => {
+    await page.route('**/api/chat', async route => route.fulfill({
+      status: 200, contentType: 'text/plain; charset=utf-8',
+      body: '```html:ime-edit.html\\n<main><p>Original text</p></main>\\n```',
+    }));
+    await page.goto('/');
+    await page.getByTestId('origin-home-request').fill('日本語IME入力の安全性を確認');
+    await page.getByTestId('start-request-button').click();
+    const workspace = page.getByTestId('artifact-workspace');
+    await expect(workspace).toBeVisible({ timeout: 15_000 });
+    await workspace.getByTestId('artifact-action-edit').click();
+    const editable = workspace.getByTitle('プレビュー').contentFrame().locator('[data-origin-direct-touch-index="0"]');
+    await expect(editable).toBeVisible();
+    await editable.evaluate(node => {
+      node.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      node.textContent = '日本語を変換中';
+      node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', isComposing: true }));
+    });
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending))
+      .toBe('true');
+    // This deliberate wait exceeds the 420ms debounce; a mid-composition
+    // commit would otherwise destroy the user's active conversion buffer.
+    await page.waitForTimeout(600);
+    await expect(page.getByText('更新あり', { exact: true })).toHaveCount(0);
+    await editable.evaluate(node => node.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })));
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('data-origin-srcdoc', /日本語を変換中/);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.dataset.originDirectTouchPending),
+      { timeout: 15_000 },
+    ).toBe('false');
+  });
+
   test('assists direct source editing and prevents malformed HTML revisions', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
@@ -586,8 +676,12 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('start-request-button').click();
     const workspace = page.getByTestId('artifact-workspace');
     await expect(workspace).toBeVisible({ timeout: 15_000 });
+    // A read-only preview must reject Direct Touch commits. Exercise the real
+    // UI privilege boundary rather than bypassing edit-mode activation.
+    await workspace.getByTestId('artifact-action-edit').click();
     const preview = workspace.getByTitle('プレビュー');
     const sandbox = preview.contentFrame();
+    await expect(sandbox.locator('[data-origin-direct-touch="true"]')).toBeVisible();
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_DIRECT_TOUCH', type: 'commit', edits: [{ index: 0, text: 'Updated visual text' }], timestamp: Date.now() }, '*'));
     await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
     await page.getByTestId('artifact-action-details').click();
