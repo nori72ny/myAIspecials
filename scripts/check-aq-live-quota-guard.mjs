@@ -2,9 +2,12 @@ import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const WINDOW_SECONDS = 86_400;
+const API_PAGE_SIZE = 100;
+const MAX_API_PAGES = 10;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
+const CALIBRATION_WORKFLOW = "aq-free-provider-calibration.yml";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -30,8 +33,30 @@ async function githubJson(url, token, fetchImpl = fetch) {
   return response.json();
 }
 
+async function githubJsonPages(url, arrayKey, token, fetchImpl = fetch) {
+  const collected = [];
+
+  for (let page = 1; page <= MAX_API_PAGES; page += 1) {
+    const separator = url.includes("?") ? "&" : "?";
+    const pageUrl = `${url}${separator}per_page=${API_PAGE_SIZE}&page=${page}`;
+    const payload = await githubJson(pageUrl, token, fetchImpl);
+    const items = payload?.[arrayKey];
+
+    if (!Array.isArray(items)) {
+      throw new Error(`AQ_LIVE_QUOTA_GITHUB_INVALID_LIST:${arrayKey}`);
+    }
+
+    collected.push(...items);
+    if (items.length < API_PAGE_SIZE) return collected;
+  }
+
+  // A full final page does not prove the scan is complete. Fail closed rather
+  // than authorizing a live request when more reservation records may exist.
+  throw new Error(`AQ_LIVE_QUOTA_GITHUB_PAGE_LIMIT:${arrayKey}`);
+}
+
 function reservedArtifact(name, workflow) {
-  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW) {
+  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW || workflow === CALIBRATION_WORKFLOW) {
     return name === "aq-live-quota-reservation";
   }
   if (workflow === LEGACY_WORKFLOW) return name.startsWith("aq-live-research-shard");
@@ -47,22 +72,51 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
+  // Do not use the created filter here. A run may have been created more
+  // than 24 hours ago, remain queued, and only start/upload its reservation
+  // recently. A long-running run may also complete after its reservation was
+  // created. Scan the unfiltered run list and fail closed if the bounded scan
+  // cannot prove completeness.
   const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
-  let latest = null;
-
+    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs`;
+  const runs = await githubJsonPages(runsUrl, "workflow_runs", token, fetchImpl);
+  const uniqueRuns = new Map();
   for (const run of runs) {
-    if (!run) continue;
+    if (!run || run.id == null) {
+      throw new Error("AQ_LIVE_QUOTA_GITHUB_INVALID_RUN");
+    }
+    uniqueRuns.set(String(run.id), run);
+  }
+  let latest = null;
+  const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
+
+  for (const run of uniqueRuns.values()) {
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
+    // Enumerate run metadata broadly, but fetch artifacts only for runs that
+    // could plausibly contain a reservation created inside the active window.
+    // Missing/unparseable timestamps are not grounds to skip a run.
+    const createdMs = Date.parse(typeof run.created_at === "string" ? run.created_at : "");
+    const startedMs = Date.parse(typeof run.run_started_at === "string" ? run.run_started_at : "");
+    const updatedMs = Date.parse(typeof run.updated_at === "string" ? run.updated_at : "");
+    const runTimestamps = [createdMs, startedMs, updatedMs];
+    // A future run timestamp is impossible evidence for quota history. Do not
+    // skip artifact inspection or authorize a provider request on that basis.
+    if (runTimestamps.some((value) => Number.isFinite(value) && value > nowMs)) {
+      throw new Error("AQ_LIVE_QUOTA_FUTURE_RUN_TIMESTAMP");
+    }
+    const active = run.status === "queued" || run.status === "in_progress";
+    const recentMetadata = runTimestamps.some(
+      (value) => Number.isFinite(value) && value >= cutoffMs && value <= nowMs,
+    );
+    if (!active && !recentMetadata
+      && Number.isFinite(createdMs) && Number.isFinite(startedMs) && Number.isFinite(updatedMs)) {
+      continue;
+    }
+
     const artifactsUrl =
-      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
-    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts)
-      ? artifactsPayload.artifacts
-      : [];
+      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts`;
+    const artifacts = await githubJsonPages(artifactsUrl, "artifacts", token, fetchImpl);
 
     for (const artifact of artifacts) {
       if (
@@ -75,10 +129,17 @@ export async function latestReservedAt({
 
       const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
       const reservedMs = Date.parse(reservedAt);
-      if (!Number.isFinite(reservedMs)) continue;
+      // A reservation marker with an invalid timestamp makes quota history
+      // ambiguous. Fail closed rather than treating malformed evidence as no use.
+      if (!Number.isFinite(reservedMs)) {
+        throw new Error("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+      }
+      if (reservedMs > nowMs) {
+        throw new Error("AQ_LIVE_QUOTA_FUTURE_RESERVATION_TIMESTAMP");
+      }
 
       const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
+      if (ageSeconds >= WINDOW_SECONDS) continue;
       if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
     }
   }
@@ -95,7 +156,7 @@ export async function checkLiveQuota({
   fetchImpl = fetch,
 }) {
   const reservations = await Promise.all(
-    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW].map((workflow) =>
+    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW, CALIBRATION_WORKFLOW].map((workflow) =>
       latestReservedAt({
         repository,
         workflow,
