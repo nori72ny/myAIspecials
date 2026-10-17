@@ -48,22 +48,28 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+  const runs = [];
+  for (let page = 1; ; page += 1) {
+    const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100&page=${page}`;
+    const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+    const pageRuns = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    runs.push(...pageRuns);
+    if (pageRuns.length < 100) break;
+  }
   let latest = null;
 
   for (const run of runs) {
     if (!run) continue;
     if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
-    const artifactsUrl =
-      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
-    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts)
-      ? artifactsPayload.artifacts
-      : [];
+    const artifacts = [];
+    for (let page = 1; ; page += 1) {
+      const artifactsUrl = `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${page}`;
+      const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
+      const pageArtifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
+      artifacts.push(...pageArtifacts);
+      if (pageArtifacts.length < 100) break;
+    }
 
     for (const artifact of artifacts) {
       if (
