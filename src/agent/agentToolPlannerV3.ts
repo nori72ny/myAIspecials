@@ -77,6 +77,20 @@ export function selectAgentToolV3(goal: string): AgentToolPlanDecisionV3 {
   const scored = scoreGoal(goal);
   const strong = scored.filter(row => row.score >= 3);
 
+  // Coding V1.4 performs its own repository discovery, edits and final checks.
+  // A genuine *code change* must not be stolen by a high-scoring "test" or
+  // "repository" keyword and silently downgraded to a read-only tool.
+  const normalized = goal.normalize('NFKC').toLowerCase();
+  const codeAction = /\b(fix|repair|implement|refactor|debug|patch|modify|update|change)\b|修正|直し|直す|修復|実装|リファクタ|改修|バグを直|コードを変更/;
+  const codeSubject = /\b(code|bug|typescript|javascript|python|function|repository|repo|source|module)\b|コード|バグ|プログラム|関数|リポジトリ|ソース|モジュール/;
+  if (codeAction.test(normalized) && codeSubject.test(normalized)
+    && scored.some(row => row.toolName === 'code_interpreter')) {
+    const outsideCoding = strong.filter(row =>
+      !['repository_explorer', 'file_reader', 'file_writer', 'verification_runner'].includes(row.toolName));
+    if (outsideCoding.length > 0) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED' };
+    return { ok: true, toolName: 'code_interpreter', reasonCode: 'bounded-coding-v14' };
+  }
+
   if (strong.length > 1) return { ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED' };
   if (strong.length === 1) return { ok: true, toolName: strong[0].toolName, reasonCode: strong[0].reasonCode };
 

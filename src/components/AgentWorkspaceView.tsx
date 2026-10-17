@@ -10,6 +10,7 @@ type AgentCapability = {
   freeOnly: boolean;
   costUsd: number;
   paidFallbackEnabled: boolean;
+  codingBridgeConfigured?: boolean;
 };
 
 const tools = [
@@ -35,12 +36,50 @@ type AgentPlan = {
   plan: AgentPlanStep[];
 };
 
+type CodingVerificationCheck = {
+  kind: 'test' | 'typecheck' | 'lint' | 'build';
+  ok: boolean;
+  exitCode: number | null;
+  timedOut: boolean;
+  attempt: number;
+};
+
+type CodingBridgeResult = {
+  schemaVersion: 1;
+  sessionStatus: 'verified' | 'blocked' | 'repair_limit';
+  repairRounds: number;
+  diffs: Array<{
+    path: string;
+    kind: 'modified' | 'created';
+    before: string | null;
+    after: string | null;
+    beforeTruncated: boolean;
+    afterTruncated: boolean;
+    previewAvailable: boolean;
+  }>;
+  verificationChecks: CodingVerificationCheck[];
+  freeOnly: true;
+  costUsd: 0;
+  gitPublished: false;
+  deployed: false;
+};
+
 type AgentExecutionResponse = {
   ok?: boolean;
   code?: string;
   status?: string;
+  runId?: string;
+  freeOnly?: boolean;
+  costUsd?: number;
+  paidFallbackUsed?: boolean;
   artifact?: string;
   checkpoint?: CheckpointState;
+  jobId?: string;
+  bridgeToken?: string;
+  expiresAt?: string;
+  codingStatus?: string;
+  verified?: boolean;
+  result?: CodingBridgeResult;
 };
 
 type Phase = 'idle' | 'planning' | 'awaiting_approval' | 'executing' | 'completed' | 'failed';
@@ -76,7 +115,7 @@ function verificationKindFromGoal(goal: string): VerificationKind | null {
 }
 
 function paramsFor(tool: AgentTool, goal: string): Record<string, unknown> | null {
-  if (tool === 'code_interpreter') return { code: goal };
+  if (tool === 'code_interpreter') return { goal };
   if (tool === 'document_generator') return { content: goal };
   if (tool === 'image_prompt_compiler') return { prompt: goal };
   if (tool === 'web_search_grounding') return null;
@@ -103,6 +142,142 @@ function phaseLabel(phase: Phase): string {
   return '待機中';
 }
 
+/**
+ * The server validates the encrypted durable worker outcome, but a damaged,
+ * stale or mismatched HTTP receipt must also be rejected by the UI. Do not
+ * infer terminal success from status=completed alone or from four check labels.
+ */
+/**
+ * Cancellation is a terminal server result, not a client-side AbortSignal.
+ * A blocked response is only a confirmed cancellation if it identifies the
+ * exact original run/job and preserves the no-spend boundary.
+ */
+/** Exact acknowledged cancellation from the server; never trust status alone. */
+export function isConfirmedCodingCancelAcknowledgement(
+  receipt: AgentExecutionResponse & { cancelRequested?: boolean },
+  runId: string,
+  jobId: string,
+): boolean {
+  return receipt?.ok === true
+    && (receipt.status === 'cancelling' || receipt.status === 'cancelled')
+    && receipt.runId === runId
+    && receipt.jobId === jobId
+    && receipt.cancelRequested === true
+    && receipt.freeOnly === true
+    && receipt.costUsd === 0
+    && receipt.paidFallbackUsed === false
+    && (receipt.status === 'cancelled'
+      ? receipt.codingStatus === 'cancelled'
+      : ['queued', 'leased', 'running', 'repairing'].includes(receipt.codingStatus ?? ''));
+}
+
+export function isConfirmedCodingCancellationReceipt(
+  receipt: AgentExecutionResponse,
+  runId: string,
+  jobId: string,
+): boolean {
+  return receipt?.ok === false
+    && receipt.status === 'blocked'
+    && receipt.codingStatus === 'cancelled'
+    && receipt.code === 'AGENT_CODING_CANCELLED'
+    && receipt.runId === runId
+    && receipt.jobId === jobId
+    && receipt.verified === false
+    && receipt.freeOnly === true
+    && receipt.costUsd === 0
+    && receipt.paidFallbackUsed === false;
+}
+
+export function isVerifiedCodingReceipt(receipt: AgentExecutionResponse, runId: string, jobId: string): boolean {
+  if (receipt?.ok !== true || receipt.status !== 'completed' || receipt.verified !== true
+    || receipt.codingStatus !== 'verified' || receipt.runId !== runId || receipt.jobId !== jobId
+    || receipt.freeOnly !== true || receipt.costUsd !== 0 || receipt.paidFallbackUsed !== false) return false;
+  const result = receipt.result;
+  if (!result || result.schemaVersion !== 1 || result.sessionStatus !== 'verified'
+    || !Number.isInteger(result.repairRounds) || result.repairRounds < 0 || result.repairRounds > 3
+    || result.freeOnly !== true || result.costUsd !== 0 || result.gitPublished !== false || result.deployed !== false) return false;
+  if (!Array.isArray(result.diffs) || result.diffs.length < 1 || result.diffs.length > 12) return false;
+  const paths = new Set<string>();
+  for (const diff of result.diffs) {
+    if (!diff || typeof diff.path !== 'string' || !diff.path || paths.has(diff.path)
+      || !['created', 'modified'].includes(diff.kind)
+      || typeof diff.beforeTruncated !== 'boolean' || typeof diff.afterTruncated !== 'boolean'
+      || typeof diff.previewAvailable !== 'boolean'
+      || !(diff.before === null || typeof diff.before === 'string')
+      || !(diff.after === null || typeof diff.after === 'string')) return false;
+    paths.add(diff.path);
+  }
+  const checks = result.verificationChecks;
+  const required = ['typecheck', 'lint', 'test', 'build'];
+  return Array.isArray(checks) && checks.length === 4
+    && new Set(checks.map(check => check?.kind)).size === 4
+    && required.every(kind => checks.some(check => check?.kind === kind
+      && check.ok === true && check.exitCode === 0 && check.timedOut === false
+      && check.attempt === result.repairRounds));
+}
+
+export function verifiedCodingArtifact(result: CodingBridgeResult): string {
+  const requiredKinds = ['typecheck', 'lint', 'test', 'build'] as const;
+  const checks = requiredKinds.map((kind) => {
+    const check = result.verificationChecks.find((item) => item.kind === kind);
+    return `- ${kind}: ${check?.ok && check.exitCode === 0 && !check.timedOut ? 'PASS' : 'FAIL / no proof'}`;
+  }).join('\n');
+  const summaries = result.diffs.map((diff) => `- ${diff.path} (${diff.kind})`).join('\n') || '- 変更ファイルなし';
+
+  // The trusted server already bounds and sanitizes each preview. Render as
+  // literal text in the workspace <pre>, never as HTML, executable code or a
+  // complete source file. Missing/truncated previews are not task completion.
+  const previews = result.diffs.map((diff, index) => {
+    if (!diff.previewAvailable) {
+      return `### ${index + 1}. ${diff.path}\n\n変更内容のプレビューを取得できません。元ファイルや完全な差分を推測しません。`;
+    }
+    const before = diff.before === null ? '（新規ファイル）' : diff.before;
+    const after = diff.after === null ? '（変更後の内容を取得できません）' : diff.after;
+    const beforeLabel = diff.beforeTruncated ? '変更前（一部省略）' : '変更前';
+    const afterLabel = diff.afterTruncated ? '変更後（一部省略）' : '変更後';
+    return [
+      `### ${index + 1}. ${diff.path}`,
+      `[${beforeLabel}]`,
+      before,
+      `[${afterLabel}]`,
+      after,
+    ].join('\n');
+  }).join('\n\n');
+
+  return [
+    '# Coding V1.4 検証済み結果',
+    '',
+    '作業環境内でのコード変更と検証が完了しました。GitHubへの反映・本番公開は行っていません。',
+    '',
+    `Repair rounds: ${result.repairRounds}`,
+    '',
+    '## Changed paths',
+    summaries,
+    '',
+    '## Verification',
+    checks,
+    '',
+    '## 変更内容のプレビュー',
+    '表示内容は最大サイズが制限された確認用抜粋です。完全なGit差分・デプロイ済みコードを意味しません。',
+    previews || '表示可能な差分はありません。',
+    '',
+    'Git publish: not authorized',
+    'Deploy: not authorized',
+    'Cost: $0',
+  ].join('\n');
+}
+
+function waitForCodingPoll(signal: AbortSignal, delayMs = 2500): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, delayMs);
+    signal.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
 export default function AgentWorkspaceView() {
   const [goal, setGoal] = useState('');
   const [capability, setCapability] = useState<AgentCapability | null>(null);
@@ -115,6 +290,13 @@ export default function AgentWorkspaceView() {
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // An ephemeral, run-bound cancellation capability. Never persisted to a browser store.
+  const [activeCoding, setActiveCoding] = useState<{ runId: string; jobId: string; bridgeToken: string } | null>(null);
+  const [codingCancelPending, setCodingCancelPending] = useState(false);
+  const [recoveryRunId, setRecoveryRunId] = useState('');
+  const [recoveryJobId, setRecoveryJobId] = useState('');
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const recoveryCredentialRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,6 +313,7 @@ export default function AgentWorkspaceView() {
           freeOnly: data.freeOnly === true,
           costUsd: typeof data.costUsd === 'number' ? data.costUsd : -1,
           paidFallbackEnabled: data.paidFallbackEnabled === true,
+          codingBridgeConfigured: data.codingBridgeConfigured === true,
         });
       })
       .catch(() => setCapability(null))
@@ -211,6 +394,104 @@ export default function AgentWorkspaceView() {
     }
   }, [capability?.ready, goal, phase]);
 
+  const refreshRecoveredCoding = useCallback(async (
+    target: { runId: string; jobId: string; bridgeToken: string },
+  ) => {
+    try {
+      const response = await fetch('/api/agent/v3/coding/status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store', body: JSON.stringify(target),
+      });
+      const receipt = await response.json() as AgentExecutionResponse;
+      if (isConfirmedCodingCancellationReceipt(receipt, target.runId, target.jobId)) {
+        setActiveCoding(null);
+        setPhase('failed');
+        setLog(current => [...current, 'Codingジョブはサーバー上で中止済みです。完了として扱いません。']);
+        return;
+      }
+      if (!response.ok || receipt.ok !== true) {
+        if (receipt.ok === false && receipt.status === 'blocked'
+          && receipt.runId === target.runId && receipt.jobId === target.jobId
+          && receipt.verified === false && receipt.freeOnly === true
+          && receipt.costUsd === 0 && receipt.paidFallbackUsed === false
+          && ['blocked', 'failed'].includes(receipt.codingStatus ?? '')) {
+          setActiveCoding(null);
+          setPhase('failed');
+          setLog(current => [...current, `保存済みCodingジョブは検証未完了で終了しました: ${receipt.code ?? 'AGENT_CODING_BLOCKED'}`]);
+          return;
+        }
+        throw new Error(receipt.code ?? 'AGENT_CODING_STATUS_UNAVAILABLE');
+      }
+      if (receipt.status === 'completed') {
+        if (!isVerifiedCodingReceipt(receipt, target.runId, target.jobId) || !receipt.result) {
+          throw new Error('AGENT_CODING_RECEIPT_INVALID');
+        }
+        setArtifact(verifiedCodingArtifact(receipt.result));
+        setPhase('completed');
+        setActiveCoding(null);
+        setPlan(null);
+        setLog(current => [...current, '保存済みCodingジョブの4検証と成果物を確認しました。']);
+        return;
+      }
+      if (receipt.status !== 'running' || receipt.runId !== target.runId || receipt.jobId !== target.jobId
+        || receipt.verified !== false || receipt.freeOnly !== true || receipt.costUsd !== 0
+        || receipt.paidFallbackUsed !== false || typeof receipt.bridgeToken !== 'string'
+        || typeof receipt.expiresAt !== 'string' || Date.parse(receipt.expiresAt) <= Date.now()) {
+        throw new Error('AGENT_CODING_RUNNING_RECEIPT_INVALID');
+      }
+      setActiveCoding({ runId: target.runId, jobId: target.jobId, bridgeToken: receipt.bridgeToken });
+      setPhase('executing');
+      setLog(current => [...current, `保存済みCoding状態: ${receipt.codingStatus ?? 'unknown'}（検証完了ではありません）`]);
+    } catch (error) {
+      // Network uncertainty is not a failed or verified durable task. Keep the
+      // run-bound recovery capability available for an authenticated recheck.
+      setLog(current => [...current, `Coding状態を確認できません: ${(error as Error).message}。サーバー上のジョブは継続している可能性があります。`]);
+    }
+  }, []);
+
+  const recoverCoding = useCallback(async () => {
+    if (!capability?.codingBridgeConfigured || recoveryPending || (phase === 'executing' && !activeCoding)) return;
+    const runId = recoveryRunId.trim();
+    const jobId = recoveryJobId.trim();
+    if (activeCoding && (activeCoding.runId !== runId || activeCoding.jobId !== jobId)) {
+      setLog(current => [...current, '別のCodingジョブが実行・確認中です。終了を確認してから復旧してください。']);
+      return;
+    }
+    const credential = recoveryCredentialRef.current?.value.trim() ?? '';
+    if (!/^run-[A-Za-z0-9-]{1,100}$/.test(runId) || !/^coding-[A-Za-z0-9_-]{22}$/.test(jobId) || !credential) {
+      setLog(current => [...current, '復旧には元のRun ID、Coding Job ID、専用Agentオペレーター認証キーが必要です。']);
+      return;
+    }
+    setRecoveryPending(true);
+    try {
+      const response = await fetch('/api/agent/v3/coding/recover', {
+        method: 'POST', headers: authorizationHeaders(credential), cache: 'no-store',
+        body: JSON.stringify({ runId, jobId }),
+      });
+      const body = await response.json() as AgentExecutionResponse;
+      if (!response.ok || body.ok !== true || body.status !== 'running'
+        || body.runId !== runId || body.jobId !== jobId
+        || body.freeOnly !== true || body.costUsd !== 0 || body.paidFallbackUsed !== false
+        || typeof body.bridgeToken !== 'string' || typeof body.expiresAt !== 'string'
+        || Date.parse(body.expiresAt) <= Date.now()) {
+        throw new Error(body.code ?? 'AGENT_CODING_RECOVERY_UNAVAILABLE');
+      }
+      const active = { runId, jobId, bridgeToken: body.bridgeToken };
+      setActiveCoding(active);
+      setPhase('executing');
+      setPlan(null);
+      setArtifact(['# Coding V1.4 復旧', '', `Run: ${runId}`, `Job: ${jobId}`,
+        '既存ジョブを再取得しました。新しい実行は行っていません。', '4検証を確認するまでは完了ではありません。'].join('\n'));
+      setLog(current => [...current, '元のRun/Job/Ownerを認証したうえで既存ジョブの読取を再開しました。']);
+      await refreshRecoveredCoding(active);
+    } catch (error) {
+      setLog(current => [...current, `Codingジョブを復旧できません: ${(error as Error).message}。新規実行は行っていません。`]);
+    } finally {
+      if (recoveryCredentialRef.current) recoveryCredentialRef.current.value = '';
+      setRecoveryPending(false);
+    }
+  }, [activeCoding, capability?.codingBridgeConfigured, phase, recoveryJobId, recoveryPending, recoveryRunId, refreshRecoveredCoding]);
+
   const approveAndExecute = useCallback(async () => {
     if (!plan || phase !== 'awaiting_approval') return;
     const credential = credentialInputRef.current?.value.trim() ?? '';
@@ -270,6 +551,99 @@ export default function AgentWorkspaceView() {
         signal: controller.signal,
       });
       const result = await executeResponse.json() as AgentExecutionResponse;
+
+      if (plan.selectedTool === 'code_interpreter') {
+        if (
+          executeResponse.status !== 202
+          || result.ok !== true
+          || result.status !== 'running'
+          || typeof result.jobId !== 'string'
+          || typeof result.bridgeToken !== 'string'
+          || typeof result.expiresAt !== 'string'
+        ) {
+          throw new Error(result.code ?? 'AGENT_CODING_DISPATCH_FAILED');
+        }
+
+        if (credentialInputRef.current) credentialInputRef.current.value = '';
+        setActiveCoding({ runId: plan.runId, jobId: result.jobId, bridgeToken: result.bridgeToken });
+        setArtifact([
+          '# Coding V1.4',
+          '',
+          'コード変更ジョブを開始しました。',
+          '検証済みの終端結果が届くまで完了扱いにはしません。',
+          '',
+          `Run: ${plan.runId}`,
+          `Job: ${result.jobId}`,
+          '復旧用Run IDとJob IDを控えてください。認証キー・実行トークンは保存しません。',
+        ].join('\n'));
+        setLog((current) => [...current, `Coding V1.4 job started: ${result.jobId}`, 'typecheck / lint / test / build の検証完了を待っています。']);
+
+        let expiresAt = Date.parse(result.expiresAt);
+        if (!Number.isFinite(expiresAt)) throw new Error('AGENT_CODING_BRIDGE_EXPIRY_INVALID');
+        let bridgeToken = result.bridgeToken;
+        let lastStatus = '';
+        while (Date.now() < expiresAt) {
+          const pollResponse = await fetch('/api/agent/v3/coding/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({
+              runId: plan.runId,
+              jobId: result.jobId,
+              bridgeToken,
+            }),
+            signal: controller.signal,
+          });
+          const poll = await pollResponse.json() as AgentExecutionResponse;
+          if (isConfirmedCodingCancellationReceipt(poll, plan.runId, result.jobId)) {
+            setActiveCoding(null);
+            setPlan(null);
+            setPhase('failed');
+            setLog((current) => [...current,
+              'Codingジョブの中止をサーバーの終端状態で確認しました。コード変更は完了扱いにしません。']);
+            return;
+          }
+          if (!pollResponse.ok || poll.ok !== true) {
+            throw new Error(poll.code ?? 'AGENT_CODING_STATUS_FAILED');
+          }
+          if (poll.status === 'completed') {
+            if (!isVerifiedCodingReceipt(poll, plan.runId, result.jobId) || !poll.result) {
+              throw new Error('AGENT_CODING_RECEIPT_INVALID');
+            }
+            setArtifact(verifiedCodingArtifact(poll.result));
+            setPhase('completed');
+            setActiveCoding(null);
+            setLog((current) => [...current, 'Coding V1.4 の最終4検証が完了しました。完了状態へ移行します。']);
+            setPlan(null);
+            return;
+          }
+          if (poll.status !== 'running') throw new Error(poll.code ?? 'AGENT_CODING_TERMINAL_UNVERIFIED');
+          if (poll.runId !== plan.runId || poll.jobId !== result.jobId
+            || poll.verified !== false || poll.freeOnly !== true
+            || poll.costUsd !== 0 || poll.paidFallbackUsed !== false) {
+            throw new Error('AGENT_CODING_RUNNING_RECEIPT_INVALID');
+          }
+          // A live 30-minute capability rotates on validated nonterminal polls,
+          // but its absolute deadline remains the durable Coding job lifetime.
+          if (typeof poll.bridgeToken !== 'string' || typeof poll.expiresAt !== 'string') {
+            throw new Error('AGENT_CODING_BRIDGE_RENEWAL_INVALID');
+          }
+          const nextExpiry = Date.parse(poll.expiresAt);
+          if (!Number.isFinite(nextExpiry) || nextExpiry <= Date.now()) {
+            throw new Error('AGENT_CODING_BRIDGE_RENEWAL_INVALID');
+          }
+          bridgeToken = poll.bridgeToken;
+          expiresAt = nextExpiry;
+          setActiveCoding({ runId: plan.runId, jobId: result.jobId, bridgeToken });
+          if (poll.codingStatus && poll.codingStatus !== lastStatus) {
+            lastStatus = poll.codingStatus;
+            setLog((current) => [...current, `Coding status: ${poll.codingStatus}`]);
+          }
+          await waitForCodingPoll(controller.signal);
+        }
+        throw new Error('AGENT_CODING_BRIDGE_EXPIRED');
+      }
+
       if (!executeResponse.ok || result.ok !== true || result.status !== 'completed' || typeof result.artifact !== 'string') {
         throw new Error(result.code ?? 'AGENT_EXECUTION_FAILED');
       }
@@ -289,7 +663,40 @@ export default function AgentWorkspaceView() {
     }
   }, [persistCheckpoint, phase, plan]);
 
+  const cancelActiveCoding = useCallback(async () => {
+    if (!activeCoding || codingCancelPending) return;
+    setCodingCancelPending(true);
+    try {
+      const response = await fetch('/api/agent/v3/coding/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify(activeCoding),
+      });
+      const result = await response.json() as AgentExecutionResponse & { cancelRequested?: boolean };
+      if (!response.ok || !isConfirmedCodingCancelAcknowledgement(result, activeCoding.runId, activeCoding.jobId)) {
+        throw new Error(result.code ?? 'AGENT_CODING_CANCEL_RECEIPT_INVALID');
+      }
+      setLog((current) => [...current, result.status === 'cancelled'
+        ? 'Codingジョブはサーバー側で中止されました。完了扱いにはしません。'
+        : 'Codingジョブの中止要求をサーバー側で受理しました。終端状態の確認中です。']);
+      if (result.status === 'cancelled') {
+        abortRef.current?.abort();
+        setPhase('failed');
+        setActiveCoding(null);
+      }
+    } catch (error) {
+      setLog((current) => [...current, `Codingジョブの中止を確認できません: ${(error as Error).message}。ブラウザを閉じてもサーバー処理は停止したとは限りません。`]);
+    } finally {
+      setCodingCancelPending(false);
+    }
+  }, [activeCoding, codingCancelPending]);
+
   const resetPlan = () => {
+    if (activeCoding) {
+      setLog((current) => [...current, 'Codingジョブの終端確認ができるまで計画を破棄できません。先にサーバー側の中止状態を確認してください。']);
+      return;
+    }
     abortRef.current?.abort();
     abortRef.current = null;
     setPlan(null);
@@ -361,9 +768,36 @@ export default function AgentWorkspaceView() {
               className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
               承認して実行
             </button>
-            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画を破棄</button>
+            <button type="button" onClick={resetPlan} disabled={phase === 'executing' || Boolean(activeCoding)} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{activeCoding ? '先にジョブを中止' : phase === 'executing' ? '実行中' : '計画を破棄'}</button>
           </div>
+          {activeCoding && <button type="button" onClick={() => void cancelActiveCoding()} disabled={codingCancelPending}
+            className="origin-secondary-button mt-3 min-h-11 w-full rounded-xl border border-amber-300 px-4 text-sm font-semibold disabled:opacity-50"
+            aria-label="実行中のCodingジョブを中止">
+            {codingCancelPending ? '中止を確認中…' : '実行中のCodingジョブを中止'}
+          </button>}
         </section>}
+
+        {capability?.codingBridgeConfigured && <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">既存Codingジョブを復旧する</summary>
+          <p className="mb-2 leading-5 text-slate-500">タブ再起動や認証トークン失効後に使用します。元のRun IDとJob IDを入力してください。新しいCoding実行は作成しません。</p>
+          <label htmlFor="coding-recovery-run" className="block font-semibold">Run ID</label>
+          <input id="coding-recovery-run" value={recoveryRunId} onChange={event => setRecoveryRunId(event.target.value)}
+            autoComplete="off" maxLength={104} placeholder="run-..." className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <label htmlFor="coding-recovery-job" className="block font-semibold">Coding Job ID</label>
+          <input id="coding-recovery-job" value={recoveryJobId} onChange={event => setRecoveryJobId(event.target.value)}
+            autoComplete="off" maxLength={29} placeholder="coding-..." className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <label htmlFor="coding-recovery-key" className="block font-semibold">専用Agentオペレーター認証キー</label>
+          <input ref={recoveryCredentialRef} id="coding-recovery-key" type="password" autoComplete="off"
+            spellCheck={false} className="mb-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" />
+          <button type="button" onClick={() => void recoverCoding()} disabled={recoveryPending || (phase === 'executing' && !activeCoding)}
+            className="origin-secondary-button min-h-11 w-full rounded-xl px-3 font-semibold disabled:opacity-50">
+            {recoveryPending ? '既存ジョブを確認中…' : '本人認証して既存ジョブを復旧'}
+          </button>
+        </details>}
+        {activeCoding && <button type="button" onClick={() => void refreshRecoveredCoding(activeCoding)}
+          className="origin-secondary-button mt-2 min-h-11 w-full rounded-xl px-3 text-xs font-semibold">
+          Codingの最新状態を再取得
+        </button>}
 
         <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
@@ -371,6 +805,7 @@ export default function AgentWorkspaceView() {
           {capability && <div className="mt-2 space-y-1 text-slate-500">
             <p>Approval signing: {capability.approvalSigningConfigured ? 'ready' : 'unavailable'}</p>
             <p>Replay protection: {capability.replayProtectionConfigured ? capability.replayProtection : 'unavailable'}</p>
+            <p>Coding bridge: {capability.codingBridgeConfigured ? 'available' : 'disabled'}</p>
           </div>}
         </details>
 
