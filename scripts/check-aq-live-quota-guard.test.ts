@@ -29,7 +29,7 @@ function fetchWithReservation(
         return response({
           workflow_runs:
             createdAt && name === workflow
-              ? [{ id: 123, created_at: "2026-09-17T00:00:00.000Z" }]
+              ? [{ id: 123, created_at: "2026-09-19T00:00:00.000Z" }]
               : [],
         });
       }
@@ -100,7 +100,7 @@ describe("AQ live quota guard readiness", () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-free-provider-calibration.yml/runs")) {
-        return response({ workflow_runs: [{ id: Number(currentRunId) }] });
+        return response({ workflow_runs: [{ id: Number(currentRunId), created_at: "2026-09-19T00:00:00.000Z" }] });
       }
       if (
         url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")
@@ -167,7 +167,7 @@ describe("AQ live quota guard readiness", () => {
         return response({
           workflow_runs: [{
             id: Number(currentRunId),
-            created_at: "2026-09-17T00:00:00.000Z",
+            created_at: "2026-09-19T00:00:00.000Z",
           }],
         });
       }
@@ -212,9 +212,9 @@ describe("AQ live quota guard readiness", () => {
         requestedPages.push(url);
         const page = Number(new URL(url).searchParams.get("page"));
         if (page === 1) {
-          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: i + 1 })) });
+          return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => ({ id: i + 1, created_at: "2026-09-19T00:00:00.000Z" })) });
         }
-        if (page === 2) return response({ workflow_runs: [{ id: 500 }] });
+        if (page === 2) return response({ workflow_runs: [{ id: 500, created_at: "2026-09-19T00:00:00.000Z" }] });
         return response({ workflow_runs: [] });
       }
       if (
@@ -252,7 +252,7 @@ describe("AQ live quota guard readiness", () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
-        return response({ workflow_runs: [{ id: 123 }] });
+        return response({ workflow_runs: [{ id: 123, created_at: "2026-09-19T00:00:00.000Z" }] });
       }
       if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
       if (url.includes("/actions/runs/123/artifacts")) return response({ message: "unexpected API shape" });
@@ -269,7 +269,7 @@ describe("AQ live quota guard readiness", () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/workflows/aq-live-lane-shard.yml/runs")) {
-        return response({ workflow_runs: [{ id: 123 }] });
+        return response({ workflow_runs: [{ id: 123, created_at: "2026-09-19T00:00:00.000Z" }] });
       }
       if (url.includes("/actions/workflows/")) return response({ workflow_runs: [] });
       if (url.includes("/actions/runs/123/artifacts")) {
