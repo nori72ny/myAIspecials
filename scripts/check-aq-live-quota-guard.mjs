@@ -2,6 +2,7 @@ import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const WINDOW_SECONDS = 86_400;
+const MAX_API_PAGES = 20;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
@@ -52,9 +53,18 @@ export async function latestReservedAt({
   for (let page = 1; ; page += 1) {
     const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100&page=${page}`;
     const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-    const pageRuns = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+    if (!runsPayload || !Array.isArray(runsPayload.workflow_runs)) {
+      throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUNS_PAYLOAD");
+    }
+    const pageRuns = runsPayload.workflow_runs;
+    if (pageRuns.some((run) => !run || (typeof run.id !== "number" && typeof run.id !== "string"))) {
+      throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUN_ENTRY");
+    }
     runs.push(...pageRuns);
     if (pageRuns.length < 100) break;
+    if (page >= MAX_API_PAGES) {
+      throw new Error("AQ_LIVE_QUOTA_WORKFLOW_RUN_SCAN_INCOMPLETE");
+    }
   }
   let latest = null;
 
@@ -66,9 +76,15 @@ export async function latestReservedAt({
     for (let page = 1; ; page += 1) {
       const artifactsUrl = `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${page}`;
       const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-      const pageArtifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
+      if (!artifactsPayload || !Array.isArray(artifactsPayload.artifacts)) {
+        throw new Error("AQ_LIVE_QUOTA_INVALID_ARTIFACTS_PAYLOAD");
+      }
+      const pageArtifacts = artifactsPayload.artifacts;
       artifacts.push(...pageArtifacts);
       if (pageArtifacts.length < 100) break;
+      if (page >= MAX_API_PAGES) {
+        throw new Error("AQ_LIVE_QUOTA_ARTIFACT_SCAN_INCOMPLETE");
+      }
     }
 
     for (const artifact of artifacts) {
