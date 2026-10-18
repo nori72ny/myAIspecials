@@ -43,6 +43,60 @@ describe("AQ live quota guard readiness", () => {
     expect(result.allowed).toBe(false);
     expect(result.previousReservedAt).toBe(previous);
     expect(result.nextAllowedAt).toBe("2026-09-20T05:11:00.000Z");
+    expect(result.remainingSeconds).toBe(4260);
+  });
+
+  it("blocks on a scheduled final AQ reservation", async () => {
+    const previous = "2026-09-19T05:00:00.000Z";
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchForRuns(
+        [run(123, "q1-final-aq.yml")],
+        { "123": [{ name: "aq-live-quota-reservation", created_at: previous }] },
+      ) as typeof fetch,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+    expect(result.nextAllowedAt).toBe("2026-09-20T05:00:00.000Z");
+  });
+
+  it("allows execution exactly at the 24-hour boundary", async () => {
+    const previous = "2026-09-19T04:00:00.000Z";
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs: Date.parse("2026-09-20T04:00:00.000Z"),
+      fetchImpl: fetchForRuns(
+        [run(123, "aq-live-lane-shard.yml")],
+        { "123": [{ name: "aq-live-quota-reservation", created_at: previous }] },
+      ) as typeof fetch,
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.previousReservedAt).toBeNull();
+    expect(result.nextAllowedAt).toBeNull();
+    expect(result.remainingSeconds).toBe(0);
+  });
+
+  it("allows execution when no prior reservation exists", async () => {
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs,
+      fetchImpl: fetchForRuns([]) as typeof fetch,
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.nextAllowedAt).toBeNull();
+    expect(result.remainingSeconds).toBe(0);
+  });
+
+  it("counts a prior-attempt reservation from the current run when enabled", async () => {
+    const previous = "2026-09-19T05:22:46.000Z";
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, includeCurrentRunReservations: true, nowMs,
+      fetchImpl: fetchForRuns(
+        [run(Number(currentRunId), "aq-live-lane-shard.yml")],
+        { [currentRunId]: [{ name: "aq-live-quota-reservation", created_at: previous }] },
+      ) as typeof fetch,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.previousReservedAt).toBe(previous);
+    expect(result.nextAllowedAt).toBe("2026-09-20T05:22:46.000Z");
   });
 
   it("finds reservations from a legacy workflow even when it is no longer listed as a current workflow", async () => {
