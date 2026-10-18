@@ -129,6 +129,17 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("fails closed when a reservation timestamp is in the future", async () => {
+    const future = "2026-09-20T04:00:01.000Z";
+    await expect(checkLiveQuota({
+      repository,
+      currentRunId,
+      token,
+      nowMs,
+      fetchImpl: fetchWithReservation(future) as typeof fetch,
+    })).rejects.toThrow("AQ_LIVE_QUOTA_RESERVATION_TIMESTAMP_IN_FUTURE");
+  });
+
   it("allows execution exactly at the 24-hour boundary", async () => {
     const previous = "2026-09-19T04:00:00.000Z";
     const result = await checkLiveQuota({
