@@ -34,7 +34,7 @@ jobs:
     # PR code and preview refs are excluded by the job-level condition above.
     timeout-minutes: 20
     env:
-      ORIGIN_FREE_MODEL_CANDIDATE: ${{ inputs.model_id || 'inclusionai/ling-3.0-flash-sante:free' }}
+      ORIGIN_FREE_MODEL_CANDIDATE: ${{ inputs.model_id || 'nvidia/nemotron-3-ultra-550b-a55b:free' }}
     steps:
       - name: Checkout exact protected main SHA only
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
