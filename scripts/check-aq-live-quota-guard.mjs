@@ -2,9 +2,11 @@ import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const WINDOW_SECONDS = 86_400;
+const MAX_API_PAGES = 20;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
+const CALIBRATION_WORKFLOW = "aq-free-provider-calibration.yml";
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -31,7 +33,7 @@ async function githubJson(url, token, fetchImpl = fetch) {
 }
 
 function reservedArtifact(name, workflow) {
-  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW) {
+  if (workflow === UNIFIED_WORKFLOW || workflow === FINAL_WORKFLOW || workflow === CALIBRATION_WORKFLOW) {
     return name === "aq-live-quota-reservation";
   }
   if (workflow === LEGACY_WORKFLOW) return name.startsWith("aq-live-research-shard");
@@ -47,39 +49,57 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  const runsUrl =
-    `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=30`;
-  const runsPayload = await githubJson(runsUrl, token, fetchImpl);
-  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
   let latest = null;
 
-  for (const run of runs) {
-    if (!run) continue;
-    if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
+  // GitHub's workflow-runs API defaults to newest-created first. Make the
+  // ordering explicit so we can stop once every remaining run is outside
+  // the 24-hour reservation window instead of enumerating repository history.
+  for (let page = 1; ; page += 1) {
+    const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?per_page=100&page=${page}&sort=created&direction=desc`;
+    const runsPayload = await githubJson(runsUrl, token, fetchImpl);
+    if (!runsPayload || !Array.isArray(runsPayload.workflow_runs)) {
+      throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUNS_PAYLOAD");
+    }
+    const pageRuns = runsPayload.workflow_runs;
+    if (pageRuns.some((run) => !run || (typeof run.id !== "number" && typeof run.id !== "string")
+      || typeof run.created_at !== "string" || !Number.isFinite(Date.parse(run.created_at)))) {
+      throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUN_ENTRY");
+    }
 
-    const artifactsUrl =
-      `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`;
-    const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts)
-      ? artifactsPayload.artifacts
-      : [];
+    for (const run of pageRuns) {
+      // Do not stop at old run.created_at: a rerun can create a fresh quota
+      // reservation artifact on an older workflow run. Scan all pages within
+      // the hard cap; if completeness cannot be established, fail closed.
+      if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
-    for (const artifact of artifacts) {
-      if (
-        !artifact
-        || typeof artifact.name !== "string"
-        || !reservedArtifact(artifact.name, workflow)
-      ) {
-        continue;
+      for (let artifactPage = 1; ; artifactPage += 1) {
+        const artifactsUrl = `https://api.github.com/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100&page=${artifactPage}`;
+        const artifactsPayload = await githubJson(artifactsUrl, token, fetchImpl);
+        if (!artifactsPayload || !Array.isArray(artifactsPayload.artifacts)) {
+          throw new Error("AQ_LIVE_QUOTA_INVALID_ARTIFACTS_PAYLOAD");
+        }
+        const pageArtifacts = artifactsPayload.artifacts;
+        for (const artifact of pageArtifacts) {
+          if (!artifact || typeof artifact.name !== "string" || !reservedArtifact(artifact.name, workflow)) continue;
+          const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
+          const reservedMs = Date.parse(reservedAt);
+          if (!Number.isFinite(reservedMs)) {
+            throw new Error("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
+          }
+          const ageMs = nowMs - reservedMs;
+          if (ageMs < 0 || ageMs >= WINDOW_SECONDS * 1000) continue;
+          if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
+        }
+        if (pageArtifacts.length < 100) break;
+        if (artifactPage >= MAX_API_PAGES) {
+          throw new Error("AQ_LIVE_QUOTA_ARTIFACT_SCAN_INCOMPLETE");
+        }
       }
+    }
 
-      const reservedAt = typeof artifact.created_at === "string" ? artifact.created_at : "";
-      const reservedMs = Date.parse(reservedAt);
-      if (!Number.isFinite(reservedMs)) continue;
-
-      const ageSeconds = Math.floor((nowMs - reservedMs) / 1000);
-      if (ageSeconds < 0 || ageSeconds >= WINDOW_SECONDS) continue;
-      if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
+    if (pageRuns.length < 100) break;
+    if (page >= MAX_API_PAGES) {
+      throw new Error("AQ_LIVE_QUOTA_WORKFLOW_RUN_SCAN_INCOMPLETE");
     }
   }
 
@@ -95,7 +115,7 @@ export async function checkLiveQuota({
   fetchImpl = fetch,
 }) {
   const reservations = await Promise.all(
-    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW].map((workflow) =>
+    [UNIFIED_WORKFLOW, LEGACY_WORKFLOW, FINAL_WORKFLOW, CALIBRATION_WORKFLOW].map((workflow) =>
       latestReservedAt({
         repository,
         workflow,
