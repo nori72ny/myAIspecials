@@ -1,0 +1,9 @@
+/* ORIGIN Personal - GUARANTEED HIGH-CONTRAST OVERRIDES */
+html, body { background-color: #000000 !important; color: #FFFFFF !important; }
+header, .origin-header { background-color: #000000 !important; border-bottom: 1px solid rgba(255,255,255,0.2) !important; }
+header *, .origin-header * { color: #FFFFFF !important; fill: #FFFFFF !important; stroke: #FFFFFF !important; opacity: 1 !important; }
+form, div:has(> textarea), [class*="composer"] { background-color: #0F172A !important; border: 1.5px solid rgba(255,255,255,0.3) !important; border-radius: 20px !important; }
+textarea, input[type="text"] { background-color: transparent !important; color: #FFFFFF !important; }
+::placeholder, textarea::placeholder { color: #94A3B8 !important; opacity: 1 !important; }
+button[type="submit"], button:has(svg) { background: linear-gradient(135deg, #0284C7, #2563EB) !important; border: 1px solid #FFFFFF !important; border-radius: 12px !important; opacity: 1 !important; }
+button[type="submit"] *, button:has(svg) * { fill: #FFFFFF !important; stroke: #FFFFFF !important; color: #FFFFFF !important; opacity: 1 !important; }

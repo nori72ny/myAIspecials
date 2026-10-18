@@ -385,3 +385,141 @@ a[href]:focus-visible {
     min-width: 44px;
   }
 }
+
+/* ========================================================================== */
+/* ORIGIN Personal - LIVE VIEWPORT HIGH-CONTRAST OVERRIDES                     */
+/* ========================================================================== */
+
+/* 1. 画面全体の漆黒化 */
+html, body, #__next, main {
+  background-color: #030712 !important;
+  color: #FFFFFF !important;
+}
+
+/* 2. ヘッダーの文字・三本線・歯車アイコンを完全純白化 (スクショの暗い灰色を撲滅) */
+header, .origin-header, [class*="header"] {
+  background-color: #030712 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+header *, [class*="header"] * {
+  color: #FFFFFF !important;
+  fill: #FFFFFF !important;
+  stroke: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* 3. 下部入力枠（真っ白になっていたコンテナを高級ダークカードへ統一） */
+form, div:has(> textarea), div:has(> input[type="text"]), [class*="composer"] {
+  background-color: #0F172A !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 入力文字とプレースホルダー */
+textarea, input[type="text"] {
+  background-color: transparent !important;
+  color: #FFFFFF !important;
+}
+::placeholder, textarea::placeholder, input::placeholder {
+  color: #94A3B8 !important;
+  opacity: 1 !important;
+}
+
+/* 4. 右下の送信ボタン（薄いグレーで死んでいたボタンを鮮烈ブルー＆白矢印へ） */
+button[type="submit"], button:has(svg), [class*="submit"], [class*="send"] {
+  background: linear-gradient(135deg, #0284C7, #2563EB) !important;
+  background-color: #2563EB !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.5) !important;
+  opacity: 1 !important;
+}
+
+/* 送信ボタン内の矢印（↑）アイコン */
+button[type="submit"] *, button:has(svg) svg, button:has(svg) path {
+  fill: #FFFFFF !important;
+  stroke: #FFFFFF !important;
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* 左下の「＋」ボタン */
+button:first-child:has(svg) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+button:first-child:has(svg) * {
+  stroke: #94A3B8 !important;
+  color: #94A3B8 !important;
+}
+
+/* ========================================================================== */
+/* ORIGIN Personal - PRODUCTION DIRECT HOTFIX (WCAG AAA HIGH-CONTRAST)       */
+/* ========================================================================== */
+
+/* 1. 画面全体の統一ディープブラック背景 */
+html, body, #__next, main {
+  background-color: #000000 !important;
+  color: #FFFFFF !important;
+}
+
+/* 2. ヘッダーの文字・三本線・歯車アイコンを完全純白化 */
+header, .origin-header, [class*="header"] {
+  background-color: #000000 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+header *, [class*="header"] * {
+  color: #FFFFFF !important;
+  fill: #FFFFFF !important;
+  stroke: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* 3. 下部入力枠（真っ白になっていたコンテナを高級ダークカードへ統一） */
+form, div:has(> textarea), div:has(> input[type="text"]), [class*="composer"] {
+  background-color: #0F172A !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 入力文字とプレースホルダー */
+textarea, input[type="text"] {
+  background-color: transparent !important;
+  color: #FFFFFF !important;
+}
+::placeholder, textarea::placeholder, input::placeholder {
+  color: #94A3B8 !important;
+  opacity: 1 !important;
+}
+
+/* 4. 右下の送信ボタン（薄いグレーを追放し、鮮烈ブルー＆白矢印へ） */
+button[type="submit"], button:has(svg), [class*="submit"], [class*="send"] {
+  background: linear-gradient(135deg, #0284C7, #2563EB) !important;
+  background-color: #2563EB !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.5) !important;
+  opacity: 1 !important;
+}
+
+/* 送信ボタン内の矢印（↑）アイコンを純白化 */
+button[type="submit"] *, button:has(svg) svg, button:has(svg) path {
+  fill: #FFFFFF !important;
+  stroke: #FFFFFF !important;
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* 左下の「＋」ボタン */
+button:first-child:has(svg) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+button:first-child:has(svg) * {
+  stroke: #94A3B8 !important;
+  color: #94A3B8 !important;
+}
