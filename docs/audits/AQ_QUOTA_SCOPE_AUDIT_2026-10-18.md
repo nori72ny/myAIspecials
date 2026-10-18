@@ -6,7 +6,7 @@ Status: source-level audit only. No provider requests were sent. This document i
 
 - PR: https://github.com/nori72ny/myAIspecials/pull/1002
 - Branch: `integration/aq-calibration-no-bypass-quota-guard`
-- Audited commit before this note: `12ecdac01af63cfa66e6a059dc348f0b2164a99e`
+- Audited source branch: `integration/aq-calibration-no-bypass-quota-guard` (this note is updated on the current PR head; inspect the commit link for the exact revision).
 - AQ-40 status: `NOT_MEASURED`
 
 ## Confirmed source facts
@@ -18,6 +18,12 @@ Status: source-level audit only. No provider requests were sent. This document i
 5. Image bakeoff workflows have separate concurrency groups and explicitly bounded paid-evaluation settings. They must remain outside the zero-cost AQ path unless a separate, explicit policy says otherwise.
 6. Existing quota-guard tests cover previous reservations, the 24-hour boundary, pagination, malformed responses, and fail-closed behavior. They do not establish atomicity against concurrent independent callers.
 
+## Additional critical boundary: production inference is outside this Actions guard
+
+The guard is a GitHub Actions workflow-run/artifact scanner. It is not called by the production request path and cannot account for live user requests sent through the serverless app/API. Source search also located provider-backed production paths in `src/legacy/originChatRouter.ts`, `src/legacy/originStreamingChatRouter.ts`, `src/mcp/mcpAgentRouter.ts`, and the worker runtime. These use the same provider-client family but do not participate in the Actions artifact reservation protocol.
+
+Therefore, even expanding the workflow allowlist would not establish one truly global budget. Before any live AQ-40, decide whether the 24-hour limit is meant to cover only test/evaluation workflows or all provider inference including production. If production is in scope, the reservation/check must live at a shared server-side enforcement boundary (or a proven shared atomic datastore used by every entry point); GitHub Actions concurrency/artifacts alone cannot enforce it. Do not add an unverified datastore or change runtime behavior without tests and independent review.
+
 ## Interpretation / do not overclaim
 
 - The current guard protects its four enumerated AQ live/calibration workflows only. Calling it a repository-wide or global provider quota is not supported by the implementation.
@@ -27,7 +33,7 @@ Status: source-level audit only. No provider requests were sent. This document i
 
 ## Required before live AQ-40
 
-1. Decide and document the quota boundary: one repository-wide inference budget, or separate budgets for calibration, AQ V2, held-out coding, image evaluation, and production.
+1. Decide and document the quota boundary: (a) test/evaluation workflows only, or (b) every inference including production user requests. A GitHub Actions-only guard cannot implement option (b). If using separate budgets, define explicit caps for calibration, AQ V2, held-out coding, image evaluation, and production.
 2. If one global budget is required, implement a single reservation authority with atomic create-if-absent / compare-and-swap semantics and immutable request-count accounting. A scan-then-upload artifact cannot provide atomicity.
 3. If separate budgets are intended, give each lane its own explicit cap, scope, expiration, and fail-closed enforcement; update misleading "global" wording.
 4. Add tests for two simultaneous callers, reservation-write failure, workflow reruns, missing/expired/corrupt records, pagination limits, and all provider-inference entry points.
