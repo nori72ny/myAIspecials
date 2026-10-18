@@ -49,7 +49,6 @@ export async function latestReservedAt({
   nowMs = Date.now(),
   fetchImpl = fetch,
 }) {
-  const cutoffMs = nowMs - WINDOW_SECONDS * 1000;
   let latest = null;
 
   // GitHub's workflow-runs API defaults to newest-created first. Make the
@@ -67,13 +66,10 @@ export async function latestReservedAt({
       throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_RUN_ENTRY");
     }
 
-    let reachedOldRun = false;
     for (const run of pageRuns) {
-      const runCreatedMs = Date.parse(run.created_at);
-      if (runCreatedMs < cutoffMs) {
-        reachedOldRun = true;
-        break;
-      }
+      // Do not stop at old run.created_at: a rerun can create a fresh quota
+      // reservation artifact on an older workflow run. Scan all pages within
+      // the hard cap; if completeness cannot be established, fail closed.
       if (!includeCurrentRunReservations && String(run.id) === String(currentRunId)) continue;
 
       for (let artifactPage = 1; ; artifactPage += 1) {
@@ -101,7 +97,7 @@ export async function latestReservedAt({
       }
     }
 
-    if (reachedOldRun || pageRuns.length < 100) break;
+    if (pageRuns.length < 100) break;
     if (page >= MAX_API_PAGES) {
       throw new Error("AQ_LIVE_QUOTA_WORKFLOW_RUN_SCAN_INCOMPLETE");
     }
