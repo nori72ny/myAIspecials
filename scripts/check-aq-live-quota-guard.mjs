@@ -87,7 +87,10 @@ export async function latestReservedAt({
             throw new Error("AQ_LIVE_QUOTA_INVALID_RESERVATION_TIMESTAMP");
           }
           const ageMs = nowMs - reservedMs;
-          if (ageMs < 0 || ageMs >= WINDOW_SECONDS * 1000) continue;
+          if (ageMs < 0) {
+            throw new Error("AQ_LIVE_QUOTA_RESERVATION_TIMESTAMP_IN_FUTURE");
+          }
+          if (ageMs >= WINDOW_SECONDS * 1000) continue;
           if (latest === null || reservedMs > Date.parse(latest)) latest = reservedAt;
         }
         if (pageArtifacts.length < 100) break;
