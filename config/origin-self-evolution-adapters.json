@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "origin.self-evolution.adapters.v2",
+  "adapters": [
+    {
+      "id": "answer-quality-non-heldout",
+      "capabilityAxes": [
+        "answer-quality",
+        "reasoning",
+        "research"
+      ],
+      "allowedCategories": [
+        "ai-models"
+      ],
+      "commandClass": "INTERNAL_NON_HELD_OUT_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    },
+    {
+      "id": "coding-non-heldout",
+      "capabilityAxes": [
+        "coding",
+        "tool-use",
+        "recovery"
+      ],
+      "allowedCategories": [
+        "agents-coding"
+      ],
+      "commandClass": "INTERNAL_NON_HELD_OUT_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    },
+    {
+      "id": "ui-a11y-regression",
+      "capabilityAxes": [
+        "ui",
+        "ux",
+        "accessibility",
+        "typography",
+        "interaction"
+      ],
+      "allowedCategories": [
+        "design-ux-a11y"
+      ],
+      "commandClass": "INTERNAL_UI_REGRESSION_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    },
+    {
+      "id": "security-static-regression",
+      "capabilityAxes": [
+        "security",
+        "privacy",
+        "supply-chain",
+        "abuse-resistance"
+      ],
+      "allowedCategories": [
+        "security"
+      ],
+      "commandClass": "INTERNAL_SECURITY_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    },
+    {
+      "id": "runtime-regression",
+      "capabilityAxes": [
+        "runtime",
+        "server",
+        "database",
+        "network",
+        "reliability",
+        "performance"
+      ],
+      "allowedCategories": [
+        "platform-runtime",
+        "standards-web"
+      ],
+      "commandClass": "INTERNAL_RUNTIME_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    },
+    {
+      "id": "image-non-heldout",
+      "capabilityAxes": [
+        "image-generation",
+        "image-editing",
+        "multimodal"
+      ],
+      "allowedCategories": [
+        "image-multimodal"
+      ],
+      "commandClass": "INTERNAL_NON_HELD_OUT_HARNESS",
+      "networkWrite": false,
+      "repoWrite": false,
+      "productionAccess": false,
+      "secrets": false,
+      "paidProvider": false,
+      "maxCostUsd": 0
+    }
+  ]
+}
