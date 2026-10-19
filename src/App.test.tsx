@@ -706,7 +706,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
-  it('routes an image request to real raster generation and never falls through to text prompt generation', async () => {
+  it.each(['cloudflare-workers-ai-free', 'cloudflare-workers-ai-gateway'] as const)('preserves %s identity through raster generation and history', async (providerId) => {
+    const history = await import('./creative/localRasterHistoryV15');
+    const saveHistory = vi.spyOn(history, 'saveRasterAssetV15').mockResolvedValue('unavailable');
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const digest = new Uint8Array(32);
     digest.fill(0xab);
@@ -720,7 +722,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
           'Content-Disposition': 'attachment; filename="origin-image.png"',
           'X-Origin-Visual-Verified': 'true',
           'X-Origin-Visual-Sha256': sha,
-          'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+          'X-Origin-Visual-Provider': providerId,
           'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
           'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
           'X-Origin-Visual-Brain': 'visual-brain-v1',
@@ -764,8 +766,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => {
       const emitted = onMessagesChange.mock.calls.flatMap((call) => call[0] as ConversationMessage[]);
       const generated = emitted.find((message) => message.image?.sha256 === sha);
-      expect(generated?.image?.providerId).toBe('cloudflare-workers-ai-free');
+      expect(generated?.image?.providerId).toBe(providerId);
     });
+    expect(saveHistory).toHaveBeenCalledWith(expect.objectContaining({ providerId, sha256: sha }));
+    saveHistory.mockRestore();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ prompt: '夕焼けの海の画像を作ってください', width: 1024, height: 1024 });
@@ -792,7 +796,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(prompt).toContain('does not explicitly ask to change');
   });
 
-  it('routes a lineage-aware alternative through bounded reference-image editing', async () => {
+  it.each(['cloudflare-workers-ai-free', 'cloudflare-workers-ai-gateway'] as const)('re-edits %s images while preserving lineage and provider identity', async (providerId) => {
     const bytes1 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const bytes2 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]);
     const digest1 = new Uint8Array(32); digest1.fill(0xab);
@@ -806,7 +810,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         'Content-Disposition': 'attachment; filename="origin-image.png"',
         'X-Origin-Visual-Verified': 'true',
         'X-Origin-Visual-Sha256': sha,
-        'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+        'X-Origin-Visual-Provider': providerId,
         'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
         'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
         'X-Origin-Visual-Brain': 'visual-brain-v1',
@@ -868,7 +872,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(secondBody.referenceImages).toEqual(['data:image/webp;base64,QUJDRA==']);
     const latestMessages = onMessagesChange.mock.calls.at(-1)?.[0] as Array<{ image?: { relation?: string; parentId?: string; prompt?: string } }>;
     const latestImage = [...latestMessages].reverse().find((message) => message.image)?.image;
-    expect(latestImage).toMatchObject({ relation: 'variation', parentId: sha1 });
+    expect(latestImage).toMatchObject({ relation: 'variation', parentId: sha1, providerId });
     expect(latestImage?.prompt).toContain('Create a clearly distinct alternative variation');
 
     if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });

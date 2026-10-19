@@ -42,6 +42,7 @@ function entry(overrides: Partial<RasterAssetEntryV15> = {}): RasterAssetEntryV1
 describe('localRasterHistoryV15', () => {
   it('accepts only bounded raster asset graph records', () => {
     expect(isRasterAssetEntryShapeV15(entry())).toBe(true);
+    expect(isRasterAssetEntryShapeV15(entry({ providerId: 'cloudflare-workers-ai-gateway' }))).toBe(true);
     expect(isRasterAssetEntryShapeV15(entry({
       providerId: 'pollinations-zero-cost',
       model: 'tomdacatto/sana',

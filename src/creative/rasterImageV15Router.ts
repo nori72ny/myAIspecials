@@ -268,7 +268,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         });
       }
       const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
-      const provider = resolveRasterProviderV15(providerTask);
+      const provider = resolveRasterProviderV15(providerTask, env);
       if (!provider) {
         return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
       }
