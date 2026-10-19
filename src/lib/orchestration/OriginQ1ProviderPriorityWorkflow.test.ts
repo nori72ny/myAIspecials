@@ -59,6 +59,18 @@ describe("Q1 provider-priority orchestration", () => {
     expect(workflow).not.toContain('echo "$FINAL_CORPUS"');
   });
 
+  it("never reports a manual final qualification as green when prerequisites are missing", () => {
+    const workflow = read(heldoutWorkflowPath);
+
+    expect(workflow).toContain("Require configured final qualification on manual dispatch");
+    expect(workflow).toContain("HELD_OUT_FINAL_PREREQUISITES_NOT_CONFIGURED");
+    expect(workflow).toContain("Require clean provider window on manual dispatch");
+    expect(workflow).toContain("HELD_OUT_FINAL_PROVIDER_WINDOW_NOT_READY");
+    expect(workflow).toContain("Require fresh one-shot start on manual dispatch");
+    expect(workflow).toContain("HELD_OUT_FINAL_FRESH_ONE_SHOT_REQUIRED");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+  });
+
   it("waits for a clean provider window before revealing only opaque task identities", () => {
     const workflow = read(heldoutWorkflowPath);
     const window = workflow.indexOf("\n      - name: Verify clean free-provider window");

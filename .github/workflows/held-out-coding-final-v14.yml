@@ -57,6 +57,13 @@ jobs:
           fi
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
+      - name: Require configured final qualification on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && steps.readiness.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "::error::HELD_OUT_FINAL_PREREQUISITES_NOT_CONFIGURED"
+          exit 2
+
       - name: Verify clean free-provider window
         if: steps.readiness.outputs.ready == 'true'
         id: free_window
@@ -68,6 +75,13 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/check-final-heldout-free-window.mjs
+
+      - name: Require clean provider window on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && steps.readiness.outputs.ready == 'true' && steps.free_window.outputs.allowed != 'true'
+        shell: bash
+        run: |
+          echo "::error::HELD_OUT_FINAL_PROVIDER_WINDOW_NOT_READY"
+          exit 2
 
       - name: Select sealed final task identities
         if: steps.readiness.outputs.ready == 'true' && steps.free_window.outputs.allowed == 'true'
@@ -146,6 +160,13 @@ jobs:
             [ "$page" -le 20 ] || { echo "::error::One-shot status ledger pagination limit exceeded."; exit 2; }
           done
           echo "can_start=true" >> "$GITHUB_OUTPUT"
+
+      - name: Require fresh one-shot start on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && steps.readiness.outputs.ready == 'true' && steps.free_window.outputs.allowed == 'true' && steps.one_shot.outputs.can_start != 'true'
+        shell: bash
+        run: |
+          echo "::error::HELD_OUT_FINAL_FRESH_ONE_SHOT_REQUIRED"
+          exit 2
 
       - name: Create one-shot start audit marker payload
         if: steps.one_shot.outputs.can_start == 'true'
