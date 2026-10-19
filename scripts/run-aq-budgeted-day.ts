@@ -32,6 +32,23 @@ const LOCAL_FAILURE_CODES = new Set(
     ["baseline", "candidate"].map(side => `AQ_LOCAL_COMPARISON_${code}:${side}`)),
 );
 
+const SESSION_FAILURE_STAGES = new Set([
+  "AQ_BENCHMARK_SESSION_ENVIRONMENT_PROOF_INVALID",
+  "AQ_BENCHMARK_SESSION_RUNTIME_NOT_READY",
+  "AQ_BENCHMARK_SESSION_EXECUTION_FAILED",
+  "AQ_BENCHMARK_SESSION_PROVENANCE_INVALID",
+  "AQ_BENCHMARK_SESSION_RUN_BINDING_FAILED",
+  "AQ_BENCHMARK_SESSION_SCORECARD_INVALID",
+  "AQ_BENCHMARK_SESSION_MEASURED_BINDING_FAILED",
+  "AQ_BENCHMARK_OFFICIAL_SCORER_PROVENANCE_INVALID",
+]);
+
+export function sanitizedSessionFailureStage(detail: unknown): string | null {
+  if (typeof detail !== "string" || detail.length > 16_384) return null;
+  const stage = detail.split(":", 1)[0];
+  return SESSION_FAILURE_STAGES.has(stage) ? stage : null;
+}
+
 async function classifyFailure(outputPath: string | undefined, error: unknown): Promise<string> {
   if (outputPath) {
     try {
@@ -47,7 +64,14 @@ async function classifyFailure(outputPath: string | undefined, error: unknown): 
           if (bytesRead <= 16_384) {
             const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
             if (value?.schemaVersion === "origin.aq-local-shard-result.v1"
-              && value.ok === false && FAILURE_CODES.has(value.code)) return value.code;
+              && value.ok === false && FAILURE_CODES.has(value.code)) {
+            if (value.code === "AQ_BENCHMARK_SHARD_BASELINE_SESSION_FAILED"
+              || value.code === "AQ_BENCHMARK_SHARD_CANDIDATE_SESSION_FAILED") {
+              const stage = sanitizedSessionFailureStage(value.detail);
+              if (stage) process.stdout.write(`AQ session failure stage ${stage}\n`);
+            }
+            return value.code;
+          }
           }
         }
       } finally {
