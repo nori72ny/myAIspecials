@@ -1,10 +1,10 @@
 import { decryptCodingJobPayloadV14 } from './codingJobCryptoV14.js';
 import { createCodingNavigatorV14 } from './codingNavigatorV14.js';
-import { createCodingPlannerV14 } from './codingPlannerV14.js';
+import { createResilientCodingPlannerV14 } from './codingPlannerResilienceV14.js';
 import { runCodingSessionV14, type CodingCheck, type CodingSessionRequest, type CodingSessionResult } from './codingSessionV14.js';
 import { encryptCodingJobResultV14, type CodingJobResultV14 } from './codingJobResultV14.js';
 import type { PostgresCodingJobResultStoreV14 } from './codingJobResultStoreV14.js';
-import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
+import { executeOriginProvider, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from '../legacy/originProviderClient.js';
 import type { CodingJobCompletionStatusV14, CodingJobLeaseV14, CodingJobPublicRecordV14, PostgresCodingJobStoreV14 } from './supabaseCodingJobStoreV14.js';
 
 const DEFAULT_WORKER_LEASE_SECONDS = 120;
@@ -115,13 +115,39 @@ export async function runCodingJobWorkerV14(jobId: string, workerId: string, dep
     try {
       target = await deps.resolveTarget(lease.targetKey);
       payload = decryptCodingJobPayloadV14(lease.jobId, lease.payloadCiphertext, deps.env);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === 'CODING_WORKER_SOURCE_REVISION_MISMATCH') {
+        // Immutable original release != GitHub's current checkout. Replaying the
+        // same main-branch dispatch cannot fix this deterministic mismatch.
+        // Finish as a durable blocked result BEFORE any model call or edits.
+        await heartbeat();
+        const completed = await deps.store.completeJob(
+          jobId, workerId, 'blocked', 'CODING_WORKER_SOURCE_REVISION_MISMATCH', [],
+        );
+        if (!completed) {
+          if (await deps.store.cancellationRequested(jobId, workerId)) return cancelledOrLost();
+          return { jobId, state: 'lease_lost', code: 'CODING_JOB_LEASE_LOST' };
+        }
+        return { jobId, state: 'blocked', code: 'CODING_WORKER_SOURCE_REVISION_MISMATCH' };
+      }
       return { jobId, state: 'retryable', code: 'CODING_WORKER_PRIVATE_STAGE_BLOCKED' };
     }
 
-    const modelOptions = { env: deps.env, execute: deps.execute };
+    // Check durable cancellation/lease status at *each* provider boundary,
+    // including correction and the one bounded fresh exact-match replan.
+    const providerExecute = deps.execute ?? executeOriginProvider;
+    const checkedExecute = async (request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv): Promise<OriginProviderExecutionResult> => {
+      await heartbeat();
+      const response = await providerExecute(request, env);
+      await heartbeat();
+      return response;
+    };
+    const modelOptions = { env: deps.env, execute: checkedExecute };
     const navigator = createCodingNavigatorV14(target.root, modelOptions);
-    const planner = createCodingPlannerV14(modelOptions);
+    // Align the hosted worker with the already-tested bounded planner path:
+    // an absent/non-unique edit search may receive one fresh plan after the
+    // strict parser's existing correction. Provider failures still fail closed.
+    const planner = createResilientCodingPlannerV14(modelOptions);
     const request: CodingSessionRequest = {
       root: target.root,
       goal: payload.goal,

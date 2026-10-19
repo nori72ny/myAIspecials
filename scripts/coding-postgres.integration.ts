@@ -11,6 +11,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, describe, it } from 'node:test';
 import { Pool, type PoolClient } from 'pg';
 import { createCodingJobEnvelopeV14 } from '../src/agent/codingJobCryptoV14.js';
+import { codingAgentTargetKeyForRunV14 } from '../src/agent/codingAgentTargetKeyV14.js';
+import { AgentCodingBridgeV3 } from '../src/agent/agentCodingBridgeV3.js';
+import { PostgresAgentRunConsumptionStore } from '../src/agent/supabaseRunConsumptionStore.js';
+import { CODING_JOB_OPERATOR_OWNER_BINDING_V14 } from '../src/agent/codingJobOperatorAuthV14.js';
 import { PostgresCodingJobStoreV14 } from '../src/agent/supabaseCodingJobStoreV14.js';
 import { PostgresCodingJobResultStoreV14 } from '../src/agent/codingJobResultStoreV14.js';
 
@@ -109,6 +113,46 @@ after(async () => {
   }
 });
 
+describe('Agent V3 cross-instance Postgres quota', { timeout: 25000 }, () => {
+  it('permits exactly 60 of 65 simultaneous requests and separately scopes independent callers', async () => {
+    // This table is created ONLY in the disposable loopback test database.
+    await db.query(`create table public.origin_agent_consumed_runs (
+      run_id text primary key check (run_id ~ '^run-[A-Za-z0-9-]{8,100}$'),
+      consumed_at timestamptz not null default clock_timestamp(),
+      expires_at timestamptz not null
+    )`);
+    await db.query('alter table public.origin_agent_consumed_runs enable row level security');
+    await db.query('revoke all on public.origin_agent_consumed_runs from anon, authenticated');
+    // Mirror the production expiry index. Expired auth-failure entries must
+    // be reclaimed without deleting any live cancellation/replay tombstone.
+    await db.query('create index origin_agent_consumed_runs_expiry_idx on public.origin_agent_consumed_runs(expires_at)');
+    await db.query(`insert into public.origin_agent_consumed_runs (run_id, consumed_at, expires_at) values
+      ('run-expired-auth-budget', clock_timestamp() - interval '5 minutes', clock_timestamp() - interval '4 minutes'),
+      ('run-live-replay-marker', clock_timestamp(), clock_timestamp() + interval '10 minutes')`);
+    const stores = Array.from({ length: 3 }, () => new PostgresAgentRunConsumptionStore(db));
+    const identity = randomBytes(16).toString('hex');
+    const outcome = await Promise.all(Array.from({ length: 65 }, (_, i) =>
+      stores[i % stores.length].claimAgentRateSlot(identity)));
+    assert.equal(outcome.filter(Boolean).length, 60);
+    assert.equal(outcome.filter(value => !value).length, 5);
+    assert.equal(await stores[0].claimAgentRateSlot(randomBytes(16).toString('hex')), true);
+    const rows = await db.query<{ tally: string }>(
+      "select count(*)::text as tally from public.origin_agent_consumed_runs where run_id like 'run-ratelimit-%'",
+    );
+    assert.equal(Number(rows.rows[0].tally), 61);
+    const retained = await db.query<{ run_id: string }>(
+      "select run_id from public.origin_agent_consumed_runs where run_id in ('run-expired-auth-budget','run-live-replay-marker')",
+    );
+    assert.deepEqual(retained.rows.map(row => row.run_id), ['run-live-replay-marker']);
+    for (const role of ['anon', 'authenticated']) {
+      assert.equal((await db.query<{ allowed: boolean }>(
+        'select has_table_privilege($1, $2, $3) as allowed',
+        [role, 'public.origin_agent_consumed_runs', 'SELECT'],
+      )).rows[0].allowed, false);
+    }
+  });
+});
+
 describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
   it('applies both migrations, enables RLS, and denies browser roles', async () => {
     const rows = (await db.query<{ relrowsecurity: boolean }>(
@@ -126,6 +170,39 @@ describe('Coding V1.4 real Postgres boundaries', { timeout: 20000 }, () => {
         }
       }
     }
+  });
+
+  it('preserves immutable Agent run association for authenticated crash recovery on real PostgreSQL', async () => {
+    const runId = 'run-postgres-durable-recovery';
+    const sourceRevision = 'a'.repeat(40);
+    const targetKey = codingAgentTargetKeyForRunV14(runId, sourceRevision);
+    const envelope = createCodingJobEnvelopeV14({
+      ownerBinding: CODING_JOB_OPERATOR_OWNER_BINDING_V14,
+      targetKey, goal: 'Repair a bounded coding fixture',
+    }, cryptoEnv);
+    assert.equal((await jobs.create(envelope))?.targetKey, targetKey);
+    assert.equal((await jobs.getJob(envelope.jobId, envelope.ownerHash))?.targetKey, targetKey);
+    assert.equal(await jobs.getJob(envelope.jobId, 'f'.repeat(64)), null);
+
+    let dispatchCount = 0;
+    const bridge = new AgentCodingBridgeV3({
+      ...cryptoEnv, ORIGIN_AGENT_APPROVAL_SECRET: 'a'.repeat(48),
+    }, jobs, results, async () => {
+      dispatchCount += 1;
+      throw new Error('RECOVERY_REDISPATCH_UNSAFE');
+    });
+    const recover = await bridge.recover(runId, envelope.jobId);
+    assert.equal(recover.ok, true);
+    assert.equal(dispatchCount, 0);
+    assert.equal((await bridge.recover('run-wrong-association', envelope.jobId)).ok, false);
+
+    assert.ok(await jobs.claimJob(envelope.jobId, worker, 120));
+    assert.equal(await jobs.startJob(envelope.jobId, worker), true);
+    assert.equal(await jobs.completeJob(envelope.jobId, worker, 'verified',
+      'CODING_VERIFIED', ['src/example.ts']), true);
+    assert.equal((await jobs.getJob(envelope.jobId, envelope.ownerHash))?.targetKey, targetKey);
+    assert.equal((await bridge.recover(runId, envelope.jobId)).ok, true);
+    assert.equal(dispatchCount, 0);
   });
 
   it('allows exactly one competing claim and hides the row from another owner', async () => {

@@ -160,6 +160,38 @@ test('addition and message', () => { assert.equal(add(2, 3), 5); assert.equal(me
     expect(result.changedPaths).toEqual(['src/math.js']);
   });
 
+  it('never asks the model to repair a timed-out verification or reports it as a solved edit', async () => {
+    const input = await fixture();
+    let proposalCalls = 0;
+    let verificationCalls = 0;
+    const result = await runCodingSessionV14(input, {
+      propose: async () => {
+        proposalCalls += 1;
+        if (proposalCalls > 1) throw new Error('CODING_UNSAFE_TIMEOUT_REPAIR');
+        return [mathEdit()];
+      },
+      verify: async () => {
+        verificationCalls += 1;
+        return green().map(check => check.kind === 'test'
+          ? { ...check, ok: false, exitCode: 137, timedOut: true, diagnostic: 'runner timed out - private-value' }
+          : check);
+      },
+    });
+    expect(result).toMatchObject({
+      status: 'blocked',
+      code: 'CODING_VERIFICATION_TIMEOUT',
+      repairRounds: 0,
+      changedPaths: ['src/math.js'],
+      gitPublished: false,
+      deployed: false,
+    });
+    expect(proposalCalls).toBe(1);
+    expect(verificationCalls).toBe(1);
+    expect(result.audit.filter(event => event.action === 'verified')).toHaveLength(1);
+    expect(result.audit.filter(event => event.action === 'stopped')).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain('private-value');
+  });
+
   it('stops at the repair budget and never publishes an unverified result', async () => {
     const input = await fixture();
     input.maxRepairs = 0;

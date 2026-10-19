@@ -10,6 +10,8 @@ import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
+import { AgentCodingBridgeV3 } from "../agent/agentCodingBridgeV3.js";
+import { agentCodingBridgeEnabledV3 } from "../agent/agentCodingBridgeConfigV3.js";
 import { createCodingJobSmokeV14Router } from "../agent/codingJobSmokeRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
 import { createArtifactV12Router } from "../artifacts/artifactV12Router.js";
@@ -58,7 +60,10 @@ export function createOriginApp(
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
-  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore));
+  const agentCodingBridge = agentCodingBridgeEnabledV3(env) && codingStores.jobStore && codingStores.resultStore
+    ? new AgentCodingBridgeV3(env, codingStores.jobStore, codingStores.resultStore)
+    : undefined;
+  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, agentCodingBridge));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
   app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({
