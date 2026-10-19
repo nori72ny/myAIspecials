@@ -18,7 +18,7 @@ import { createWebPublicationStoreFromEnv } from "../builder/webPublicationStore
 import { createWebPublicationV131Router } from "../builder/webPublicationV131Router.js";
 import { createVisualArtifactV15Router } from "../creative/visualArtifactV15Router.js";
 import { createRasterImageV15Router } from "../creative/rasterImageV15Router.js";
-import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Router.js";
+import { createWorldClassImageZeroCostRouter } from "../creative/worldClassImageZeroCostRouter.js";
 import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 
@@ -81,7 +81,7 @@ export function createOriginApp(
   app.use(createCodingJobV14Router(env, codingStores.jobStore, undefined, codingStores.resultStore));
   app.use(createVisualArtifactV15Router(env));
   app.use(createRasterImageV15Router(env));
-  app.use(createWorldClassImageV16Router(env));
+  app.use(createWorldClassImageZeroCostRouter(env));
   app.use(createImageGatewayEvalPreflightRouter(env));
   app.use(createOriginResearchRouter());
   // Browser clients request text/event-stream. Handle provider-eligible requests here
