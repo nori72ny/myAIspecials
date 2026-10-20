@@ -9,5 +9,6 @@ coverage/
 
 # ACOS 2.0 Generated Reports & Runtime Logs
 results/
+test-results/
 playwright-report/
 evidence/routing_log.json
