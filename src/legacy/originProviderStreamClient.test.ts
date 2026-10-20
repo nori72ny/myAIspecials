@@ -18,7 +18,7 @@ const plan: OriginExecutionPlan = {
     providerId: "openrouter-free",
     verifiedAt: "2026-09-07T23:20:00.000Z",
     reviewAfter: "2026-09-15T00:00:00.000Z",
-    sourceUrl: "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free",
+    sourceUrl: "https://openrouter.ai/apodex/apodex-1.1-mini:free",
   },
 };
 

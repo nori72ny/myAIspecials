@@ -9,7 +9,7 @@ import {
 } from "./OriginAnswerQualityBenchmarkHttpRuntimeAdapters";
 
 const EXPECTED_PROVIDER = "openrouter-free";
-const EXPECTED_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+const EXPECTED_MODEL = "apodex/apodex-1.1-mini:free";
 
 function providerRouting(
   verificationStatus: string,

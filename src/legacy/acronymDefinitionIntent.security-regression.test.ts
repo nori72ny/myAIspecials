@@ -16,8 +16,8 @@ const executionResult = {
     requireZeroDataRetention: true as const,
   },
   routingEvidence: {
-    requestedModel: "inclusionai/ling-3.0-flash-sante:free",
-    servedModel: "inclusionai/ling-3.0-flash-sante:free",
+    requestedModel: "apodex/apodex-1.1-mini:free",
+    servedModel: "apodex/apodex-1.1-mini:free",
     strategy: "adaptive-primary" as const,
     provider: "OpenRouter",
     region: "iad",

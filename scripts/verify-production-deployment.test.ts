@@ -5,7 +5,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const encoder = new TextEncoder();
 function verifiedStreamResponse() {
-  const model = 'inclusionai/ling-3.0-flash-sante:free';
+  const model = 'apodex/apodex-1.1-mini:free';
   const first = `data: ${JSON.stringify({ type: 'delta', text: 'ORIGIN-CONTEXT-42\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}\n\n`;
   const second = [
     `data: ${JSON.stringify({ type: 'delta', text: 'STREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}`,
@@ -29,7 +29,7 @@ function verifiedStreamResponse() {
       'x-origin-free-only': 'true',
       'x-origin-cost-usd': '0',
       'x-origin-billing-tier': 'free',
-      'x-origin-model-id': 'inclusionai/ling-3.0-flash-sante:free',
+      'x-origin-model-id': 'apodex/apodex-1.1-mini:free',
       'x-vercel-id': 'synthetic-vercel-id',
     },
   });
@@ -42,7 +42,7 @@ it('accepts a genuine upstream multi-chunk response that proves multi-turn conte
 });
 
 it('classifies a verified partial upstream stream interruption without exposing provider details', async () => {
-  const model = 'inclusionai/ling-3.0-flash-sante:free';
+  const model = 'apodex/apodex-1.1-mini:free';
   const body = [
     `data: ${JSON.stringify({ type: 'delta', text: 'verified partial' })}`,
     `data: ${JSON.stringify({ type: 'error' })}`,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 const SAFE_FAILURE_CODE = /^[A-Z0-9_:-]{1,80}$/;
-const EXPECTED_FREE_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+const EXPECTED_FREE_MODEL = "apodex/apodex-1.1-mini:free";
 const CONTEXT_TOKEN = "ORIGIN-CONTEXT-42";
 const STREAM_MARKER = "STREAM-CHECK";
 
