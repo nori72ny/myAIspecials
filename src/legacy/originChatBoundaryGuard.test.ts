@@ -27,10 +27,21 @@ describe("originChatBoundaryGuard", () => {
     expect(response.body).not.toHaveProperty("bypassed");
   });
 
-  it("blocks unsupported methods on the chat path", async () => {
+  it("returns 405 Method Not Allowed and Allow: POST header for GET and non-POST methods", async () => {
     const response = await request(createGuardedApp()).get("/api/chat");
 
-    expect(response.status).toBe(500);
-    expect(response.body.code).toBe("ORIGIN_CHAT_BOUNDARY_NOT_HANDLED");
+    expect(response.status).toBe(405);
+    expect(response.headers.allow).toBe("POST");
+    expect(response.body.code).toBe("METHOD_NOT_ALLOWED");
+  });
+
+  it("returns 405 Method Not Allowed for PUT and DELETE methods", async () => {
+    const putRes = await request(createGuardedApp()).put("/api/chat");
+    expect(putRes.status).toBe(405);
+    expect(putRes.headers.allow).toBe("POST");
+
+    const deleteRes = await request(createGuardedApp()).delete("/api/chat");
+    expect(deleteRes.status).toBe(405);
+    expect(deleteRes.headers.allow).toBe("POST");
   });
 });

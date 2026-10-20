@@ -108,7 +108,8 @@ describe("serverless ORIGIN chat boundary", () => {
   it("blocks unsupported chat methods before legacy routing", async () => {
     const response = await request(app).get("/api/chat");
 
-    expect(response.status).toBe(500);
-    expect(response.body.code).toBe("ORIGIN_CHAT_BOUNDARY_NOT_HANDLED");
+    expect(response.status).toBe(405);
+    expect(response.headers.allow).toBe("POST");
+    expect(response.body.code).toBe("METHOD_NOT_ALLOWED");
   });
 });
