@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
