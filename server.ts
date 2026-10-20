@@ -5,6 +5,7 @@ import "dotenv/config";
 
 import { createMcpProductionRuntimeFromEnv, createMcpProductionSessionRouterFromEnv } from "./src/mcp/mcpProductionRuntime";
 import { createOriginApp } from "./src/server/createOriginApp";
+import { productionStaticProtection } from "./src/server/productionStatic";
 
 function resolvePort(): number {
   const rawPort = process.env.TEST_PORT || process.env.PORT || "3000";
@@ -34,6 +35,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    app.use(productionStaticProtection);
     app.use(express.static(distPath));
     app.get("/{*splat}", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
