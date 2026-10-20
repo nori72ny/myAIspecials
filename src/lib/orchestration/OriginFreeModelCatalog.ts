@@ -1,5 +1,5 @@
 export const ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL =
-  "inclusionai/ling-3.0-flash-sante:free" as const;
+  "google/gemma-4-31b-it:free" as const;
 export type OriginFreeModelId = typeof ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
 
 export interface OriginFreeModelEvidence {
@@ -13,17 +13,17 @@ export interface OriginFreeModelEvidence {
 }
 
 const ORIGIN_OPENROUTER_FREE_MODEL_SOURCE =
-  "https://openrouter.ai/inclusionai/ling-3.0-flash-sante:free" as const;
+  "https://openrouter.ai/google/gemma-4-31b-it:free" as const;
 
 export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence[] = [
   {
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-10-13T13:40:00.000Z",
-    reviewAfter: "2026-10-23T13:40:00.000Z",
+    verifiedAt: "2026-10-20T13:40:00.000Z",
+    reviewAfter: "2026-10-30T13:40:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model page was rechecked on 2026-10-13: the fixed inclusionai/ling-3.0-flash-sante:free alias is listed as Free and supports tool calling. This review timestamp is not, by itself, proof of a specific live ZDR endpoint or a billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
+    sourceDescription: "OpenRouter official model page was rechecked on 2026-10-20: the fixed google/gemma-4-31b-it:free alias is listed as Free and supports tool calling. This review timestamp is not, by itself, proof of a specific live ZDR endpoint or a billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
   },
 ] as const;
 

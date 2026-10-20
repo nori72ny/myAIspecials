@@ -170,11 +170,38 @@ describe("AQ live quota guard readiness", () => {
     expect(result.previousReservedAt).toBe(previous);
   });
 
+  it("stops scanning when workflow runs exceed the max run age window", async () => {
+    const requestedPages: number[] = [];
+    const oldRunDate = "2026-09-15T00:00:00.000Z"; // 5 days old (> 48h)
+    const fetchImpl = async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/actions/runs?")) {
+        const page = Number(new URL(url).searchParams.get("page"));
+        requestedPages.push(page);
+        if (page === 1) {
+          return response({
+            workflow_runs: Array.from({ length: 100 }, (_, i) => run(i + 1, "unrelated.yml", oldRunDate)),
+          });
+        }
+        return response({ workflow_runs: [] });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    const result = await checkLiveQuota({
+      repository, currentRunId, token, nowMs, fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(requestedPages.every((p) => p === 1)).toBe(true);
+    expect(requestedPages.includes(2)).toBe(false);
+    expect(result.allowed).toBe(true);
+  });
+
   it("fails closed when the repository scan reaches its hard page cap", async () => {
     const fetchImpl = async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/actions/runs?")) {
-        return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => run(i + 1, "unrelated.yml")) });
+        // Recent runs within 48h to prevent age limit cutoff
+        const recentDate = "2026-09-20T03:00:00.000Z";
+        return response({ workflow_runs: Array.from({ length: 100 }, (_, i) => run(i + 1, "unrelated.yml", recentDate)) });
       }
       throw new Error(`unexpected URL: ${url}`);
     };

@@ -134,7 +134,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
   });
 
   test('captures the fail-closed zero-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
-    const model = 'inclusionai/ling-3.0-flash-sante:free';
+    const model = 'google/gemma-4-31b-it:free';
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => route.fulfill({

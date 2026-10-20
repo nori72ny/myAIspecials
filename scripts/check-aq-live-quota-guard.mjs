@@ -2,7 +2,10 @@ import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const WINDOW_SECONDS = 86_400;
-const MAX_API_PAGES = 20;
+// GitHub Actions hard timeout is 6 hours. Runs created > 30h ago cannot have artifacts created within 24h.
+// We set threshold to 48h (172,800s) for safe boundary margin and test compatibility.
+const MAX_RUN_AGE_SECONDS = 172_800;
+const MAX_API_PAGES = 100;
 const UNIFIED_WORKFLOW = "aq-live-lane-shard.yml";
 const LEGACY_WORKFLOW = "aq-live-research-shard.yml";
 const FINAL_WORKFLOW = "q1-final-aq.yml";
@@ -107,7 +110,13 @@ export async function latestReservedAt({
   for (let page = 1; ; page += 1) {
     const url = `https://api.github.com/repos/${repository}/actions/runs?per_page=100&page=${page}&sort=created&direction=desc`;
     const runs = validateRuns(await githubJson(url, token, fetchImpl));
+    let reachedAgeLimit = false;
     for (const run of runs) {
+      const runCreatedMs = Date.parse(run.created_at);
+      if (nowMs - runCreatedMs >= MAX_RUN_AGE_SECONDS * 1000) {
+        reachedAgeLimit = true;
+        break;
+      }
       const filename = workflowFilename(run.path);
       if (filename === null) throw new Error("AQ_LIVE_QUOTA_INVALID_WORKFLOW_PATH");
       if (filename !== workflow) continue;
@@ -116,7 +125,7 @@ export async function latestReservedAt({
       });
       if (reservedAt !== null && (latest === null || Date.parse(reservedAt) > Date.parse(latest))) latest = reservedAt;
     }
-    if (runs.length < 100) break;
+    if (reachedAgeLimit || runs.length < 100) break;
     if (page >= MAX_API_PAGES) throw new Error("AQ_LIVE_QUOTA_WORKFLOW_RUN_SCAN_INCOMPLETE");
   }
   return latest;

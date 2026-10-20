@@ -16,8 +16,8 @@ const executionResult = {
     requireZeroDataRetention: true as const,
   },
   routingEvidence: {
-    requestedModel: "inclusionai/ling-3.0-flash-sante:free",
-    servedModel: "inclusionai/ling-3.0-flash-sante:free",
+    requestedModel: "google/gemma-4-31b-it:free",
+    servedModel: "google/gemma-4-31b-it:free",
     strategy: "adaptive-primary" as const,
     provider: "OpenRouter",
     region: "iad",

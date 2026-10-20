@@ -9,7 +9,7 @@ import {
 } from "./OriginAnswerQualityBenchmarkHttpRuntimeAdapters";
 
 const EXPECTED_PROVIDER = "openrouter-free";
-const EXPECTED_MODEL = "inclusionai/ling-3.0-flash-sante:free";
+const EXPECTED_MODEL = "google/gemma-4-31b-it:free";
 
 function providerRouting(
   verificationStatus: string,

@@ -66,7 +66,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
   let requestCount = 0;
   const verifiedStream = (text) => [
     `data: ${JSON.stringify({ type: "delta", text })}`,
-    `data: ${JSON.stringify({ type: "complete", modelId: "inclusionai/ling-3.0-flash-sante:free", servedModel: "inclusionai/ling-3.0-flash-sante:free", costUsd: 0, fallbackUsed: false })}`,
+    `data: ${JSON.stringify({ type: "complete", modelId: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", costUsd: 0, fallbackUsed: false })}`,
     "data: [DONE]",
     "",
   ].join("\n\n");
@@ -77,7 +77,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
       await route.fulfill({
         status: 200,
         contentType: "text/event-stream; charset=utf-8",
-        headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "inclusionai/ling-3.0-flash-sante:free" },
+        headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "google/gemma-4-31b-it:free" },
         body: verifiedStream("セッションを整理しました。"),
       });
       return;
@@ -93,7 +93,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream; charset=utf-8",
-      headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "inclusionai/ling-3.0-flash-sante:free" },
+      headers: { "x-origin-stream-source": "upstream", "x-origin-stream-protocol": "origin-verified-sse-v1", "x-origin-free-only": "true", "x-origin-cost-usd": "0", "x-origin-billing-tier": "free", "x-origin-model-id": "google/gemma-4-31b-it:free" },
       body: verifiedStream("回復しました。"),
     });
   });

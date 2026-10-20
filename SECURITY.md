@@ -30,7 +30,7 @@
 固定モデル:
 
 ```text
-inclusionai/ling-3.0-flash-sante:free
+google/gemma-4-31b-it:free
 ```
 
 無料根拠の再確認期限:
