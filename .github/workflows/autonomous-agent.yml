@@ -1,0 +1,61 @@
+name: Autonomous Coding Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_instruction:
+        description: 'Instruction / task for autonomous coding agent'
+        required: true
+        type: string
+
+permissions: read-all
+
+concurrency:
+  group: origin-autonomous-agent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run-autonomous-agent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TASK_INSTRUCTION: ${{ inputs.task_instruction }}
+    steps:
+      - name: Secret Leak Guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "::error title=Missing Secret::GEMINI_API_KEY secret is required."
+            exit 1
+          fi
+          if [ -z "${TASK_INSTRUCTION:-}" ]; then
+            echo "::error title=Missing Input::task_instruction input is required."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Autonomous Coding Agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-autonomous-agent.mjs "$TASK_INSTRUCTION"
