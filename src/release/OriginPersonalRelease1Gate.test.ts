@@ -44,7 +44,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).not.toContain("?key=");
     expect(providerClient).not.toContain("generativelanguage.googleapis.com");
     expect(providerClient).not.toContain("GEMINI_API_KEY");
-    expect(modelCatalog).toContain('"inclusionai/ling-3.0-flash-sante:free"');
+    expect(modelCatalog).toContain('"google/gemma-4-31b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
