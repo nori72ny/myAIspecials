@@ -1,6 +1,6 @@
 # ORIGIN completion status
 
-Last updated: 2026-09-21 11:15 JST
+Last updated: 2026-09-29 JST
 
 This file is the canonical progress ledger for ORIGIN. It deliberately separates **implemented**, **production-verified**, and **not yet activated** so that code presence is never mistaken for a completed capability.
 
@@ -12,12 +12,13 @@ This file is the canonical progress ledger for ORIGIN. It deliberately separates
 - **SPEC / PLANNED** — design exists, but no usable runtime implementation is claimed.
 - A capability must not be marked complete merely because a route, test, PR, or specification exists.
 - ORIGIN's permanent release constraints remain: USD 0, no paid fallback, fail closed, no secret exposure, exact release evidence before claiming completion.
+- Quality objective: maximize verified output quality inside the permanent USD 0 boundary; never promote a provider/model on marketing, popularity, free credits, or unverified superiority alone. Governing track: Issue #734.
 
 ## Current production baseline
 
 - Canonical repository: `nori72ny/myAIspecials`
 - Production branch: `main`
-- Production release SHA: `f0c1bff22d3246d3eac3903b9def5d3aa7c1e498`
+- Production release SHA: `d2750cf95f23d8cc4f4b1679d8baecfa1e279429`
 - Production URL: `https://origin-personal.vercel.app/`
 - `/api/health`: HTTP 200, `costUsd=0`, `freeOnly=true`, `paidFallbackEnabled=false`, server-only secret delivery.
 
@@ -29,7 +30,7 @@ This file is the canonical progress ledger for ORIGIN. It deliberately separates
 | V1.2 Real File Artifacts | PRODUCTION VERIFIED (generator ready) | Production `/api/artifacts/v1.2/status` returned 200 and all self-tests were true for Markdown/CSV/PDF/DOCX/XLSX/PPTX on 2026-09-21. | Persistence remains client-save-only. Existing-file insertion/editing is a separate MCP/document-tool track and is not complete. |
 | V1.3 Web / Application Builder | PRODUCTION VERIFIED (builder ready) | Production `/api/builder/v1.3/status` returned 200; landing/dashboard/webapp self-tests all true; verified static bundle handoff; USD 0. | Automatic external publishing remains disabled by design. Future publishing must remain approval-bound. |
 | V1.4 Agentic Coding OS | PRODUCTION VERIFIED | Production `/api/coding/v1.4/status` returned `ready=true` with DB, durable stores, authorization, owner binding, crypto, dispatch, result store and worker all ready. Live DB shows repeated production smoke jobs ending `verified / CODING_CHECKS_PASSED`; latest verified job was created 2026-09-20 and changed only `src/agent/__origin_coding_smoke_v14__.ts`. | Continue regression monitoring. Provider rate-limit/unavailable cases remain expected fail-closed outcomes rather than paid fallback. |
-| V1.5 Creative / Visual Generation | SPEC / PLANNED | PR #584 contains the free-only implementation specification. Production `/api/generate-image` remains explicitly disabled. | Actual $0 image generation runtime, provider qualification, generation/critic/repair flow, UI and live E2E. |
+| V1.5 Creative / Visual Generation | PARTIAL / PRODUCTION UI + FAIL-CLOSED RUNTIME | Production release `d2750cf...` includes Visual Brain planning, no-text intent handling, image-provider connect UI, server-only device authorization, raster structural/technical critics, exact-$0 provider checks, and request resume. Canonical `/api/creative/v1.5/raster/connect/status` returns 200 in safe disconnected mode; raster runtime returns 503 `POLLINATIONS_KEY_NOT_CONFIGURED` rather than pretending generation works. | Issue #733: owner-owned provider App Key + owner consent + one real image generation whose request-bound provider usage proves exact `cost_usd=0`. Until that passes, raster output remains withheld. |
 | MCP client / connected tools | IMPLEMENTED / CI VERIFIED OFF PRODUCTION | PR #585 includes client isolation, guarded transport, management UI/API, Supabase owner auth adapter, PKCE/OAuth lifecycle, encrypted stores, durable exact-tool grants, an owner-bound session factory and a separate owner-authenticated `/api/mcp/chat` single-tool execution boundary. Automatic agent execution is limited to explicitly reviewed read-only connectors; the first reviewed profile is constrained to GitHub Remote MCP read-only `get_file_contents`. All four MCP DB migrations are live with RLS enabled and browser-role access revoked. Exact head `b8af43fdb005a265303f2805d1a293aa574b86f7` passed Production Release CI/CD, Node 22/24 build/test/E2E, local production-browser release gate, Lighthouse, CodeQL, ACOS Quality Gate, OpenSSF, Cloudflare Workers compatibility, browser isolation and V1.4 hosted coding sandbox on 2026-09-21. | Production still runs `main` without #585. Vercel Preview for the latest branch head is externally blocked by the free-tier build-rate limit; paid upgrade is forbidden. Live connector completion still requires a real owner identity/consent boundary where the provider requires it, GitHub App registration/authorization, server-only production configuration, and live login + OAuth + refresh + probe + exact grant + `/api/mcp/chat` + disconnect/replay E2E. |
 | ORIGIN MCP server (ORIGIN exposed outward) | SPEC / PLANNED | Ordering and security contract documented in #585. | Server implementation, auth/capability grants, tests and live host interoperability. |
 | Deterministic document insertion | SPEC / PARTIAL FOUNDATION | #585 defines contracts for `insert_into_docx`, `insert_into_pptx`, `insert_into_xlsx`, `insert_into_pdf`. V1.2 can create files. | Existing-file owner-scoped storage/versioning, deterministic anchors, actual mutation engines, reopen/render verification and approval-bound external delivery. |
@@ -37,7 +38,7 @@ This file is the canonical progress ledger for ORIGIN. It deliberately separates
 | Owner Improvement Inbox | IMPLEMENTED OFF MAIN | PR #582 and #583 are open Drafts. | Review, integration qualification, merge/production decision. |
 | Final outbound-network hardening | OPEN RELEASE CANDIDATE | PR #579 is open. | Reconcile with current main/#585, exact-head release gate, merge decision. |
 | Answer-quality scorer provenance | OPEN RELEASE CANDIDATE | PR #578 is open. | Reconcile with current main, exact-head release gate, merge decision. |
-| V2 Unified Production OS | PARTIAL / ROADMAP | Supervisor/approval/replay-safe foundations exist across current ORIGIN work; roadmap is documented. | Unified tool planner/executor, connected-app runtime, MCP integration, persistent task supervision, complete capability routing, and production E2E as one system. |
+| V2 Unified Production OS | PARTIAL / PRODUCTION AGENT V3 FOUNDATION | Production Agent v3 status is `ready=true` with approval signing and shared-atomic replay protection. Personal UI now exposes `?workspace=agent` and the + menu flow for signed Plan -> authenticated exact-operation Approval -> Execute -> verified result. | Current Agent v3 is intentionally bounded to an approved registered-tool operation per run. Long-running autonomous multi-step supervision, broader connected-app execution, and richer owner approval UX remain future work and must preserve USD 0. |
 
 ## MCP activation gate
 
