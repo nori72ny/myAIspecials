@@ -208,6 +208,8 @@ Do not include any secrets, API keys, or credentials in the output.`;
   const branchName = `fix/agent-${timestamp}-${randomSuffix}`;
 
   try {
+    execFileSync('git', ['config', 'user.name', 'github-actions[bot]'], { stdio: 'inherit' });
+    execFileSync('git', ['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], { stdio: 'inherit' });
     execFileSync('git', ['checkout', '-b', branchName], { stdio: 'inherit' });
     execFileSync('git', ['add', '-A'], { stdio: 'inherit' });
 
