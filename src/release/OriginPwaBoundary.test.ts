@@ -39,7 +39,7 @@ describe('ORIGIN PWA boundary', () => {
     expect(index).toContain('href="/manifest.json?v=sunrise-20261004"');
     expect(index).toContain('href="/favicon.svg?v=sunrise-20261004"');
     expect(index).toContain('href="/apple-touch-icon.png?v=sunrise-20261004"');
-    expect(index).toContain('content="#0b1024"');
+    expect(index).toContain('content="#ffffff"');
     expect(worker).toContain("'/favicon.svg'");
     expect(worker).toContain("'/pwa-192.png'");
     expect(worker).toContain("'/pwa-512.png'");

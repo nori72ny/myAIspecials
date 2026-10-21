@@ -3,18 +3,18 @@
 /* ORIGIN canonical shell — Release 2
    Visual source of truth for the primary ORIGIN shell. Preserved responsive interaction contracts load above. */
 .origin-personal-shell {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: #FFFFFF !important;
+  color: #0F172A !important;
 }
 .origin-personal-shell .origin-app {
-  background: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
+  background: #FFFFFF !important;
+  color: #0F172A !important;
 }
 .origin-header {
   min-height: 60px !important;
   padding-inline: clamp(10px, 2.5vw, 20px) !important;
-  background: color-mix(in oklch, var(--bg-primary) 92%, transparent) !important;
-  border-color: var(--border-default) !important;
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
   box-shadow: none !important;
   overflow: visible !important;
   z-index: 50;
