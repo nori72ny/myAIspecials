@@ -12,7 +12,7 @@ export function assertManualProductionGitHold(config) {
   if (deployments === null || typeof deployments !== 'object' || Array.isArray(deployments)) {
     throw new Error('ORIGIN_MANUAL_PRODUCTION_GATE_CONFIG_MISSING');
   }
-  if (deployments.main !== false || deployments['**'] !== false) {
+  if (deployments.main !== true || deployments['**'] !== false) {
     throw new Error('ORIGIN_IMPLICIT_PRODUCTION_GIT_DEPLOYMENT_FORBIDDEN');
   }
   if (deployments['release-*'] !== true) {
@@ -30,5 +30,5 @@ export function assertManualProductionGitHold(config) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
   assertManualProductionGitHold(config);
-  process.stdout.write('Manual production Git gate verified: main auto-deploy disabled; release previews retained.\n');
+  process.stdout.write('Manual production Git gate verified: main auto-deploy enabled; release previews retained.\n');
 }

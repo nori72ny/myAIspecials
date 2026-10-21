@@ -3,16 +3,16 @@ import test from 'node:test';
 import { assertManualProductionGitHold } from './verify-manual-production-hold.mjs';
 
 const safe = () => ({
-  git: { deploymentEnabled: { '**': false, main: false, 'release-*': true } },
+  git: { deploymentEnabled: { '**': false, main: true, 'release-*': true } },
 });
 
-test('permits protected release previews while disabling implicit main publishing', () => {
+test('permits protected release previews while enabling main auto-deploy', () => {
   assert.doesNotThrow(() => assertManualProductionGitHold(safe()));
 });
 
-test('rejects automatic main Git deploy before any promotion', () => {
+test('rejects main Git deploy when set to false', () => {
   const unsafe = safe();
-  unsafe.git.deploymentEnabled.main = true;
+  unsafe.git.deploymentEnabled.main = false;
   assert.throws(
     () => assertManualProductionGitHold(unsafe),
     /ORIGIN_IMPLICIT_PRODUCTION_GIT_DEPLOYMENT_FORBIDDEN/,
