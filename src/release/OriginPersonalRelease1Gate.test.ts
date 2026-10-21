@@ -174,13 +174,13 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(lighthouseConfig.ci?.assert?.assertions?.["categories:best-practices"]).toEqual(["error", { minScore: 0.9 }]);
   });
 
-  it("prohibits automatic main production publication while retaining release previews", () => {
+  it("enables automatic main production publication while retaining release previews", () => {
     const vercelConfig = JSON.parse(readRepositoryFile("vercel.json")) as {
       git?: { deploymentEnabled?: Record<string, boolean> };
     };
     expect(vercelConfig.git?.deploymentEnabled).toEqual({
       "**": false,
-      main: false,
+      main: true,
       "release-*": true,
     });
   });
