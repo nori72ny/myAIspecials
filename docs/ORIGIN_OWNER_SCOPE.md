@@ -1,6 +1,8 @@
 # ORIGIN Owner Scope & Delivery Map
 
-Last updated: 2026-09-21 JST
+Last reconciled: 2026-09-21 UTC
+
+Full cross-chat requirement index: [Enhancement handover](ORIGIN_ENHANCEMENT_HANDOVER_2026-09-21.md). Current status evidence: [Completion ledger](ORIGIN_COMPLETION_STATUS.md).
 
 This document tells the Owner, in one place, **what ORIGIN is intended to become, what has already been commissioned, what works in production now, what is implemented but not live, and what the next release boundary is**.
 
@@ -37,9 +39,9 @@ The Owner has already commissioned the roadmap through the autonomous-agent stag
 | V4 Autonomous | Long-running task supervision, schedules, memory, multi-agent execution, self-evaluation, recovery and regression monitoring, while retaining approval gates for sensitive actions. |
 | Self-evolution | Bounded improvement scouting and improvement inbox so ORIGIN can propose its own upgrades without silently deploying them. |
 
-## 3. What ORIGIN can do in production now
+## 3. Previously verified production capability families
 
-The production baseline on `main` already has these verified capability families:
+Earlier production records cover the following capability families. These records are scoped to their tested release and task; status readiness does not prove every user workflow. Main and deployed production must be checked separately:
 
 1. **Grounded Research (V1.1)** — public-web research service with a free-only contract and source-bounded retrieval.
 2. **Real File Artifacts (V1.2)** — generate Markdown, CSV, PDF, DOCX, XLSX and PPTX artifacts.
@@ -47,13 +49,13 @@ The production baseline on `main` already has these verified capability families
 4. **Agentic Coding OS (V1.4)** — durable coding jobs, repository edits, checks, repair rounds, owner-bound authorization and verified coding results.
 5. **Core ORIGIN app** — conversational UI, history/PWA/recovery paths, free-only routing and failure UX.
 
-These are production capabilities, but each future release still requires regression verification.
+The fresh production health read returned release `2f1d7069006c21050611e9703fb6506697b1bac1`; main is `01f7db0c0d48ab3ba533148e99e1847203e13f4c`. This reconciliation did not rerun authenticated coding jobs or all capability status endpoints.
 
 ## 4. Implemented but not yet live
 
-### MCP client / connected tools — active PR #585
+### MCP client / connected tools — foundation #602 merged; bootstrap #603/#604 open
 
-The current branch implements the foundation required for ORIGIN to call external tools without turning the public chat endpoint into an unrestricted tool runner:
+The merged foundation implements the foundation required for ORIGIN to call external tools without turning the public chat endpoint into an unrestricted tool runner:
 
 - owner-only session boundary;
 - Supabase-backed authentication adapter;
@@ -78,7 +80,7 @@ This is **not yet a production-complete connected-app feature**.
 - Live GitHub OAuth callback/refresh/revocation.
 - Live MCP tool discovery and exact grant persistence.
 - Live `/api/mcp/chat` execution against a real owner-authorized GitHub repository.
-- Production activation of PR #585.
+- Live production activation of the merged MCP foundation and reviewed bootstrap candidate.
 - ORIGIN MCP server.
 - Existing-file deterministic DOCX/PPTX/XLSX/PDF editing.
 - V1.5 image generation runtime.
@@ -88,22 +90,11 @@ This is **not yet a production-complete connected-app feature**.
 
 ## 6. Current release boundary
 
-The current work is deliberately limited to:
+M1 foundation was merged through PR #602 after candidate CI verification. This does not mean a live connector has been activated. Historical #585 is not the active branch to restart.
 
-### Milestone M1 — MCP Client Foundation Candidate
+M2 bootstrap candidates #603/#604 are open and remain separate from UI repair #605. Runtime activation still requires owner/provider consent where necessary, live connector evidence, current zero-cost eligibility and the production release gate. No permission expansion or paid upgrade is implied.
 
-**Goal:** finish PR #585 as a technically qualified release candidate without publishing it to production.
-
-M1 is complete only when:
-
-1. exact branch head passes code quality, security, Node 22/24 build/test, browser isolation and relevant database tests;
-2. the local production-browser release gate passes without flaky history timing;
-3. the MCP login E2E proves the password is removed while authenticated and is empty when the login form returns;
-4. no paid path or broadened GitHub tool permission is introduced;
-5. the completion ledger is updated with exact SHA evidence;
-6. Vercel Preview is verified if the free Vercel quota permits it; a free-tier build-rate block is recorded as an external infrastructure block and is never solved by upgrading to a paid plan.
-
-**M1 does not include production activation.**
+UI repair #605 is CI-verified and preview-deployed, but not production-deployed. Direct preview inspection is login-protected in the available browser. Do not mark UI work complete merely because the automated gates passed.
 
 ## 7. Next boundaries after M1
 
