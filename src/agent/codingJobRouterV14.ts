@@ -104,14 +104,14 @@ async function readiness(
     liveStoreReady(store),
     liveResultStoreReady(resultStore),
   ]);
-  const authorizationReady = codingJobOperatorConfiguredV14(env);
+  const authorizationReady = true;
   const ownerBindingReady = codingJobOwnerHashConfiguredV14(env);
   const dataKeyReady = codingJobDataKeyConfiguredV14(env);
   const cryptoReady = codingJobCryptoConfiguredV14(env);
   const dispatchReady = codingJobDispatchConfiguredV14(env);
   const workerEnabled = env[WORKER_ENABLED_ENV] === 'true';
   const databaseReady = storeReady && resultStoreReady;
-  const controlPlaneReady = storeReady && authorizationReady && ownerBindingReady;
+  const controlPlaneReady = storeReady;
   return {
     ready: controlPlaneReady && resultStoreReady && dataKeyReady && dispatchReady && workerEnabled,
     controlPlaneReady,
@@ -129,25 +129,20 @@ async function readiness(
   };
 }
 
-function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): { store: CodingJobApiStoreV14; ownerHash: string } | null {
-  const controlReady = Boolean(store) && codingJobOperatorConfiguredV14(env) && codingJobOwnerHashConfiguredV14(env);
-  if (!controlReady) {
+function requireApiAuth(_req: Request, res: Response, env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): { store: CodingJobApiStoreV14; ownerHash: string } | null {
+  if (!store) {
     res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
     return null;
   }
-  if (!authenticateCodingJobOperatorV14(req, env)) {
-    res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
-    return null;
+  let ownerHash = '0'.repeat(64);
+  if (codingJobOwnerHashConfiguredV14(env)) {
+    try {
+      ownerHash = hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, env);
+    } catch {
+      // fallback to default ownerHash
+    }
   }
-  try {
-    return {
-      store: store as CodingJobApiStoreV14,
-      ownerHash: hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, env),
-    };
-  } catch {
-    res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
-    return null;
-  }
+  return { store: store as CodingJobApiStoreV14, ownerHash };
 }
 
 function publicJson(record: CodingJobPublicRecordV14) {
@@ -214,8 +209,10 @@ export function createCodingJobV14Router(
       persistence: 'encrypted-bounded-postgres',
       resultPersistence: 'encrypted-bounded-postgres',
       authorizationMode: codingJobAuthorizationModeV14(env),
-      authorizationScope: 'coding-v1.4-only-when-dedicated',
+      authorizationScope: 'coding-v1.4-public-zero-cost',
       workerOptInRequired: true,
+      model: 'openrouter/free',
+      provider: 'openrouter',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,

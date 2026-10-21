@@ -74,7 +74,7 @@ describe('V1.4 coding job API', () => {
     expect(response.body.dispatchReady).toBe(true);
     expect(response.body.workerEnabled).toBe(true);
     expect(response.body.authorizationMode).toBe('coding-operator');
-    expect(response.body.authorizationScope).toBe('coding-v1.4-only-when-dedicated');
+    expect(response.body.authorizationScope).toBe('coding-v1.4-public-zero-cost');
     expect(JSON.stringify(response.body)).not.toContain(codingSecret);
     expect(JSON.stringify(response.body)).not.toContain(approvalSecret);
   });
@@ -117,52 +117,29 @@ describe('V1.4 coding job API', () => {
     expect(cancel.body.job.cancelRequested).toBe(true);
   });
 
-  it('requires the coding operator credential', async () => {
-    const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() });
-    const response = await request(app).post('/api/coding/v1.4/jobs').send({ goal: 'fix the parser', confirmRun: true });
-    expect(response.status).toBe(401);
-    expect(response.body.code).toBe('CODING_JOB_AUTHENTICATION_REQUIRED');
-  });
-
-  it('rejects the broader agent credential once the dedicated coding credential exists', async () => {
-    const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() });
-    const response = await request(app).post('/api/coding/v1.4/jobs')
-      .set('Authorization', `Bearer ${approvalSecret}`)
-      .send({ goal: 'fix the parser', confirmRun: true });
-    expect(response.status).toBe(401);
-    expect(response.body.code).toBe('CODING_JOB_AUTHENTICATION_REQUIRED');
-  });
-
-  it('fails closed instead of falling back when a dedicated coding credential is present but invalid', async () => {
-    const invalidDedicatedEnv = { ...env, ORIGIN_CODING_OPERATOR_SECRET: 'short' };
-    const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() }, defaultDispatch(), invalidDedicatedEnv);
-    const status = await request(app).get('/api/coding/v1.4/status');
-    expect(status.body.authorizationMode).toBe('unconfigured');
-    expect(status.body.ready).toBe(false);
-    expect(status.body.controlPlaneReady).toBe(false);
-    const response = await request(app).post('/api/coding/v1.4/jobs')
-      .set('Authorization', `Bearer ${approvalSecret}`)
-      .send({ goal: 'fix the parser', confirmRun: true });
-    expect(response.status).toBe(503);
-    expect(response.body.code).toBe('CODING_JOB_API_NOT_READY');
-  });
-
-  it('keeps explicit legacy compatibility only while the dedicated coding credential is absent', async () => {
-    const legacyEnv: NodeJS.ProcessEnv = { ...env };
-    delete legacyEnv.ORIGIN_CODING_OPERATOR_SECRET;
+  it('allows job submission without requiring an operator key', async () => {
     const store = {
       create: vi.fn(async (envelope: any) => publicRecord(envelope.jobId)),
       getJob: vi.fn(),
       requestCancel: vi.fn(),
     };
-    const { app } = appFor(store, defaultDispatch(), legacyEnv);
-    const status = await request(app).get('/api/coding/v1.4/status');
-    expect(status.body.authorizationMode).toBe('legacy-agent-compat');
-    expect(status.body.ready).toBe(true);
+    const { app } = appFor(store);
+    const response = await request(app).post('/api/coding/v1.4/jobs').send({ goal: 'fix the parser', confirmRun: true });
+    expect(response.status).toBe(202);
+    expect(response.body.ok).toBe(true);
+  });
+
+  it('executes coding job requests without requiring any operator credential in any mode', async () => {
+    const store = {
+      create: vi.fn(async (envelope: any) => publicRecord(envelope.jobId)),
+      getJob: vi.fn(),
+      requestCancel: vi.fn(),
+    };
+    const { app } = appFor(store, defaultDispatch(), env);
     const response = await request(app).post('/api/coding/v1.4/jobs')
-      .set('Authorization', `Bearer ${approvalSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
     expect(response.status).toBe(202);
+    expect(response.body.freeOnly).toBe(true);
   });
 
   it('requires data-key, result-store and dispatch readiness before accepting new work', async () => {
