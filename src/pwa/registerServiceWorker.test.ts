@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -26,6 +27,13 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   let activations = 0;
   let announcements = 0;
   const draft = { value: '' };
+  // Use the browser DOM selector engine, not a selector-insensitive mock.
+  const editorDocument = globalThis.document.implementation.createHTMLDocument('PWA editor regression');
+  editorDocument.body.innerHTML = '<div id="rich-editor" contenteditable></div><div id="plaintext-editor" contenteditable="plaintext-only"></div><div id="disabled-editor" contenteditable="false"></div>';
+  const richEditor = editorDocument.getElementById('rich-editor')!;
+  const plaintextEditor = editorDocument.getElementById('plaintext-editor')!;
+  const disabledEditor = editorDocument.getElementById('disabled-editor')!;
+  let directTouchMode = false;
   const files = { files: [] as unknown[] };
   const busy = { value: false };
   const timers: Listener[] = [];
@@ -51,9 +59,9 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   const document = {
     ...eventTarget(),
     visibilityState: 'visible',
-    documentElement: { dataset: { originStorageState: 'ready' } },
-    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : [draft],
-    querySelector: () => busy.value ? {} : null,
+    documentElement: { dataset: { originStorageState: 'ready', originDirectTouchPending: 'false' } },
+    querySelectorAll: (selector: string) => selector.includes('file') ? [files] : selector.includes('contenteditable') ? Array.from(editorDocument.querySelectorAll(selector)) : [draft],
+    querySelector: (selector: string) => selector === '[data-testid="artifact-direct-touch-status"]' ? (directTouchMode ? {} : null) : busy.value ? {} : null,
   };
   const window = {
     ...eventTarget(),
@@ -83,7 +91,8 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   await Promise.resolve();
   await Promise.resolve();
   return {
-    draft, files, busy, document, window, registration,
+    draft, richEditor, plaintextEditor, disabledEditor, files, busy, document, window, registration,
+    setDirectTouchMode: (value: boolean) => { directTouchMode = value; },
     reloads: () => reloads,
     activations: () => activations,
     announcements: () => announcements,
@@ -192,8 +201,88 @@ describe('PWA controller changes preserve user work', () => {
     app.document.documentElement.dataset.originStorageState = 'hydrating';
     app.retry();
     assert.equal(app.reloads(), 0);
+    app.document.documentElement.dataset.originStorageState = 'degraded';
+    app.document.emit('visibilitychange');
+    assert.equal(app.reloads(), 0);
+    // Chat send may clear the input while its state snapshot is still queued.
+    app.document.documentElement.dataset.originStorageState = 'saving';
+    app.retry();
+    assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originStorageState = 'ready';
     app.document.emit('visibilitychange');
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('never activates an update during Japanese IME conversion before value commits', async () => {
+    const app = await launch(true);
+    app.document.emit('compositionstart');
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.document.emit('compositionend');
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('preserves contenteditable drafts and automatically applies after clearing them', async () => {
+    const app = await launch(true);
+    app.richEditor.textContent = '　変換途中の入力';
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.richEditor.textContent = '';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+    app.changeController();
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('checks the actual DOM semantics for bare and plaintext-only contenteditable drafts', async () => {
+    const app = await launch(true);
+    app.richEditor.textContent = '  ';
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.richEditor.textContent = '';
+    app.plaintextEditor.textContent = '日本語変換';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.plaintextEditor.textContent = '';
+    app.disabledEditor.textContent = 'Not editable';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
+  });
+
+  it('defers updates throughout Direct Touch iframe editing and until parent acknowledgement', async () => {
+    const app = await launch(true);
+    app.setDirectTouchMode(true);
+    app.installWaiting();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.setDirectTouchMode(false);
+    app.document.documentElement.dataset.originDirectTouchPending = 'true';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    // A queued commit remains unsaved until the matching IndexedDB snapshot
+    // actually completes, even if direct editing mode has been closed.
+    app.document.documentElement.dataset.originDirectTouchPending = 'commit:artifact-1:v2';
+    app.retry();
+    app.flushTimers();
+    assert.equal(app.activations(), 0);
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.document.documentElement.dataset.originDirectTouchPending = 'false';
+    app.window.emit('origin:pwa-safe-apply');
+    app.flushTimers();
+    assert.equal(app.activations(), 1);
     assert.equal(app.reloads(), 1);
   });
 

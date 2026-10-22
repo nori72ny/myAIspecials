@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
+import { awaitOriginIdbCommit, isQuotaExceeded, migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
 
 const snapshot: OriginPersistedSnapshot = { version: 1, messages: [{ id: 'm-1', role: 'user', content: 'persist me' }], sessions: [], artifacts: [{ id: 'a-1', content: '<main>artifact</main>' }], updatedAt: 1 };
 
@@ -61,6 +61,126 @@ describe('OriginIndexedDb migration boundary', () => {
     await expect(migrateOriginLegacySnapshot(adapter, legacy, removeLegacy)).resolves.toEqual({ snapshot: legacy, source: 'memory', writeResult: 'failed', readFailed: true });
     expect(adapter.save).not.toHaveBeenCalled();
     expect(removeLegacy).not.toHaveBeenCalled();
+  });
+
+  it('the live adapter waits for transaction completion after put success', async () => {
+    let started!: () => void;
+    const start = new Promise<void>(resolve => { started = resolve; });
+    const request = { onsuccess: null, onerror: null, result: 'primary', error: null } as unknown as IDBRequest;
+    const transaction = {
+      oncomplete: null, onabort: null, onerror: null, error: null,
+      objectStore: () => ({ put: () => request }),
+    } as unknown as IDBTransaction;
+    const database = { transaction: () => { started(); return transaction; }, close: () => undefined };
+    const openRequest = { result: database, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+    vi.stubGlobal('indexedDB', {
+      open: () => { queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success'))); return openRequest; },
+    });
+    try {
+      let resolved = false;
+      const saving = originIndexedDbAdapter.save(snapshot).then(value => { resolved = true; return value; });
+      await start;
+      request.onsuccess?.call(request, new Event('success'));
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      transaction.oncomplete?.call(transaction, new Event('complete'));
+      await expect(saving).resolves.toBe('saved');
+      expect(resolved).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('serializes overlapping saves so a stale snapshot cannot finish after a newer one', async () => {
+    const opened: { request: IDBRequest; transaction: IDBTransaction; snapshot: OriginPersistedSnapshot | null }[] = [];
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        let written: OriginPersistedSnapshot | null = null;
+        const putRequest = { onsuccess: null, onerror: null, error: null } as unknown as IDBRequest;
+        const transaction = {
+          oncomplete: null, onabort: null, onerror: null, error: null,
+          objectStore: () => ({ put: (value: OriginPersistedSnapshot) => { written = value; return putRequest; } }),
+        } as unknown as IDBTransaction;
+        const db = { transaction: () => transaction, close: () => undefined };
+        const openRequest = { result: db, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+        const item = { request: putRequest, transaction, get snapshot() { return written; } };
+        opened.push(item);
+        queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success')));
+        return openRequest;
+      },
+    });
+    try {
+      const earlier = { ...snapshot, updatedAt: 20 };
+      const later = { ...snapshot, updatedAt: 21, messages: [{ id: 'newest' }] };
+      const first = originIndexedDbAdapter.save(earlier);
+      const second = originIndexedDbAdapter.save(later);
+      await vi.waitFor(() => expect(opened[0]?.snapshot).toEqual(earlier));
+      expect(opened).toHaveLength(1);
+      opened[0].request.onsuccess?.call(opened[0].request, new Event('success'));
+      await Promise.resolve();
+      expect(opened).toHaveLength(1);
+      opened[0].transaction.oncomplete?.call(opened[0].transaction, new Event('complete'));
+      await expect(first).resolves.toBe('saved');
+      await vi.waitFor(() => expect(opened[1]?.snapshot).toEqual(later));
+      opened[1].request.onsuccess?.call(opened[1].request, new Event('success'));
+      opened[1].transaction.oncomplete?.call(opened[1].transaction, new Event('complete'));
+      await expect(second).resolves.toBe('saved');
+      expect(opened).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('an aborted first save does not poison a later queued snapshot', async () => {
+    const opened: { request: IDBRequest; transaction: IDBTransaction; value: OriginPersistedSnapshot | null }[] = [];
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        let value: OriginPersistedSnapshot | null = null;
+        const request = { onsuccess: null, onerror: null, error: null } as unknown as IDBRequest;
+        const transaction = {
+          oncomplete: null, onabort: null, onerror: null, error: null,
+          objectStore: () => ({ put: (next: OriginPersistedSnapshot) => { value = next; return request; } }),
+        } as unknown as IDBTransaction;
+        const db = { transaction: () => transaction, close: () => undefined };
+        const openRequest = { result: db, onsuccess: null, onerror: null, onblocked: null, onupgradeneeded: null } as unknown as IDBOpenDBRequest;
+        opened.push({ request, transaction, get value() { return value; } });
+        queueMicrotask(() => openRequest.onsuccess?.call(openRequest, new Event('success')));
+        return openRequest;
+      },
+    });
+    try {
+      const first = originIndexedDbAdapter.save({ ...snapshot, updatedAt: 30 });
+      const secondSnapshot = { ...snapshot, updatedAt: 31 };
+      const second = originIndexedDbAdapter.save(secondSnapshot);
+      await vi.waitFor(() => expect(opened[0]?.value?.updatedAt).toBe(30));
+      opened[0].transaction.onabort?.call(opened[0].transaction, new Event('abort'));
+      await expect(first).resolves.toBe('failed');
+      await vi.waitFor(() => expect(opened[1]?.value).toEqual(secondSnapshot));
+      opened[1].request.onsuccess?.call(opened[1].request, new Event('success'));
+      opened[1].transaction.oncomplete?.call(opened[1].transaction, new Event('complete'));
+      await expect(second).resolves.toBe('saved');
+      expect(opened).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not acknowledge persistence until the IndexedDB transaction completes', async () => {
+    const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
+    let completed = false;
+    const saved = awaitOriginIdbCommit(tx).then(() => { completed = true; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    tx.oncomplete?.call(tx, new Event('complete'));
+    await saved;
+    expect(completed).toBe(true);
+  });
+
+  it('treats a late transaction abort as a failed write, never a saved snapshot', async () => {
+    const tx = { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction;
+    const pending = awaitOriginIdbCommit(tx);
+    tx.onabort?.call(tx, new Event('abort'));
+    await expect(pending).rejects.toThrow('indexeddb-aborted');
   });
 
   it('recognizes platform quota errors without exposing them to the UI', () => {
