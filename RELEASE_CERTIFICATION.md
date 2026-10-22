@@ -246,3 +246,21 @@ Fast-track target: 2026-08-13 to 2026-08-15
 Current blocker class: production identity, live zero-cost execution, final UX evidence
 Cost for this documentation update: $0.00
 ```
+
+
+## Current evidence addendum — 2026-10-14
+
+This addendum supersedes any implication that historical model IDs or dates above prove current provider readiness. The proposed candidate is `apodex/apodex-1.1-mini:free` in Draft PR #977; it is not approved for production and has not passed live calibration.
+
+Current verdict:
+
+```text
+free-model live calibration: NOT VERIFIED
+AQ-40 answer-quality qualification: NOT MEASURED
+AQ-40 completed shards (last inspected artifact): 0 / 40
+PR #977: OPEN / DRAFT / NOT MERGED
+production alias change: NOT AUTHORIZED
+production release decision: HOLD
+```
+
+Required before certification: two live non-empty responses; exact served model; explicit zero cost; BYOK false; verified ZDR/data-collection-deny request policy; no paid/alternate fallback; 40/40 AQ shards with baseline/candidate results; exact-head CI; independent review. A green workflow with skipped provider steps is not a pass. Preserve the existing production deployment and alias until the evidence is complete.

@@ -142,3 +142,16 @@ suggested mitigation
 - デプロイの個別承認
 
 緊急性があっても、有料サービス・Secret・DNS・クラウド・リポジトリ設定を暗黙に変更しません。
+
+
+## Free-model evidence status — 2026-10-14
+
+The model identifier below is a **candidate under review**, not a live-verified production model:
+
+```text
+apodex/apodex-1.1-mini:free
+```
+
+The previously documented `inclusionai/ling-3.0-flash-sante:free` is stale for the current candidate and must not be represented as freshly verified. The candidate change is tracked in [PR #977](https://github.com/nori72ny/myAIspecials/pull/977), which remains Draft/unmerged as of this record.
+
+Live verification status: **NOT VERIFIED**. No accepted evidence currently establishes two non-empty live responses, exact served-model identity, explicit `usage.cost === 0`, `usage.is_byok === false`, provider data-policy compliance (`zdr: true`, `data_collection: deny`), and no fallback. Do not promote or change the production alias until these checks and exact-head CI pass. A free price label alone does not establish ZDR or non-retention.

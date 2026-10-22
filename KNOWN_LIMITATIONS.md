@@ -173,3 +173,10 @@ actual cost USD
 merge status
 deployment status
 ```
+
+
+## Current free-model candidate and AQ status — 2026-10-14
+
+The proposed model `apodex/apodex-1.1-mini:free` is under review in Draft PR #977 and is **not live-verified**. The previously listed `inclusionai/ling-3.0-flash-sante:free` and its old review date are stale historical values, not evidence of current model availability or pricing.
+
+Live two-probe calibration is still required to prove non-empty output, exact served model, explicit zero cost, `usage.is_byok === false`, ZDR/data-collection-deny compliance, and absence of fallback. AQ-40 is **NOT MEASURED**: the last inspected status artifact reports 0/40 completed shards and is not promotion-eligible. These gaps prevent a release-quality or accuracy claim. Keep production unchanged until verified.

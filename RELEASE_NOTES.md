@@ -132,3 +132,10 @@ npm run check:worker
 ```
 
 公開する場合は、コードのReady化・mainマージとは別に、オーナーの明示的なデプロイ承認と本番証拠が必要です。
+
+
+## Evidence correction — 2026-10-14
+
+The current proposed free-model candidate is `apodex/apodex-1.1-mini:free` in [PR #977](https://github.com/nori72ny/myAIspecials/pull/977). It is a candidate only; live verification has **not** passed, and the PR remains Draft/unmerged. Older references to `inclusionai/ling-3.0-flash-sante:free` and their August verification dates are historical records, not current proof of availability or pricing.
+
+Required before release: two non-empty live calibration responses; exact served model; explicit zero usage cost; `usage.is_byok === false`; ZDR/data-collection-deny request policy; no paid or alternate-model fallback; current exact-head CI. Until then, production model, cost, provider handling, and successful live inference remain **NOT VERIFIED**. Production alias must remain unchanged.
