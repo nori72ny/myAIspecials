@@ -95,7 +95,7 @@ describe('CodingJobWorkspaceV14', () => {
     sessionStorage.clear();
   });
 
-  it('submits a natural-language job, clears the credential field, and renders encrypted result evidence', async () => {
+  it('submits a natural-language job and renders encrypted result evidence without requiring a key', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
       .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }, 202));
@@ -105,16 +105,12 @@ describe('CodingJobWorkspaceV14', () => {
     await screen.findByText('configured');
     expect(screen.getByText('dedicated coding credential')).toBeTruthy();
     expect(screen.getByText('実行基盤を確認済み')).toBeTruthy();
-    expect(screen.getByText('認証キー入力後に実行できます')).toBeTruthy();
+    expect(screen.getByText('即座に実行できます (openrouter/free)')).toBeTruthy();
 
-    const credential = 'operator-secret-that-is-long-enough-for-production';
-    const credentialInput = screen.getByLabelText('Coding認証キー') as HTMLInputElement;
-    fireEvent.change(credentialInput, { target: { value: credential } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser and add regression coverage.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
 
     await screen.findByText('src/existing.ts');
-    expect(credentialInput.value).toBe('');
     expect(await screen.findByText('export const value = 1;')).toBeTruthy();
     expect(await screen.findByText('export const value = 2;')).toBeTruthy();
     expect(screen.getAllByText('PASS')).toHaveLength(4);
@@ -124,7 +120,6 @@ describe('CodingJobWorkspaceV14', () => {
     const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('/api/coding/v1.4/jobs');
     expect(options.method).toBe('POST');
-    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
     expect(JSON.parse(String(options.body))).toEqual({ goal: 'Fix the parser and add regression coverage.', confirmRun: true });
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
@@ -169,7 +164,6 @@ describe('CodingJobWorkspaceV14', () => {
   });
 
   it('reopens a terminal owner-scoped job and renders its stored result without persisting identifiers', async () => {
-    const credential = 'operator-secret-that-is-long-enough-for-production';
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
       .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }));
@@ -177,26 +171,21 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    const credentialInput = screen.getByLabelText('Coding認証キー') as HTMLInputElement;
-    fireEvent.change(credentialInput, { target: { value: credential } });
     fireEvent.change(screen.getByLabelText('既存のジョブID'), { target: { value: 'coding-AAAAAAAAAAAAAAAAAAAAAA' } });
     fireEvent.click(screen.getByRole('button', { name: '結果を開く' }));
 
     await screen.findByText('CODING_CHECKS_PASSED');
-    expect(credentialInput.value).toBe('');
     expect(screen.getByText('src/existing.ts')).toBeTruthy();
     expect(screen.getAllByText('PASS')).toHaveLength(4);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('/api/coding/v1.4/jobs/coding-AAAAAAAAAAAAAAAAAAAAAA');
     expect(options.method).toBeUndefined();
-    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
   });
 
-  it('reopens an active job and keeps cancellation control attached to the same in-memory credential', async () => {
-    const credential = 'operator-secret-that-is-long-enough-for-production';
+  it('reopens an active job and keeps cancellation control available', async () => {
     const cancelled = { ...job('cancelled'), cancelRequested: true, version: 3 };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
@@ -206,7 +195,6 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: credential } });
     fireEvent.change(screen.getByLabelText('既存のジョブID'), { target: { value: 'coding-AAAAAAAAAAAAAAAAAAAAAA' } });
     fireEvent.click(screen.getByRole('button', { name: '結果を開く' }));
 
@@ -217,16 +205,14 @@ describe('CodingJobWorkspaceV14', () => {
     const [url, options] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(url).toBe('/api/coding/v1.4/jobs/coding-AAAAAAAAAAAAAAAAAAAAAA');
     expect(options.method).toBe('DELETE');
-    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
   });
 
-  it('rejects malformed reconnect ids before sending an authenticated job request', async () => {
+  it('rejects malformed reconnect ids before sending a job request', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('既存のジョブID'), { target: { value: 'coding-invalid' } });
     expect((screen.getByRole('button', { name: '結果を開く' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -248,7 +234,6 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Attempt a bounded change.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
 
@@ -287,7 +272,6 @@ describe('CodingJobWorkspaceV14', () => {
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('設定確認済み');
     expect(screen.queryByText('Hosted worker')).toBeNull();
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
     const alert = await screen.findByRole('alert');
@@ -305,7 +289,6 @@ describe('CodingJobWorkspaceV14', () => {
       .mockResolvedValueOnce(response({ ok: true, job: { ...job('cancelled'), attempt: 0 }, result: null, resultDetailsState: 'not_applicable' })));
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('設定確認済み');
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('既存のジョブID'), { target: { value: 'coding-AAAAAAAAAAAAAAAAAAAAAA' } });
     fireEvent.click(screen.getByRole('button', { name: '結果を開く' }));
     await screen.findByText('CODING_CANCELLED_BY_USER');
@@ -316,7 +299,7 @@ describe('CodingJobWorkspaceV14', () => {
     expect(screen.getAllByText(/この状態だけでは分かりません/).length).toBeGreaterThan(0);
   });
 
-  it('requests cancellation through the owner-authenticated DELETE route', async () => {
+  it('requests cancellation through the DELETE route', async () => {
     const cancelled = { ...job('cancelled'), cancelRequested: true, version: 3 };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
@@ -326,7 +309,6 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('configured');
-    fireEvent.change(screen.getByLabelText('Coding認証キー'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
     await screen.findAllByText('コードを変更中');
