@@ -3,12 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
-<title>ORIGIN ULTRA v16.3 — Autonomous Edition</title>
-<!-- CSP: unsafe-eval完全排除、SRI維持、GitHub API(api.github.com)通信を安全に解放 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ja.wikipedia.org https://api.github.com; worker-src blob:; img-src 'self' data: blob: https:; font-src 'self' data: https:; object-src 'none'; base-uri 'none'; form-action 'self';" />
-<!-- 外部スクリプト: 公式SRI(sha512)付与済みのReact/ReactDOM -->
+<title>ORIGIN ULTRA v16.1 — Production Certified</title>
+<!-- ACOS 2.0 PWA Boundary Specifications -->
+<link rel="manifest" href="/manifest.json?v=sunrise-20261004" />
+<link rel="icon" href="/favicon.svg?v=sunrise-20261004" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=sunrise-20261004" />
+<!-- Tailwind CDN完全排除。外部スクリプトはcdnjs(React/ReactDOM)のみ。インラインスクリプトSHA-256ハッシュ化 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4YtI268sM9m6V4h33Ztqf7X9q6Bq+Fv8U1Gv4M8pY5E=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ja.wikipedia.org; worker-src blob:; img-src 'self' data: blob: https:; font-src 'self' data: https:; object-src 'none'; base-uri 'none'; form-action 'self';" />
+<!-- 外部スクリプトは公式SRI(sha512)付与済みの2本のみ(依存ゼロ化) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" integrity="sha512-QVs8Lo43F9lSuBykadDb0oSXDL/BbZ588urWVCRwSIoewQv/Ewg1f84mK3U790bZ0FfhFa1YSQUmIhG+pIRKeg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" integrity="sha512-6a1107rTlA4gYpgHAqbwLAtxmWipBdJFcq8y5S/aTge3Bp+VAklABm2LO+Kg51vOWR9JMZq1Ovjl5tpluNpTeQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<!-- mt-0.5補完済・インライン標準CSS -->
 <style>
   *, ::before, ::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #27272a; }
   body { margin: 0; background: #000; color: #f4f4f5; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
@@ -123,58 +128,12 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 9999px; }
   @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
-
-  /* 🚀 自律デプロイ機能専用UI（v16デザインと完全調和） */
-  #deployTriggerBtn { position: fixed; bottom: 16px; right: 16px; width: 44px; height: 44px; border-radius: 50%; background: #10b981; color: #000; border: none; font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 15px rgba(16,185,129,0.4); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-  #deployModalOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10000; padding: 16px; box-sizing: border-box; align-items: center; justify-content: center; }
-  #deployModalOverlay.active { display: flex; }
-  .deploy-card { background: #09090b; border: 1px solid #27272a; border-radius: 1.25rem; padding: 20px; width: 100%; max-width: 420px; box-sizing: border-box; }
-  .deploy-card h3 { margin: 0 0 10px 0; color: #34d399; font-size: 1rem; font-weight: 800; font-family: ui-monospace, monospace; }
-  .deploy-card label { display: block; font-size: 0.75rem; color: #a1a1aa; margin-top: 8px; }
-  .deploy-card input, .deploy-card textarea { width: 100%; box-sizing: border-box; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 8px; color: #fff; font-size: 0.8rem; margin-top: 4px; }
-  .deploy-btn-group { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
-  .deploy-btn { width: 100%; min-height: 40px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
 </style>
 </head>
 <body class="antialiased min-h-screen overflow-x-hidden">
 <div id="root"></div>
 
-<!-- 🚀 自律デプロイ機能（画面右下の常駐フローティングボタン） -->
-<button id="deployTriggerBtn" title="本番デプロイ司令室" onclick="toggleDeployUI()">🚀</button>
-
-<div id="deployModalOverlay" onclick="if(event.target===this) toggleDeployUI()">
-  <div class="deploy-card">
-    <h3>🚀 ORIGIN AUTONOMOUS DEPLOYER</h3>
-    
-    <label>GitHub Personal Access Token (PAT)</label>
-    <input type="password" id="ghPat" placeholder="github_pat_...">
-
-    <div style="display:flex; gap:8px;">
-      <div style="flex:1;">
-        <label>オーナー名</label>
-        <input type="text" id="ghOwner" placeholder="GitHubユーザー名">
-      </div>
-      <div style="flex:1;">
-        <label>リポジトリ名</label>
-        <input type="text" id="ghRepo" placeholder="origin" value="origin">
-      </div>
-    </div>
-
-    <label>最新コード（HTML全文）</label>
-    <textarea id="ghCode" style="height:70px;" placeholder="チャットで生成された最新コード"></textarea>
-    
-    <div class="deploy-btn-group">
-      <button class="deploy-btn" style="background:#27272a; color:#f4f4f5;" onclick="pasteToDeploy()">📋 クリップボードから貼付</button>
-      <button class="deploy-btn" style="background:#10b981; color:#000;" id="execCommitBtn" onclick="executeCommit()">承認（本番デプロイ実行）</button>
-      <button class="deploy-btn" style="background:transparent; color:#71717a;" onclick="toggleDeployUI()">閉じる</button>
-    </div>
-
-    <div id="deployStatusLog" style="font-size:0.75rem; margin-top:10px; padding:8px; border-radius:6px; display:none; word-break:break-all;"></div>
-  </div>
-</div>
-
 <script>
-/* --- v16 本体スクリプト（1行も削らず100%維持） --- */
 (function() {
   const scriptStartTime = performance.now();
   let measuredDuration = null;
@@ -412,4 +371,398 @@
 
           let cur = { ...t, error: null };
           while (cur.attempts < MAX_ATTEMPTS && !stopRef.current) {
-            cur.attem
+            cur.attempts += 1; cur.status = 'running';
+            await vault.put(cur); await refresh(); notifyChanged();
+            log('「' + cur.query + '」実行 (試行 ' + cur.attempts + '/' + MAX_ATTEMPTS + ')');
+            const r = await runInWorker(cur.query, ts => { beatRef.current = ts; }, abortRef);
+            if (r.ok) { cur = { ...cur, status:'done', items:r.items, error:null, finishedAt:Date.now() }; break; }
+            cur.error = r.error;
+            if (r.aborted) break;
+            log('試行失敗: ' + r.error);
+            if (cur.attempts < MAX_ATTEMPTS) await sleep(2000 * 2 ** (cur.attempts - 1));
+          }
+          if (cur.status !== 'done') cur.status = stopRef.current ? 'interrupted' : 'failed';
+          log(cur.status === 'done' ? '完了: ' + cur.items.length + '件 を保存' :
+              cur.status === 'failed' ? '失敗確定: ' + cur.error : '中断しました (次回起動時に再開可能)');
+          await vault.put(cur); await refresh(); notifyChanged();
+        }
+      } catch (e) {
+        log('キュー実行例外: ' + e.message);
+      } finally {
+        releaseLock('done'); runningRef.current = false; setRunning(false); setBeatAgo(null);
+        refresh().catch(() => {});
+      }
+    }, [acquireLock, releaseLock, log, refresh]);
+
+    const startQueue = useCallback(async () => {
+      if (!navigator.locks || typeof navigator.locks.request !== 'function') {
+        setLockMsg('排他制御なし: 安全停止');
+        log('【安全停止】Web Locks API 非対応のため、多重実行防止を保証できずキュー実行を拒否しました');
+        return;
+      }
+      try {
+        await navigator.locks.request('origin-ultra-runner', { ifAvailable:true }, async lock => {
+          if (!lock) {
+            log('【排他制御作動】別タブで実行中のため開始を安全に拒否しました (Web Locks)');
+            return;
+          }
+          setLockMsg('排他制御: Web Locks 保持中');
+          await processQueue();
+        });
+      } catch (err) {
+        setLockMsg('排他制御エラー: 安全停止');
+        log('Web Locks要求例外: ' + err.message + ' (実行を中断)');
+        setRunning(false);
+      }
+    }, [processQueue, log]);
+
+    const runSelfDiagnosticTests = async () => {
+      const results = [];
+      log('--- [自己診断テストスイート開始] ---');
+      
+      let idbPass = false, idbDetail = '';
+      try {
+        const tmpName = 'OriginUltraDiag_' + Date.now();
+        const tmp = await new Promise((res, rej) => {
+          const rq = indexedDB.open(tmpName, 1);
+          rq.onupgradeneeded = () => rq.result.createObjectStore('d', { keyPath:'id' });
+          rq.onsuccess = () => res(rq.result);
+          rq.onerror = () => rej(rq.error || new Error('一時DB接続失敗'));
+        });
+        try {
+          await new Promise((res, rej) => {
+            const t = tmp.transaction('d', 'readwrite');
+            t.objectStore('d').put({ id:'x', v:1 });
+            t.oncomplete = res;
+            t.onerror = t.onabort = () => rej(t.error || new Error('一時DB書込失敗'));
+          });
+          const got = await new Promise((res, rej) => {
+            const t = tmp.transaction('d', 'readonly');
+            const g = t.objectStore('d').get('x');
+            t.oncomplete = () => res(g.result);
+            t.onerror = t.onabort = () => rej(t.error || new Error('一時DB読出失敗'));
+          });
+          idbPass = !!(got && got.v === 1);
+        } finally {
+          tmp.close();
+          await new Promise(res => {
+            const d = indexedDB.deleteDatabase(tmpName);
+            d.onsuccess = d.onerror = d.onblocked = () => res();
+          });
+        }
+        await vault.all();
+        idbDetail = idbPass ? '一時DBの書込・読出・削除と本番DB読出に成功' : 'データ不一致';
+      } catch (e) { idbDetail = e.message; idbPass = false; }
+      results.push({ name: 'IndexedDB 書込・読出・後片付け(一時DB)', pass: idbPass, detail: idbDetail });
+
+      try {
+        const sample = '人工知能_(曖昧さ回避)';
+        const encodedUrl = wikiUrl(sample);
+        const isParenSafe = !encodedUrl.includes('(') && !encodedUrl.includes(')');
+        results.push({ name: 'Markdown URL丸括弧エンコードテスト', pass: isParenSafe, detail: encodedUrl });
+      } catch (e) {
+        results.push({ name: 'Markdown URL丸括弧エンコードテスト', pass: false, detail: e.message });
+      }
+
+      try {
+        if (!navigator.locks || typeof navigator.locks.request !== 'function') throw new Error('Web Locks API 非対応: キューは安全停止します');
+        const nm = 'origin-ultra-diagnostic-' + Date.now();
+        const outcome = await navigator.locks.request(nm, { ifAvailable:true }, async l1 => {
+          if (!l1) return 'noacq';
+          const l2ok = await navigator.locks.request(nm, { ifAvailable:true }, l2 => !!l2);
+          return l2ok ? 'dup' : 'ok';
+        });
+        results.push({ name: '排他制御(取得と競合拒否)テスト', pass: outcome === 'ok', detail: outcome === 'ok' ? '取得成功・同名ロックの二重取得を拒否' : outcome });
+      } catch (e) {
+        results.push({ name: '排他制御APIの取得テスト', pass: false, detail: e.message });
+      }
+
+      let tw = null, testWorkerUrl = null;
+      try {
+        const testWorkerBlob = new Blob(['self.onmessage = () => self.postMessage("PONG");'], { type: 'text/javascript' });
+        testWorkerUrl = URL.createObjectURL(testWorkerBlob);
+        tw = new Worker(testWorkerUrl);
+        let timeoutId;
+        const pong = await new Promise(res => {
+          tw.onmessage = e => res(e.data === 'PONG');
+          tw.onerror = () => res(false);
+          timeoutId = setTimeout(() => res(false), 2000);
+          tw.postMessage('PING');
+        });
+        clearTimeout(timeoutId);
+        results.push({ name: 'Web Worker スレッド通信テスト', pass: pong, detail: pong ? 'PONG受信成功' : 'タイムアウト' });
+      } catch (e) {
+        results.push({ name: 'Web Worker スレッド通信テスト', pass: false, detail: e.message });
+      } finally {
+        if (tw) { try { tw.terminate(); } catch(_) {} }
+        if (testWorkerUrl) { try { URL.revokeObjectURL(testWorkerUrl); } catch(_) {} }
+      }
+
+      try {
+        const r = await fetch('https://ja.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json&origin=*', { signal: AbortSignal.timeout(8000) });
+        results.push({ name: 'Wikipedia API接続(CSP connect-src)', pass: r.ok, detail: 'HTTP ' + r.status });
+      } catch (e) {
+        results.push({ name: 'Wikipedia API接続(CSP connect-src)', pass: false, detail: e.message });
+      }
+
+      setTestResults(results);
+      log('--- [自己診断テスト完了: ' + results.filter(r => r.pass).length + '/' + results.length + ' PASS] ---');
+    };
+
+    useEffect(() => {
+      const dur = (performance.now() - scriptStartTime).toFixed(1);
+      setMountDuration(dur);
+    }, []);
+
+    useEffect(() => {
+      let alive = true;
+      (async () => {
+        try {
+          const all = await refresh();
+          if (!alive) return;
+          setDb({ s:'online', m:'' });
+          if (all.some(t => ['pending', 'interrupted', 'running'].includes(t.status))) {
+            log('未完了タスクを検出、自動再開します');
+            startQueue();
+          }
+        } catch (e) {
+          if (alive) setDb({ s:'unavailable', m:e.message });
+        }
+      })();
+      return () => {
+        alive = false; stopRef.current = true;
+        if (abortRef.current) abortRef.current();
+        releaseLock('done');
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!syncCh) return;
+      const onMsg = () => { refresh().catch(() => {}); };
+      syncCh.addEventListener('message', onMsg);
+      return () => syncCh.removeEventListener('message', onMsg);
+    }, [refresh]);
+
+    useEffect(() => {
+      const f = () => {
+        if (!runningRef.current) return;
+        if (document.visibilityState === 'hidden') reasonRef.current = 'hidden';
+        else { reasonRef.current = 'unknown'; acquireLock(); }
+      };
+      document.addEventListener('visibilitychange', f);
+      return () => document.removeEventListener('visibilitychange', f);
+    }, [acquireLock]);
+
+    useEffect(() => {
+      if (!running) return;
+      const i = setInterval(() => setBeatAgo(beatRef.current ? Math.round((Date.now() - beatRef.current) / 1000) : null), 1000);
+      return () => clearInterval(i);
+    }, [running]);
+
+    const addTasks = async () => {
+      const qs = [...new Set(input.split('\n').map(s => s.trim()).filter(Boolean))].slice(0, 10);
+      if (!qs.length) return;
+      try {
+        const base = Date.now();
+        await vault.tx('readwrite', store => {
+          qs.forEach((q, i) => {
+            store.put({ id:makeTaskId(), query:q, status:'pending', attempts:0, items:null, error:null, createdAt:base + i });
+          });
+        });
+        await refresh(); notifyChanged(); log(qs.length + '件を一括追加しました');
+      } catch (e) { log('追加失敗: ' + e.message); }
+    };
+
+    const requeueFailed = async () => {
+      if (!navigator.locks) { log('Web Locks非対応のため再実行できません'); return; }
+      try {
+        await navigator.locks.request('origin-ultra-runner', { ifAvailable:true }, async lock => {
+          if (!lock) {
+            log('【排他制御】他タブがキュー実行中のため、失敗タスクの再キューを安全に拒否しました');
+            return;
+          }
+          try {
+            const fresh = await vault.all();
+            const failed = fresh.filter(t => t.status === 'failed');
+            if (!failed.length) return;
+            await vault.tx('readwrite', store => {
+              failed.forEach(t => store.put({ ...t, status:'pending', attempts:0, error:null }));
+            });
+            await refresh(); notifyChanged(); log(failed.length + '件の失敗タスクを再実行キューに戻しました');
+          } catch (e) { log('再キュー失敗: ' + e.message); }
+        });
+      } catch (err) { log('ロック要求例外: ' + err.message); }
+    };
+
+    const clearAll = async () => {
+      if (!window.confirm('全タスクと保存結果を削除しますか?')) return;
+      if (!navigator.locks) { log('Web Locks非対応のため削除できません'); return; }
+      try {
+        await navigator.locks.request('origin-ultra-runner', { ifAvailable:true }, async lock => {
+          if (!lock) {
+            log('【排他制御】他タブがキュー実行中のため、全削除を安全に拒否しました');
+            return;
+          }
+          try {
+            await vault.clear();
+            await refresh();
+            notifyChanged();
+            log('全データを安全に削除しました');
+          } catch (e) { log('削除失敗: ' + e.message); }
+        });
+      } catch (err) { log('ロック要求例外: ' + err.message); }
+    };
+
+    const stop = () => { stopRef.current = true; if (abortRef.current) abortRef.current(); };
+
+    const escapeMdText = text => (text || '').replace(/[\\`*_{}[\]()<>#+\-.!|~]/g, '\\$&');
+    const downloadMd = () => {
+      const done = tasks.filter(t => t.status === 'done');
+      const head = [
+        '# ORIGIN 調査メモ', '',
+        '- 生成日時: ' + new Date().toLocaleString(),
+        '- 情報出典: Wikipedia (日本語版) 検索API',
+        '- 帰属表示: ウィキペディアの各執筆者コミュニティ (Wikimedia Foundation)',
+        '- ライセンス: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/deed.ja)',
+        '- 免責事項: 本メモはAPIから取得した検索結果スニペットの抜粋であり、完全な記事本文ではありません。', ''
+      ];
+      const body = done.flatMap(t => [
+        '## キーワード: ' + escapeMdText(t.query), '',
+        ...(t.items || []).map(i => '- [' + escapeMdText(i.title) + '](' + wikiUrl(i.title) + ') — ' + escapeMdText(i.snippet)),
+        ''
+      ]);
+      const blob = new Blob([[...head, ...body].join('\n')], { type:'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'origin-research-' + Date.now() + '.md';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+
+    const actionable = tasks.some(t => ['pending', 'interrupted', 'running'].includes(t.status));
+    const doneCount = tasks.filter(t => t.status === 'done').length;
+    const dbColor = db.s === 'online' ? 'text-emerald-400' : db.s === 'unavailable' ? 'text-red-400' : 'text-amber-400';
+    const btn = 'min-h-[44px] px-4 rounded-xl text-xs font-extrabold disabled:opacity-40 ';
+
+    return h('div', { className: 'min-h-screen relative pb-12' },
+      h('div', {
+        style: { top: 'calc(env(safe-area-inset-top, 0px) + 12px)' },
+        className: 'absolute left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-xl pointer-events-none'
+      },
+        h('div', { className: 'bg-zinc-950/95 border border-zinc-800 shadow-2xl px-4 py-2.5 rounded-full flex items-center justify-between text-xs' },
+          h('span', { className: 'font-mono font-bold text-zinc-200' }, 'ORIGIN ULTRA v16'),
+          h('span', { className: 'flex gap-3 font-mono text-[11px]' },
+            h('span', { className: dbColor }, 'IndexedDB: ' + (db.s === 'online' ? 'ONLINE' : db.s === 'unavailable' ? 'UNAVAILABLE' : 'INIT')),
+            h('span', { className: lockOn ? 'text-emerald-400 font-bold' : 'text-zinc-400' }, 'WakeLock: ' + (lockOn ? 'ACTIVE' : 'OFF'))
+          )
+        )
+      ),
+      h('header', {
+        style: { paddingTop: 'calc(env(safe-area-inset-top, 0px) + 4.5rem)' },
+        className: 'px-4 sm:px-6 pb-3 border-b border-zinc-800 bg-zinc-950 flex flex-wrap items-center justify-between gap-2'
+      },
+        h('div', null,
+          h('h1', { className: 'text-sm font-extrabold' }, '調査タスクキュー ＆ 永続化ランナー'),
+          h('p', { className: 'text-xs text-zinc-400 mt-1' }, 'Tailwind CDN完全排除・外部全スクリプトSRI付与済。Wikipedia検索を順次実行しIndexedDBに保存します。')
+        ),
+        h('button', {
+          type: 'button',
+          onClick: runSelfDiagnosticTests,
+          className: 'min-h-[44px] px-4 bg-zinc-800 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold'
+        }, '🧪 自己診断テストを実行')
+      ),
+      testResults && h('section', { 'aria-label': 'テスト結果', className: 'max-w-3xl w-full mx-auto px-4 sm:px-6 pt-4' },
+        h('div', { className: 'p-4 rounded-2xl bg-zinc-950 border border-emerald-500/40 space-y-2' },
+          h('h2', { className: 'text-xs font-bold text-emerald-400' }, 'ブラウザ内 自己診断テスト結果 (スクリプト開始〜初回useEffect実測: ' + (mountDuration ? mountDuration + 'ms' : '計測中') + ')'),
+          h('p', { className: 'text-[10px] text-zinc-400' }, '※本診断はブラウザ内基本APIの簡易単体テストであり、外部通信やE2E動作、本番品質を保証するものではありません。'),
+          h('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs' },
+            testResults.map((t, idx) => h('div', { key: idx, className: 'p-2 rounded bg-zinc-900 flex items-center justify-between' },
+              h('span', { className: 'text-zinc-300' }, t.name),
+              h('span', { className: t.pass ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold' }, t.pass ? '✓ PASS' : '✗ FAIL')
+            ))
+          )
+        )
+      ),
+      h('main', { className: 'max-w-3xl w-full mx-auto p-4 sm:p-6 space-y-5' },
+        h('section', { 'aria-label': '稼働状態', className: 'grid grid-cols-1 sm:grid-cols-3 gap-3' },
+          h('div', { className: 'p-4 rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col justify-between' },
+            h('div', null,
+              h('div', { className: 'text-xs text-zinc-400' }, 'IndexedDB 状態'),
+              h('div', { className: 'text-sm font-bold mt-1 ' + dbColor }, db.s === 'online' ? 'ONLINE (OriginUltraV16)' : db.s === 'unavailable' ? 'UNAVAILABLE' : 'INIT (接続中)'),
+              db.s === 'unavailable' && h('p', { className: 'text-[11px] text-red-300 mt-1 break-all' }, db.m)
+            ),
+            db.s === 'unavailable' && h('button', {
+              type: 'button',
+              onClick: retryDbInit,
+              className: 'mt-2 min-h-[44px] px-3.5 bg-red-950 text-red-200 rounded-xl border border-red-800 text-xs font-bold'
+            }, '再接続を試行')
+          ),
+          h('div', { className: 'p-4 rounded-2xl bg-zinc-900 border border-zinc-800' },
+            h('div', { className: 'text-xs text-zinc-400' }, 'Screen Wake Lock'),
+            h('div', { className: 'text-sm font-bold mt-1 text-zinc-100' }, lockMsg),
+            h('div', { className: 'text-[10px] text-zinc-400 mt-1' }, '排他制御: ' + (navigator.locks ? 'Web Locks API (取得時のみ実行)' : '非対応 (安全停止)'))
+          ),
+          h('div', { className: 'p-4 rounded-2xl bg-zinc-900 border border-zinc-800' },
+            h('div', { className: 'text-xs text-zinc-400' }, 'Worker生存ハートビート'),
+            h('div', { className: 'text-sm font-bold mt-1 text-zinc-100' }, !running ? '待機中' : beatAgo === null ? '通信中' : beatAgo + '秒前'),
+            h('div', { className: 'text-[10px] text-zinc-400 mt-1' }, '6秒無応答で自動強制回収')
+          )
+        ),
+        h('section', { 'aria-label': 'タスク追加', className: 'p-4 rounded-3xl bg-zinc-950 border border-zinc-800 space-y-3' },
+          h('label', { htmlFor: 'qs', className: 'block text-xs text-zinc-300' }, '調査キーワード (1行に1件、最大10件)'),
+          h('textarea', {
+            id: 'qs', rows: 4, value: input,
+            onChange: e => setInput(e.target.value),
+            className: 'w-full p-3 rounded-2xl bg-zinc-900 border border-zinc-700 text-xs text-zinc-100'
+          }),
+          h('div', { className: 'flex flex-wrap gap-2' },
+            h('button', { type: 'button', onClick: addTasks, disabled: db.s !== 'online', className: btn + 'bg-zinc-800 text-zinc-100' }, 'キューに追加'),
+            h('button', { type: 'button', onClick: startQueue, disabled: running || !actionable, className: btn + 'bg-emerald-500 text-black' }, '実行 / 再開'),
+            h('button', { type: 'button', onClick: stop, disabled: !running, className: btn + 'bg-amber-500 text-black' }, '停止'),
+            h('button', { type: 'button', onClick: requeueFailed, disabled: running || !tasks.some(t => t.status === 'failed'), className: btn + 'bg-zinc-800 text-zinc-100' }, '失敗を再実行'),
+            h('button', { type: 'button', onClick: downloadMd, disabled: !doneCount, className: btn + 'bg-zinc-800 text-zinc-100' }, 'Markdown保存'),
+            h('button', { type: 'button', onClick: clearAll, disabled: running || !tasks.length, className: btn + 'bg-red-900 text-red-100' }, '全削除')
+          )
+        ),
+        h('section', { 'aria-label': 'タスク一覧', className: 'space-y-3' },
+          h('h2', { className: 'text-xs text-zinc-400' }, '登録タスク ' + tasks.length + '件 / 完了 ' + doneCount + '件'),
+          tasks.length === 0 && h('p', { className: 'text-xs text-zinc-400' }, 'タスクはまだありません。'),
+          h('ul', { className: 'space-y-3', 'aria-live': 'polite' },
+            tasks.map(t => h('li', { key: t.id, className: 'p-4 rounded-2xl bg-zinc-950 border border-zinc-800' },
+              h('div', { className: 'flex flex-wrap items-center gap-2' },
+                h('span', { className: 'text-[11px] px-2 py-0.5 rounded-full font-bold ' + BADGE[t.status] }, STATUS[t.status]),
+                h('span', { className: 'text-sm font-bold break-all' }, t.query),
+                h('span', { className: 'text-[11px] text-zinc-400' }, '試行 ' + t.attempts + '/' + MAX_ATTEMPTS)
+              ),
+              t.error && t.status !== 'done' && h('p', { className: 'text-xs text-red-300 mt-2 break-all' }, '直近のエラー: ' + t.error),
+              t.items && h('ul', { className: 'mt-2 space-y-2' },
+                t.items.map((i, k) => h('li', { key: k, className: 'text-xs' },
+                  h('a', { href: wikiUrl(i.title), target: '_blank', rel: 'noopener noreferrer', className: 'text-emerald-300 underline' }, i.title),
+                  h('p', { className: 'text-zinc-400 mt-0.5' }, i.snippet)
+                ))
+              )
+            ))
+          )
+        ),
+        h('section', { 'aria-label': '実行ログ' },
+          h('h2', { className: 'text-xs text-zinc-400 mb-1.5' }, '実行ログ (画面表示中のみ保持)'),
+          h('div', { role: 'log', 'aria-live': 'polite', className: 'p-3 rounded-2xl bg-black border border-zinc-800 font-mono text-xs text-emerald-400 h-44 overflow-y-auto space-y-1' },
+            logs.length === 0 && h('div', { className: 'text-zinc-400' }, 'ログはまだありません。'),
+            logs.map((l, i) => h('div', { key: i }, l))
+          )
+        ),
+        h('p', { className: 'text-xs text-zinc-400 leading-relaxed bg-zinc-900/50 p-4 rounded-2xl border-l-4 border-emerald-500' },
+          '【動作制約の開示】1タスクはWikipedia検索の上位3件(タイトルと抜粋)を取得するものであり、本文の全文要約は行いません。' +
+          '実行中は画面の点灯維持を試みますが、前面表示・充電・画面ONが前提です。蓋を閉じたPCやスマホのバックグラウンドでは停止します。' +
+          '停止した場合は、次回このページを開いた際に未完了タスクを自動で再開します。' +
+          'データはこの端末のIndexedDBのみに保存され、サイトデータの消去やSafariの自動削除で失われることがあります。' +
+          'v16: Tailwind CDN完全排除・インラインCSS化。全外部スクリプト(React/ReactDOM)にcdnjs公式SRIハッシュ(sha512)付与済。Web Locks非対応時は安全停止します。'
+        )
+      )
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Boundary, null, h(App)));
+})();
+</script>
+</body>
+</html>
