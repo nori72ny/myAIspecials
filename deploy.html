@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORIGIN Direct Deployer</title>
+  <style>
+    :root { --bg: #0a0e17; --panel: #141c2e; --primary: #00f2fe; --accent: #4facfe; --text: #e2e8f0; --success: #00ff87; --danger: #ff0055; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .card { background: var(--panel); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); max-width: 480px; margin: auto; }
+    h2 { margin-top: 0; color: var(--primary); font-size: 1.25rem; }
+    label { font-size: 0.8rem; color: #94a3b8; display: block; margin-top: 12px; }
+    input, textarea { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid #334155; border-radius: 8px; color: #fff; padding: 10px; margin-top: 4px; font-size: 0.9rem; }
+    textarea { height: 120px; font-family: monospace; resize: none; }
+    .btn { width: 100%; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #000; font-weight: bold; border: none; border-radius: 8px; padding: 14px; margin-top: 16px; font-size: 1rem; cursor: pointer; transition: opacity 0.2s; }
+    .btn:active { opacity: 0.8; }
+    .status { margin-top: 16px; padding: 10px; border-radius: 8px; font-size: 0.85rem; display: none; word-break: break-all; }
+    .status.success { display: block; background: rgba(0,255,135,0.15); border: 1px solid var(--success); color: var(--success); }
+    .status.error { display: block; background: rgba(255,0,85,0.15); border: 1px solid var(--danger); color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🚀 ORIGIN 本番承認デプロイ器</h2>
+    
+    <label>GitHub Personal Access Token (PAT)</label>
+    <input type="password" id="ghToken" placeholder="github_pat_...">
+
+    <label>GitHub ユーザー名 / リポジトリ名</label>
+    <div style="display: flex; gap: 8px;">
+      <input type="text" id="repoOwner" placeholder="ユーザー名">
+      <input type="text" id="repoName" placeholder="リポジトリ名" value="origin">
+    </div>
+
+    <label>コミットメッセージ</label>
+    <input type="text" id="commitMsg" value="🚀 Production Deploy via ORIGIN Direct Deployer">
+
+    <label>最新 HTML コード全文</label>
+    <textarea id="htmlContent" placeholder="チャットで生成された最新コード"></textarea>
+    <button class="btn" style="background: #334155; color: #fff; padding: 8px; font-size: 0.8rem; margin-top: 6px;" onclick="pasteClipboard()">📋 クリップボードから貼り付け</button>
+
+    <button class="btn" id="deployBtn" onclick="executeDeploy()">承認（本番デプロイ実行）</button>
+    <div id="statusBox" class="status"></div>
+  </div>
+
+  <script>
+    const storageKeys = ['ghToken', 'repoOwner', 'repoName'];
+    storageKeys.forEach(key => {
+      const saved = localStorage.getItem('ORIGIN_' + key);
+      if (saved) document.getElementById(key).value = saved;
+      document.getElementById(key).addEventListener('input', (e) => {
+        localStorage.setItem('ORIGIN_' + key, e.target.value.trim());
+      });
+    });
+
+    async function pasteClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById('htmlContent').value = text;
+        showStatus('クリップボードからコードを読み込みました', 'success');
+      } catch (err) {
+        showStatus('クリップボードの読み取りを許可してください', 'error');
+      }
+    }
+
+    function utf8ToBase64(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binString = "";
+      bytes.forEach(b => binString += String.fromCharCode(b));
+      return btoa(binString);
+    }
+
+    async function executeDeploy() {
+      const token = document.getElementById('ghToken').value.trim();
+      const owner = document.getElementById('repoOwner').value.trim();
+      const repo = document.getElementById('repoName').value.trim();
+      const content = document.getElementById('htmlContent').value;
+      const message = document.getElementById('commitMsg').value.trim();
+      const btn = document.getElementById('deployBtn');
+
+      if (!token || !owner || !repo || !content) {
+        showStatus('トークン、オーナー名、リポジトリ名、HTMLコードは必須です', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'デプロイ通信中...';
+      showStatus('GitHub APIへ直接通信中...', 'success');
+
+      try {
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/index.html`;
+
+        const getRes = await fetch(apiUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+
+        let currentSha = null;
+        if (getRes.status === 200) {
+          const fileData = await getRes.json();
+          currentSha = fileData.sha;
+        }
+
+        const payload = {
+          message: message,
+          content: utf8ToBase64(content),
+          branch: 'main'
+        };
+        if (currentSha) payload.sha = currentSha;
+
+        const putRes = await fetch(apiUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await putRes.json();
+
+        if (putRes.status === 200 || putRes.status === 201) {
+          showStatus(`🎉 本番デプロイ成功！\nCommit: ${result.commit.sha.substring(0, 7)}\n約3秒後に origin-personal.vercel.app が更新されます。`, 'success');
+        } else {
+          showStatus(`エラー (${putRes.status}): ${result.message}`, 'error');
+        }
+      } catch (err) {
+        showStatus(`通信例外エラー: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '承認（本番デプロイ実行）';
+      }
+    }
+
+    function showStatus(text, type) {
+      const box = document.getElementById('statusBox');
+      box.className = 'status ' + type;
+      box.innerText = text;
+    }
+  </script>
+</body>
+</html>
