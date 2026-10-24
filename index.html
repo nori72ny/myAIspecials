@@ -1,182 +1,415 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" class="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ORIGIN - Autonomous System</title>
-  <style>
-    :root { --bg: #030712; --card: #111827; --primary: #00f2fe; --accent: #4facfe; --text: #f3f4f6; }
-    body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-    .container { padding: 20px; max-width: 600px; margin: auto; }
-    .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 9999px; background: rgba(0,242,254,0.1); border: 1px solid var(--primary); color: var(--primary); font-size: 0.75rem; font-weight: bold; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 8px var(--primary); }
-    h1 { font-size: 1.5rem; margin: 16px 0 8px 0; background: linear-gradient(135deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .card { background: var(--card); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; margin-top: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); }
-    
-    /* 🚀 自己完結デプロイ機能（システム内蔵フローティングUI） */
-    #deployTrigger { position: fixed; bottom: 20px; right: 20px; width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--accent)); border: none; font-size: 1.4rem; cursor: pointer; box-shadow: 0 4px 20px rgba(0,242,254,0.4); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-    #deployModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10000; padding: 20px; box-sizing: border-box; align-items: center; justify-content: center; }
-    #deployModal.active { display: flex; }
-    .modal-content { background: var(--card); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 20px; width: 100%; max-width: 440px; box-sizing: border-box; }
-    .modal-content h3 { margin: 0 0 12px 0; color: var(--primary); font-size: 1.1rem; }
-    .modal-content label { display: block; font-size: 0.75rem; color: #9ca3af; margin-top: 8px; }
-    .modal-content input, .modal-content textarea { width: 100%; box-sizing: border-box; background: #030712; border: 1px solid #374151; border-radius: 8px; padding: 8px; color: #fff; font-size: 0.85rem; margin-top: 4px; }
-    .modal-btn { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; margin-top: 12px; cursor: pointer; }
-    .btn-primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #000; }
-    .btn-secondary { background: #374151; color: #fff; margin-top: 6px; }
-    .deploy-status { font-size: 0.8rem; margin-top: 10px; padding: 8px; border-radius: 6px; display: none; word-break: break-all; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+<title>ORIGIN ULTRA v16.3 — Autonomous Edition</title>
+<!-- CSP: unsafe-eval完全排除、SRI維持、GitHub API(api.github.com)通信を安全に解放 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ja.wikipedia.org https://api.github.com; worker-src blob:; img-src 'self' data: blob: https:; font-src 'self' data: https:; object-src 'none'; base-uri 'none'; form-action 'self';" />
+<!-- 外部スクリプト: 公式SRI(sha512)付与済みのReact/ReactDOM -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" integrity="sha512-QVs8Lo43F9lSuBykadDb0oSXDL/BbZ588urWVCRwSIoewQv/Ewg1f84mK3U790bZ0FfhFa1YSQUmIhG+pIRKeg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" integrity="sha512-6a1107rTlA4gYpgHAqbwLAtxmWipBdJFcq8y5S/aTge3Bp+VAklABm2LO+Kg51vOWR9JMZq1Ovjl5tpluNpTeQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+  *, ::before, ::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #27272a; }
+  body { margin: 0; background: #000; color: #f4f4f5; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
+  .antialiased { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  button, input, textarea, a { font-family: inherit; font-size: 100%; line-height: inherit; color: inherit; margin: 0; padding: 0; }
+  button { cursor: pointer; text-transform: none; }
+  button:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
+  textarea { resize: vertical; }
+  a { text-decoration: none; }
+  .min-h-screen { min-height: 100vh; }
+  .overflow-x-hidden { overflow-x: hidden; }
+  .relative { position: relative; }
+  .absolute { position: absolute; }
+  .left-1\/2 { left: 50%; }
+  .-translate-x-1\/2 { transform: translateX(-50%); }
+  .z-50 { z-index: 50; }
+  .w-\[94\%\] { width: 94%; }
+  .max-w-xl { max-width: 36rem; }
+  .max-w-3xl { max-width: 48rem; }
+  .w-full { width: 100%; }
+  .mx-auto { margin-left: auto; margin-right: auto; }
+  .pointer-events-none { pointer-events: none; }
+  .bg-zinc-950\/95 { background-color: rgba(9, 9, 11, 0.95); }
+  .bg-zinc-950 { background-color: #09090b; }
+  .bg-zinc-900 { background-color: #18181b; }
+  .bg-zinc-900\/50 { background-color: rgba(24, 24, 27, 0.5); }
+  .bg-zinc-800 { background-color: #27272a; }
+  .bg-emerald-500 { background-color: #10b981; }
+  .bg-emerald-900 { background-color: #064e3b; }
+  .bg-amber-500 { background-color: #f59e0b; }
+  .bg-amber-900 { background-color: #78350f; }
+  .bg-sky-900 { background-color: #0c4a6e; }
+  .bg-red-900 { background-color: #7f1d1d; }
+  .bg-red-950 { background-color: #450a0a; }
+  .bg-black { background-color: #000; }
+  .text-zinc-100 { color: #f4f4f5; }
+  .text-zinc-200 { color: #e4e4e7; }
+  .text-zinc-300 { color: #d4d4d8; }
+  .text-zinc-400 { color: #a1a1aa; }
+  .text-emerald-300 { color: #6ee7b7; }
+  .text-emerald-400 { color: #34d399; }
+  .text-amber-200 { color: #fde68a; }
+  .text-sky-200 { color: #bae6fd; }
+  .text-red-200 { color: #fecaca; }
+  .text-red-300 { color: #fca5a5; }
+  .text-red-400 { color: #f87171; }
+  .text-black { color: #000; }
+  .border { border-width: 1px; }
+  .border-b { border-bottom-width: 1px; }
+  .border-l-4 { border-left-width: 4px; }
+  .border-zinc-800 { border-color: #27272a; }
+  .border-zinc-700 { border-color: #3f3f46; }
+  .border-emerald-500 { border-color: #10b981; }
+  .border-emerald-500\/40 { border-color: rgba(16, 185, 129, 0.4); }
+  .border-red-500\/50 { border-color: rgba(239, 68, 68, 0.5); }
+  .border-red-800 { border-color: #991b1b; }
+  .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); }
+  .rounded-full { border-radius: 9999px; }
+  .rounded-3xl { border-radius: 1.5rem; }
+  .rounded-2xl { border-radius: 1rem; }
+  .rounded-xl { border-radius: 0.75rem; }
+  .rounded { border-radius: 0.25rem; }
+  .px-4 { padding-left: 1rem; padding-right: 1rem; }
+  .py-2\.5 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+  .p-4 { padding: 1rem; }
+  .p-6 { padding: 1.5rem; }
+  .p-3 { padding: 0.75rem; }
+  .p-2 { padding: 0.5rem; }
+  .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .py-0\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+  .pb-3 { padding-bottom: 0.75rem; }
+  .pb-12 { padding-bottom: 3rem; }
+  .pt-4 { padding-top: 1rem; }
+  .flex { display: flex; }
+  .flex-col { flex-direction: column; }
+  .flex-wrap { flex-wrap: wrap; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .gap-2 { gap: 0.5rem; }
+  .gap-3 { gap: 0.75rem; }
+  .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
+  .space-y-2 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+  .space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.75rem; }
+  .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: 1.25rem; }
+  .grid { display: grid; }
+  .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  @media (min-width: 640px) {
+    .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sm\:px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+  }
+  .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  .font-bold { font-weight: 700; }
+  .font-extrabold { font-weight: 800; }
+  .text-xs { font-size: 0.75rem; line-height: 1rem; }
+  .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+  .text-\[11px\] { font-size: 11px; line-height: 1rem; }
+  .text-\[10px\] { font-size: 10px; line-height: 0.875rem; }
+  .min-h-\[44px\] { min-height: 44px; }
+  .h-44 { height: 11rem; }
+  .overflow-y-auto { overflow-y: auto; }
+  .break-all { word-break: break-all; }
+  .underline { text-decoration-line: underline; }
+  .mt-0\.5 { margin-top: 0.125rem; }
+  .mt-1 { margin-top: 0.25rem; }
+  .mt-2 { margin-top: 0.5rem; }
+  .mt-3 { margin-top: 0.75rem; }
+  .mb-1\.5 { margin-bottom: 0.375rem; }
+  .block { display: block; }
+  .leading-relaxed { line-height: 1.625; }
+  .disabled\:opacity-40:disabled { opacity: 0.4; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 9999px; }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+
+  /* 🚀 自律デプロイ機能専用UI（v16デザインと完全調和） */
+  #deployTriggerBtn { position: fixed; bottom: 16px; right: 16px; width: 44px; height: 44px; border-radius: 50%; background: #10b981; color: #000; border: none; font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 15px rgba(16,185,129,0.4); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+  #deployModalOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10000; padding: 16px; box-sizing: border-box; align-items: center; justify-content: center; }
+  #deployModalOverlay.active { display: flex; }
+  .deploy-card { background: #09090b; border: 1px solid #27272a; border-radius: 1.25rem; padding: 20px; width: 100%; max-width: 420px; box-sizing: border-box; }
+  .deploy-card h3 { margin: 0 0 10px 0; color: #34d399; font-size: 1rem; font-weight: 800; font-family: ui-monospace, monospace; }
+  .deploy-card label { display: block; font-size: 0.75rem; color: #a1a1aa; margin-top: 8px; }
+  .deploy-card input, .deploy-card textarea { width: 100%; box-sizing: border-box; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 8px; color: #fff; font-size: 0.8rem; margin-top: 4px; }
+  .deploy-btn-group { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .deploy-btn { width: 100%; min-height: 40px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+</style>
 </head>
-<body>
+<body class="antialiased min-h-screen overflow-x-hidden">
+<div id="root"></div>
 
-  <div class="container">
-    <div class="status-badge">
-      <div class="status-dot"></div> ORIGIN v16.3 AUTONOMOUS PASS
-    </div>
-    <h1>ORIGIN ULTRA</h1>
-    <div class="card">
-      <p style="margin:0; font-size:0.9rem; color:#9ca3af;">
-        自律型分散システム「ORIGIN」は完全稼働中です。<br>
-        外部監査スコア: <strong>98.6点（Production Certified）</strong><br>
-        自己完結型デプロイエンジンが統合されました。
-      </p>
-    </div>
-  </div>
+<!-- 🚀 自律デプロイ機能（画面右下の常駐フローティングボタン） -->
+<button id="deployTriggerBtn" title="本番デプロイ司令室" onclick="toggleDeployUI()">🚀</button>
 
-  <!-- 🚀 システム内蔵・自律デプロイボタン -->
-  <button id="deployTrigger" onclick="toggleDeployModal()">🚀</button>
+<div id="deployModalOverlay" onclick="if(event.target===this) toggleDeployUI()">
+  <div class="deploy-card">
+    <h3>🚀 ORIGIN AUTONOMOUS DEPLOYER</h3>
+    
+    <label>GitHub Personal Access Token (PAT)</label>
+    <input type="password" id="ghPat" placeholder="github_pat_...">
 
-  <!-- デプロイモーダル -->
-  <div id="deployModal" onclick="if(event.target===this) toggleDeployModal()">
-    <div class="modal-content">
-      <h3>🚀 ORIGIN 本番承認デプロイ</h3>
-      
-      <label>GitHub Token (PAT)</label>
-      <input type="password" id="ghToken" placeholder="github_pat_...">
-
-      <div style="display:flex; gap:8px;">
-        <div style="flex:1;">
-          <label>オーナー名</label>
-          <input type="text" id="repoOwner" placeholder="GitHubユーザー名">
-        </div>
-        <div style="flex:1;">
-          <label>リポジトリ</label>
-          <input type="text" id="repoName" placeholder="origin" value="origin">
-        </div>
+    <div style="display:flex; gap:8px;">
+      <div style="flex:1;">
+        <label>オーナー名</label>
+        <input type="text" id="ghOwner" placeholder="GitHubユーザー名">
       </div>
-
-      <label>最新コード（HTML全文）</label>
-      <textarea id="deployCode" style="height:80px;" placeholder="チャットで生成された最新コード"></textarea>
-      <button class="modal-btn btn-secondary" onclick="readFromClipboard()">📋 クリップボードから貼付</button>
-
-      <button class="modal-btn btn-primary" id="execDeployBtn" onclick="runDirectDeploy()">承認（本番デプロイ実行）</button>
-      <button class="modal-btn" style="background:transparent; color:#9ca3af; margin-top:4px;" onclick="toggleDeployModal()">閉じる</button>
-
-      <div id="deployLog" class="deploy-status"></div>
+      <div style="flex:1;">
+        <label>リポジトリ名</label>
+        <input type="text" id="ghRepo" placeholder="origin" value="origin">
+      </div>
     </div>
+
+    <label>最新コード（HTML全文）</label>
+    <textarea id="ghCode" style="height:70px;" placeholder="チャットで生成された最新コード"></textarea>
+    
+    <div class="deploy-btn-group">
+      <button class="deploy-btn" style="background:#27272a; color:#f4f4f5;" onclick="pasteToDeploy()">📋 クリップボードから貼付</button>
+      <button class="deploy-btn" style="background:#10b981; color:#000;" id="execCommitBtn" onclick="executeCommit()">承認（本番デプロイ実行）</button>
+      <button class="deploy-btn" style="background:transparent; color:#71717a;" onclick="toggleDeployUI()">閉じる</button>
+    </div>
+
+    <div id="deployStatusLog" style="font-size:0.75rem; margin-top:10px; padding:8px; border-radius:6px; display:none; word-break:break-all;"></div>
   </div>
+</div>
 
-  <script>
-    // 1. デプロイモーダルの表示切替
-    function toggleDeployModal() {
-      const modal = document.getElementById('deployModal');
-      modal.classList.toggle('active');
+<script>
+/* --- v16 本体スクリプト（1行も削らず100%維持） --- */
+(function() {
+  const scriptStartTime = performance.now();
+  let measuredDuration = null;
+
+  const { useState, useEffect, useRef, useCallback, Component, createElement: h } = React;
+  const MAX_ATTEMPTS = 3, TASK_TIMEOUT = 25000, BEAT_LOST = 6000;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  const makeTaskId = () => {
+    try { if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID(); } catch (_) {}
+    const random = window.crypto && typeof window.crypto.getRandomValues === 'function'
+      ? Array.from(window.crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join('-')
+      : Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+    return 'task-' + Date.now().toString(36) + '-' + random;
+  };
+
+  const STATUS = { pending:'待機', running:'実行中', done:'完了', failed:'失敗', interrupted:'中断' };
+  const BADGE = {
+    pending:'bg-zinc-800 text-zinc-200', running:'bg-amber-900 text-amber-200',
+    done:'bg-emerald-900 text-emerald-300', failed:'bg-red-900 text-red-200', interrupted:'bg-sky-900 text-sky-200'
+  };
+
+  const wikiUrl = t => {
+    const normalized = t.replace(/ /g, '_');
+    const encoded = encodeURIComponent(normalized).replace(/[()']/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+    return 'https://ja.wikipedia.org/wiki/' + encoded;
+  };
+
+  class Boundary extends Component {
+    constructor(p){ super(p); this.state = { err:null }; }
+    static getDerivedStateFromError(err){ return { err }; }
+    componentDidCatch(e){ console.error('[ORIGIN Boundary Catch]:', e); }
+    render(){
+      if (!this.state.err) return this.props.children;
+      return h('div', { role: 'alert', className: 'p-6' },
+        h('p', { className: 'text-sm text-red-300 break-all' }, '描画例外: ' + String(this.state.err.message)),
+        h('button', {
+          type: 'button',
+          onClick: () => this.setState({ err: null }),
+          className: 'mt-3 min-h-[44px] px-4 rounded-xl bg-emerald-500 text-black font-bold text-xs'
+        }, '画面を復旧')
+      );
     }
+  }
 
-    // 2. トークン・リポジトリ情報の端末内保存（localStorage）
-    ['ghToken', 'repoOwner', 'repoName'].forEach(id => {
-      const saved = localStorage.getItem('ORIGIN_' + id);
-      if (saved) document.getElementById(id).value = saved;
-      document.getElementById(id).addEventListener('input', e => {
-        localStorage.setItem('ORIGIN_' + id, e.target.value.trim());
-      });
-    });
-
-    // 3. クリップボードからのワンタップ読み取り
-    async function readFromClipboard() {
-      try {
-        const text = await navigator.clipboard.readText();
-        document.getElementById('deployCode').value = text;
-        showLog('コードを貼り付けました', '#00ff87');
-      } catch (e) {
-        showLog('クリップボード許可が必要です', '#ff0055');
+  class Vault {
+    constructor(){ this.p = null; }
+    open(){
+      if (!window.indexedDB) {
+        this.p = null;
+        return Promise.reject(new Error('IndexedDB非対応ブラウザです'));
       }
-    }
+      if (this.p) return this.p;
 
-    // 4. UTF-8 Base64エンコーダー
-    function toBase64(str) {
-      const bytes = new TextEncoder().encode(str);
-      let bin = "";
-      bytes.forEach(b => bin += String.fromCharCode(b));
-      return btoa(bin);
-    }
-
-    // 5. GitHub API CORS直結コミット
-    async function runDirectDeploy() {
-      const token = document.getElementById('ghToken').value.trim();
-      const owner = document.getElementById('repoOwner').value.trim();
-      const repo  = document.getElementById('repoName').value.trim();
-      const code  = document.getElementById('deployCode').value;
-      const btn   = document.getElementById('execDeployBtn');
-
-      if (!token || !owner || !repo || !code) {
-        showLog('全項目を入力してください', '#ff0055');
-        return;
-      }
-
-      btn.disabled = true;
-      btn.innerText = 'デプロイ通信中...';
-      showLog('GitHub APIと直接通信中...', '#00f2fe');
-
-      try {
-        const url = `https://api.github.com/repos/${owner}/${repo}/contents/index.html`;
-
-        // SHA取得
-        const getRes = await fetch(url, {
-          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
-        });
-        const currentSha = getRes.status === 200 ? (await getRes.json()).sha : null;
-
-        // PUTコミット
-        const payload = {
-          message: '🚀 [ORIGIN ULTRA] Autonomous Deploy from In-App Console',
-          content: toBase64(code),
-          branch: 'main'
+      this.p = new Promise((res, rej) => {
+        let isBlocked = false;
+        const rq = indexedDB.open('OriginUltraV16', 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore('tasks', { keyPath:'id' });
+        rq.onblocked = () => {
+          isBlocked = true;
+          rej(new Error('旧バージョンのタブが開いているためブロックされました。他タブを閉じてください'));
         };
-        if (currentSha) payload.sha = currentSha;
+        rq.onsuccess = () => {
+          if (isBlocked) { try { rq.result.close(); } catch(_) {} return; }
+          rq.result.onversionchange = () => {
+            try { rq.result.close(); } catch(_) {}
+            this.p = null;
+          };
+          rq.result.onclose = () => { this.p = null; };
+          res(rq.result);
+        };
+        rq.onerror = () => rej(rq.error || new Error('IndexedDB接続失敗'));
+      }).catch(err => {
+        this.p = null;
+        throw err;
+      });
 
-        const putRes = await fetch(url, {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
+      return this.p;
+    }
+    reset(){ this.p = null; }
+    async tx(mode, fn){
+      const db = await this.open();
+      return new Promise((res, rej) => {
+        let t, out;
+        try {
+          t = db.transaction('tasks', mode);
+          out = fn(t.objectStore('tasks'));
+        } catch (e) { this.p = null; return rej(e instanceof Error ? e : new Error(String(e))); }
+        t.oncomplete = () => res(out && out.result !== undefined ? out.result : true);
+        t.onerror = t.onabort = () => rej(t.error || new Error('IndexedDBトランザクション中断'));
+      });
+    }
+    all(){ return this.tx('readonly', s => s.getAll()); }
+    put(task){ return this.tx('readwrite', s => s.put(task)); }
+    clear(){ return this.tx('readwrite', s => s.clear()); }
+    delete(id){ return this.tx('readwrite', s => s.delete(id)); }
+  }
+  const vault = new Vault();
 
-        const resData = await putRes.json();
-        if (putRes.status === 200 || putRes.status === 201) {
-          showLog('🎉 本番反映成功！約3秒後に画面をリロードしてください。', '#00ff87');
-        } else {
-          showLog('失敗: ' + resData.message, '#ff0055');
+  const syncCh = typeof BroadcastChannel === 'function' ? new BroadcastChannel('origin-ultra-sync') : null;
+  const notifyChanged = () => { try { syncCh && syncCh.postMessage('changed'); } catch (_) {} };
+
+  const WORKER_SRC = `
+  let beat;
+  const ENT = { '&quot;':'"', '&#039;':"'", '&#39;':"'", '&lt;':'<', '&gt;':'>', '&nbsp;':' ' };
+  const dec = t => t
+    .replace(/&(quot|lt|gt|nbsp|#0?39);/g, m => ENT[m])
+    .replace(/&#(\\d+);/g, (m, n) => (+n > 0 && +n <= 0x10FFFF) ? String.fromCodePoint(+n) : m)
+    .replace(/&amp;/g, '&');
+  onmessage = async (e) => {
+    const { query } = e.data;
+    beat = setInterval(() => postMessage({ type:'HB' }), 1000);
+    try {
+      const u = 'https://ja.wikipedia.org/w/api.php?action=query&list=search&srlimit=3&format=json&origin=*&srsearch=' + encodeURIComponent(query);
+      const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      const items = (j.query?.search || []).map(s => ({
+        title: s.title,
+        snippet: dec(s.snippet.replace(/<[^>]+>/g, ''))
+      }));
+      postMessage({ type:'RESULT', ok:true, items });
+    } catch (err) {
+      postMessage({ type:'RESULT', ok:false, error:String(err.message || err) });
+    } finally { clearInterval(beat); }
+  };`;
+
+  function runInWorker(query, onBeat, abortRef){
+    return new Promise(resolve => {
+      let w, url, timer, watch, done = false, last = Date.now();
+      const end = r => {
+        if (done) return; done = true;
+        clearTimeout(timer); clearInterval(watch); abortRef.current = null;
+        try { w && w.terminate(); } catch (_) {}
+        if (url) URL.revokeObjectURL(url);
+        resolve(r);
+      };
+      try {
+        url = URL.createObjectURL(new Blob([WORKER_SRC], { type:'text/javascript' }));
+        w = new Worker(url);
+      } catch (e) { return end({ ok:false, error:'Worker生成失敗: ' + e.message }); }
+      abortRef.current = () => end({ ok:false, aborted:true, error:'手動停止' });
+      w.onmessage = e => { last = Date.now(); onBeat(last); if (e.data.type === 'RESULT') end(e.data); };
+      w.onerror = e => end({ ok:false, error:'Worker例外: ' + (e.message || '不明') });
+      timer = setTimeout(() => end({ ok:false, error:'タスクタイムアウト(' + TASK_TIMEOUT / 1000 + '秒)' }), TASK_TIMEOUT);
+      watch = setInterval(() => { if (Date.now() - last > BEAT_LOST) end({ ok:false, error:'Worker応答喪失(' + BEAT_LOST / 1000 + '秒)' }); }, 1000);
+      w.postMessage({ query });
+    });
+  }
+
+  function App(){
+    const [tasks, setTasks] = useState([]);
+    const [db, setDb] = useState({ s:'init', m:'' });
+    const [running, setRunning] = useState(false);
+    const [lockOn, setLockOn] = useState(false);
+    const [lockMsg, setLockMsg] = useState('未取得 (前面表示時のみ有効)');
+    const [beatAgo, setBeatAgo] = useState(null);
+    const [logs, setLogs] = useState([]);
+    const [input, setInput] = useState('人工知能\nWebGPU\nScreen Wake Lock API');
+    const [testResults, setTestResults] = useState(null);
+    const [mountDuration, setMountDuration] = useState(null);
+    const runningRef = useRef(false), stopRef = useRef(false), abortRef = useRef(null);
+    const lockRef = useRef(null), reasonRef = useRef('unknown'), beatRef = useRef(0), logsRef = useRef([]);
+
+    const log = useCallback(m => {
+      logsRef.current = [...logsRef.current.slice(-99), '[' + new Date().toLocaleTimeString() + '] ' + m];
+      setLogs(logsRef.current);
+    }, []);
+
+    const refresh = useCallback(async () => {
+      const all = await vault.all();
+      all.sort((a, b) => a.createdAt - b.createdAt);
+      setTasks(all);
+      return all;
+    }, []);
+
+    const retryDbInit = useCallback(async () => {
+      vault.reset();
+      setDb({ s:'init', m:'再接続中...' });
+      try {
+        const all = await refresh();
+        setDb({ s:'online', m:'' });
+        log('IndexedDBへの再接続に成功しました');
+        if (all.some(t => ['pending', 'interrupted', 'running'].includes(t.status))) {
+          log('未完了タスクを検出、自動再開します');
+          startQueue();
         }
-      } catch (err) {
-        showLog('通信例外: ' + err.message, '#ff0055');
-      } finally {
-        btn.disabled = false;
-        btn.innerText = '承認（本番デプロイ実行）';
+      } catch (e) {
+        setDb({ s:'unavailable', m:e.message });
+        log('IndexedDB再接続失敗: ' + e.message);
       }
-    }
+    }, [refresh, log]);
 
-    function showLog(msg, color) {
-      const log = document.getElementById('deployLog');
-      log.style.display = 'block';
-      log.style.background = 'rgba(255,255,255,0.05)';
-      log.style.border = `1px solid ${color}`;
-      log.style.color = color;
-      log.innerText = msg;
-    }
-  </script>
-</body>
-</html>
+    const acquireLock = useCallback(async () => {
+      if (lockRef.current && !lockRef.current.released) return true;
+      if (!('wakeLock' in navigator)) { setLockMsg('非対応ブラウザ'); return false; }
+      try {
+        const l = await navigator.wakeLock.request('screen');
+        lockRef.current = l; setLockOn(true); setLockMsg('有効 (前面表示中)');
+        l.addEventListener('release', () => {
+          if (lockRef.current === l) lockRef.current = null;
+          setLockOn(false);
+          const m = { done:'タスク終了により解除', hidden:'タブ非表示により解除', unknown:'解除 (原因不明: OSの省電力等を含む)' };
+          setLockMsg(m[reasonRef.current] || '解除');
+        });
+        return true;
+      } catch (e) { setLockMsg('取得失敗 (' + e.message + ')'); return false; }
+    }, []);
+
+    const releaseLock = useCallback(reason => {
+      reasonRef.current = reason;
+      const l = lockRef.current; lockRef.current = null;
+      if (l) l.release().catch(() => {});
+    }, []);
+
+    const processQueue = useCallback(async () => {
+      if (runningRef.current) return;
+      runningRef.current = true; stopRef.current = false; setRunning(true); reasonRef.current = 'unknown';
+      try {
+        let n = 0;
+        for (const t of await vault.all()) {
+          if (t.status === 'running') { await vault.put({ ...t, status:'interrupted' }); n++; }
+        }
+        if (n) log('前回中断された ' + n + ' 件を再開対象に戻しました');
+
+        const got = await acquireLock();
+        log('実行開始 / WakeLock: ' + (got ? '有効' : '未取得'));
+
+        for (;;) {
+          if (stopRef.current) break;
+          const all = await vault.all();
+          all.sort((a, b) => a.createdAt - b.createdAt);
+          const t = all.find(x => x.status === 'pending' || x.status === 'interrupted');
+          if (!t) break;
+
+          let cur = { ...t, error: null };
+          while (cur.attempts < MAX_ATTEMPTS && !stopRef.current) {
+            cur.attem
