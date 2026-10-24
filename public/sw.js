@@ -8,6 +8,7 @@ const SAFE_STATIC_PATHS = new Set([
   '/manifest.json',
   '/manifest.webmanifest',
   '/favicon.svg',
+  '/pwa-192.png
   '/origin-app-icon.svg',
   '/origin-app-icon-maskable.svg',
   '/brand/origin-sunrise-mark.svg',
