@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'feat/agentic-coding-os-phase2'
+      - 'fix/origin-v16-pwa-boundary'
     tags:
       - 'v*'
   pull_request:
@@ -28,7 +29,23 @@ permissions:
   contents: read
 
 jobs:
+  secret-scan:
+    name: Secret scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Run Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-and-test:
+    needs: secret-scan
     timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
@@ -37,15 +54,10 @@ jobs:
         node-version: [22.x, 24.x]
     permissions:
       contents: read
-      security-events: write
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
-    - name: Run Secret Scanning (Gitleaks)
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
@@ -104,8 +116,7 @@ jobs:
         node scripts/verify-production-browser.mjs
     - name: Run Lighthouse Audit
       run: |
-        npm install -g @lhci/cli
-        lhci autorun
+        npm exec --yes --package=@lhci/cli@0.15.1 -- lhci autorun
     - name: Upload Playwright Report
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -123,7 +134,7 @@ jobs:
         if-no-files-found: ignore
     - name: Generate SBOM (Software Bill of Materials)
       if: always()
-      uses: anchore/sbom-action@v0
+      uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
       with:
         format: 'spdx-json'
         output-file: 'sbom.spdx.json'
@@ -197,7 +208,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Dependency Review
-        uses: actions/dependency-review-action@v5
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
         with:
           comment-summary-in-pr: on-failure
 
@@ -277,7 +288,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           name: Release ${{ github.ref_name }}
           generate_release_notes: true

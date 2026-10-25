@@ -15,6 +15,8 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     'd3533d98f80338f81975863d08935aeb867b0e9b',
     // 2026-10-21 hono & vite security update override.
     'a5ad3feed556fb8a1a84dc188c3820c3374f9b29',
+    // 2026-10-25 npm audit fix: exact reviewed lockfile blob after dependency vulnerability remediation.
+    'ef2ad2a40500b1b0da2dcc3f8f6fa77df10c2618',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
