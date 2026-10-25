@@ -89,6 +89,7 @@ function createWikiWorker(): Worker | null {
 export default function OriginUltraV16() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [queryText, setQueryText] = useState('');
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [diagnostics, setDiagnostics] = useState<{ name: string; pass: boolean; detail: string }[]>([]);
   const [running, setRunning] = useState(false);
@@ -219,30 +220,63 @@ export default function OriginUltraV16() {
     setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
   };
 
-  return <section aria-label="ORIGIN ULTRA v16" className="origin-surface fixed right-3 top-16 z-50 max-h-[70dvh] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto rounded-xl border border-origin-border p-3 shadow-xl" data-testid="origin-ultra-v16">
-    <details>
-      <summary className="cursor-pointer py-2 text-base font-bold">ORIGIN ULTRA v16 — 調査タスクキュー</summary>
-      <div className="grid gap-4 py-3">
-        <label className="grid gap-2 text-sm font-semibold">Wikipedia 検索タスク（1行1件、最大10件）
-          <textarea value={queryText} onChange={event => setQueryText(event.target.value)} rows={3} className="w-full rounded-xl border border-origin-border bg-white p-3 font-normal" placeholder={'量子コンピュータ\n再生可能エネルギー'} />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void addTasks()}>キューに追加</button>
-          <button type="button" className="origin-primary-button min-h-10 rounded-lg px-3" onClick={() => void runQueue()} disabled={running}>実行</button>
-          <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={stop} disabled={!running}>停止</button>
-          <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>🧪 自己診断（5項目）</button>
-          <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={downloadReport}>Markdownレポート保存</button>
-          <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void clearAll()}>全消去</button>
+  return (
+    <>
+      {!isPanelOpen && (
+        <button
+          type="button"
+          className="fixed bottom-4 right-4 z-50 rounded-full border border-origin-border bg-white px-3 py-2 text-sm font-semibold shadow-lg"
+          aria-label="ORIGIN ULTRA v16 を開く"
+          aria-expanded={false}
+          data-testid="origin-ultra-v16-toggle"
+          onClick={() => setIsPanelOpen(true)}
+        >
+          🧪 ULTRA v16
+        </button>
+      )}
+      {isPanelOpen && (
+        <div className="pointer-events-none fixed inset-0 z-50" data-testid="origin-ultra-v16-layer">
+          <section
+            aria-label="ORIGIN ULTRA v16"
+            className="origin-surface pointer-events-auto absolute right-3 top-16 max-h-[70dvh] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto rounded-xl border border-origin-border bg-white p-3 shadow-xl"
+            data-testid="origin-ultra-v16"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <strong className="text-base">ORIGIN ULTRA v16 — 調査タスクキュー</strong>
+              <button
+                type="button"
+                className="origin-secondary-button min-h-10 rounded-lg px-3"
+                aria-label="ORIGIN ULTRA v16 を閉じる"
+                data-testid="origin-ultra-v16-close"
+                onClick={() => setIsPanelOpen(false)}
+              >
+                閉じる
+              </button>
+            </div>
+            <div className="grid gap-4 py-3">
+              <label className="grid gap-2 text-sm font-semibold">Wikipedia 検索タスク（1行1件、最大10件）
+                <textarea value={queryText} onChange={event => setQueryText(event.target.value)} rows={3} className="w-full rounded-xl border border-origin-border bg-white p-3 font-normal" placeholder={'量子コンピュータ\n再生可能エネルギー'} />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void addTasks()}>キューに追加</button>
+                <button type="button" className="origin-primary-button min-h-10 rounded-lg px-3" onClick={() => void runQueue()} disabled={running}>実行</button>
+                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={stop} disabled={!running}>停止</button>
+                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>🧪 自己診断（5項目）</button>
+                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={downloadReport}>Markdownレポート保存</button>
+                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void clearAll()}>全消去</button>
+              </div>
+              <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · Wake Lock: {wakeHeld ? '有効' : '未取得'} · DB: {DB_NAME}</p>
+              <div className="grid gap-2">{tasks.map(task => <article key={task.id} className="rounded-xl border border-origin-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{task.status}</span></div>
+                {task.error && <p className="text-sm text-red-700">{task.error}</p>}
+                {task.items.map(item => <div key={item.pageid} className="mt-2 text-sm"><a className="underline" href={`https://ja.wikipedia.org/?curid=${item.pageid}`} target="_blank" rel="noreferrer">{item.title}</a><p>{item.snippet}</p></div>)}
+              </article>)}</div>
+              {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{diagnostics.map(item => <p key={item.name} className="text-sm">{item.pass ? 'PASS' : 'CHECK'} · {item.name}: {item.detail}</p>)}</div>}
+              <div aria-label="実行ログ" className="max-h-40 overflow-y-auto rounded-xl bg-black/5 p-3 font-mono text-xs">{logs.map((line, index) => <p key={index}>{line}</p>)}</div>
+            </div>
+          </section>
         </div>
-        <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · Wake Lock: {wakeHeld ? '有効' : '未取得'} · DB: {DB_NAME}</p>
-        <div className="grid gap-2">{tasks.map(task => <article key={task.id} className="rounded-xl border border-origin-border p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{task.status}</span></div>
-          {task.error && <p className="text-sm text-red-700">{task.error}</p>}
-          {task.items.map(item => <div key={item.pageid} className="mt-2 text-sm"><a className="underline" href={`https://ja.wikipedia.org/?curid=${item.pageid}`} target="_blank" rel="noreferrer">{item.title}</a><p>{item.snippet}</p></div>)}
-        </article>)}</div>
-        {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{diagnostics.map(item => <p key={item.name} className="text-sm">{item.pass ? 'PASS' : 'CHECK'} · {item.name}: {item.detail}</p>)}</div>}
-        <div aria-label="実行ログ" className="max-h-40 overflow-y-auto rounded-xl bg-black/5 p-3 font-mono text-xs">{logs.map((line, index) => <p key={index}>{line}</p>)}</div>
-      </div>
-    </details>
-  </section>;
+      )}
+    </>
+  );
 }
