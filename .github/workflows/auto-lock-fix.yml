@@ -1,4 +1,5 @@
 name: Generate Lockfile
+# Re-run this workflow only from the dedicated ORIGIN dependency-fix branch.
 on:
   workflow_dispatch:
   push:
