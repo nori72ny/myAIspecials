@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 type WikiItem = { title: string; snippet: string; pageid: number };
 type Task = { id: string; query: string; status: 'pending' | 'running' | 'done' | 'failed'; items: WikiItem[]; error?: string; updatedAt: number };
@@ -203,33 +202,32 @@ export default function OriginUltraV16() {
   };
 
   const portalContent = (
-    <>
+    <div className="relative z-30 flex w-full justify-end pb-2">
       {!isPanelOpen && (
         <button
           type="button"
-          className="group pointer-events-auto fixed top-1/2 right-3 -translate-y-1/2 z-[99999] inline-flex min-h-[44px] items-center gap-2.5 rounded-full border border-black/[0.08] bg-white/70 px-3.5 py-2 text-zinc-800 shadow-lg backdrop-blur-xl transition-all duration-300 hover:border-emerald-500/40 hover:shadow-emerald-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-white/[0.15] dark:bg-zinc-900/70 dark:text-zinc-100"
+          className="group inline-flex min-h-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
           onClick={() => setIsPanelOpen(true)}
         >
-          <span aria-hidden="true" className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/70 animate-ping" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/75 ring-2 ring-emerald-500/20" />
+          <span aria-hidden="true" className="relative flex h-1.5 w-1.5 shrink-0 items-center justify-center">
+            <span className="absolute h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400/70" />
+            <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
           </span>
-          <span className="font-mono text-[11px] font-semibold tracking-wider">ULTRA <span className="text-emerald-700 dark:text-emerald-400 font-bold">v16</span></span>
-          <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-zinc-500 transition-colors duration-300 group-hover:text-emerald-500 dark:text-zinc-400" fill="none">
-            <path d="M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Z" stroke="currentColor" strokeWidth="1.1" />
-            <path d="M8 4.5 11.5 8 8 11.5 4.5 8 8 4.5Z" stroke="currentColor" strokeWidth="1.1" />
-            <circle cx="8" cy="8" r="1" fill="currentColor" />
+          <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">ORIGIN ULTRA</span>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">v16</span>
+          <svg aria-hidden="true" viewBox="0 0 12 12" className="h-3 w-3 shrink-0 text-zinc-500 transition-transform duration-200 group-hover:translate-y-0.5 dark:text-zinc-400" fill="none">
+            <path d="m2.25 4.5 3.75 3 3.75-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       )}
       {isPanelOpen && (
-        <div className="pointer-events-none fixed inset-0 z-[99999]" data-testid="origin-ultra-v16-layer">
+        <div className="absolute right-0 top-full z-50 mt-2" data-testid="origin-ultra-v16-layer">
           <section
             aria-label="ORIGIN ULTRA v16"
-            className="origin-surface pointer-events-auto absolute right-3 top-16 max-h-[70dvh] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto rounded-3xl border border-white/10 bg-zinc-950/90 p-4 text-zinc-100 shadow-2xl backdrop-blur-2xl"
+            className="origin-surface relative max-h-[70dvh] w-[min(calc(100vw-1.5rem),24rem)] overflow-y-auto rounded-3xl border border-zinc-200/80 bg-white/95 p-4 text-zinc-900 shadow-xl backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
             data-testid="origin-ultra-v16"
           >
             <div className="flex items-center justify-between gap-3">
@@ -268,10 +266,8 @@ export default function OriginUltraV16() {
           </section>
         </div>
       )}
-    </>
+    </div>
   );
 
-  // Keep the overlay outside app stacking contexts; do not access document during SSR.
-  if (typeof document === 'undefined' || !document.body) return null;
-  return createPortal(portalContent, document.body);
+  return portalContent;
 }
