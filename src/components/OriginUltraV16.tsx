@@ -217,7 +217,7 @@ export default function OriginUltraV16() {
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/70 animate-ping" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/75 ring-2 ring-emerald-500/20" />
           </span>
-          <span className="font-mono text-[11px] font-semibold tracking-wider">ULTRA <span className="text-emerald-600 dark:text-emerald-400">v16</span></span>
+          <span className="font-mono text-[11px] font-semibold tracking-wider">ULTRA <span className="text-emerald-700 dark:text-emerald-400 font-bold">v16</span></span>
           <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-zinc-500 transition-colors duration-300 group-hover:text-emerald-500 dark:text-zinc-400" fill="none">
             <path d="M8 1.5 14.5 8 8 14.5 1.5 8 8 1.5Z" stroke="currentColor" strokeWidth="1.1" />
             <path d="M8 4.5 11.5 8 8 11.5 4.5 8 8 4.5Z" stroke="currentColor" strokeWidth="1.1" />
