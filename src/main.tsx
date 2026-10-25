@@ -6,7 +6,6 @@ import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import FocusModeController from './components/FocusModeController';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
-import OriginUltraV16 from './components/OriginUltraV16';
 import { UniversalMasterEnginePanel } from './components/UniversalMasterEnginePanel';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
@@ -196,7 +195,6 @@ function PersonalReleaseRoot() {
   const resetConversation = () => { archiveSession(messages); dirtyDuringHydration.current.messages = true; setMessages([]); setResetSignal((value) => value + 1); };
 
   return <>
-    <OriginUltraV16 />
     <FocusModeController />
     <SplashScreen durationMs={420} oncePerSession />
     <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
