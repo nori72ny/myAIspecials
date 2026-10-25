@@ -91,7 +91,7 @@ jobs:
             check('ULTRA v16 button rendered', found, found ? `visible; text="${(await toggle.innerText()).trim()}"; aria-label="${await toggle.getAttribute('aria-label')}"` : 'NotFound: no visible button matched expected accessible name');
             if (found) {
               const rect = await toggle.boundingBox();
-              check('Button positioned at top center', Boolean(rect && rect.y <= 24 && Math.abs((rect.x + rect.width / 2) - 720) <= 100), rect ? JSON.stringify(rect) : 'no bounding box');
+              check('Button positioned at right center', Boolean(rect && Math.abs((rect.x + rect.width / 2) - 1400) <= 100 && Math.abs((rect.y + rect.height / 2) - 500) <= 100), rect ? JSON.stringify(rect) : 'no bounding box');
               await toggle.click();
               const panel = page.locator('[data-testid="origin-ultra-v16"]');
               await panel.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
