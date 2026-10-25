@@ -29,6 +29,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Use current npm 11 CLI
+        run: npm install --global npm@11
+      - name: Install locked dependency tree
+        run: npm ci
       - name: Inspect current vulnerabilities
         run: npm audit --json > audit-before.json || true
       - name: Apply compatible dependency fixes
