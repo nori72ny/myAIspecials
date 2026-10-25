@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '20 7 * * 2'
   push:
-    branches: [ "main", "fix/origin-v16-pwa-boundary" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
