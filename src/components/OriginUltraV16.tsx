@@ -60,33 +60,14 @@ const vault = new Vault();
 const id = () => globalThis.crypto?.randomUUID?.() ?? `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function createWikiWorker(): Worker | null {
-  if (typeof window === 'undefined' || typeof Worker === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof Blob === 'undefined') return null;
-  const source = `
-    self.onmessage = async (event) => {
-      const { id, query } = event.data || {};
-      try {
-        const url = new URL('https://ja.wikipedia.org/w/api.php');
-        url.search = new URLSearchParams({ action:'query', list:'search', srsearch:query, srlimit:'5', srprop:'snippet', format:'json', origin:'*' }).toString();
-        const response = await fetch(url.toString());
-        if (!response.ok) throw new Error('Wikipedia API HTTP ' + response.status);
-        const data = await response.json();
-        self.postMessage({ id, ok:true, items:(data.query?.search || []).map(item => ({ title:item.title, snippet:String(item.snippet || '').replace(/<[^>]*>/g, ''), pageid:item.pageid })) });
-      } catch (error) { self.postMessage({ id, ok:false, error:String(error?.message || error) }); }
-    };
-    setInterval(() => self.postMessage({ type:'heartbeat', at:Date.now() }), 5000);
-  `;
-  let url: string | null = null;
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') return null;
   try {
-    url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-    const worker = new Worker(url);
-    worker.addEventListener('error', () => { if (url) URL.revokeObjectURL(url); }, { once: true });
-    return worker;
+    // Load a same-origin static worker. This preserves worker isolation without requiring blob: in worker-src.
+    return new Worker('/origin-ultra-wiki-worker.js', { name: 'origin-ultra-wiki-search' });
   } catch {
-    if (url) { try { URL.revokeObjectURL(url); } catch { /* best-effort cleanup */ } }
     return null;
   }
 }
-
 export default function OriginUltraV16() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [queryText, setQueryText] = useState('');
