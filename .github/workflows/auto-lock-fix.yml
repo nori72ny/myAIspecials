@@ -1,0 +1,55 @@
+name: Generate Lockfile
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/auto-lock-fix.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: origin-v16-pwa-lock-fix
+  cancel-in-progress: false
+
+jobs:
+  fix-lock:
+    if: github.ref == 'refs/heads/fix/origin-v16-pwa-boundary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/origin-v16-pwa-boundary
+          persist-credentials: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate dependency lockfile with npm audit fix
+        run: npm audit fix --omit=dev
+      - name: Verify clean install
+        run: npm ci
+      - name: Verify production dependency audit
+        run: npm audit --omit=dev --audit-level=low
+      - name: Check patch hygiene
+        run: git diff --check
+      - name: Commit and push package manifests
+        env:
+          BRANCH: fix/origin-v16-pwa-boundary
+        run: |
+          if ! git diff --quiet -- package.json package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json
+            git commit -m "fix(deps): regenerate lockfile after production audit fix"
+            git push origin "HEAD:${BRANCH}"
+          else
+            echo "No package manifest changes were produced."
+          fi
+      - name: Dispatch Production Release CI/CD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: fix/origin-v16-pwa-boundary
+        run: gh workflow run "Production Release CI/CD" --ref "${BRANCH}" -f verification_phase=prepublish
