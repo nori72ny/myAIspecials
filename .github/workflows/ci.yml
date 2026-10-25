@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'feat/agentic-coding-os-phase2'
+      - 'fix/origin-v16-pwa-boundary'
     tags:
       - 'v*'
   pull_request:
