@@ -207,7 +207,7 @@ export default function OriginUltraV16() {
       {!isPanelOpen && (
         <button
           type="button"
-          className="group pointer-events-auto fixed top-1/2 right-3 -translate-y-1/2 z-[99999] inline-flex min-h-[44px] items-center gap-2.5 rounded-full border border-black/[0.08] bg-white/70 px-3.5 py-2 text-zinc-800 shadow-[0_8px_32px_rgba(0,0,0,0.08)] backdrop-blur-xl transition-all duration-300 hover:border-emerald-500/40 hover:shadow-[0_0_20px_rgba(16,185,129,0.2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-white/[0.15] dark:bg-zinc-900/70 dark:text-zinc-100"
+          className="group pointer-events-auto fixed top-1/2 right-3 -translate-y-1/2 z-[99999] inline-flex min-h-[44px] items-center gap-2.5 rounded-full border border-black/[0.08] bg-white/70 px-3.5 py-2 text-zinc-800 shadow-lg backdrop-blur-xl transition-all duration-300 hover:border-emerald-500/40 hover:shadow-emerald-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 dark:border-white/[0.15] dark:bg-zinc-900/70 dark:text-zinc-100"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
@@ -215,7 +215,7 @@ export default function OriginUltraV16() {
         >
           <span aria-hidden="true" className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/70 animate-ping" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.75)] ring-2 ring-emerald-500/20" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/75 ring-2 ring-emerald-500/20" />
           </span>
           <span className="font-mono text-[11px] font-semibold tracking-wider">ULTRA <span className="text-emerald-600 dark:text-emerald-400">v16</span></span>
           <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-zinc-500 transition-colors duration-300 group-hover:text-emerald-500 dark:text-zinc-400" fill="none">
