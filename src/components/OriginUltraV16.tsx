@@ -58,7 +58,8 @@ class Vault {
 const vault = new Vault();
 const id = () => globalThis.crypto?.randomUUID?.() ?? `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-function createWikiWorker(): Worker {
+function createWikiWorker(): Worker | null {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof Blob === 'undefined') return null;
   const source = `
     self.onmessage = async (event) => {
       const { id, query } = event.data || {};
@@ -73,10 +74,16 @@ function createWikiWorker(): Worker {
     };
     setInterval(() => self.postMessage({ type:'heartbeat', at:Date.now() }), 5000);
   `;
-  const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-  const worker = new Worker(url);
-  worker.addEventListener('error', () => URL.revokeObjectURL(url), { once: true });
-  return worker;
+  let url: string | null = null;
+  try {
+    url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+    const worker = new Worker(url);
+    worker.addEventListener('error', () => { if (url) URL.revokeObjectURL(url); }, { once: true });
+    return worker;
+  } catch {
+    if (url) { try { URL.revokeObjectURL(url); } catch { /* best-effort cleanup */ } }
+    return null;
+  }
 }
 
 export default function OriginUltraV16() {
@@ -96,13 +103,22 @@ export default function OriginUltraV16() {
 
   useEffect(() => {
     void refresh();
+    if (typeof window === 'undefined') {
+      setDiagnostics([{ name: 'ブラウザ環境', pass: false, detail: 'テスト環境 / window API非対応のため待機中' }]);
+      return;
+    }
     const worker = createWikiWorker();
     workerRef.current = worker;
+    if (!worker) {
+      log('テスト環境 / Worker または Blob URL API 非対応のため待機中です。');
+      setDiagnostics([{ name: 'Web Worker API', pass: false, detail: 'テスト環境 / API非対応。検索キューは待機状態です。' }]);
+      return () => { workerRef.current = null; };
+    }
     worker.onmessage = event => { if (event.data?.type === 'heartbeat') heartbeatRef.current = Date.now(); };
     const heartbeat = window.setInterval(() => {
       if (Date.now() - heartbeatRef.current > 15000) log('Worker heartbeat が15秒以上ありません。実行を安全停止してください。');
     }, 5000);
-    return () => { window.clearInterval(heartbeat); worker.terminate(); workerRef.current = null; if (wakeRef.current) void wakeRef.current.release(); };
+    return () => { window.clearInterval(heartbeat); worker.terminate(); workerRef.current = null; if (wakeRef.current) void wakeRef.current.release().catch(() => undefined); };
   }, [refresh, log]);
 
   const addTasks = async () => {
@@ -132,7 +148,8 @@ export default function OriginUltraV16() {
 
   const runQueue = async () => {
     if (running) return;
-    if (!navigator.locks || typeof navigator.locks.request !== 'function') { log('Web Locks API 非対応のため、安全側に停止しました。'); return; }
+    if (typeof window === 'undefined' || typeof navigator === 'undefined' || !navigator.locks || typeof navigator.locks.request !== 'function') { log('テスト環境 / Web Locks API 非対応のため、安全側に待機します。'); return; }
+    if (!workerRef.current) { log('テスト環境 / Worker API 非対応のため、検索キューは待機中です。'); return; }
     setRunning(true); stopRef.current = false;
     try {
       await navigator.locks.request(LOCK_NAME, { mode: 'exclusive', ifAvailable: true }, async lock => {
@@ -176,18 +193,27 @@ export default function OriginUltraV16() {
       for (const item of task.items) lines.push(`- [${item.title}](https://ja.wikipedia.org/?curid=${item.pageid}) — ${item.snippet}`);
       lines.push('');
     }
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'origin-ultra-report.md'; anchor.click(); URL.revokeObjectURL(url);
+    try {
+      if (typeof window === 'undefined' || typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') { log('この環境ではファイル保存 API が利用できません。'); return; }
+      const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'origin-ultra-report.md'; anchor.click(); URL.revokeObjectURL(url);
+    } catch (error) { log(`Markdown保存に失敗しました: ${String(error)}`); }
   };
 
   const runDiagnostics = async () => {
     const results: { name: string; pass: boolean; detail: string }[] = [];
-    results.push({ name: 'IndexedDB 永続化', pass: typeof indexedDB !== 'undefined', detail: typeof indexedDB !== 'undefined' ? 'API利用可能' : 'IndexedDB非対応' });
-    results.push({ name: 'Web Worker API', pass: typeof Worker !== 'undefined', detail: typeof Worker !== 'undefined' ? 'API利用可能' : 'Worker非対応' });
-    results.push({ name: 'Web Locks 排他制御', pass: Boolean(navigator.locks?.request), detail: navigator.locks?.request ? 'API利用可能' : '非対応。キューは安全停止' });
-    results.push({ name: 'Screen Wake Lock', pass: Boolean((navigator as NavigatorWithWakeLock).wakeLock?.request), detail: (navigator as NavigatorWithWakeLock).wakeLock ? 'API利用可能' : '非対応（任意機能）' });
+    const hasWindow = typeof window !== 'undefined';
+    const hasNavigator = typeof navigator !== 'undefined';
+    const hasIndexedDB = hasWindow && typeof window.indexedDB !== 'undefined';
+    const hasWorker = hasWindow && typeof window.Worker !== 'undefined';
+    results.push({ name: 'IndexedDB 永続化', pass: hasIndexedDB, detail: hasIndexedDB ? 'API利用可能' : 'テスト環境 / IndexedDB非対応' });
+    results.push({ name: 'Web Worker API', pass: hasWorker, detail: hasWorker ? 'API利用可能' : 'テスト環境 / Worker非対応' });
+    results.push({ name: 'Web Locks 排他制御', pass: Boolean(hasNavigator && navigator.locks?.request), detail: hasNavigator && navigator.locks?.request ? 'API利用可能' : 'テスト環境 / 非対応。キューは安全待機' });
+    const hasWakeLock = Boolean(hasNavigator && (navigator as NavigatorWithWakeLock).wakeLock?.request);
+    results.push({ name: 'Screen Wake Lock', pass: hasWakeLock, detail: hasWakeLock ? 'API利用可能' : 'テスト環境 / 非対応（任意機能）' });
     try {
-      const response = await fetch('https://ja.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json&origin=*', { signal: AbortSignal.timeout(8000) });
+      if (typeof window === 'undefined' || typeof fetch !== 'function') throw new Error('テスト環境 / fetch API非対応');
+      const response = await fetch('https://ja.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json&origin=*', { signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(8000) : undefined });
       results.push({ name: 'Wikipedia API / CSP connect-src', pass: response.ok, detail: `HTTP ${response.status}` });
     } catch (error) { results.push({ name: 'Wikipedia API / CSP connect-src', pass: false, detail: String(error) }); }
     setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
