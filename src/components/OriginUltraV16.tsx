@@ -71,7 +71,7 @@ function createWikiWorker(): Worker {
         self.postMessage({ id, ok:true, items:(data.query?.search || []).map(item => ({ title:item.title, snippet:String(item.snippet || '').replace(/<[^>]*>/g, ''), pageid:item.pageid })) });
       } catch (error) { self.postMessage({ id, ok:false, error:String(error?.message || error) }); }
     };
-    self.postMessage({ type:'heartbeat', at:Date.now() });
+    setInterval(() => self.postMessage({ type:'heartbeat', at:Date.now() }), 5000);
   `;
   const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
   const worker = new Worker(url);
