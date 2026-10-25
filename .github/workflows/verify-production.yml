@@ -132,6 +132,7 @@ jobs:
           }
           if (result.failed || result.checks.some(item => !item.pass)) process.exitCode = 1;
           EOF
+          set -o pipefail
           node production-verification/verify-production.mjs 2>&1 | tee production-verification/run.log
 
       - name: Upload verification evidence
