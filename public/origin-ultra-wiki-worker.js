@@ -1,4 +1,22 @@
+function stripMarkup(value) {
+  let output = '';
+  let insideTag = false;
+  for (const character of String(value || '')) {
+    if (!insideTag && character === '<') {
+      insideTag = true;
+      continue;
+    }
+    if (insideTag && character === '>') {
+      insideTag = false;
+      continue;
+    }
+    if (!insideTag) output += character;
+  }
+  return output;
+}
+
 self.onmessage = async (event) => {
+  if (event.origin !== self.location.origin) return;
   const { id, query } = event.data || {};
   try {
     if (typeof id !== 'string' || typeof query !== 'string' || !query.trim()) {
@@ -22,7 +40,7 @@ self.onmessage = async (event) => {
       ok: true,
       items: (data.query?.search || []).map(item => ({
         title: item.title,
-        snippet: String(item.snippet || '').replace(/<[^>]*>/g, ''),
+        snippet: stripMarkup(item.snippet || ''),
         pageid: item.pageid
       }))
     });
