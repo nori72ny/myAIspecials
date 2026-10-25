@@ -116,8 +116,7 @@ jobs:
         node scripts/verify-production-browser.mjs
     - name: Run Lighthouse Audit
       run: |
-        npm install -g @lhci/cli@0.15.1
-        lhci autorun
+        npm exec --yes --package=@lhci/cli@0.15.1 -- lhci autorun
     - name: Upload Playwright Report
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
