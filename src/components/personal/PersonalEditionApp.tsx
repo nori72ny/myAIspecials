@@ -4,7 +4,6 @@ import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
-import OriginUltraV16 from '../OriginUltraV16';
 import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
 import type { ResearchSource } from './ResearchWorkspaceV31';
 import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
@@ -213,7 +212,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Codeを読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onProjectEvidenceChange={setCodingEvidence} /></Suspense></div>}
       {workspace === 'creative' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">Createを読み込んでいます…</p>}><CreativeWorkspace initialRequest={creativeInitialRequest} /></Suspense></div>}
     </div>
-    <OriginUltraV16 />
   </div>;
 });
 
