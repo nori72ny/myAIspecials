@@ -225,7 +225,7 @@ export default function OriginUltraV16() {
       {!isPanelOpen && (
         <button
           type="button"
-          className="pointer-events-auto fixed right-3 top-3 z-[9999] min-h-[44px] min-w-[44px] rounded-full border-2 border-emerald-700 bg-emerald-500 px-3 py-2 text-sm font-bold text-black shadow-lg ring-2 ring-white hover:bg-emerald-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          className="pointer-events-auto fixed top-2 left-1/2 -translate-x-1/2 z-40 min-h-[44px] min-w-[44px] rounded-full border-2 border-emerald-700 bg-emerald-500 px-3 py-2 text-sm font-bold text-black shadow-lg ring-2 ring-white hover:bg-emerald-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
