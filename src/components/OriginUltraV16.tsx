@@ -219,7 +219,7 @@ export default function OriginUltraV16() {
     setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
   };
 
-  return <section aria-label="ORIGIN ULTRA v16" className="origin-surface mx-auto w-full max-w-5xl shrink-0 overflow-y-auto border-t border-origin-border p-4" data-testid="origin-ultra-v16">
+  return <section aria-label="ORIGIN ULTRA v16" className="origin-surface fixed right-3 top-16 z-50 max-h-[70dvh] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto rounded-xl border border-origin-border p-3 shadow-xl" data-testid="origin-ultra-v16">
     <details>
       <summary className="cursor-pointer py-2 text-base font-bold">ORIGIN ULTRA v16 — 調査タスクキュー</summary>
       <div className="grid gap-4 py-3">
