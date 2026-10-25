@@ -1,0 +1,285 @@
+name: Production Release CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/agentic-coding-os-phase2'
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      verification_phase:
+        description: 'prepublish validates main without querying the old live URL; postpublish verifies the promoted live SHA'
+        required: true
+        type: choice
+        default: prepublish
+        options:
+          - prepublish
+          - postpublish
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.x, 24.x]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        fetch-depth: 0
+    - name: Run Secret Scanning (Gitleaks)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Enforce owner-approved manual production deployment
+      run: |
+        node scripts/verify-manual-production-hold.mjs
+        node --test scripts/verify-manual-production-hold.node-check.mjs
+    - name: Install dependencies (Clean Install)
+      run: npm ci
+    - name: Run production dependency security audit
+      run: npm audit --omit=dev --audit-level=low
+    - name: Run all-dependency high severity audit
+      run: npm audit --audit-level=high
+    - name: Capture exact npm audit evidence
+      if: always()
+      run: |
+        mkdir -p test-results
+        npm audit --json > test-results/npm-audit.json || true
+    - name: Run linter
+      run: npm run lint
+    - name: Build the app
+      run: npm run build
+    - name: Run unit tests
+      run: npm run test
+    - name: Cache Playwright Browsers
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-node-${{ matrix.node-version }}-playwright-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ matrix.node-version }}-playwright-
+    - name: Install Playwright Browsers
+      run: npx playwright install --force chromium
+    - name: Install Japanese fonts for visual QA
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+        fc-cache -f
+    - name: Run E2E tests
+      run: npm run test:e2e
+    - name: Exercise production browser release gates without live inference
+      if: github.event_name == 'pull_request' && matrix.node-version == '22.x'
+      env:
+        ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
+      run: |
+        TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
+        app_pid=$!
+        trap 'kill "$app_pid"' EXIT
+        for attempt in {1..30}; do
+          if curl --fail --silent --show-error http://127.0.0.1:4173/api/health >/dev/null; then break; fi
+          if [ "$attempt" -eq 30 ]; then echo "Local release server did not become ready."; exit 1; fi
+          sleep 1
+        done
+        node scripts/verify-production-browser.mjs
+    - name: Run Lighthouse Audit
+      run: |
+        npm install -g @lhci/cli
+        lhci autorun
+    - name: Upload Playwright Report
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: playwright-report-node-${{ matrix.node-version }}
+        path: playwright-report/
+        retention-days: 30
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: test-results-node-${{ matrix.node-version }}
+        path: test-results/
+        retention-days: 30
+        if-no-files-found: ignore
+    - name: Generate SBOM (Software Bill of Materials)
+      if: always()
+      uses: anchore/sbom-action@v0
+      with:
+        format: 'spdx-json'
+        output-file: 'sbom.spdx.json'
+      continue-on-error: true
+    - name: Upload SBOM Artifact
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: sbom-node-${{ matrix.node-version }}
+        path: sbom.spdx.json
+        retention-days: 30
+        if-no-files-found: ignore
+
+  artifact-preview-isolation:
+    name: Artifact isolation (${{ matrix.browser }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run build
+      - name: Exercise isolated preview boundary
+        env:
+          ORIGIN_PRODUCTION_URL: http://127.0.0.1:4173
+          ORIGIN_ISOLATION_BROWSERS: ${{ matrix.browser }}
+        run: |
+          TEST_PORT=4173 ORIGIN_RELEASE_SHA=${{ github.sha }} npm start &
+          app_pid=$!
+          trap 'kill "$app_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/api/health >/dev/null; then break; fi
+            if [ "$attempt" -eq 30 ]; then echo "Local release server did not become ready."; exit 1; fi
+            sleep 1
+          done
+          npm run test:artifact-isolation
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Verify Dependency Graph API access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --header 'Accept: application/vnd.github+json' --header "Authorization: Bearer ${GH_TOKEN}" --header 'X-GitHub-Api-Version: 2026-03-10' "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}")"
+          if [ "$status" -ge 400 ]; then
+            message="$(jq -r '.message // "Unknown GitHub API error"' "$response_file")"
+            echo "::error title=Dependency Graph API unavailable::HTTP ${status}: ${message}. Enable Dependency graph for this repository under Settings > Security > Advanced Security, then rerun this job."
+            jq -c '{message, documentation_url, status}' "$response_file" || true
+            exit 1
+          fi
+          jq -c '{dependency_change_count: length}' "$response_file"
+      - name: Checkout Repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          comment-summary-in-pr: on-failure
+
+  production-smoke:
+    name: Verify main SHA in Vercel production
+    # Auto-deploy from main is forbidden: run only after a separately approved
+    # manual production promotion, using workflow_dispatch on exact main.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.verification_phase == 'postpublish'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install production verification dependencies
+        run: npm ci
+      - name: Install production browser
+        run: npx playwright install --force chromium
+      - name: Verify matching production and classify live upstream availability
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+          ORIGIN_EXPECTED_SHA: ${{ github.sha }}
+          ORIGIN_DEPLOY_TIMEOUT_MS: "600000"
+          ORIGIN_DEPLOY_POLL_INTERVAL_MS: "10000"
+          ORIGIN_REQUEST_TIMEOUT_MS: "25000"
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          node scripts/verify-production-deployment.mjs > production-verification.out 2> production-verification.err
+          verification_exit=$?
+          set -e
+          cat production-verification.out
+          set +e
+          classification="$(node scripts/classify-production-verification-result.mjs "$verification_exit" production-verification.err)"
+          classification_exit=$?
+          set -e
+          if [ "$classification_exit" -ne 0 ]; then
+            cat production-verification.err >&2
+            exit "$verification_exit"
+          fi
+          echo "$classification"
+          availability="$(CLASSIFICATION="$classification" node -e 'const v=JSON.parse(process.env.CLASSIFICATION); process.stdout.write(String(v.upstreamAvailability))')"
+          provider_code="$(CLASSIFICATION="$classification" node -e 'const v=JSON.parse(process.env.CLASSIFICATION); process.stdout.write(String(v.providerCode ?? "UNKNOWN"))')"
+          if [ "$availability" = 'degraded' ]; then
+            echo "::warning title=Free provider availability degraded::Production release is healthy, but the reviewed free provider is temporarily degraded (${provider_code}). Paid fallback remains disabled."
+            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: degraded\n- Provider code: `%s`\n- Paid fallback: disabled\n' "$provider_code" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### ORIGIN production verification\n\n- Release: verified\n- Live AI availability: available\n- Paid fallback: disabled\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Verify production PWA, History, New Chat, failure UX, and recovery
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+        run: node scripts/verify-production-browser.mjs
+      - name: Verify production artifact preview isolation
+        env:
+          ORIGIN_PRODUCTION_URL: https://origin-personal.vercel.app
+          ORIGIN_ISOLATION_BROWSERS: chromium
+        run: npm run test:artifact-isolation
+
+  release:
+    name: Generate CHANGELOG & GitHub Release
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
