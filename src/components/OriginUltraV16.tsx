@@ -225,7 +225,7 @@ export default function OriginUltraV16() {
       {!isPanelOpen && (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-50 rounded-full border border-origin-border bg-white px-3 py-2 text-sm font-semibold shadow-lg"
+          className="fixed bottom-4 left-4 z-40 min-h-[44px] min-w-[44px] rounded-full border border-origin-border bg-white px-3 py-2 text-sm font-semibold shadow-lg"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
