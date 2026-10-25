@@ -214,7 +214,7 @@ export default function OriginUltraV16() {
         >
           <span aria-hidden="true" className="relative flex h-1.5 w-1.5 shrink-0 items-center justify-center">
             <span className="absolute h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400/70" />
-            <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.45)]" />
+            <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-sm" />
           </span>
           <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">ORIGIN ULTRA</span>
           <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">v16</span>
