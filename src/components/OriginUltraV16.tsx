@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type WikiItem = { title: string; snippet: string; pageid: number };
 type Task = { id: string; query: string; status: 'pending' | 'running' | 'done' | 'failed'; items: WikiItem[]; error?: string; updatedAt: number };
@@ -220,12 +221,12 @@ export default function OriginUltraV16() {
     setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
   };
 
-  return (
+  const portalContent = (
     <>
       {!isPanelOpen && (
         <button
           type="button"
-          className="pointer-events-auto fixed top-2 left-1/2 -translate-x-1/2 z-40 min-h-[44px] min-w-[44px] rounded-full border-2 border-emerald-700 bg-emerald-500 px-3 py-2 text-sm font-bold text-black shadow-lg ring-2 ring-white hover:bg-emerald-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          className="pointer-events-auto fixed top-2 left-1/2 -translate-x-1/2 z-[99999] min-h-[44px] min-w-[44px] rounded-full border-2 border-emerald-700 bg-emerald-500 px-3 py-2 text-sm font-bold text-black shadow-lg ring-2 ring-white hover:bg-emerald-400 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
@@ -235,7 +236,7 @@ export default function OriginUltraV16() {
         </button>
       )}
       {isPanelOpen && (
-        <div className="pointer-events-none fixed inset-0 z-[10000]" data-testid="origin-ultra-v16-layer">
+        <div className="pointer-events-none fixed inset-0 z-[99999]" data-testid="origin-ultra-v16-layer">
           <section
             aria-label="ORIGIN ULTRA v16"
             className="origin-surface pointer-events-auto absolute right-3 top-16 max-h-[70dvh] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto rounded-xl border border-origin-border bg-white p-3 shadow-xl"
@@ -279,4 +280,8 @@ export default function OriginUltraV16() {
       )}
     </>
   );
+
+  // Keep the overlay outside app stacking contexts; do not access document during SSR.
+  if (typeof document === 'undefined' || !document.body) return null;
+  return createPortal(portalContent, document.body);
 }
