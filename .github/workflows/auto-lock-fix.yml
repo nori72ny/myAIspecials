@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: origin-v16-pwa-lock-fix
@@ -27,12 +26,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Regenerate dependency lockfile with npm audit fix
+      - name: Apply production dependency security fixes
         run: npm audit fix --omit=dev
+      - name: Apply compatible fixes across all dependencies
+        run: npm audit fix
       - name: Verify clean install
         run: npm ci
       - name: Verify production dependency audit
         run: npm audit --omit=dev --audit-level=low
+      - name: Verify high-severity audit across all dependencies
+        run: npm audit --audit-level=high
+      - name: Verify TypeScript and production build
+        run: |
+          npm run typecheck
+          npm run build
       - name: Check patch hygiene
         run: git diff --check
       - name: Commit and push package manifests
@@ -43,13 +50,8 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add package.json package-lock.json
-            git commit -m "fix(deps): regenerate lockfile after production audit fix"
+            git commit -m "fix(deps): regenerate lockfile and apply audit fixes"
             git push origin "HEAD:${BRANCH}"
           else
             echo "No package manifest changes were produced."
           fi
-      - name: Dispatch Production Release CI/CD
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: fix/origin-v16-pwa-boundary
-        run: gh workflow run "Production Release CI/CD" --ref "${BRANCH}" -f verification_phase=prepublish
