@@ -176,7 +176,7 @@ export default function AgentWorkspaceView() {
         '# 自律エージェント 実行計画',
         '',
         `Goal: ${next.goal}`,
-        `Tool: ${next.selectedTool}`,
+        `機能: ${toolLabel(next.selectedTool)}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
@@ -259,7 +259,7 @@ export default function AgentWorkspaceView() {
       setArtifact(result.artifact);
       if (result.checkpoint) await persistCheckpoint(result.checkpoint);
       setPhase('completed');
-      setLog((current) => [...current, '登録済みツールの実行と検証が完了しました。', result.checkpoint ? `保存記録: ${result.checkpoint.checkpointId}` : '']);
+      setLog((current) => [...current, '機能の実行と確認が完了しました。', result.checkpoint ? `保存記録: ${result.checkpoint.checkpointId}` : '']);
       setPlan(null);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -306,7 +306,7 @@ export default function AgentWorkspaceView() {
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェント 基盤を確認済み' : '自律エージェント は現在利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェントを利用できます' : '自律エージェントは現在利用できません'}</span>
           <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
             {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
           </span>
@@ -319,7 +319,7 @@ export default function AgentWorkspaceView() {
 
         {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="Agent plan">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-black">実行フロー</h2>
+            <h2 className="text-sm font-black">実行の流れ</h2>
             <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
