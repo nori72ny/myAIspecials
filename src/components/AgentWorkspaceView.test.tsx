@@ -170,7 +170,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
-    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('code_interpreter');
+    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('コード作成・確認');
     expect(screen.queryByRole('combobox')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
