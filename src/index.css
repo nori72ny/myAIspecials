@@ -22,8 +22,8 @@
 }
 
 :root {
-  color-scheme: light only;
-  --bg-primary: #FFFFFF !important;
+  color-scheme: light;
+  --bg-primary: #FFFFFF;
 }
 
 /* Ensure central heading and description are crisp dark slate against white canvas. */
@@ -435,4 +435,86 @@ button:first-child:has(svg) {
 button:first-child:has(svg) * {
   stroke: #475569 !important;
   color: #475569 !important;
+}
+
+
+/* Theme preference support: keep the historical light overrides scoped to light mode. */
+:root[data-theme="dark"] {
+  color-scheme: dark !important;
+  --bg-primary: #0b1024;
+  --bg-surface: #111a30;
+  --bg-surface-muted: #17233b;
+  --bg-elevated: #1b2943;
+  --text-primary: #edf2ff;
+  --text-secondary: #b1bfd8;
+  --text-placeholder: #91a2c0;
+  --text-on-accent: #081426;
+  --border-default: #2d3b56;
+  --border-strong: #50627f;
+  --accent-primary: #7dd3fc;
+  --accent-hover: #a5e3ff;
+  --accent-soft: #193650;
+  --accent-border: #37617e;
+  --accent-glow: rgb(125 211 252 / 30%);
+  --success: #86efac;
+  --danger: #fca5a5;
+  --shadow-color: rgb(0 0 0 / 40%);
+}
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root,
+:root[data-theme="dark"] #__next,
+:root[data-theme="dark"] main {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  color-scheme: dark !important;
+}
+:root[data-theme="dark"] header,
+:root[data-theme="dark"] .origin-header,
+:root[data-theme="dark"] [class*="header"] {
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+}
+:root[data-theme="dark"] header *,
+:root[data-theme="dark"] [class*="header"] * {
+  color: var(--text-primary) !important;
+}
+:root[data-theme="dark"] form,
+:root[data-theme="dark"] div:has(> textarea),
+:root[data-theme="dark"] div:has(> input[type="text"]),
+:root[data-theme="dark"] [class*="composer"] {
+  background-color: var(--bg-surface-muted) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 8px 24px var(--shadow-color) !important;
+}
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] select {
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
+}
+:root[data-theme="dark"] ::placeholder,
+:root[data-theme="dark"] textarea::placeholder,
+:root[data-theme="dark"] input::placeholder {
+  color: var(--text-placeholder) !important;
+}
+:root[data-theme="dark"] button[type="submit"],
+:root[data-theme="dark"] [class*="submit"],
+:root[data-theme="dark"] [class*="send"] {
+  background: linear-gradient(135deg, #0284c7, #2563eb) !important;
+  color: #fff !important;
+}
+:root[data-theme="dark"] button:first-child:has(svg) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+:root[data-theme="dark"] button:first-child:has(svg) * {
+  stroke: var(--text-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+:root[data-theme="dark"] .origin-ultra-v16,
+:root[data-theme="dark"] [data-testid*="origin-ultra"],
+:root[data-theme="dark"] [role="dialog"] {
+  color: var(--text-primary);
 }
