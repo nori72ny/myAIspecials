@@ -202,7 +202,7 @@ export default function OriginUltraV16() {
   };
 
   const portalContent = (
-    <div className="relative z-30 flex w-full justify-end pb-2 pointer-events-none">
+    <div className="relative z-0 ml-auto flex w-fit justify-end pb-2 pointer-events-none">
       {!isPanelOpen && (
         <button
           type="button"
