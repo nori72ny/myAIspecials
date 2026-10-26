@@ -42,7 +42,8 @@ describe("OriginRequirementClarifier", () => {
       "permissions-integrations",
       "expected-behavior",
       "verification",
-      "Ask one to three focused questions per turn",
+      "Never spend the first turn on questions alone for a creation request",
+      "ask at most one or two focused questions",
       "Never ask the same requirement twice",
       "once the request is sufficiently specified, stop questioning and execute",
     ]) expect(instruction).toContain(phrase);
