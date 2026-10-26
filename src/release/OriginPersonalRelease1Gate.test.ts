@@ -48,7 +48,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(modelCatalog).not.toContain('"openrouter/free"');
   });
 
-  it("keeps production chat single-attempt and excludes legacy retry runtimes", () => {
+  it("keeps production chat bounded-retry and excludes legacy retry runtimes", () => {
     const chat = readRepositoryFile("src/legacy/originChatRouter.ts");
     const streaming = readRepositoryFile("src/legacy/originStreamingChatRouter.ts");
     const server = readRepositoryFile("src/server/createOriginApp.ts");
@@ -82,7 +82,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerSecurityRegression = readRepositoryFile("src/legacy/originProviderClient.security-regression.test.ts");
 
-    expect(providerClient).toContain("const RETRY: readonly number[] = []");
+    expect(providerClient).toContain("const RETRY: readonly number[] = [700, 1_800]");
     expect(providerClient).toContain("const MAX_SEGMENTS = 1");
     expect(providerClient).toContain("attempt: 1");
     expect(providerClient).toContain("fallbackUsed: false");
