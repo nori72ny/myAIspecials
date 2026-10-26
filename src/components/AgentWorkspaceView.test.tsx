@@ -85,7 +85,7 @@ describe('AgentWorkspaceView v3', () => {
 
     await screen.findByText('未実行 · 承認待ち');
     expect(screen.getByText(/まだツールは実行していません/)).toBeTruthy();
-    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('文書作成');
+    expect(screen.getByLabelText('実行する機能').textContent).toContain('文書作成');
     expect((screen.getByLabelText('達成したいこと') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
@@ -170,7 +170,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
-    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('コード作成・確認');
+    expect(screen.getByLabelText('実行する機能').textContent).toContain('コード作成・確認');
     expect(screen.queryByRole('combobox')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
