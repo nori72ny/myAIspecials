@@ -53,6 +53,7 @@ function planResponse(selectedTool = 'document_generator') {
     costUsd: 0,
     paidFallbackUsed: false,
     selectedTool,
+    params: selectedTool === 'code_interpreter' ? { code: 'このTypeScriptコードのバグを分析して' } : selectedTool === 'web_search_grounding' ? { query: '検索テスト' } : selectedTool === 'file_writer' ? { path: 'artifacts/request-draft.md', content: '# たたき台' } : { content: '文書案を作ってください' },
     plan: [
       { id: 'task-1', title: 'Goal analysis' },
       { id: 'task-2', title: 'Task decomposition' },
@@ -78,7 +79,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェント機能 基盤を確認済み');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
 
@@ -123,7 +124,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェント機能 基盤を確認済み');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
@@ -165,7 +166,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェント機能 基盤を確認済み');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
@@ -188,7 +189,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェント機能 基盤を確認済み');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
