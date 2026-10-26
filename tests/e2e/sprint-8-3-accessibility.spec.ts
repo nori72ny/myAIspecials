@@ -60,7 +60,7 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     const input = page.getByTestId('origin-chat-request');
     await expect(input).toHaveAttribute('aria-describedby', 'origin-chat-guidance');
     await expect(page.locator('#origin-chat-guidance')).toContainText(/Control|Command/);
-    await expect(page.locator('#origin-chat-guidance')).toContainText(/パスワードやAPIキー/);
+    await expect(page.locator('#origin-chat-guidance')).not.toContainText(/パスワードやAPIキー/);
   });
 
   test('conversation log announces completion without reading the full answer automatically', async ({ page }) => {
