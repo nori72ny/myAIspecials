@@ -45,7 +45,8 @@ describe("OriginRequirementClarifier", () => {
       "Never spend the first turn on questions alone for a creation request",
       "ask at most one or two focused questions",
       "Never ask the same requirement twice",
-      "once the request is sufficiently specified, stop questioning and execute",
+      "Use clarification to improve the existing draft",
+      "do not delay an initial usable result",
     ]) expect(instruction).toContain(phrase);
   });
 
