@@ -1643,7 +1643,7 @@ export default function UnifiedChat({
             className="mt-2 flex flex-col gap-1 px-1 text-[13px] leading-5 text-origin-muted dark:text-origin-muted sm:flex-row sm:items-center sm:justify-between"
           >
             <span>{isEn ? 'Enter to send / Shift+Enter for a new line' : 'Enterで送信 / Shift+Enterで改行'}</span>
-            <span>{isEn ? 'Do not enter passwords or API keys.' : 'パスワードやAPIキーは入力しないでください。'}</span>
+            
           </div>
         </div>
       </div>
