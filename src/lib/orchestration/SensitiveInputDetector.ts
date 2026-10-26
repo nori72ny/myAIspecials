@@ -57,7 +57,7 @@ const JAPANESE_CREDENTIAL_CONTEXT = new RegExp(
   "i",
 );
 
-const PERSONAL_DATA_CONTEXT = /(?:私|本人|顧客|社員|患者|my|customer|employee|patient)(?:の|\\s+)(?:生年月日|誕生日|住所|電話番号|メールアドレス|口座番号|病歴|診断|date of birth|birthday|address|phone(?: number)?|email|bank account|medical history|diagnosis)\\s*[:：=]?\\s*[\\s\\S]{0,48}(?:です|は|[A-Z0-9ぁ-んァ-ヶ一-龠])/i;
+const PERSONAL_DATA_CONTEXT = /(?:私|本人|顧客|社員|患者|my|customer|employee|patient)(?:の|\s+)(?:生年月日|誕生日|住所|電話番号|メールアドレス|口座番号|病歴|診断|date of birth|birthday|address|phone(?: number)?|email|bank account|medical history|diagnosis)\s*[:：=]?\s*[\s\S]{0,48}(?:です|は|[A-Z0-9ぁ-んァ-ヶ一-龠])/i;
 const INVISIBLE_FORMAT_CHARACTERS = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 export function canonicalizeSensitiveInput(input: string): string {
