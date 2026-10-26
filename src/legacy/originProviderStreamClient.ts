@@ -342,7 +342,18 @@ export async function executeOriginProviderStream(
     } catch (error) {
       if (error instanceof OriginProviderError) {
         lastError = error;
-        if (!error.retryable || attempt === 2 || Date.now() >= deadline) throw error;
+        const diagnostic = error.diagnostic;
+        const upstreamStatus = diagnostic?.upstreamStatus;
+        const transientUpstreamStatus = typeof upstreamStatus === "number"
+          && (upstreamStatus === 408 || upstreamStatus === 429 || [500, 502, 503, 504].includes(upstreamStatus));
+        const transientTransportFailure = diagnostic?.transportFailure === "network"
+          || diagnostic?.transportFailure === "timeout";
+        const retryableTransientFailure = error.retryable
+          && (error.code === "PROVIDER_RATE_LIMITED"
+            || error.code === "PROVIDER_TIMEOUT"
+            || transientUpstreamStatus
+            || transientTransportFailure);
+        if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;
       } else {
         lastError = error;
         if (attempt === 2 || Date.now() >= deadline) break;
