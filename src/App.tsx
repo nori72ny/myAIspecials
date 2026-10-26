@@ -1593,7 +1593,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
         const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);
-        if (isModelBusy && !controller.signal.aborted) {
+        const shouldRetry = failure?.retryAttempted !== true && failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
+        if (isModelBusy && shouldRetry && !controller.signal.aborted) {
           // One bounded retry against the same explicitly free model. Never change model or billing tier.
           await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
           if (controller.signal.aborted) return;
