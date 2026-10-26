@@ -334,7 +334,7 @@ export default function AgentWorkspaceView() {
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
             <p className="mb-2 text-xs leading-5 text-slate-500">Agent実行時だけ使用します。ブラウザ保存・localStorage保存はしません。</p>
-            <input ref={credentialInputRef} id="agent-operator-key" aria-label="Agent認証キー" type="password" autoComplete="off" spellCheck={false}
+            <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
               placeholder="実行認証キー"
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
           </details>
