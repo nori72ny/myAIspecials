@@ -34,7 +34,7 @@ describe("provider privacy isolation", () => {
       fetchImpl as typeof fetch,
     )).rejects.toMatchObject({ code: expect.stringMatching(/^PROVIDER_/) });
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(3);
     expect(calls[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls.some((url) => url.includes("generativelanguage.googleapis.com"))).toBe(false);
   });
