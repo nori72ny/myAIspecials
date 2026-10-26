@@ -13,6 +13,7 @@ type CapabilityPayload = {
   runId: string;
   digest: string;
   plannedTool?: string;
+  paramsDigest?: string;
   iat: number;
   exp: number;
 };
@@ -35,6 +36,7 @@ function issue(
   env: NodeJS.ProcessEnv,
   now: number,
   plannedTool?: string,
+  paramsDigest?: string,
 ): string {
   const key = secret(env);
   if (!key) throw new Error('AGENT_APPROVAL_NOT_CONFIGURED');
@@ -44,6 +46,7 @@ function issue(
     runId,
     digest,
     ...(kind === 'plan' && plannedTool ? { plannedTool } : {}),
+    ...(kind === 'plan' && paramsDigest ? { paramsDigest } : {}),
     iat: now,
     exp: now + ttlMs,
   };
@@ -67,6 +70,7 @@ function verify(token: string, expectedKind: CapabilityKind, env: NodeJS.Process
     if (typeof parsed.runId !== 'string' || !parsed.runId.startsWith('run-')) return null;
     if (typeof parsed.digest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.digest)) return null;
     if (parsed.plannedTool !== undefined && (typeof parsed.plannedTool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(parsed.plannedTool))) return null;
+    if (parsed.paramsDigest !== undefined && (typeof parsed.paramsDigest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.paramsDigest))) return null;
     if (typeof parsed.iat !== 'number' || typeof parsed.exp !== 'number' || parsed.exp <= now || parsed.iat > now + 30_000) return null;
     return parsed as CapabilityPayload;
   } catch {
@@ -84,8 +88,9 @@ export function issuePlanCapability(
   env: NodeJS.ProcessEnv,
   now = Date.now(),
   plannedTool?: string,
+  paramsDigest?: string,
 ): { token: string; expiresAt: number } {
-  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now, plannedTool), expiresAt: now + PLAN_TTL_MS };
+  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now, plannedTool, paramsDigest), expiresAt: now + PLAN_TTL_MS };
 }
 
 export function verifyPlanCapability(token: string, env: NodeJS.ProcessEnv, now = Date.now()): CapabilityPayload | null {
