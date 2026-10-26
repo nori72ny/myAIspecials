@@ -23,7 +23,7 @@ const digestParams = (params: ToolParams) => createHash('sha256').update(JSON.st
 function generatedParams(toolName: ToolName, goal: string): ToolParams {
   const normalized = goal.normalize('NFKC').trim();
   const explicitPath = normalized.match(/`([^`\r\n]{1,240})`/)?.[1]
-    ?? normalized.match(/(?:^|\\s)((?:\\.{0,2}\\/)?[A-Za-z0-9_@./-]+\\.[A-Za-z0-9_-]{1,12})(?=\\s|$|[、。,:：])/)?.[1];
+    ?? normalized.match(/(?:^|\s)((?:\.{0,2}\/)?[A-Za-z0-9_@./-]+\.[A-Za-z0-9_-]{1,12})(?=\s|$|[、。,:：])/)?.[1];
   if (toolName === 'web_search_grounding') {
     const query = normalized
       .replace(/^(?:最新の|現在の|最近の)?/u, '')
@@ -32,16 +32,16 @@ function generatedParams(toolName: ToolName, goal: string): ToolParams {
     return { query: query || normalized };
   }
   if (toolName === 'file_writer') {
-    const isSalesTable = /売上(?:表|管理|一覧|データ)|sales\\s*table/i.test(normalized);
+    const isSalesTable = /売上(?:表|管理|一覧|データ)|sales\s*table/i.test(normalized);
     const path = explicitPath?.trim() || (isSalesTable ? 'artifacts/sales-table.csv' : 'artifacts/request-draft.md');
-    const fenced = normalized.match(/```(?:[A-Za-z0-9_.+-]+)?\\s*\\n([\\s\\S]*?)```/)?.[1]?.trimEnd();
-    let content = fenced ? `${fenced}\\n` : '';
-    if (!content && (isSalesTable || /\\.csv$/i.test(path))) {
-      content = '日付,商品,数量,単価,売上\\n2026-10-01,サンプル商品A,2,1500,=C2*D2\\n2026-10-02,サンプル商品B,1,2800,=C3*D3\\n合計,,,,=SUM(E2:E3)\\n';
+    const fenced = normalized.match(/```(?:[A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/)?.[1]?.trimEnd();
+    let content = fenced ? `${fenced}\n` : '';
+    if (!content && (isSalesTable || /\.csv$/i.test(path))) {
+      content = '日付,商品,数量,単価,売上\n2026-10-01,サンプル商品A,2,1500,=C2*D2\n2026-10-02,サンプル商品B,1,2800,=C3*D3\n合計,,,,=SUM(E2:E3)\n';
     }
     if (!content) {
       const title = normalized.slice(0, 80).replace(/[。.!！?？]+$/u, '') || '作成物のたたき台';
-      content = `# ${title}\\n\\n## 目的\\n${normalized}\\n\\n## 前提\\n- 詳細指定がないため、一般的な実務用途を想定した初版です。\\n- 数値・固有情報は、確認できるまでサンプルまたは仮置きとして扱います。\\n\\n## たたき台\\n- 目的に沿った基本構成を用意しました。\\n- 実データや運用条件に合わせて調整してください。\\n`;
+      content = `# ${title}\n\n## 目的\n${normalized}\n\n## 前提\n- 詳細指定がないため、一般的な実務用途を想定した初版です。\n- 数値・固有情報は、確認できるまでサンプルまたは仮置きとして扱います。\n\n## たたき台\n- 目的に沿った基本構成を用意しました。\n- 実データや運用条件に合わせて調整してください。\n`;
     }
     return { path, content };
   }
@@ -52,10 +52,10 @@ function generatedParams(toolName: ToolName, goal: string): ToolParams {
   if (toolName === 'code_interpreter') return { code: normalized };
   const value = normalized.toLowerCase();
   const kinds = ([
-    ['test', /\\btest(?:s|ing)?\\b|テスト/],
-    ['typecheck', /\\btype[- ]?check(?:ing)?\\b|型チェック/],
-    ['lint', /\\blint(?:ing)?\\b|リント/],
-    ['build', /\\bbuild(?:ing)?\\b|ビルド/],
+    ['test', /\btest(?:s|ing)?\b|テスト/],
+    ['typecheck', /\btype[- ]?check(?:ing)?\b|型チェック/],
+    ['lint', /\blint(?:ing)?\b|リント/],
+    ['build', /\bbuild(?:ing)?\b|ビルド/],
   ] as const).filter(([, pattern]) => pattern.test(value));
   return kinds.length === 1 ? { kind: kinds[0][0] } : {};
 }
