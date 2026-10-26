@@ -518,3 +518,10 @@ button:first-child:has(svg) * {
 :root[data-theme="dark"] [role="dialog"] {
   color: var(--text-primary);
 }
+
+:root[data-theme="dark"] .origin-app main div:has(> [data-testid="origin-core-logo"]) > h1 {
+  color: var(--text-primary) !important;
+}
+:root[data-theme="dark"] .origin-app main div:has(> [data-testid="origin-core-logo"]) > p {
+  color: var(--text-secondary) !important;
+}
