@@ -1370,12 +1370,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             }]);
             return;
           } catch (localError) {
-            if (localError instanceof Error && localError.message === 'LOCAL_CANVAS_PROMPT_NEEDS_CLARIFICATION') {
-              appendFailure(language === 'en'
-                ? 'The local image request needs one more concrete subject or exact text before it can be rendered.'
-                : 'ローカル画像を作成するには、主役や画像に入れる正確な文字をもう少し具体的に指定してください。');
-              return;
+            if (!(localError instanceof Error && localError.message === 'LOCAL_CANVAS_PROMPT_NEEDS_CLARIFICATION')) {
+              // Unexpected local renderer failures also use only the verified free-provider path.
             }
+            // When the local planner needs clarification, preserve the existing server-side clarification
+            // loop instead of terminating early. Concrete, ready prompts still render locally above.
             // Fall through to the verified free-provider path; no paid fallback is permitted.
           }
         }
