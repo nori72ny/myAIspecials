@@ -7,6 +7,10 @@ import {
   generateCloudflareRasterImageV15,
   getCloudflareRasterStatusV15,
 } from './cloudflareRasterImageProviderV15.js';
+import {
+  generateRasterImageV15,
+  getRasterProviderStatusV15,
+} from './rasterImageProviderV15.js';
 
 export const RASTER_TASKS_V15 = ['text-to-image', 'edit', 'inpaint', 'outpaint', 'variation'] as const;
 export type RasterTaskV15 = (typeof RASTER_TASKS_V15)[number];
@@ -57,11 +61,33 @@ const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
   paymentMethodRequired: false,
 };
 
-const PROVIDERS: readonly RasterProviderRuntimeV15[] = [{
-  descriptor: CLOUDFLARE_DESCRIPTOR,
-  status: (env = process.env) => getCloudflareRasterStatusV15(env),
-  generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
-}];
+const POLLINATIONS_DESCRIPTOR: RasterProviderDescriptorV15 = {
+  id: 'pollinations-zero-cost',
+  label: 'Pollinations verified zero-cost raster runtime',
+  capabilities: [
+    { task: 'text-to-image', referenceImages: false, identityPreservation: false, deterministicTextOverlay: false },
+  ],
+  zeroCostRequired: true,
+  paidFallback: false,
+  secretDelivery: 'server-only',
+  paymentMethodRequired: false,
+};
+
+// Cloudflare is preferred. Pollinations is considered only when its server-side,
+// zero-budget scoped key and live model/usage checks prove a zero-cost path.
+// No anonymous or unverified endpoint is treated as free.
+const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
+  {
+    descriptor: CLOUDFLARE_DESCRIPTOR,
+    status: (env = process.env) => getCloudflareRasterStatusV15(env),
+    generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
+  },
+  {
+    descriptor: POLLINATIONS_DESCRIPTOR,
+    status: (env = process.env) => getRasterProviderStatusV15(env),
+    generate: (input, env = process.env) => generateRasterImageV15(input, env),
+  },
+];
 
 export type RasterProviderSelectionV15 =
   | {
