@@ -124,7 +124,7 @@ export default function AgentWorkspaceView() {
     let mounted = true;
     void loadCheckpointsFromIndexedDB()
       .then((restored) => { if (mounted) setCheckpoints(restored); })
-      .catch(() => { if (mounted) setLog((current) => [...current, '端末内のAgent履歴を読み込めませんでした。']); })
+      .catch(() => { if (mounted) setLog((current) => [...current, '端末内の実行履歴を読み込めませんでした。']); })
       .finally(() => { if (mounted) setRestoring(false); });
     return () => {
       mounted = false;
@@ -292,12 +292,12 @@ export default function AgentWorkspaceView() {
     && capability.paidFallbackEnabled === false;
   const plannedParamsReady = plan ? hasExecutableParams(plan.selectedTool, plan.params) : false;
 
-  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
+  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="自律エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">自律エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、署名済み計画に固定された1つの登録済みツールだけを実行・検証します。</p>
+        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
@@ -317,23 +317,23 @@ export default function AgentWorkspaceView() {
           {phase === 'planning' ? '計画中…' : '実行計画を作る'}
         </button>
 
-        {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="Agent plan">
+        {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-black">実行の流れ</h2>
             <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
 
-          <p className="mt-4 block text-xs font-bold text-slate-500">計画で固定されたツール</p>
-          <div aria-label="計画で固定されたツール" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
+          <p className="mt-4 block text-xs font-bold text-slate-500">実行する機能</p>
+          <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
             {toolLabel(plan.selectedTool)}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名はこの計画の認証情報に結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
-            <p className="mb-2 text-xs leading-5 text-slate-500">Agent実行時だけ使用します。ブラウザ保存・localStorage保存はしません。</p>
+            <p className="mb-2 text-xs leading-5 text-slate-500">実行時だけ使用します。ブラウザーには保存しません。</p>
             <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
               placeholder="実行認証キー"
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
@@ -350,14 +350,14 @@ export default function AgentWorkspaceView() {
 
         <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
-          <p className="leading-5 text-slate-500">署名済み計画、exact-operation承認、共有リプレイ防止、$0・有料fallback禁止を満たさない実行は停止します。画面に「完了」と出すのは検証済み成果だけです。</p>
+          <p className="leading-5 text-slate-500">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
           {capability && <div className="mt-2 space-y-1 text-slate-500">
             <p>Approval signing: {capability.approvalSigningConfigured ? 'ready' : 'unavailable'}</p>
             <p>Replay protection: {capability.replayProtectionConfigured ? capability.replayProtection : 'unavailable'}</p>
           </div>}
         </details>
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300" aria-label="Agent log">
+        <div className="mt-4 max-h-36 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300" aria-label="実行履歴">
           {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行ログはここに表示されます。'}
         </div>
       </aside>
