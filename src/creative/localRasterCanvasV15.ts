@@ -59,7 +59,7 @@ export async function generateLocalCanvasRasterV15(prompt: string): Promise<Loca
   glow.addColorStop(0, `hsla(${hue2} 90% 78% / .48)`);
   glow.addColorStop(1, 'hsla(0 0% 0% / 0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, width, height);
-  const cx = width * (zone === 'left' ? .68 : zone === 'right' ? .72 : .54);
+  const cx = width * (zone === 'left' ? .68 : .54);
   const cy = height * (zone === 'top' ? .68 : zone === 'bottom' ? .36 : .48);
   const radius = Math.min(width, height) * (.19 + (seed % 9) / 100);
   ctx.save();
