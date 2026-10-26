@@ -10,7 +10,7 @@ import {
 describe('rasterProviderRegistryV15', () => {
   it('exposes only free-only server-side providers with no paid fallback', () => {
     const providers = rasterProviderRegistryV15();
-    expect(providers).toHaveLength(1);
+    expect(providers).toHaveLength(2);
     expect(providers[0]).toMatchObject({
       id: 'cloudflare-workers-ai-free',
       zeroCostRequired: true,
@@ -57,7 +57,7 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
-  it('keeps text-to-image unavailable when the audited provider is not configured', async () => {
+  it('falls through to Pollinations only when a scoped zero-budget key can be verified', async () => {
     const selection = await selectRasterProviderV15('text-to-image', {});
     expect(selection.ready).toBe(false);
     if ('reason' in selection) {
