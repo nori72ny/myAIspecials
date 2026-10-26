@@ -74,6 +74,17 @@ describe('rasterProviderRegistryV15', () => {
             reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
           }),
         }),
+        expect.objectContaining({
+          providerId: 'pollinations-zero-cost',
+          ready: false,
+          reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+          supportsTask: true,
+          status: expect.objectContaining({
+            configured: false,
+            ready: false,
+            reason: 'POLLINATIONS_KEY_NOT_CONFIGURED',
+          }),
+        }),
       ]);
     }
   });
