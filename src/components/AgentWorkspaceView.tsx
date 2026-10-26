@@ -187,7 +187,7 @@ export default function AgentWorkspaceView() {
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
-        setLog((current) => [...current, `計画を作成できませんでした: ${(error as Error).message}`]);
+        setLog((current) => [...current, '計画を作成できませんでした。依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -264,7 +264,7 @@ export default function AgentWorkspaceView() {
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
-        setLog((current) => [...current, `実行は完了扱いにしていません: ${(error as Error).message}`]);
+        setLog((current) => [...current, '処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
       if (credentialInputRef.current) credentialInputRef.current.value = '';
