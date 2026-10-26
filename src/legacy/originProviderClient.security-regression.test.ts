@@ -65,7 +65,7 @@ describe("originProviderClient security regressions", () => {
     const fetchMock = vi.fn(async () => new Response("rate limited", { status: 429 }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key", GEMINI_API_KEY: "synthetic-gemini-key" }, fetchMock as unknown as OriginFetch))
       .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryable: true });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
