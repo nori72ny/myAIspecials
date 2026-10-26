@@ -206,7 +206,7 @@ export default function OriginUltraV16() {
     <div className="relative z-0 ml-auto flex w-fit justify-end pb-2">
       <button
         type="button"
-        className="group inline-flex min-h-[36px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
+        className="group inline-flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
         aria-label="ORIGIN ULTRA v16 を開く"
         aria-expanded={isPanelOpen}
         aria-haspopup="dialog"
