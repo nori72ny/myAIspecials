@@ -1584,10 +1584,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         return;
       }
 
-      const response = await fetchOriginChat(
-        JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
-        controller.signal,
-      );
+      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages });
+      let response = await fetchOriginChat(requestBody, controller.signal);
       if (!response.ok) {
         const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
@@ -1595,8 +1593,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
         const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);
-      if (isModelBusy) {
-          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+        if (isModelBusy && !controller.signal.aborted) {
+          // One bounded retry against the same explicitly free model. Never change model or billing tier.
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+          if (controller.signal.aborted) return;
+          response = await fetchOriginChat(requestBody, controller.signal);
+        }
+      }
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
+        if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
+          enterSafeWaiting();
+          return;
+        }
+        const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);
+        if (isModelBusy) {
+          appendFailure(language === 'en'
+            ? 'The free AI service is temporarily unavailable. Your message is preserved; please retry in a moment.'
+            : '無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。');
           return;
         }
         appendFailure(t.error);
