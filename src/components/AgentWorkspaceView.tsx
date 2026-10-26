@@ -147,7 +147,7 @@ export default function AgentWorkspaceView() {
     abortRef.current = controller;
     setPlan(null);
     setPhase('planning');
-    setLog(['Agent v3: 実行計画を準備しています。']);
+    setLog(['自律エージェント: 実行計画を準備しています。']);
     setArtifact('// Plan preparing…');
     try {
       const response = await fetch('/api/agent/v3/plan', {
@@ -173,14 +173,14 @@ export default function AgentWorkspaceView() {
       setPlan(next);
       setPhase('awaiting_approval');
       setArtifact([
-        '# Agent v3 実行計画',
+        '# 自律エージェント 実行計画',
         '',
         `Goal: ${next.goal}`,
         `Tool: ${next.selectedTool}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
-        '実行には、計画に署名された1つの登録済みツールに限定した認証付き承認が必要です。',
+        '実行には、計画で指定した1つの機能に限定した認証付き承認が必要です。',
         '承認はこの実行内容だけに有効で、再利用はできません。',
       ].join('\n'));
       setLog((current) => [...current, `計画を作成しました。実行する機能: ${toolLabel(next.selectedTool)}。まだツールは実行していません。`]);
@@ -295,7 +295,7 @@ export default function AgentWorkspaceView() {
   return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Agent v3</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">自律エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
         <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、署名済み計画に固定された1つの登録済みツールだけを実行・検証します。</p>
 
@@ -306,7 +306,7 @@ export default function AgentWorkspaceView() {
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェント 基盤を確認済み' : '自律エージェント は現在利用できません'}</span>
           <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
             {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
           </span>
