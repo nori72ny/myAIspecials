@@ -196,7 +196,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'wrong-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText(/AGENT_AUTHENTICATION_REQUIRED/);
+    await screen.findByText('処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。');
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent/v3/execute')).toBe(false);
   });
 });
