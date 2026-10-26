@@ -170,7 +170,7 @@ export default function OriginUltraV16() {
     await vault.clear(); await refresh(); log('タスクと保存結果を削除しました。');
   };
   const downloadReport = () => {
-    const lines = ['# ORIGIN ULTRA v16 — 調査レポート', '', `生成日時: ${new Date().toLocaleString()}`, '出典: Wikipedia 日本語版 API', 'ライセンス: CC BY-SA 4.0 (各記事の帰属情報を参照)', ''];
+    const lines = ['# ORIGIN — 一括リサーチレポート', '', `生成日時: ${new Date().toLocaleString()}`, '出典: Wikipedia 日本語版 API', 'ライセンス: CC BY-SA 4.0 (各記事の帰属情報を参照)', ''];
     for (const task of tasks.filter(item => item.status === 'done')) {
       lines.push(`## ${task.query}`, '');
       for (const item of task.items) lines.push(`- [${item.title}](https://ja.wikipedia.org/?curid=${item.pageid}) — ${item.snippet}`);
@@ -207,14 +207,14 @@ export default function OriginUltraV16() {
       <button
         type="button"
         className="group inline-flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
-        aria-label="ORIGIN ULTRA v16 を開く"
+        aria-label="一括リサーチを開く"
         aria-expanded={isPanelOpen}
         aria-haspopup="dialog"
         data-testid="origin-ultra-v16-toggle"
         onClick={() => setIsPanelOpen(true)}
       >
         <span aria-hidden="true" className="text-sm text-emerald-500">✦</span>
-        <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">ULTRA v16</span>
+        <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">一括リサーチ</span>
       </button>
     </div>
   );
@@ -229,7 +229,7 @@ export default function OriginUltraV16() {
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="ORIGIN ULTRA v16"
+        aria-label="一括リサーチ"
         className="origin-surface relative max-h-[min(85dvh,48rem)] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/30 bg-white/95 p-4 text-zinc-900 shadow-2xl backdrop-blur-2xl dark:border-zinc-700/70 dark:bg-zinc-950/95 dark:text-zinc-100 sm:p-6"
         data-testid="origin-ultra-v16"
         onMouseDown={(event) => event.stopPropagation()}
@@ -237,7 +237,7 @@ export default function OriginUltraV16() {
       >
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200/70 pb-3 dark:border-zinc-800">
           <div>
-            <strong className="text-base">ORIGIN ULTRA v16 — 調査タスクキュー</strong>
+            <strong className="text-base">一括リサーチ — 調査タスク</strong>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">ローカル保存・キュー実行・自己診断</p>
           </div>
           <button
