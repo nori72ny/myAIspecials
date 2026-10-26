@@ -110,7 +110,7 @@ describe("originChatResponsePolicy", () => {
       "never spend the first turn asking only questions",
       "ask at most one or two focused questions",
       "Use follow-up answers to improve the existing draft",
-      "For creation requests, never spend the first turn asking only questions",
+      "For any creation request",
       "never repeat a question that the user has already answered",
       "If the request is already sufficiently specified, proceed immediately without unnecessary questions",
       "Preserve the requested medium",
