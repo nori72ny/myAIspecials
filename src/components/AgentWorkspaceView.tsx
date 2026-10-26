@@ -51,6 +51,20 @@ function authorizationHeaders(credential: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
 }
 
+function toolLabel(tool: AgentTool): string {
+  const labels: Record<AgentTool, string> = {
+    document_generator: '文書作成',
+    code_interpreter: 'コード作成・確認',
+    image_prompt_compiler: '画像の指示づくり',
+    web_search_grounding: 'ウェブ調査',
+    repository_explorer: 'ファイル一覧の確認',
+    file_reader: 'ファイルの読み取り',
+    file_writer: 'ファイルの作成・編集',
+    verification_runner: 'テスト・動作確認',
+  };
+  return labels[tool];
+}
+
 function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): boolean {
   if (tool === 'web_search_grounding') return typeof params.query === 'string' && params.query.trim().length > 0;
   if (tool === 'file_writer') return typeof params.path === 'string' && params.path.trim().length > 0 && typeof params.content === 'string' && params.content.length > 0;
@@ -167,9 +181,9 @@ export default function AgentWorkspaceView() {
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
         '実行には、計画に署名された1つの登録済みツールに限定した認証付き承認が必要です。',
-        '承認トークンはそのrun・tool・paramsだけに有効で、再利用はできません。',
+        '承認はこの実行内容だけに有効で、再利用はできません。',
       ].join('\n'));
-      setLog((current) => [...current, `計画を作成しました。署名済みツール: ${next.selectedTool}。まだツールは実行していません。`]);
+      setLog((current) => [...current, `計画を作成しました。実行する機能: ${toolLabel(next.selectedTool)}。まだツールは実行していません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -199,7 +213,7 @@ export default function AgentWorkspaceView() {
     const toolParams = plan.params;
     if (!hasExecutableParams(plan.selectedTool, toolParams)) {
       setPhase('failed');
-      setLog((current) => [...current, `計画ツール ${plan.selectedTool} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
+      setLog((current) => [...current, `計画ツール ${toolLabel(plan.selectedTool)} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
@@ -207,7 +221,7 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${plan.selectedTool}`, '実行前の安全確認を取得しています。']);
+    setLog((current) => [...current, `承認対象: ${toolLabel(plan.selectedTool)}`, '実行前の安全確認を取得しています。']);
     try {
       const approvalResponse = await fetch('/api/agent/v3/approval', {
         method: 'POST',
@@ -312,16 +326,16 @@ export default function AgentWorkspaceView() {
 
           <p className="mt-4 block text-xs font-bold text-slate-500">計画で固定されたツール</p>
           <div aria-label="計画で固定されたツール" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
-            {plan.selectedTool}
+            {toolLabel(plan.selectedTool)}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名は署名済みplan tokenに結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名はこの計画の認証情報に結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
             <p className="mb-2 text-xs leading-5 text-slate-500">Agent実行時だけ使用します。ブラウザ保存・localStorage保存はしません。</p>
             <input ref={credentialInputRef} id="agent-operator-key" aria-label="Agent認証キー" type="password" autoComplete="off" spellCheck={false}
-              placeholder="Agent operator key"
+              placeholder="実行認証キー"
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
           </details>
 
