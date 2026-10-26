@@ -202,11 +202,11 @@ export default function OriginUltraV16() {
   };
 
   const portalContent = (
-    <div className="relative z-30 flex w-full justify-end pb-2">
+    <div className="relative z-30 flex w-full justify-end pb-2 pointer-events-none">
       {!isPanelOpen && (
         <button
           type="button"
-          className="group inline-flex min-h-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
+          className="group pointer-events-auto inline-flex min-h-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
           aria-label="ORIGIN ULTRA v16 を開く"
           aria-expanded={false}
           data-testid="origin-ultra-v16-toggle"
@@ -224,7 +224,7 @@ export default function OriginUltraV16() {
         </button>
       )}
       {isPanelOpen && (
-        <div className="absolute right-0 top-full z-50 mt-2" data-testid="origin-ultra-v16-layer">
+        <div className="pointer-events-auto absolute right-0 top-full z-50 mt-2" data-testid="origin-ultra-v16-layer">
           <section
             aria-label="ORIGIN ULTRA v16"
             className="origin-surface relative max-h-[70dvh] w-[min(calc(100vw-1.5rem),24rem)] overflow-y-auto rounded-3xl border border-zinc-200/80 bg-white/95 p-4 text-zinc-900 shadow-xl backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
