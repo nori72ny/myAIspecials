@@ -291,6 +291,21 @@ describe('agent orchestrator v3', () => {
     expect(response.body.params).toEqual({ content: goal });
   });
 
+  it('returns structured web-search parameters and a default sales-table file without code fences', async () => {
+    const app = appFor(env, { consume: async () => true });
+    const research = await request(app).post('/api/agent/v3/plan').send({ goal: '最新のVercel料金を調べてください' });
+    expect(research.status).toBe(201);
+    expect(research.body.selectedTool).toBe('web_search_grounding');
+    expect(research.body.params).toMatchObject({ query: expect.stringContaining('Vercel料金') });
+
+    const table = await request(app).post('/api/agent/v3/plan').send({ goal: '簡単な売上表を作って' });
+    expect(table.status).toBe(201);
+    expect(table.body.selectedTool).toBe('file_writer');
+    expect(table.body.params.path).toBe('artifacts/sales-table.csv');
+    expect(table.body.params.content).toContain('日付,商品,数量,単価,売上');
+    expect(table.body.params.content).toContain('=SUM(E2:E3)');
+  });
+
   it('fails closed when one goal requires multiple tools instead of pretending one tool can finish it', async () => {
     const response = await request(appFor()).post('/api/agent/v3/plan')
       .send({ goal: '最新市場を調べて、その結果から提案書を作って' });
