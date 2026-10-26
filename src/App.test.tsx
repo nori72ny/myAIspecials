@@ -115,7 +115,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(screen.getByTestId(id).className).toContain('min-h-11');
       expect(screen.getByTestId(id).className).toContain('min-w-11');
     }
-    expect(screen.getByRole('button', { name: 'Canvas Direct Touchで編集' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '画面を直接クリックして編集' })).toBeTruthy();
     expect(screen.getByTestId('artifact-action-edit').textContent).toBe('✏️ 編集');
     expect(screen.getByTestId('artifact-action-save').textContent).toBe('📥 保存');
     expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
