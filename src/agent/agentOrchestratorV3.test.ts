@@ -35,11 +35,11 @@ describe('agent orchestrator v3', () => {
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
       .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
-      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName, params });
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName, params: plan.body.params });
     expect(approval.status).toBe(201);
     const result = await request(app).post('/api/agent/v3/execute')
       .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
-      .send({ runId: plan.body.runId, approvalToken: approval.body.approvalToken, toolName, params });
+      .send({ runId: plan.body.runId, approvalToken: approval.body.approvalToken, toolName, params: plan.body.params });
     expect(result.status).toBe(422);
     expect(result.body.code).toBe('ARTIFACT_VERIFICATION_FAILED');
     expect(result.body.status).not.toBe('completed');
@@ -288,7 +288,7 @@ describe('agent orchestrator v3', () => {
     });
     expect(response.body.runId).toMatch(/^run-/);
     expect(response.body.planToken).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-    expect(JSON.stringify(response.body)).not.toContain(goal);
+    expect(response.body.params).toEqual({ content: goal });
   });
 
   it('fails closed when one goal requires multiple tools instead of pretending one tool can finish it', async () => {
@@ -315,13 +315,24 @@ describe('agent orchestrator v3', () => {
     expect(mismatch.status).toBe(403);
     expect(mismatch.body.code).toBe('AGENT_PLAN_TOOL_MISMATCH');
 
+    const paramsMismatch = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({
+        runId: planned.body.runId,
+        planToken: planned.body.planToken,
+        toolName: 'document_generator',
+        params: { content: 'Different content than the signed plan' },
+      });
+    expect(paramsMismatch.status).toBe(403);
+    expect(paramsMismatch.body.code).toBe('AGENT_PLAN_PARAMS_MISMATCH');
+
     const approved = await request(app).post('/api/agent/v3/approval')
       .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
       .send({
         runId: planned.body.runId,
         planToken: planned.body.planToken,
         toolName: 'document_generator',
-        params: { content: 'Harmless audit document' },
+        params: planned.body.params,
       });
     expect(approved.status).toBe(201);
     expect(approved.body.scope).toBe('exact-operation');
