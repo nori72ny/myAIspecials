@@ -82,7 +82,7 @@ export default function OriginUltraV16() {
   const heartbeatRef = useRef(Date.now());
 
   const log = useCallback((message: string) => setLogs(previous => [`[${new Date().toLocaleTimeString()}] ${message}`, ...previous].slice(0, 100)), []);
-  const refresh = useCallback(async () => { try { setTasks(await vault.all()); } catch (error) { log(`保存データ読み込み失敗: ${String(error)}`); } }, [log]);
+  const refresh = useCallback(async () => { try { setTasks(await vault.all()); } catch (error) { log('保存済みの調査結果を読み込めませんでした。'); } }, [log]);
 
   useEffect(() => {
     void refresh();
@@ -93,13 +93,13 @@ export default function OriginUltraV16() {
     const worker = createWikiWorker();
     workerRef.current = worker;
     if (!worker) {
-      log('テスト環境 / Worker または Blob URL API 非対応のため待機中です。');
+      log('このブラウザーでは検索の準備が整わないため、実行を待機しています。');
       setDiagnostics([{ name: 'Web Worker API', pass: false, detail: 'テスト環境 / API非対応。検索キューは待機状態です。' }]);
       return () => { workerRef.current = null; };
     }
     worker.onmessage = event => { if (event.data?.type === 'heartbeat') heartbeatRef.current = Date.now(); };
     const heartbeat = window.setInterval(() => {
-      if (Date.now() - heartbeatRef.current > 15000) log('Worker heartbeat が15秒以上ありません。実行を安全停止してください。');
+      if (Date.now() - heartbeatRef.current > 15000) log('検索処理から応答がないため、処理を停止しました。');
     }, 5000);
     return () => { window.clearInterval(heartbeat); worker.terminate(); workerRef.current = null; if (wakeRef.current) void wakeRef.current.release().catch(() => undefined); };
   }, [refresh, log]);
@@ -112,7 +112,7 @@ export default function OriginUltraV16() {
       setQueryText('');
       await refresh();
       log(`${queries.length}件をキューに追加しました`);
-    } catch (error) { log(`キュー追加失敗: ${String(error)}`); }
+    } catch (error) { log('検索タスクを追加できませんでした。入力内容をご確認ください。'); }
   };
 
   const search = (task: Task): Promise<WikiItem[]> => new Promise((resolve, reject) => {
@@ -131,8 +131,8 @@ export default function OriginUltraV16() {
 
   const runQueue = async () => {
     if (running) return;
-    if (typeof window === 'undefined' || typeof navigator === 'undefined' || !navigator.locks || typeof navigator.locks.request !== 'function') { log('テスト環境 / Web Locks API 非対応のため、安全側に待機します。'); return; }
-    if (!workerRef.current) { log('テスト環境 / Worker API 非対応のため、検索キューは待機中です。'); return; }
+    if (typeof window === 'undefined' || typeof navigator === 'undefined' || !navigator.locks || typeof navigator.locks.request !== 'function') { log('このブラウザーでは同時実行を安全に制御できないため、開始を見合わせます。'); return; }
+    if (!workerRef.current) { log('このブラウザーでは検索機能を利用できません。'); return; }
     setRunning(true); stopRef.current = false;
     try {
       await navigator.locks.request(LOCK_NAME, { mode: 'exclusive', ifAvailable: true }, async lock => {
@@ -151,7 +151,7 @@ export default function OriginUltraV16() {
               log(`検索完了: ${task.query} (${items.length}件)`);
             } catch (error) {
               await vault.put({ ...runningTask, status: 'failed', error: String(error), updatedAt: Date.now() });
-              log(`検索失敗: ${task.query} — ${String(error)}`);
+              log(`検索できませんでした: ${task.query}`);
             }
             await refresh();
           }
@@ -160,7 +160,7 @@ export default function OriginUltraV16() {
           setWakeHeld(false);
         }
       });
-    } catch (error) { log(`排他制御またはキュー実行エラー: ${String(error)}`); }
+    } catch (error) { log('検索処理を開始できませんでした。'); }
     finally { setRunning(false); await refresh(); }
   };
 
@@ -180,7 +180,7 @@ export default function OriginUltraV16() {
       if (typeof window === 'undefined' || typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') { log('この環境ではファイル保存 API が利用できません。'); return; }
       const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }));
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'origin-ultra-report.md'; anchor.click(); URL.revokeObjectURL(url);
-    } catch (error) { log(`Markdown保存に失敗しました: ${String(error)}`); }
+    } catch (error) { log('レポートを保存できませんでした。'); }
   };
 
   const runDiagnostics = async () => {
@@ -237,7 +237,7 @@ export default function OriginUltraV16() {
       >
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200/70 pb-3 dark:border-zinc-800">
           <div>
-            <strong className="text-base">一括リサーチ — 調査タスク</strong>
+            <strong className="text-base">一括リサーチ</strong>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">端末への保存・まとめて実行・動作確認</p>
           </div>
           <button
@@ -250,7 +250,7 @@ export default function OriginUltraV16() {
           >✕</button>
         </div>
         <div className="grid gap-4 py-4">
-          <label className="grid gap-2 text-sm font-semibold">Wikipedia 検索タスク（1行1件、最大10件）
+          <label className="grid gap-2 text-sm font-semibold">調べたい用語やテーマ（1行1件、最大10件）
             <textarea value={queryText} onChange={event => setQueryText(event.target.value)} rows={3} className="w-full rounded-xl border border-origin-border bg-white p-3 font-normal dark:bg-zinc-900" placeholder={'量子コンピュータ\n再生可能エネルギー'} />
           </label>
           <div className="flex flex-wrap gap-2">
