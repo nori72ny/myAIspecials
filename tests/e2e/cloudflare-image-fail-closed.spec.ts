@@ -8,7 +8,7 @@ async function waitForBoot(page: import('@playwright/test').Page) {
 }
 
 for (const width of VIEWPORTS) {
-  test(`Cloudflare raster remains fail-closed when server provider is not configured at ${width}px`, async ({ page }) => {
+  test(`local Canvas produces a real PNG without requiring a configured server provider at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
     let imageRequests = 0;
     await page.route('**/api/generate-image', async route => {
@@ -35,14 +35,16 @@ for (const width of VIEWPORTS) {
     await page.getByTestId('origin-home-request').fill(prompt);
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('無料画像生成のCloudflare Workers AI接続がまだ構成されていません。', { exact: true })).toBeVisible();
-    await expect(page.getByAltText('ORIGINが生成した画像')).toHaveCount(0);
+    const image = page.getByAltText('ORIGINが生成した画像');
+    await expect(image).toHaveCount(1);
+    await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
+    expect(await image.evaluate(async (node: HTMLImageElement) => (await fetch(node.src).then(response => response.blob())).type)).toBe('image/png');
     await expect(page.getByText(prompt, { exact: true })).toHaveCount(1);
-    expect(imageRequests).toBe(1);
+    expect(imageRequests).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
 
-  test(`Cloudflare free-allocation exhaustion never produces a paid or fake image at ${width}px`, async ({ page }) => {
+  test(`local Canvas remains available without invoking a paid provider when free allocation is unavailable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
     await page.route('**/api/generate-image', route => route.fulfill({
       status: 503,
@@ -63,8 +65,10 @@ for (const width of VIEWPORTS) {
     await page.getByTestId('origin-home-request').fill('海辺の夕焼けを写真風で生成してください');
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('費用0円を事前保証できないため、画像生成を停止しました。', { exact: true })).toBeVisible();
-    await expect(page.getByAltText('ORIGINが生成した画像')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: '画像を保存' })).toHaveCount(0);
+    const image = page.getByAltText('ORIGINが生成した画像');
+    await expect(image).toHaveCount(1);
+    await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
+    expect(await image.evaluate(async (node: HTMLImageElement) => (await fetch(node.src).then(response => response.blob())).type)).toBe('image/png');
+    await expect(page.getByRole('link', { name: '画像を保存' })).toHaveCount(1);
   });
 }
