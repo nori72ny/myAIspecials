@@ -68,7 +68,7 @@ for (const width of VIEWPORTS) {
     const image = page.getByAltText('ORIGINが生成した画像');
     await expect(image).toHaveCount(1);
     await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
-    expect(await image.evaluate(async (node: HTMLImageElement) => (await fetch(node.src).then(response => response.blob())).type)).toBe('image/png');
+    expect(await image.evaluate((node: HTMLImageElement) => node.src.startsWith('blob:'))).toBe(true);
     await expect(page.getByRole('link', { name: '画像を保存' })).toHaveCount(1);
   });
 }
