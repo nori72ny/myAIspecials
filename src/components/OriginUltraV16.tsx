@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type WikiItem = { title: string; snippet: string; pageid: number };
 type Task = { id: string; query: string; status: 'pending' | 'running' | 'done' | 'failed'; items: WikiItem[]; error?: string; updatedAt: number };
@@ -201,73 +202,86 @@ export default function OriginUltraV16() {
     setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
   };
 
-  const portalContent = (
-    <div className="relative z-0 ml-auto flex w-fit justify-end pb-2 pointer-events-none">
-      {!isPanelOpen && (
-        <button
-          type="button"
-          className="group pointer-events-auto inline-flex min-h-[44px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
-          aria-label="ORIGIN ULTRA v16 を開く"
-          aria-expanded={false}
-          data-testid="origin-ultra-v16-toggle"
-          onClick={() => setIsPanelOpen(true)}
-        >
-          <span aria-hidden="true" className="relative flex h-1.5 w-1.5 shrink-0 items-center justify-center">
-            <span className="absolute h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400/70" />
-            <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-sm" />
-          </span>
-          <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">ORIGIN ULTRA</span>
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">v16</span>
-          <svg aria-hidden="true" viewBox="0 0 12 12" className="h-3 w-3 shrink-0 text-zinc-500 transition-transform duration-200 group-hover:translate-y-0.5 dark:text-zinc-400" fill="none">
-            <path d="m2.25 4.5 3.75 3 3.75-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      )}
-      {isPanelOpen && (
-        <div className="pointer-events-auto absolute right-0 top-full z-50 mt-2" data-testid="origin-ultra-v16-layer">
-          <section
-            aria-label="ORIGIN ULTRA v16"
-            className="origin-surface relative max-h-[70dvh] w-[min(calc(100vw-1.5rem),24rem)] overflow-y-auto rounded-3xl border border-zinc-200/80 bg-white/95 p-4 text-zinc-900 shadow-xl backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
-            data-testid="origin-ultra-v16"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <strong className="text-base">ORIGIN ULTRA v16 — 調査タスクキュー</strong>
-              <button
-                type="button"
-                className="origin-secondary-button min-h-10 rounded-lg px-3"
-                aria-label="ORIGIN ULTRA v16 を閉じる"
-                data-testid="origin-ultra-v16-close"
-                onClick={() => setIsPanelOpen(false)}
-              >
-                閉じる
-              </button>
-            </div>
-            <div className="grid gap-4 py-3">
-              <label className="grid gap-2 text-sm font-semibold">Wikipedia 検索タスク（1行1件、最大10件）
-                <textarea value={queryText} onChange={event => setQueryText(event.target.value)} rows={3} className="w-full rounded-xl border border-origin-border bg-white p-3 font-normal" placeholder={'量子コンピュータ\n再生可能エネルギー'} />
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void addTasks()}>キューに追加</button>
-                <button type="button" className="origin-primary-button min-h-10 rounded-lg px-3" onClick={() => void runQueue()} disabled={running}>実行</button>
-                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={stop} disabled={!running}>停止</button>
-                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>🧪 自己診断（5項目）</button>
-                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={downloadReport}>Markdownレポート保存</button>
-                <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void clearAll()}>全消去</button>
-              </div>
-              <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · Wake Lock: {wakeHeld ? '有効' : '未取得'} · DB: {DB_NAME}</p>
-              <div className="grid gap-2">{tasks.map(task => <article key={task.id} className="rounded-xl border border-origin-border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{task.status}</span></div>
-                {task.error && <p className="text-sm text-red-700">{task.error}</p>}
-                {task.items.map(item => <div key={item.pageid} className="mt-2 text-sm"><a className="underline" href={`https://ja.wikipedia.org/?curid=${item.pageid}`} target="_blank" rel="noreferrer">{item.title}</a><p>{item.snippet}</p></div>)}
-              </article>)}</div>
-              {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{diagnostics.map(item => <p key={item.name} className="text-sm">{item.pass ? 'PASS' : 'CHECK'} · {item.name}: {item.detail}</p>)}</div>}
-              <div aria-label="実行ログ" className="max-h-40 overflow-y-auto rounded-xl bg-black/5 p-3 font-mono text-xs">{logs.map((line, index) => <p key={index}>{line}</p>)}</div>
-            </div>
-          </section>
-        </div>
-      )}
+  const toggle = (
+    <div className="relative z-0 ml-auto flex w-fit justify-end pb-2">
+      <button
+        type="button"
+        className="group inline-flex min-h-[36px] items-center gap-2 rounded-full border border-zinc-200/80 bg-white/80 px-3 py-1.5 text-zinc-600 shadow-sm backdrop-blur-md transition-all duration-200 hover:border-zinc-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-300 dark:hover:border-zinc-700"
+        aria-label="ORIGIN ULTRA v16 を開く"
+        aria-expanded={isPanelOpen}
+        aria-haspopup="dialog"
+        data-testid="origin-ultra-v16-toggle"
+        onClick={() => setIsPanelOpen(true)}
+      >
+        <span aria-hidden="true" className="text-sm text-emerald-500">✦</span>
+        <span className="text-[11px] font-medium tracking-wider text-zinc-600 dark:text-zinc-300">ULTRA v16</span>
+      </button>
     </div>
   );
 
-  return portalContent;
-}
+  const modal = isPanelOpen && typeof document !== 'undefined' ? createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 p-3 backdrop-blur-sm sm:p-6"
+      data-testid="origin-ultra-v16-backdrop"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) setIsPanelOpen(false); }}
+      onTouchStart={(event) => { if (event.target === event.currentTarget) setIsPanelOpen(false); }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="ORIGIN ULTRA v16"
+        className="origin-surface relative max-h-[min(85dvh,48rem)] w-full max-w-xl overflow-y-auto rounded-3xl border border-white/30 bg-white/95 p-4 text-zinc-900 shadow-2xl backdrop-blur-2xl dark:border-zinc-700/70 dark:bg-zinc-950/95 dark:text-zinc-100 sm:p-6"
+        data-testid="origin-ultra-v16"
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-200/70 pb-3 dark:border-zinc-800">
+          <div>
+            <strong className="text-base">ORIGIN ULTRA v16 — 調査タスクキュー</strong>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">ローカル保存・キュー実行・自己診断</p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-xl text-zinc-600 transition hover:bg-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            aria-label="閉じる"
+            title="閉じる"
+            data-testid="origin-ultra-v16-close"
+            onClick={() => setIsPanelOpen(false)}
+          >✕</button>
+        </div>
+        <div className="grid gap-4 py-4">
+          <label className="grid gap-2 text-sm font-semibold">Wikipedia 検索タスク（1行1件、最大10件）
+            <textarea value={queryText} onChange={event => setQueryText(event.target.value)} rows={3} className="w-full rounded-xl border border-origin-border bg-white p-3 font-normal dark:bg-zinc-900" placeholder={'量子コンピュータ\n再生可能エネルギー'} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void addTasks()}>キューに追加</button>
+            <button type="button" className="origin-primary-button min-h-10 rounded-lg px-3" onClick={() => void runQueue()} disabled={running}>実行</button>
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={stop} disabled={!running}>停止</button>
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>🧪 自己診断（5項目）</button>
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={downloadReport}>Markdownレポート保存</button>
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void clearAll()}>全消去</button>
+          </div>
+          <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · Wake Lock: {wakeHeld ? '有効' : '未取得'} · DB: {DB_NAME}</p>
+          <div className="grid gap-2">{tasks.map(task => <article key={task.id} className="rounded-xl border border-origin-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{task.status}</span></div>
+            {task.error && <p className="text-sm text-red-700">{task.error}</p>}
+            {task.items.map(item => <div key={item.pageid} className="mt-2 text-sm"><a className="underline" href={`https://ja.wikipedia.org/?curid=${item.pageid}`} target="_blank" rel="noreferrer">{item.title}</a><p>{item.snippet}</p></div>)}
+          </article>)}</div>
+          {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{diagnostics.map(item => <p key={item.name} className="text-sm">{item.pass ? 'PASS' : 'CHECK'} · {item.name}: {item.detail}</p>)}</div>}
+          {logs.length > 0 && <div aria-label="実行ログ" className="max-h-40 overflow-y-auto rounded-xl bg-black/5 p-3 font-mono text-xs dark:bg-white/5">{logs.map((line, index) => <p key={index}>{line}</p>)}</div>}
+        </div>
+      </section>
+    </div>,
+    document.body
+  ) : null;
+
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsPanelOpen(false);
+    };
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => document.removeEventListener('keydown', dismissOnEscape);
+  }, [isPanelOpen]);
+
+  return <>{toggle}{modal}</>;
