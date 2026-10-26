@@ -107,13 +107,33 @@ describe("SensitiveInputDetector", () => {
       "マイナンバー: 1234-5678-9012",
       "銀行口座: 1234567",
       "病歴: 高血圧",
-      "私の名前は山田太郎です",
       "my date of birth: 1990-01-02",
     ];
 
     for (const input of inputs) {
       expect(containsSensitiveInput(input)).toBe(true);
     }
+  });
+
+  it("allows ordinary names and company names in routine writing requests", () => {
+    const inputs = [
+      "顧客の田中様に送るお礼メールを作ってください",
+      "社員の佐藤さん向けに業務連絡を作成してください",
+      "株式会社山田商事への提案書を作ってください",
+      "Draft a follow-up email to customer Tanaka at Example Corporation",
+      "私の名前は山田太郎です。自己紹介文を作ってください",
+    ];
+    for (const input of inputs) expect(containsSensitiveInput(input)).toBe(false);
+  });
+
+  it("continues to block high-risk secrets and government or payment identifiers", () => {
+    const inputs = [
+      `API key: ${sampleValue}`,
+      ["-----BEGIN ", "PRIVATE KEY-----"].join(""),
+      "クレジットカード番号: 4111 1111 1111 1111",
+      "マイナンバー: 1234-5678-9012",
+    ];
+    for (const input of inputs) expect(containsSensitiveInput(input)).toBe(true);
   });
 
   it("reports only privacy categories and never retains personal values", () => {
