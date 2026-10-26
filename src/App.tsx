@@ -513,9 +513,7 @@ const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
-const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
-const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN does not automatically retry inference under the $0 policy, so it could not safely return an answer this time. Please try again in a little while.';
 
 type OriginChatFailurePayload = {
   code?: unknown;
@@ -1594,11 +1592,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           enterSafeWaiting();
           return;
         }
-        const isModelBusy = (failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status);
-      if (isModelBusy) {
-          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-          return;
-        }
         appendFailure(t.error);
         return;
       }
@@ -1669,7 +1662,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      if ((error as DOMException).name !== 'AbortError') appendFailure(t.error);
     }
     finally {
       streamRenderBatcher?.cancel();
