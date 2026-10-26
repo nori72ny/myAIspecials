@@ -31,6 +31,7 @@ type AgentPlan = {
   planToken: string;
   expiresAt: string;
   selectedTool: AgentTool;
+  params: Record<string, unknown>;
   goal: string;
   plan: AgentPlanStep[];
 };
@@ -50,48 +51,15 @@ function authorizationHeaders(credential: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
 }
 
-function explicitPathFromGoal(goal: string): string | null {
-  const backtick = goal.match(/`([^`\r\n]{1,240})`/);
-  if (backtick?.[1]) return backtick[1].trim();
-  const quoted = goal.match(/["“]([^"”\r\n]{1,240})["”]/);
-  if (quoted?.[1] && /[./]/.test(quoted[1])) return quoted[1].trim();
-  const pathLike = goal.match(/(?:^|\s)((?:\.{0,2}\/)?[A-Za-z0-9_@./-]+\.[A-Za-z0-9_-]{1,12})(?=\s|$|[、。,:：])/);
-  return pathLike?.[1]?.trim() || null;
-}
-
-function fencedContentFromGoal(goal: string): string | null {
-  const fenced = goal.match(/```(?:[A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/);
-  const content = fenced?.[1]?.trimEnd() ?? '';
-  return content ? `${content}\n` : null;
-}
-
-function verificationKindFromGoal(goal: string): VerificationKind | null {
-  const value = goal.normalize('NFKC').toLowerCase();
-  const kinds: VerificationKind[] = [];
-  if (/\btest(?:s|ing)?\b|テスト/.test(value)) kinds.push('test');
-  if (/\btype[- ]?check(?:ing)?\b|型チェック/.test(value)) kinds.push('typecheck');
-  if (/\blint(?:ing)?\b|リント/.test(value)) kinds.push('lint');
-  if (/\bbuild(?:ing)?\b|ビルド/.test(value)) kinds.push('build');
-  return kinds.length === 1 ? kinds[0] : null;
-}
-
-function paramsFor(tool: AgentTool, goal: string): Record<string, unknown> | null {
-  if (tool === 'code_interpreter') return { code: goal };
-  if (tool === 'document_generator') return { content: goal };
-  if (tool === 'image_prompt_compiler') return { prompt: goal };
-  if (tool === 'web_search_grounding') return null;
-  if (tool === 'repository_explorer') return {};
-  if (tool === 'file_reader') {
-    const path = explicitPathFromGoal(goal);
-    return path ? { path } : null;
-  }
-  if (tool === 'file_writer') {
-    const path = explicitPathFromGoal(goal);
-    const content = fencedContentFromGoal(goal);
-    return path && content ? { path, content } : null;
-  }
-  const kind = verificationKindFromGoal(goal);
-  return kind ? { kind } : null;
+function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): boolean {
+  if (tool === 'web_search_grounding') return typeof params.query === 'string' && params.query.trim().length > 0;
+  if (tool === 'file_writer') return typeof params.path === 'string' && params.path.trim().length > 0 && typeof params.content === 'string' && params.content.length > 0;
+  if (tool === 'file_reader') return typeof params.path === 'string' && params.path.trim().length > 0;
+  if (tool === 'verification_runner') return ['test', 'typecheck', 'lint', 'build'].includes(String(params.kind));
+  if (tool === 'image_prompt_compiler') return typeof params.prompt === 'string' && params.prompt.trim().length > 0;
+  if (tool === 'document_generator') return typeof params.content === 'string' && params.content.trim().length > 0;
+  if (tool === 'code_interpreter') return typeof params.code === 'string' && params.code.trim().length > 0;
+  return tool === 'repository_explorer';
 }
 
 function phaseLabel(phase: Phase): string {
@@ -110,7 +78,7 @@ export default function AgentWorkspaceView() {
   const [plan, setPlan] = useState<AgentPlan | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
-  const [artifact, setArtifact] = useState('// Agent v3 の検証済み出力がここに表示されます。');
+  const [artifact, setArtifact] = useState('// 自律エージェント の検証済み出力がここに表示されます。');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -176,7 +144,7 @@ export default function AgentWorkspaceView() {
         signal: controller.signal,
       });
       const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string };
-      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool)) {
+      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool) || !data.params || typeof data.params !== 'object' || Array.isArray(data.params)) {
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
       const next: AgentPlan = {
@@ -184,6 +152,7 @@ export default function AgentWorkspaceView() {
         planToken: data.planToken,
         expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
         selectedTool: data.selectedTool,
+        params: data.params as Record<string, unknown>,
         goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
@@ -215,7 +184,7 @@ export default function AgentWorkspaceView() {
     if (!plan || phase !== 'awaiting_approval') return;
     const credential = credentialInputRef.current?.value.trim() ?? '';
     if (!credential) {
-      setLog((current) => [...current, '実行にはAgent認証キーが必要です。キーは端末へ保存しません。']);
+      setLog((current) => [...current, '実行には実行認証キーが必要です。キーは端末へ保存しません。']);
       credentialInputRef.current?.focus();
       return;
     }
@@ -227,8 +196,8 @@ export default function AgentWorkspaceView() {
       return;
     }
 
-    const toolParams = paramsFor(plan.selectedTool, plan.goal);
-    if (!toolParams) {
+    const toolParams = plan.params;
+    if (!hasExecutableParams(plan.selectedTool, toolParams)) {
       setPhase('failed');
       setLog((current) => [...current, `計画ツール ${plan.selectedTool} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
       if (credentialInputRef.current) credentialInputRef.current.value = '';
@@ -238,7 +207,7 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${plan.selectedTool}`, 'exact-operation approvalを取得しています。']);
+    setLog((current) => [...current, `承認対象: ${plan.selectedTool}`, '実行前の安全確認を取得しています。']);
     try {
       const approvalResponse = await fetch('/api/agent/v3/approval', {
         method: 'POST',
@@ -276,7 +245,7 @@ export default function AgentWorkspaceView() {
       setArtifact(result.artifact);
       if (result.checkpoint) await persistCheckpoint(result.checkpoint);
       setPhase('completed');
-      setLog((current) => [...current, '登録済みツールの実行と検証が完了しました。', result.checkpoint ? `Checkpoint: ${result.checkpoint.checkpointId}` : '']);
+      setLog((current) => [...current, '登録済みツールの実行と検証が完了しました。', result.checkpoint ? `保存記録: ${result.checkpoint.checkpointId}` : '']);
       setPlan(null);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -307,7 +276,7 @@ export default function AgentWorkspaceView() {
     && capability.freeOnly === true
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
-  const plannedParamsReady = plan ? paramsFor(plan.selectedTool, plan.goal) !== null : false;
+  const plannedParamsReady = plan ? hasExecutableParams(plan.selectedTool, plan.params) : false;
 
   return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
@@ -323,9 +292,9 @@ export default function AgentWorkspaceView() {
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? 'Agent基盤を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
           <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
-            {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : 'Fail-closed'}
+            {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
           </span>
         </div>
 
