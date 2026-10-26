@@ -18,6 +18,48 @@ const isToolName = (value: unknown): value is ToolName => typeof value === 'stri
 const PLAN_TITLES = ['Goal analysis', 'Task decomposition', 'Self-critique', 'Execution', 'Verification'];
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');
+const digestParams = (params: ToolParams) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
+
+function generatedParams(toolName: ToolName, goal: string): ToolParams {
+  const normalized = goal.normalize('NFKC').trim();
+  const explicitPath = normalized.match(/`([^`\r\n]{1,240})`/)?.[1]
+    ?? normalized.match(/(?:^|\\s)((?:\\.{0,2}\\/)?[A-Za-z0-9_@./-]+\\.[A-Za-z0-9_-]{1,12})(?=\\s|$|[、。,:：])/)?.[1];
+  if (toolName === 'web_search_grounding') {
+    const query = normalized
+      .replace(/^(?:最新の|現在の|最近の)?/u, '')
+      .replace(/(?:について)?(?:を)?(?:調べて(?:ください)?|調査して(?:ください)?|検索して(?:ください)?|リサーチして(?:ください)?|教えて(?:ください)?)[。.!！?？]*$/u, '')
+      .trim();
+    return { query: query || normalized };
+  }
+  if (toolName === 'file_writer') {
+    const isSalesTable = /売上(?:表|管理|一覧|データ)|sales\\s*table/i.test(normalized);
+    const path = explicitPath?.trim() || (isSalesTable ? 'artifacts/sales-table.csv' : 'artifacts/request-draft.md');
+    const fenced = normalized.match(/```(?:[A-Za-z0-9_.+-]+)?\\s*\\n([\\s\\S]*?)```/)?.[1]?.trimEnd();
+    let content = fenced ? `${fenced}\\n` : '';
+    if (!content && (isSalesTable || /\\.csv$/i.test(path))) {
+      content = '日付,商品,数量,単価,売上\\n2026-10-01,サンプル商品A,2,1500,=C2*D2\\n2026-10-02,サンプル商品B,1,2800,=C3*D3\\n合計,,,,=SUM(E2:E3)\\n';
+    }
+    if (!content) {
+      const title = normalized.slice(0, 80).replace(/[。.!！?？]+$/u, '') || '作成物のたたき台';
+      content = `# ${title}\\n\\n## 目的\\n${normalized}\\n\\n## 前提\\n- 詳細指定がないため、一般的な実務用途を想定した初版です。\\n- 数値・固有情報は、確認できるまでサンプルまたは仮置きとして扱います。\\n\\n## たたき台\\n- 目的に沿った基本構成を用意しました。\\n- 実データや運用条件に合わせて調整してください。\\n`;
+    }
+    return { path, content };
+  }
+  if (toolName === 'file_reader') return explicitPath ? { path: explicitPath.trim() } : {};
+  if (toolName === 'repository_explorer') return {};
+  if (toolName === 'image_prompt_compiler') return { prompt: normalized };
+  if (toolName === 'document_generator') return { content: normalized };
+  if (toolName === 'code_interpreter') return { code: normalized };
+  const value = normalized.toLowerCase();
+  const kinds = ([
+    ['test', /\\btest(?:s|ing)?\\b|テスト/],
+    ['typecheck', /\\btype[- ]?check(?:ing)?\\b|型チェック/],
+    ['lint', /\\blint(?:ing)?\\b|リント/],
+    ['build', /\\bbuild(?:ing)?\\b|ビルド/],
+  ] as const).filter(([, pattern]) => pattern.test(value));
+  return kinds.length === 1 ? { kind: kinds[0][0] } : {};
+}
+
 
 /** Must atomically reserve a run across all server instances until expiresAt.
  * Return false for a previously reserved run. Never release after a tool failure.
@@ -67,7 +109,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const run = new AgentRunSession();
     run.transition('planning');
     run.transition('awaiting_approval');
-    const capability = issuePlanCapability(run.runId, digestGoal(goal.trim()), env, Date.now(), selected.toolName);
+    const params = generatedParams(selected.toolName, goal.trim());
+    const capability = issuePlanCapability(run.runId, digestGoal(goal.trim()), env, Date.now(), selected.toolName, digestParams(params));
     return res.status(201).json({
       ok: true,
       protocolVersion: 3,
@@ -80,6 +123,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       paidFallbackUsed: false,
       persistence: 'stateless-server-signed',
       selectedTool: selected.toolName,
+      params,
       toolChoice: { source: 'deterministic-local', reasonCode: selected.reasonCode },
       plan: PLAN_TITLES.map((title, index) => ({ id: `task-${index + 1}`, title })),
     });
@@ -99,6 +143,9 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
     if (!isToolName(plan.plannedTool) || plan.plannedTool !== toolName) {
       return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOL_MISMATCH' });
+    }
+    if (typeof plan.paramsDigest !== 'string' || plan.paramsDigest !== digestParams((params ?? {}) as ToolParams)) {
+      return res.status(403).json({ ok: false, code: 'AGENT_PLAN_PARAMS_MISMATCH' });
     }
     if (!consumptionStore) return res.status(503).json({ ok: false, code: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' });
     const operation: AgentApprovalOperation = { action: 'execute', runId, toolName, params: params ?? {} };
