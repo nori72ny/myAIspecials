@@ -199,7 +199,7 @@ export default function OriginUltraV16() {
       const response = await fetch('https://ja.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json&origin=*', { signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(8000) : undefined });
       results.push({ name: 'Wikipedia API / CSP connect-src', pass: response.ok, detail: `HTTP ${response.status}` });
     } catch (error) { results.push({ name: 'Wikipedia API / CSP connect-src', pass: false, detail: String(error) }); }
-    setDiagnostics(results); log(`自己診断: ${results.filter(result => result.pass).length}/${results.length} PASS`);
+    setDiagnostics(results); log(results.every(result => result.pass) ? '動作確認が完了しました。' : '一部の機能を確認できませんでした。通信環境やブラウザー設定をご確認ください。');
   };
 
   const toggle = (
@@ -238,7 +238,7 @@ export default function OriginUltraV16() {
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200/70 pb-3 dark:border-zinc-800">
           <div>
             <strong className="text-base">一括リサーチ — 調査タスク</strong>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">ローカル保存・キュー実行・自己診断</p>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">端末への保存・まとめて実行・動作確認</p>
           </div>
           <button
             type="button"
@@ -257,17 +257,17 @@ export default function OriginUltraV16() {
             <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void addTasks()}>キューに追加</button>
             <button type="button" className="origin-primary-button min-h-10 rounded-lg px-3" onClick={() => void runQueue()} disabled={running}>実行</button>
             <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={stop} disabled={!running}>停止</button>
-            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>🧪 自己診断（5項目）</button>
+            <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void runDiagnostics()}>動作を確認</button>
             <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={downloadReport}>Markdownレポート保存</button>
             <button type="button" className="origin-secondary-button min-h-10 rounded-lg px-3" onClick={() => void clearAll()}>全消去</button>
           </div>
-          <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · Wake Lock: {wakeHeld ? '有効' : '未取得'} · DB: {DB_NAME}</p>
+          <p role="status" className="text-sm">状態: {running ? '実行中' : '待機中'} · 画面の点灯維持: {wakeHeld ? '有効' : '未対応または未取得'}</p>
           <div className="grid gap-2">{tasks.map(task => <article key={task.id} className="rounded-xl border border-origin-border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{task.status}</span></div>
-            {task.error && <p className="text-sm text-red-700">{task.error}</p>}
+            <div className="flex flex-wrap items-center justify-between gap-2"><strong>{task.query}</strong><span className="text-sm">{{ pending: '未開始', running: '実行中', done: '完了', failed: '要確認' }[task.status]}</span></div>
+            {task.error && <p className="text-sm text-red-700">検索に失敗しました。時間をおいて再試行してください。</p>}
             {task.items.map(item => <div key={item.pageid} className="mt-2 text-sm"><a className="underline" href={`https://ja.wikipedia.org/?curid=${item.pageid}`} target="_blank" rel="noreferrer">{item.title}</a><p>{item.snippet}</p></div>)}
           </article>)}</div>
-          {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{diagnostics.map(item => <p key={item.name} className="text-sm">{item.pass ? 'PASS' : 'CHECK'} · {item.name}: {item.detail}</p>)}</div>}
+          {diagnostics.length > 0 && <div aria-label="自己診断結果" className="grid gap-2">{<p className="text-sm">{diagnostics.every(item => item.pass) ? '動作を確認しました。' : '一部の機能を確認できませんでした。通信環境やブラウザー設定をご確認ください。'}</p>}</div>}
           {logs.length > 0 && <div aria-label="実行ログ" className="max-h-40 overflow-y-auto rounded-xl bg-black/5 p-3 font-mono text-xs dark:bg-white/5">{logs.map((line, index) => <p key={index}>{line}</p>)}</div>}
         </div>
       </section>
