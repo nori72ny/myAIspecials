@@ -64,7 +64,7 @@ describe('UnifiedChat', () => {
     render(<UnifiedChat />);
 
     expect(screen.getByText('Enterで送信 / Shift+Enterで改行')).toBeTruthy();
-    expect(screen.getByText('パスワードやAPIキーは入力しないでください。')).toBeTruthy();
+    expect(screen.queryByText('パスワードやAPIキーは入力しないでください。')).toBeNull();
 
     const input = screen.getByPlaceholderText('やりたいことを入力') as HTMLTextAreaElement;
     expect(input.className).toContain('placeholder:text-origin-placeholder');

@@ -38,7 +38,7 @@ function scoreGoal(goal: string): ScoredTool[] {
     'file_writer',
     5,
     'write-specific-file',
-    /(?:\b(create|write|add|edit|modify|update|patch)\b.{0,32}\b(file|source)\b)|(?:(?:ファイル|ソース).{0,24}(?:作成|追加|編集|修正|更新))|(?:(?:作成|追加|編集|修正|更新).{0,24}(?:ファイル|ソース))/,
+    /(?:\b(create|write|add|edit|modify|update|patch)\b.{0,32}\b(file|source)\b)|(?:(?:ファイル|ソース).{0,24}(?:作成|作って|作り|追加|編集|修正|更新))|(?:(?:作成|作って|作り|追加|編集|修正|更新).{0,24}(?:ファイル|ソース))|(?:(?:売上|一覧|表|CSV|ファイル|ドキュメント).{0,24}(?:作成|作って|作り))/i,
   );
   add(
     'verification_runner',

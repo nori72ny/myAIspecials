@@ -53,6 +53,7 @@ function planResponse(selectedTool = 'document_generator') {
     costUsd: 0,
     paidFallbackUsed: false,
     selectedTool,
+    params: selectedTool === 'code_interpreter' ? { code: 'このTypeScriptコードのバグを分析して' } : selectedTool === 'web_search_grounding' ? { query: '検索テスト' } : selectedTool === 'file_writer' ? { path: 'artifacts/request-draft.md', content: '# たたき台' } : { content: '文書案を作ってください' },
     plan: [
       { id: 'task-1', title: 'Goal analysis' },
       { id: 'task-2', title: 'Task decomposition' },
@@ -78,13 +79,13 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
 
     await screen.findByText('未実行 · 承認待ち');
     expect(screen.getByText(/まだツールは実行していません/)).toBeTruthy();
-    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('document_generator');
+    expect(screen.getByLabelText('実行する機能').textContent).toContain('文書作成');
     expect((screen.getByLabelText('達成したいこと') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
@@ -123,17 +124,17 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
 
-    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して実行' })); });
 
     await waitFor(() => expect(screen.getByText('# 完成した文書')).toBeTruthy());
     expect(saveCheckpointToIndexedDB).toHaveBeenCalledWith(checkpoint);
-    expect(screen.queryByLabelText('Agent認証キー')).toBeNull();
+    expect(screen.queryByLabelText('実行認証キー')).toBeNull();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
@@ -165,14 +166,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
-    expect(screen.getByLabelText('計画で固定されたツール').textContent).toContain('code_interpreter');
+    expect(screen.getByLabelText('実行する機能').textContent).toContain('コード作成・確認');
     expect(screen.queryByRole('combobox')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     await screen.findByText('// verified analysis');
   });
@@ -188,14 +189,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('Agent v3 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
-    fireEvent.change(screen.getByLabelText('Agent認証キー'), { target: { value: 'wrong-key' } });
+    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'wrong-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText(/AGENT_AUTHENTICATION_REQUIRED/);
+    await screen.findByText('処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。');
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent/v3/execute')).toBe(false);
   });
 });

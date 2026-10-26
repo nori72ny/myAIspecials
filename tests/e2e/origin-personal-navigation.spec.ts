@@ -89,7 +89,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('nav-dashboard')).toHaveCount(0);
     await expect(page.getByTestId('nav-chat')).toHaveCount(0);
     await expect(page.getByTestId('nav-workspace')).toHaveCount(0);
-    await expect(page.getByText(/追加料金が発生するAIへ自動で切り替わりません|No automatic switch to paid AI/i)).toBeVisible();
+    await expect(page.getByText(/追加料金が発生するAIへ自動で切り替わりません|No automatic switch to paid AI|パスワードやAPIキー/i)).toHaveCount(0);
   });
 
   for (const width of [320, 390, 1440]) {

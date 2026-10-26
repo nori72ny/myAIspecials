@@ -7,6 +7,8 @@ describe('Agent V3 deterministic tool planner', () => {
     ['このリポジトリの構成を確認して', 'repository_explorer'],
     ['このファイルを読んで内容を確認して', 'file_reader'],
     ['新しい設定ファイルを作成して', 'file_writer'],
+    ['簡単な売上表を作って', 'file_writer'],
+    ['簡単なCSV一覧を作って', 'file_writer'],
     ['テストと型チェックを実行して', 'verification_runner'],
     ['YouTubeサムネ用の画像プロンプトを作って', 'image_prompt_compiler'],
     ['営業提案書を作成して', 'document_generator'],

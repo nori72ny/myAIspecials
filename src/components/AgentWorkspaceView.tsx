@@ -31,6 +31,7 @@ type AgentPlan = {
   planToken: string;
   expiresAt: string;
   selectedTool: AgentTool;
+  params: Record<string, unknown>;
   goal: string;
   plan: AgentPlanStep[];
 };
@@ -50,48 +51,29 @@ function authorizationHeaders(credential: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
 }
 
-function explicitPathFromGoal(goal: string): string | null {
-  const backtick = goal.match(/`([^`\r\n]{1,240})`/);
-  if (backtick?.[1]) return backtick[1].trim();
-  const quoted = goal.match(/["“]([^"”\r\n]{1,240})["”]/);
-  if (quoted?.[1] && /[./]/.test(quoted[1])) return quoted[1].trim();
-  const pathLike = goal.match(/(?:^|\s)((?:\.{0,2}\/)?[A-Za-z0-9_@./-]+\.[A-Za-z0-9_-]{1,12})(?=\s|$|[、。,:：])/);
-  return pathLike?.[1]?.trim() || null;
+function toolLabel(tool: AgentTool): string {
+  const labels: Record<AgentTool, string> = {
+    document_generator: '文書作成',
+    code_interpreter: 'コード作成・確認',
+    image_prompt_compiler: '画像の指示づくり',
+    web_search_grounding: 'ウェブ調査',
+    repository_explorer: 'ファイル一覧の確認',
+    file_reader: 'ファイルの読み取り',
+    file_writer: 'ファイルの作成・編集',
+    verification_runner: 'テスト・動作確認',
+  };
+  return labels[tool];
 }
 
-function fencedContentFromGoal(goal: string): string | null {
-  const fenced = goal.match(/```(?:[A-Za-z0-9_.+-]+)?\s*\n([\s\S]*?)```/);
-  const content = fenced?.[1]?.trimEnd() ?? '';
-  return content ? `${content}\n` : null;
-}
-
-function verificationKindFromGoal(goal: string): VerificationKind | null {
-  const value = goal.normalize('NFKC').toLowerCase();
-  const kinds: VerificationKind[] = [];
-  if (/\btest(?:s|ing)?\b|テスト/.test(value)) kinds.push('test');
-  if (/\btype[- ]?check(?:ing)?\b|型チェック/.test(value)) kinds.push('typecheck');
-  if (/\blint(?:ing)?\b|リント/.test(value)) kinds.push('lint');
-  if (/\bbuild(?:ing)?\b|ビルド/.test(value)) kinds.push('build');
-  return kinds.length === 1 ? kinds[0] : null;
-}
-
-function paramsFor(tool: AgentTool, goal: string): Record<string, unknown> | null {
-  if (tool === 'code_interpreter') return { code: goal };
-  if (tool === 'document_generator') return { content: goal };
-  if (tool === 'image_prompt_compiler') return { prompt: goal };
-  if (tool === 'web_search_grounding') return null;
-  if (tool === 'repository_explorer') return {};
-  if (tool === 'file_reader') {
-    const path = explicitPathFromGoal(goal);
-    return path ? { path } : null;
-  }
-  if (tool === 'file_writer') {
-    const path = explicitPathFromGoal(goal);
-    const content = fencedContentFromGoal(goal);
-    return path && content ? { path, content } : null;
-  }
-  const kind = verificationKindFromGoal(goal);
-  return kind ? { kind } : null;
+function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): boolean {
+  if (tool === 'web_search_grounding') return typeof params.query === 'string' && params.query.trim().length > 0;
+  if (tool === 'file_writer') return typeof params.path === 'string' && params.path.trim().length > 0 && typeof params.content === 'string' && params.content.length > 0;
+  if (tool === 'file_reader') return typeof params.path === 'string' && params.path.trim().length > 0;
+  if (tool === 'verification_runner') return ['test', 'typecheck', 'lint', 'build'].includes(String(params.kind));
+  if (tool === 'image_prompt_compiler') return typeof params.prompt === 'string' && params.prompt.trim().length > 0;
+  if (tool === 'document_generator') return typeof params.content === 'string' && params.content.trim().length > 0;
+  if (tool === 'code_interpreter') return typeof params.code === 'string' && params.code.trim().length > 0;
+  return tool === 'repository_explorer';
 }
 
 function phaseLabel(phase: Phase): string {
@@ -110,7 +92,7 @@ export default function AgentWorkspaceView() {
   const [plan, setPlan] = useState<AgentPlan | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
-  const [artifact, setArtifact] = useState('// Agent v3 の検証済み出力がここに表示されます。');
+  const [artifact, setArtifact] = useState('// 自律エージェント の検証済み出力がここに表示されます。');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -142,7 +124,7 @@ export default function AgentWorkspaceView() {
     let mounted = true;
     void loadCheckpointsFromIndexedDB()
       .then((restored) => { if (mounted) setCheckpoints(restored); })
-      .catch(() => { if (mounted) setLog((current) => [...current, '端末内のAgent履歴を読み込めませんでした。']); })
+      .catch(() => { if (mounted) setLog((current) => [...current, '端末内の実行履歴を読み込めませんでした。']); })
       .finally(() => { if (mounted) setRestoring(false); });
     return () => {
       mounted = false;
@@ -165,7 +147,7 @@ export default function AgentWorkspaceView() {
     abortRef.current = controller;
     setPlan(null);
     setPhase('planning');
-    setLog(['Agent v3: 実行計画を準備しています。']);
+    setLog(['自律エージェント: 実行計画を準備しています。']);
     setArtifact('// Plan preparing…');
     try {
       const response = await fetch('/api/agent/v3/plan', {
@@ -176,7 +158,7 @@ export default function AgentWorkspaceView() {
         signal: controller.signal,
       });
       const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string };
-      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool)) {
+      if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool) || !data.params || typeof data.params !== 'object' || Array.isArray(data.params)) {
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
       const next: AgentPlan = {
@@ -184,27 +166,28 @@ export default function AgentWorkspaceView() {
         planToken: data.planToken,
         expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
         selectedTool: data.selectedTool,
+        params: data.params as Record<string, unknown>,
         goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
       setPlan(next);
       setPhase('awaiting_approval');
       setArtifact([
-        '# Agent v3 実行計画',
+        '# 自律エージェント 実行計画',
         '',
         `Goal: ${next.goal}`,
-        `Tool: ${next.selectedTool}`,
+        `機能: ${toolLabel(next.selectedTool)}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
-        '実行には、計画に署名された1つの登録済みツールに限定した認証付き承認が必要です。',
-        '承認トークンはそのrun・tool・paramsだけに有効で、再利用はできません。',
+        '実行には、計画で指定した1つの機能に限定した認証付き承認が必要です。',
+        '承認はこの実行内容だけに有効で、再利用はできません。',
       ].join('\n'));
-      setLog((current) => [...current, `計画を作成しました。署名済みツール: ${next.selectedTool}。まだツールは実行していません。`]);
+      setLog((current) => [...current, `計画を作成しました。実行する機能: ${toolLabel(next.selectedTool)}。まだツールは実行していません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
-        setLog((current) => [...current, `計画を作成できませんでした: ${(error as Error).message}`]);
+        setLog((current) => [...current, '計画を作成できませんでした。依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -215,7 +198,7 @@ export default function AgentWorkspaceView() {
     if (!plan || phase !== 'awaiting_approval') return;
     const credential = credentialInputRef.current?.value.trim() ?? '';
     if (!credential) {
-      setLog((current) => [...current, '実行にはAgent認証キーが必要です。キーは端末へ保存しません。']);
+      setLog((current) => [...current, '実行には実行認証キーが必要です。キーは端末へ保存しません。']);
       credentialInputRef.current?.focus();
       return;
     }
@@ -227,10 +210,10 @@ export default function AgentWorkspaceView() {
       return;
     }
 
-    const toolParams = paramsFor(plan.selectedTool, plan.goal);
-    if (!toolParams) {
+    const toolParams = plan.params;
+    if (!hasExecutableParams(plan.selectedTool, toolParams)) {
       setPhase('failed');
-      setLog((current) => [...current, `計画ツール ${plan.selectedTool} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
+      setLog((current) => [...current, `計画ツール ${toolLabel(plan.selectedTool)} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
@@ -238,7 +221,7 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${plan.selectedTool}`, 'exact-operation approvalを取得しています。']);
+    setLog((current) => [...current, `承認対象: ${toolLabel(plan.selectedTool)}`, '実行前の安全確認を取得しています。']);
     try {
       const approvalResponse = await fetch('/api/agent/v3/approval', {
         method: 'POST',
@@ -276,12 +259,12 @@ export default function AgentWorkspaceView() {
       setArtifact(result.artifact);
       if (result.checkpoint) await persistCheckpoint(result.checkpoint);
       setPhase('completed');
-      setLog((current) => [...current, '登録済みツールの実行と検証が完了しました。', result.checkpoint ? `Checkpoint: ${result.checkpoint.checkpointId}` : '']);
+      setLog((current) => [...current, '機能の実行と確認が完了しました。', result.checkpoint ? `保存記録: ${result.checkpoint.checkpointId}` : '']);
       setPlan(null);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
-        setLog((current) => [...current, `実行は完了扱いにしていません: ${(error as Error).message}`]);
+        setLog((current) => [...current, '処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
       if (credentialInputRef.current) credentialInputRef.current.value = '';
@@ -307,14 +290,14 @@ export default function AgentWorkspaceView() {
     && capability.freeOnly === true
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
-  const plannedParamsReady = plan ? paramsFor(plan.selectedTool, plan.goal) !== null : false;
+  const plannedParamsReady = plan ? hasExecutableParams(plan.selectedTool, plan.params) : false;
 
-  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Agent Workspace">
+  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="自律エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Agent v3</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">自律エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、署名済み計画に固定された1つの登録済みツールだけを実行・検証します。</p>
+        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
@@ -323,9 +306,9 @@ export default function AgentWorkspaceView() {
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? 'Agent基盤を確認中…' : ready ? 'Agent v3 基盤を確認済み' : 'Agent v3 は現在利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェントを利用できます' : '自律エージェントは現在利用できません'}</span>
           <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
-            {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : 'Fail-closed'}
+            {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
           </span>
         </div>
 
@@ -334,25 +317,25 @@ export default function AgentWorkspaceView() {
           {phase === 'planning' ? '計画中…' : '実行計画を作る'}
         </button>
 
-        {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="Agent plan">
+        {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-black">実行フロー</h2>
+            <h2 className="text-sm font-black">実行の流れ</h2>
             <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
 
-          <p className="mt-4 block text-xs font-bold text-slate-500">計画で固定されたツール</p>
-          <div aria-label="計画で固定されたツール" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
-            {plan.selectedTool}
+          <p className="mt-4 block text-xs font-bold text-slate-500">実行する機能</p>
+          <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
+            {toolLabel(plan.selectedTool)}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">このツール名は署名済みplan tokenに結び付いています。依頼内容を変える場合は計画を破棄して作り直します。</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
-            <p className="mb-2 text-xs leading-5 text-slate-500">Agent実行時だけ使用します。ブラウザ保存・localStorage保存はしません。</p>
-            <input ref={credentialInputRef} id="agent-operator-key" aria-label="Agent認証キー" type="password" autoComplete="off" spellCheck={false}
-              placeholder="Agent operator key"
+            <p className="mb-2 text-xs leading-5 text-slate-500">実行時だけ使用します。ブラウザーには保存しません。</p>
+            <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
+              placeholder="実行認証キー"
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
           </details>
 
@@ -367,14 +350,14 @@ export default function AgentWorkspaceView() {
 
         <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
-          <p className="leading-5 text-slate-500">署名済み計画、exact-operation承認、共有リプレイ防止、$0・有料fallback禁止を満たさない実行は停止します。画面に「完了」と出すのは検証済み成果だけです。</p>
+          <p className="leading-5 text-slate-500">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
           {capability && <div className="mt-2 space-y-1 text-slate-500">
             <p>Approval signing: {capability.approvalSigningConfigured ? 'ready' : 'unavailable'}</p>
             <p>Replay protection: {capability.replayProtectionConfigured ? capability.replayProtection : 'unavailable'}</p>
           </div>}
         </details>
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300" aria-label="Agent log">
+        <div className="mt-4 max-h-36 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300" aria-label="実行履歴">
           {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行ログはここに表示されます。'}
         </div>
       </aside>
