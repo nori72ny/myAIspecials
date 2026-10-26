@@ -404,7 +404,7 @@ textarea, input[type="text"] {
   color: #0F172A !important;
 }
 ::placeholder, textarea::placeholder, input::placeholder {
-  color: #64748B !important;
+  color: #475569 !important;
   opacity: 1 !important;
 }
 
@@ -433,6 +433,6 @@ button:first-child:has(svg) {
   box-shadow: none !important;
 }
 button:first-child:has(svg) * {
-  stroke: #64748B !important;
-  color: #64748B !important;
+  stroke: #475569 !important;
+  color: #475569 !important;
 }
