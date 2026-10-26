@@ -79,7 +79,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('自律エージェント機能 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
 
@@ -124,7 +124,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('自律エージェント機能 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
@@ -166,7 +166,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('自律エージェント機能 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
@@ -189,7 +189,7 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('自律エージェント機能 基盤を確認済み');
+    await screen.findByText('自律エージェントを利用できます');
     fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('未実行 · 承認待ち');
