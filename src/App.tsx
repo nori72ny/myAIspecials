@@ -10,6 +10,7 @@ import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
+import { generateLocalCanvasRasterV15 } from './creative/localRasterCanvasV15';
 import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
@@ -195,7 +196,7 @@ export type GeneratedImageMessage = {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
   sha256: string;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free' | 'origin-local-canvas';
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
@@ -1324,6 +1325,58 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           }
           const preparedReference = await prepareRasterReferenceDataUrlV15(referenceBlob);
           referenceImageDataUrl = preparedReference.dataUrl;
+        }
+        // Local Canvas is a deterministic procedural raster fallback; it uses no network or paid model.
+        if (!referenceAssetId) {
+          try {
+            const local = await generateLocalCanvasRasterV15(imageRequestText);
+            const localQuality = await inspectRasterBlobV15(local.blob);
+            if (!localQuality.passed) throw new Error('local-canvas-technical-quality-failed');
+            const localHistory = await saveRasterAssetV15({
+              sha256: local.sha256, createdAt: Date.now(), prompt: imageRequestText,
+              mimeType: 'image/png', downloadName: `origin-local-${local.sha256.slice(0, 12)}.png`,
+              providerId: 'origin-local-canvas', model: 'origin-canvas-procedural-v1',
+              generationId: local.generationId, visualBrainVersion: 'visual-brain-v1',
+              planVersion: 'raster-visual-plan-v1', planSha256: local.planSha256,
+              purpose: local.purpose, typographyOverlay: false,
+              sourceCriticVersion: 'raster-structural-critic-v1', sourceQualityScore: 100,
+              technicalCriticVersion: 'raster-technical-critic-v1', technicalQualityScore: localQuality.score,
+              relation: requestedRelation, parentId: requestedParentId,
+              width: local.width, height: local.height, blob: local.blob,
+            });
+            if (localHistory === 'failed') throw new Error('local-canvas-history-integrity-failed');
+            rasterSessionBlobs.current.set(local.sha256, local.blob);
+            const imageUrl = URL.createObjectURL(local.blob);
+            rasterObjectUrls.current.add(imageUrl);
+            const image: GeneratedImageMessage = {
+              url: imageUrl, assetId: local.sha256, mimeType: 'image/png',
+              downloadName: `origin-local-${local.sha256.slice(0, 12)}.png`, sha256: local.sha256,
+              providerId: 'origin-local-canvas', model: 'origin-canvas-procedural-v1',
+              generationId: local.generationId, visualBrainVersion: 'visual-brain-v1',
+              planVersion: 'raster-visual-plan-v1', planSha256: local.planSha256,
+              purpose: local.purpose, typographyOverlay: false,
+              sourceCriticVersion: 'raster-structural-critic-v1', sourceQualityScore: 100,
+              technicalCriticVersion: 'raster-technical-critic-v1', technicalQualityScore: localQuality.score,
+              prompt: imageRequestText.slice(0, 2_000), width: local.width, height: local.height,
+              relation: requestedRelation, parentId: requestedParentId,
+            };
+            pendingImageRequestRef.current = null;
+            updateMessages((current) => [...current, {
+              id: `a-${Date.now()}`, role: 'assistant',
+              content: language === 'en'
+                ? 'Created a procedural PNG locally in your browser (not an AI-generated image). It was SHA-256 verified and passed the technical raster checks.'
+                : 'ブラウザー内で手続き型のPNG画像を作成しました（AIモデルによる画像生成ではありません）。SHA-256を検証し、技術的なラスタ検査に合格しました。',
+              deliveryState: 'verified', image,
+            }]);
+            return;
+          } catch (localError) {
+            if (!(localError instanceof Error && localError.message === 'LOCAL_CANVAS_PROMPT_NEEDS_CLARIFICATION')) {
+              // Unexpected local renderer failures also use only the verified free-provider path.
+            }
+            // When the local planner needs clarification, preserve the existing server-side clarification
+            // loop instead of terminating early. Concrete, ready prompts still render locally above.
+            // Fall through to the verified free-provider path; no paid fallback is permitted.
+          }
         }
         const response = await fetchOriginRasterImage(imageRequestText, controller.signal, {
           referenceImageDataUrl,

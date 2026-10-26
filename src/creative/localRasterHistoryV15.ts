@@ -17,7 +17,7 @@ export type RasterAssetEntryV15 = {
   prompt: string;
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   downloadName: string;
-  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
+  providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free' | 'origin-local-canvas';
   model: string;
   generationId: string;
   visualBrainVersion: 'visual-brain-v1';
@@ -63,7 +63,7 @@ export function isRasterAssetEntryShapeV15(value: unknown): value is RasterAsset
   if (typeof value.prompt !== 'string' || value.prompt.length > 2_000) return false;
   if (typeof value.mimeType !== 'string' || !MIME_TYPES.has(value.mimeType)) return false;
   if (typeof value.downloadName !== 'string' || !SAFE_FILE.test(value.downloadName)) return false;
-  if (value.providerId !== 'pollinations-zero-cost' && value.providerId !== 'cloudflare-workers-ai-free') return false;
+  if (value.providerId !== 'pollinations-zero-cost' && value.providerId !== 'cloudflare-workers-ai-free' && value.providerId !== 'origin-local-canvas') return false;
   if (typeof value.model !== 'string' || !value.model || value.model.length > 180) return false;
   if (typeof value.generationId !== 'string' || !/^raster-[a-f0-9]{24}$/i.test(value.generationId)) return false;
   if (value.visualBrainVersion !== 'visual-brain-v1') return false;
