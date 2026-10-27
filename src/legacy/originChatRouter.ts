@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
-import { executeZeroFailureCascade, isAutonomousImagePrompt } from "../services/zeroFailureCascade";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
@@ -151,10 +150,6 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
     const lastUserMessage = messages[messages.length - 1].content; const groundedResearchRequired = requiresGroundedResearch(lastUserMessage);
-    if (isAutonomousImagePrompt(lastUserMessage)) {
-      const imageFallback = await executeZeroFailureCascade(lastUserMessage);
-      if (imageFallback.ok) return res.json({ content: imageFallback.content, routing: { ...applicationRouting(requestId, "Keyless public image fallback; endpoint availability is not guaranteed."), answerMode: "deliverable", freeOnly: true, actualCostUsd: 0, fallbackSource: imageFallback.source } });
-    }
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
     const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
@@ -427,14 +422,6 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costUsd: result.actualCostUsd });
       return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: 1 } });
     } catch (error) {
-      if (error instanceof OriginProviderError && error.retryable) {
-        const fallback = await executeZeroFailureCascade(lastUserMessage);
-        if (fallback.ok) {
-          console.warn("[origin-chat] retryable provider failure; returned bounded public/local fallback", { requestId, source: fallback.source });
-          res.setHeader("Cache-Control", "no-store");
-          return res.status(200).json({ content: fallback.content, routing: { ...applicationRouting(requestId, "Primary provider unavailable; fallback content may require user verification."), answerMode: "direct", freeOnly: true, actualCostUsd: 0, fallbackSource: fallback.source, paidFallbackUsed: false } });
-        }
-      }
       if (error instanceof OriginProviderError) {
         console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
         res.setHeader("Cache-Control", "no-store");
