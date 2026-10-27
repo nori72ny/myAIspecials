@@ -184,7 +184,7 @@ async function streamOpenRouter(
           provider: policy,
         })),
       });
-      if (![403, 404].includes(response.status)) break;
+      if (![403, 404, 429, 500, 502, 503, 504].includes(response.status)) break;
     }
   } catch (error) {
     clearTimeout(timer);
