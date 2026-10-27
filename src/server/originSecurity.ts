@@ -59,7 +59,7 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
           "default-src 'self'",
           `script-src ${scriptSources}`,
           "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' data: blob:",
+          "img-src 'self' data: blob: https://image.pollinations.ai",
           "font-src 'self' data:",
           `connect-src ${connectSources}`,
           "object-src 'none'",
