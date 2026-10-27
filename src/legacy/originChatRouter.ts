@@ -427,11 +427,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costUsd: result.actualCostUsd });
       return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: 1 } });
     } catch (error) {
-      const fallback = await executeZeroFailureCascade(lastUserMessage);
-      if (fallback.ok) {
-        console.warn("[origin-chat] provider failed; returned bounded public/local fallback", { requestId, source: fallback.source });
-        res.setHeader("Cache-Control", "no-store");
-        return res.status(200).json({ content: fallback.content, routing: { ...applicationRouting(requestId, "Primary provider unavailable; fallback content may require user verification."), answerMode: "direct", freeOnly: true, actualCostUsd: 0, fallbackSource: fallback.source, paidFallbackUsed: false } });
+      if (error instanceof OriginProviderError && error.retryable) {
+        const fallback = await executeZeroFailureCascade(lastUserMessage);
+        if (fallback.ok) {
+          console.warn("[origin-chat] retryable provider failure; returned bounded public/local fallback", { requestId, source: fallback.source });
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(200).json({ content: fallback.content, routing: { ...applicationRouting(requestId, "Primary provider unavailable; fallback content may require user verification."), answerMode: "direct", freeOnly: true, actualCostUsd: 0, fallbackSource: fallback.source, paidFallbackUsed: false } });
+        }
       }
       if (error instanceof OriginProviderError) {
         console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
