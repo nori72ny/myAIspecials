@@ -16,6 +16,15 @@ export function createPollinationsImageUrl(prompt: string, seed = Math.floor(Mat
   return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(clean) + '?width=1024&height=1024&seed=' + String(Math.abs(Math.trunc(seed))) + '&nologo=true';
 }
 
+/**
+ * Strip Wikipedia's formatting tags, then encode any remaining angle brackets.
+ * The second step is important: a malformed or unterminated tag such as "<script"
+ * must not survive as raw HTML when the excerpt is later rendered as Markdown.
+ */
+export function sanitizeWikipediaSnippet(snippet: string): string {
+  return snippet.replace(/<[^>]*>/g, '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function fetchText(url: string, signal?: AbortSignal): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4_000);
@@ -68,7 +77,7 @@ export async function executeZeroFailureCascade(prompt: string, signal?: AbortSi
       const data = await response.json() as { query?: { search?: Array<{ title?: string; snippet?: string }> } };
       const entries = (data.query?.search ?? []).filter((item) => item.title && item.snippet).slice(0, 3);
       if (entries.length) {
-        const excerpt = entries.map((item) => '- ' + item.title + ': ' + (item.snippet ?? '').replace(/<[^>]*>/g, '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\n');
+        const excerpt = entries.map((item) => '- ' + item.title + ': ' + sanitizeWikipediaSnippet(item.snippet ?? '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\n');
         return { ok: true, content: (isEnglish ? 'Public-source fallback (Wikipedia search excerpts; verify before relying on them):\n\n' : '公開情報フォールバック（Wikipedia検索抜粋。重要な判断の前に内容を確認してください）：\n\n') + excerpt, source: 'wikipedia' };
       }
     }
