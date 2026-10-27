@@ -1648,7 +1648,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           enterSafeWaiting();
           return;
         }
-        const isModelBusy = failure?.retryable !== false && ((failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status));
+        const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
       if (isModelBusy) {
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
           if (cascade.ok) {
