@@ -1644,18 +1644,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       );
       if (!response.ok) {
         const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
-        if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
-          enterSafeWaiting();
-          return;
-        }
         const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
-      if (isModelBusy) {
+        if (isModelBusy) {
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
           if (cascade.ok) {
             updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
             setAttachmentError('');
             setIsSafeWaiting(false);
           } else appendFailure(cascade.content);
+          return;
+        }
+        if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
+          enterSafeWaiting();
           return;
         }
         appendFailure(t.error);
