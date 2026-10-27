@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPollinationsImageUrl, executeZeroFailureCascade, isAutonomousImagePrompt } from './zeroFailureCascade';
+import { createPollinationsImageUrl, executeZeroFailureCascade, isAutonomousImagePrompt, sanitizeWikipediaSnippet } from './zeroFailureCascade';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -25,5 +25,10 @@ describe('zero failure cascade', () => {
       expect(result.source).toBe('pollinations-text');
       expect(result.content).toBe('A grounded fallback answer.');
     }
+  });
+
+  it('escapes malformed HTML after removing Wikipedia snippet formatting', () => {
+    expect(sanitizeWikipediaSnippet('safe <span class="searchmatch">result</span> <script')).toBe('safe result &lt;script');
+    expect(sanitizeWikipediaSnippet('<img src=x onerror=alert(1)>')).toBe('');
   });
 });
