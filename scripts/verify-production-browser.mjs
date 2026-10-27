@@ -135,7 +135,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.getByRole("button", { name: "新規対話を開始" }).click();
     await page.getByTestId("origin-home-request").fill("失敗回復を確認してください");
     await page.getByTestId("start-request-button").click();
-    await page.getByText("エラーが発生しました。再度お試しください。").waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByText(MODEL_BUSY_MESSAGE).waitFor({ state: "visible", timeout: 10_000 });
     assert.equal(await page.getByTestId("response-verification-details").count(), 0, "Failed responses must not receive a verification badge.");
 
     await page.getByTestId("origin-chat-request").fill("回復後の回答を返してください");
