@@ -538,11 +538,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" messages={[{
       id: 'error-1',
       role: 'assistant',
-      content: '現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。',
+      content: '無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。',
       deliveryState: 'error',
     }]} />);
 
-    expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy();
+    expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
   });
 
@@ -1059,9 +1059,49 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '混雑時の動作を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('retries one explicitly retryable free-provider failure and accepts only the verified zero-cost result', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const valid = {
+      content: '再試行後の検証済み回答',
+      routing: {
+        modelId: model,
+        freeOnly: true,
+        cost: 0,
+        actualCostUsd: 0,
+        estimatedCostUsd: 0,
+        usage: { costUsd: 0 },
+        providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+      },
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(valid), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 'PROVIDER_RATE_LIMITED',
+        retryable: true,
+        retryAttempted: false,
+      }), { status: 429, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(valid), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '無料モデルの一時的な混雑を再試行' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('再試行後の検証済み回答')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).model).toBe(model);
+    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string).model).toBe(model);
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
 
@@ -1090,7 +1130,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信障害時も再試行しない' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('タイムアウト後に表示してはいけない回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
@@ -1104,7 +1144,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信停止時の案内を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1191,7 +1231,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断を検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();

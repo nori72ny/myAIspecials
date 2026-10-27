@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
+const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 
 function productionUrl(value) {
   const url = new URL(value ?? "https://origin-personal.vercel.app");
