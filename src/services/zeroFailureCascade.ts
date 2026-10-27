@@ -34,7 +34,9 @@ async function fetchText(url: string, signal?: AbortSignal): Promise<string | nu
 async function withCircuit(key: string, operation: () => Promise<string | null>): Promise<string | null> {
   if ((circuitUntil.get(key) ?? 0) > Date.now()) return null;
   const started = Date.now();
-  const result = await Promise.race([operation(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_100))]);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([operation(), new Promise<null>((resolve) => { timeout = setTimeout(() => resolve(null), 4_100); })]);
+  if (timeout) clearTimeout(timeout);
   if (!result) circuitUntil.set(key, Date.now() + CIRCUIT_MS);
   else circuitUntil.delete(key);
   // Keep the fast path bounded; a slow public endpoint never blocks the next provider.
@@ -48,7 +50,7 @@ export async function executeZeroFailureCascade(prompt: string, signal?: AbortSi
   if (!normalized || signal?.aborted) return { ok: false, content: FALLBACK_TEXT(isEnglish), source: 'unavailable' };
   if (isAutonomousImagePrompt(normalized)) {
     const imageUrl = createPollinationsImageUrl(normalized);
-    return { ok: true, content: (isEnglish ? 'Image fallback (public image endpoint):' : '画像フォールバック（公開画像エンドポイント）：') + '\\n\\n![ORIGIN generated image](' + imageUrl + ')', source: 'pollinations-image', imageUrl };
+    return { ok: true, content: (isEnglish ? 'Image fallback (public image endpoint):' : '画像フォールバック（公開画像エンドポイント）：') + '\n\n![ORIGIN generated image](' + imageUrl + ')', source: 'pollinations-image', imageUrl };
   }
   // Layer 1 is the application's primary provider, already attempted by its caller.
   // Layer 2: public text endpoint. It is keyless, but may rate-limit or be unavailable.
@@ -66,8 +68,8 @@ export async function executeZeroFailureCascade(prompt: string, signal?: AbortSi
       const data = await response.json() as { query?: { search?: Array<{ title?: string; snippet?: string }> } };
       const entries = (data.query?.search ?? []).filter((item) => item.title && item.snippet).slice(0, 3);
       if (entries.length) {
-        const excerpt = entries.map((item) => '- ' + item.title + ': ' + (item.snippet ?? '').replace(/<[^>]*>/g, '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\\n');
-        return { ok: true, content: (isEnglish ? 'Public-source fallback (Wikipedia search excerpts; verify before relying on them):\\n\\n' : '公開情報フォールバック（Wikipedia検索抜粋。重要な判断の前に内容を確認してください）：\\n\\n') + excerpt, source: 'wikipedia' };
+        const excerpt = entries.map((item) => '- ' + item.title + ': ' + (item.snippet ?? '').replace(/<[^>]*>/g, '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\n');
+        return { ok: true, content: (isEnglish ? 'Public-source fallback (Wikipedia search excerpts; verify before relying on them):\n\n' : '公開情報フォールバック（Wikipedia検索抜粋。重要な判断の前に内容を確認してください）：\n\n') + excerpt, source: 'wikipedia' };
       }
     }
   } catch { /* continue to deterministic safe mode */ }
