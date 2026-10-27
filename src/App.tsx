@@ -546,6 +546,7 @@ export const buildRasterGuidedEditPrompt = (sourcePrompt: string): string => {
 export const isDirectImageGenerationRequest = (input: string): boolean => {
   const normalized = input.trim();
   if (!normalized) return false;
+  if (/^画像生成\s*[:：]/u.test(normalized)) return true;
   const visualNoun = '(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)';
   if (new RegExp(`${visualNoun}.{0,36}(?:作って|作成して|生成して|描いて|描画して|お願い|ほしい|欲しい)`, 'u').test(normalized)) return true;
   if (new RegExp(`(?:作って|作成して|生成して|描いて|描画して).{0,36}${visualNoun}`, 'u').test(normalized)) return true;
@@ -1289,6 +1290,41 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         : SAFE_WAITING_MESSAGE);
       setIsSafeWaiting(true);
     };
+    const tryPollinationsTextFallback = async (): Promise<boolean> => {
+      if (controller.signal.aborted) return false;
+      const prompt = [
+        getOriginSystemPrompt(language),
+        '無料フォールバック応答です。日本語で、根拠のない事実を作らず、利用者の依頼に直接回答してください。',
+        ...requestMessages.slice(-12).map((message) => `${message.role === 'user' ? '利用者' : 'アシスタント'}: ${message.content.slice(0, 6000)}`),
+      ].join('\\n\\n').slice(0, 18000);
+      try {
+        const fallback = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
+          method: 'GET', signal: controller.signal, headers: { Accept: 'text/plain' },
+        });
+        if (!fallback.ok) return false;
+        const content = (await fallback.text()).trim().slice(0, 20000);
+        if (!content || controller.signal.aborted) return false;
+        setAttachmentError('');
+        setIsSafeWaiting(false);
+        updateMessages((current) => [...current, {
+          id: `a-${Date.now()}`, role: 'assistant',
+          content: `${content}\\n\\n（無料フォールバック応答。外部サービスの可用性・内容の正確性は保証されません。）`,
+        }]);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const appendPollinationsImageFallback = (prompt: string) => {
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+      pendingImageRequestRef.current = null;
+      setAttachmentError('');
+      setIsSafeWaiting(false);
+      updateMessages((current) => [...current, {
+        id: `a-${Date.now()}`, role: 'assistant',
+        content: `![生成された画像](${imageUrl})\\n\\n画像生成サービスからの画像URLを表示しています。画像の生成・読み込みは外部サービスの提供状況に依存します。`,
+      }]);
+    };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
       const pendingImageRequest = pendingImageRequestRef.current;
@@ -1410,6 +1446,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
               return;
             }
           }
+          appendPollinationsImageFallback(imageRequestText);
+          return;
           pendingImageRequestRef.current = null;
           const unavailable = language === 'en'
             ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
@@ -1647,8 +1685,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           enterSafeWaiting();
           return;
         }
+        if (await tryPollinationsTextFallback()) return;
         const isModelBusy = failure?.retryable !== false && ((failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status));
-      if (isModelBusy) {
+        if (isModelBusy) {
           appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
           return;
         }
@@ -1722,7 +1761,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      if ((error as DOMException).name !== 'AbortError') {
+        if (!(await tryPollinationsTextFallback())) appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      }
     }
     finally {
       streamRenderBatcher?.cancel();
@@ -1823,6 +1864,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const composer = <><div data-testid="origin-ultra-v16-anchor" className="relative z-10 mb-1 flex w-full justify-end"><OriginUltraV16 /></div><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? `画像編集モード · SHA-256 ${imageEditTarget.shortSha}… · 変えたいところを入力` : `Image edit mode · SHA-256 ${imageEditTarget.shortSha}… · describe what to change`}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
+    <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); setInputText((current) => current.trim() ? current : '画像生成: '); window.requestAnimationFrame(() => textareaRef.current?.focus()); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">🎨 {language === 'ja' ? '画像生成' : 'Generate image'}</button>
     <button type="button" role="menuitem" disabled={Boolean(imageEditTarget)} onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>
     {onOpenResearch && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenResearch(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '詳しく調べる' : 'Research deeply'}</button>}
     {onOpenAgent && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenAgent(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? 'エージェントに任せる' : 'Delegate to agent'}</button>}
