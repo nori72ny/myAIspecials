@@ -314,7 +314,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('一時的な通信障害では自動再試行しない');
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。')).toBeVisible();
+    // A raw edge-level 503 has no trusted provider failure code. It must use
+    // the generic localized error, not claim that a provider retry budget was exhausted.
+    await expect(page.getByText('エラーが発生しました。再度お試しください。')).toBeVisible();
     await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     expect(attempts).toBe(1);
   });

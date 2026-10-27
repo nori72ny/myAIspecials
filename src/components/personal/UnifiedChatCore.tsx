@@ -791,7 +791,6 @@ export default function UnifiedChat({
     } catch (caughtError: unknown) {
       setCompletionAnnouncement('');
       const error = (caughtError && typeof caughtError === 'object' ? caughtError : {}) as ChatApiError;
-
       let aiCoreState: AiCoreState = 'OFFLINE';
       let title = isEn ? 'Could not connect to ORIGIN' : 'ORIGINに接続できませんでした';
       let description = error.message || (isEn
