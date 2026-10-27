@@ -26,7 +26,6 @@ import {
   type OriginAnswerRichOutput,
 } from '../../lib/orchestration/OriginAnswerEnvelope';
 import { detectSensitiveInput } from '../../lib/orchestration/SensitiveInputDetector';
-import { executeZeroFailureCascade } from '../../services/zeroFailureCascade';
 import { cn } from '../../utils';
 
 type RoutingMetadata = {
@@ -792,20 +791,6 @@ export default function UnifiedChat({
     } catch (caughtError: unknown) {
       setCompletionAnnouncement('');
       const error = (caughtError && typeof caughtError === 'object' ? caughtError : {}) as ChatApiError;
-      if (error.retryable === true && error.code !== 'SENSITIVE_INPUT_BLOCKED') {
-        const lastUserMessage = [...messageList].reverse().find((message) => message.role === 'user' && !message.error);
-        if (lastUserMessage?.content) {
-          const fallback = await executeZeroFailureCascade(lastUserMessage.content);
-          if (fallback.ok) {
-            const aiMessage: Message = { id: (Date.now() + 1).toString(), role: 'ai', content: fallback.content };
-            setMessages((previous) => [...previous, aiMessage]);
-            setCompletionAnnouncement(isEn ? 'A fallback response was returned; verify public-source content before relying on it.' : '代替経路の応答を表示しました。公開情報の内容は重要な判断の前に確認してください。');
-            dispatchAiCoreState('DEGRADED');
-            return;
-          }
-        }
-      }
-
       let aiCoreState: AiCoreState = 'OFFLINE';
       let title = isEn ? 'Could not connect to ORIGIN' : 'ORIGINに接続できませんでした';
       let description = error.message || (isEn
