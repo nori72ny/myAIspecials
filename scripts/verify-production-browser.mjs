@@ -86,7 +86,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
       await route.fulfill({
         status: 503,
         contentType: "application/json; charset=utf-8",
-        body: JSON.stringify({ code: "PROVIDER_UNAVAILABLE", message: "safe failure", retryable: true, requestId: "browser-production-test", retryAttempted: false }),
+        body: JSON.stringify({ code: "PROVIDER_UNAVAILABLE", message: "safe failure", retryable: true, requestId: "browser-production-test", retryAttempted: true }),
       });
       return;
     }
