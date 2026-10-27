@@ -1728,14 +1728,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') {
-        const cascade = await recoverWithAutonomousCascade(text, controller.signal);
-        if (cascade.ok) {
-          updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
-          setAttachmentError('');
-          setIsSafeWaiting(false);
-        } else appendFailure(cascade.content);
-      }
+      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
     }
     finally {
       streamRenderBatcher?.cancel();
