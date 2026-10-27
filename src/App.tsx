@@ -14,6 +14,7 @@ import { generateLocalCanvasRasterV15 } from './creative/localRasterCanvasV15';
 import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
+import { recoverWithAutonomousCascade } from './services/zeroFailureCascade';
 
 export interface ArtifactBlock {
   id: string;
@@ -1649,7 +1650,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         }
         const isModelBusy = failure?.retryable !== false && ((failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code)) || [429, 500, 502, 503, 504].includes(response.status));
       if (isModelBusy) {
-          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+          const cascade = await recoverWithAutonomousCascade(text, controller.signal);
+          if (cascade.ok) {
+            updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
+            setAttachmentError('');
+            setIsSafeWaiting(false);
+          } else appendFailure(cascade.content);
           return;
         }
         appendFailure(t.error);
@@ -1722,7 +1728,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      if ((error as DOMException).name !== 'AbortError') {
+        const cascade = await recoverWithAutonomousCascade(text, controller.signal);
+        if (cascade.ok) {
+          updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
+          setAttachmentError('');
+          setIsSafeWaiting(false);
+        } else appendFailure(cascade.content);
+      }
     }
     finally {
       streamRenderBatcher?.cancel();
@@ -1823,6 +1836,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const composer = <><div data-testid="origin-ultra-v16-anchor" className="relative z-10 mb-1 flex w-full justify-end"><OriginUltraV16 /></div><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? `画像編集モード · SHA-256 ${imageEditTarget.shortSha}… · 変えたいところを入力` : `Image edit mode · SHA-256 ${imageEditTarget.shortSha}… · describe what to change`}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" />{hasExtendedActions ? <details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
+    <button type="button" role="menuitem" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); void handleSend(language === 'ja' ? '海の画像を生成して' : 'Generate an image of the ocean'); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10">🎨 {language === 'ja' ? '画像生成' : 'Generate image'}</button>
     <button type="button" role="menuitem" disabled={Boolean(imageEditTarget)} onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>
     {onOpenResearch && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenResearch(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '詳しく調べる' : 'Research deeply'}</button>}
     {onOpenAgent && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenAgent(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? 'エージェントに任せる' : 'Delegate to agent'}</button>}
