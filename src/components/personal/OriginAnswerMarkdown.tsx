@@ -79,7 +79,7 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
             );
             return safeSource && typeof src === 'string'
               ? <img src={src} alt={alt ?? ''} title={title} loading="lazy" referrerPolicy="no-referrer" className="my-3 max-h-[70vh] max-w-full rounded-xl border border-[var(--border-default)] object-contain" />
-              : <span role="note" className="origin-external-image-note">{language === 'en' ? `Image source was blocked${alt ? `: ${alt}` : ''}` : `画像ソースを安全上の理由で表示しません${alt ? `：${alt}` : ''}`}</span>;
+              : <span role="note" className="origin-external-image-note">{language === 'en' ? `External image not loaded automatically${alt ? `: ${alt}` : ''}` : `外部画像は自動表示しません${alt ? `：${alt}` : ''}`}</span>;
           },
           table: ({ children }) => <MarkdownTableV12 language={language}>{children}</MarkdownTableV12>,
         }}
