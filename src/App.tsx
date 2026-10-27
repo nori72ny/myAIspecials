@@ -1448,12 +1448,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           }
           appendPollinationsImageFallback(imageRequestText);
           return;
-          pendingImageRequestRef.current = null;
-          const unavailable = language === 'en'
-            ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
-            : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
-          appendFailure(failure?.message || unavailable);
-          return;
         }
 
         const mimeType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
