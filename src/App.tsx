@@ -1295,8 +1295,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       const prompt = [
         getOriginSystemPrompt(language),
         '無料フォールバック応答です。日本語で、根拠のない事実を作らず、利用者の依頼に直接回答してください。',
-        ...requestMessages.slice(-12).map((message) => `${message.role === 'user' ? '利用者' : 'アシスタント'}: ${message.content.slice(0, 6000)}`),
-      ].join('\\n\\n').slice(0, 18000);
+        ...requestMessages.slice(-4).map((message) => `${message.role === 'user' ? '利用者' : 'アシスタント'}: ${message.content.slice(0, 250)}`),
+      ].join('\\n\\n').slice(0, 1500);
       try {
         const fallback = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
           method: 'GET', signal: controller.signal, headers: { Accept: 'text/plain' },
