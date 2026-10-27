@@ -1646,12 +1646,19 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
         const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
         if (isModelBusy) {
+          // The API has already exhausted its own retry budget. Do not launch
+          // another network cascade in that case; report the concrete busy
+          // state and keep the $0.00/no-unverified-answer boundary intact.
+          if (failure?.retryAttempted === true) {
+            appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+            return;
+          }
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
           if (cascade.ok) {
             updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
             setAttachmentError('');
             setIsSafeWaiting(false);
-          } else appendFailure(cascade.content);
+          } else appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
