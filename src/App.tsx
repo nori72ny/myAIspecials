@@ -515,9 +515,9 @@ const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
-const MODEL_BUSY_MESSAGE = "現在、無料AIの利用が集中しています。費用0円ポリシーを維持するため自動再試行せず、今回は安全に回答を返せませんでした。少し時間をおいて、もう一度お試しください。";
+const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
-const MODEL_BUSY_MESSAGE_EN = 'Free AI capacity is temporarily busy. ORIGIN does not automatically retry inference under the $0 policy, so it could not safely return an answer this time. Please try again in a little while.';
+const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
 
 type OriginChatFailurePayload = {
   code?: unknown;
@@ -1638,15 +1638,30 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         return;
       }
 
-      const response = await fetchOriginChat(
-        JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages }),
-        controller.signal,
-      );
+      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages });
+      let response = await fetchOriginChat(requestBody, controller.signal);
+      let failure: OriginChatFailurePayload | null = null;
+      if (!response.ok) failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
+
+      const shouldRetry = failure?.retryAttempted !== true
+        && failure?.retryable === true
+        && typeof failure?.code === 'string'
+        && TRANSIENT_PROVIDER_CODES.has(failure.code);
+      if (!response.ok && shouldRetry && !controller.signal.aborted) {
+        // One bounded retry only for an explicitly retryable transient free-provider response.
+        // Keep the same request body/model; never retry an API response that already retried.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+        if (controller.signal.aborted) return;
+        response = await fetchOriginChat(requestBody, controller.signal);
+        failure = !response.ok
+          ? await response.json().catch(() => null) as OriginChatFailurePayload | null
+          : null;
+      }
+
       if (!response.ok) {
-        const failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
         const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
         if (isModelBusy) {
-          // The API has already exhausted its own retry budget. Do not launch
+          // The API may already have exhausted its retry budget. Do not launch
           // another network cascade in that case; report the concrete busy
           // state and keep the $0.00/no-unverified-answer boundary intact.
           if (failure?.retryAttempted === true) {
