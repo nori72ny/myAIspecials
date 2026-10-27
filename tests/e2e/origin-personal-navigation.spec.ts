@@ -243,6 +243,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           main: rect('.origin-app main'),
           composer: rect('.origin-app .origin-composer'),
           input: rect('[data-testid="origin-home-request"]'),
+          logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
+          description: rect('.origin-app main [data-testid="origin-core-logo"] + h1 + p'),
         };
       });
 
@@ -250,6 +252,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.app, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
       expect(metrics.documentClientHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
       expect(metrics.shell!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
@@ -259,6 +263,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.main!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.app!.bottom + 1);
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
+      expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
+      expect(metrics.composer!.top - metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(20);
     });
   }
 
