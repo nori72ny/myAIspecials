@@ -1079,7 +1079,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
         providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
       },
     };
-    const fetchMock = vi.fn()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(valid), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         code: 'PROVIDER_RATE_LIMITED',
         retryable: true,
