@@ -11,7 +11,7 @@ import {
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
-import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from "./zeroCostRoutingPolicy.js";
+import { ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES } from "./zeroCostRoutingPolicy.js";
 
 export interface OriginProviderStreamHandlers {
   onDelta: (text: string) => void;
@@ -47,7 +47,9 @@ type OpenRouterStreamChunk = {
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
-const MAX_STREAM_TIMEOUT_MS = 52_000;
+const MAX_STREAM_TIMEOUT_MS = 18_000;
+const MAX_STREAM_TOTAL_BUDGET_MS = 60_000;
+const STREAM_RETRY_DELAYS_MS = [700, 1_800] as const;
 
 const streamedText = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -159,28 +161,31 @@ async function streamOpenRouter(
     Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS),
   );
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response: Response;
+  let response: Response | undefined;
   try {
-    response = await fetchImpl(OPENROUTER_STREAM_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-        "HTTP-Referer": "https://myaispecials.ai.studio/",
-        "X-OpenRouter-Title": "ORIGIN Personal",
-      },
-      signal: controller.signal,
-      body: JSON.stringify(sanitizePreEgressPayload({
-        model: providerRequest.plan.modelId,
-        messages: requestMessages(providerRequest),
-        max_tokens: originCompletionTokenBudget(providerRequest.plan.taskType),
-        temperature: 0.2,
-        top_p: 0.9,
-        stream: true,
-        usage: { include: true },
-        provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
-      })),
-    });
+    for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
+      response = await fetchImpl(OPENROUTER_STREAM_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+          "HTTP-Referer": "https://myaispecials.ai.studio/",
+          "X-OpenRouter-Title": "ORIGIN Personal",
+        },
+        signal: controller.signal,
+        body: JSON.stringify(sanitizePreEgressPayload({
+          model: providerRequest.plan.modelId,
+          messages: requestMessages(providerRequest),
+          max_tokens: originCompletionTokenBudget(providerRequest.plan.taskType),
+          temperature: 0.2,
+          top_p: 0.9,
+          stream: true,
+          usage: { include: true },
+          provider: policy,
+        })),
+      });
+      if (![403, 404].includes(response.status)) break;
+    }
   } catch (error) {
     clearTimeout(timer);
     if (error instanceof OriginProviderError) throw error;
@@ -190,9 +195,12 @@ async function streamOpenRouter(
     throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
   }
 
-  if (!response.ok) {
+  if (!response || !response.ok) {
     clearTimeout(timer);
-    throw httpFailure(response.status, retryAfter(response.headers.get("Retry-After")));
+    if (response && [403, 404].includes(response.status)) {
+      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamStatus: response.status });
+    }
+    throw httpFailure(response?.status ?? 503, retryAfter(response?.headers.get("Retry-After") ?? null));
   }
   if (!response.body) {
     clearTimeout(timer);
@@ -316,5 +324,42 @@ export async function executeOriginProviderStream(
   validateStreamPlan(providerRequest.plan);
   const key = env.OPENROUTER_API_KEY;
   if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
-  return streamOpenRouter(providerRequest, key, handlers, fetchImpl);
+  const deadline = Date.now() + MAX_STREAM_TOTAL_BUDGET_MS;
+  const boundedRequest: OriginProviderExecutionRequest = {
+    ...providerRequest,
+    plan: { ...providerRequest.plan, timeoutMs: Math.min(MAX_STREAM_TIMEOUT_MS, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS) },
+  };
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      const delay = STREAM_RETRY_DELAYS_MS[attempt - 1];
+      if (Date.now() + delay >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    if (Date.now() >= deadline) break;
+    try {
+      return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl);
+    } catch (error) {
+      if (error instanceof OriginProviderError) {
+        lastError = error;
+        const diagnostic = error.diagnostic;
+        const upstreamStatus = diagnostic?.upstreamStatus;
+        const transientUpstreamStatus = typeof upstreamStatus === "number"
+          && (upstreamStatus === 408 || upstreamStatus === 429 || [500, 502, 503, 504].includes(upstreamStatus));
+        const transientTransportFailure = diagnostic?.transportFailure === "network"
+          || diagnostic?.transportFailure === "timeout";
+        const retryableTransientFailure = error.retryable
+          && (error.code === "PROVIDER_RATE_LIMITED"
+            || error.code === "PROVIDER_TIMEOUT"
+            || transientUpstreamStatus
+            || transientTransportFailure);
+        if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;
+      } else {
+        lastError = error;
+        if (attempt === 2 || Date.now() >= deadline) break;
+      }
+    }
+  }
+  if (lastError instanceof OriginProviderError) throw lastError;
+  throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIとの通信に失敗しました。", 504, true, undefined, { transportFailure: "timeout" });
 }
