@@ -547,7 +547,7 @@ export const buildRasterGuidedEditPrompt = (sourcePrompt: string): string => {
 export const isExplicitLocalProceduralImageRequest = (input: string): boolean => {
   const normalized = input.normalize('NFKC').trim();
   if (!normalized) return false;
-  return /(?:手続き型(?:の|で)(?:PNG|画像|アート)|ローカル(?:で|の).{0,12}(?:図形画像|手続き型画像)|\\bprocedural\\s+(?:png|image|artwork)\\b)/iu.test(normalized);
+  return /(?:手続き型(?:の|で)(?:PNG|画像|アート)|ローカル(?:で|の).{0,12}(?:図形画像|手続き型画像)|\bprocedural\s+(?:png|image|artwork)\b)/iu.test(normalized);
 };
 
 export const isDirectImageGenerationRequest = (input: string): boolean => {
