@@ -226,6 +226,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           return {
             top: Math.round(box.top * 100) / 100,
             bottom: Math.round(box.bottom * 100) / 100,
+            left: Math.round(box.left * 100) / 100,
+            right: Math.round(box.right * 100) / 100,
             height: Math.round(box.height * 100) / 100,
             minHeight: style.minHeight,
             heightStyle: style.height,
@@ -255,6 +257,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
+      expect(metrics.composer!.height, JSON.stringify(metrics)).toBeLessThanOrEqual(160);
+      expect(metrics.description!.left, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
+      expect(metrics.description!.right, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width + 1);
       expect(metrics.documentClientHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
       expect(metrics.shell!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
       expect(metrics.shell!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
