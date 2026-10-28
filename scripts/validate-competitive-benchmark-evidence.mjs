@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const SHA40 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{2,159}$/;
-const ISO = (value) => typeof value === "string" && Number.isFinite(Date.parse(value));
+const ISO = (value) => {
+  if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+};
 
 export function validateBenchmarkEvidence(input, nowMs = Date.now()) {
   const errors = [];
@@ -61,4 +67,4 @@ async function main() {
   process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   if (!report.valid) process.exitCode = 1;
 }
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main();
