@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from "vitest";
 import { validateBenchmarkEvidence } from "../scripts/validate-competitive-benchmark-evidence.mjs";
 
 const sha = "a".repeat(64);
@@ -18,7 +17,7 @@ const valid = {
 };
 
 test("accepts complete, explicitly zero-cost executed evidence", () => {
-  assert.equal(validateBenchmarkEvidence(valid, Date.parse("2026-10-28T01:00:00Z")).valid, true);
+  expect(validateBenchmarkEvidence(valid, Date.parse("2026-10-28T01:00:00Z")).valid).toBe(true);
 });
 
 test("rejects a missing candidate SHA and a nonzero cost", () => {
@@ -26,21 +25,21 @@ test("rejects a missing candidate SHA and a nonzero cost", () => {
   bad.candidateSha = "main";
   bad.results[0].cost.amountUsd = 0.01;
   const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
-  assert.equal(report.valid, false);
-  assert.ok(report.errors.includes("CANDIDATE_SHA_INVALID"));
-  assert.ok(report.errors.includes("ZERO_COST_NOT_PROVEN"));
+  expect(report.valid).toBe(false);
+  expect(report.errors).toContain("CANDIDATE_SHA_INVALID");
+  expect(report.errors).toContain("ZERO_COST_NOT_PROVEN");
 });
 
 test("does not allow fabricated scores for NOT_RUN products", () => {
   const bad = structuredClone(valid);
   bad.results[0] = { taskId: "task.ja.001", status: "NOT_RUN", notRunReason: "product unavailable", score: 5 };
   const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
-  assert.ok(report.errors.includes("NOT_RUN_MUST_NOT_HAVE_SCORE"));
+  expect(report.errors).toContain("NOT_RUN_MUST_NOT_HAVE_SCORE");
 });
 
 test("rejects duplicate task IDs", () => {
   const bad = structuredClone(valid);
   bad.results.push({ ...structuredClone(valid.results[0]) });
   const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
-  assert.ok(report.errors.includes("TASK_ID_INVALID_OR_DUPLICATE"));
+  expect(report.errors).toContain("TASK_ID_INVALID_OR_DUPLICATE");
 });
