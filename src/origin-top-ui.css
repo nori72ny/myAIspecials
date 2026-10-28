@@ -178,7 +178,17 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
-    margin-top: auto !important;
+    margin-top: 12px !important;
+  }
+
+  .origin-app main [data-testid="origin-core-logo"] + h1 + p {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-inline: 12px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    text-wrap: pretty;
   }
   [data-testid="origin-core-logo"] {
     width: 64px !important;
@@ -190,7 +200,7 @@
     height: 54px !important;
   }
   .origin-app main .origin-composer {
-    min-height: 116px !important;
+    min-height: 96px !important;
     border-radius: 22px !important;
     padding: 8px !important;
     border-width: 1px !important;
@@ -203,8 +213,8 @@
   }
   .origin-app main .origin-composer textarea,
   .origin-app main .origin-composer__input {
-    min-height: 56px !important;
-    max-height: min(176px, 28dvh) !important;
+    min-height: 44px !important;
+    max-height: min(120px, 22dvh) !important;
     padding: 8px 10px 6px !important;
     font-size: 16px !important;
     line-height: 1.5 !important;
