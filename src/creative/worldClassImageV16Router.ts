@@ -32,6 +32,10 @@ type ParsedRequest = {
 function bool(env: NodeJS.ProcessEnv, key: string): boolean {
   return env[key]?.trim().toLowerCase() === 'true';
 }
+function freeOnly(env: NodeJS.ProcessEnv): boolean {
+  // Fail closed: absent or malformed policy must never enable a potentially paid image route.
+  return env.FREE_ONLY?.trim().toLowerCase() !== 'false';
+}
 function releaseSha(env: NodeJS.ProcessEnv): string {
   const value = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA ?? '';
   return FULL_SHA.test(value) ? value.toLowerCase() : 'unknown';
@@ -179,8 +183,9 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
   const router = Router();
 
   router.get('/api/creative/v1.6/world-class/status', async (_req, res) => {
-    const key = credentials(env);
-    const enabled = bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED');
+    const freeOnlyMode = freeOnly(env);
+    const key = freeOnlyMode ? null : credentials(env);
+    const enabled = bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED') && !freeOnlyMode;
     const isQualified = qualified(env);
     const configuredModel = env.ORIGIN_IMAGE_WORLD_CLASS_MODEL?.trim() || DEFAULT_MODEL;
     const allowed = ALLOWED_MODELS.has(configuredModel);
@@ -206,13 +211,14 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
       providerReady,
       benchmarkGate: '24-case blind benchmark vs 3 frontier references + 2 independent judges',
       publicationPolicy: 'exact-sha-qualified-only',
-      freeOnly: false,
+      freeOnly: freeOnlyMode,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
     });
   });
 
   const handler = (editing: boolean) => async (req: Request, res: ExpressResponse) => {
+    if (freeOnly(env)) return fail(res, 503, 'WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED', '無料限定ポリシーのため、この有料契約を前提とする画像経路は停止しています。無料プロバイダーを確認できるまで実画像生成は行いません。', false);
     if (sensitive(req.body)) return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密情報の可能性があるため外部画像モデルへ送信しません。');
     let input: ParsedRequest;
     try { input = parse(req.body, editing); }
