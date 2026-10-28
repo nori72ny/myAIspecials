@@ -33,8 +33,11 @@ function bool(env: NodeJS.ProcessEnv, key: string): boolean {
   return env[key]?.trim().toLowerCase() === 'true';
 }
 function freeOnly(env: NodeJS.ProcessEnv): boolean {
-  // Production and preview builds must never enable a potentially paid image route,
-  // even if a deployment variable is accidentally set to false. Only test mocks may opt out.
+  // Vercel production/preview deployments must never enable a potentially paid route,
+  // even if NODE_ENV is unexpectedly set to "test" or FREE_ONLY is set to "false".
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+  if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
+  // Only isolated test mocks may opt out of the free-only policy.
   if (env.NODE_ENV?.trim().toLowerCase() !== 'test') return true;
   return env.FREE_ONLY?.trim().toLowerCase() !== 'false';
 }
