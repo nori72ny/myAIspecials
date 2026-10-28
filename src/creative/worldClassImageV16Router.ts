@@ -33,7 +33,9 @@ function bool(env: NodeJS.ProcessEnv, key: string): boolean {
   return env[key]?.trim().toLowerCase() === 'true';
 }
 function freeOnly(env: NodeJS.ProcessEnv): boolean {
-  // Fail closed: absent or malformed policy must never enable a potentially paid image route.
+  // Production and preview builds must never enable a potentially paid image route,
+  // even if a deployment variable is accidentally set to false. Only test mocks may opt out.
+  if (env.NODE_ENV?.trim().toLowerCase() !== 'test') return true;
   return env.FREE_ONLY?.trim().toLowerCase() !== 'false';
 }
 function releaseSha(env: NodeJS.ProcessEnv): string {
