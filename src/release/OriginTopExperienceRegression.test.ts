@@ -160,7 +160,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain("background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;");
     expect(topUi).toContain('min-height: 56px !important;');
     expect(functionalUi).toContain('grid-column: 1 / -1;');
-    expect(functionalUi).toContain('margin-top: auto !important;');
+    expect(functionalUi).toContain('margin-top: 12px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
     expect(topUi).not.toContain('width: 104px !important;');

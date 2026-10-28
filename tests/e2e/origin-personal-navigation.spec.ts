@@ -204,6 +204,72 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     });
   }
 
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 360, height: 640 },
+    { width: 390, height: 844 },
+    { width: 412, height: 915 },
+  ]) {
+    test(`keeps the mobile shell and composer inside the visible viewport at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto('/');
+      await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('.origin-personal-shell')).toBeVisible();
+      await expect(page.locator('.origin-app main')).toBeVisible();
+
+      const metrics = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector<HTMLElement>(selector);
+          if (!element) return null;
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            top: Math.round(box.top * 100) / 100,
+            bottom: Math.round(box.bottom * 100) / 100,
+            height: Math.round(box.height * 100) / 100,
+            minHeight: style.minHeight,
+            heightStyle: style.height,
+            overflowY: style.overflowY,
+          };
+        };
+        return {
+          innerHeight: window.innerHeight,
+          visualViewportHeight: window.visualViewport?.height ?? null,
+          documentClientHeight: document.documentElement.clientHeight,
+          documentScrollHeight: document.documentElement.scrollHeight,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          shell: rect('.origin-personal-shell'),
+          app: rect('.origin-app'),
+          main: rect('.origin-app main'),
+          composer: rect('.origin-app .origin-composer'),
+          input: rect('[data-testid="origin-home-request"]'),
+          logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
+          description: rect('.origin-app main [data-testid="origin-core-logo"] + h1 + p'),
+        };
+      });
+
+      expect(metrics.shell, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.app, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
+      expect(metrics.documentClientHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
+      expect(metrics.shell!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
+      expect(metrics.shell!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
+      expect(metrics.app!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.shell!.top - 1);
+      expect(metrics.app!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.shell!.bottom + 1);
+      expect(metrics.main!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.app!.bottom + 1);
+      expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
+      expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(120);
+      expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
+      expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
+    });
+  }
+
   test('opens HTML artifacts as finished previews instead of source code', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', route => route.fulfill({
