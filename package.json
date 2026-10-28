@@ -54,7 +54,9 @@
     "inspect:image-edit-private-corpus": "tsx scripts/inspect-image-edit-private-corpus-v1.ts",
     "eval:image-edit-private": "tsx scripts/run-image-edit-private-heldout-v1.ts",
     "eval:aq-budgeted-day": "tsx scripts/run-aq-budgeted-day.ts",
-    "test:zero-cost": "vitest run src/utils/__tests__/zeroCostValidator.test.ts"
+    "test:zero-cost": "vitest run src/utils/__tests__/zeroCostValidator.test.ts",
+    "test:competitive-benchmark-evidence": "node --test tests/competitive-benchmark-evidence.test.mjs",
+    "validate:competitive-benchmark-evidence": "node scripts/validate-competitive-benchmark-evidence.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
