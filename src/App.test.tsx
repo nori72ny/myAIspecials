@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isExplicitLocalProceduralImageRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -614,6 +614,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText(/「作る」ワークスペースへ内容ごと引き継ぎました/)).toBeTruthy();
     vi.unstubAllGlobals();
+  });
+
+  it('uses procedural raster only when the user explicitly asks for procedural artwork', () => {
+    expect(isExplicitLocalProceduralImageRequest('手続き型のPNG画像を作ってください')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('Create procedural artwork')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('夕焼けの海の画像を作ってください')).toBe(false);
+    expect(isExplicitLocalProceduralImageRequest('風景')).toBe(false);
   });
 
   it('recognizes explicit image creation requests without hijacking image-related questions', () => {
