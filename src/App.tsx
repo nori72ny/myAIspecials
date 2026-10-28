@@ -544,6 +544,12 @@ export const buildRasterGuidedEditPrompt = (sourcePrompt: string): string => {
   ].join('\n');
 };
 
+export const isExplicitLocalProceduralImageRequest = (input: string): boolean => {
+  const normalized = input.normalize('NFKC').trim();
+  if (!normalized) return false;
+  return /(?:手続き型(?:の|で)(?:PNG|画像|アート)|ローカル(?:で|の).{0,12}(?:図形画像|手続き型画像)|\\bprocedural\\s+(?:png|image|artwork)\\b)/iu.test(normalized);
+};
+
 export const isDirectImageGenerationRequest = (input: string): boolean => {
   const normalized = input.trim();
   if (!normalized) return false;
@@ -1328,7 +1334,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           referenceImageDataUrl = preparedReference.dataUrl;
         }
         // Local Canvas is a deterministic procedural raster fallback; it uses no network or paid model.
-        if (!referenceAssetId) {
+        if (!referenceAssetId && isExplicitLocalProceduralImageRequest(imageRequestText) {
           try {
             const local = await generateLocalCanvasRasterV15(imageRequestText);
             const localQuality = await inspectRasterBlobV15(local.blob);
