@@ -175,6 +175,7 @@ describe('worldClassImageV16Router', () => {
   it('never allows the evaluation bypass in production', async () => {
     const response = await request(app({
       ...BASE_ENV,
+      NODE_ENV: 'production',
       VERCEL_ENV: 'production',
       ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
       ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
@@ -193,7 +194,7 @@ describe('worldClassImageV16Router', () => {
 
     const response = await request(app({
       ...BASE_ENV,
-      VERCEL_ENV: 'preview',
+      VERCEL_ENV: 'development',
       ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
       ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
     }))
