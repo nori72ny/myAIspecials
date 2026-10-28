@@ -183,7 +183,7 @@ describe('worldClassImageV16Router', () => {
       .post('/api/creative/v1.6/world-class/generate')
       .send({ prompt: '高級ホテルの広告ビジュアル' });
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
   });
 
   it('labels non-production evaluation output without falsely claiming qualification', async () => {
