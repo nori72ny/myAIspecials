@@ -43,8 +43,11 @@ describe("ObservabilityCenter Component", () => {
     // Trigger run
     fireEvent.click(runBtn);
     
-    // Should transition to "Running Validation..."
-    expect(screen.getByText((content) => content.includes("Running Validation..."))).toBeTruthy();
+    // Wait for the async simulation to finish before jsdom teardown.
+    // Leaving its delayed state updates running causes React to dispatch after the
+    // test environment has been disposed (notably under Node.js 24).
+    expect(await screen.findByText((content) => content.includes("Q5 Validation Passed successfully."), {}, { timeout: 10000 })).toBeTruthy();
+    expect(await screen.findByText((content) => content.includes("Execute Validation Suite"), {}, { timeout: 10000 })).toBeTruthy();
   });
 
   it("switches to Performance tab and displays live stats", async () => {
