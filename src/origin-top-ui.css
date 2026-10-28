@@ -173,13 +173,13 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: clamp(34px, 5.7dvh, 46px) !important;
+    padding-top: clamp(34px, 20dvh, 184px) !important;
     padding-inline: 0 !important;
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
-    /* Keep the composer close to the intro instead of stretching a large empty spacer. */
-    margin-top: clamp(12px, 2dvh, 20px) !important;
+    /* Move the intro and composer together into the lower visual center without an oversized spacer. */
+    margin-top: clamp(24px, 4.5dvh, 42px) !important;
   }
 
   .origin-app main [data-testid="origin-core-logo"] + h1 + p {
