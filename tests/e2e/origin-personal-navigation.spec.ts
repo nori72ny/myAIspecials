@@ -271,6 +271,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(120);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
+      const introToComposerGap = metrics.composer!.top - metrics.description!.bottom;
+      // Prevent the home intro from appearing detached from the input on tall phones,
+      // while allowing a little responsive breathing room on compact viewports.
+      expect(introToComposerGap, JSON.stringify({ ...metrics, introToComposerGap }))
+        .toBeLessThanOrEqual(Math.max(120, viewport.height * 0.28));
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
     });
   }
