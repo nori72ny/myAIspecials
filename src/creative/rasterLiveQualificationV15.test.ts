@@ -86,7 +86,7 @@ describe('rasterLiveQualificationV15', () => {
     });
 
     expect(result.state).toBe('blocked');
-    expect(result.reason).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+    expect(result.reason).toBe('CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
