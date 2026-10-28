@@ -1334,7 +1334,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           referenceImageDataUrl = preparedReference.dataUrl;
         }
         // Local Canvas is a deterministic procedural raster fallback; it uses no network or paid model.
-        if (!referenceAssetId && isExplicitLocalProceduralImageRequest(imageRequestText) {
+        if (!referenceAssetId && isExplicitLocalProceduralImageRequest(imageRequestText)) {
           try {
             const local = await generateLocalCanvasRasterV15(imageRequestText);
             const localQuality = await inspectRasterBlobV15(local.blob);
