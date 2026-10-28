@@ -121,7 +121,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -182,7 +182,7 @@ describe('rasterImageV15Router', () => {
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
-    expect(legacy.body.code).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+    expect(legacy.body.code).toBe('CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED');
   });
 
   it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {

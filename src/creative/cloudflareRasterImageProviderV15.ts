@@ -31,11 +31,22 @@ type Subscription = {
   rate_plan?: unknown;
 };
 
-function credentials(env: NodeJS.ProcessEnv) {
+function credentialConfigurationIssue(env: NodeJS.ProcessEnv): string | null {
   const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? '';
   const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? '';
-  if (!/^[a-f0-9]{32}$/i.test(accountId) || apiToken.length < 20 || apiToken.length > 4096) return null;
-  return { accountId, apiToken };
+  if (!accountId) return 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED';
+  if (!/^[a-f0-9]{32}$/i.test(accountId)) return 'CLOUDFLARE_ACCOUNT_ID_INVALID';
+  if (!apiToken) return 'CLOUDFLARE_API_TOKEN_NOT_CONFIGURED';
+  if (apiToken.length < 20 || apiToken.length > 4096) return 'CLOUDFLARE_API_TOKEN_INVALID';
+  return null;
+}
+
+function credentials(env: NodeJS.ProcessEnv) {
+  if (credentialConfigurationIssue(env)) return null;
+  return {
+    accountId: env.CLOUDFLARE_ACCOUNT_ID!.trim(),
+    apiToken: env.CLOUDFLARE_API_TOKEN!.trim(),
+  };
 }
 
 async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetch, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -252,7 +263,7 @@ export async function getCloudflareRasterStatusV15(
     paymentMethodRequired: false,
     secretDelivery: 'server-only',
     externalNetwork: true,
-    reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+    reason: credentialConfigurationIssue(env) ?? 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
   };
 
   try {
