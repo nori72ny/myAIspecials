@@ -173,7 +173,7 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: clamp(72px, 15dvh, 140px) !important;
+    padding-top: clamp(34px, 5.7dvh, 46px) !important;
     padding-inline: 0 !important;
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
