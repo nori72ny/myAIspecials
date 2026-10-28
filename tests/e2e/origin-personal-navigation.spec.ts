@@ -275,7 +275,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       // Prevent the home intro from appearing detached from the input on tall phones,
       // while allowing a little responsive breathing room on compact viewports.
       expect(introToComposerGap, JSON.stringify({ ...metrics, introToComposerGap }))
-        .toBeLessThanOrEqual(Math.max(120, viewport.height * 0.4));
+        .toBeLessThanOrEqual(Math.max(110, viewport.height * 0.33));
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
     });
   }
