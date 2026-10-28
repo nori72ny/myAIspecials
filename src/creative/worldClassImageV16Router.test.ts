@@ -6,6 +6,7 @@ import { createWorldClassImageV16Router } from './worldClassImageV16Router';
 
 const SHA = 'a'.repeat(40);
 const BASE_ENV: NodeJS.ProcessEnv = {
+  NODE_ENV: 'test',
   FREE_ONLY: 'false',
   OPENROUTER_API_KEY: 'sk-or-test-' + 'x'.repeat(32),
   ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
