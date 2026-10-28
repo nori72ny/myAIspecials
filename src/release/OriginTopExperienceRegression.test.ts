@@ -92,7 +92,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
     expect(topUi).toContain('min-height: 60px !important;');
-    expect(topUi).toContain('min-height: 56px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
@@ -110,9 +110,9 @@ describe('ORIGIN top experience regression boundary', () => {
 
   it('keeps the mobile composer spacious while preserving 44px touch targets and keyboard-safe type', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
-    expect(topUi).toContain('min-height: 116px !important;');
-    expect(topUi).toContain('min-height: 56px !important;');
-    expect(topUi).toContain('max-height: min(176px, 28dvh) !important;');
+    expect(topUi).toContain('min-height: 96px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('max-height: min(120px, 22dvh) !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(functionalUi).toContain('grid-template-columns: minmax(0, 1fr) 44px;');
     expect(functionalUi).toContain('grid-template-rows: auto 44px;');
@@ -158,7 +158,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('width: 64px !important;');
     expect(topUi).toContain('width: 54px !important;');
     expect(topUi).toContain("background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;");
-    expect(topUi).toContain('min-height: 56px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
     expect(functionalUi).toContain('grid-column: 1 / -1;');
     expect(functionalUi).toContain('margin-top: 12px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
