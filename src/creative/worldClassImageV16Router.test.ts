@@ -6,6 +6,7 @@ import { createWorldClassImageV16Router } from './worldClassImageV16Router';
 
 const SHA = 'a'.repeat(40);
 const BASE_ENV: NodeJS.ProcessEnv = {
+  FREE_ONLY: 'false',
   OPENROUTER_API_KEY: 'sk-or-test-' + 'x'.repeat(32),
   ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
   ORIGIN_IMAGE_WORLD_CLASS_MODEL: 'openai/gpt-image-2.5-sunburst',
@@ -54,6 +55,30 @@ function generatedResponse(cost = 0.12): Response {
 }
 
 describe('worldClassImageV16Router', () => {
+  it('blocks the potentially paid frontier route under the default free-only policy before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const env = { ...BASE_ENV };
+    delete env.FREE_ONLY;
+    const response = await request(app(env))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks the potentially paid frontier route when FREE_ONLY is explicitly enabled', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({ ...BASE_ENV, FREE_ONLY: 'true' }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
