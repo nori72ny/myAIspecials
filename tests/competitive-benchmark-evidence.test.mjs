@@ -43,3 +43,19 @@ test("rejects duplicate task IDs", () => {
   const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
   expect(report.errors).toContain("TASK_ID_INVALID_OR_DUPLICATE");
 });
+
+test("rejects non-canonical timestamps and impossible calendar dates", () => {
+  const bad = structuredClone(valid);
+  bad.createdAt = "2026-10-28";
+  bad.results[0].executedAt = "2026-02-30T00:00:00.000Z";
+  const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
+  expect(report.errors).toContain("CREATED_AT_INVALID");
+  expect(report.errors).toContain("EXECUTED_AT_INVALID");
+});
+
+test("rejects timestamps more than five minutes in the future", () => {
+  const bad = structuredClone(valid);
+  bad.results[0].executedAt = "2026-10-28T01:06:00.000Z";
+  const report = validateBenchmarkEvidence(bad, Date.parse("2026-10-28T01:00:00Z"));
+  expect(report.errors).toContain("EXECUTED_AT_INVALID");
+});
