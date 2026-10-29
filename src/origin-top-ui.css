@@ -259,7 +259,7 @@
 @media (max-width: 639px) and (min-height: 700px) {
   .origin-app main .origin-composer {
     /* Tall phones need the composer near the bottom without moving the logo and intro. */
-    margin-top: clamp(190px, 25dvh, 225px) !important;
+    margin-top: clamp(220px, 29dvh, 248px) !important;
   }
 }
 
