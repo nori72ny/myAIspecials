@@ -71,7 +71,7 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      code: "CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED",
+      code: "NO_VERIFIED_ZERO_COST_PROVIDER_READY",
       freeOnly: true,
       costUsd: 0,
       paidFallbackUsed: false,
