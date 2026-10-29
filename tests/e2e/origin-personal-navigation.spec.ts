@@ -312,10 +312,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(addMenu).toBeVisible();
       const menuBox = await addMenu.boundingBox();
       expect(menuBox, JSON.stringify({ viewport, menuBox })).not.toBeNull();
-      expect(menuBox!.left, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
-      expect(menuBox!.right, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.width + 1);
-      expect(menuBox!.top, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
-      expect(menuBox!.bottom, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.height + 1);
+      expect(menuBox!.x, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
+      expect(menuBox!.x + menuBox!.width, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.width + 1);
+      expect(menuBox!.y, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
+      expect(menuBox!.y + menuBox!.height, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.height + 1);
       const menuItems = await addMenu.getByRole('menuitem').evaluateAll(elements => elements.map(element => {
         const box = element.getBoundingClientRect();
         return { width: box.width, height: box.height, left: box.left, right: box.right };
