@@ -132,7 +132,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -193,7 +193,7 @@ describe('rasterImageV15Router', () => {
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
-    expect(legacy.body.code).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+    expect(legacy.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
   });
 
   it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {
@@ -490,7 +490,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
     expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(88);
     expect(response.headers['x-origin-external-network-requests']).toBe('11');
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(11);
   });
 
   it('allows an explicit semantic-gate opt-out only for controlled diagnostics', async () => {
@@ -529,7 +529,7 @@ describe('rasterImageV15Router', () => {
         version: 'raster-semantic-critic-v1',
       },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(11);
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
