@@ -265,14 +265,14 @@
 
   .origin-app main .origin-composer {
     /* Keep the composer low without the previous 25dvh margin that overflowed on 390x844. */
-    margin-top: clamp(158px, 20dvh, 170px) !important;
+    margin-top: clamp(110px, 13dvh, 122px) !important;
   }
 }
 
 @media (max-width: 639px) and (min-height: 900px) {
   .origin-app main .origin-composer {
     /* Taller phones need a larger placement offset to keep the composer in the lower visual area. */
-    margin-top: clamp(184px, 20dvh, 194px) !important;
+    margin-top: clamp(118px, 13dvh, 130px) !important;
   }
 }
 
