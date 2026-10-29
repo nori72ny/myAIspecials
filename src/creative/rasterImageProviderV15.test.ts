@@ -137,6 +137,24 @@ describe('rasterImageProviderV15', () => {
     }
   });
 
+  it('fails before generation when the usage baseline contains duplicate event IDs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [
+        { cursor_event_id: 'duplicate-baseline' },
+        { cursor_event_id: 'duplicate-baseline' },
+      ] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'duplicate baseline' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+    )).rejects.toThrow('USAGE_BASELINE_UNAVAILABLE');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/generations'))).toBe(false);
+  });
+
   it('does not infer zero cost from an empty pricing object unless the exact audited registry row explicitly says free', async () => {
     const ambiguous = { ...freeModel, title: 'Sana Sprint', description: 'Image model', community: true };
     const fetchMock = vi.fn(async () => json([ambiguous])) as unknown as typeof fetch;
