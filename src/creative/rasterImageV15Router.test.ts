@@ -468,6 +468,41 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('gen.pollinations.ai'))).toBe(false);
   });
 
+  it('marks uncorrelated post-generation usage evidence non-retryable', async () => {
+    const freeModel = {
+      name: 'tomdacatto/sana', category: 'image', title: 'Sana Sprint (Free)',
+      description: 'Free image model', community: true,
+      pricing: { currency: 'pollen' }, paid_only: false,
+      input_modalities: ['text'], output_modalities: ['image'],
+    };
+    const scopedKeyInfo = {
+      valid: true, type: 'secret',
+      permissions: { models: ['tomdacatto/sana'], account: ['usage'] },
+      pollenBudget: 0,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'baseline-1' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(768, 1024)))
+      .mockResolvedValueOnce(json({ usage: [
+        { cursor_event_id: 'new-event-a', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+        { cursor_event_id: 'new-event-b', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+      ] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({ POLLINATIONS_API_KEY: 'test-pollinations-key' }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('ZERO_COST_USAGE_NOT_VERIFIED');
+    expect(response.body.retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
   it.each([
     [3036, 429, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED', false, '無料枠を使い切った'],
     [3040, 503, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE', true, '一時的に混雑'],
