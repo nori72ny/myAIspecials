@@ -179,7 +179,7 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
     /* Move the intro and composer together into the lower visual center without an oversized spacer. */
-    margin-top: auto !important;
+    margin-top: clamp(36px, 7dvh, 64px) !important;
   }
 
   .origin-app main [data-testid="origin-core-logo"] + h1 + p {
