@@ -567,6 +567,30 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
+  it('marks semantic-critic transport failure non-retryable after image generation', async () => {
+    const fetchMock = semanticFetchMock(true);
+    fetchMock.mockResolvedValueOnce(cfFailure(500, 1001));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...CF_ENV,
+      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'true',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({
+      ok: false,
+      retryable: false,
+      freeOnly: true,
+      paidFallbackUsed: false,
+    });
+    expect(response.body.code).toContain('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_');
+    expect(response.body.message).toContain('重複生成を避ける');
+    expect(fetchMock).toHaveBeenCalledTimes(11);
+  });
+
   it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
     const fetchMock = semanticFetchMock(false);
     vi.stubGlobal('fetch', fetchMock);
