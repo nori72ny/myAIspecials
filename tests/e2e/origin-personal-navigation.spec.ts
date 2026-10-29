@@ -272,15 +272,14 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(260);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(130);
       expect(metrics.heading!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.logo!.bottom - 1);
       expect(metrics.heading!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.description!.top + 1);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       const introToComposerGap = metrics.composer!.top - metrics.description!.bottom;
-      // Prevent the home intro from appearing detached from the input on tall phones,
-      // while allowing a little responsive breathing room on compact viewports.
+      // Keep the intro and composer visually connected across compact and tall phones.
       expect(introToComposerGap, JSON.stringify({ ...metrics, introToComposerGap }))
-        .toBeLessThanOrEqual(Math.max(110, viewport.height * 0.33));
+        .toBeLessThanOrEqual(100);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
 
       // Inspect every visible primary action's actual hit box, not only its CSS class.
