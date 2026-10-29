@@ -366,7 +366,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Height', String(result.height));
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Cost-Evidence', result.providerId === 'pollinations-zero-cost'
-        ? 'preflight=zero-cost-policy;post=recorded-zero'
+        ? 'preflight=zero-cost-policy;post=usage-check-passed'
         : 'preflight=free-plan-capped;post=not-recorded-per-request');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
