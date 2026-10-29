@@ -132,7 +132,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
