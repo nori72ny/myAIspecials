@@ -207,6 +207,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
   for (const viewport of [
     { width: 320, height: 568 },
     { width: 360, height: 640 },
+    { width: 390, height: 560 },
     { width: 390, height: 844 },
     { width: 412, height: 915 },
   ]) {
@@ -226,6 +227,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           return {
             top: Math.round(box.top * 100) / 100,
             bottom: Math.round(box.bottom * 100) / 100,
+            left: Math.round(box.left * 100) / 100,
+            right: Math.round(box.right * 100) / 100,
             height: Math.round(box.height * 100) / 100,
             minHeight: style.minHeight,
             heightStyle: style.height,
@@ -244,6 +247,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           composer: rect('.origin-app .origin-composer'),
           input: rect('[data-testid="origin-home-request"]'),
           logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
+          heading: rect('.origin-app main [data-testid="origin-core-logo"] + h1'),
           description: rect('.origin-app main [data-testid="origin-core-logo"] + h1 + p'),
         };
       });
@@ -253,8 +257,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.heading, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
+      expect(metrics.composer!.height, JSON.stringify(metrics)).toBeLessThanOrEqual(160);
+      expect(metrics.description!.left, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
+      expect(metrics.description!.right, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width + 1);
       expect(metrics.documentClientHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
       expect(metrics.shell!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(-1);
       expect(metrics.shell!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
@@ -264,9 +272,60 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(120);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(380);
+      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.logo!.bottom - 1);
+      expect(metrics.heading!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.description!.top + 1);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
+      const introToComposerGap = metrics.composer!.top - metrics.description!.bottom;
+      // Keep the intro and composer visually connected across compact and tall phones.
+      expect(introToComposerGap, JSON.stringify({ ...metrics, introToComposerGap }))
+        .toBeLessThanOrEqual(100);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
+
+      // Inspect every visible primary action's actual hit box, not only its CSS class.
+      const visibleTargets = await page.locator(
+        '.origin-app main button:visible, .origin-app main summary:visible, .origin-header button:visible'
+      ).evaluateAll(elements => elements.map(element => {
+        const box = element.getBoundingClientRect();
+        return {
+          label: (element.getAttribute('aria-label') || element.textContent || '').trim().slice(0, 60),
+          width: Math.round(box.width * 100) / 100,
+          height: Math.round(box.height * 100) / 100,
+          left: Math.round(box.left * 100) / 100,
+          right: Math.round(box.right * 100) / 100,
+          bottom: Math.round(box.bottom * 100) / 100,
+        };
+      }));
+      expect(visibleTargets.length, JSON.stringify(visibleTargets)).toBeGreaterThan(0);
+      for (const target of visibleTargets) {
+        expect(target.width, JSON.stringify({ viewport, target })).toBeGreaterThanOrEqual(44);
+        expect(target.height, JSON.stringify({ viewport, target })).toBeGreaterThanOrEqual(44);
+        expect(target.left, JSON.stringify({ viewport, target })).toBeGreaterThanOrEqual(-1);
+        expect(target.right, JSON.stringify({ viewport, target })).toBeLessThanOrEqual(viewport.width + 1);
+      }
+
+      const addMenuToggle = page.getByTestId('origin-add-menu-toggle');
+      await expect(addMenuToggle).toBeVisible();
+      await addMenuToggle.click();
+      const addMenu = page.getByRole('menu', { name: '追加機能' });
+      await expect(addMenu).toBeVisible();
+      const menuBox = await addMenu.boundingBox();
+      expect(menuBox, JSON.stringify({ viewport, menuBox })).not.toBeNull();
+      expect(menuBox!.x, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
+      expect(menuBox!.x + menuBox!.width, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.width + 1);
+      expect(menuBox!.y, JSON.stringify({ viewport, menuBox })).toBeGreaterThanOrEqual(-1);
+      expect(menuBox!.y + menuBox!.height, JSON.stringify({ viewport, menuBox })).toBeLessThanOrEqual(viewport.height + 1);
+      const menuItems = await addMenu.getByRole('menuitem').evaluateAll(elements => elements.map(element => {
+        const box = element.getBoundingClientRect();
+        return { width: box.width, height: box.height, left: box.left, right: box.right };
+      }));
+      expect(menuItems.length, JSON.stringify({ viewport, menuItems })).toBeGreaterThan(0);
+      for (const item of menuItems) {
+        expect(item.width, JSON.stringify({ viewport, item })).toBeGreaterThanOrEqual(44);
+        expect(item.height, JSON.stringify({ viewport, item })).toBeGreaterThanOrEqual(44);
+        expect(item.left, JSON.stringify({ viewport, item })).toBeGreaterThanOrEqual(-1);
+        expect(item.right, JSON.stringify({ viewport, item })).toBeLessThanOrEqual(viewport.width + 1);
+      }
     });
   }
 
