@@ -214,7 +214,7 @@ export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = pr
     } else if ('statuses' in textSelection) {
       const probed = textSelection.statuses.find(item => item.supportsTask);
       textToImageStatus = probed?.status ?? null;
-      textToImageReason = probed?.reason ?? textSelection.reason;
+      textToImageReason = textSelection.reason;
     }
   }
   return {
