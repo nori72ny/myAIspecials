@@ -195,6 +195,25 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
+  it('rejects multiple new usage events because the provider response has no request correlation key', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-ambiguous' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
+      .mockResolvedValueOnce(json({ usage: [
+        { cursor_event_id: 'after-ambiguous-a', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+        { cursor_event_id: 'after-ambiguous-b', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+      ] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'ambiguous usage events' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+  });
+
   it.each([
     ['null cost', null, 1],
     ['empty-string cost', '', 1],
