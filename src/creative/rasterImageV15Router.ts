@@ -270,7 +270,12 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
       // Use the same readiness and zero-cost gate as /status. A static first-provider
       // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
-      const selection = await selectRasterProviderV15(providerTask, env);
+      let providerSelectionRequests = 0;
+      const countedFetch: typeof fetch = (...args) => {
+        providerSelectionRequests += 1;
+        return fetch(...args);
+      };
+      const selection = await selectRasterProviderV15(providerTask, env, countedFetch);
       if (selection.ready === false) {
         return fail(
           res,
@@ -365,7 +370,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Cost-Usd', '0');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
-      res.setHeader('X-Origin-External-Network-Requests', String(result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
+      res.setHeader('X-Origin-External-Network-Requests', String(providerSelectionRequests + result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
       res.setHeader('X-Origin-Secret-Delivery', 'server-only');
       return res.status(200).send(result.bytes);
     } catch (error) {
