@@ -112,7 +112,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
     expect(topUi).toContain('min-height: 96px !important;');
     expect(topUi).toContain('min-height: 44px !important;');
-    expect(topUi).toContain('max-height: min(120px, 22dvh) !important;');
+    expect(topUi).toContain('max-height: min(110px, 20dvh) !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(functionalUi).toContain('grid-template-columns: minmax(0, 1fr) 44px;');
     expect(functionalUi).toContain('grid-template-rows: auto 44px;');
