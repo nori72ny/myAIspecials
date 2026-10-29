@@ -102,6 +102,20 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([undefined, '', 'unknown'])('does not treat a missing or unknown usage model as free (%s)', async (usageModel) => {
+    const settings = usageModel === undefined ? {} : { default_usage_model: usageModel };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(settings))
+      .mockResolvedValueOnce(json([])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({}))
