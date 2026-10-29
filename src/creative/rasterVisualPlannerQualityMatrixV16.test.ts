@@ -69,7 +69,7 @@ const REQUEST_MATRIX = [
   {
     label: 'Instagram story campaign',
     request: 'Instagram Story用に春の新商品キャンペーン画像を9:16で作ってください',
-    purpose: 'social',
+    purpose: 'advertisement',
     templateId: 'instagram-story',
     requiredPrompt: 'vertical story framing',
   },
