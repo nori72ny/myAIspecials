@@ -264,8 +264,9 @@
   }
 
   .origin-app main .origin-composer {
-    /* Keep the composer low without the previous 25dvh margin that overflowed on 390x844. */
+    /* Preserve the tested intro spacing while moving the composer toward the lower safe area. */
     margin-top: clamp(110px, 13dvh, 122px) !important;
+    transform: translateY(7dvh) !important;
   }
 }
 
