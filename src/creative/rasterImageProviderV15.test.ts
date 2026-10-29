@@ -137,6 +137,41 @@ describe('rasterImageProviderV15', () => {
     }
   });
 
+  it('fails before generation when the usage baseline request rejects', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockRejectedValueOnce(new Error('usage endpoint unavailable'));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'baseline transport failure' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('usage endpoint unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/generations'))).toBe(false);
+  });
+
+  it('contains post-generation usage transport failures and never asks for a second generation', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-transport' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(768, 1024), 'image/png'))
+      .mockRejectedValueOnce(new Error('usage endpoint unavailable'))
+      .mockRejectedValueOnce(new Error('usage endpoint still unavailable'));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'post-generation usage transport failure' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 2, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/v1/images/generations'))).toHaveLength(1);
+  });
+
   it('fails before generation when the usage baseline contains duplicate event IDs', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json(scopedKeyInfo))
