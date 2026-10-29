@@ -4,7 +4,7 @@ import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import {
   rasterProviderRuntimeStatusV15,
-  resolveRasterProviderV15,
+  selectRasterProviderV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
@@ -268,11 +268,18 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         });
       }
       const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
-      const provider = resolveRasterProviderV15(providerTask);
-      if (!provider) {
-        return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
+      // Use the same readiness and zero-cost gate as /status. A static first-provider
+      // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
+      const selection = await selectRasterProviderV15(providerTask, env);
+      if (!selection.ready) {
+        return fail(
+          res,
+          503,
+          selection.reason,
+          '費用0円と実行可能性を検証できる画像プロバイダがありません。',
+        );
       }
-      const result = await provider.generate({
+      const result = await selection.provider.generate({
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
