@@ -404,7 +404,8 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-9b');
     expect(response.headers['x-origin-free-only']).toBe('true');
-    expect(response.headers['x-origin-cost-usd']).toBe('0');
+    expect(response.headers['x-origin-cost-usd']).toBeUndefined();
+    expect(response.headers['x-origin-cost-evidence']).toBe('preflight=free-plan-capped;post=not-recorded-per-request');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
     expect(response.headers['x-origin-external-network-requests']).toBe('11');
@@ -502,6 +503,8 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-semantic-gate']).toBe('disabled');
+    expect(response.headers['x-origin-structural-verified']).toBe('true');
+    expect(response.headers['x-origin-visual-verified']).toBeUndefined();
     expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
