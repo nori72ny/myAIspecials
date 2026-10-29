@@ -201,7 +201,7 @@
     height: 54px !important;
   }
   .origin-app main .origin-composer {
-    margin-top: clamp(140px, 18dvh, 160px) !important;
+    margin-top: auto !important;
     min-height: 96px !important;
     border-radius: 22px !important;
     padding: 8px !important;
