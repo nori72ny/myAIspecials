@@ -478,11 +478,19 @@ async function verifyLatestZeroCostUsageV15(
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    const rows = await fetchKeyUsageRowsV15(
-      apiKey,
-      fetchImpl,
-      Math.min(USAGE_VERIFY_REQUEST_TIMEOUT_MS, remaining),
-    );
+    let rows: PollinationsUsageRowV15[] | null = null;
+    try {
+      rows = await fetchKeyUsageRowsV15(
+        apiKey,
+        fetchImpl,
+        Math.min(USAGE_VERIFY_REQUEST_TIMEOUT_MS, remaining),
+      );
+    } catch {
+      // Usage reconciliation is read-only. A transient transport/JSON failure
+      // must not escape as a retryable generation error after the image request.
+      requests += 1;
+      continue;
+    }
     requests += 1;
     if (!rows) continue;
     const matching = rows.filter((row) => {
