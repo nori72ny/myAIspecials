@@ -246,6 +246,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           composer: rect('.origin-app .origin-composer'),
           input: rect('[data-testid="origin-home-request"]'),
           logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
+          heading: rect('.origin-app main [data-testid="origin-core-logo"] + h1'),
           description: rect('.origin-app main [data-testid="origin-core-logo"] + h1 + p'),
         };
       });
@@ -255,6 +256,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.heading, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
       expect(metrics.composer!.height, JSON.stringify(metrics)).toBeLessThanOrEqual(160);
@@ -270,6 +272,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
       expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(260);
+      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.logo!.bottom - 1);
+      expect(metrics.heading!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.description!.top + 1);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       const introToComposerGap = metrics.composer!.top - metrics.description!.bottom;
       // Prevent the home intro from appearing detached from the input on tall phones,
