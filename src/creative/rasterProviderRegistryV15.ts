@@ -34,7 +34,7 @@ export type RasterProviderDescriptorV15 = {
 
 export type RasterProviderRuntimeV15 = {
   descriptor: RasterProviderDescriptorV15;
-  status(env?: NodeJS.ProcessEnv): Promise<RasterProviderStatusV15>;
+  status(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterProviderStatusV15>;
   generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
 };
 
@@ -79,12 +79,12 @@ const POLLINATIONS_DESCRIPTOR: RasterProviderDescriptorV15 = {
 const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
   {
     descriptor: CLOUDFLARE_DESCRIPTOR,
-    status: (env = process.env) => getCloudflareRasterStatusV15(env),
+    status: (env = process.env, fetchImpl = fetch) => getCloudflareRasterStatusV15(env, fetchImpl),
     generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
   },
   {
     descriptor: POLLINATIONS_DESCRIPTOR,
-    status: (env = process.env) => getRasterProviderStatusV15(env),
+    status: (env = process.env, fetchImpl = fetch) => getRasterProviderStatusV15(env, fetchImpl),
     generate: (input, env = process.env) => generateRasterImageV15(input, env),
   },
 ];
@@ -124,10 +124,11 @@ function cachedProviderStatusV15(
   provider: RasterProviderRuntimeV15,
   env: NodeJS.ProcessEnv,
   cache: RasterProviderStatusCacheV15,
+  fetchImpl: typeof fetch,
 ): Promise<RasterProviderStatusV15> {
   const existing = cache.get(provider);
   if (existing) return existing;
-  const pending = provider.status(env);
+  const pending = provider.status(env, fetchImpl);
   cache.set(provider, pending);
   return pending;
 }
@@ -136,6 +137,7 @@ async function selectRasterProviderWithCacheV15(
   task: RasterTaskV15,
   env: NodeJS.ProcessEnv,
   cache: RasterProviderStatusCacheV15,
+  fetchImpl: typeof fetch,
 ): Promise<RasterProviderSelectionV15> {
   const statuses: {
     providerId: string;
@@ -160,7 +162,7 @@ async function selectRasterProviderWithCacheV15(
       continue;
     }
 
-    const status = await cachedProviderStatusV15(provider, env, cache);
+    const status = await cachedProviderStatusV15(provider, env, cache, fetchImpl);
     const safe = status.ready
       && status.zeroCostVerified
       && status.paidFallbackEnabled === false
@@ -191,14 +193,15 @@ async function selectRasterProviderWithCacheV15(
 export async function selectRasterProviderV15(
   task: RasterTaskV15,
   env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<RasterProviderSelectionV15> {
-  return selectRasterProviderWithCacheV15(task, env, new Map());
+  return selectRasterProviderWithCacheV15(task, env, new Map(), fetchImpl);
 }
 
 export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = process.env) {
   const statusCache: RasterProviderStatusCacheV15 = new Map();
   const selections = await Promise.all(
-    RASTER_TASKS_V15.map(task => selectRasterProviderWithCacheV15(task, env, statusCache)),
+    RASTER_TASKS_V15.map(task => selectRasterProviderWithCacheV15(task, env, statusCache, fetch)),
   );
   const supportedTasks = selections.filter(result => result.ready).map(result => result.task);
   const textSelection = selections.find(result => result.task === 'text-to-image');
