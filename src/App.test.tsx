@@ -764,6 +764,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
+    // A successful raster/quality check does not prove the real-world bill is $0.
+    expect(screen.getByText(/費用未検証/)).toBeTruthy();
+    expect(screen.queryByText(/\$0 verified/i)).toBeNull();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
     expect(screen.getByText(/flux-2-klein-4b/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();
