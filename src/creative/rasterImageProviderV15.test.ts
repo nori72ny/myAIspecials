@@ -180,6 +180,8 @@ describe('rasterImageProviderV15', () => {
     });
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/account/key/usage?format=json&limit=50&days=1');
+    expect(String(fetchMock.mock.calls[4]?.[0])).toContain('/account/key/usage?format=json&limit=50&days=1');
     expect(String(fetchMock.mock.calls[3]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
     const generationInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
     expect(generationInit.method).toBe('POST');
