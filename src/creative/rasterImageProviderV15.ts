@@ -444,7 +444,11 @@ async function captureUsageBaselineV15(
   if (!rows) return null;
   const ids = rows.map(usageEventId);
   if (ids.some((id) => id === null)) return null;
-  return new Set(ids as string[]);
+  const uniqueIds = new Set(ids as string[]);
+  // Duplicate cursor IDs make the baseline internally inconsistent. Do not
+  // proceed to a billable/externally executed generation with a corrupt baseline.
+  if (uniqueIds.size !== ids.length) return null;
+  return uniqueIds;
 }
 
 type UsageVerificationOptionsV15 = {
