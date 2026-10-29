@@ -216,6 +216,8 @@ export type GeneratedImageMessage = {
   parentId?: string;
 };
 
+export const isVerifiedRasterProviderId = (providerId: string | null): providerId is 'pollinations-zero-cost' | 'cloudflare-workers-ai-free' => providerId === 'pollinations-zero-cost' || providerId === 'cloudflare-workers-ai-free';
+
 export type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -1450,7 +1452,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const expectsReferenceEdit = Boolean(referenceAssetId);
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
           || !/^[a-f0-9]{64}$/i.test(sha256)
-          || providerId !== 'cloudflare-workers-ai-free'
+          || !isVerifiedRasterProviderId(providerId)
           || !model
           || !/^raster-[a-f0-9]{24}$/i.test(generationId)
           || visualBrainVersion !== 'visual-brain-v1'
