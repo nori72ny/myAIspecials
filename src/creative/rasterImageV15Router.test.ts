@@ -378,7 +378,8 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-reference-count']).toBe('1');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-free-only']).toBe('true');
-    expect(response.headers['x-origin-cost-usd']).toBe('0');
+    expect(response.headers['x-origin-cost-usd']).toBeUndefined();
+    expect(response.headers['x-origin-cost-evidence']).toBe('preflight=free-plan-capped;post=not-recorded-per-request');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(fetchMock).toHaveBeenCalledTimes(11);
 
@@ -468,7 +469,6 @@ describe('rasterImageV15Router', () => {
       code: expectedCode,
       retryable,
       freeOnly: true,
-      costUsd: 0,
       paidFallbackUsed: false,
       secretDelivery: 'server-only',
     });
@@ -516,12 +516,12 @@ describe('rasterImageV15Router', () => {
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(422);
     expect(response.body).toMatchObject({
       ok: false,
       code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
+      retryable: false,
       freeOnly: true,
-      costUsd: 0,
       paidFallbackUsed: false,
       secretDelivery: 'server-only',
       semanticCritic: {
