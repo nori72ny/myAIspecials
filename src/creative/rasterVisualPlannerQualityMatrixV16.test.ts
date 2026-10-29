@@ -11,6 +11,13 @@ const REQUEST_MATRIX = [
     requiredPrompt: 'accurate product geometry',
   },
   {
+    label: 'product intent with social campaign layout',
+    request: 'Instagram Story用に高級化粧品ボトルの春キャンペーン画像を9:16で作ってください',
+    purpose: 'product',
+    templateId: 'instagram-story',
+    requiredPrompt: 'accurate product geometry',
+  },
+  {
     label: 'portrait photography',
     request: '自然な光のプロフェッショナルな人物ポートレートを作ってください',
     purpose: 'portrait',
