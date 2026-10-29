@@ -260,12 +260,12 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
     /* Tall phones need the intro lower, without increasing the gap above the composer. */
-    padding-top: clamp(128px, 16dvh, 144px) !important;
+    padding-top: clamp(148px, 18dvh, 164px) !important;
   }
 
   .origin-app main .origin-composer {
     /* Tall phones need the composer near the bottom without moving the logo and intro. */
-    margin-top: clamp(208px, 27dvh, 232px) !important;
+    margin-top: clamp(200px, 25dvh, 216px) !important;
   }
 }
 
