@@ -271,7 +271,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       // Use the same readiness and zero-cost gate as /status. A static first-provider
       // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
       const selection = await selectRasterProviderV15(providerTask, env);
-      if (!selection.ready) {
+      if (selection.ready === false) {
         return fail(
           res,
           503,
