@@ -52,7 +52,6 @@ function fail(
     message: message ?? code,
     retryable,
     freeOnly: true,
-    costUsd: 0,
     paidFallbackUsed: false,
     secretDelivery: 'server-only',
   });
@@ -297,13 +296,13 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       const expectedHeight = input.height ?? plan.height;
       const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
       if (!critic.passed) {
-        return res.status(502).json({
+        return res.status(422).json({
           ok: false,
           code: 'RASTER_CRITIC_REJECTED',
           message: '生成画像の構造検証に失敗したため、画像を返しませんでした。',
           critic,
+          retryable: false,
           freeOnly: true,
-          costUsd: 0,
           paidFallbackUsed: false,
           secretDelivery: 'server-only',
         });
@@ -319,13 +318,13 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           }, env)
         : null;
       if (semanticCritic && !semanticCritic.passed) {
-        return res.status(502).json({
+        return res.status(422).json({
           ok: false,
           code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
           message: '生成画像が意味・構図・主体整合性の品質基準を満たさないため、画像を返しませんでした。',
           semanticCritic,
+          retryable: false,
           freeOnly: true,
-          costUsd: 0,
           paidFallbackUsed: false,
           secretDelivery: 'server-only',
         });
@@ -367,7 +366,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Width', String(result.width));
       res.setHeader('X-Origin-Visual-Height', String(result.height));
       res.setHeader('X-Origin-Free-Only', 'true');
-      res.setHeader('X-Origin-Cost-Usd', '0');
+      res.setHeader('X-Origin-Cost-Evidence', result.providerId === 'pollinations-zero-cost'
+        ? 'preflight=zero-cost-policy;post=recorded-zero'
+        : 'preflight=free-plan-capped;post=not-recorded-per-request');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
       res.setHeader('X-Origin-External-Network-Requests', String(providerSelectionRequests + result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
