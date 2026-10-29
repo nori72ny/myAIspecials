@@ -94,7 +94,8 @@ async function verifyWorkersFreePlan(
   if (usageModel === 'standard' || usageModel === 'unbound') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
   }
-  if (usageModel && usageModel !== 'bundled') {
+  // Unknown or missing plan metadata must never be treated as evidence of a free plan.
+  if (usageModel !== 'bundled') {
     return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 
@@ -109,6 +110,7 @@ async function verifyWorkersFreePlan(
   const rows = Array.isArray(subscriptionsBody?.result) ? subscriptionsBody!.result as Subscription[] : null;
   if (!rows) return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
 
+  let verifiedFreeWorkersSubscription = false;
   for (const row of rows) {
     if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;
     const text = workerPlanText(row);
@@ -120,6 +122,11 @@ async function verifyWorkersFreePlan(
     if (text.includes('paid') || !text.includes('free')) {
       return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
     }
+    if (numericPrice === null || numericPrice === 0) verifiedFreeWorkersSubscription = true;
+  }
+  // An empty list (or no identifiable free Workers subscription) is not proof of zero-cost eligibility.
+  if (!verifiedFreeWorkersSubscription) {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 
   const schema = await timedFetch(
