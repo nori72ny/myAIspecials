@@ -445,6 +445,29 @@ describe('rasterImageV15Router', () => {
     expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
   });
 
+  it('does not launch a second provider after a Cloudflare generation failure', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(cfFailure(3036));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({ ...CF_ENV, POLLINATIONS_API_KEY: 'test-pollinations-key' }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(429);
+    expect(response.body.code).toBe('CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED');
+    expect(response.body.retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/account/key'))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('gen.pollinations.ai'))).toBe(false);
+  });
+
   it.each([
     [3036, 429, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED', false, '無料枠を使い切った'],
     [3040, 503, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE', true, '一時的に混雑'],
