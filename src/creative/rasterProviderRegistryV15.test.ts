@@ -112,4 +112,24 @@ describe('rasterProviderRegistryV15', () => {
       freeOnly: true,
     });
   });
+  it('continues probing other free providers when a provider status network request fails', async () => {
+    const fetchFails: typeof fetch = async () => {
+      throw new Error('simulated network outage');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
+      POLLINATIONS_API_KEY: 'test-pollinations-key',
+    }, fetchFails);
+
+    expect(selection.ready).toBe(false);
+    if (!selection.ready) {
+      expect(selection.statuses.map(item => item.providerId)).toEqual([
+        'cloudflare-workers-ai-free',
+        'pollinations-zero-cost',
+      ]);
+      expect(selection.statuses.every(item => item.ready === false)).toBe(true);
+    }
+  });
+
 });
