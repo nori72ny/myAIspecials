@@ -403,7 +403,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       }
       if (code === 'RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID'
         || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
-        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。');
+        // The provider may already have generated an image. Never invite a client retry that could duplicate generation or consume another free allocation.
+        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。重複生成を避けるため自動再試行を停止しました。', false);
       }
       if (code === 'ZERO_COST_USAGE_NOT_VERIFIED') {
         // Generation may already have happened. A client retry could create a duplicate
