@@ -256,6 +256,13 @@
   }
 }
 
+@media (max-width: 639px) and (min-height: 700px) {
+  .origin-app main .origin-composer {
+    /* Tall phones need the composer near the bottom without moving the logo and intro. */
+    margin-top: clamp(190px, 25dvh, 225px) !important;
+  }
+}
+
 @media (max-width: 639px) and (max-height: 620px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
