@@ -429,7 +429,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-width']).toBe('768');
     expect(response.headers['x-origin-visual-height']).toBe('1024');
     expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(11);
 
     const providerRequest = fetchMock.mock.calls[6]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
@@ -502,7 +502,7 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-semantic-gate']).toBe('disabled');
     expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
