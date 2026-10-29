@@ -62,6 +62,11 @@ function referenceDataUrl(width = 320, height = 240): string {
 function successfulFetchMock() {
   const png = pngBytes(768, 1024);
   return vi.fn()
+    // Provider selection readiness probe.
+    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+    // Generation repeats the free-plan proof immediately before inference.
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
     .mockResolvedValueOnce(cfEnvelope([]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
@@ -98,10 +103,16 @@ function semanticFetchMock(passed = true) {
         summary: 'Not faithful enough for delivery.',
       };
   return vi.fn()
+    // Provider selection readiness probe.
+    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+    // Generation proof and image inference.
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
     .mockResolvedValueOnce(cfEnvelope([]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
     .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')))
+    // Semantic critic's independent readiness proof and inference.
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
     .mockResolvedValueOnce(cfEnvelope([]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
@@ -369,9 +380,9 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(fetchMock).toHaveBeenCalledTimes(11);
 
-    const form = fetchMock.mock.calls[3]?.[1]?.body as FormData;
+    const form = fetchMock.mock.calls[6]?.[1]?.body as FormData;
     expect(form.get('input_image_0')).toBeInstanceOf(Blob);
     expect(String(form.get('prompt'))).toContain('Preserve subjects');
   });
@@ -395,7 +406,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-cost-usd']).toBe('0');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
-    expect(response.headers['x-origin-external-network-requests']).toBe('8');
+    expect(response.headers['x-origin-external-network-requests']).toBe('11');
     expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
     expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
     expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
@@ -420,10 +431,10 @@ describe('rasterImageV15Router', () => {
     expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(8);
 
-    const providerRequest = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const providerRequest = fetchMock.mock.calls[6]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe(`Bearer test-${'x'.repeat(40)}`);
-    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
+    expect(String(fetchMock.mock.calls[6]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
     expect(providerRequest.body).toBeInstanceOf(FormData);
     const providerBody = providerRequest.body as FormData;
     expect(String(providerBody.get('prompt'))).toContain('Create a polished production-quality image');
@@ -438,6 +449,9 @@ describe('rasterImageV15Router', () => {
     [5035, 503, 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN', false, '有料プランが必要'],
   ] as const)('returns truthful safe API semantics for Cloudflare code %s', async (internalCode, expectedStatus, expectedCode, retryable, messagePart) => {
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
@@ -459,7 +473,7 @@ describe('rasterImageV15Router', () => {
       secretDelivery: 'server-only',
     });
     expect(response.body.message).toContain(messagePart);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it('runs the semantic delivery gate by default and returns only a passing image', async () => {
@@ -475,7 +489,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-semantic-verified']).toBe('true');
     expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
     expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(88);
-    expect(response.headers['x-origin-external-network-requests']).toBe('8');
+    expect(response.headers['x-origin-external-network-requests']).toBe('11');
     expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
