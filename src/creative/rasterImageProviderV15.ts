@@ -416,7 +416,7 @@ async function fetchKeyUsageRowsV15(
   timeoutMs: number,
 ): Promise<PollinationsUsageRowV15[] | null> {
   const response = await timedFetch(
-    `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=10&days=1`,
+    `${POLLINATIONS_ORIGIN}/account/key/usage?format=json&limit=50&days=1`,
     { method: 'GET', headers: authHeaders(apiKey), cache: 'no-store' },
     fetchImpl,
     timeoutMs,
@@ -489,15 +489,18 @@ async function verifyLatestZeroCostUsageV15(
         && row.type === 'generate.image';
     });
     if (matching.length === 0) continue;
+    // The usage API does not expose a generation-request correlation key here.
+    // More than one new matching event is ambiguous; never aggregate it into a pass.
+    if (matching.length !== 1) return { verified: false, requests };
+    const [event] = matching;
     return {
-      verified: matching.every((row) =>
-        typeof row.cost_usd === 'number'
-        && Number.isFinite(row.cost_usd)
-        && row.cost_usd === 0
-        && row.meter_source === 'tier'
-        && typeof row.output_image_tokens === 'number'
-        && Number.isFinite(row.output_image_tokens)
-        && row.output_image_tokens >= 1),
+      verified: typeof event.cost_usd === 'number'
+        && Number.isFinite(event.cost_usd)
+        && event.cost_usd === 0
+        && event.meter_source === 'tier'
+        && typeof event.output_image_tokens === 'number'
+        && Number.isFinite(event.output_image_tokens)
+        && event.output_image_tokens >= 1,
       requests,
     };
   }
