@@ -9,6 +9,12 @@ const CF_ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
 };
 
+const FREE_WORKERS_SUBSCRIPTION = {
+  state: 'Provisioned',
+  price: 0,
+  rate_plan: { public_name: 'Workers Free' },
+};
+
 function cfEnvelope(result: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: status >= 200 && status < 300, result, errors: [], messages: [] }), {
     status,
@@ -63,7 +69,7 @@ function successfulFetchMock() {
   const png = pngBytes(768, 1024);
   return vi.fn()
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope([FREE_WORKERS_SUBSCRIPTION]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
     .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
 }
@@ -99,11 +105,11 @@ function semanticFetchMock(passed = true) {
       };
   return vi.fn()
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope([FREE_WORKERS_SUBSCRIPTION]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
     .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')))
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
+    .mockResolvedValueOnce(cfEnvelope([FREE_WORKERS_SUBSCRIPTION]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
     .mockResolvedValueOnce(cfEnvelope({ answer: JSON.stringify(answer) }));
 }
@@ -183,6 +189,30 @@ describe('rasterImageV15Router', () => {
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
     expect(legacy.body.code).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+  });
+
+  it('fails closed when the Workers usage model is missing or unknown', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(cfEnvelope({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(503);
+    expect(response.body.reason).toBe('CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when no Workers Free subscription evidence is returned', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(503);
+    expect(response.body.reason).toBe('CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {
@@ -439,7 +469,7 @@ describe('rasterImageV15Router', () => {
   ] as const)('returns truthful safe API semantics for Cloudflare code %s', async (internalCode, expectedStatus, expectedCode, retryable, messagePart) => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope([FREE_WORKERS_SUBSCRIPTION]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(cfFailure(internalCode === 5035 ? 403 : 429, internalCode));
     vi.stubGlobal('fetch', fetchMock);
