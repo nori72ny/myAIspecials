@@ -142,7 +142,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       registryVersion: runtime.registryVersion,
       providers: runtime.providers,
       freeOnly: true,
-      costUsd: 0,
       paidFallbackEnabled: false,
       supportedTasks: runtime.supportedTasks,
       rasterCritic: {
@@ -164,7 +163,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         provider: 'cloudflare-workers-ai-free',
         model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
         freeOnly: true,
-        costUsd: 0,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
@@ -333,7 +331,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename(result.mimeType)}"`);
-      res.setHeader('X-Origin-Visual-Verified', 'true');
+      res.setHeader('X-Origin-Structural-Verified', 'true');
+      if (semanticCritic?.passed) res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
       res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
       res.setHeader('X-Origin-Visual-Brain', 'visual-brain-v1');
