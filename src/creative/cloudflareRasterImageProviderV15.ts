@@ -122,6 +122,11 @@ async function verifyWorkersFreePlan(
     }
   }
 
+  // A missing/empty usage model is unknown, not evidence of the bundled free allocation.
+  if (usageModel !== 'bundled') {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
+
   const schema = await timedFetch(
     `${API_ORIGIN}/client/v4/accounts/${accountId}/ai/models/schema?model=${encodeURIComponent(model)}`,
     { method: 'GET', headers: headers(apiToken) },
