@@ -473,6 +473,7 @@ describe('rasterImageV15Router', () => {
       secretDelivery: 'server-only',
     });
     expect(response.body.message).toContain(messagePart);
+    expect(response.body.costUsd).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
@@ -517,6 +518,7 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(422);
+    expect(response.body.costUsd).toBeUndefined();
     expect(response.body).toMatchObject({
       ok: false,
       code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
