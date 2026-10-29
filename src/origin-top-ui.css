@@ -201,6 +201,7 @@
     height: 54px !important;
   }
   .origin-app main .origin-composer {
+    margin-top: clamp(140px, 18dvh, 160px) !important;
     min-height: 96px !important;
     border-radius: 22px !important;
     padding: 8px !important;
@@ -264,6 +265,10 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
     margin-top: clamp(18px, 3dvh, 24px) !important;
+  }
+
+  .origin-app main .origin-composer {
+    margin-top: 0 !important;
   }
 
   /* Short mobile viewports need room for the expanded add menu above the composer. */
