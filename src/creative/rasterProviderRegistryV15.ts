@@ -162,7 +162,33 @@ async function selectRasterProviderWithCacheV15(
       continue;
     }
 
-    const status = await cachedProviderStatusV15(provider, env, cache, fetchImpl);
+    let status: RasterProviderStatusV15;
+    try {
+      status = await cachedProviderStatusV15(provider, env, cache, fetchImpl);
+    } catch {
+      // One provider's status endpoint/network failure must not prevent probing
+      // the next eligible free provider. Unknown status is always unsafe.
+      status = {
+        configured: false,
+        ready: false,
+        providerId: provider.descriptor.id as RasterProviderStatusV15['providerId'],
+        model: null,
+        zeroCostVerified: false,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+        secretDelivery: 'server-only',
+        externalNetwork: true,
+        reason: 'PROVIDER_STATUS_UNAVAILABLE',
+      };
+      statuses.push({
+        providerId: provider.descriptor.id,
+        ready: false,
+        reason: status.reason,
+        supportsTask: true,
+        status,
+      });
+      continue;
+    }
     const safe = status.ready
       && status.zeroCostVerified
       && status.paidFallbackEnabled === false
