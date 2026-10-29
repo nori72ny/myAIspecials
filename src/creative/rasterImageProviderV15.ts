@@ -491,9 +491,13 @@ async function verifyLatestZeroCostUsageV15(
     if (matching.length === 0) continue;
     return {
       verified: matching.every((row) =>
-        Number(row.cost_usd) === 0
+        typeof row.cost_usd === 'number'
+        && Number.isFinite(row.cost_usd)
+        && row.cost_usd === 0
         && row.meter_source === 'tier'
-        && Number(row.output_image_tokens) >= 1),
+        && typeof row.output_image_tokens === 'number'
+        && Number.isFinite(row.output_image_tokens)
+        && row.output_image_tokens >= 1),
       requests,
     };
   }
