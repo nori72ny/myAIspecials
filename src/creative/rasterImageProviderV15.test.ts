@@ -195,6 +195,34 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
+  it.each([
+    ['null cost', null, 1],
+    ['empty-string cost', '', 1],
+    ['string zero cost', '0', 1],
+    ['string output token count', 0, '1'],
+  ] as const)('rejects coerced usage evidence: %s', async (_label, costUsd, outputImageTokens) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-strict' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
+      .mockResolvedValueOnce(json({ usage: [{
+        cursor_event_id: 'after-strict',
+        type: 'generate.image',
+        model: 'tomdacatto/sana',
+        meter_source: 'tier',
+        cost_usd: costUsd,
+        output_image_tokens: outputImageTokens,
+      }] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'strict usage evidence' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+  });
+
   it('rejects ambiguous nonnumeric pricing instead of treating it as free', async () => {
     const ambiguous = { ...freeModel, pricing: { currency: 'pollen', completionImageTokens: '0.002' } };
     const fetchMock = vi.fn(async () => json([ambiguous])) as unknown as typeof fetch;
