@@ -78,3 +78,14 @@ For each attempt, preserve:
 - **TEST-COVERED:** the prompt planner has a cross-category unit-test matrix in source; the latest PR head has not yet been shown to have passing CI.
 - **UNVERIFIED:** live zero-cost generation, semantic critic effectiveness on real outputs, comparative scores against ChatGPT Image 2, and parity/superiority.
 - **Release hold:** do not merge/deploy on the strength of this protocol alone. First get exact-head CI green and independently verify the live free provider and its zero-cost quota.
+
+
+## 7. Usage-event correlation and retry safety
+
+- A post-generation usage row is not request-specific proof unless the provider exposes a stable correlation identifier that can be tied to the exact generation request.
+- ORIGIN currently snapshots event IDs before generation and compares newly observed events afterward. This is a best-effort check, not a distributed lock or cryptographic request-to-event binding.
+- If more than one new matching image-generation event is observed, zero-cost verification fails closed. A single matching event is still not proof against a concurrent request from another serverless instance; this limitation must remain visible in release evidence.
+- A post-generation usage-verification failure is terminal for that request and marked non-retryable to avoid an automatic duplicate generation. Operators must not manually retry until the first attempt's provider-side outcome and usage are reconciled.
+- Do not add automatic provider failover for timeouts, ambiguous network failures, critic failures, or post-generation usage-verification failures. Only a provider response that explicitly proves no inference was accepted may be considered for a separately verified free-provider fallback.
+- Process-local serialization, if later introduced, must not be described as global protection across serverless instances.
+
