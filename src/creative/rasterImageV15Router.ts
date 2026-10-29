@@ -405,6 +405,11 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
         return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。');
       }
+      if (code === 'ZERO_COST_USAGE_NOT_VERIFIED') {
+        // Generation may already have happened. A client retry could create a duplicate
+        // and consume another free allocation, so this verification failure is terminal.
+        return fail(res, 503, code, '生成後の費用0円証拠を一意に確認できませんでした。重複生成を避けるため自動再試行を停止しました。', false);
+      }
       if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
         || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
         || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST'
