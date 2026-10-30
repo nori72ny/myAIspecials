@@ -65,7 +65,6 @@ export function createOriginApp(
     status: "ok",
     service: "acos-2",
     releaseSha: resolveOriginReleaseSha(env),
-    costUsd: 0,
     freeOnly: true,
     paidFallbackEnabled: false,
     secretDelivery: "server-only",
