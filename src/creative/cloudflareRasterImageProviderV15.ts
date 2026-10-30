@@ -229,6 +229,68 @@ function decodeCloudflareResult(body: unknown): Buffer {
   return bytes;
 }
 
+export async function verifyCloudflareRasterFreeModelV15(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RasterProviderStatusV15> {
+  const auth = credentials(env);
+  if (!/^@cf\/[a-z0-9-]+\/[a-z0-9.-]+$/i.test(model) || model.length > 160) {
+    return {
+      configured: Boolean(auth),
+      ready: false,
+      providerId: 'cloudflare-workers-ai-free',
+      model: null,
+      zeroCostVerified: false,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+    };
+  }
+  if (!auth) return {
+    configured: false,
+    ready: false,
+    providerId: 'cloudflare-workers-ai-free',
+    model: null,
+    zeroCostVerified: false,
+    paidFallbackEnabled: false,
+    paymentMethodRequired: false,
+    secretDelivery: 'server-only',
+    externalNetwork: true,
+    reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+  };
+  try {
+    const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, model, fetchImpl);
+    return {
+      configured: true,
+      ready: proof.ok,
+      providerId: 'cloudflare-workers-ai-free',
+      model: proof.ok ? model : null,
+      zeroCostVerified: proof.ok,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: proof.reason,
+    };
+  } catch {
+    return {
+      configured: true,
+      ready: false,
+      providerId: 'cloudflare-workers-ai-free',
+      model: null,
+      zeroCostVerified: false,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    };
+  }
+}
+
 export async function getCloudflareRasterStatusV15(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
