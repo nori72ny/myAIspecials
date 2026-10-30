@@ -268,12 +268,15 @@ export async function verifyCloudflareRasterFreeModelV15(
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
       model: proof.ok ? model : null,
-      zeroCostVerified: false,
+      // Workers Free has a hard daily allocation: requests beyond it fail
+      // rather than switching to paid billing. verifyWorkersFreePlan also
+      // rejects detected Workers Paid subscriptions and paid-only models.
+      zeroCostVerified: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
       externalNetwork: true,
-      reason: proof.ok ? 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED' : proof.reason,
+      reason: proof.ok ? null : proof.reason,
     };
   } catch {
     return {
@@ -329,12 +332,15 @@ export async function getCloudflareRasterStatusV15(
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
       model: proof.ok ? model : null,
-      zeroCostVerified: false,
+      // Workers Free has a hard daily allocation: requests beyond it fail
+      // rather than switching to paid billing. verifyWorkersFreePlan also
+      // rejects detected Workers Paid subscriptions and paid-only models.
+      zeroCostVerified: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
       externalNetwork: true,
-      reason: proof.ok ? 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED' : proof.reason,
+      reason: proof.ok ? null : proof.reason,
     };
   } catch {
     return {
