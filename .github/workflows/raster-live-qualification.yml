@@ -78,8 +78,13 @@ jobs:
           const evidence = JSON.parse(fs.readFileSync(path, 'utf8'));
           const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
           if (evidence.state !== 'passed') throw new Error('RASTER_LIVE_QUALIFICATION_NOT_PASSED');
-          if (evidence.provider?.id !== 'cloudflare-workers-ai-free' || evidence.provider?.zeroCostVerified !== true) {
+          if (evidence.provider?.id !== 'cloudflare-workers-ai-free' || evidence.provider?.freeAllocationEligible !== true) {
             throw new Error('CLOUDFLARE_FREE_PROVIDER_NOT_VERIFIED');
+          }
+          if (evidence.invariants?.costEvidence !== 'post-generation-usage-zero-confirmed'
+            || evidence.generation?.costEvidence !== 'post-generation-usage-zero-confirmed'
+            || evidence.edit?.costEvidence !== 'post-generation-usage-zero-confirmed') {
+            throw new Error('REQUEST_ATTRIBUTED_ZERO_COST_EVIDENCE_MISSING');
           }
           if (evidence.invariants?.freeOnly !== true || evidence.invariants?.paidFallbackEnabled !== false) {
             throw new Error('FREE_ONLY_INVARIANTS_FAILED');
@@ -103,6 +108,7 @@ jobs:
             editSha256: evidence.edit.sha256,
             evidenceSha256: evidence.evidenceSha256,
             freeOnly: evidence.invariants.freeOnly,
+            costEvidence: evidence.invariants.costEvidence,
             paidFallbackEnabled: evidence.invariants.paidFallbackEnabled,
             rawImageBytesIncludedInEvidence: evidence.invariants.rawImageBytesIncludedInEvidence,
             credentialsIncludedInEvidence: evidence.invariants.credentialsIncludedInEvidence,
