@@ -145,7 +145,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
-      within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
+      screen.getByTestId('origin-add-menu-toggle'),
       screen.getByTestId('start-request-button'),
     ];
 
@@ -160,6 +160,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
     }
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
     const header = document.querySelector('.origin-header') as HTMLElement;
     expect(within(header).getAllByRole('button')).toHaveLength(2);
