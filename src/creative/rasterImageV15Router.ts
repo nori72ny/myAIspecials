@@ -222,7 +222,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         plan,
         candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
         freeOnly: true,
-        costUsd: 0,
         paidFallbackUsed: false,
         providerExecutions: 0,
       });
@@ -261,7 +260,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           },
           candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
           freeOnly: true,
-          costUsd: 0,
           paidFallbackUsed: false,
           providerExecutions: 0,
           secretDelivery: 'server-only',
@@ -337,25 +335,40 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       }
 
       const semanticGateEnabled = semanticDeliveryGateEnabled(env);
-      const semanticCritic = semanticGateEnabled
-        ? await critiqueCloudflareRasterSemanticV15({
-            originalRequest: input.prompt,
-            exactText: plan.exactText,
-            bytes: result.bytes,
-            mimeType: result.mimeType,
-          }, env)
-        : null;
-      if (semanticCritic && !semanticCritic.passed) {
-        return res.status(422).json({
-          ok: false,
-          code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
-          message: '生成画像が意味・構図・主体整合性の品質基準を満たさないため、画像を返しませんでした。',
-          semanticCritic,
-          retryable: false,
-          freeOnly: true,
-          paidFallbackUsed: false,
-          secretDelivery: 'server-only',
-        });
+      let semanticCritic: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>> | null = null;
+      let semanticGateState: 'passed' | 'rejected' | 'skipped' | 'disabled' = 'disabled';
+      if (semanticGateEnabled) {
+        if (result.providerId !== 'cloudflare-workers-ai-free') {
+          // Do not spend the exhausted Cloudflare allocation on a critic after a
+          // successful fallback from another provider. The generated image remains deliverable.
+          semanticGateState = 'skipped';
+        } else {
+          try {
+            semanticCritic = await critiqueCloudflareRasterSemanticV15({
+              originalRequest: input.prompt,
+              exactText: plan.exactText,
+              bytes: result.bytes,
+              mimeType: result.mimeType,
+            }, env);
+            if (!semanticCritic.safetyPassed) {
+              return res.status(422).json({
+                ok: false,
+                code: 'RASTER_OUTPUT_SAFETY_REJECTED',
+                message: '生成画像が安全性基準を満たさないため、画像を返しませんでした。',
+                semanticCritic,
+                retryable: false,
+                freeOnly: true,
+                paidFallbackUsed: false,
+                secretDelivery: 'server-only',
+              });
+            }
+            semanticGateState = semanticCritic.passed ? 'passed' : 'rejected';
+          } catch {
+            // A post-generation critic outage must not discard an already-created image.
+            // The response explicitly marks the semantic stage as skipped.
+            semanticGateState = 'skipped';
+          }
+        }
       }
       const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
@@ -374,7 +387,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Typography-Zone', plan.typographyZone);
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
-      res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateEnabled ? 'enabled' : 'disabled');
+      res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateState);
       if (semanticCritic) {
         res.setHeader('X-Origin-Visual-Semantic-Verified', 'true');
         res.setHeader('X-Origin-Visual-Semantic-Critic', semanticCritic.version);
