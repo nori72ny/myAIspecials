@@ -250,10 +250,10 @@ describe('rasterImageV15Router', () => {
       ok: false,
       code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
       freeOnly: true,
-      costUsd: 0,
       providerExecutions: 0,
       secretDelivery: 'server-only',
     });
+    expect(response.body.costUsd).toBeUndefined();
     expect(response.body.questions).toEqual([expect.stringContaining('何を主役')]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -508,7 +508,6 @@ describe('rasterImageV15Router', () => {
     const response = await request(app({
       ...CF_ENV,
       POLLINATIONS_API_KEY: 'test-pollinations-key',
-      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'false',
     }))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
@@ -516,6 +515,8 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-provider']).toBe('pollinations-zero-cost');
     expect(response.headers['x-origin-cost-evidence']).toBe('post-generation-usage-zero-confirmed');
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('skipped');
+    expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network-requests']).toBe('14');
@@ -621,7 +622,7 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(200);
-    expect(response.headers['x-origin-visual-semantic-gate']).toBe('enabled');
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('passed');
     expect(response.headers['x-origin-visual-semantic-verified']).toBe('true');
     expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
     expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(88);
@@ -643,7 +644,7 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
-  it('marks semantic-critic transport failure non-retryable after image generation', async () => {
+  it('returns the generated image and marks semantic critic skipped after critic transport failure', async () => {
     const fetchMock = semanticFetchMock(true, cfFailure(500, 1001));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -654,19 +655,14 @@ describe('rasterImageV15Router', () => {
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(502);
-    expect(response.body).toMatchObject({
-      ok: false,
-      retryable: false,
-      freeOnly: true,
-      paidFallbackUsed: false,
-    });
-    expect(response.body.code).toContain('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_');
-    expect(response.body.message).toContain('重複生成を避ける');
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('skipped');
+    expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
+    expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(11);
   });
 
-  it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
+  it('returns a structurally valid image with an explicit semantic quality rejection state', async () => {
     const fetchMock = semanticFetchMock(false);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -677,20 +673,10 @@ describe('rasterImageV15Router', () => {
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(422);
-    expect(response.body.costUsd).toBeUndefined();
-    expect(response.body).toMatchObject({
-      ok: false,
-      code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
-      retryable: false,
-      freeOnly: true,
-      paidFallbackUsed: false,
-      secretDelivery: 'server-only',
-      semanticCritic: {
-        passed: false,
-        version: 'raster-semantic-critic-v1',
-      },
-    });
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-semantic-gate']).toBe('rejected');
+    expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
+    expect(Buffer.isBuffer(response.body)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(11);
   });
 
