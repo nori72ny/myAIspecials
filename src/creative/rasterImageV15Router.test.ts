@@ -442,7 +442,7 @@ describe('rasterImageV15Router', () => {
     const providerRequest = fetchMock.mock.calls[6]?.[1] as RequestInit;
     const authorization = new Headers(providerRequest.headers).get('authorization');
     expect(authorization).toBe(`Bearer test-${'x'.repeat(40)}`);
-    expect(String(fetchMock.mock.calls[6]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
+    expect(String(fetchMock.mock.calls[6]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-4b');
     expect(providerRequest.body).toBeInstanceOf(FormData);
     const providerBody = providerRequest.body as FormData;
     expect(String(providerBody.get('prompt'))).toContain('Create a polished production-quality image');
