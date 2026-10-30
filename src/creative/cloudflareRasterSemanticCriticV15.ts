@@ -40,7 +40,7 @@ export type RasterSemanticCriticResultV15 = {
   issues: readonly string[];
   summary: string;
   freeOnly: true;
-  costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified';
+  costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified' | 'post-generation-usage-zero-confirmed';
   paidFallbackEnabled: false;
   secretDelivery: 'server-only';
   externalNetworkRequests: number;
