@@ -90,60 +90,41 @@ describe('rasterLiveQualificationV15', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('qualifies real generation and reference editing only after repeated Free checks and both semantic gates pass', async () => {
-    const generated = png(384, 384, 1);
-    const edited = png(384, 384, 2);
+  it('blocks before inference when request-level zero-cost evidence is unavailable', async () => {
     const fetchMock = vi.fn();
+    readyProof(fetchMock); // account-level Free-allocation preflight only
 
-    readyProof(fetchMock); // initial status
-
-    readyProof(fetchMock); // generation phase provider proof
-    fetchMock.mockResolvedValueOnce(envelope(generated.toString('base64')));
-    readyProof(fetchMock); // generation semantic proof
-    fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Generation is coherent and commercially usable.') }));
-
-    readyProof(fetchMock); // edit phase provider proof
-    fetchMock.mockResolvedValueOnce(envelope(edited.toString('base64')));
-    readyProof(fetchMock); // edit semantic proof
-    fetchMock.mockResolvedValueOnce(envelope({ answer: semanticAnswer('Edit preserves the product while changing the requested backdrop.') }));
-
-    let tick = 1000;
     const result = await qualifyRasterLiveV15({
       env: ENV,
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => tick += 50,
       generatedAt: '2026-09-30T00:00:00.000Z',
     });
 
-    expect(result.state).toBe('passed');
-    expect(result.reason).toBeNull();
-    expect(result.provider).toMatchObject({
-      id: 'cloudflare-workers-ai-free',
-      ready: true,
-      zeroCostVerified: true,
-      paymentMethodRequired: false,
-      paidFallbackEnabled: false,
-      secretDelivery: 'server-only',
+    expect(result).toMatchObject({
+      state: 'blocked',
+      reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
+      provider: {
+        id: 'cloudflare-workers-ai-free',
+        ready: true,
+        zeroCostVerified: true,
+        paymentMethodRequired: false,
+        paidFallbackEnabled: false,
+        secretDelivery: 'server-only',
+      },
+      generation: null,
+      edit: null,
+      invariants: {
+        costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
+        freeOnly: true,
+        paidFallbackEnabled: false,
+        credentialsIncludedInEvidence: false,
+        rawImageBytesIncludedInEvidence: false,
+      },
     });
-    expect(result.generation).toMatchObject({
-      width: 384,
-      height: 384,
-      providerId: 'cloudflare-workers-ai-free',
-      structural: { passed: true, score: 100 },
-      semantic: { passed: true, costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified', freeOnly: true },
-    });
-    expect(result.edit).toMatchObject({
-      width: 384,
-      height: 384,
-      providerId: 'cloudflare-workers-ai-free',
-      structural: { passed: true, score: 100 },
-      semantic: { passed: true, costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified', freeOnly: true },
-    });
-    expect(result.edit?.sha256).not.toBe(result.generation?.sha256);
-    expect(result.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
+    // Only the three read-only account/plan/model preflight calls are allowed.
+    // No image inference or semantic-critic quota is consumed.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_API_TOKEN);
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_ACCOUNT_ID);
-    expect(JSON.stringify(result)).not.toContain(generated.toString('base64'));
-    expect(fetchMock).toHaveBeenCalledTimes(19);
   });
 });
