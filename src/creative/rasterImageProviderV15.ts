@@ -55,7 +55,7 @@ export type RasterImageResultV15 = {
   providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   width: number;
   height: number;
-  costUsd: 0;
+  costEvidence: 'post-generation-usage-zero-confirmed' | 'free-allocation-preflight-only; per-request-usage-unverified';
   freeOnly: true;
   externalNetworkRequests: number;
 };
@@ -597,7 +597,7 @@ export async function generateRasterImageV15(
     providerId: 'pollinations-zero-cost',
     width: actualSize.width,
     height: actualSize.height,
-    costUsd: 0,
+    costEvidence: 'post-generation-usage-zero-confirmed',
     freeOnly: true,
     externalNetworkRequests: 4 + usageVerificationResult.requests,
   };
