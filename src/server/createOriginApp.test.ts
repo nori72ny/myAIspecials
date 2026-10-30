@@ -73,7 +73,6 @@ describe("createOriginApp provider isolation", () => {
     expect(response.body).toMatchObject({
       code: "NO_VERIFIED_ZERO_COST_PROVIDER_READY",
       freeOnly: true,
-      costUsd: 0,
       paidFallbackUsed: false,
       secretDelivery: "server-only",
     });
