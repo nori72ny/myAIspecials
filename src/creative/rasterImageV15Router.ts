@@ -163,6 +163,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         provider: 'cloudflare-workers-ai-free',
         model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
         freeOnly: true,
+        costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
