@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import ImageGenerationPanel from './ImageGenerationPanel';
+
+afterEach(cleanup);
 
 describe('ImageGenerationPanel', () => {
   it('submits the normalized prompt with the selected ratio and resolution', () => {
