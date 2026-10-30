@@ -60,7 +60,7 @@ describe('rasterProviderRegistryV15', () => {
   it('falls through to Pollinations only when a scoped zero-budget key can be verified', async () => {
     const selection = await selectRasterProviderV15('text-to-image', {});
     expect(selection.ready).toBe(false);
-    if ('reason' in selection) {
+    if (selection.ready === false) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
         expect.objectContaining({
