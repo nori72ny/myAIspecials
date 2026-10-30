@@ -450,7 +450,7 @@ describe('rasterImageV15Router', () => {
     expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
   });
 
-  it('switches to a separately verified free provider after explicit Cloudflare quota rejection', async () => {
+  it.each([3036, 3040])('switches to a separately verified free provider after documented Cloudflare pre-inference rejection %s', async (internalCode) => {
     const freeModel = {
       name: 'tomdacatto/sana', category: 'image', title: 'Sana Sprint (Free)',
       description: 'Free image model', community: true,
@@ -471,7 +471,7 @@ describe('rasterImageV15Router', () => {
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(cfFailure(429, 3036))
+      .mockResolvedValueOnce(cfFailure(429, internalCode))
       // Pollinations status preflight.
       .mockResolvedValueOnce(json(scopedKeyInfo))
       .mockResolvedValueOnce(json([freeModel]))
