@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
+import { type RasterImageRequestV15, type RasterImageResultV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import {
   rasterProviderRuntimeStatusV15,
   selectRasterProviderV15,
@@ -274,7 +274,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         providerSelectionRequests += 1;
         return fetch(request, init);
       };
-      const selection = await selectRasterProviderV15(providerTask, env, countedFetch);
+      let selection = await selectRasterProviderV15(providerTask, env, countedFetch);
       if (selection.ready === false) {
         return fail(
           res,
@@ -292,7 +292,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
       };
-      let result;
+      let result: RasterImageResultV15;
       try {
         result = await selection.provider.generate(generationInput, env);
       } catch (generationError) {
