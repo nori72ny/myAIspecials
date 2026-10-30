@@ -90,7 +90,7 @@ describe('rasterProviderRegistryV15', () => {
   });
 
   it('selects Pollinations only as a free-allocation-eligible fallback without claiming request-level zero-cost proof', async () => {
-    const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
+    const response = (body: unknown) => new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
