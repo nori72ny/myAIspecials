@@ -218,11 +218,7 @@ function readRasterDimensionsV15(bytes: Buffer, mimeType: RasterImageResultV15['
 export async function readBoundedProviderBodyV15(response: Response, maxBytes: number): Promise<Buffer> {
   const declared = Number(response.headers.get('content-length') ?? '0');
   if (Number.isFinite(declared) && declared > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
-  if (!response.body) {
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.length > maxBytes) throw new Error('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
-    return body;
-  }
+  if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
   let total = 0;
