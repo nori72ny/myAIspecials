@@ -297,7 +297,7 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
       body: JSON.stringify(sanitizePreEgressPayload(body)),
     }, timeoutMs);
-    if (![403, 404].includes(response.status)) return response;
+    if (![403, 404, 429, 500, 502, 503, 504].includes(response.status)) return response;
   }
   throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamStatus: 404 });
 }
