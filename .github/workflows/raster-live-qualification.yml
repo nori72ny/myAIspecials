@@ -1,0 +1,120 @@
+name: Raster live provider qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact current main SHA to qualify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-raster-live-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify-cloudflare-free:
+    name: Qualify Cloudflare Workers AI Free generation and edit
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require exact current main candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$CANDIDATE_SHA" = "$GITHUB_SHA"
+
+      - name: Checkout exact candidate without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+
+      - name: Verify clean exact checkout
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Prove live Cloudflare Free generation and edit
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ORIGIN_RASTER_LIVE_QUALIFICATION: 'true'
+          ORIGIN_RASTER_LIVE_EVIDENCE_PATH: ${{ github.workspace }}/test-results/raster-live-qualification-v15.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npm run qualify:raster-live
+
+      - name: Enforce sanitized passing evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'test-results/raster-live-qualification-v15.json';
+          const evidence = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+          if (evidence.state !== 'passed') throw new Error('RASTER_LIVE_QUALIFICATION_NOT_PASSED');
+          if (evidence.provider?.id !== 'cloudflare-workers-ai-free' || evidence.provider?.zeroCostVerified !== true) {
+            throw new Error('CLOUDFLARE_FREE_PROVIDER_NOT_VERIFIED');
+          }
+          if (evidence.invariants?.freeOnly !== true || evidence.invariants?.paidFallbackEnabled !== false) {
+            throw new Error('FREE_ONLY_INVARIANTS_FAILED');
+          }
+          if (evidence.invariants?.credentialsIncludedInEvidence !== false
+            || evidence.invariants?.rawImageBytesIncludedInEvidence !== false) {
+            throw new Error('EVIDENCE_SANITIZATION_FAILED');
+          }
+          if (!sha(evidence.generation?.sha256) || !sha(evidence.edit?.sha256)) {
+            throw new Error('IMAGE_OUTPUT_DIGESTS_MISSING');
+          }
+          if (evidence.generation.sha256 === evidence.edit.sha256) {
+            throw new Error('IMAGE_EDIT_OUTPUT_UNCHANGED');
+          }
+          const summary = {
+            candidateSha: process.env.GITHUB_SHA,
+            state: evidence.state,
+            provider: evidence.provider.id,
+            model: evidence.provider.model,
+            generationSha256: evidence.generation.sha256,
+            editSha256: evidence.edit.sha256,
+            evidenceSha256: evidence.evidenceSha256,
+            freeOnly: evidence.invariants.freeOnly,
+            paidFallbackEnabled: evidence.invariants.paidFallbackEnabled,
+            rawImageBytesIncludedInEvidence: evidence.invariants.rawImageBytesIncludedInEvidence,
+            credentialsIncludedInEvidence: evidence.invariants.credentialsIncludedInEvidence,
+            note: 'This workflow qualifies Cloudflare Free only; Pollinations fallback qualification is separate.'
+          };
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## Raster live qualification\n\n```json\n' + JSON.stringify(summary, null, 2) + '\n```\n');
+          NODE
+
+      - name: Upload sanitized qualification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: raster-live-qualification-${{ github.sha }}
+          path: test-results/raster-live-qualification-v15.json
+          if-no-files-found: error
+          retention-days: 7
