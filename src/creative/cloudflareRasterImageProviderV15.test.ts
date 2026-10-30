@@ -85,7 +85,7 @@ describe('cloudflareRasterImageProviderV15', () => {
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       configured: true,
       ready: true,
-      model: '@cf/black-forest-labs/flux-2-klein-9b',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
       zeroCostVerified: false,
       freeAllocationEligible: true,
       reason: null,
@@ -237,7 +237,7 @@ describe('cloudflareRasterImageProviderV15', () => {
 
     expect(result).toMatchObject({
       providerId: 'cloudflare-workers-ai-free',
-      model: '@cf/black-forest-labs/flux-2-klein-9b',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
       mimeType: 'image/png',
       width: 768,
       height: 1024,
