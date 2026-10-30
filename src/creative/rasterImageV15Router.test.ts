@@ -514,7 +514,7 @@ describe('rasterImageV15Router', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers['x-origin-visual-provider']).toBe('pollinations-zero-cost');
-    expect(response.headers['x-origin-cost-evidence']).toBe('post-generation-usage-zero-confirmed');
+    expect(response.headers['x-origin-cost-evidence']).toBe('free-allocation-preflight-only; per-request-usage-unverified');
     expect(response.headers['x-origin-visual-semantic-gate']).toBe('skipped');
     expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
