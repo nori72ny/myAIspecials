@@ -163,7 +163,7 @@ describe('rasterImageProviderV15', () => {
       .mockRejectedValueOnce(new Error('usage endpoint still unavailable'));
 
     await expect(generateRasterImageV15(
-      { prompt: 'post-generation usage transport failure' },
+      { prompt: 'post-generation usage transport failure', width: 768, height: 1024 },
       { POLLINATIONS_API_KEY: 'sk_test' },
       fetchMock as unknown as typeof fetch,
       { attempts: 2, delayMs: 0 },
