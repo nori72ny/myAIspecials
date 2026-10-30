@@ -460,7 +460,7 @@ describe('rasterImageV15Router', () => {
     const scopedKeyInfo = {
       valid: true, type: 'secret',
       permissions: { models: ['tomdacatto/sana'] },
-      pollenBudget: null,
+      pollenBudget: 5,
       questPollenOnly: true,
     };
     const fetchMock = vi.fn()
@@ -540,7 +540,7 @@ describe('rasterImageV15Router', () => {
     const scopedKeyInfo = {
       valid: true, type: 'secret',
       permissions: { models: ['tomdacatto/sana'] },
-      pollenBudget: null,
+      pollenBudget: 5,
       questPollenOnly: true,
     };
     const fetchMock = vi.fn()
