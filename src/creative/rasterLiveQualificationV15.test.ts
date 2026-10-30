@@ -67,7 +67,7 @@ describe('rasterLiveQualificationV15', () => {
       generation: null,
       edit: null,
       invariants: {
-        costUsd: 0,
+        costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         freeOnly: true,
         paidFallbackEnabled: false,
         credentialsIncludedInEvidence: false,
@@ -130,7 +130,7 @@ describe('rasterLiveQualificationV15', () => {
       height: 384,
       providerId: 'cloudflare-workers-ai-free',
       structural: { passed: true, score: 100 },
-      semantic: { passed: true, costUsd: 0, freeOnly: true },
+      semantic: { passed: true, costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified', freeOnly: true },
     });
     expect(result.edit).toMatchObject({
       width: 384,
