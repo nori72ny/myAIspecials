@@ -390,7 +390,10 @@ export async function getRasterProviderStatusV15(
       ready: Boolean(model),
       providerId: 'pollinations-zero-cost',
       model,
-      zeroCostVerified: Boolean(model),
+      // The scoped Quest-Pollen-only key and zero-priced model make this eligible for the free lane,
+      // but the public usage API does not correlate a usage event to this exact generation request.
+      zeroCostVerified: false,
+      freeAllocationEligible: Boolean(model),
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -462,13 +465,13 @@ type UsageVerificationOptionsV15 = {
   totalMs?: number;
 };
 
-async function verifyLatestZeroCostUsageV15(
+async function observeLatestZeroCostUsageV15(
   apiKey: string,
   model: string,
   baselineEventIds: ReadonlySet<string>,
   fetchImpl: typeof fetch,
   options: UsageVerificationOptionsV15 = {},
-): Promise<{ verified: boolean; requests: number }> {
+): Promise<{ observed: boolean; requests: number }> {
   const attempts = Math.max(1, Math.min(10, options.attempts ?? USAGE_VERIFY_ATTEMPTS));
   const delayMs = Math.max(0, Math.min(10_000, options.delayMs ?? USAGE_VERIFY_DELAY_MS));
   const totalMs = Math.max(1_000, Math.min(55_000, options.totalMs ?? USAGE_VERIFY_TOTAL_MS));
@@ -508,10 +511,10 @@ async function verifyLatestZeroCostUsageV15(
     if (matching.length === 0) continue;
     // The usage API does not expose a generation-request correlation key here.
     // More than one new matching event is ambiguous; never aggregate it into a pass.
-    if (matching.length !== 1) return { verified: false, requests };
+    if (matching.length !== 1) return { observed: false, requests };
     const [event] = matching;
     return {
-      verified: typeof event.cost_usd === 'number'
+      observed: typeof event.cost_usd === 'number'
         && Number.isFinite(event.cost_usd)
         && event.cost_usd === 0
         && event.meter_source === 'tier'
@@ -522,7 +525,7 @@ async function verifyLatestZeroCostUsageV15(
     };
   }
 
-  return { verified: false, requests };
+  return { observed: false, requests };
 }
 
 export async function generateRasterImageV15(
@@ -585,14 +588,14 @@ export async function generateRasterImageV15(
   if (!actualSize || actualSize.width !== size.width || actualSize.height !== size.height) {
     throw new Error('RASTER_IMAGE_DIMENSION_MISMATCH');
   }
-  const usageVerificationResult = await verifyLatestZeroCostUsageV15(
+  const usageVerificationResult = await observeLatestZeroCostUsageV15(
     apiKey,
     verifiedModel,
     baselineEventIds,
     fetchImpl,
     usageVerification,
   );
-  if (!usageVerificationResult.verified) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
+  if (!usageVerificationResult.observed) throw new Error('ZERO_COST_USAGE_NOT_VERIFIED');
 
   return {
     bytes,
@@ -602,7 +605,9 @@ export async function generateRasterImageV15(
     providerId: 'pollinations-zero-cost',
     width: actualSize.width,
     height: actualSize.height,
-    costEvidence: 'post-generation-usage-zero-confirmed',
+    // A new zero-cost usage row was observed, but the provider API exposes no request join key.
+    // Do not claim that this row proves the cost of this exact generation.
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     freeOnly: true,
     externalNetworkRequests: 4 + usageVerificationResult.requests,
   };
