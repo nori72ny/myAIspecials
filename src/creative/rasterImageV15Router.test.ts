@@ -452,7 +452,7 @@ describe('rasterImageV15Router', () => {
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(cfFailure(3036));
+      .mockResolvedValueOnce(cfFailure(429, 3036));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app({ ...CF_ENV, POLLINATIONS_API_KEY: 'test-pollinations-key' }))
