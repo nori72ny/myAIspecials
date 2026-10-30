@@ -66,12 +66,12 @@ describe('rasterProviderRegistryV15', () => {
         expect.objectContaining({
           providerId: 'cloudflare-workers-ai-free',
           ready: false,
-          reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+          reason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
           supportsTask: true,
           status: expect.objectContaining({
             configured: false,
             ready: false,
-            reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+            reason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
           }),
         }),
         expect.objectContaining({
@@ -99,14 +99,14 @@ describe('rasterProviderRegistryV15', () => {
       textToImageStatus: {
         configured: false,
         ready: false,
-        reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+        reason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
         providerId: 'cloudflare-workers-ai-free',
         zeroCostVerified: false,
         paidFallbackEnabled: false,
         paymentMethodRequired: false,
         secretDelivery: 'server-only',
       },
-      textToImageReason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      textToImageReason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
       editingReady: false,
       paidFallbackEnabled: false,
       freeOnly: true,

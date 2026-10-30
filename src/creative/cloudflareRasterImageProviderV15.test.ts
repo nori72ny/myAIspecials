@@ -63,17 +63,53 @@ function webp(width: number, height: number) {
 }
 
 describe('cloudflareRasterImageProviderV15', () => {
-  it('fails closed without server-only Cloudflare credentials', async () => {
+  it('fails closed and reports missing account ID without exposing credentials', async () => {
     await expect(getCloudflareRasterStatusV15({})).resolves.toMatchObject({
       configured: false,
       ready: false,
       zeroCostVerified: false,
       providerId: 'cloudflare-workers-ai-free',
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'CLOUDFLARE_ACCOUNT_ID_NOT_CONFIGURED',
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
     });
+  });
+
+  it('identifies a missing Cloudflare API token without exposing any secret values', async () => {
+    await expect(getCloudflareRasterStatusV15({
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+    })).resolves.toMatchObject({
+      configured: false,
+      ready: false,
+      zeroCostVerified: false,
+      providerId: 'cloudflare-workers-ai-free',
+      reason: 'CLOUDFLARE_API_TOKEN_NOT_CONFIGURED',
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+    });
+  });
+
+  it('rejects malformed Cloudflare account IDs and API tokens before network access', async () => {
+    const fetchMock = vi.fn() as unknown as typeof fetch;
+    await expect(getCloudflareRasterStatusV15({
+      CLOUDFLARE_ACCOUNT_ID: 'not-an-account-id',
+      CLOUDFLARE_API_TOKEN: TEST_TOKEN,
+    }, fetchMock)).resolves.toMatchObject({
+      configured: false,
+      ready: false,
+      reason: 'CLOUDFLARE_ACCOUNT_ID_INVALID',
+    });
+    await expect(getCloudflareRasterStatusV15({
+      CLOUDFLARE_ACCOUNT_ID: ENV.CLOUDFLARE_ACCOUNT_ID,
+      CLOUDFLARE_API_TOKEN: 'short',
+    }, fetchMock)).resolves.toMatchObject({
+      configured: false,
+      ready: false,
+      reason: 'CLOUDFLARE_API_TOKEN_INVALID',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('accepts only a non-paid Workers account state', async () => {
