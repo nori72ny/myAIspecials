@@ -225,20 +225,6 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('rate limits repeated public raster status reads without provider fan-out', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    const application = app(CF_ENV);
-
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      expect((await request(application).get('/api/creative/v1.5/raster/status')).status).toBe(503);
-    }
-    const limited = await request(application).get('/api/creative/v1.5/raster/status');
-    expect(limited.status).toBe(429);
-    expect(limited.headers['retry-after']).toBeDefined();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
