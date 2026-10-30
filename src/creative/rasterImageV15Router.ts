@@ -5,6 +5,7 @@ import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rast
 import {
   rasterProviderRuntimeStatusV15,
   selectRasterProviderV15,
+  selectRasterProviderExcludingV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
@@ -282,7 +283,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           '費用0円と実行可能性を検証できる画像プロバイダがありません。',
         );
       }
-      const result = await selection.provider.generate({
+      const generationInput: RasterImageRequestV15 = {
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
@@ -290,7 +291,30 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           : plan.negativePrompt,
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
-      }, env);
+      };
+      let result;
+      try {
+        result = await selection.provider.generate(generationInput, env);
+      } catch (generationError) {
+        const generationCode = generationError instanceof Error ? generationError.message : '';
+        // Cloudflare code 3036 is an explicit quota rejection: inference was not
+        // accepted. Only this response permits a separately verified free-provider
+        // switch. Ambiguous transport failures and post-generation failures remain terminal.
+        if (mode !== 'generate'
+          || selection.provider.descriptor.id !== 'cloudflare-workers-ai-free'
+          || generationCode !== 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED') {
+          throw generationError;
+        }
+        const fallback = await selectRasterProviderExcludingV15(
+          'text-to-image',
+          env,
+          [selection.provider.descriptor.id],
+          countedFetch,
+        );
+        if (!fallback.ready) throw generationError;
+        selection = fallback;
+        result = await fallback.provider.generate(generationInput, env);
+      }
       const expectedWidth = input.width ?? plan.width;
       const expectedHeight = input.height ?? plan.height;
       const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
