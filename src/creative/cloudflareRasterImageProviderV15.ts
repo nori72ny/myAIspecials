@@ -8,7 +8,8 @@ import {
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
-const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
+// Prefer 4B for the daily free Neuron budget; 9B remains an explicit opt-in.
+const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 const ALLOWED_MODELS = new Set([
   '@cf/black-forest-labs/flux-2-klein-9b',
   '@cf/black-forest-labs/flux-2-klein-4b',
