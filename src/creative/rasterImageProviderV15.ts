@@ -39,7 +39,10 @@ export type RasterProviderStatusV15 = {
   ready: boolean;
   providerId: 'pollinations-zero-cost' | 'cloudflare-workers-ai-free';
   model: string | null;
+  // True only when an individual generation is correlated with a zero-cost usage record.
   zeroCostVerified: boolean;
+  // Account-level non-billable Free allocation and hard-quota eligibility; not per-request cost proof.
+  freeAllocationEligible?: boolean;
   paidFallbackEnabled: false;
   paymentMethodRequired: false;
   secretDelivery: 'server-only';
