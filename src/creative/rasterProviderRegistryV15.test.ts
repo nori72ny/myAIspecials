@@ -100,7 +100,7 @@ describe('rasterProviderRegistryV15', () => {
         valid: true,
         type: 'secret',
         permissions: { models: ['tomdacatto/sana'] },
-        pollenBudget: null,
+        pollenBudget: 5,
         questPollenOnly: true,
         rateLimitEnabled: false,
       });
