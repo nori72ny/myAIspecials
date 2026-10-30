@@ -34,6 +34,7 @@ export type RasterLivePhaseEvidenceV15 = {
   durationMs: number;
   providerReportedExternalNetworkRequests: number;
   costEvidence: RasterImageResultV15['costEvidence'];
+  semanticCostEvidence: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>>['costEvidence'];
   structural: ReturnType<typeof critiqueRasterStructureV15>;
   semantic: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>>;
 };
@@ -134,6 +135,7 @@ async function runPhase(
       durationMs: Math.max(0, now() - started),
       providerReportedExternalNetworkRequests: result.externalNetworkRequests + semantic.externalNetworkRequests,
       costEvidence: result.costEvidence,
+      semanticCostEvidence: semantic.costEvidence,
       structural,
       semantic,
     },
@@ -238,7 +240,9 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
 
     if (edit.sha256 === generation.sha256) throw new Error('RASTER_LIVE_EDIT_DID_NOT_CHANGE_OUTPUT');
     if (generation.costEvidence !== 'post-generation-usage-zero-confirmed'
-      || edit.costEvidence !== 'post-generation-usage-zero-confirmed') {
+      || generation.semanticCostEvidence !== 'post-generation-usage-zero-confirmed'
+      || edit.costEvidence !== 'post-generation-usage-zero-confirmed'
+      || edit.semanticCostEvidence !== 'post-generation-usage-zero-confirmed') {
       throw new Error('CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE');
     }
 
