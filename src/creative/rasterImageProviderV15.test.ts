@@ -136,13 +136,24 @@ describe('rasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('accepts a small finite key budget when Quest-Pollen-only is enforced', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ ...scopedKeyInfo, pollenBudget: 1 }))
+      .mockResolvedValueOnce(json([freeModel])) as unknown as typeof fetch;
+    const status = await getRasterProviderStatusV15({ POLLINATIONS_API_KEY: 'sk_test' }, fetchMock);
+    expect(status.ready).toBe(true);
+    expect(status.freeAllocationEligible).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('requires a least-privilege Quest-Pollen-only secret key scoped to the audited model', async () => {
     for (const keyInfo of [
       { ...scopedKeyInfo, type: 'publishable' },
       { ...scopedKeyInfo, permissions: { models: null } },
       { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'] } },
       { ...scopedKeyInfo, pollenBudget: 0 },
-      { ...scopedKeyInfo, pollenBudget: 1 },
+      { ...scopedKeyInfo, pollenBudget: null },
+      { ...scopedKeyInfo, pollenBudget: 6 },
       { ...scopedKeyInfo, questPollenOnly: false },
     ]) {
       const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
