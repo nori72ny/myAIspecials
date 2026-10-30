@@ -284,12 +284,16 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         result = await selection.provider.generate(generationInput, env, countedGenerationFetch);
       } catch (generationError) {
         const generationCode = generationError instanceof Error ? generationError.message : '';
-        // Cloudflare code 3036 is an explicit quota rejection: inference was not
-        // accepted. Only this response permits a separately verified free-provider
-        // switch. Ambiguous transport failures and post-generation failures remain terminal.
+        // Cloudflare 3036 (daily allocation exhausted) and 3040 (capacity unavailable)
+        // are documented pre-inference rejections. Only these explicit rejections permit
+        // a separately verified free-provider switch. Unknown transport/5xx failures
+        // remain terminal because inference acceptance may be ambiguous.
         if (mode !== 'generate'
           || selection.provider.descriptor.id !== 'cloudflare-workers-ai-free'
-          || generationCode !== 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED') {
+          || ![
+            'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED',
+            'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE',
+          ].includes(generationCode)) {
           throw generationError;
         }
         const fallback = await selectRasterProviderExcludingV15(
