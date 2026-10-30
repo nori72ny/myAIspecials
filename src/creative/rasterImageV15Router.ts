@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
+import { type RasterImageRequestV15, type RasterImageResultV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import {
-  rasterProviderRuntimeStatusV15,
-  resolveRasterProviderV15,
+  selectRasterProviderV15,
+  selectRasterProviderExcludingV15,
 } from './rasterProviderRegistryV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
@@ -52,7 +52,6 @@ function fail(
     message: message ?? code,
     retryable,
     freeOnly: true,
-    costUsd: 0,
     paidFallbackUsed: false,
     secretDelivery: 'server-only',
   });
@@ -125,27 +124,25 @@ function filename(mime: string): string {
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
-    const runtime = await rasterProviderRuntimeStatusV15(env);
-    const status = runtime.textToImageStatus;
-    return res.status(runtime.textToImageReady ? 200 : 503).json({
-      ok: runtime.textToImageReady,
-      configured: status?.configured ?? false,
-      ready: runtime.textToImageReady,
-      providerId: status?.providerId ?? null,
-      model: status?.model ?? null,
-      zeroCostVerified: status?.zeroCostVerified ?? false,
-      paymentMethodRequired: status?.paymentMethodRequired ?? false,
-      secretDelivery: status?.secretDelivery ?? 'server-only',
-      externalNetwork: status?.externalNetwork ?? true,
-      reason: runtime.textToImageReason,
-      providerAgnostic: runtime.providerAgnostic,
-      registryVersion: runtime.registryVersion,
-      providers: runtime.providers,
+  router.get('/api/creative/v1.5/raster/status', (_req, res) => {
+    // Public status must never fan out to provider/billing APIs. It reports only
+    // locally known, conservative state; live qualification is handled separately.
+    return res.status(503).json({
+      ok: false,
+      ready: false,
+      providerId: null,
+      model: null,
+      zeroCostVerified: false,
+      freeAllocationEligible: false,
+      secretDelivery: 'server-only',
+      externalNetwork: false,
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
+      providerAgnostic: true,
+      registryVersion: 'raster-provider-registry-v1',
+      providers: [],
       freeOnly: true,
-      costUsd: 0,
       paidFallbackEnabled: false,
-      supportedTasks: runtime.supportedTasks,
+      supportedTasks: [],
       rasterCritic: {
         version: 'raster-structural-critic-v1',
         failClosed: true,
@@ -162,28 +159,13 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       semanticVisionCritic: {
         version: 'raster-semantic-critic-v1',
         implemented: true,
-        provider: 'cloudflare-workers-ai-free',
-        model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
         freeOnly: true,
-        costUsd: 0,
+        costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
         enabled: semanticDeliveryGateEnabled(env),
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
-        axes: [
-          'promptAdherence',
-          'composition',
-          'subjectIntegrity',
-          'styleExecution',
-          'textHandling',
-          'artifactControl',
-          'professionalUsefulness',
-        ],
-      },
-      candidateSelection: {
-        ...candidatePolicyForRasterRequestV15('高品質な広告画像を作ってください', 'advertisement'),
-        activationGate: 'live-zero-cost-quota-and-latency-evidence',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -196,7 +178,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           typographyZone: template.typographyZone,
         })),
       },
-      modelBasedImageEditing: runtime.editingReady,
+      modelBasedImageEditing: false,
       referenceImagePolicy: {
         transport: 'data-url-only',
         remoteUrlsAllowed: false,
@@ -222,7 +204,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         plan,
         candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
         freeOnly: true,
-        costUsd: 0,
         paidFallbackUsed: false,
         providerExecutions: 0,
       });
@@ -261,18 +242,34 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           },
           candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
           freeOnly: true,
-          costUsd: 0,
           paidFallbackUsed: false,
           providerExecutions: 0,
           secretDelivery: 'server-only',
         });
       }
       const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
-      const provider = resolveRasterProviderV15(providerTask);
-      if (!provider) {
-        return fail(res, 503, 'NO_PROVIDER_SUPPORTS_TASK', '画像生成に対応する検証済みプロバイダがありません。');
+      // Use the same readiness and zero-cost gate as /status. A static first-provider
+      // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
+      let providerSelectionRequests = 0;
+      let providerGenerationRequests = 0;
+      const countedFetch: typeof fetch = (request: RequestInfo | URL, init?: RequestInit) => {
+        providerSelectionRequests += 1;
+        return fetch(request, init);
+      };
+      const countedGenerationFetch: typeof fetch = (request: RequestInfo | URL, init?: RequestInit) => {
+        providerGenerationRequests += 1;
+        return fetch(request, init);
+      };
+      const selection = await selectRasterProviderV15(providerTask, env, countedFetch);
+      if (selection.ready === false) {
+        return fail(
+          res,
+          503,
+          selection.reason,
+          '費用0円と実行可能性を検証できる画像プロバイダがありません。',
+        );
       }
-      const result = await provider.generate({
+      const generationInput: RasterImageRequestV15 = {
         ...input,
         prompt: plan.compiledPrompt,
         negativePrompt: input.negativePrompt?.trim()
@@ -280,49 +277,91 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           : plan.negativePrompt,
         width: input.width ?? plan.width,
         height: input.height ?? plan.height,
-      }, env);
+      };
+      let result: RasterImageResultV15;
+      try {
+        result = await selection.provider.generate(generationInput, env, countedGenerationFetch);
+      } catch (generationError) {
+        const generationCode = generationError instanceof Error ? generationError.message : '';
+        // Cloudflare 3036 (daily allocation exhausted) and 3040 (capacity unavailable)
+        // are documented pre-inference rejections. Only these explicit rejections permit
+        // a separately verified free-provider switch. Unknown transport/5xx failures
+        // remain terminal because inference acceptance may be ambiguous.
+        if (mode !== 'generate'
+          || selection.provider.descriptor.id !== 'cloudflare-workers-ai-free'
+          || ![
+            'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED',
+            'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE',
+          ].includes(generationCode)) {
+          throw generationError;
+        }
+        const fallback = await selectRasterProviderExcludingV15(
+          'text-to-image',
+          env,
+          [selection.provider.descriptor.id],
+          countedFetch,
+        );
+        if (!fallback.ready) throw generationError;
+        result = await fallback.provider.generate(generationInput, env, countedGenerationFetch);
+      }
       const expectedWidth = input.width ?? plan.width;
       const expectedHeight = input.height ?? plan.height;
       const critic = critiqueRasterStructureV15(result.bytes, result.mimeType, expectedWidth, expectedHeight);
       if (!critic.passed) {
-        return res.status(502).json({
+        return res.status(422).json({
           ok: false,
           code: 'RASTER_CRITIC_REJECTED',
           message: '生成画像の構造検証に失敗したため、画像を返しませんでした。',
           critic,
+          retryable: false,
           freeOnly: true,
-          costUsd: 0,
           paidFallbackUsed: false,
           secretDelivery: 'server-only',
         });
       }
 
       const semanticGateEnabled = semanticDeliveryGateEnabled(env);
-      const semanticCritic = semanticGateEnabled
-        ? await critiqueCloudflareRasterSemanticV15({
-            originalRequest: input.prompt,
-            exactText: plan.exactText,
-            bytes: result.bytes,
-            mimeType: result.mimeType,
-          }, env)
-        : null;
-      if (semanticCritic && !semanticCritic.passed) {
-        return res.status(502).json({
-          ok: false,
-          code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
-          message: '生成画像が意味・構図・主体整合性の品質基準を満たさないため、画像を返しませんでした。',
-          semanticCritic,
-          freeOnly: true,
-          costUsd: 0,
-          paidFallbackUsed: false,
-          secretDelivery: 'server-only',
-        });
+      let semanticCritic: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>> | null = null;
+      let semanticGateState: 'passed' | 'rejected' | 'skipped' | 'disabled' = 'disabled';
+      if (semanticGateEnabled) {
+        if (result.providerId !== 'cloudflare-workers-ai-free') {
+          // Do not spend the exhausted Cloudflare allocation on a critic after a
+          // successful fallback from another provider. The generated image remains deliverable.
+          semanticGateState = 'skipped';
+        } else {
+          try {
+            semanticCritic = await critiqueCloudflareRasterSemanticV15({
+              originalRequest: input.prompt,
+              exactText: plan.exactText,
+              bytes: result.bytes,
+              mimeType: result.mimeType,
+            }, env);
+            if (!semanticCritic.safetyPassed) {
+              return res.status(422).json({
+                ok: false,
+                code: 'RASTER_OUTPUT_SAFETY_REJECTED',
+                message: '生成画像が安全性基準を満たさないため、画像を返しませんでした。',
+                semanticCritic,
+                retryable: false,
+                freeOnly: true,
+                paidFallbackUsed: false,
+                secretDelivery: 'server-only',
+              });
+            }
+            semanticGateState = semanticCritic.passed ? 'passed' : 'rejected';
+          } catch {
+            // A post-generation critic outage must not discard an already-created image.
+            // The response explicitly marks the semantic stage as skipped.
+            semanticGateState = 'skipped';
+          }
+        }
       }
       const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${filename(result.mimeType)}"`);
-      res.setHeader('X-Origin-Visual-Verified', 'true');
+      res.setHeader('X-Origin-Structural-Verified', 'true');
+      if (semanticCritic?.passed) res.setHeader('X-Origin-Visual-Verified', 'true');
       res.setHeader('X-Origin-Visual-Sha256', result.sha256);
       res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
       res.setHeader('X-Origin-Visual-Brain', 'visual-brain-v1');
@@ -334,8 +373,8 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Typography-Zone', plan.typographyZone);
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
-      res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateEnabled ? 'enabled' : 'disabled');
-      if (semanticCritic) {
+      res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateState);
+      if (semanticCritic?.passed) {
         res.setHeader('X-Origin-Visual-Semantic-Verified', 'true');
         res.setHeader('X-Origin-Visual-Semantic-Critic', semanticCritic.version);
         res.setHeader('X-Origin-Visual-Semantic-Score', String(semanticCritic.score));
@@ -355,10 +394,10 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Width', String(result.width));
       res.setHeader('X-Origin-Visual-Height', String(result.height));
       res.setHeader('X-Origin-Free-Only', 'true');
-      res.setHeader('X-Origin-Cost-Usd', '0');
+      res.setHeader('X-Origin-Cost-Evidence', result.costEvidence);
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
-      res.setHeader('X-Origin-External-Network-Requests', String(result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
+      res.setHeader('X-Origin-External-Network-Requests', String(providerSelectionRequests + providerGenerationRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
       res.setHeader('X-Origin-Secret-Delivery', 'server-only');
       return res.status(200).send(result.bytes);
     } catch (error) {
@@ -391,7 +430,13 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       }
       if (code === 'RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID'
         || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
-        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。');
+        // The provider may already have generated an image. Never invite a client retry that could duplicate generation or consume another free allocation.
+        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。重複生成を避けるため自動再試行を停止しました。', false);
+      }
+      if (code === 'ZERO_COST_USAGE_NOT_VERIFIED') {
+        // Generation may already have happened. A client retry could create a duplicate
+        // and consume another free allocation, so this verification failure is terminal.
+        return fail(res, 503, code, '生成後の費用0円証拠を一意に確認できませんでした。重複生成を避けるため自動再試行を停止しました。', false);
       }
       if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
         || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
@@ -399,7 +444,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
         return fail(res, 503, code, '旧画像プロバイダ経路は有効化していません。');
       }
-      return fail(res, 502, code, '画像生成プロバイダの検証または生成に失敗しました。');
+      return fail(res, 502, code, '画像生成プロバイダから応答を確認できませんでした。生成が既に受理された可能性があるため、自動再試行を停止しました。', false);
     }
   };
 

@@ -82,7 +82,7 @@ for (const width of [390, 1440] as const) {
     await page.getByRole('button', { name: '別案を作る' }).click();
 
     await expect(page.getByAltText('ORIGINが生成した画像')).toHaveCount(2);
-    expect(generateRequests).toBe(0);
+    expect(generateRequests).toBe(1);
     expect(editRequests).toBe(1);
     expect(editBodies).toHaveLength(1);
 
@@ -114,7 +114,7 @@ for (const width of [390, 1440] as const) {
     await page.getByTestId('send-request-button').click();
 
     await expect(page.getByAltText('ORIGINが生成した画像')).toHaveCount(3);
-    expect(generateRequests).toBe(0);
+    expect(generateRequests).toBe(1);
     expect(editRequests).toBe(2);
     expect(editBodies).toHaveLength(2);
     const guidedBody = editBodies[1] as {

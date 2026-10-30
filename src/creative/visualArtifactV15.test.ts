@@ -195,7 +195,7 @@ describe('V1.5 verified visual artifacts', () => {
       ready: false,
       providerId: 'cloudflare-workers-ai-free',
       zeroCostVerified: false,
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
     });

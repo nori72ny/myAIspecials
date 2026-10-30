@@ -32,9 +32,9 @@ const scopedKeyInfo = {
   type: 'secret',
   permissions: {
     models: ['tomdacatto/sana'],
-    account: ['usage'],
   },
-  pollenBudget: 0,
+  pollenBudget: 5,
+  questPollenOnly: true,
   rateLimitEnabled: false,
 };
 
@@ -118,13 +118,43 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
-  it('requires a least-privilege secret key scoped to the audited model and usage evidence', async () => {
+  it('reports Free allocation eligibility separately from request-level zero-cost proof', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel])) as unknown as typeof fetch;
+    const status = await getRasterProviderStatusV15({ POLLINATIONS_API_KEY: 'sk_test' }, fetchMock);
+
+    expect(status).toMatchObject({
+      configured: true,
+      ready: true,
+      providerId: 'pollinations-zero-cost',
+      model: 'tomdacatto/sana',
+      zeroCostVerified: false,
+      freeAllocationEligible: true,
+      reason: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts a small finite key budget when Quest-Pollen-only is enforced', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ ...scopedKeyInfo, pollenBudget: 1 }))
+      .mockResolvedValueOnce(json([freeModel])) as unknown as typeof fetch;
+    const status = await getRasterProviderStatusV15({ POLLINATIONS_API_KEY: 'sk_test' }, fetchMock);
+    expect(status.ready).toBe(true);
+    expect(status.freeAllocationEligible).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires a least-privilege Quest-Pollen-only secret key scoped to the audited model', async () => {
     for (const keyInfo of [
       { ...scopedKeyInfo, type: 'publishable' },
-      { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } },
-      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'], account: ['usage'] } },
-      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana'], account: [] } },
-      { ...scopedKeyInfo, pollenBudget: 1 },
+      { ...scopedKeyInfo, permissions: { models: null } },
+      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'] } },
+      { ...scopedKeyInfo, pollenBudget: 0 },
+      { ...scopedKeyInfo, pollenBudget: null },
+      { ...scopedKeyInfo, pollenBudget: 6 },
+      { ...scopedKeyInfo, questPollenOnly: false },
     ]) {
       const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
       await expect(generateRasterImageV15(
@@ -135,6 +165,59 @@ describe('rasterImageProviderV15', () => {
       )).rejects.toThrow('POLLINATIONS_KEY_SCOPE_INVALID');
       expect(fetchMock).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('fails before generation when the usage baseline request rejects', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockRejectedValueOnce(new Error('usage endpoint unavailable'));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'baseline transport failure' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('usage endpoint unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/generations'))).toBe(false);
+  });
+
+  it('contains post-generation usage transport failures and never asks for a second generation', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-transport' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(768, 1024), 'image/png'))
+      .mockRejectedValueOnce(new Error('usage endpoint unavailable'))
+      .mockRejectedValueOnce(new Error('usage endpoint still unavailable'));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'post-generation usage transport failure', width: 768, height: 1024 },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 2, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/v1/images/generations'))).toHaveLength(1);
+  });
+
+  it('fails before generation when the usage baseline contains duplicate event IDs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [
+        { cursor_event_id: 'duplicate-baseline' },
+        { cursor_event_id: 'duplicate-baseline' },
+      ] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'duplicate baseline' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+    )).rejects.toThrow('USAGE_BASELINE_UNAVAILABLE');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/images/generations'))).toBe(false);
   });
 
   it('does not infer zero cost from an empty pricing object unless the exact audited registry row explicitly says free', async () => {
@@ -172,7 +255,7 @@ describe('rasterImageProviderV15', () => {
       mimeType: 'image/png',
       model: 'tomdacatto/sana',
       providerId: 'pollinations-zero-cost',
-      costUsd: 0,
+      costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
       freeOnly: true,
       externalNetworkRequests: 5,
       width: 768,
@@ -180,6 +263,8 @@ describe('rasterImageProviderV15', () => {
     });
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/account/key/usage?format=json&limit=50&days=1');
+    expect(String(fetchMock.mock.calls[4]?.[0])).toContain('/account/key/usage?format=json&limit=50&days=1');
     expect(String(fetchMock.mock.calls[3]?.[0])).toBe('https://gen.pollinations.ai/v1/images/generations');
     const generationInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
     expect(generationInit.method).toBe('POST');
@@ -193,6 +278,53 @@ describe('rasterImageProviderV15', () => {
       response_format: 'b64_json',
       safe: true,
     });
+  });
+
+  it('rejects multiple new usage events because the provider response has no request correlation key', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-ambiguous' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
+      .mockResolvedValueOnce(json({ usage: [
+        { cursor_event_id: 'after-ambiguous-a', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+        { cursor_event_id: 'after-ambiguous-b', type: 'generate.image', model: 'tomdacatto/sana', meter_source: 'tier', cost_usd: 0, output_image_tokens: 1 },
+      ] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'ambiguous usage events' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
+  });
+
+  it.each([
+    ['null cost', null, 1],
+    ['empty-string cost', '', 1],
+    ['string zero cost', '0', 1],
+    ['string output token count', 0, '1'],
+  ] as const)('rejects coerced usage evidence: %s', async (_label, costUsd, outputImageTokens) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'before-strict' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(1024, 1024), 'image/png'))
+      .mockResolvedValueOnce(json({ usage: [{
+        cursor_event_id: 'after-strict',
+        type: 'generate.image',
+        model: 'tomdacatto/sana',
+        meter_source: 'tier',
+        cost_usd: costUsd,
+        output_image_tokens: outputImageTokens,
+      }] }));
+
+    await expect(generateRasterImageV15(
+      { prompt: 'strict usage evidence' },
+      { POLLINATIONS_API_KEY: 'sk_test' },
+      fetchMock as unknown as typeof fetch,
+      { attempts: 1, delayMs: 0 },
+    )).rejects.toThrow('ZERO_COST_USAGE_NOT_VERIFIED');
   });
 
   it('rejects ambiguous nonnumeric pricing instead of treating it as free', async () => {
