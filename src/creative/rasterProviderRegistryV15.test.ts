@@ -132,4 +132,40 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
+  it('does not select Cloudflare after free-plan preflight without per-request zero-cost evidence', async () => {
+    const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const fetchMock: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/workers/account-settings')) {
+        return response({ default_usage_model: 'bundled' });
+      }
+      if (url.endsWith('/subscriptions')) return response([]);
+      if (url.includes('/ai/models/schema?model=')) return response({ input: {}, output: {} });
+      throw new Error('Unexpected provider request');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
+    }, fetchMock);
+
+    expect(selection.ready).toBe(false);
+    if ('statuses' in selection) {
+      expect(selection.statuses[0]).toMatchObject({
+        providerId: 'cloudflare-workers-ai-free',
+        ready: false,
+        reason: 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED',
+        status: {
+          configured: true,
+          ready: true,
+          zeroCostVerified: false,
+          reason: 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED',
+        },
+      });
+      expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
+    }
+  });
+
 });
