@@ -49,7 +49,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
 
   const ja = language === 'ja';
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
