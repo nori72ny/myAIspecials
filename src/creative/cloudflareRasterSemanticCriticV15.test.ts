@@ -84,7 +84,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       passed: true,
       model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
       freeOnly: true,
-      costUsd: 0,
+      costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
       externalNetworkRequests: 4,
@@ -93,6 +93,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     });
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/models/schema?model=%40cf%2Fmoondream%2Fmoondream3.1-9B-A2B');
     expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/moondream/moondream3.1-9B-A2B');
     const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const headers = new Headers(init.headers);
@@ -103,6 +104,22 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.temperature).toBe(0);
     expect(body.image).toMatch(/^data:image\/png;base64,/);
     expect(body.question).toContain('Return ONLY valid compact JSON');
+  });
+
+  it('does not invoke the critic when its exact model schema is unavailable', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: null, output: null }));
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/models/schema?model=%40cf%2Fmoondream%2Fmoondream3.1-9B-A2B');
   });
 
   it('fails semantic quality when material visible defects are reported', async () => {

@@ -85,8 +85,9 @@ describe('cloudflareRasterImageProviderV15', () => {
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       configured: true,
       ready: true,
-      model: '@cf/black-forest-labs/flux-2-klein-9b',
-      zeroCostVerified: true,
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
+      zeroCostVerified: false,
+      freeAllocationEligible: true,
       reason: null,
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -100,6 +101,20 @@ describe('cloudflareRasterImageProviderV15', () => {
       reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, '', 'unknown'])('does not treat a missing or unknown usage model as free (%s)', async (usageModel) => {
+    const settings = usageModel === undefined ? {} : { default_usage_model: usageModel };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(settings))
+      .mockResolvedValueOnce(json([])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(usageModel && usageModel !== 'bundled' ? 1 : 2);
   });
 
   it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
@@ -222,11 +237,11 @@ describe('cloudflareRasterImageProviderV15', () => {
 
     expect(result).toMatchObject({
       providerId: 'cloudflare-workers-ai-free',
-      model: '@cf/black-forest-labs/flux-2-klein-9b',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
       mimeType: 'image/png',
       width: 768,
       height: 1024,
-      costUsd: 0,
+      costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
       freeOnly: true,
       externalNetworkRequests: 4,
     });
@@ -241,6 +256,27 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(String(form.get('width'))).toBe('768');
     expect(String(form.get('height'))).toBe('1024');
     expect(new Headers(init.headers).get('content-type')).toBeNull();
+  });
+
+  it('rejects oversized Cloudflare JSON image responses before buffering the body', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(new Response('{}', {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(17 * 1024 * 1024),
+        },
+      }));
+
+    await expect(generateCloudflareRasterImageV15({
+      prompt: 'bounded response test',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('sends bounded reference images as indexed multipart inputs for editing', async () => {
@@ -268,7 +304,6 @@ describe('cloudflareRasterImageProviderV15', () => {
       providerId: 'cloudflare-workers-ai-free',
       width: 768,
       height: 1024,
-      costUsd: 0,
       freeOnly: true,
       externalNetworkRequests: 4,
     });
@@ -313,7 +348,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       height: 1024,
     }, ENV, fetchMock as unknown as typeof fetch);
 
-    expect(result).toMatchObject({ mimeType, width: 768, height: 1024, costUsd: 0, freeOnly: true });
+    expect(result).toMatchObject({ mimeType, width: 768, height: 1024, freeOnly: true });
   });
 
   it.each([

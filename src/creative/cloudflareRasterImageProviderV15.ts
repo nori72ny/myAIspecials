@@ -1,18 +1,21 @@
 import { createHash } from 'node:crypto';
-import type {
-  RasterImageRequestV15,
-  RasterImageResultV15,
-  RasterProviderStatusV15,
+import {
+  readBoundedProviderBodyV15,
+  type RasterImageRequestV15,
+  type RasterImageResultV15,
+  type RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
-const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-9b';
+// Prefer 4B for the daily free Neuron budget; 9B remains an explicit opt-in.
+const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 const ALLOWED_MODELS = new Set([
   '@cf/black-forest-labs/flux-2-klein-9b',
   '@cf/black-forest-labs/flux-2-klein-4b',
 ]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
 const MODEL_SCHEMA_TIMEOUT_MS = 10_000;
 const MAX_REFERENCE_IMAGES = 4;
@@ -122,6 +125,11 @@ async function verifyWorkersFreePlan(
     }
   }
 
+  // A missing/empty usage model is unknown, not evidence of the bundled free allocation.
+  if (usageModel !== 'bundled') {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  }
+
   const schema = await timedFetch(
     `${API_ORIGIN}/client/v4/accounts/${accountId}/ai/models/schema?model=${encodeURIComponent(model)}`,
     { method: 'GET', headers: headers(apiToken) },
@@ -224,6 +232,75 @@ function decodeCloudflareResult(body: unknown): Buffer {
   return bytes;
 }
 
+export async function verifyCloudflareRasterFreeModelV15(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RasterProviderStatusV15> {
+  const auth = credentials(env);
+  if (!/^@cf\/[a-z0-9-]+\/[a-z0-9.-]+$/i.test(model) || model.length > 160) {
+    return {
+      configured: Boolean(auth),
+      ready: false,
+      providerId: 'cloudflare-workers-ai-free',
+      model: null,
+      zeroCostVerified: false,
+      freeAllocationEligible: false,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+    };
+  }
+  if (!auth) return {
+    configured: false,
+    ready: false,
+    providerId: 'cloudflare-workers-ai-free',
+    model: null,
+    zeroCostVerified: false,
+    paidFallbackEnabled: false,
+    paymentMethodRequired: false,
+    secretDelivery: 'server-only',
+    externalNetwork: true,
+    reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+  };
+  try {
+    const proof = await verifyWorkersFreePlan(auth.accountId, auth.apiToken, model, fetchImpl);
+    return {
+      configured: true,
+      ready: proof.ok,
+      providerId: 'cloudflare-workers-ai-free',
+      model: proof.ok ? model : null,
+      // Workers Free has a hard daily allocation: requests beyond it fail
+      // rather than switching to paid billing. verifyWorkersFreePlan also
+      // rejects detected Workers Paid subscriptions and paid-only models.
+      // Account-level Free allocation eligibility is not request-attributed cost verification.
+      zeroCostVerified: false,
+      freeAllocationEligible: proof.ok,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: proof.ok ? null : proof.reason,
+    };
+  } catch {
+    return {
+      configured: true,
+      ready: false,
+      providerId: 'cloudflare-workers-ai-free',
+      model: null,
+      zeroCostVerified: false,
+      freeAllocationEligible: false,
+      paidFallbackEnabled: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: true,
+      reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    };
+  }
+}
+
 export async function getCloudflareRasterStatusV15(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
@@ -262,12 +339,17 @@ export async function getCloudflareRasterStatusV15(
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
       model: proof.ok ? model : null,
-      zeroCostVerified: proof.ok,
+      // Workers Free has a hard daily allocation: requests beyond it fail
+      // rather than switching to paid billing. verifyWorkersFreePlan also
+      // rejects detected Workers Paid subscriptions and paid-only models.
+      // Account-level Free allocation eligibility is not request-attributed cost verification.
+      zeroCostVerified: false,
+      freeAllocationEligible: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
       externalNetwork: true,
-      reason: proof.reason,
+      reason: proof.ok ? null : proof.reason,
     };
   } catch {
     return {
@@ -276,6 +358,7 @@ export async function getCloudflareRasterStatusV15(
       providerId: 'cloudflare-workers-ai-free',
       model: null,
       zeroCostVerified: false,
+      freeAllocationEligible: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -366,11 +449,15 @@ export async function generateCloudflareRasterImageV15(
   let bytes: Buffer;
   const responseType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (responseType.startsWith('image/')) {
-    const raw = Buffer.from(await response.arrayBuffer());
-    if (!raw.length || raw.length > MAX_IMAGE_BYTES) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    const raw = await readBoundedProviderBodyV15(response, MAX_IMAGE_BYTES);
+    if (!raw.length) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
     bytes = raw;
   } else {
-    bytes = decodeCloudflareResult(await response.json());
+    const body = await readBoundedProviderBodyV15(response, MAX_IMAGE_RESPONSE_BYTES);
+    let parsed: unknown;
+    try { parsed = JSON.parse(body.toString('utf8')) as unknown; }
+    catch { throw new Error('CLOUDFLARE_IMAGE_RESPONSE_INVALID_JSON'); }
+    bytes = decodeCloudflareResult(parsed);
   }
 
   const mimeType = imageMime(bytes);
@@ -386,7 +473,7 @@ export async function generateCloudflareRasterImageV15(
     providerId: 'cloudflare-workers-ai-free',
     width: actual.width,
     height: actual.height,
-    costUsd: 0,
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     freeOnly: true,
     externalNetworkRequests: proof.requests + 1,
   };

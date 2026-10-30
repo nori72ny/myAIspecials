@@ -42,7 +42,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -50,6 +50,13 @@ const artifact: ArtifactBlock = {
 };
 
 describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
+  it('accepts only the two explicitly supported free raster provider identities', () => {
+    expect(isVerifiedRasterProviderId('cloudflare-workers-ai-free')).toBe(true);
+    expect(isVerifiedRasterProviderId('pollinations-zero-cost')).toBe(true);
+    expect(isVerifiedRasterProviderId('paid-provider')).toBe(false);
+    expect(isVerifiedRasterProviderId(null)).toBe(false);
+  });
+
   afterEach(cleanup);
 
   it('batches all stream chunks received within one animation frame', () => {
@@ -616,6 +623,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('uses procedural raster only when the user explicitly asks for procedural artwork', () => {
+    expect(isExplicitLocalProceduralImageRequest('手続き型のPNG画像を作ってください')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('Create procedural artwork')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('夕焼けの海の画像を作ってください')).toBe(false);
+    expect(isExplicitLocalProceduralImageRequest('風景')).toBe(false);
+  });
+
   it('recognizes explicit image creation requests without hijacking image-related questions', () => {
     expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
     expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
@@ -757,6 +771,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
+    // A successful raster/quality check does not prove the real-world bill is $0.
+    expect(screen.getByText(/費用未検証/)).toBeTruthy();
+    expect(screen.queryByText(/\$0 verified/i)).toBeNull();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
     expect(screen.getByText(/flux-2-klein-4b/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();

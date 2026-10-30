@@ -71,9 +71,8 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      code: "CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED",
+      code: "NO_VERIFIED_ZERO_COST_PROVIDER_READY",
       freeOnly: true,
-      costUsd: 0,
       paidFallbackUsed: false,
       secretDelivery: "server-only",
     });
@@ -124,7 +123,6 @@ describe("createOriginApp provider isolation", () => {
       status: "ok",
       service: "acos-2",
       releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
-      costUsd: 0,
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: "server-only",
@@ -286,6 +284,22 @@ describe("createOriginApp provider isolation", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  it("rate limits repeated raster status reads without any provider or billing API fan-out", async () => {
+    const app = createOriginApp({
+      CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+      CLOUDFLARE_API_TOKEN: "synthetic-test-token-that-is-never-used",
+    });
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await request(app).get("/api/creative/v1.5/raster/status");
+      expect(response.status).toBe(503);
+      expect(response.body.reason).toBe("STATUS_NOT_LIVE_VERIFIED");
+    }
+    const limited = await request(app).get("/api/creative/v1.5/raster/status");
+    expect(limited.status).toBe(429);
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("rate limits repeated chat requests before provider execution", async () => {
