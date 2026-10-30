@@ -132,7 +132,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
@@ -163,8 +163,6 @@ describe('rasterImageV15Router', () => {
       semanticVisionCritic: {
         version: 'raster-semantic-critic-v1',
         implemented: true,
-        provider: 'cloudflare-workers-ai-free',
-        model: '@cf/moondream/moondream3.1-9B-A2B',
         freeOnly: true,
         costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         paidFallbackEnabled: false,
@@ -172,13 +170,6 @@ describe('rasterImageV15Router', () => {
         deliveryGateWired: true,
         enabled: true,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
-      },
-      candidateSelection: {
-        version: 'raster-candidate-policy-v1',
-        recommendedCandidates: 2,
-        activeCandidates: 1,
-        bestOfNEnabled: false,
-        activationGate: 'live-zero-cost-quota-and-latency-evidence',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -195,46 +186,57 @@ describe('rasterImageV15Router', () => {
     expect(legacy.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
   });
 
-  it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'standard' }));
+  it('does not probe provider or billing APIs from public status when credentials exist', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      configured: true,
+      configured: false,
       ready: false,
-      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
+      externalNetwork: false,
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
-      providerAgnostic: true,
-      registryVersion: 'raster-provider-registry-v1',
       supportedTasks: [],
       modelBasedImageEditing: false,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('reports Free allocation eligibility separately from request-level zero-cost proof', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-      .mockResolvedValueOnce(cfEnvelope([]))
-      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }));
+  it('never exposes live free-allocation eligibility from an unverified public status read', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      ready: true,
+      ready: false,
       zeroCostVerified: false,
-      freeAllocationEligible: true,
+      freeAllocationEligible: false,
+      externalNetwork: false,
       freeOnly: true,
       paidFallbackEnabled: false,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rate limits repeated public raster status reads without provider fan-out', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const application = app(CF_ENV);
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      expect((await request(application).get('/api/creative/v1.5/raster/status')).status).toBe(503);
+    }
+    const limited = await request(application).get('/api/creative/v1.5/raster/status');
+    expect(limited.status).toBe(429);
+    expect(limited.headers['retry-after']).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
