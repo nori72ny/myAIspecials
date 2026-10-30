@@ -33,7 +33,7 @@ const scopedKeyInfo = {
   permissions: {
     models: ['tomdacatto/sana'],
   },
-  pollenBudget: null,
+  pollenBudget: 5,
   questPollenOnly: true,
   rateLimitEnabled: false,
 };
