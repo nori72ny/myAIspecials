@@ -44,7 +44,7 @@ describe('conversation image history persistence', () => {
   });
 
   it('continues to accept verified free-provider images', () => {
-    for (const providerId of ['cloudflare-workers-ai-free', 'pollinations-zero-cost']) {
+    for (const providerId of ['cloudflare-workers-ai-free', 'pollinations-zero-cost'] as const) {
       const messages = parseImportedHistory({
         messages: [{ id: 'image-1', role: 'assistant', content: 'Generated.', image: validImage(providerId) }],
       });
@@ -54,7 +54,7 @@ describe('conversation image history persistence', () => {
 
   it('rejects unknown provider identities rather than restoring unverified images', () => {
     const messages = parseImportedHistory({
-      messages: [{ id: 'image-1', role: 'assistant', content: 'Unverified.', image: validImage('unknown-provider') }],
+      messages: [{ id: 'image-1', role: 'assistant', content: 'Unverified.', image: { ...validImage('cloudflare-workers-ai-free'), providerId: 'unknown-provider' } }],
     });
     expect(messages[0]?.image).toBeUndefined();
   });
