@@ -45,8 +45,6 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
     await expect(page.getByText('Grounded execution evidence', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
@@ -55,11 +53,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await page.reload();
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();
   });
 

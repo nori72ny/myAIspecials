@@ -102,7 +102,6 @@ const STATUS_DETAILS: Record<CodingJobStatus, string> = {
 };
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  CODING_JOB_AUTHENTICATION_REQUIRED: 'Coding専用の認証キーが必要です。認証欄を確認してください。',
   CODING_JOB_DISPATCH_TOKEN_INVALID: 'ワーカーの起動用認証がGitHubに受け付けられませんでした。管理側で認証設定の確認が必要です。',
   CODING_JOB_DISPATCH_PERMISSION_DENIED: 'GitHubがワーカーの起動を拒否しました。管理側で起動権限の確認が必要です。',
   CODING_JOB_DISPATCH_WORKFLOW_INACCESSIBLE: '起動対象のワーカーにアクセスできません。管理側でワークフローとアクセス範囲の確認が必要です。',
@@ -132,8 +131,8 @@ async function jsonBody(response: Response): Promise<JobResponse> {
   catch { return { ok: false, code: 'CODING_UI_INVALID_RESPONSE' }; }
 }
 
-function authHeaders(credential: string): HeadersInit {
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
+function authHeaders(): HeadersInit {
+  return { 'Content-Type': 'application/json' };
 }
 
 function formatTime(value: string | undefined): string {
@@ -186,8 +185,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkingCapability, setCheckingCapability] = useState(true);
-  const credentialInputRef = useRef<HTMLInputElement | null>(null);
-  const credentialRef = useRef('');
   const mountedRef = useRef(true);
   const requestEpochRef = useRef(0);
   const latestVersionRef = useRef(0);
@@ -208,7 +205,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
       .finally(() => { if (mountedRef.current) setCheckingCapability(false); });
     return () => {
       mountedRef.current = false;
-      credentialRef.current = '';
       requestEpochRef.current += 1;
       currentJobIdRef.current = '';
       latestVersionRef.current = 0;
@@ -224,14 +220,13 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
       currentJobIdRef.current = data.job.jobId;
       latestVersionRef.current = data.job.version;
       setJob(data.job);
-      if (!ACTIVE.has(data.job.status)) credentialRef.current = '';
     }
     setResult(data.result ?? null);
     setResultState(data.resultDetailsState ?? 'pending');
   }, []);
 
-  const loadJob = useCallback(async (jobId: string, credential: string, epoch: number) => {
-    const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(jobId)}`, { headers: authHeaders(credential) });
+  const loadJob = useCallback(async (jobId: string, epoch: number) => {
+    const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(jobId)}`, { headers: authHeaders() });
     const data = await jsonBody(response);
     if (epoch !== requestEpochRef.current || currentJobIdRef.current !== jobId) return false;
     if (!response.ok || !data.ok || !data.job) {
@@ -244,11 +239,10 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
   }, [applyResponse]);
 
   const refreshJob = useCallback(async (jobId: string) => {
-    const credential = credentialRef.current;
-    if (!credential || refreshInFlightRef.current || currentJobIdRef.current !== jobId) return;
+    if (refreshInFlightRef.current || currentJobIdRef.current !== jobId) return;
     const epoch = requestEpochRef.current;
     refreshInFlightRef.current = true;
-    try { await loadJob(jobId, credential, epoch); }
+    try { await loadJob(jobId, epoch); }
     catch { if (epoch === requestEpochRef.current) setError('CODING_UI_STATUS_UNAVAILABLE'); }
     finally { refreshInFlightRef.current = false; }
   }, [loadJob]);
@@ -259,12 +253,11 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
     return () => window.clearInterval(timer);
   }, [job?.jobId, job?.status, refreshJob]);
 
-  const beginOperation = useCallback((credential: string, jobId = '') => {
+  const beginOperation = useCallback((jobId = '') => {
     const epoch = requestEpochRef.current + 1;
     requestEpochRef.current = epoch;
     currentJobIdRef.current = jobId;
     latestVersionRef.current = 0;
-    credentialRef.current = credential;
     setBusy(true);
     setError(null);
     setJob(null);
@@ -276,18 +269,15 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
   const startJob = useCallback(async () => {
     const trimmedGoal = goal.trim();
     if (!trimmedGoal || busy || capability?.ready !== true) return;
-    const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
-    const epoch = beginOperation(credential);
+    const epoch = beginOperation();
     try {
-      const response = await fetch('/api/coding/v1.4/jobs', { method: 'POST', headers: authHeaders(credential), body: JSON.stringify({ goal: trimmedGoal, confirmRun: true }) });
+      const response = await fetch('/api/coding/v1.4/jobs', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ goal: trimmedGoal, confirmRun: true }) });
       const data = await jsonBody(response);
       if (epoch !== requestEpochRef.current) return;
-      if (!response.ok || !data.ok || !data.job) { credentialRef.current = ''; setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
+      if (!response.ok || !data.ok || !data.job) { setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
       currentJobIdRef.current = data.job.jobId;
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
       applyResponse(data, epoch);
-    } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_CREATE_UNAVAILABLE'); } }
+    } catch { if (epoch === requestEpochRef.current) setError('CODING_UI_CREATE_UNAVAILABLE'); }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [applyResponse, beginOperation, busy, capability?.ready, goal]);
 
@@ -295,24 +285,20 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
     const jobId = existingJobId.trim();
     if (busy) return;
     if (!JOB_ID.test(jobId)) { setError('CODING_UI_INVALID_JOB_ID'); return; }
-    const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
-    const epoch = beginOperation(credential, jobId);
+    const epoch = beginOperation(jobId);
     try {
-      const loaded = await loadJob(jobId, credential, epoch);
-      if (loaded && credentialInputRef.current) credentialInputRef.current.value = '';
-      if (!loaded && epoch === requestEpochRef.current) credentialRef.current = '';
-    } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_STATUS_UNAVAILABLE'); } }
+      await loadJob(jobId, epoch);
+    } catch { if (epoch === requestEpochRef.current) setError('CODING_UI_STATUS_UNAVAILABLE'); }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [beginOperation, busy, existingJobId, loadJob]);
 
   const cancelJob = useCallback(async () => {
-    if (!job || !ACTIVE.has(job.status) || job.cancelRequested || busy || !credentialRef.current || currentJobIdRef.current !== job.jobId) return;
+    if (!job || !ACTIVE.has(job.status) || job.cancelRequested || busy || currentJobIdRef.current !== job.jobId) return;
     const epoch = requestEpochRef.current;
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(job.jobId)}`, { method: 'DELETE', headers: authHeaders(credentialRef.current) });
+      const response = await fetch(`/api/coding/v1.4/jobs/${encodeURIComponent(job.jobId)}`, { method: 'DELETE', headers: authHeaders() });
       const data = await jsonBody(response);
       if (epoch !== requestEpochRef.current || currentJobIdRef.current !== job.jobId) return;
       if (!response.ok || !data.ok || !data.job) { setError(safeCode(data.code, `CODING_UI_CANCEL_${response.status}`)); return; }
@@ -366,18 +352,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
         />
         <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
 
-        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">実行に必要な認証</summary><p className="mb-2 text-xs leading-5 text-slate-500">コード変更を実行するときだけ必要です。入力内容は端末へ保存しません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
-        <input
-          ref={credentialInputRef}
-          id="coding-operator-key"
-          aria-label="Coding認証キー"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="Coding operator key"
-          className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
-        /></details>
-
         <button
           type="button"
           onClick={() => void startJob()}
@@ -391,7 +365,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
+          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '即座に実行できます (openrouter/free)' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
