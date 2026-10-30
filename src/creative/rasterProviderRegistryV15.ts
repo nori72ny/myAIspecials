@@ -138,6 +138,7 @@ async function selectRasterProviderWithCacheV15(
   env: NodeJS.ProcessEnv,
   cache: RasterProviderStatusCacheV15,
   fetchImpl: typeof fetch,
+  excludedProviderIds: ReadonlySet<string> = new Set(),
 ): Promise<RasterProviderSelectionV15> {
   const statuses: {
     providerId: string;
@@ -151,6 +152,10 @@ async function selectRasterProviderWithCacheV15(
   for (const provider of PROVIDERS) {
     const supportsTask = provider.descriptor.capabilities.some(capability => capability.task === task);
     anySupport ||= supportsTask;
+    if (excludedProviderIds.has(provider.descriptor.id)) {
+      statuses.push({ providerId: provider.descriptor.id, ready: false, reason: 'PROVIDER_PREVIOUSLY_EXHAUSTED', supportsTask, status: null });
+      continue;
+    }
     if (!supportsTask) {
       statuses.push({
         providerId: provider.descriptor.id,
@@ -222,6 +227,15 @@ export async function selectRasterProviderV15(
   fetchImpl: typeof fetch = fetch,
 ): Promise<RasterProviderSelectionV15> {
   return selectRasterProviderWithCacheV15(task, env, new Map(), fetchImpl);
+}
+
+export async function selectRasterProviderExcludingV15(
+  task: RasterTaskV15,
+  env: NodeJS.ProcessEnv,
+  excludedProviderIds: readonly string[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<RasterProviderSelectionV15> {
+  return selectRasterProviderWithCacheV15(task, env, new Map(), fetchImpl, new Set(excludedProviderIds));
 }
 
 export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = process.env) {
