@@ -4,6 +4,7 @@ const POLLINATIONS_ORIGIN = 'https://gen.pollinations.ai';
 const DEFAULT_MODEL = 'tomdacatto/sana';
 const AUDITED_ZERO_COST_MODELS = new Set(['tomdacatto/sana']);
 const MAX_PROMPT_CHARS = 2_000;
+const MAX_POLLEN_KEY_BUDGET = 5;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const IMAGE_GENERATION_TIMEOUT_MS = 45_000;
@@ -323,7 +324,7 @@ async function verifyScopedPollinationsKeyV15(
   if (typeof parsed.pollenBudget !== 'number'
     || !Number.isFinite(parsed.pollenBudget)
     || parsed.pollenBudget <= 0
-    || parsed.pollenBudget > 5
+    || parsed.pollenBudget > MAX_POLLEN_KEY_BUDGET
     || parsed.questPollenOnly !== true) return false;
   return true;
 }
