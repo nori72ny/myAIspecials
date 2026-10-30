@@ -59,6 +59,28 @@ describe('worldClassImageV16Router', () => {
     vi.restoreAllMocks();
   });
 
+  it('blocks status, generation, and editing without outbound calls when FREE_ONLY is enabled', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const freeOnlyApp = app({ ...BASE_ENV, FREE_ONLY: 'true' });
+
+    const status = await request(freeOnlyApp).get('/api/creative/v1.6/world-class/status');
+    const generate = await request(freeOnlyApp)
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '高級ホテルの広告ビジュアル' });
+    const edit = await request(freeOnlyApp)
+      .post('/api/creative/v1.6/world-class/edit')
+      .send({ prompt: '背景を変更', referenceImages: ['data:image/png;base64,QUJDRA=='] });
+
+    expect(status.status).toBe(503);
+    expect(status.body).toMatchObject({ ready: false, freeOnly: true, code: 'FREE_ONLY_POLICY_ENFORCED' });
+    expect(generate.status).toBe(503);
+    expect(generate.body.code).toBe('FREE_ONLY_POLICY_ENFORCED');
+    expect(edit.status).toBe(503);
+    expect(edit.body.code).toBe('FREE_ONLY_POLICY_ENFORCED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('fails closed when world-class mode is disabled', async () => {
     const response = await request(app({ ...BASE_ENV, ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'false' }))
       .post('/api/creative/v1.6/world-class/generate')
