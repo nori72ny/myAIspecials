@@ -167,6 +167,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
         ready: false,
         model: null,
         zeroCostVerified: false,
+        freeAllocationEligible: false,
         paymentMethodRequired: false,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
