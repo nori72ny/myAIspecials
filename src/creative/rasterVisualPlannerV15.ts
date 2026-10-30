@@ -88,7 +88,7 @@ function quotedText(input: string): string[] {
     const normalizedExplicit = explicit ? explicit.trim().replace(/[。,.，]+$/g, '') : '';
     if (normalizedExplicit && !values.includes(normalizedExplicit)) values.push(normalizedExplicit);
   }
-  if (values.length === 0 && /(?:ロゴ|logo)/i.test(input) && /\\bORIGIN\\b/i.test(input)) values.push('ORIGIN');
+  if (values.length === 0 && /(?:ロゴ|logo)/i.test(input) && /\bORIGIN\b/i.test(input)) values.push('ORIGIN');
   return values.slice(0, 8);
 }
 
