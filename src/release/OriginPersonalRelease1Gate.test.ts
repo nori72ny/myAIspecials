@@ -128,7 +128,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
     expect(metadata.majorCapabilities).toBeUndefined();
     expect(app).toContain("releaseSha: resolveOriginReleaseSha(env)");
-    expect(app).toContain("costUsd: 0");
+    expect(app).not.toContain("costUsd: 0");
     expect(app).toContain("freeOnly: true");
     expect(app).toContain("paidFallbackEnabled: false");
     expect(app).toContain('secretDelivery: "server-only"');
