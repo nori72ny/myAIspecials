@@ -80,7 +80,8 @@ describe('rasterLiveQualificationV15', () => {
       provider: {
         id: 'cloudflare-workers-ai-free',
         ready: true,
-        zeroCostVerified: true,
+        zeroCostVerified: false,
+        freeAllocationEligible: true,
         paymentMethodRequired: false,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
