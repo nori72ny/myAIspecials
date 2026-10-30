@@ -270,8 +270,13 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       // Use the same readiness and zero-cost gate as /status. A static first-provider
       // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
       let providerSelectionRequests = 0;
+      let providerGenerationRequests = 0;
       const countedFetch: typeof fetch = (request: RequestInfo | URL, init?: RequestInit) => {
         providerSelectionRequests += 1;
+        return fetch(request, init);
+      };
+      const countedGenerationFetch: typeof fetch = (request: RequestInfo | URL, init?: RequestInit) => {
+        providerGenerationRequests += 1;
         return fetch(request, init);
       };
       let selection = await selectRasterProviderV15(providerTask, env, countedFetch);
@@ -294,7 +299,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       };
       let result: RasterImageResultV15;
       try {
-        result = await selection.provider.generate(generationInput, env);
+        result = await selection.provider.generate(generationInput, env, countedGenerationFetch);
       } catch (generationError) {
         const generationCode = generationError instanceof Error ? generationError.message : '';
         // Cloudflare code 3036 is an explicit quota rejection: inference was not
@@ -313,7 +318,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         );
         if (!fallback.ready) throw generationError;
         selection = fallback;
-        result = await fallback.provider.generate(generationInput, env);
+        result = await fallback.provider.generate(generationInput, env, countedGenerationFetch);
       }
       const expectedWidth = input.width ?? plan.width;
       const expectedHeight = input.height ?? plan.height;
@@ -393,7 +398,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Cost-Evidence', result.costEvidence);
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-External-Network', 'true');
-      res.setHeader('X-Origin-External-Network-Requests', String(providerSelectionRequests + result.externalNetworkRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
+      res.setHeader('X-Origin-External-Network-Requests', String(providerSelectionRequests + providerGenerationRequests + (semanticCritic?.externalNetworkRequests ?? 0)));
       res.setHeader('X-Origin-Secret-Delivery', 'server-only');
       return res.status(200).send(result.bytes);
     } catch (error) {
