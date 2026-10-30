@@ -258,6 +258,27 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(new Headers(init.headers).get('content-type')).toBeNull();
   });
 
+  it('rejects oversized Cloudflare JSON image responses before buffering the body', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(new Response('{}', {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(17 * 1024 * 1024),
+        },
+      }));
+
+    await expect(generateCloudflareRasterImageV15({
+      prompt: 'bounded response test',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_RESPONSE_SIZE_OUT_OF_BOUNDS');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it('sends bounded reference images as indexed multipart inputs for editing', async () => {
     const output = png(768, 1024);
     const reference = png(320, 240);
