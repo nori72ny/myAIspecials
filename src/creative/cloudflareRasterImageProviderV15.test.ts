@@ -113,7 +113,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       zeroCostVerified: false,
       reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
@@ -282,7 +282,6 @@ describe('cloudflareRasterImageProviderV15', () => {
       providerId: 'cloudflare-workers-ai-free',
       width: 768,
       height: 1024,
-      costUsd: 0,
       freeOnly: true,
       externalNetworkRequests: 4,
     });
@@ -327,7 +326,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       height: 1024,
     }, ENV, fetchMock as unknown as typeof fetch);
 
-    expect(result).toMatchObject({ mimeType, width: 768, height: 1024, costUsd: 0, freeOnly: true });
+    expect(result).toMatchObject({ mimeType, width: 768, height: 1024, freeOnly: true });
   });
 
   it.each([
