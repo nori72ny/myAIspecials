@@ -3,7 +3,6 @@ import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15, type RasterImageResultV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import {
-  rasterProviderRuntimeStatusV15,
   selectRasterProviderV15,
   selectRasterProviderExcludingV15,
 } from './rasterProviderRegistryV15.js';
@@ -125,27 +124,27 @@ function filename(mime: string): string {
 export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
-  router.get('/api/creative/v1.5/raster/status', async (_req, res) => {
-    const runtime = await rasterProviderRuntimeStatusV15(env);
-    const status = runtime.textToImageStatus;
-    return res.status(runtime.textToImageReady ? 200 : 503).json({
-      ok: runtime.textToImageReady,
-      configured: status?.configured ?? false,
-      ready: runtime.textToImageReady,
-      providerId: status?.providerId ?? null,
-      model: status?.model ?? null,
-      zeroCostVerified: status?.zeroCostVerified ?? false,
-      freeAllocationEligible: status?.freeAllocationEligible ?? false,
-      paymentMethodRequired: status?.paymentMethodRequired ?? false,
-      secretDelivery: status?.secretDelivery ?? 'server-only',
-      externalNetwork: status?.externalNetwork ?? true,
-      reason: runtime.textToImageReason,
-      providerAgnostic: runtime.providerAgnostic,
-      registryVersion: runtime.registryVersion,
-      providers: runtime.providers,
+  router.get('/api/creative/v1.5/raster/status', (_req, res) => {
+    // Public status must never fan out to provider/billing APIs. It reports only
+    // locally known, conservative state; live qualification is handled separately.
+    return res.status(503).json({
+      ok: false,
+      configured: false,
+      ready: false,
+      providerId: null,
+      model: null,
+      zeroCostVerified: false,
+      freeAllocationEligible: false,
+      paymentMethodRequired: false,
+      secretDelivery: 'server-only',
+      externalNetwork: false,
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
+      providerAgnostic: true,
+      registryVersion: 'raster-provider-registry-v1',
+      providers: [],
       freeOnly: true,
       paidFallbackEnabled: false,
-      supportedTasks: runtime.supportedTasks,
+      supportedTasks: [],
       rasterCritic: {
         version: 'raster-structural-critic-v1',
         failClosed: true,
@@ -162,8 +161,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       semanticVisionCritic: {
         version: 'raster-semantic-critic-v1',
         implemented: true,
-        provider: 'cloudflare-workers-ai-free',
-        model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
         freeOnly: true,
         costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         paidFallbackEnabled: false,
@@ -171,19 +168,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         deliveryGateWired: true,
         enabled: semanticDeliveryGateEnabled(env),
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
-        axes: [
-          'promptAdherence',
-          'composition',
-          'subjectIntegrity',
-          'styleExecution',
-          'textHandling',
-          'artifactControl',
-          'professionalUsefulness',
-        ],
-      },
-      candidateSelection: {
-        ...candidatePolicyForRasterRequestV15('高品質な広告画像を作ってください', 'advertisement'),
-        activationGate: 'live-zero-cost-quota-and-latency-evidence',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -196,7 +180,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           typographyZone: template.typographyZone,
         })),
       },
-      modelBasedImageEditing: runtime.editingReady,
+      modelBasedImageEditing: false,
       referenceImagePolicy: {
         transport: 'data-url-only',
         remoteUrlsAllowed: false,
