@@ -84,7 +84,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       passed: true,
       model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
       freeOnly: true,
-      costUsd: 0,
+      costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
       externalNetworkRequests: 4,
@@ -93,6 +93,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     });
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/models/schema?model=%40cf%2Fmoondream%2Fmoondream3.1-9B-A2B');
     expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/moondream/moondream3.1-9B-A2B');
     const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const headers = new Headers(init.headers);
