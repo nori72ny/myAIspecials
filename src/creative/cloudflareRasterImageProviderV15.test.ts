@@ -86,8 +86,8 @@ describe('cloudflareRasterImageProviderV15', () => {
       configured: true,
       ready: true,
       model: '@cf/black-forest-labs/flux-2-klein-9b',
-      zeroCostVerified: false,
-      reason: 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED',
+      zeroCostVerified: true,
+      reason: null,
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
