@@ -186,6 +186,20 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     });
   }
 
+  // Cloudflare's current evidence is account-level Free-allocation preflight only.
+  // It cannot correlate a completed inference with a request-level $0.00 usage record.
+  // Do not spend quota on a live qualification that cannot prove its release invariant.
+  return finalize({
+    version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
+    state: 'blocked',
+    reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
+    generatedAt,
+    provider,
+    generation: null,
+    edit: null,
+    invariants: baseInvariants,
+  });
+
   let generation: RasterLivePhaseEvidenceV15 | null = null;
   let edit: RasterLivePhaseEvidenceV15 | null = null;
   try {
