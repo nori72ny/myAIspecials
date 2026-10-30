@@ -242,6 +242,7 @@ export async function verifyCloudflareRasterFreeModelV15(
       providerId: 'cloudflare-workers-ai-free',
       model: null,
       zeroCostVerified: false,
+      freeAllocationEligible: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -271,7 +272,9 @@ export async function verifyCloudflareRasterFreeModelV15(
       // Workers Free has a hard daily allocation: requests beyond it fail
       // rather than switching to paid billing. verifyWorkersFreePlan also
       // rejects detected Workers Paid subscriptions and paid-only models.
-      zeroCostVerified: proof.ok,
+      // Account-level Free allocation eligibility is not request-attributed cost verification.
+      zeroCostVerified: false,
+      freeAllocationEligible: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -285,6 +288,7 @@ export async function verifyCloudflareRasterFreeModelV15(
       providerId: 'cloudflare-workers-ai-free',
       model: null,
       zeroCostVerified: false,
+      freeAllocationEligible: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -335,7 +339,9 @@ export async function getCloudflareRasterStatusV15(
       // Workers Free has a hard daily allocation: requests beyond it fail
       // rather than switching to paid billing. verifyWorkersFreePlan also
       // rejects detected Workers Paid subscriptions and paid-only models.
-      zeroCostVerified: proof.ok,
+      // Account-level Free allocation eligibility is not request-attributed cost verification.
+      zeroCostVerified: false,
+      freeAllocationEligible: proof.ok,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
@@ -349,6 +355,7 @@ export async function getCloudflareRasterStatusV15(
       providerId: 'cloudflare-workers-ai-free',
       model: null,
       zeroCostVerified: false,
+      freeAllocationEligible: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
