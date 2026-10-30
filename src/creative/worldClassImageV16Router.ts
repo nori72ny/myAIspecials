@@ -179,6 +179,14 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
   const router = Router();
 
   router.get('/api/creative/v1.6/world-class/status', async (_req, res) => {
+    if (bool(env, 'FREE_ONLY')) {
+      return res.status(503).json({
+        ok: false, ready: false, evaluationReady: false, enabled: false,
+        qualified: false, provider: 'disabled-by-free-only-policy',
+        providerReady: false, freeOnly: true, paidFallbackEnabled: false,
+        code: 'FREE_ONLY_POLICY_ENFORCED', secretDelivery: 'server-only',
+      });
+    }
     const key = credentials(env);
     const enabled = bool(env, 'ORIGIN_IMAGE_WORLD_CLASS_ENABLED');
     const isQualified = qualified(env);
@@ -213,6 +221,7 @@ export function createWorldClassImageV16Router(env: NodeJS.ProcessEnv = process.
   });
 
   const handler = (editing: boolean) => async (req: Request, res: ExpressResponse) => {
+    if (bool(env, 'FREE_ONLY')) return fail(res, 503, 'FREE_ONLY_POLICY_ENFORCED', '0円運用ポリシーにより有料画像モデルへの接続を停止しています。', false);
     if (sensitive(req.body)) return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密情報の可能性があるため外部画像モデルへ送信しません。');
     let input: ParsedRequest;
     try { input = parse(req.body, editing); }
