@@ -32,9 +32,9 @@ const scopedKeyInfo = {
   type: 'secret',
   permissions: {
     models: ['tomdacatto/sana'],
-    account: ['usage'],
   },
-  pollenBudget: 0,
+  pollenBudget: null,
+  questPollenOnly: true,
   rateLimitEnabled: false,
 };
 
@@ -118,13 +118,14 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
-  it('requires a least-privilege secret key scoped to the audited model and usage evidence', async () => {
+  it('requires a least-privilege Quest-Pollen-only secret key scoped to the audited model', async () => {
     for (const keyInfo of [
       { ...scopedKeyInfo, type: 'publishable' },
-      { ...scopedKeyInfo, permissions: { models: null, account: ['usage'] } },
-      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'], account: ['usage'] } },
-      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana'], account: [] } },
+      { ...scopedKeyInfo, permissions: { models: null } },
+      { ...scopedKeyInfo, permissions: { models: ['tomdacatto/sana', 'flux'] } },
+      { ...scopedKeyInfo, pollenBudget: 0 },
       { ...scopedKeyInfo, pollenBudget: 1 },
+      { ...scopedKeyInfo, questPollenOnly: false },
     ]) {
       const fetchMock = vi.fn().mockResolvedValueOnce(json(keyInfo)) as unknown as typeof fetch;
       await expect(generateRasterImageV15(
