@@ -73,7 +73,7 @@ function successfulFetchMock() {
     .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
 }
 
-function semanticFetchMock(passed = true) {
+function semanticFetchMock(passed = true, criticFailure?: Response) {
   const png = pngBytes(768, 1024);
   const answer = passed
     ? {
@@ -116,7 +116,7 @@ function semanticFetchMock(passed = true) {
     .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
     .mockResolvedValueOnce(cfEnvelope([]))
     .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope({ answer: JSON.stringify(answer) }));
+    .mockResolvedValueOnce(criticFailure ?? cfEnvelope({ answer: JSON.stringify(answer) }));
 }
 
 describe('rasterImageV15Router', () => {
@@ -567,8 +567,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('marks semantic-critic transport failure non-retryable after image generation', async () => {
-    const fetchMock = semanticFetchMock(true);
-    fetchMock.mockResolvedValueOnce(cfFailure(500, 1001));
+    const fetchMock = semanticFetchMock(true, cfFailure(500, 1001));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app({
