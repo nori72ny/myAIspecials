@@ -225,7 +225,7 @@ describe('rasterImageProviderV15', () => {
       mimeType: 'image/png',
       model: 'tomdacatto/sana',
       providerId: 'pollinations-zero-cost',
-      costUsd: 0,
+      costEvidence: 'post-generation-usage-zero-confirmed',
       freeOnly: true,
       externalNetworkRequests: 5,
       width: 768,
