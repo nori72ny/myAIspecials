@@ -56,7 +56,7 @@ export type RasterLiveQualificationEvidenceV15 = {
   edit: RasterLivePhaseEvidenceV15 | null;
   invariants: {
     freeOnly: true;
-    costUsd: 0;
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified';
     paidFallbackEnabled: false;
     secretDelivery: 'server-only';
     explicitLiveOptInRequired: true;
@@ -137,7 +137,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const baseInvariants = {
     freeOnly: true as const,
-    costUsd: 0 as const,
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified' as const,
     paidFallbackEnabled: false as const,
     secretDelivery: 'server-only' as const,
     explicitLiveOptInRequired: true as const,
