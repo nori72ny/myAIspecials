@@ -268,12 +268,12 @@ export async function verifyCloudflareRasterFreeModelV15(
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
       model: proof.ok ? model : null,
-      zeroCostVerified: proof.ok,
+      zeroCostVerified: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
       externalNetwork: true,
-      reason: proof.reason,
+      reason: proof.ok ? 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED' : proof.reason,
     };
   } catch {
     return {
@@ -329,12 +329,12 @@ export async function getCloudflareRasterStatusV15(
       ready: proof.ok,
       providerId: 'cloudflare-workers-ai-free',
       model: proof.ok ? model : null,
-      zeroCostVerified: proof.ok,
+      zeroCostVerified: false,
       paidFallbackEnabled: false,
       paymentMethodRequired: false,
       secretDelivery: 'server-only',
       externalNetwork: true,
-      reason: proof.reason,
+      reason: proof.ok ? 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED' : proof.reason,
     };
   } catch {
     return {
