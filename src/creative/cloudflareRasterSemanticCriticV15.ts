@@ -162,7 +162,8 @@ export async function critiqueCloudflareRasterSemanticV15(
   }
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(input.mimeType)) throw new Error('RASTER_SEMANTIC_CRITIC_INPUT_INVALID');
 
-  // Verify the exact vision-critic model, not merely the separately configured image model.\n  const status = await verifyCloudflareRasterFreeModelV15(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, env, fetchImpl);
+  // Verify the exact vision-critic model, not merely the separately configured image model.
+  const status = await verifyCloudflareRasterFreeModelV15(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, env, fetchImpl);
   if (!status.ready || !status.zeroCostVerified || status.paymentMethodRequired || status.paidFallbackEnabled) {
     throw new Error(status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
   }
