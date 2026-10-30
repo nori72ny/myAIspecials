@@ -35,7 +35,7 @@ export type RasterProviderDescriptorV15 = {
 export type RasterProviderRuntimeV15 = {
   descriptor: RasterProviderDescriptorV15;
   status(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterProviderStatusV15>;
-  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
+  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterImageResultV15>;
 };
 
 const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
@@ -80,12 +80,12 @@ const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
   {
     descriptor: CLOUDFLARE_DESCRIPTOR,
     status: (env = process.env, fetchImpl = fetch) => getCloudflareRasterStatusV15(env, fetchImpl),
-    generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
+    generate: (input, env = process.env, fetchImpl = fetch) => generateCloudflareRasterImageV15(input, env, fetchImpl),
   },
   {
     descriptor: POLLINATIONS_DESCRIPTOR,
     status: (env = process.env, fetchImpl = fetch) => getRasterProviderStatusV15(env, fetchImpl),
-    generate: (input, env = process.env) => generateRasterImageV15(input, env),
+    generate: (input, env = process.env, fetchImpl = fetch) => generateRasterImageV15(input, env, fetchImpl),
   },
 ];
 
