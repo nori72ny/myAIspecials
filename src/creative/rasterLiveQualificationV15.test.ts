@@ -137,7 +137,7 @@ describe('rasterLiveQualificationV15', () => {
       height: 384,
       providerId: 'cloudflare-workers-ai-free',
       structural: { passed: true, score: 100 },
-      semantic: { passed: true, costUsd: 0, freeOnly: true },
+      semantic: { passed: true, costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified', freeOnly: true },
     });
     expect(result.edit?.sha256).not.toBe(result.generation?.sha256);
     expect(result.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
