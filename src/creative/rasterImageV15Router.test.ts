@@ -631,4 +631,33 @@ describe('rasterImageV15Router', () => {
     expect(response.body.code).toBe('INVALID_RASTER_REQUEST_FIELD');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('marks an ambiguous lost generation response non-retryable and never switches providers', async () => {
+    const fetchMock = vi.fn()
+      // Provider selection readiness probe.
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      // Provider re-check immediately before inference.
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      // The request may have reached the provider, but the response is lost.
+      .mockRejectedValueOnce(new Error('socket reset after request dispatch'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...CF_ENV,
+      POLLINATIONS_API_KEY: 'test-pollinations-key',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(502);
+    expect(response.body.retryable).toBe(false);
+    expect(response.body.message).toContain('自動再試行を停止');
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('gen.pollinations.ai'))).toBe(false);
+  });
+
 });
