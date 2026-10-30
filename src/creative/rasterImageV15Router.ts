@@ -135,6 +135,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       providerId: status?.providerId ?? null,
       model: status?.model ?? null,
       zeroCostVerified: status?.zeroCostVerified ?? false,
+      freeAllocationEligible: status?.freeAllocationEligible ?? false,
       paymentMethodRequired: status?.paymentMethodRequired ?? false,
       secretDelivery: status?.secretDelivery ?? 'server-only',
       externalNetwork: status?.externalNetwork ?? true,
