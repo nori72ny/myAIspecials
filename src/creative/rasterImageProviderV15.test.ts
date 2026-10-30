@@ -118,6 +118,24 @@ describe('rasterImageProviderV15', () => {
     });
   });
 
+  it('reports Free allocation eligibility separately from request-level zero-cost proof', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel])) as unknown as typeof fetch;
+    const status = await getRasterProviderStatusV15({ POLLINATIONS_API_KEY: 'sk_test' }, fetchMock);
+
+    expect(status).toMatchObject({
+      configured: true,
+      ready: true,
+      providerId: 'pollinations-zero-cost',
+      model: 'tomdacatto/sana',
+      zeroCostVerified: false,
+      freeAllocationEligible: true,
+      reason: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('requires a least-privilege Quest-Pollen-only secret key scoped to the audited model', async () => {
     for (const keyInfo of [
       { ...scopedKeyInfo, type: 'publishable' },
