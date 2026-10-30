@@ -19,32 +19,6 @@ function envelope(result: unknown, status = 200) {
   });
 }
 
-function png(width: number, height: number, marker: number) {
-  const bytes = Buffer.alloc(96, 0);
-  Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(bytes,0);
-  Buffer.from('IHDR','ascii').copy(bytes,12);
-  bytes.writeUInt32BE(width,16);
-  bytes.writeUInt32BE(height,20);
-  bytes[95] = marker;
-  return bytes;
-}
-
-function semanticAnswer(summary: string) {
-  return JSON.stringify({
-    promptAdherence: 3.8,
-    composition: 3.7,
-    subjectIntegrity: 3.8,
-    styleExecution: 3.5,
-    textHandling: 3.8,
-    artifactControl: 3.8,
-    professionalUsefulness: 3.7,
-    safetyPassed: true,
-    safetyIssues: [],
-    criticalIssues: [],
-    summary,
-  });
-}
-
 function readyProof(fetchMock: ReturnType<typeof vi.fn>) {
   fetchMock
     .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
