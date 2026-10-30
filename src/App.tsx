@@ -1353,7 +1353,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
               relation: requestedRelation, parentId: requestedParentId,
               width: local.width, height: local.height, blob: local.blob,
             });
-            if (localHistory === 'failed') throw new Error('local-canvas-history-integrity-failed');
+            if (localHistory !== 'saved') throw new Error('local-canvas-history-not-durable');
             rasterSessionBlobs.current.set(local.sha256, local.blob);
             const imageUrl = URL.createObjectURL(local.blob);
             rasterObjectUrls.current.add(imageUrl);
@@ -1569,7 +1569,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           height,
           blob,
         });
-        if (baseHistoryStatus === 'failed') throw new Error('raster-history-integrity-failed');
+        if (baseHistoryStatus !== 'saved') throw new Error('raster-history-not-durable');
 
         if (deterministicTypographyApplied) {
           const composedHistoryStatus = await saveRasterAssetV15({
