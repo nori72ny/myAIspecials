@@ -86,6 +86,12 @@ function safeProviderEvidence(status: Awaited<ReturnType<typeof getCloudflareRas
   };
 }
 
+// Cloudflare currently exposes account-level Free allocation preflight, not a
+// a request-correlated usage record. Keep this false until that evidence exists.
+function cloudflareRequestCostEvidenceAvailableV15(): boolean {
+  return false;
+}
+
 function evidenceHash(value: Omit<RasterLiveQualificationEvidenceV15, 'evidenceSha256'>): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -186,19 +192,19 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     });
   }
 
-  // Cloudflare's current evidence is account-level Free-allocation preflight only.
-  // It cannot correlate a completed inference with a request-level $0.00 usage record.
-  // Do not spend quota on a live qualification that cannot prove its release invariant.
-  return finalize({
-    version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
-    state: 'blocked',
-    reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
-    generatedAt,
-    provider,
-    generation: null,
-    edit: null,
-    invariants: baseInvariants,
-  });
+  if (!cloudflareRequestCostEvidenceAvailableV15()) {
+    // Do not spend quota on a live qualification that cannot prove its release invariant.
+    return finalize({
+      version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
+      state: 'blocked',
+      reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
+      generatedAt,
+      provider,
+      generation: null,
+      edit: null,
+      invariants: baseInvariants,
+    });
+  }
 
   let generation: RasterLivePhaseEvidenceV15 | null = null;
   let edit: RasterLivePhaseEvidenceV15 | null = null;
