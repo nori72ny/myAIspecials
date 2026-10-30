@@ -6,6 +6,8 @@ import { createWorldClassImageV16Router } from './worldClassImageV16Router';
 
 const SHA = 'a'.repeat(40);
 const BASE_ENV: NodeJS.ProcessEnv = {
+  NODE_ENV: 'test',
+  FREE_ONLY: 'false',
   OPENROUTER_API_KEY: 'sk-or-test-' + 'x'.repeat(32),
   ORIGIN_IMAGE_WORLD_CLASS_ENABLED: 'true',
   ORIGIN_IMAGE_WORLD_CLASS_MODEL: 'openai/gpt-image-2.5-sunburst',
@@ -54,6 +56,98 @@ function generatedResponse(cost = 0.12): Response {
 }
 
 describe('worldClassImageV16Router', () => {
+  it('blocks the potentially paid frontier route under the default free-only policy before any provider request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const env = { ...BASE_ENV };
+    delete env.FREE_ONLY;
+    const response = await request(app(env))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks the potentially paid frontier route when FREE_ONLY is explicitly enabled', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({ ...BASE_ENV, FREE_ONLY: 'true' }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+
+  it('cannot bypass the paid-provider block by setting FREE_ONLY=false in production', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({
+      ...BASE_ENV,
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'production',
+      FREE_ONLY: 'false',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('cannot bypass free-only when Vercel production is set even if NODE_ENV says test', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({
+      ...BASE_ENV,
+      NODE_ENV: 'test',
+      VERCEL_ENV: 'production',
+      FREE_ONLY: 'false',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('cannot bypass free-only in Vercel preview even if NODE_ENV says test', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({
+      ...BASE_ENV,
+      NODE_ENV: 'test',
+      VERCEL_ENV: 'preview',
+      FREE_ONLY: 'false',
+    }))
+      .post('/api/creative/v1.6/world-class/generate')
+      .send({ prompt: '風景写真を生成してください' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports the frontier provider as not ready in production even when FREE_ONLY is misconfigured false', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({
+      ...BASE_ENV,
+      NODE_ENV: 'production',
+      VERCEL_ENV: 'production',
+      FREE_ONLY: 'false',
+    })).get('/api/creative/v1.6/world-class/status');
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      ready: false,
+      enabled: false,
+      freeOnly: true,
+      paidFallbackEnabled: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -81,6 +175,7 @@ describe('worldClassImageV16Router', () => {
   it('never allows the evaluation bypass in production', async () => {
     const response = await request(app({
       ...BASE_ENV,
+      NODE_ENV: 'production',
       VERCEL_ENV: 'production',
       ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
       ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
@@ -88,7 +183,7 @@ describe('worldClassImageV16Router', () => {
       .post('/api/creative/v1.6/world-class/generate')
       .send({ prompt: '高級ホテルの広告ビジュアル' });
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_SHA_NOT_QUALIFIED');
+    expect(response.body.code).toBe('WORLD_CLASS_IMAGE_PAID_PROVIDER_DISABLED');
   });
 
   it('labels non-production evaluation output without falsely claiming qualification', async () => {
@@ -99,7 +194,7 @@ describe('worldClassImageV16Router', () => {
 
     const response = await request(app({
       ...BASE_ENV,
-      VERCEL_ENV: 'preview',
+      VERCEL_ENV: 'development',
       ORIGIN_IMAGE_WORLD_CLASS_QUALIFIED_SHA: 'b'.repeat(40),
       ORIGIN_IMAGE_WORLD_CLASS_EVAL: 'true',
     }))
