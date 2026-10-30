@@ -164,7 +164,8 @@ export async function critiqueCloudflareRasterSemanticV15(
 
   // Verify the exact vision-critic model, not merely the separately configured image model.
   const status = await verifyCloudflareRasterFreeModelV15(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, env, fetchImpl);
-  if (!status.ready || !status.zeroCostVerified || status.paymentMethodRequired || status.paidFallbackEnabled) {
+  if (!status.ready || !(status.zeroCostVerified || status.freeAllocationEligible === true)
+    || status.paymentMethodRequired || status.paidFallbackEnabled) {
     throw new Error(status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
   }
 
