@@ -453,8 +453,9 @@ describe('rasterImageV15Router', () => {
     };
     const scopedKeyInfo = {
       valid: true, type: 'secret',
-      permissions: { models: ['tomdacatto/sana'], account: ['usage'] },
-      pollenBudget: 0,
+      permissions: { models: ['tomdacatto/sana'] },
+      pollenBudget: null,
+      questPollenOnly: true,
     };
     const fetchMock = vi.fn()
       // Cloudflare selection and immediate pre-inference recheck.
