@@ -55,8 +55,9 @@ function purposeFor(input: string): RasterVisualPurposeV15 {
   if (/(?:ロゴ|logo)/i.test(input)) return 'logo';
   if (/(?:アイコン|app icon|favicon|icon)/i.test(input)) return 'icon';
   // Preserve product-specific art direction when a product is also being advertised.
-  if (/(?:商品|product|物撮り|EC|パッケージ|ボトル|化粧品|料理|ジュエリー|時計|バッグ)/i.test(input)) return 'product';
-  if (/(?:広告|ad(?:vertisement)?|campaign|訴求)/i.test(input)) return 'advertisement';
+  if (/(?:商品広告|product\\s+ad|product\\s+photography|物撮り|EC|パッケージ|ボトル|化粧品|料理|ジュエリー|時計|バッグ)/i.test(input)) return 'product';
+  if (/(?:広告|ad(?:vertisement)?|campaign|キャンペーン|訴求)/i.test(input)) return 'advertisement';
+  if (/(?:商品|product)/i.test(input)) return 'product';
   if (/(?:Instagram|インスタ|SNS|social|X投稿|LinkedIn)/i.test(input)) return 'social';
   if (/(?:ポスター|poster)/i.test(input)) return 'poster';
   if (/(?:サムネ|thumbnail|YouTube)/i.test(input)) return 'thumbnail';
