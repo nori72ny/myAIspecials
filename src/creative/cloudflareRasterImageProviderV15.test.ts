@@ -113,7 +113,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       zeroCostVerified: false,
       reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
