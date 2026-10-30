@@ -80,6 +80,7 @@ type PollinationsKeyInfoV15 = {
   type?: unknown;
   permissions?: unknown;
   pollenBudget?: unknown;
+  questPollenOnly?: unknown;
 };
 
 function boundedInt(value: unknown, fallback: number): number {
@@ -314,10 +315,11 @@ async function verifyScopedPollinationsKeyV15(
   if (!parsed.permissions || typeof parsed.permissions !== 'object' || Array.isArray(parsed.permissions)) return false;
   const permissions = parsed.permissions as Record<string, unknown>;
   const models = permissions.models;
-  const account = permissions.account;
   if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
-  if (!Array.isArray(account) || !account.includes('usage')) return false;
-  if (typeof parsed.pollenBudget !== 'number' || !Number.isFinite(parsed.pollenBudget) || parsed.pollenBudget !== 0) return false;
+  // Secret keys use null for an unlimited key budget. A zero budget means no
+  // generation allowance. questPollenOnly is the hard guard that prevents
+  // spending paid Pollen; exhausted Quest Pollen must fail at the provider.
+  if (parsed.pollenBudget !== null || parsed.questPollenOnly !== true) return false;
   return true;
 }
 
