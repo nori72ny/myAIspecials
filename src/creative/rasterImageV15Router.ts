@@ -129,7 +129,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
     // locally known, conservative state; live qualification is handled separately.
     return res.status(503).json({
       ok: false,
-      configured: false,
       ready: false,
       providerId: null,
       model: null,
