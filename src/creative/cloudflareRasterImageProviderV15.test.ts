@@ -240,7 +240,7 @@ describe('cloudflareRasterImageProviderV15', () => {
       mimeType: 'image/png',
       width: 768,
       height: 1024,
-      costUsd: 0,
+      costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
       freeOnly: true,
       externalNetworkRequests: 4,
     });
