@@ -217,6 +217,26 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('reports Free allocation eligibility separately from request-level zero-cost proof', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ready: true,
+      zeroCostVerified: false,
+      freeAllocationEligible: true,
+      freeOnly: true,
+      paidFallbackEnabled: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
