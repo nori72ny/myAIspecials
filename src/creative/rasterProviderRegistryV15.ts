@@ -194,8 +194,10 @@ async function selectRasterProviderWithCacheV15(
       });
       continue;
     }
+    // Cloudflare's hard-capped Free allocation is eligible for routing, but its
+    // preflight must never be represented as request-level zero-cost verification.
     const safe = status.ready
-      && status.zeroCostVerified
+      && (status.zeroCostVerified || status.freeAllocationEligible === true)
       && status.paidFallbackEnabled === false
       && status.paymentMethodRequired === false
       && status.secretDelivery === 'server-only'
