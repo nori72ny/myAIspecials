@@ -174,6 +174,7 @@ describe('rasterImageV15Router', () => {
         version: 'raster-template-engine-v1',
       },
     });
+    expect(JSON.stringify(status.body)).not.toMatch(/CLOUDFLARE_|POLLINATIONS_|subscription|billing/i);
     expect(status.body.templateEngine.templates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'instagram-story', width: 864, height: 1536, safeMarginPct: 9 }),
       expect.objectContaining({ id: 'youtube-thumbnail', width: 1536, height: 864 }),
