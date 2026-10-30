@@ -417,7 +417,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
         return fail(res, 503, code, '旧画像プロバイダ経路は有効化していません。');
       }
-      return fail(res, 502, code, '画像生成プロバイダの検証または生成に失敗しました。');
+      return fail(res, 502, code, '画像生成プロバイダから応答を確認できませんでした。生成が既に受理された可能性があるため、自動再試行を停止しました。', false);
     }
   };
 
