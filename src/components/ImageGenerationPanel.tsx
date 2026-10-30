@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 type ImageRatio = '1:1' | '16:9' | '9:16' | '4:5' | '3:2' | '2:3';
 type ImageResolution = '1024' | '1536';
@@ -16,6 +16,11 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   const [ratio, setRatio] = useState<ImageRatio>('1:1');
   const [resolution, setResolution] = useState<ImageResolution>('1024');
   const [error, setError] = useState('');
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
   const dimensions = useMemo(() => {
     const [ratioWidth, ratioHeight] = ratio.split(':').map(Number);
     const longestEdge = Number(resolution);
@@ -42,8 +47,8 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
 
   const ja = language === 'ja';
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface w-full max-w-xl rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="origin-muted m-0 text-xs font-semibold uppercase tracking-[0.16em]">ORIGIN · IMAGE STUDIO</p>
