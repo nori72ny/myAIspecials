@@ -394,7 +394,7 @@ describe('rasterImageV15Router', () => {
     expect(String(form.get('prompt'))).toContain('Preserve subjects');
   });
 
-  it('returns verified raster bytes and zero-cost evidence through the production-compatible route', async () => {
+  it('returns structurally verified raster bytes with unverified request-cost evidence through the production-compatible route', async () => {
     const fetchMock = semanticFetchMock(true);
     vi.stubGlobal('fetch', fetchMock);
 
