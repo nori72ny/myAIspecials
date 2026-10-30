@@ -131,7 +131,6 @@ describe('rasterImageV15Router', () => {
     expect(status.body).toMatchObject({
       ok: false,
       ready: false,
-      configured: false,
       reason: 'STATUS_NOT_LIVE_VERIFIED',
       freeOnly: true,
       paidFallbackEnabled: false,
@@ -194,7 +193,6 @@ describe('rasterImageV15Router', () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      configured: false,
       ready: false,
       reason: 'STATUS_NOT_LIVE_VERIFIED',
       externalNetwork: false,
