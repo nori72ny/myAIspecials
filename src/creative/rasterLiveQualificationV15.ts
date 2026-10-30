@@ -87,7 +87,7 @@ function safeProviderEvidence(status: Awaited<ReturnType<typeof getCloudflareRas
 }
 
 // Cloudflare currently exposes account-level Free allocation preflight, not a
-// a request-correlated usage record. Keep this false until that evidence exists.
+// request-correlated usage record. Keep this false until that evidence exists.
 function cloudflareRequestCostEvidenceAvailableV15(): boolean {
   return false;
 }
