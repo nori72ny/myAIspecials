@@ -89,6 +89,51 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
+  it('selects Pollinations only as a free-allocation-eligible fallback without claiming request-level zero-cost proof', async () => {
+    const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const fetchMock: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/account/key')) return response({
+        valid: true,
+        type: 'secret',
+        permissions: { models: ['tomdacatto/sana'] },
+        pollenBudget: null,
+        questPollenOnly: true,
+        rateLimitEnabled: false,
+      });
+      if (url.endsWith('/v1/models')) return response([{
+        id: 'tomdacatto/sana',
+        category: 'image',
+        title: 'Sana Sprint (Free)',
+        description: 'Free image model',
+        community: true,
+        pricing: { currency: 'pollen' },
+        paid_only: false,
+        input_modalities: ['text'],
+        output_modalities: ['image'],
+      }]);
+      throw new Error('Unexpected provider request');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      POLLINATIONS_API_KEY: 'sk_test',
+    }, fetchMock);
+
+    expect(selection.ready).toBe(true);
+    if (selection.ready) {
+      expect(selection.provider.descriptor.id).toBe('pollinations-zero-cost');
+      expect(selection.status).toMatchObject({
+        ready: true,
+        zeroCostVerified: false,
+        freeAllocationEligible: true,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+      });
+    }
+  });
+
   it('reports truthful aggregate capability readiness without implying editing support', async () => {
     const status = await rasterProviderRuntimeStatusV15({});
     expect(status).toMatchObject({
