@@ -279,7 +279,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         providerGenerationRequests += 1;
         return fetch(request, init);
       };
-      let selection = await selectRasterProviderV15(providerTask, env, countedFetch);
+      const selection = await selectRasterProviderV15(providerTask, env, countedFetch);
       if (selection.ready === false) {
         return fail(
           res,
@@ -317,7 +317,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           countedFetch,
         );
         if (!fallback.ready) throw generationError;
-        selection = fallback;
         result = await fallback.provider.generate(generationInput, env, countedGenerationFetch);
       }
       const expectedWidth = input.width ?? plan.width;
