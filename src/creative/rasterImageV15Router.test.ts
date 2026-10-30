@@ -132,7 +132,7 @@ describe('rasterImageV15Router', () => {
       ok: false,
       ready: false,
       configured: false,
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
@@ -205,7 +205,7 @@ describe('rasterImageV15Router', () => {
     expect(response.body).toMatchObject({
       configured: true,
       ready: false,
-      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
@@ -378,7 +378,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
-    expect(response.headers['x-origin-cost-evidence']).toBe('preflight=free-plan-capped;post=not-recorded-per-request');
+    expect(response.headers['x-origin-cost-evidence']).toBe('free-allocation-preflight-only; per-request-usage-unverified');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(fetchMock).toHaveBeenCalledTimes(11);
 
@@ -404,7 +404,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-9b');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
-    expect(response.headers['x-origin-cost-evidence']).toBe('preflight=free-plan-capped;post=not-recorded-per-request');
+    expect(response.headers['x-origin-cost-evidence']).toBe('free-allocation-preflight-only; per-request-usage-unverified');
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
     expect(response.headers['x-origin-external-network']).toBe('true');
     expect(response.headers['x-origin-external-network-requests']).toBe('11');
