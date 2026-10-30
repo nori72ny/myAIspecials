@@ -1,4 +1,4 @@
-import { getCloudflareRasterStatusV15 } from './cloudflareRasterImageProviderV15.js';
+import { verifyCloudflareRasterFreeModelV15 } from './cloudflareRasterImageProviderV15.js';
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 import type { RasterImageResultV15 } from './rasterImageProviderV15.js';
 
@@ -40,7 +40,7 @@ export type RasterSemanticCriticResultV15 = {
   issues: readonly string[];
   summary: string;
   freeOnly: true;
-  costUsd: 0;
+  costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified';
   paidFallbackEnabled: false;
   secretDelivery: 'server-only';
   externalNetworkRequests: number;
@@ -162,7 +162,7 @@ export async function critiqueCloudflareRasterSemanticV15(
   }
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(input.mimeType)) throw new Error('RASTER_SEMANTIC_CRITIC_INPUT_INVALID');
 
-  const status = await getCloudflareRasterStatusV15(env, fetchImpl);
+  // Verify the exact vision-critic model, not merely the separately configured image model.\n  const status = await verifyCloudflareRasterFreeModelV15(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, env, fetchImpl);
   if (!status.ready || !status.zeroCostVerified || status.paymentMethodRequired || status.paidFallbackEnabled) {
     throw new Error(status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
   }
@@ -239,7 +239,7 @@ export async function critiqueCloudflareRasterSemanticV15(
     issues: uniqueIssues,
     summary: parsed.summary,
     freeOnly: true,
-    costUsd: 0,
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     paidFallbackEnabled: false,
     secretDelivery: 'server-only',
     externalNetworkRequests: 4,
