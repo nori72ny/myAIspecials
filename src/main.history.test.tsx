@@ -8,8 +8,10 @@ vi.mock('./pwa/registerServiceWorker', () => ({ registerOriginServiceWorker: vi.
 vi.mock('./services/activeContextChatBridge', () => ({ installActiveContextChatBridge: vi.fn() }));
 
 import { parseImportedHistory, persistableConversationMessages } from './main';
+import type { ConversationMessage } from './App';
 
-const validImage = (providerId: string) => ({
+type PersistedImage = NonNullable<ConversationMessage['image']>;
+const validImage = (providerId: PersistedImage['providerId']): PersistedImage => ({
   assetId: 'a'.repeat(64),
   mimeType: 'image/png',
   downloadName: 'origin-image.png',
