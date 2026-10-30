@@ -388,7 +388,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       res.setHeader('X-Origin-Visual-Critic', critic.version);
       res.setHeader('X-Origin-Visual-Quality-Score', String(critic.score));
       res.setHeader('X-Origin-Visual-Semantic-Gate', semanticGateState);
-      if (semanticCritic) {
+      if (semanticCritic?.passed) {
         res.setHeader('X-Origin-Visual-Semantic-Verified', 'true');
         res.setHeader('X-Origin-Visual-Semantic-Critic', semanticCritic.version);
         res.setHeader('X-Origin-Visual-Semantic-Score', String(semanticCritic.score));
