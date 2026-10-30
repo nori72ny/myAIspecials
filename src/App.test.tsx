@@ -271,7 +271,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
     fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
     expect(screen.getByTestId('origin-image-dimensions').textContent).toContain('864 × 1536px');
-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('origin-image-generation-panel')).toBeNull();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
