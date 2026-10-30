@@ -444,7 +444,63 @@ describe('rasterImageV15Router', () => {
     expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
   });
 
-  it('does not launch a second provider after a Cloudflare generation failure', async () => {
+  it('switches to a separately verified free provider after explicit Cloudflare quota rejection', async () => {
+    const freeModel = {
+      name: 'tomdacatto/sana', category: 'image', title: 'Sana Sprint (Free)',
+      description: 'Free image model', community: true,
+      pricing: { currency: 'pollen' }, paid_only: false,
+      input_modalities: ['text'], output_modalities: ['image'],
+    };
+    const scopedKeyInfo = {
+      valid: true, type: 'secret',
+      permissions: { models: ['tomdacatto/sana'], account: ['usage'] },
+      pollenBudget: 0,
+    };
+    const fetchMock = vi.fn()
+      // Cloudflare selection and immediate pre-inference recheck.
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(cfFailure(429, 3036))
+      // Pollinations status preflight.
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      // Pollinations rechecks its scoped key/model, records a baseline,
+      // generates once, and reconciles the exact new zero-cost usage row.
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]))
+      .mockResolvedValueOnce(json({ usage: [{ cursor_event_id: 'baseline' }] }))
+      .mockResolvedValueOnce(imageJson(pngBytes(768, 1024)))
+      .mockResolvedValueOnce(json({ usage: [{
+        cursor_event_id: 'generated-after-fallback',
+        type: 'generate.image',
+        model: 'tomdacatto/sana',
+        meter_source: 'tier',
+        cost_usd: 0,
+        output_image_tokens: 1,
+      }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({
+      ...CF_ENV,
+      POLLINATIONS_API_KEY: 'test-pollinations-key',
+      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'false',
+    }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-origin-visual-provider']).toBe('pollinations-zero-cost');
+    expect(response.headers['x-origin-cost-evidence']).toBe('post-generation-usage-zero-confirmed');
+    expect(response.headers['x-origin-cost-usd']).toBeUndefined();
+    expect(response.headers['x-origin-paid-fallback']).toBe('false');
+    expect(fetchMock).toHaveBeenCalledTimes(14);
+  });
+
+  it('does not switch providers after an ambiguous Cloudflare inference failure', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
@@ -452,19 +508,17 @@ describe('rasterImageV15Router', () => {
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(cfFailure(429, 3036));
+      .mockResolvedValueOnce(cfFailure(500, 1001));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app({ ...CF_ENV, POLLINATIONS_API_KEY: 'test-pollinations-key' }))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(429);
-    expect(response.body.code).toBe('CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED');
+    expect(response.status).toBe(502);
     expect(response.body.retryable).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/account/key'))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('gen.pollinations.ai'))).toBe(false);
   });
 
   it('marks uncorrelated post-generation usage evidence non-retryable', async () => {
