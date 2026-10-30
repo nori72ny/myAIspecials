@@ -132,7 +132,7 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
-  it('does not select Cloudflare after free-plan preflight without per-request zero-cost evidence', async () => {
+  it('selects Cloudflare when Workers Free hard quota and model access are verified', async () => {
     const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -151,20 +151,16 @@ describe('rasterProviderRegistryV15', () => {
       CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
     }, fetchMock);
 
-    expect(selection.ready).toBe(false);
-    if ('statuses' in selection) {
-      expect(selection.statuses[0]).toMatchObject({
-        providerId: 'cloudflare-workers-ai-free',
-        ready: false,
-        reason: 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED',
-        status: {
-          configured: true,
-          ready: true,
-          zeroCostVerified: false,
-          reason: 'CLOUDFLARE_PER_REQUEST_COST_UNVERIFIED',
-        },
+    expect(selection.ready).toBe(true);
+    if (selection.ready) {
+      expect(selection.provider.descriptor.id).toBe('cloudflare-workers-ai-free');
+      expect(selection.status).toMatchObject({
+        ready: true,
+        zeroCostVerified: true,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+        reason: null,
       });
-      expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
     }
   });
 
