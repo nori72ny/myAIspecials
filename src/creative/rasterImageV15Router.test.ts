@@ -497,6 +497,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-cost-evidence']).toBe('post-generation-usage-zero-confirmed');
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
     expect(response.headers['x-origin-paid-fallback']).toBe('false');
+    expect(response.headers['x-origin-external-network-requests']).toBe('14');
     expect(fetchMock).toHaveBeenCalledTimes(14);
   });
 
