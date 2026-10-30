@@ -156,7 +156,8 @@ describe('rasterProviderRegistryV15', () => {
       expect(selection.provider.descriptor.id).toBe('cloudflare-workers-ai-free');
       expect(selection.status).toMatchObject({
         ready: true,
-        zeroCostVerified: true,
+        zeroCostVerified: false,
+        freeAllocationEligible: true,
         paidFallbackEnabled: false,
         paymentMethodRequired: false,
         reason: null,
