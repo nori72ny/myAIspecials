@@ -296,6 +296,36 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(onOpenDetails).toHaveBeenCalledOnce();
   });
 
+  it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      message: '画像生成Providerが未構成です。',
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
+      fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => url === '/api/generate-image')).toBe(true);
+      });
+      const generationCall = fetchMock.mock.calls.find(([url]) => url === '/api/generate-image');
+      expect(generationCall).toBeTruthy();
+      expect(JSON.parse(String(generationCall?.[1]?.body))).toMatchObject({
+        prompt: '夕焼けの海辺',
+        width: 864,
+        height: 1536,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
 
