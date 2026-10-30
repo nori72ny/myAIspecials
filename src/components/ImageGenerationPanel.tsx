@@ -22,7 +22,9 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
   const dimensions = useMemo(() => {
-    const [ratioWidth, ratioHeight] = ratio.split(':').map(Number);
+    const [ratioWidthText, ratioHeightText] = ratio.split(':');
+    const ratioWidth = Number(ratioWidthText);
+    const ratioHeight = Number(ratioHeightText);
     const longestEdge = Number(resolution);
     const scale = longestEdge / Math.max(ratioWidth, ratioHeight);
     return {
