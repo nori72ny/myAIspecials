@@ -264,6 +264,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(menu.hasAttribute('open')).toBe(true);
     expect(screen.getByRole('menu', { name: '追加機能' })).toBeTruthy();
 
+    fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+    const imagePanel = screen.getByTestId('origin-image-generation-panel');
+    expect(imagePanel).toBeTruthy();
+    fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺、映画的な光' } });
+    fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
+    fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
+    expect(screen.getByTestId('origin-image-dimensions').textContent).toContain('864 × 1536px');
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByTestId('origin-image-generation-panel')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
     expect(onOpenResearch).toHaveBeenCalledOnce();
     expect(menu.hasAttribute('open')).toBe(false);
