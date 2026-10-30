@@ -118,7 +118,9 @@ function questionsFor(input: string, requestedSize?: { width?: number; height?: 
     && Number(requestedSize?.width) <= 1536
     && Number(requestedSize?.height) >= 256
     && Number(requestedSize?.height) <= 1536;
-  if (/(?:広告|SNS|ポスター|バナー|サムネ|Instagram|インスタ|YouTube)/i.test(input)
+  const hasKnownYoutubeThumbnailRatio = /YouTube[^。\n]{0,24}サムネ/i.test(input);
+  if (/(?:SNS|ポスター|バナー|サムネ|Instagram|インスタ|YouTube)/i.test(input)
+    && !hasKnownYoutubeThumbnailRatio
     && !hasExplicitRequestedSize
     && !/(?:9\s*[:：/]\s*16|16\s*[:：/]\s*9|4\s*[:：/]\s*5|1\s*[:：/]\s*1|2\s*[:：/]\s*3|縦長|横長|正方形|story|portrait|landscape|square|A4)/i.test(input)) {
     questions.push('主な使用先と比率はどれですか？ 例：Instagram 4:5、Story 9:16、YouTube 16:9');
