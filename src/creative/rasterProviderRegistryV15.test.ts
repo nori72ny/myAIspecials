@@ -60,7 +60,7 @@ describe('rasterProviderRegistryV15', () => {
   it('falls through to Pollinations only when a scoped zero-budget key can be verified', async () => {
     const selection = await selectRasterProviderV15('text-to-image', {});
     expect(selection.ready).toBe(false);
-    if (selection.ready === false) {
+    if ('statuses' in selection) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
         expect.objectContaining({
@@ -106,7 +106,7 @@ describe('rasterProviderRegistryV15', () => {
         paymentMethodRequired: false,
         secretDelivery: 'server-only',
       },
-      textToImageReason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      textToImageReason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       editingReady: false,
       paidFallbackEnabled: false,
       freeOnly: true,
@@ -123,7 +123,7 @@ describe('rasterProviderRegistryV15', () => {
     }, fetchFails);
 
     expect(selection.ready).toBe(false);
-    if (!selection.ready) {
+    if ('statuses' in selection) {
       expect(selection.statuses.map(item => item.providerId)).toEqual([
         'cloudflare-workers-ai-free',
         'pollinations-zero-cost',
