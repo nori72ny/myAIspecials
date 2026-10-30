@@ -106,6 +106,22 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.question).toContain('Return ONLY valid compact JSON');
   });
 
+  it('does not invoke the critic when its exact model schema is unavailable', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: null, output: null }));
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED');
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/models/schema?model=%40cf%2Fmoondream%2Fmoondream3.1-9B-A2B');
+  });
+
   it('fails semantic quality when material visible defects are reported', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
