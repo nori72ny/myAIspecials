@@ -319,10 +319,13 @@ async function verifyScopedPollinationsKeyV15(
   const permissions = parsed.permissions as Record<string, unknown>;
   const models = permissions.models;
   if (!Array.isArray(models) || models.length !== 1 || models[0] !== expectedModel) return false;
-  // Secret keys use null for an unlimited key budget. A zero budget means no
-  // generation allowance. questPollenOnly is the hard guard that prevents
-  // spending paid Pollen; exhausted Quest Pollen must fail at the provider.
-  if (parsed.pollenBudget !== null || parsed.questPollenOnly !== true) return false;
+  // A finite key budget caps worst-case exposure; questPollenOnly separately
+  // prevents paid-wallet spending. Require both guards, not an unlimited key.
+  if (typeof parsed.pollenBudget !== 'number'
+    || !Number.isFinite(parsed.pollenBudget)
+    || parsed.pollenBudget <= 0
+    || parsed.pollenBudget > 5
+    || parsed.questPollenOnly !== true) return false;
   return true;
 }
 
