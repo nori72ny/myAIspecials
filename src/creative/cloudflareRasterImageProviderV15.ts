@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import type {
-  RasterImageRequestV15,
-  RasterImageResultV15,
-  RasterProviderStatusV15,
+import {
+  readBoundedProviderBodyV15,
+  type RasterImageRequestV15,
+  type RasterImageResultV15,
+  type RasterProviderStatusV15,
 } from './rasterImageProviderV15.js';
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
@@ -13,6 +14,7 @@ const ALLOWED_MODELS = new Set([
   '@cf/black-forest-labs/flux-2-klein-4b',
 ]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
 const MODEL_SCHEMA_TIMEOUT_MS = 10_000;
 const MAX_REFERENCE_IMAGES = 4;
@@ -446,11 +448,15 @@ export async function generateCloudflareRasterImageV15(
   let bytes: Buffer;
   const responseType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (responseType.startsWith('image/')) {
-    const raw = Buffer.from(await response.arrayBuffer());
-    if (!raw.length || raw.length > MAX_IMAGE_BYTES) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
+    const raw = await readBoundedProviderBodyV15(response, MAX_IMAGE_BYTES);
+    if (!raw.length) throw new Error('CLOUDFLARE_IMAGE_SIZE_OUT_OF_BOUNDS');
     bytes = raw;
   } else {
-    bytes = decodeCloudflareResult(await response.json());
+    const body = await readBoundedProviderBodyV15(response, MAX_IMAGE_RESPONSE_BYTES);
+    let parsed: unknown;
+    try { parsed = JSON.parse(body.toString('utf8')) as unknown; }
+    catch { throw new Error('CLOUDFLARE_IMAGE_RESPONSE_INVALID_JSON'); }
+    bytes = decodeCloudflareResult(parsed);
   }
 
   const mimeType = imageMime(bytes);
