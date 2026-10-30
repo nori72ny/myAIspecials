@@ -408,7 +408,7 @@ describe('rasterImageV15Router', () => {
     expect(response.headers['x-origin-visual-task']).toBe('generate');
     expect(response.headers['x-origin-visual-reference-count']).toBe('0');
     expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
-    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-9b');
+    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-4b');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBeUndefined();
     expect(response.headers['x-origin-cost-evidence']).toBe('free-allocation-preflight-only; per-request-usage-unverified');
