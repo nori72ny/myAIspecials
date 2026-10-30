@@ -453,7 +453,7 @@ export async function generateCloudflareRasterImageV15(
     providerId: 'cloudflare-workers-ai-free',
     width: actual.width,
     height: actual.height,
-    costUsd: 0,
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     freeOnly: true,
     externalNetworkRequests: proof.requests + 1,
   };
