@@ -24,6 +24,19 @@ describe('imageGatewayEvalPreflightRouter', () => {
     vi.restoreAllMocks();
   });
 
+  it('does not contact paid gateway metadata endpoints when FREE_ONLY is enabled', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await request(app({
+      FREE_ONLY: 'true',
+      VERCEL_ENV: 'preview',
+      VERCEL_OIDC_TOKEN: 'token',
+    })).get('/api/eval/image-gateway/credits');
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('EVAL_ROUTE_DISABLED_BY_FREE_ONLY_POLICY');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('is unavailable in production', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
