@@ -41,4 +41,29 @@ describe('ImageGenerationPanel', () => {
 
     expect(onClose).toHaveBeenCalledOnce();
   });
+  it('traps keyboard focus inside the dialog and restores focus to its opener', () => {
+    const opener = document.createElement('button');
+    opener.textContent = 'Open image studio';
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const view = render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={() => undefined} />);
+    const prompt = screen.getByTestId('origin-image-prompt');
+    const close = screen.getByRole('button', { name: '閉じる' });
+    const submit = screen.getByTestId('origin-image-generate-submit');
+
+    expect(document.activeElement).toBe(prompt);
+    submit.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+
+    close.focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(submit);
+
+    view.unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
 });
