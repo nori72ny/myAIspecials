@@ -328,6 +328,38 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
   });
 
+  it('does not carry a rejected image-panel request into the next ordinary chat message', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'Provider unavailable',
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), {
+        target: { value: 'test@example.com のプロフィール画像を作って' },
+      });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), {
+        target: { value: '今日は天気について教えてください' },
+      });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => url === '/api/chat')).toBe(true);
+      });
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/generate-image')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
 
