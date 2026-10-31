@@ -75,7 +75,7 @@ export async function verifyOriginProductionHealth(env = process.env, client = f
     assert.equal(health.releaseSha, approved[domain], "ORIGIN_HEALTH_SHA_MISMATCH");
     assert.equal(health.freeOnly, true, "ORIGIN_HEALTH_FREE_ONLY_DISABLED");
     assert.equal(health.paidFallbackEnabled, false, "ORIGIN_HEALTH_PAID_FALLBACK_ENABLED");
-    assert.equal(health.costUsd, 0, "ORIGIN_HEALTH_NONZERO_COST");
+    assert.equal(health.costUsd, undefined, "ORIGIN_HEALTH_MUST_NOT_CLAIM_UNVERIFIED_ZERO_COST");
     assert.equal(health.secretDelivery, "server-only", "ORIGIN_HEALTH_UNSAFE_SECRET_DELIVERY");
     return { domain, observedSha: health.releaseSha, status: "verified" };
   }));
