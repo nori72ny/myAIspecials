@@ -29,6 +29,23 @@ describe('zero failure cascade', () => {
     }
   });
 
+  it('formats Wikipedia fallback excerpts with real line breaks', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        query: { search: [{ title: 'Tidal current', snippet: 'A <span>moving</span> body of water.' }] },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await executeZeroFailureCascade('What is a tidal current?');
+    expect(result).toMatchObject({ ok: true, source: 'wikipedia' });
+    if (result.ok) {
+      expect(result.content).toContain('excerpts; verify before relying on them):\n\n');
+      expect(result.content).toContain('Tidal current: A moving body of water.');
+      expect(result.content).not.toContain('\\\\n');
+    }
+  });
+
   it('escapes malformed HTML after removing Wikipedia snippet formatting', () => {
     expect(sanitizeWikipediaSnippet('safe <span class="searchmatch">result</span> <script')).toBe('safe result &lt;script');
     expect(sanitizeWikipediaSnippet('<img src=x onerror=alert(1)>')).toBe('');
