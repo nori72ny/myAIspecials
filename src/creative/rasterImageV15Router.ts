@@ -111,7 +111,7 @@ function filename(mime: string): string {
   return 'origin-image.jpg';
 }
 
-export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env) {
+export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
   router.get('/api/creative/v1.5/raster/status', (_req, res) => {
