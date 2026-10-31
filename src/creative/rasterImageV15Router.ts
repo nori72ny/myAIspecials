@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
-import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
+import { readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
 
