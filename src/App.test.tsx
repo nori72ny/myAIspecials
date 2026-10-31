@@ -2,6 +2,14 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('./creative/localRasterHistoryV15', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./creative/localRasterHistoryV15')>();
+  return {
+    ...actual,
+    saveRasterAssetV15: vi.fn(async () => 'saved' as const),
+  };
+});
+
 vi.mock('./creative/rasterTechnicalCriticV15', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./creative/rasterTechnicalCriticV15')>();
   return {
@@ -42,14 +50,26 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
   content: '<main><button>Ready</button></main>', isComplete: true,
 };
 
+function requestPath(input: RequestInfo | URL): string {
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  return new URL(rawUrl, 'http://localhost').pathname;
+}
+
 describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
+  it('accepts only the two explicitly supported free raster provider identities', () => {
+    expect(isVerifiedRasterProviderId('cloudflare-workers-ai-free')).toBe(true);
+    expect(isVerifiedRasterProviderId('pollinations-zero-cost')).toBe(true);
+    expect(isVerifiedRasterProviderId('paid-provider')).toBe(false);
+    expect(isVerifiedRasterProviderId(null)).toBe(false);
+  });
+
   afterEach(cleanup);
 
   it('batches all stream chunks received within one animation frame', () => {
@@ -130,7 +150,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
-      within(document.querySelector('.origin-composer') as HTMLElement).getByRole('button', { name: 'ファイルを添付' }),
+      screen.getByTestId('origin-add-menu-toggle'),
       screen.getByTestId('start-request-button'),
     ];
 
@@ -145,6 +165,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
     }
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
     const header = document.querySelector('.origin-header') as HTMLElement;
     expect(within(header).getAllByRole('button')).toHaveLength(2);
@@ -249,6 +271,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(menu.hasAttribute('open')).toBe(true);
     expect(screen.getByRole('menu', { name: '追加機能' })).toBeTruthy();
 
+    fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+    const imagePanel = screen.getByTestId('origin-image-generation-panel');
+    expect(imagePanel).toBeTruthy();
+    fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺、映画的な光' } });
+    fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
+    fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
+    expect(screen.getByTestId('origin-image-dimensions').textContent).toContain('864 × 1536px');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('origin-image-generation-panel')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
     expect(onOpenResearch).toHaveBeenCalledOnce();
     expect(menu.hasAttribute('open')).toBe(false);
@@ -268,6 +301,107 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: '詳細・作業状況' }));
     expect(onOpenDetails).toHaveBeenCalledOnce();
+  });
+
+  it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
+    const verifiedFreeRasterStatus = {
+      ok: true,
+      configured: true,
+      ready: true,
+      zeroCostVerified: true,
+      paymentMethodRequired: false,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+      providerId: 'test-free-provider',
+      model: 'test-free-model',
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/creative/v1.5/raster/status') {
+        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        code: 'PROVIDER_UNAVAILABLE',
+        message: '画像生成Providerが未構成です。',
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
+      fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/generate-image')).toBe(true);
+      });
+      const generationCall = fetchMock.mock.calls.find(([input]) => requestPath(input) === '/api/generate-image') as [RequestInfo | URL, RequestInit?] | undefined;
+      expect(generationCall).toBeTruthy();
+      expect(JSON.parse(String(generationCall?.[1]?.body))).toMatchObject({
+        prompt: '夕焼けの海辺',
+        width: 864,
+        height: 1536,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not carry a rejected image-panel request into the next ordinary chat message', async () => {
+    const verifiedFreeRasterStatus = {
+      ok: true,
+      configured: true,
+      ready: true,
+      zeroCostVerified: true,
+      paymentMethodRequired: false,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+      providerId: 'test-free-provider',
+      model: 'test-free-model',
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/creative/v1.5/raster/status') {
+        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url === '/api/generate-image') {
+        return new Response(JSON.stringify({
+          code: 'PROVIDER_UNAVAILABLE',
+          message: 'Provider unavailable',
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ code: 'CHAT_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), {
+        target: { value: 'test@example.com のプロフィール画像を作って' },
+      });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      expect(await screen.findByRole('alert')).toBeTruthy();
+      expect(fetchMock.mock.calls.every(([input]) => requestPath(input) === '/api/creative/v1.5/raster/status')).toBe(true);
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), {
+        target: { value: '今日は天気について教えてください' },
+      });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(true);
+      });
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/generate-image')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
@@ -616,6 +750,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('uses procedural raster only when the user explicitly asks for procedural artwork', () => {
+    expect(isExplicitLocalProceduralImageRequest('手続き型のPNG画像を作ってください')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('Create procedural artwork')).toBe(true);
+    expect(isExplicitLocalProceduralImageRequest('夕焼けの海の画像を作ってください')).toBe(false);
+    expect(isExplicitLocalProceduralImageRequest('風景')).toBe(false);
+  });
+
   it('recognizes explicit image creation requests without hijacking image-related questions', () => {
     expect(isDirectImageGenerationRequest('夕焼けの海の画像を作ってください')).toBe(true);
     expect(isDirectImageGenerationRequest('Create a cinematic image of Tokyo at night')).toBe(true);
@@ -757,6 +898,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
     expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
+    // A successful raster/quality check does not prove the real-world bill is $0.
+    expect(screen.getByText(/費用未検証/)).toBeTruthy();
+    expect(screen.queryByText(/\$0 verified/i)).toBeNull();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
     expect(screen.getByText(/flux-2-klein-4b/)).toBeTruthy();
     expect(screen.getByText(/photograph/)).toBeTruthy();

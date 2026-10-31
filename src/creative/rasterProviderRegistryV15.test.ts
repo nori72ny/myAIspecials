@@ -60,7 +60,7 @@ describe('rasterProviderRegistryV15', () => {
   it('falls through to Pollinations only when a scoped zero-budget key can be verified', async () => {
     const selection = await selectRasterProviderV15('text-to-image', {});
     expect(selection.ready).toBe(false);
-    if ('reason' in selection) {
+    if ('statuses' in selection) {
       expect(selection.reason).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
       expect(selection.statuses).toEqual([
         expect.objectContaining({
@@ -89,6 +89,58 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
+  it('blocks Pollinations when only account-level free allocation is verified', async () => {
+    const response = (body: unknown) => new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const fetchMock: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/account/key')) return response({
+        valid: true,
+        type: 'secret',
+        permissions: { models: ['tomdacatto/sana'] },
+        pollenBudget: 5,
+        questPollenOnly: true,
+        rateLimitEnabled: false,
+      });
+      if (url.endsWith('/v1/models')) return response([{
+        id: 'tomdacatto/sana',
+        category: 'image',
+        title: 'Sana Sprint (Free)',
+        description: 'Free image model',
+        community: true,
+        pricing: { currency: 'pollen' },
+        paid_only: false,
+        input_modalities: ['text'],
+        output_modalities: ['image'],
+      }]);
+      throw new Error('Unexpected provider request');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      POLLINATIONS_API_KEY: 'sk_test',
+    }, fetchMock);
+
+    expect(selection).toMatchObject({
+      ready: false,
+      task: 'text-to-image',
+      provider: null,
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+    });
+    if ('statuses' in selection) {
+      expect(selection.statuses).toContainEqual(expect.objectContaining({
+        providerId: 'pollinations-zero-cost',
+        ready: false,
+        reason: 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED',
+        status: expect.objectContaining({
+          ready: true,
+          zeroCostVerified: false,
+          freeAllocationEligible: true,
+        }),
+      }));
+    }
+  });
+
   it('reports truthful aggregate capability readiness without implying editing support', async () => {
     const status = await rasterProviderRuntimeStatusV15({});
     expect(status).toMatchObject({
@@ -106,10 +158,69 @@ describe('rasterProviderRegistryV15', () => {
         paymentMethodRequired: false,
         secretDelivery: 'server-only',
       },
-      textToImageReason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      textToImageReason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
       editingReady: false,
       paidFallbackEnabled: false,
       freeOnly: true,
     });
   });
+  it('continues probing other free providers when a provider status network request fails', async () => {
+    const fetchFails: typeof fetch = async () => {
+      throw new Error('simulated network outage');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
+      POLLINATIONS_API_KEY: 'test-pollinations-key',
+    }, fetchFails);
+
+    expect(selection.ready).toBe(false);
+    if ('statuses' in selection) {
+      expect(selection.statuses.map(item => item.providerId)).toEqual([
+        'cloudflare-workers-ai-free',
+        'pollinations-zero-cost',
+      ]);
+      expect(selection.statuses.every(item => item.ready === false)).toBe(true);
+    }
+  });
+
+  it('blocks Cloudflare when Free allocation is known but request-level cost is unverified', async () => {
+    const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const fetchMock: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/workers/account-settings')) {
+        return response({ default_usage_model: 'bundled' });
+      }
+      if (url.endsWith('/subscriptions')) return response([]);
+      if (url.includes('/ai/models/schema?model=')) return response({ input: {}, output: {} });
+      throw new Error('Unexpected provider request');
+    };
+    const selection = await selectRasterProviderV15('text-to-image', {
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
+    }, fetchMock);
+
+    expect(selection).toMatchObject({
+      ready: false,
+      task: 'text-to-image',
+      provider: null,
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+    });
+    if ('statuses' in selection) {
+      expect(selection.statuses).toContainEqual(expect.objectContaining({
+        providerId: 'cloudflare-workers-ai-free',
+        ready: false,
+        reason: 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED',
+        status: expect.objectContaining({
+          ready: true,
+          zeroCostVerified: false,
+          freeAllocationEligible: true,
+        }),
+      }));
+    }
+  });
+
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPollinationsImageUrl, executeZeroFailureCascade, isAutonomousImagePrompt, sanitizeWikipediaSnippet } from './zeroFailureCascade';
+import { executeZeroFailureCascade, isAutonomousImagePrompt, sanitizeWikipediaSnippet } from './zeroFailureCascade';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -10,11 +10,13 @@ describe('zero failure cascade', () => {
     expect(isAutonomousImagePrompt('Explain ocean currents')).toBe(false);
   });
 
-  it('creates an encoded Pollinations URL with a stable explicit seed', () => {
-    const url = createPollinationsImageUrl('海と青空', 42);
-    expect(url).toContain('https://image.pollinations.ai/prompt/');
-    expect(url).toContain(encodeURIComponent('海と青空'));
-    expect(url).toContain('seed=42');
+  it('fails closed for image prompts without calling any external image provider', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await executeZeroFailureCascade('海の画像');
+    expect(result).toMatchObject({ ok: false, source: 'unavailable' });
+    expect(result.content).not.toContain('pollinations.ai');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns a public text response when the keyless endpoint is available', async () => {
@@ -24,6 +26,23 @@ describe('zero failure cascade', () => {
     if (result.ok) {
       expect(result.source).toBe('pollinations-text');
       expect(result.content).toBe('A grounded fallback answer.');
+    }
+  });
+
+  it('formats Wikipedia fallback excerpts with real line breaks', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        query: { search: [{ title: 'Tidal current', snippet: 'A <span>moving</span> body of water.' }] },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await executeZeroFailureCascade('What is a tidal current?');
+    expect(result).toMatchObject({ ok: true, source: 'wikipedia' });
+    if (result.ok) {
+      expect(result.content).toContain('excerpts; verify before relying on them):\n\n');
+      expect(result.content).toContain('Tidal current: A moving body of water.');
+      expect(result.content).not.toContain('\\\\n');
     }
   });
 

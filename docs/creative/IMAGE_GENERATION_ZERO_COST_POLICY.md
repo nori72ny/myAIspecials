@@ -1,0 +1,92 @@
+# ORIGIN raster image generation: zero-cost admission policy
+
+Status: release policy for the FREE_ONLY image lane. This document is normative for provider routing and release review.
+
+Runtime enforcement: `selectRasterProviderV15` admits a provider only when `zeroCostVerified === true`. `freeAllocationEligible` is informational and must never authorize inference by itself. The current Cloudflare and Pollinations adapters both report `zeroCostVerified: false`, so the live raster routes must return 503 before inference until a request-level, pre-inference non-billable proof mechanism is implemented and independently verified.
+
+## Non-negotiable invariants
+
+- A generation request may run only when the selected provider and exact model are admitted to a non-billable path.
+- Paid fallback is always disabled. No provider may silently switch to a paid plan, paid model, paid key, or billable overage.
+- Unknown, stale, incomplete, or ambiguous pricing/quota evidence means deny the request.
+- Never infer that a provider is free merely because an API key has a positive balance, the account has a trial, or a model appears in a catalog.
+- Never retry an ambiguous inference request. Retry/fallback is permitted only after a documented response proves the provider rejected the request before inference was accepted.
+- The UI must distinguish provider unavailable/quota exhausted from successful generation. It must not return procedural placeholder art as if it were AI output.
+
+## Cloudflare Workers AI
+
+- Admission must verify the account is on the bundled Workers Free usage model, the selected model is available to that plan, and no active paid Workers subscription is detected.
+- The Free allocation is a hard daily limit. Exhaustion must fail closed; there is no automatic paid overage path in the Free plan.
+- Account-level plan verification is not request-correlated billing evidence and does not prove that a particular generation cost exactly $0.00.
+- The API does not provide a reliable real-time remaining-Neurons counter for this router. Do not promise that a provider switch will happen before the daily quota is exhausted.
+- Switch to another independently admitted free provider only when a documented pre-inference error code proves that Cloudflare did not accept the inference request. Network timeouts, connection resets, generic 5xx responses, and unknown errors are ambiguous and terminal.
+
+## Pollinations
+
+- Admit only an exact image model whose current catalog entry proves numeric zero pricing (all applicable price fields are zero), or a narrowly validated explicit-free marker with independently audited model identity and free metadata.
+- Require a server-side scoped key restricted to the exact admitted model and Quest-Pollen-only allocation. A positive Pollen budget alone is not proof of zero cost.
+- Reject keys that are not verified as Quest-Pollen-only, models with any nonzero pricing variant, paid-only models, missing pricing, unknown pricing fields, or a model identity that differs from the verified catalog result.
+- Before generation, capture a usage baseline. After generation, require exactly one unambiguous matching usage event for the same model with `cost_usd === 0`, `meter_source === "tier"`, and a positive output-image-token count.
+- If the usage baseline or post-generation record is missing, ambiguous, delayed, or nonzero, do not mark the operation as cost-verified. Do not automatically retry the generation.
+- A usage check after inference is evidence for audit and release qualification; it cannot retroactively prevent a charge. Therefore a key/model admission that is not provably non-billable before inference must be rejected.
+
+## Routing and fallback
+
+1. Verify provider configuration and exact model eligibility.
+2. Verify non-billable account/key allocation and paid-fallback-off invariants.
+3. Select one provider; do not race providers or duplicate inference.
+4. Submit one generation request.
+5. Permit fallback only after an explicit, documented pre-inference rejection; re-run the full admission checks for the fallback provider.
+6. Persist the image bytes durably before reporting completion.
+7. Record provider/model, dimensions, request outcome, and the strongest available cost evidence without recording secrets.
+
+## Release gates
+
+- Unit tests cover missing credentials, invalid plan/key scope, nonzero/missing model prices, paid variants, quota exhaustion, ambiguous errors, fallback selection, and duplicate-request prevention.
+- CI must pass on the exact PR head.
+- A live test is permitted only after the owner explicitly approves the provider, model, request count, and evidence that the request cannot incur a charge. Do not use production credentials for speculative testing.
+- Do not merge or deploy while provider free-plan configuration, non-billable admission, persistence, or mobile browser behavior is unverified.
+- Report cost evidence precisely: `PLAN_ELIGIBLE`, `MODEL_PRICE_ZERO`, and `REQUEST_USAGE_ZERO_CONFIRMED` are distinct claims. Never collapse them into a generic “free verified” label.
+
+## Current operational release state (2026-10-31)
+
+The policy is intentionally fail-closed in the current implementation:
+
+| Capability | Current runtime state | Release claim allowed |
+| --- | --- | --- |
+| Cloudflare raster inference | Blocked unless request-level zero-cost evidence is true | Not live-verified |
+| Pollinations raster inference | Blocked unless request-level zero-cost evidence is true | Not live-verified |
+| Paid image fallback | Permanently disabled | Never available |
+| Browser-local procedural PNG | Available only for explicitly recognized procedural requests | Local procedural artwork; not AI image generation |
+| Image history restoration | Requires durable local asset bytes and metadata | Claim only after exact-head tests pass |
+
+A provider's free-plan allocation, model catalog label, scoped API key, or post-inference usage row is not a substitute for a pre-inference guarantee that the specific request cannot incur a charge. Do not weaken the runtime admission check to make the image-generation button appear functional.
+
+### Conditions for re-enabling a live provider
+
+A future provider adapter must supply all of the following before it can set zeroCostVerified to true:
+
+- A documented provider contract or authoritative API response proving the exact request is non-billable before inference is dispatched.
+- A request-scoped proof binding provider, exact model, allocation/entitlement, request class, and validity window.
+- A bounded quota/reservation mechanism that cannot silently cross into paid usage or overage.
+- A fail-closed response when proof is absent, stale, contradictory, or cannot be correlated to the outgoing request.
+- Unit and integration tests proving the proof is checked immediately before dispatch and that no inference endpoint is called when proof fails.
+- Independent review of the provider contract and a controlled no-charge verification approved by the repository owner.
+
+A post-generation usage record may be retained as secondary audit evidence, but it must not be used as the pre-dispatch authorization.
+
+### User-facing behavior
+
+When no provider passes admission, the UI must state that verified zero-cost AI image generation is unavailable and that no paid provider was used. Local procedural artwork must be explicitly identified as locally generated procedural PNG, not as output from an AI image model. The app may still be released with this limitation if all other release gates pass; the limitation must not be hidden or described as a working live AI image-generation feature.
+### Exact-head verification record
+
+For every release candidate, record the full commit SHA and the following evidence independently:
+
+- Static validation: TypeScript/lint and production build.
+- Automated behavior: complete unit and API suites, including no-provider/no-inference assertions.
+- Browser behavior: Chromium, Firefox, and WebKit where supported; image history reload and download-link recovery.
+- Security: secret scanning, dependency review, CodeQL, and Scorecard.
+- Runtime: local production server health and feature flags; production verification only after a separately approved promotion.
+- Cost boundary: provider contract, request-level pre-dispatch proof, and explicit paid-fallback-disabled evidence.
+
+A green check from an earlier commit, a different pull request, or a branch that is not the release candidate does not qualify the current head. If any required evidence is absent, mark the gate UNVERIFIED and do not merge or publish.

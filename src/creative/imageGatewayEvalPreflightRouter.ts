@@ -24,6 +24,9 @@ export function createImageGatewayEvalPreflightRouter(env: NodeJS.ProcessEnv = p
   const router = Router();
 
   router.get('/api/eval/image-gateway/credits', async (req, res) => {
+    if (env.FREE_ONLY?.trim().toLowerCase() === 'true') {
+      return res.status(404).json({ code: 'EVAL_ROUTE_DISABLED_BY_FREE_ONLY_POLICY' });
+    }
     if (env.VERCEL_ENV?.trim().toLowerCase() !== 'preview') {
       return res.status(404).json({ code: 'EVAL_ROUTE_NOT_AVAILABLE' });
     }

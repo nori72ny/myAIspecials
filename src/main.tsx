@@ -45,7 +45,7 @@ function scheduleIdle(task: () => void): () => void {
   return () => window.clearTimeout(handle);
 }
 
-function parseImportedHistory(value: unknown): ConversationMessage[] {
+export function parseImportedHistory(value: unknown): ConversationMessage[] {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { messages?: unknown }).messages)) throw new Error('invalid-history');
   const messages = (value as { messages: unknown[] }).messages;
   if (messages.length > 500) throw new Error('history-too-large');
@@ -81,7 +81,8 @@ function parseImportedHistory(value: unknown): ConversationMessage[] {
         && sourceImage.technicalQualityScore >= 0
         && sourceImage.technicalQualityScore <= 100;
       const validProvider = sourceImage.providerId === 'pollinations-zero-cost'
-        || sourceImage.providerId === 'cloudflare-workers-ai-free';
+        || sourceImage.providerId === 'cloudflare-workers-ai-free'
+        || sourceImage.providerId === 'origin-local-canvas';
       if (validMime && validAsset && validProvider
         && typeof sourceImage.model === 'string' && sourceImage.model.length > 0 && sourceImage.model.length <= 180
         && typeof sourceImage.downloadName === 'string' && /^[^\\/\u0000-\u001f\u007f]{1,180}\.(?:png|jpe?g|webp)$/i.test(sourceImage.downloadName)

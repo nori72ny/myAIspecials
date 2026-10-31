@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isQuotaExceeded, migrateOriginLegacySnapshot, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
+import { isQuotaExceeded, migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageAdapter } from './OriginIndexedDb';
 
 const snapshot: OriginPersistedSnapshot = { version: 1, messages: [{ id: 'm-1', role: 'user', content: 'persist me' }], sessions: [], artifacts: [{ id: 'a-1', content: '<main>artifact</main>' }], updatedAt: 1 };
 
@@ -67,4 +67,14 @@ describe('OriginIndexedDb migration boundary', () => {
     expect(isQuotaExceeded(new DOMException('full', 'QuotaExceededError'))).toBe(true);
     expect(isQuotaExceeded(new Error('full'))).toBe(false);
   });
+  it('fails closed with an explicit unavailable result when IndexedDB is absent', async () => {
+    vi.stubGlobal('indexedDB', undefined);
+    try {
+      await expect(originIndexedDbAdapter.load()).rejects.toThrow('indexeddb-unavailable');
+      await expect(originIndexedDbAdapter.save(snapshot)).resolves.toBe('unavailable');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
 });

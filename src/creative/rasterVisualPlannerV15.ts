@@ -54,11 +54,13 @@ const STYLE_RULES: readonly [RegExp, string][] = [
 function purposeFor(input: string): RasterVisualPurposeV15 {
   if (/(?:ロゴ|logo)/i.test(input)) return 'logo';
   if (/(?:アイコン|app icon|favicon|icon)/i.test(input)) return 'icon';
-  if (/(?:広告|ad(?:vertisement)?|campaign|訴求)/i.test(input)) return 'advertisement';
+  // Preserve product-specific art direction when a product is also being advertised.
+  if (/(?:商品広告|product\\s+ad|product\\s+photography|物撮り|EC|パッケージ|ボトル|化粧品|料理|ジュエリー|時計|バッグ)/i.test(input)) return 'product';
+  if (/(?:広告|ad(?:vertisement)?|campaign|キャンペーン|訴求)/i.test(input)) return 'advertisement';
+  if (/(?:商品|product)/i.test(input)) return 'product';
   if (/(?:Instagram|インスタ|SNS|social|X投稿|LinkedIn)/i.test(input)) return 'social';
   if (/(?:ポスター|poster)/i.test(input)) return 'poster';
   if (/(?:サムネ|thumbnail|YouTube)/i.test(input)) return 'thumbnail';
-  if (/(?:商品|product|物撮り|EC)/i.test(input)) return 'product';
   if (/(?:人物|portrait|ポートレート|顔写真)/i.test(input)) return 'portrait';
   if (/(?:インフォグラフィック|infographic|図解)/i.test(input)) return 'infographic';
   if (/(?:UI|画面|dashboard|app screen|mockup)/i.test(input)) return 'ui-visual';
@@ -86,6 +88,7 @@ function quotedText(input: string): string[] {
     const normalizedExplicit = explicit ? explicit.trim().replace(/[。,.，]+$/g, '') : '';
     if (normalizedExplicit && !values.includes(normalizedExplicit)) values.push(normalizedExplicit);
   }
+  if (values.length === 0 && /(?:ロゴ|logo)/i.test(input) && /\bORIGIN\b/i.test(input)) values.push('ORIGIN');
   return values.slice(0, 8);
 }
 
@@ -115,7 +118,9 @@ function questionsFor(input: string, requestedSize?: { width?: number; height?: 
     && Number(requestedSize?.width) <= 1536
     && Number(requestedSize?.height) >= 256
     && Number(requestedSize?.height) <= 1536;
-  if (/(?:広告|SNS|ポスター|バナー|サムネ|Instagram|インスタ|YouTube)/i.test(input)
+  const hasKnownYoutubeThumbnailRatio = /YouTube[^。\n]{0,24}サムネ/i.test(input);
+  if (/(?:SNS|ポスター|バナー|サムネ|Instagram|インスタ|YouTube)/i.test(input)
+    && !hasKnownYoutubeThumbnailRatio
     && !hasExplicitRequestedSize
     && !/(?:9\s*[:：/]\s*16|16\s*[:：/]\s*9|4\s*[:：/]\s*5|1\s*[:：/]\s*1|2\s*[:：/]\s*3|縦長|横長|正方形|story|portrait|landscape|square|A4)/i.test(input)) {
     questions.push('主な使用先と比率はどれですか？ 例：Instagram 4:5、Story 9:16、YouTube 16:9');

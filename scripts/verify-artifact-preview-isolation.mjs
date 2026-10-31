@@ -120,8 +120,9 @@ async function verifyBrowser(name, browserType) {
     assert.ok(!(await workspace.textContent()).includes('artifact-forged-boundary'), `${name}: forged boundary message affected parent UI`);
 
     const direct = await context.newPage();
-    const response = await direct.goto(`${baseUrl}/origin-artifact-sandbox.html?direct-open-proof=${Date.now()}`, { waitUntil: 'domcontentloaded' });
+    const response = await direct.goto(`${baseUrl}/origin-artifact-sandbox.html?direct-open-proof=${Date.now()}`, { waitUntil: 'commit' });
     assert.equal(response?.status(), 200, `${name}: direct sandbox URL unavailable`);
+    await direct.getByRole('heading', { name: 'プレビューを準備しています。' }).waitFor({ state: 'visible', timeout: 10_000 });
     const csp = String((await response?.allHeaders())?.['content-security-policy'] || '');
     assert.match(csp, /connect-src 'none'/, `${name}: direct sandbox CSP must block connections`);
     assert.match(csp, /form-action 'none'/, `${name}: direct sandbox CSP must block forms`);

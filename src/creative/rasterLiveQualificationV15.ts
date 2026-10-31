@@ -33,6 +33,8 @@ export type RasterLivePhaseEvidenceV15 = {
   height: number;
   durationMs: number;
   providerReportedExternalNetworkRequests: number;
+  costEvidence: RasterImageResultV15['costEvidence'];
+  semanticCostEvidence: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>>['costEvidence'];
   structural: ReturnType<typeof critiqueRasterStructureV15>;
   semantic: Awaited<ReturnType<typeof critiqueCloudflareRasterSemanticV15>>;
 };
@@ -48,6 +50,7 @@ export type RasterLiveQualificationEvidenceV15 = {
     ready: boolean;
     model: string | null;
     zeroCostVerified: boolean;
+    freeAllocationEligible: boolean;
     paymentMethodRequired: boolean;
     paidFallbackEnabled: boolean;
     secretDelivery: 'server-only';
@@ -56,7 +59,7 @@ export type RasterLiveQualificationEvidenceV15 = {
   edit: RasterLivePhaseEvidenceV15 | null;
   invariants: {
     freeOnly: true;
-    costUsd: 0;
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified' | 'post-generation-usage-zero-confirmed';
     paidFallbackEnabled: false;
     secretDelivery: 'server-only';
     explicitLiveOptInRequired: true;
@@ -80,10 +83,17 @@ function safeProviderEvidence(status: Awaited<ReturnType<typeof getCloudflareRas
     ready: status.ready,
     model: status.model,
     zeroCostVerified: status.zeroCostVerified,
+    freeAllocationEligible: status.freeAllocationEligible === true,
     paymentMethodRequired: status.paymentMethodRequired,
     paidFallbackEnabled: status.paidFallbackEnabled,
     secretDelivery: status.secretDelivery,
   };
+}
+
+// Cloudflare currently exposes account-level Free allocation preflight, not a
+// request-correlated usage record. Keep this false until that evidence exists.
+function cloudflareRequestCostEvidenceAvailableV15(): boolean {
+  return false;
 }
 
 function evidenceHash(value: Omit<RasterLiveQualificationEvidenceV15, 'evidenceSha256'>): string {
@@ -124,6 +134,8 @@ async function runPhase(
       height: result.height,
       durationMs: Math.max(0, now() - started),
       providerReportedExternalNetworkRequests: result.externalNetworkRequests + semantic.externalNetworkRequests,
+      costEvidence: result.costEvidence,
+      semanticCostEvidence: semantic.costEvidence,
       structural,
       semantic,
     },
@@ -137,7 +149,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const baseInvariants = {
     freeOnly: true as const,
-    costUsd: 0 as const,
+    costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified' as const,
     paidFallbackEnabled: false as const,
     secretDelivery: 'server-only' as const,
     explicitLiveOptInRequired: true as const,
@@ -157,6 +169,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
         ready: false,
         model: null,
         zeroCostVerified: false,
+        freeAllocationEligible: false,
         paymentMethodRequired: false,
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
@@ -170,7 +183,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   const status = await getCloudflareRasterStatusV15(env, fetchImpl);
   const provider = safeProviderEvidence(status);
   if (!status.ready
-    || !status.zeroCostVerified
+    || !(status.zeroCostVerified || status.freeAllocationEligible === true)
     || status.paymentMethodRequired
     || status.paidFallbackEnabled
     || status.secretDelivery !== 'server-only') {
@@ -178,6 +191,20 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
       version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
       state: 'blocked',
       reason: status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+      generatedAt,
+      provider,
+      generation: null,
+      edit: null,
+      invariants: baseInvariants,
+    });
+  }
+
+  if (!cloudflareRequestCostEvidenceAvailableV15()) {
+    // Do not spend quota on a live qualification that cannot prove its release invariant.
+    return finalize({
+      version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
+      state: 'blocked',
+      reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
       generatedAt,
       provider,
       generation: null,
@@ -212,6 +239,12 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     edit = edited.evidence;
 
     if (edit.sha256 === generation.sha256) throw new Error('RASTER_LIVE_EDIT_DID_NOT_CHANGE_OUTPUT');
+    if (generation.costEvidence !== 'post-generation-usage-zero-confirmed'
+      || generation.semanticCostEvidence !== 'post-generation-usage-zero-confirmed'
+      || edit.costEvidence !== 'post-generation-usage-zero-confirmed'
+      || edit.semanticCostEvidence !== 'post-generation-usage-zero-confirmed') {
+      throw new Error('CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE');
+    }
 
     return finalize({
       version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
@@ -221,7 +254,7 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
       provider,
       generation,
       edit,
-      invariants: baseInvariants,
+      invariants: { ...baseInvariants, costEvidence: 'post-generation-usage-zero-confirmed' },
     });
   } catch (error) {
     return finalize({

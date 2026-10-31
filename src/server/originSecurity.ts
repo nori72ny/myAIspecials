@@ -52,8 +52,8 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
       ? "'self'"
       : "'self' 'unsafe-inline' 'unsafe-eval'";
     const connectSources = isProduction
-      ? "'self' https://text.pollinations.ai https://image.pollinations.ai https://gen.pollinations.ai https://en.wikipedia.org https://ja.wikipedia.org"
-      : "'self' ws: wss: https://text.pollinations.ai https://image.pollinations.ai https://gen.pollinations.ai https://en.wikipedia.org https://ja.wikipedia.org";
+      ? "'self' https://text.pollinations.ai https://en.wikipedia.org https://ja.wikipedia.org"
+      : "'self' ws: wss: https://text.pollinations.ai https://en.wikipedia.org https://ja.wikipedia.org";
     const isolatedArtifactRuntime = req.path === "/origin-artifact-sandbox.html";
     const contentSecurityPolicy = isolatedArtifactRuntime
       ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
@@ -61,7 +61,7 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
           "default-src 'self'",
           `script-src ${scriptSources}`,
           "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' data: blob: https://image.pollinations.ai https://gen.pollinations.ai",
+          "img-src 'self' data: blob:",
           "font-src 'self' data:",
           `connect-src ${connectSources}`,
           "object-src 'none'",

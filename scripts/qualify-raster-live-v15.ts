@@ -17,7 +17,6 @@ console.log(JSON.stringify({
   generationSha256: evidence.generation?.sha256 ?? null,
   editSha256: evidence.edit?.sha256 ?? null,
   evidenceSha256: evidence.evidenceSha256,
-  costUsd: evidence.invariants.costUsd,
   freeOnly: evidence.invariants.freeOnly,
   paidFallbackEnabled: evidence.invariants.paidFallbackEnabled,
   outputPath,

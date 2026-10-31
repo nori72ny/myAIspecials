@@ -16,18 +16,6 @@ function cfEnvelope(result: unknown, status = 200): Response {
   });
 }
 
-function cfFailure(status: number, code: number): Response {
-  return new Response(JSON.stringify({
-    success: false,
-    result: null,
-    errors: [{ code, message: 'upstream failure' }],
-    messages: [],
-  }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
 function app(env: NodeJS.ProcessEnv = {}) {
   const instance = express();
   instance.use(express.json({ limit: '64kb' }));
@@ -51,61 +39,8 @@ function pngBytes(width: number, height: number): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
-function imageJson(bytes: Uint8Array): Response {
-  return json({ data: [{ b64_json: Buffer.from(bytes).toString('base64'), media_type: 'image/png' }] });
-}
-
 function referenceDataUrl(width = 320, height = 240): string {
   return `data:image/png;base64,${Buffer.from(pngBytes(width, height)).toString('base64')}`;
-}
-
-function successfulFetchMock() {
-  const png = pngBytes(768, 1024);
-  return vi.fn()
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
-}
-
-function semanticFetchMock(passed = true) {
-  const png = pngBytes(768, 1024);
-  const answer = passed
-    ? {
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 4,
-        styleExecution: 3.5,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
-        safetyPassed: true,
-        safetyIssues: [],
-        criticalIssues: [],
-        summary: 'Professional and faithful.',
-      }
-    : {
-        promptAdherence: 2,
-        composition: 3,
-        subjectIntegrity: 2,
-        styleExecution: 3,
-        textHandling: 3,
-        artifactControl: 3,
-        professionalUsefulness: 2,
-        safetyPassed: true,
-        safetyIssues: [],
-        criticalIssues: ['Requested subject is materially wrong.'],
-        summary: 'Not faithful enough for delivery.',
-      };
-  return vi.fn()
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')))
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope({ answer: JSON.stringify(answer) }));
 }
 
 describe('rasterImageV15Router', () => {
@@ -120,10 +55,8 @@ describe('rasterImageV15Router', () => {
     expect(status.body).toMatchObject({
       ok: false,
       ready: false,
-      configured: false,
-      reason: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
       freeOnly: true,
-      costUsd: 0,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
       providerAgnostic: true,
@@ -153,27 +86,19 @@ describe('rasterImageV15Router', () => {
       semanticVisionCritic: {
         version: 'raster-semantic-critic-v1',
         implemented: true,
-        provider: 'cloudflare-workers-ai-free',
-        model: '@cf/moondream/moondream3.1-9B-A2B',
         freeOnly: true,
-        costUsd: 0,
+        costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
-        enabled: true,
+        enabled: false,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
-      },
-      candidateSelection: {
-        version: 'raster-candidate-policy-v1',
-        recommendedCandidates: 2,
-        activeCandidates: 1,
-        bestOfNEnabled: false,
-        activationGate: 'live-zero-cost-quota-and-latency-evidence',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
       },
     });
+    expect(JSON.stringify(status.body)).not.toMatch(/CLOUDFLARE_|POLLINATIONS_|subscription|billing/i);
     expect(status.body.templateEngine.templates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'instagram-story', width: 864, height: 1536, safeMarginPct: 9 }),
       expect.objectContaining({ id: 'youtube-thumbnail', width: 1536, height: 864 }),
@@ -182,29 +107,45 @@ describe('rasterImageV15Router', () => {
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
-    expect(legacy.body.code).toBe('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
+    expect(legacy.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
   });
 
-  it('reports configured-but-not-ready when Workers Paid/Standard is detected', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'standard' }));
+  it('does not probe provider or billing APIs from public status when credentials exist', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      configured: true,
       ready: false,
-      reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+      reason: 'STATUS_NOT_LIVE_VERIFIED',
+      externalNetwork: false,
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: 'server-only',
-      providerAgnostic: true,
-      registryVersion: 'raster-provider-registry-v1',
       supportedTasks: [],
       modelBasedImageEditing: false,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never exposes live free-allocation eligibility from an unverified public status read', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      freeAllocationEligible: false,
+      externalNetwork: false,
+      freeOnly: true,
+      paidFallbackEnabled: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns focused clarification questions before any provider execution for vague image requests', async () => {
@@ -220,10 +161,10 @@ describe('rasterImageV15Router', () => {
       ok: false,
       code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
       freeOnly: true,
-      costUsd: 0,
       providerExecutions: 0,
       secretDelivery: 'server-only',
     });
+    expect(response.body.costUsd).toBeUndefined();
     expect(response.body.questions).toEqual([expect.stringContaining('何を主役')]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -349,173 +290,97 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('routes a validated reference edit through the same verified Free provider', async () => {
-    const fetchMock = semanticFetchMock(true);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const response = await request(app(CF_ENV))
-      .post('/api/creative/v1.5/raster/edit')
-      .send({
-        prompt: '画像0の被写体は保ち、背景だけを夜の高級ホテルに変更してください',
-        width: 768,
-        height: 1024,
-        referenceImages: [referenceDataUrl()],
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.headers['x-origin-visual-task']).toBe('edit');
-    expect(response.headers['x-origin-visual-reference-count']).toBe('1');
-    expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
-    expect(response.headers['x-origin-free-only']).toBe('true');
-    expect(response.headers['x-origin-cost-usd']).toBe('0');
-    expect(response.headers['x-origin-paid-fallback']).toBe('false');
-    expect(fetchMock).toHaveBeenCalledTimes(8);
-
-    const form = fetchMock.mock.calls[3]?.[1]?.body as FormData;
-    expect(form.get('input_image_0')).toBeInstanceOf(Blob);
-    expect(String(form.get('prompt'))).toContain('Preserve subjects');
-  });
-
-  it('returns verified raster bytes and zero-cost evidence through the production-compatible route', async () => {
-    const fetchMock = semanticFetchMock(true);
+  it('blocks Cloudflare Free allocation before inference without request-level zero-cost proof', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(cfEnvelope([]))
+      .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app(CF_ENV))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(200);
-    expect(response.headers['content-type']).toContain('image/png');
-    expect(response.headers['x-origin-visual-verified']).toBe('true');
-    expect(response.headers['x-origin-visual-task']).toBe('generate');
-    expect(response.headers['x-origin-visual-reference-count']).toBe('0');
-    expect(response.headers['x-origin-visual-provider']).toBe('cloudflare-workers-ai-free');
-    expect(response.headers['x-origin-visual-model']).toBe('@cf/black-forest-labs/flux-2-klein-9b');
-    expect(response.headers['x-origin-free-only']).toBe('true');
-    expect(response.headers['x-origin-cost-usd']).toBe('0');
-    expect(response.headers['x-origin-paid-fallback']).toBe('false');
-    expect(response.headers['x-origin-external-network']).toBe('true');
-    expect(response.headers['x-origin-external-network-requests']).toBe('8');
-    expect(response.headers['x-origin-secret-delivery']).toBe('server-only');
-    expect(response.headers['x-origin-visual-sha256']).toMatch(/^[a-f0-9]{64}$/);
-    expect(response.headers['x-origin-visual-generation-id']).toMatch(/^raster-[a-f0-9]{24}$/);
-    expect(response.headers['x-origin-visual-brain']).toBe('visual-brain-v1');
-    expect(response.headers['x-origin-visual-plan']).toBe('raster-visual-plan-v1');
-    expect(response.headers['x-origin-visual-plan-sha256']).toMatch(/^[a-f0-9]{64}$/);
-    expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
-    expect(response.headers['x-origin-visual-template']).toBe('custom-size');
-    expect(response.headers['x-origin-visual-safe-margin-pct']).toBe('7');
-    expect(response.headers['x-origin-visual-typography-zone']).toBe('bottom');
-    expect(response.headers['x-origin-visual-critic']).toBe('raster-structural-critic-v1');
-    expect(response.headers['x-origin-visual-quality-score']).toBe('100');
-    expect(response.headers['x-origin-visual-actual-width']).toBe('768');
-    expect(response.headers['x-origin-visual-actual-height']).toBe('1024');
-    expect(response.headers['x-origin-visual-typography-overlay']).toBe('not-required');
-    expect(response.headers['x-origin-visual-candidate-policy']).toBe('raster-candidate-policy-v1');
-    expect(response.headers['x-origin-visual-candidates-recommended']).toBe('1');
-    expect(response.headers['x-origin-visual-candidates-active']).toBe('1');
-    expect(response.headers['x-origin-visual-best-of-n']).toBe('false');
-    expect(response.headers['x-origin-visual-width']).toBe('768');
-    expect(response.headers['x-origin-visual-height']).toBe('1024');
-    expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(8);
-
-    const providerRequest = fetchMock.mock.calls[3]?.[1] as RequestInit;
-    const authorization = new Headers(providerRequest.headers).get('authorization');
-    expect(authorization).toBe(`Bearer test-${'x'.repeat(40)}`);
-    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/black-forest-labs/flux-2-klein-9b');
-    expect(providerRequest.body).toBeInstanceOf(FormData);
-    const providerBody = providerRequest.body as FormData;
-    expect(String(providerBody.get('prompt'))).toContain('Create a polished production-quality image');
-    expect(String(providerBody.get('width'))).toBe('768');
-    expect(String(providerBody.get('height'))).toBe('1024');
-    expect(new Headers(providerRequest.headers).get('content-type')).toBeNull();
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
+    expect(response.body.freeOnly).toBe(true);
+    expect(response.body.paidFallbackUsed).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
   });
 
-  it.each([
-    [3036, 429, 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED', false, '無料枠を使い切った'],
-    [3040, 503, 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE', true, '一時的に混雑'],
-    [5035, 503, 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN', false, '有料プランが必要'],
-  ] as const)('returns truthful safe API semantics for Cloudflare code %s', async (internalCode, expectedStatus, expectedCode, retryable, messagePart) => {
+  it('blocks Pollinations scoped free allocation before inference without request-level zero-cost proof', async () => {
+    const freeModel = {
+      id: 'tomdacatto/sana',
+      category: 'image',
+      title: 'Sana Sprint (Free)',
+      description: 'Free image model',
+      community: true,
+      pricing: { currency: 'pollen' },
+      paid_only: false,
+      input_modalities: ['text'],
+      output_modalities: ['image'],
+    };
+    const scopedKeyInfo = {
+      valid: true,
+      type: 'secret',
+      permissions: { models: ['tomdacatto/sana'] },
+      pollenBudget: 5,
+      questPollenOnly: true,
+      rateLimitEnabled: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([freeModel]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app({ POLLINATIONS_API_KEY: 'test-pollinations-key' }))
+      .post('/api/generate-image')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
+    expect(response.body.paidFallbackUsed).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
+  });
+
+  it('does not fall back to another free-allocation provider when neither has request-level cost proof', async () => {
+    const scopedKeyInfo = {
+      valid: true,
+      type: 'secret',
+      permissions: { models: ['tomdacatto/sana'] },
+      pollenBudget: 5,
+      questPollenOnly: true,
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
       .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(cfFailure(internalCode === 5035 ? 403 : 429, internalCode));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const response = await request(app(CF_ENV))
-      .post('/api/generate-image')
-      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
-
-    expect(response.status).toBe(expectedStatus);
-    expect(response.body).toMatchObject({
-      ok: false,
-      code: expectedCode,
-      retryable,
-      freeOnly: true,
-      costUsd: 0,
-      paidFallbackUsed: false,
-      secretDelivery: 'server-only',
-    });
-    expect(response.body.message).toContain(messagePart);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
-
-  it('runs the semantic delivery gate by default and returns only a passing image', async () => {
-    const fetchMock = semanticFetchMock(true);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const response = await request(app(CF_ENV))
-      .post('/api/generate-image')
-      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
-
-    expect(response.status).toBe(200);
-    expect(response.headers['x-origin-visual-semantic-gate']).toBe('enabled');
-    expect(response.headers['x-origin-visual-semantic-verified']).toBe('true');
-    expect(response.headers['x-origin-visual-semantic-critic']).toBe('raster-semantic-critic-v1');
-    expect(Number(response.headers['x-origin-visual-semantic-score'])).toBeGreaterThanOrEqual(88);
-    expect(response.headers['x-origin-external-network-requests']).toBe('8');
-    expect(fetchMock).toHaveBeenCalledTimes(8);
-  });
-
-  it('allows an explicit semantic-gate opt-out only for controlled diagnostics', async () => {
-    const fetchMock = successfulFetchMock();
-    vi.stubGlobal('fetch', fetchMock);
-    const response = await request(app({ ...CF_ENV, ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'false' }))
-      .post('/api/generate-image')
-      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
-    expect(response.status).toBe(200);
-    expect(response.headers['x-origin-visual-semantic-gate']).toBe('disabled');
-    expect(response.headers['x-origin-visual-semantic-verified']).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
-
-  it('withholds a structurally valid image when the enabled semantic critic rejects it', async () => {
-    const fetchMock = semanticFetchMock(false);
+      .mockResolvedValueOnce(json(scopedKeyInfo))
+      .mockResolvedValueOnce(json([{
+        id: 'tomdacatto/sana',
+        category: 'image',
+        title: 'Sana Sprint (Free)',
+        pricing: { currency: 'pollen' },
+        paid_only: false,
+        input_modalities: ['text'],
+        output_modalities: ['image'],
+      }]));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app({
       ...CF_ENV,
-      ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE: 'true',
+      POLLINATIONS_API_KEY: 'test-pollinations-key',
     }))
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
-    expect(response.status).toBe(502);
-    expect(response.body).toMatchObject({
-      ok: false,
-      code: 'RASTER_SEMANTIC_CRITIC_REJECTED',
-      freeOnly: true,
-      costUsd: 0,
-      paidFallbackUsed: false,
-      secretDelivery: 'server-only',
-      semanticCritic: {
-        passed: false,
-        version: 'raster-semantic-critic-v1',
-      },
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
@@ -530,4 +395,32 @@ describe('rasterImageV15Router', () => {
     expect(response.body.code).toBe('INVALID_RASTER_REQUEST_FIELD');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+
+  it('blocks direct valid generate and edit API calls before any provider network request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const instance = app(CF_ENV);
+    const prompt = '高級で未来的なORIGINのスマホ広告画像を9:16で作ってください';
+
+    const generate = await request(instance)
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt });
+    const edit = await request(instance)
+      .post('/api/creative/v1.5/raster/edit')
+      .send({ prompt, referenceImages: [referenceDataUrl()] });
+
+    for (const response of [generate, edit]) {
+      expect(response.status).toBe(503);
+      expect(response.body).toMatchObject({
+        ok: false,
+        code: 'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+        freeOnly: true,
+        paidFallbackUsed: false,
+        retryable: false,
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
 });

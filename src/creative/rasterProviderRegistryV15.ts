@@ -34,8 +34,8 @@ export type RasterProviderDescriptorV15 = {
 
 export type RasterProviderRuntimeV15 = {
   descriptor: RasterProviderDescriptorV15;
-  status(env?: NodeJS.ProcessEnv): Promise<RasterProviderStatusV15>;
-  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv): Promise<RasterImageResultV15>;
+  status(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterProviderStatusV15>;
+  generate(input: RasterImageRequestV15, env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<RasterImageResultV15>;
 };
 
 const CLOUDFLARE_DESCRIPTOR: RasterProviderDescriptorV15 = {
@@ -79,13 +79,13 @@ const POLLINATIONS_DESCRIPTOR: RasterProviderDescriptorV15 = {
 const PROVIDERS: readonly RasterProviderRuntimeV15[] = [
   {
     descriptor: CLOUDFLARE_DESCRIPTOR,
-    status: (env = process.env) => getCloudflareRasterStatusV15(env),
-    generate: (input, env = process.env) => generateCloudflareRasterImageV15(input, env),
+    status: (env = process.env, fetchImpl = fetch) => getCloudflareRasterStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl = fetch) => generateCloudflareRasterImageV15(input, env, fetchImpl),
   },
   {
     descriptor: POLLINATIONS_DESCRIPTOR,
-    status: (env = process.env) => getRasterProviderStatusV15(env),
-    generate: (input, env = process.env) => generateRasterImageV15(input, env),
+    status: (env = process.env, fetchImpl = fetch) => getRasterProviderStatusV15(env, fetchImpl),
+    generate: (input, env = process.env, fetchImpl = fetch) => generateRasterImageV15(input, env, fetchImpl),
   },
 ];
 
@@ -124,10 +124,11 @@ function cachedProviderStatusV15(
   provider: RasterProviderRuntimeV15,
   env: NodeJS.ProcessEnv,
   cache: RasterProviderStatusCacheV15,
+  fetchImpl: typeof fetch,
 ): Promise<RasterProviderStatusV15> {
   const existing = cache.get(provider);
   if (existing) return existing;
-  const pending = provider.status(env);
+  const pending = provider.status(env, fetchImpl);
   cache.set(provider, pending);
   return pending;
 }
@@ -136,6 +137,8 @@ async function selectRasterProviderWithCacheV15(
   task: RasterTaskV15,
   env: NodeJS.ProcessEnv,
   cache: RasterProviderStatusCacheV15,
+  fetchImpl: typeof fetch,
+  excludedProviderIds: ReadonlySet<string> = new Set(),
 ): Promise<RasterProviderSelectionV15> {
   const statuses: {
     providerId: string;
@@ -149,6 +152,10 @@ async function selectRasterProviderWithCacheV15(
   for (const provider of PROVIDERS) {
     const supportsTask = provider.descriptor.capabilities.some(capability => capability.task === task);
     anySupport ||= supportsTask;
+    if (excludedProviderIds.has(provider.descriptor.id)) {
+      statuses.push({ providerId: provider.descriptor.id, ready: false, reason: 'PROVIDER_PREVIOUSLY_EXHAUSTED', supportsTask, status: null });
+      continue;
+    }
     if (!supportsTask) {
       statuses.push({
         providerId: provider.descriptor.id,
@@ -160,9 +167,38 @@ async function selectRasterProviderWithCacheV15(
       continue;
     }
 
-    const status = await cachedProviderStatusV15(provider, env, cache);
+    let status: RasterProviderStatusV15;
+    try {
+      status = await cachedProviderStatusV15(provider, env, cache, fetchImpl);
+    } catch {
+      // One provider's status endpoint/network failure must not prevent probing
+      // the next eligible free provider. Unknown status is always unsafe.
+      status = {
+        configured: false,
+        ready: false,
+        providerId: provider.descriptor.id as RasterProviderStatusV15['providerId'],
+        model: null,
+        zeroCostVerified: false,
+        paidFallbackEnabled: false,
+        paymentMethodRequired: false,
+        secretDelivery: 'server-only',
+        externalNetwork: true,
+        reason: 'PROVIDER_STATUS_UNAVAILABLE',
+      };
+      statuses.push({
+        providerId: provider.descriptor.id,
+        ready: false,
+        reason: status.reason,
+        supportsTask: true,
+        status,
+      });
+      continue;
+    }
+    // A non-billable account allocation is not proof that this exact request
+    // will cost $0.00. Only request-correlated zero-cost evidence may admit a
+    // provider to the live route; unknown evidence is always denied.
     const safe = status.ready
-      && status.zeroCostVerified
+      && status.zeroCostVerified === true
       && status.paidFallbackEnabled === false
       && status.paymentMethodRequired === false
       && status.secretDelivery === 'server-only'
@@ -171,7 +207,9 @@ async function selectRasterProviderWithCacheV15(
     statuses.push({
       providerId: provider.descriptor.id,
       ready: safe,
-      reason: safe ? null : status.reason ?? 'PROVIDER_NOT_READY',
+      reason: safe ? null : status.reason ?? (status.ready && status.freeAllocationEligible === true
+        ? 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED'
+        : 'PROVIDER_NOT_READY'),
       supportsTask: true,
       status,
     });
@@ -191,14 +229,24 @@ async function selectRasterProviderWithCacheV15(
 export async function selectRasterProviderV15(
   task: RasterTaskV15,
   env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<RasterProviderSelectionV15> {
-  return selectRasterProviderWithCacheV15(task, env, new Map());
+  return selectRasterProviderWithCacheV15(task, env, new Map(), fetchImpl);
+}
+
+export async function selectRasterProviderExcludingV15(
+  task: RasterTaskV15,
+  env: NodeJS.ProcessEnv,
+  excludedProviderIds: readonly string[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<RasterProviderSelectionV15> {
+  return selectRasterProviderWithCacheV15(task, env, new Map(), fetchImpl, new Set(excludedProviderIds));
 }
 
 export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = process.env) {
   const statusCache: RasterProviderStatusCacheV15 = new Map();
   const selections = await Promise.all(
-    RASTER_TASKS_V15.map(task => selectRasterProviderWithCacheV15(task, env, statusCache)),
+    RASTER_TASKS_V15.map(task => selectRasterProviderWithCacheV15(task, env, statusCache, fetch)),
   );
   const supportedTasks = selections.filter(result => result.ready).map(result => result.task);
   const textSelection = selections.find(result => result.task === 'text-to-image');
@@ -211,7 +259,7 @@ export async function rasterProviderRuntimeStatusV15(env: NodeJS.ProcessEnv = pr
     } else if ('statuses' in textSelection) {
       const probed = textSelection.statuses.find(item => item.supportsTask);
       textToImageStatus = probed?.status ?? null;
-      textToImageReason = probed?.reason ?? textSelection.reason;
+      textToImageReason = textSelection.reason;
     }
   }
   return {

@@ -73,8 +73,7 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
           ),
           img: ({ alt, src, title }) => {
             const safeSource = typeof src === 'string' && (
-              /^https:\/\/(?:image|gen)\.pollinations\.ai\//i.test(src)
-              || /^blob:/i.test(src)
+              /^blob:/i.test(src)
               || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(src)
             );
             return safeSource && typeof src === 'string'
