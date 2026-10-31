@@ -213,16 +213,6 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
   });
 
   const handler = (mode: 'generate' | 'edit') => async (req: Request, res: Response) => {
-    // Release safety boundary: raster inference remains disabled until exact-request
-    // pre-inference $0.00 evidence is independently verifiable. This server-side
-    // guard applies to direct API calls as well as the browser UI.
-    return fail(
-      res,
-      503,
-      'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
-      'リクエスト単位で費用0円を事前保証できないため、AI画像生成・編集は停止しています。',
-      false,
-    );
     const kinds = sensitiveKinds(req.body);
     if (kinds.length > 0) {
       return fail(res, 422, 'SENSITIVE_INPUT_BLOCKED', '機密・個人情報の可能性があるため、外部画像プロバイダへ送信しませんでした。');
@@ -257,6 +247,17 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
           secretDelivery: 'server-only',
         });
       }
+    // Release safety boundary: raster inference remains disabled until exact-request
+    // pre-inference $0.00 evidence is independently verifiable. This server-side
+    // guard applies to direct API calls as well as the browser UI.
+    return fail(
+      res,
+      503,
+      'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+      'リクエスト単位で費用0円を事前保証できないため、AI画像生成・編集は停止しています。',
+      false,
+    );
+
       const providerTask = mode === 'edit' ? 'edit' : 'text-to-image';
       // Use the same readiness and zero-cost gate as /status. A static first-provider
       // lookup can otherwise report Pollinations as ready but still invoke Cloudflare.
