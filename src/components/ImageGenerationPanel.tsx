@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 type ImageRatio = '1:1' | '16:9' | '9:16' | '4:5' | '3:2' | '2:3';
 type ImageResolution = '1024' | '1536';
@@ -16,10 +16,33 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   const [ratio, setRatio] = useState<ImageRatio>('1:1');
   const [resolution, setResolution] = useState<ImageResolution>('1024');
   const [error, setError] = useState('');
+  const dialogRef = useRef<HTMLElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    promptRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+      if (event.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) { event.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      previouslyFocusedRef.current?.focus();
+    };
   }, [onClose]);
   const dimensions = useMemo(() => {
     const [ratioWidthText, ratioHeightText] = ratio.split(':');
@@ -50,7 +73,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   const ja = language === 'ja';
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="origin-muted m-0 text-xs font-semibold uppercase tracking-[0.16em]">ORIGIN · IMAGE STUDIO</p>
@@ -62,7 +85,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
         <form onSubmit={submit} className="grid gap-4">
           <label className="grid gap-2 text-sm font-medium">
             {ja ? '作りたい画像' : 'Image brief'}
-            <textarea autoFocus data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-y rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />
+            <textarea ref={promptRef} data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-y rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-2 text-sm font-medium">
