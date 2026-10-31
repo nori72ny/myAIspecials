@@ -89,7 +89,7 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
-  it('selects Pollinations only as a free-allocation-eligible fallback without claiming request-level zero-cost proof', async () => {
+  it('blocks Pollinations when only account-level free allocation is verified', async () => {
     const response = (body: unknown) => new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -121,16 +121,23 @@ describe('rasterProviderRegistryV15', () => {
       POLLINATIONS_API_KEY: 'sk_test',
     }, fetchMock);
 
-    expect(selection.ready).toBe(true);
-    if (selection.ready) {
-      expect(selection.provider.descriptor.id).toBe('pollinations-zero-cost');
-      expect(selection.status).toMatchObject({
-        ready: true,
-        zeroCostVerified: false,
-        freeAllocationEligible: true,
-        paidFallbackEnabled: false,
-        paymentMethodRequired: false,
-      });
+    expect(selection).toMatchObject({
+      ready: false,
+      task: 'text-to-image',
+      provider: null,
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+    });
+    if ('statuses' in selection) {
+      expect(selection.statuses).toContainEqual(expect.objectContaining({
+        providerId: 'pollinations-zero-cost',
+        ready: false,
+        reason: 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED',
+        status: expect.objectContaining({
+          ready: true,
+          zeroCostVerified: false,
+          freeAllocationEligible: true,
+        }),
+      }));
     }
   });
 
@@ -177,7 +184,7 @@ describe('rasterProviderRegistryV15', () => {
     }
   });
 
-  it('selects Cloudflare when Workers Free hard quota and model access are verified', async () => {
+  it('blocks Cloudflare when Free allocation is known but request-level cost is unverified', async () => {
     const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -196,17 +203,23 @@ describe('rasterProviderRegistryV15', () => {
       CLOUDFLARE_API_TOKEN: 'test-token-value-that-is-long-enough',
     }, fetchMock);
 
-    expect(selection.ready).toBe(true);
-    if (selection.ready) {
-      expect(selection.provider.descriptor.id).toBe('cloudflare-workers-ai-free');
-      expect(selection.status).toMatchObject({
-        ready: true,
-        zeroCostVerified: false,
-        freeAllocationEligible: true,
-        paidFallbackEnabled: false,
-        paymentMethodRequired: false,
-        reason: null,
-      });
+    expect(selection).toMatchObject({
+      ready: false,
+      task: 'text-to-image',
+      provider: null,
+      reason: 'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
+    });
+    if ('statuses' in selection) {
+      expect(selection.statuses).toContainEqual(expect.objectContaining({
+        providerId: 'cloudflare-workers-ai-free',
+        ready: false,
+        reason: 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED',
+        status: expect.objectContaining({
+          ready: true,
+          zeroCostVerified: false,
+          freeAllocationEligible: true,
+        }),
+      }));
     }
   });
 
