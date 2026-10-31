@@ -57,6 +57,11 @@ const artifact: ArtifactBlock = {
   content: '<main><button>Ready</button></main>', isComplete: true,
 };
 
+function requestPath(input: RequestInfo | URL): string {
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  return new URL(rawUrl, 'http://localhost').pathname;
+}
+
 describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('accepts only the two explicitly supported free raster provider identities', () => {
     expect(isVerifiedRasterProviderId('cloudflare-workers-ai-free')).toBe(true);
@@ -311,7 +316,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       model: 'test-free-model',
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestPath(input);
       if (url === '/api/creative/v1.5/raster/status') {
         return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -331,9 +336,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
       await waitFor(() => {
-        expect(fetchMock.mock.calls.some(([url]) => url === '/api/generate-image')).toBe(true);
+        expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/generate-image')).toBe(true);
       });
-      const generationCall = fetchMock.mock.calls.find(([url]) => url === '/api/generate-image') as [RequestInfo | URL, RequestInit?] | undefined;
+      const generationCall = fetchMock.mock.calls.find(([input]) => requestPath(input) === '/api/generate-image') as [RequestInfo | URL, RequestInit?] | undefined;
       expect(generationCall).toBeTruthy();
       expect(JSON.parse(String(generationCall?.[1]?.body))).toMatchObject({
         prompt: '夕焼けの海辺',
@@ -358,7 +363,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       model: 'test-free-model',
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestPath(input);
       if (url === '/api/creative/v1.5/raster/status') {
         return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -389,9 +394,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByTestId('start-request-button'));
 
       await waitFor(() => {
-        expect(fetchMock.mock.calls.some(([url]) => url === '/api/chat')).toBe(true);
+        expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(true);
       });
-      expect(fetchMock.mock.calls.some(([url]) => url === '/api/generate-image')).toBe(false);
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/generate-image')).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }
