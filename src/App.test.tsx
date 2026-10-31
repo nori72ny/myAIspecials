@@ -299,10 +299,27 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      code: 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
-      message: '画像生成Providerが未構成です。',
-    }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    const verifiedFreeRasterStatus = {
+      ok: true,
+      configured: true,
+      ready: true,
+      zeroCostVerified: true,
+      paymentMethodRequired: false,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+      providerId: 'test-free-provider',
+      model: 'test-free-model',
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/creative/v1.5/raster/status') {
+        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        code: 'PROVIDER_UNAVAILABLE',
+        message: '画像生成Providerが未構成です。',
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
     vi.stubGlobal('fetch', fetchMock);
     try {
       render(<App language="ja" />);
@@ -329,10 +346,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('does not carry a rejected image-panel request into the next ordinary chat message', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      code: 'PROVIDER_UNAVAILABLE',
-      message: 'Provider unavailable',
-    }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    const verifiedFreeRasterStatus = {
+      ok: true,
+      configured: true,
+      ready: true,
+      zeroCostVerified: true,
+      paymentMethodRequired: false,
+      paidFallbackEnabled: false,
+      secretDelivery: 'server-only',
+      providerId: 'test-free-provider',
+      model: 'test-free-model',
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/creative/v1.5/raster/status') {
+        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url === '/api/generate-image') {
+        return new Response(JSON.stringify({
+          code: 'PROVIDER_UNAVAILABLE',
+          message: 'Provider unavailable',
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ code: 'CHAT_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
     vi.stubGlobal('fetch', fetchMock);
     try {
       render(<App language="ja" />);
