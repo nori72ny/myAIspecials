@@ -63,7 +63,7 @@ describe('ImageGenerationPanel', () => {
     const unavailable = await screen.findByTestId('origin-image-provider-unavailable');
     expect(unavailable.textContent).toContain('費用 $0.00');
     const submit = screen.getByTestId('origin-image-generate-submit');
-    expect(submit).toBeDisabled();
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(submit);
     expect(onGenerate).not.toHaveBeenCalled();
   });
@@ -77,7 +77,7 @@ describe('ImageGenerationPanel', () => {
     render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);
 
     await screen.findByTestId('origin-image-provider-unavailable');
-    expect(screen.getByTestId('origin-image-generate-submit')).toBeDisabled();
+    expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(true);
     expect(onGenerate).not.toHaveBeenCalled();
   });
 
@@ -85,7 +85,7 @@ describe('ImageGenerationPanel', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
     render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={() => undefined} />);
     await screen.findByTestId('origin-image-provider-unavailable');
-    expect(screen.getByTestId('origin-image-generate-submit')).toBeDisabled();
+    expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('does not submit an empty prompt and exposes an accessible validation error', async () => {
