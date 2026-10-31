@@ -194,10 +194,11 @@ async function selectRasterProviderWithCacheV15(
       });
       continue;
     }
-    // Cloudflare's hard-capped Free allocation is eligible for routing, but its
-    // preflight must never be represented as request-level zero-cost verification.
+    // A non-billable account allocation is not proof that this exact request
+    // will cost $0.00. Only request-correlated zero-cost evidence may admit a
+    // provider to the live route; unknown evidence is always denied.
     const safe = status.ready
-      && (status.zeroCostVerified || status.freeAllocationEligible === true)
+      && status.zeroCostVerified === true
       && status.paidFallbackEnabled === false
       && status.paymentMethodRequired === false
       && status.secretDelivery === 'server-only'
@@ -206,7 +207,9 @@ async function selectRasterProviderWithCacheV15(
     statuses.push({
       providerId: provider.descriptor.id,
       ready: safe,
-      reason: safe ? null : status.reason ?? 'PROVIDER_NOT_READY',
+      reason: safe ? null : status.reason ?? (status.ready && status.freeAllocationEligible === true
+        ? 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED'
+        : 'PROVIDER_NOT_READY'),
       supportsTask: true,
       status,
     });
