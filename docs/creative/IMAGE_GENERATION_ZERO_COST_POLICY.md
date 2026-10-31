@@ -2,6 +2,8 @@
 
 Status: release policy for the FREE_ONLY image lane. This document is normative for provider routing and release review.
 
+Runtime enforcement: `selectRasterProviderV15` admits a provider only when `zeroCostVerified === true`. `freeAllocationEligible` is informational and must never authorize inference by itself. The current Cloudflare and Pollinations adapters both report `zeroCostVerified: false`, so the live raster routes must return 503 before inference until a request-level, pre-inference non-billable proof mechanism is implemented and independently verified.
+
 ## Non-negotiable invariants
 
 - A generation request may run only when the selected provider and exact model are admitted to a non-billable path.
