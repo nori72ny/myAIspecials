@@ -154,7 +154,7 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
-        enabled: semanticDeliveryGateEnabled(env),
+        enabled: false,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
       },
       templateEngine: {
