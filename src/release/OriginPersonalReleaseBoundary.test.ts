@@ -32,7 +32,7 @@ describe('ORIGIN Personal production entrypoint', () => {
     expect(document).toContain('<title>ORIGIN Personal</title>');
     expect(document).not.toContain('Ultimate');
     expect(document).toMatch(/img-src 'self' data: blob:/);
-    expect(document).not.toMatch(/img-src[^;]*pollinations\\.ai/);
+    expect(document).not.toMatch(/img-src[^;]*pollinations\.ai/);
     expect(document).not.toMatch(/img-src[^;]*https:\/\/[^ ;]*(?:\*|unsafe)/);
     expect(document).not.toContain('fonts.googleapis.com');
     expect(styles).not.toContain('fonts.googleapis.com');
