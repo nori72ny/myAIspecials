@@ -1198,12 +1198,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
   const handleSend = async (textToSend?: string, interruptCurrent = false) => {
     const text = textToSend || inputText;
-    if ((!text.trim() && !attachments.length) || (isLoading && !interruptCurrent)) return;
+    if (!text.trim() && !attachments.length) return;
+    if (isLoading && !interruptCurrent) {
+      pendingImageRequestRef.current = null;
+      return;
+    }
     if (isOffline) {
+      pendingImageRequestRef.current = null;
       setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。');
       return;
     }
     if (imageEditTarget && attachments.length > 0) {
+      pendingImageRequestRef.current = null;
       setAttachmentError(language === 'en'
         ? 'Image edit mode uses the selected verified source image only. Remove additional attachments or cancel image edit mode first.'
         : '画像編集モードでは、選択した検証済み元画像だけを使います。追加ファイルを外すか、画像編集を解除してください。');
@@ -1217,12 +1223,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     const containsPrivateText = detectSensitiveInput(privacyInput).containsSensitiveInput;
     const containsUninspectableImage = attachments.some((attachment) => attachment.kind === 'image');
     if (containsPrivateText || containsUninspectableImage) {
+      pendingImageRequestRef.current = null;
       setAttachmentError(language === 'en'
         ? 'Nothing was transmitted or added to history. Remove personal, financial, medical, or credential values. Image attachments remain local because this version cannot verify that they contain no private information.'
         : '入力内容は送信せず、履歴にも追加していません。個人・金融・医療・認証情報を削除してください。画像は個人情報が含まれないことを検証できないため、この版では端末外へ送信しません。');
       setIsSafeWaiting(true);
       return;
     }
+
+    // Consume the pending image intent exactly once. A rejected or redirected
+    // send must never leave it attached to a later ordinary chat message.
+    const pendingImageRequest = pendingImageRequestRef.current;
+    pendingImageRequestRef.current = null;
 
     if (
       !interruptCurrent
@@ -1302,8 +1314,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
     try {
-      const pendingImageRequest = pendingImageRequestRef.current;
-      if (pendingImageRequest && isImageClarificationCancellation(text.trim())) pendingImageRequestRef.current = null;
       const shouldGenerateImage = !interruptCurrent
         && attachments.length === 0
         && !isImageClarificationCancellation(text.trim())
@@ -1860,7 +1870,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const composer = <><div data-testid="origin-ultra-v16-anchor" className="relative z-10 mb-1 flex w-full justify-end"><OriginUltraV16 /></div><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? `画像編集モード · SHA-256 ${imageEditTarget.shortSha}… · 変えたいところを入力` : `Image edit mode · SHA-256 ${imageEditTarget.shortSha}… · describe what to change`}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" onClick={(event) => { event.preventDefault(); const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = !details.open; }} aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
-    <button type="button" role="menuitem" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); setIsImageGenerationPanelOpen(true); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10">🎨 {language === 'ja' ? '画像生成' : 'Generate image'}</button>
+    <button type="button" role="menuitem" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); setIsImageGenerationPanelOpen(true); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10"><span aria-hidden="true">🎨</span> {language === 'ja' ? '画像生成' : 'Generate image'}</button>
     <button type="button" role="menuitem" disabled={Boolean(imageEditTarget)} onClick={(event) => { closeComposerMenu(event.currentTarget); fileInputRef.current?.click(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10">{language === 'ja' ? 'ファイルを添付' : 'Attach file'}</button>
     {onOpenResearch && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenResearch(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '詳しく調べる' : 'Research deeply'}</button>}
     {onOpenAgent && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenAgent(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? 'エージェントに任せる' : 'Delegate to agent'}</button>}
