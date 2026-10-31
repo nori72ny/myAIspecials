@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPollinationsImageUrl, executeZeroFailureCascade, isAutonomousImagePrompt, sanitizeWikipediaSnippet } from './zeroFailureCascade';
+import { executeZeroFailureCascade, isAutonomousImagePrompt, sanitizeWikipediaSnippet } from './zeroFailureCascade';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -10,11 +10,13 @@ describe('zero failure cascade', () => {
     expect(isAutonomousImagePrompt('Explain ocean currents')).toBe(false);
   });
 
-  it('creates an encoded Pollinations URL with a stable explicit seed', () => {
-    const url = createPollinationsImageUrl('海と青空', 42);
-    expect(url).toContain('https://image.pollinations.ai/prompt/');
-    expect(url).toContain(encodeURIComponent('海と青空'));
-    expect(url).toContain('seed=42');
+  it('fails closed for image prompts without calling any external image provider', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await executeZeroFailureCascade('海の画像');
+    expect(result).toMatchObject({ ok: false, source: 'unavailable' });
+    expect(result.content).not.toContain('pollinations.ai');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns a public text response when the keyless endpoint is available', async () => {
