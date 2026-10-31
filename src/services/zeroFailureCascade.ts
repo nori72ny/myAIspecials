@@ -88,6 +88,3 @@ export async function recoverWithAutonomousCascade(prompt: string, signal?: Abor
   return executeZeroFailureCascade(prompt, signal);
 }
 
-export async function deliverPollinationsInlineImageFallback(prompt: string): Promise<CascadeResult> {
-  return executeZeroFailureCascade(prompt);
-}
