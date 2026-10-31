@@ -276,7 +276,7 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
         return fail(
           res,
           503,
-          ('reason' in selection ? selection.reason : 'NO_VERIFIED_ZERO_COST_PROVIDER_READY'),
+          'NO_VERIFIED_ZERO_COST_PROVIDER_READY',
           '費用0円と実行可能性を検証できる画像プロバイダがありません。',
         );
       }
