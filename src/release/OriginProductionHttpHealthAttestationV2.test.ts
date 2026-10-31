@@ -10,7 +10,7 @@ const env = (mapping = expected()) => ({
 });
 const healthy = (sha: string) => ({
   status: "ok", releaseSha: sha, freeOnly: true,
-  paidFallbackEnabled: false, costUsd: 0, secretDelivery: "server-only",
+  paidFallbackEnabled: false, secretDelivery: "server-only",
 });
 function fakeApi(options: {
   driftDomain?: string; patch?: Record<string, unknown>;
@@ -55,6 +55,7 @@ describe("read-only ORIGIN Production 3-domain live health attestation", () => {
     ["missing-sha", { releaseSha: null }],
     ["paid-fallback", { paidFallbackEnabled: true }],
     ["not-free", { freeOnly: false }],
+    ["unverified-zero-cost", { costUsd: 0 }],
     ["positive-cost", { costUsd: 1 }],
     ["unsafe-secrets", { secretDelivery: "browser" }],
   ])("refuses unsafe live response %s", async (_label, patch) => {
