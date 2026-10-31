@@ -105,12 +105,6 @@ function parseBody(body: unknown, mode: 'generate' | 'edit' = 'generate'): Raste
   };
 }
 
-function filename(mime: string): string {
-  if (mime === 'image/png') return 'origin-image.png';
-  if (mime === 'image/webp') return 'origin-image.webp';
-  return 'origin-image.jpg';
-}
-
 export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
