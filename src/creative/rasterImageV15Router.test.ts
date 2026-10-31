@@ -339,7 +339,7 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
     expect(response.body.paidFallbackUsed).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
@@ -377,7 +377,7 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
