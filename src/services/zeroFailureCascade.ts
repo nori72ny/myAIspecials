@@ -74,8 +74,8 @@ export async function executeZeroFailureCascade(prompt: string, signal?: AbortSi
       const data = await response.json() as { query?: { search?: Array<{ title?: string; snippet?: string }> } };
       const entries = (data.query?.search ?? []).filter((item) => item.title && item.snippet).slice(0, 3);
       if (entries.length) {
-        const excerpt = entries.map((item) => '- ' + item.title + ': ' + sanitizeWikipediaSnippet(item.snippet ?? '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\\n');
-        return { ok: true, content: (isEnglish ? 'Public-source fallback (Wikipedia search excerpts; verify before relying on them):\\n\\n' : '公開情報フォールバック（Wikipedia検索抜粋。重要な判断の前に内容を確認してください）：\\n\\n') + excerpt, source: 'wikipedia' };
+        const excerpt = entries.map((item) => '- ' + item.title + ': ' + sanitizeWikipediaSnippet(item.snippet ?? '') + ' (https://en.wikipedia.org/wiki/' + encodeURIComponent((item.title ?? '').replace(/ /g, '_')) + ')').join('\n');
+        return { ok: true, content: (isEnglish ? 'Public-source fallback (Wikipedia search excerpts; verify before relying on them):\n\n' : '公開情報フォールバック（Wikipedia検索抜粋。重要な判断の前に内容を確認してください）：\n\n') + excerpt, source: 'wikipedia' };
       }
     }
   } catch { /* continue to deterministic safe mode */ }
@@ -87,4 +87,3 @@ export async function executeZeroFailureCascade(prompt: string, signal?: AbortSi
 export async function recoverWithAutonomousCascade(prompt: string, signal?: AbortSignal): Promise<CascadeResult> {
   return executeZeroFailureCascade(prompt, signal);
 }
-
