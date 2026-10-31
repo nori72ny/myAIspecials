@@ -91,7 +91,7 @@ describe('rasterImageV15Router', () => {
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
-        enabled: true,
+        enabled: false,
         activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
       },
       templateEngine: {
