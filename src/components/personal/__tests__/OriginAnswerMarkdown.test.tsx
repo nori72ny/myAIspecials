@@ -25,7 +25,7 @@ describe('OriginAnswerMarkdown', () => {
     expect(screen.getByRole('note').textContent).toContain('外部画像は自動表示しません');
   });
 
-  it('opens answer links without giving the destination opener access', () => {
+  it('does not auto-load Pollinations image URLs from Markdown', () => {\n    const { container } = render(<OriginAnswerMarkdown language=\"ja\" content=\"![external](https://image.pollinations.ai/prompt/test)\" />);\n    expect(container.querySelector('img')).toBeNull();\n    expect(screen.getByRole('note').textContent).toContain('外部画像は自動表示しません');\n  });\n\n  it('opens answer links without giving the destination opener access', () => {
     render(<OriginAnswerMarkdown language="en" content={'[Primary source](https://example.com/source)'} />);
     const link = screen.getByRole('link', { name: 'Primary source' });
     expect(link.getAttribute('target')).toBe('_blank');
