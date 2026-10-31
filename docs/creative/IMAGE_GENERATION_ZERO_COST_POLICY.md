@@ -78,3 +78,15 @@ A post-generation usage record may be retained as secondary audit evidence, but 
 ### User-facing behavior
 
 When no provider passes admission, the UI must state that verified zero-cost AI image generation is unavailable and that no paid provider was used. Local procedural artwork must be explicitly identified as locally generated procedural PNG, not as output from an AI image model. The app may still be released with this limitation if all other release gates pass; the limitation must not be hidden or described as a working live AI image-generation feature.
+### Exact-head verification record
+
+For every release candidate, record the full commit SHA and the following evidence independently:
+
+- Static validation: TypeScript/lint and production build.
+- Automated behavior: complete unit and API suites, including no-provider/no-inference assertions.
+- Browser behavior: Chromium, Firefox, and WebKit where supported; image history reload and download-link recovery.
+- Security: secret scanning, dependency review, CodeQL, and Scorecard.
+- Runtime: local production server health and feature flags; production verification only after a separately approved promotion.
+- Cost boundary: provider contract, request-level pre-dispatch proof, and explicit paid-fallback-disabled evidence.
+
+A green check from an earlier commit, a different pull request, or a branch that is not the release candidate does not qualify the current head. If any required evidence is absent, mark the gate UNVERIFIED and do not merge or publish.
