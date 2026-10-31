@@ -107,7 +107,7 @@ describe('rasterImageV15Router', () => {
 
     const legacy = await request(app()).post('/api/generate-image').send({ prompt: '海辺の朝焼け' });
     expect(legacy.status).toBe(503);
-    expect(legacy.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
+    expect(legacy.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
   });
 
   it('does not probe provider or billing APIs from public status when credentials exist', async () => {
@@ -302,10 +302,10 @@ describe('rasterImageV15Router', () => {
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
+    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
     expect(response.body.freeOnly).toBe(true);
     expect(response.body.paidFallbackUsed).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
   });
 
@@ -341,7 +341,7 @@ describe('rasterImageV15Router', () => {
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
     expect(response.body.paidFallbackUsed).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
   });
 
@@ -378,7 +378,7 @@ describe('rasterImageV15Router', () => {
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe('NO_VERIFIED_ZERO_COST_PROVIDER_READY');
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
   });
@@ -396,5 +396,31 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+
+  it('blocks direct valid generate and edit API calls before any provider network request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const instance = app(CF_ENV);
+    const prompt = '高級で未来的なORIGINのスマホ広告画像を9:16で作ってください';
+
+    const generate = await request(instance)
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt });
+    const edit = await request(instance)
+      .post('/api/creative/v1.5/raster/edit')
+      .send({ prompt, referenceImages: [referenceDataUrl()] });
+
+    for (const response of [generate, edit]) {
+      expect(response.status).toBe(503);
+      expect(response.body).toMatchObject({
+        ok: false,
+        code: 'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+        freeOnly: true,
+        paidFallbackUsed: false,
+        retryable: false,
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
 });
