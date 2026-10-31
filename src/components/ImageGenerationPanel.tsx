@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 type ImageRatio = '1:1' | '16:9' | '9:16' | '4:5' | '3:2' | '2:3';
 type ImageResolution = '1024' | '1536';
+type ProviderAvailability = 'checking' | 'ready' | 'unavailable';
 
 type Props = {
   language: 'ja' | 'en';
@@ -11,16 +12,59 @@ type Props = {
 
 const RATIOS: readonly ImageRatio[] = ['1:1', '16:9', '9:16', '4:5', '3:2', '2:3'];
 
+async function readVerifiedProviderAvailability(signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch('/api/creative/v1.5/raster/status', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+      signal,
+    });
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== 'object') return false;
+    const status = payload as Record<string, unknown>;
+    return response.ok
+      && status.ok === true
+      && status.configured === true
+      && status.ready === true
+      && status.zeroCostVerified === true
+      && status.paymentMethodRequired === false
+      && status.paidFallbackEnabled === false
+      && status.secretDelivery === 'server-only'
+      && typeof status.providerId === 'string'
+      && status.providerId.length > 0
+      && typeof status.model === 'string'
+      && status.model.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export default function ImageGenerationPanel({ language, onClose, onGenerate }: Props) {
   const [prompt, setPrompt] = useState('');
   const [ratio, setRatio] = useState<ImageRatio>('1:1');
   const [resolution, setResolution] = useState<ImageResolution>('1024');
   const [error, setError] = useState('');
+  const [providerAvailability, setProviderAvailability] = useState<ProviderAvailability>('checking');
   const dialogRef = useRef<HTMLElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(
     typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    void readVerifiedProviderAvailability(controller.signal).then((ready) => {
+      if (active) setProviderAvailability(ready ? 'ready' : 'unavailable');
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
+
   useEffect(() => {
     promptRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -44,6 +88,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
       previouslyFocusedRef.current?.focus();
     };
   }, [onClose]);
+
   const dimensions = useMemo(() => {
     const [ratioWidthText, ratioHeightText] = ratio.split(':');
     const ratioWidth = Number(ratioWidthText);
@@ -58,6 +103,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (providerAvailability !== 'ready') return;
     const value = prompt.normalize('NFKC').trim();
     if (!value) {
       setError(language === 'ja' ? '画像の内容を入力してください。' : 'Enter what you want to create.');
@@ -71,6 +117,14 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   };
 
   const ja = language === 'ja';
+  const availabilityMessage = providerAvailability === 'checking'
+    ? (ja ? '無料の実画像生成経路を確認しています…' : 'Checking verified zero-cost image generation…')
+    : providerAvailability === 'ready'
+      ? (ja ? '検証済みの無料生成経路が利用可能です。' : 'A verified zero-cost generation route is available.')
+      : (ja
+        ? '実画像生成は現在停止中です。リクエスト単位で費用 $0.00 を確認できる無料プロバイダーがないため、送信は行いません。'
+        : 'Image generation is currently unavailable. No provider has verified $0.00 cost for this request, so nothing will be submitted.');
+
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
@@ -103,10 +157,18 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
             </label>
           </div>
           <p data-testid="origin-image-dimensions" className="origin-muted m-0 text-xs tabular-nums">{dimensions.width} × {dimensions.height}px · {ratio}</p>
+          <p
+            data-testid={providerAvailability === 'unavailable' ? 'origin-image-provider-unavailable' : 'origin-image-provider-status'}
+            role="status"
+            aria-live="polite"
+            className={`m-0 rounded-xl px-3 py-2 text-sm ${providerAvailability === 'unavailable' ? 'origin-safe-note' : 'origin-muted'}`}
+          >
+            {availabilityMessage}
+          </p>
           {error && <p role="alert" className="m-0 text-sm text-[var(--danger)]">{error}</p>}
           <footer className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} className="origin-secondary-button min-h-11 rounded-xl px-4 text-sm font-semibold">{ja ? 'キャンセル' : 'Cancel'}</button>
-            <button type="submit" data-testid="origin-image-generate-submit" className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-semibold">{ja ? '画像を生成する' : 'Generate image'}</button>
+            <button type="submit" data-testid="origin-image-generate-submit" disabled={providerAvailability !== 'ready'} className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{ja ? '画像を生成する' : 'Generate image'}</button>
           </footer>
         </form>
       </section>
