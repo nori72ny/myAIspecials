@@ -333,7 +333,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       await waitFor(() => {
         expect(fetchMock.mock.calls.some(([url]) => url === '/api/generate-image')).toBe(true);
       });
-      const generationCall = fetchMock.mock.calls.find(([url]) => url === '/api/generate-image') as [string, RequestInit] | undefined;
+      const generationCall = fetchMock.mock.calls.find(([url]) => url === '/api/generate-image') as [RequestInfo | URL, RequestInit?] | undefined;
       expect(generationCall).toBeTruthy();
       expect(JSON.parse(String(generationCall?.[1]?.body))).toMatchObject({
         prompt: '夕焼けの海辺',
