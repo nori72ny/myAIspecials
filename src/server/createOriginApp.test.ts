@@ -71,7 +71,7 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
-      code: "NO_VERIFIED_ZERO_COST_PROVIDER_READY",
+      code: "RASTER_GENERATION_DISABLED_ZERO_COST_POLICY",
       freeOnly: true,
       paidFallbackUsed: false,
       secretDelivery: "server-only",
