@@ -16,18 +16,6 @@ function cfEnvelope(result: unknown, status = 200): Response {
   });
 }
 
-function cfFailure(status: number, code: number): Response {
-  return new Response(JSON.stringify({
-    success: false,
-    result: null,
-    errors: [{ code, message: 'upstream failure' }],
-    messages: [],
-  }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
 function app(env: NodeJS.ProcessEnv = {}) {
   const instance = express();
   instance.use(express.json({ limit: '64kb' }));
@@ -51,72 +39,8 @@ function pngBytes(width: number, height: number): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
-function imageJson(bytes: Uint8Array): Response {
-  return json({ data: [{ b64_json: Buffer.from(bytes).toString('base64'), media_type: 'image/png' }] });
-}
-
 function referenceDataUrl(width = 320, height = 240): string {
   return `data:image/png;base64,${Buffer.from(pngBytes(width, height)).toString('base64')}`;
-}
-
-function successfulFetchMock() {
-  const png = pngBytes(768, 1024);
-  return vi.fn()
-    // Provider selection readiness probe.
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    // Generation repeats the free-plan proof immediately before inference.
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')));
-}
-
-function semanticFetchMock(passed = true, criticFailure?: Response) {
-  const png = pngBytes(768, 1024);
-  const answer = passed
-    ? {
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 4,
-        styleExecution: 3.5,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
-        safetyPassed: true,
-        safetyIssues: [],
-        criticalIssues: [],
-        summary: 'Professional and faithful.',
-      }
-    : {
-        promptAdherence: 2,
-        composition: 3,
-        subjectIntegrity: 2,
-        styleExecution: 3,
-        textHandling: 3,
-        artifactControl: 3,
-        professionalUsefulness: 2,
-        safetyPassed: true,
-        safetyIssues: [],
-        criticalIssues: ['Requested subject is materially wrong.'],
-        summary: 'Not faithful enough for delivery.',
-      };
-  return vi.fn()
-    // Provider selection readiness probe.
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    // Generation proof and image inference.
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(cfEnvelope(Buffer.from(png).toString('base64')))
-    // Semantic critic's independent readiness proof and inference.
-    .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
-    .mockResolvedValueOnce(cfEnvelope([]))
-    .mockResolvedValueOnce(cfEnvelope({ input: {}, output: {} }))
-    .mockResolvedValueOnce(criticFailure ?? cfEnvelope({ answer: JSON.stringify(answer) }));
 }
 
 describe('rasterImageV15Router', () => {
