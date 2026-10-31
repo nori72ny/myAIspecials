@@ -330,6 +330,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       render(<App language="ja" />);
       fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
       fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
       fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
       fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
@@ -380,13 +381,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       render(<App language="ja" />);
       fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
       fireEvent.change(screen.getByTestId('origin-image-prompt'), {
         target: { value: 'test@example.com のプロフィール画像を作って' },
       });
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
       expect(await screen.findByRole('alert')).toBeTruthy();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.every(([input]) => requestPath(input) === '/api/creative/v1.5/raster/status')).toBe(true);
 
       fireEvent.change(screen.getByTestId('origin-home-request'), {
         target: { value: '今日は天気について教えてください' },
