@@ -1,16 +1,10 @@
-import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
-import { type RasterImageRequestV15, type RasterImageResultV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
-import {
-  selectRasterProviderV15,
-  selectRasterProviderExcludingV15,
-} from './rasterProviderRegistryV15.js';
+import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { critiqueRasterStructureV15, readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
-import { CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15, critiqueCloudflareRasterSemanticV15 } from './cloudflareRasterSemanticCriticV15.js';
 
 const BASE_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 const EDIT_BODY_KEYS = new Set([...BASE_BODY_KEYS, 'referenceImages']);
@@ -18,10 +12,6 @@ const MAX_REFERENCE_IMAGES = 4;
 const MAX_REFERENCE_IMAGE_BYTES = 768 * 1024;
 const MAX_TOTAL_REFERENCE_BYTES = 2 * 1024 * 1024;
 const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
-
-function semanticDeliveryGateEnabled(env: NodeJS.ProcessEnv): boolean {
-  return env.ORIGIN_RASTER_SEMANTIC_DELIVERY_GATE?.trim().toLowerCase() !== 'false';
-}
 
 function sensitiveKinds(body: unknown): string[] {
   let safeBody = body;
@@ -258,52 +248,9 @@ export function createRasterImageV15Router(env: NodeJS.ProcessEnv = process.env)
       false,
     );
 
-        } catch (error) {
-      const code = error instanceof Error ? error.message : 'RASTER_IMAGE_GENERATION_FAILED';
-      if (code === 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED') {
-        return fail(res, 503, code, '無料画像生成のCloudflare Workers AI接続がまだ構成されていません。');
+      } catch (error) {
+        return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
       }
-      if (code === 'CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED') {
-        return fail(res, 429, code, '本日のCloudflare Workers AI無料枠を使い切ったため、画像生成を停止しました。無料枠のリセット後に再度利用できます。', false);
-      }
-      if (code === 'CLOUDFLARE_WORKERS_AI_CAPACITY_UNAVAILABLE') {
-        return fail(res, 503, code, 'Cloudflare Workers AIが一時的に混雑しているため、画像生成を停止しました。少し時間を空けて再試行できます。', true);
-      }
-      if (code === 'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN'
-        || code === 'CLOUDFLARE_PAID_PATH_BLOCKED'
-        || code === 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED') {
-        return fail(res, 503, code, '有料プランが必要な経路はORIGINの0円条件に反するため、画像生成を停止しました。', false);
-      }
-      if (code === 'CLOUDFLARE_WORKERS_AI_AUTH_REQUIRED'
-        || code === 'CLOUDFLARE_WORKERS_AI_ACCESS_DENIED'
-        || code === 'CLOUDFLARE_BILLING_READ_REQUIRED'
-        || code === 'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED') {
-        return fail(res, 503, code, 'Cloudflare Workers AIの認証または権限を安全に確認できないため、画像生成を停止しました。', false);
-      }
-      if (code === 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
-        || code === 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED'
-        || code === 'CLOUDFLARE_FREE_ALLOCATION_UNAVAILABLE'
-        || code === 'CLOUDFLARE_FREE_OR_CAPACITY_UNAVAILABLE') {
-        return fail(res, 503, code, '費用0円を事前保証できないため、画像生成を停止しました。', false);
-      }
-      if (code === 'RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID'
-        || code.startsWith('CLOUDFLARE_SEMANTIC_CRITIC_HTTP_')) {
-        // The provider may already have generated an image. Never invite a client retry that could duplicate generation or consume another free allocation.
-        return fail(res, 502, code, '意味品質の検証を完了できなかったため、生成画像を返しませんでした。重複生成を避けるため自動再試行を停止しました。', false);
-      }
-      if (code === 'ZERO_COST_USAGE_NOT_VERIFIED') {
-        // Generation may already have happened. A client retry could create a duplicate
-        // and consume another free allocation, so this verification failure is terminal.
-        return fail(res, 503, code, '生成後の費用0円証拠を一意に確認できませんでした。重複生成を避けるため自動再試行を停止しました。', false);
-      }
-      if (code === 'POLLINATIONS_KEY_NOT_CONFIGURED'
-        || code === 'NO_VERIFIED_ZERO_COST_RASTER_MODEL'
-        || code === 'REQUESTED_IMAGE_MODEL_NOT_ZERO_COST'
-        || code === 'PAID_OR_EXHAUSTED_PROVIDER_PATH_BLOCKED') {
-        return fail(res, 503, code, '旧画像プロバイダ経路は有効化していません。');
-      }
-      return fail(res, 502, code, '画像生成プロバイダから応答を確認できませんでした。生成が既に受理された可能性があるため、自動再試行を停止しました。', false);
-    }
   };
 
   router.post('/api/creative/v1.5/raster/generate', handler('generate'));
