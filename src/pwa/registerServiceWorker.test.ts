@@ -29,7 +29,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   const files = { files: [] as unknown[] };
   const busy = { value: false };
   const dialog = { value: false };
-  const activeEditable = { value: false };
+  const activeEditable = { value: '' as '' | 'contenteditable' | 'textbox' };
   const timers: Listener[] = [];
   const intervals: Listener[] = [];
   const storage = new Map<string, string>();
@@ -55,7 +55,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     visibilityState: 'visible',
     documentElement: { dataset: { originStorageState: 'ready' } },
     activeElement: {
-      closest: (selector: string) => activeEditable.value && selector.includes('contenteditable') ? {} : null,
+      closest: (selector: string) => activeEditable.value === 'contenteditable' && selector.includes('contenteditable') || activeEditable.value === 'textbox' && selector.includes('[role="textbox"]') ? {} : null,
     },
     querySelectorAll: (selector: string) => selector.includes('file') ? [files] : [draft],
     querySelector: (selector: string) => {
@@ -220,10 +220,20 @@ describe('PWA controller changes preserve user work', () => {
 
   it('defers updates while a rich-text editor is active, even when it has no input.value', async () => {
     const app = await launch(true);
-    app.activeEditable.value = true;
+    app.activeEditable.value = 'contenteditable';
     app.changeController();
     assert.equal(app.reloads(), 0);
-    app.activeEditable.value = false;
+    app.activeEditable.value = '';
+    app.retry();
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('defers updates while an ARIA textbox editor is active without a normal input value', async () => {
+    const app = await launch(true);
+    app.activeEditable.value = 'textbox';
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.activeEditable.value = '';
     app.retry();
     assert.equal(app.reloads(), 1);
   });
