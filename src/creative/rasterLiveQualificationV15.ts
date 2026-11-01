@@ -190,9 +190,11 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
     return finalize({
       version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
       state: 'blocked',
-      reason: status.zeroCostVerified !== true
-        ? 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED'
-        : status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+      reason: !status.configured || !status.ready
+        ? status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
+        : status.zeroCostVerified !== true
+          ? 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED'
+          : status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
       generatedAt,
       provider,
       generation: null,
