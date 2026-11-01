@@ -75,6 +75,37 @@ test.describe('mobile composer layout', () => {
   });
 });
 
+  test('keeps the home mark and composer in one compact vertical group at 390px', async ({ page }) => {
+    const viewport = { width: 390, height: 844 };
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+
+    const logo = page.getByTestId('origin-core-logo');
+    const heading = page.locator('.origin-app main h1').first();
+    const description = page.locator('.origin-app main h1 + p').first();
+    const composer = page.locator('.origin-composer');
+
+    await expect(logo).toBeVisible();
+    await expect(heading).toBeVisible();
+    await expect(description).toBeVisible();
+    await expect(composer).toBeVisible();
+
+    const logoBox = await logo.boundingBox();
+    const descriptionBox = await description.boundingBox();
+    const composerBox = await composer.boundingBox();
+
+    expect(logoBox).not.toBeNull();
+    expect(descriptionBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+
+    // The intro is vertically grouped rather than pinning the composer to
+    // the bottom and leaving an oversized blank region above it.
+    expect(logoBox!.y).toBeGreaterThan(80);
+    expect(logoBox!.y).toBeLessThan(300);
+    expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(110);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
+  });
+
 for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 390, height: 560 }]) {
   test(`keeps the add menu above long input at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
