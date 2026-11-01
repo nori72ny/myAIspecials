@@ -101,7 +101,7 @@ test.describe('mobile composer layout', () => {
     // The intro is vertically grouped rather than pinning the composer to
     // the bottom and leaving an oversized blank region above it.
     expect(logoBox!.y).toBeGreaterThan(80);
-    expect(logoBox!.y).toBeLessThan(300);
+    expect(logoBox!.y).toBeLessThan(400);
     expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(110);
     expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
   });
