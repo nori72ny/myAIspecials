@@ -27,7 +27,7 @@ test.describe('mobile composer layout', () => {
 
     expect(composerBox!.width).toBeGreaterThanOrEqual(360);
     expect(inputBox!.width).toBeGreaterThanOrEqual(composerBox!.width - 24);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 90);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 24);
     expect(inputBox!.y).toBeLessThan(addBox!.y);
     expect(inputBox!.y).toBeLessThan(sendBox!.y);
     expect(Math.abs(addBox!.y - sendBox!.y)).toBeLessThanOrEqual(2);
@@ -71,11 +71,12 @@ test.describe('mobile composer layout', () => {
     expect(inputBox && composerBox ? inputBox.width >= composerBox.width - 24 : false).toBe(true);
     expect(addBox?.width).toBeGreaterThanOrEqual(44);
     expect(sendBox?.width).toBeGreaterThanOrEqual(44);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(568 - 24);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });
 
-  test('keeps the home mark and composer in one compact vertical group at 390px', async ({ page }) => {
+  test('keeps the intro centered in the upper zone and pins the composer to the bottom at 390px', async ({ page }) => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -98,11 +99,10 @@ test.describe('mobile composer layout', () => {
     expect(descriptionBox).not.toBeNull();
     expect(composerBox).not.toBeNull();
 
-    // The intro is vertically grouped rather than pinning the composer to
-    // the bottom and leaving an oversized blank region above it.
     expect(logoBox!.y).toBeGreaterThan(80);
-    expect(logoBox!.y).toBeLessThan(400);
-    expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(110);
+    expect(logoBox!.y).toBeLessThan(viewport.height * 0.55);
+    expect(descriptionBox!.y + descriptionBox!.height).toBeLessThan(composerBox!.y);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 24);
     expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
   });
 
