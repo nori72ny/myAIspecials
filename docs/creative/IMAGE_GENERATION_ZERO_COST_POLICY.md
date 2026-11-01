@@ -18,8 +18,15 @@ Runtime enforcement: `selectRasterProviderV15` admits a provider only when `zero
 - Admission must verify the account is on the bundled Workers Free usage model, the selected model is available to that plan, and no active paid Workers subscription is detected.
 - The Free allocation is a hard daily limit. Exhaustion must fail closed; there is no automatic paid overage path in the Free plan.
 - Account-level plan verification is not request-correlated billing evidence and does not prove that a particular generation cost exactly $0.00.
-- The API does not provide a reliable real-time remaining-Neurons counter for this router. Do not promise that a provider switch will happen before the daily quota is exhausted.
+- The API path currently used by this router does not provide a request-correlated, atomic remaining-Neurons reservation. A local estimate or per-instance counter cannot guarantee an account-wide ceiling across concurrent/serverless instances. Do not claim an 8,500-Neuron safety guard is enforced until a durable shared reservation and reconciliation mechanism is implemented and tested. Until then, live inference remains blocked.
 - Switch to another independently admitted free provider only when a documented pre-inference error code proves that Cloudflare did not accept the inference request. Network timeouts, connection resets, generic 5xx responses, and unknown errors are ambiguous and terminal.
+
+## 8,500-Neuron safety boundary
+
+- The Cloudflare Free allocation is 10,000 Neurons per account per UTC day. ORIGIN target ceiling is 8,500 Neurons, preserving a 1,500-Neuron reserve.
+- The 8,500 target is a policy threshold, not an implemented runtime guarantee. No trusted account-wide usage/reservation API has been wired into this application, and concurrent serverless requests cannot be bounded by an in-memory counter.
+- The Cloudflare raster adapter is restricted to the 4B model candidate; the 9B model is rejected before provider calls. This reduces exposure but does not itself enforce the 8,500 threshold.
+- Cloudflare inference must remain blocked until a durable, atomic, account-wide reservation is available and the reservation is reconciled against authoritative usage. A failed or stale usage read denies the request.
 
 ## Pollinations
 
@@ -48,7 +55,7 @@ Runtime enforcement: `selectRasterProviderV15` admits a provider only when `zero
 - Do not merge or deploy while provider free-plan configuration, non-billable admission, persistence, or mobile browser behavior is unverified.
 - Report cost evidence precisely: `PLAN_ELIGIBLE`, `MODEL_PRICE_ZERO`, and `REQUEST_USAGE_ZERO_CONFIRMED` are distinct claims. Never collapse them into a generic “free verified” label.
 
-## Current operational release state (2026-10-31)
+## Current operational release state (2026-11-01)
 
 The policy is intentionally fail-closed in the current implementation:
 
