@@ -243,3 +243,35 @@
     padding: 12px !important;
   }
 }
+
+/* Mobile home viewport correction — keep the brand slightly lower and the
+   complete composer control rail above the device's bottom navigation area. */
+@media (max-width: 639px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
+    box-sizing: border-box !important;
+    padding-top: clamp(50px, 7dvh, 62px) !important;
+    padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 20px)) !important;
+  }
+
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto {
+    scroll-padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 20px));
+  }
+
+  .origin-app main .origin-composer {
+    box-sizing: border-box !important;
+    min-height: 108px !important;
+    bottom: max(20px, calc(env(safe-area-inset-bottom, 0px) + 12px)) !important;
+    margin-bottom: 0 !important;
+    grid-template-rows: minmax(52px, auto) 44px !important;
+  }
+
+  .origin-app main .origin-composer > .origin-add-menu > summary,
+  .origin-app main .origin-composer > button:last-child,
+  .origin-app main .origin-composer > .origin-add-menu + button:last-child {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+  }
+}
