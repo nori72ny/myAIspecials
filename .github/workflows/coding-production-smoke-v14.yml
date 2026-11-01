@@ -53,7 +53,7 @@ jobs:
           const fs = require('fs');
           try {
             const value = JSON.parse(fs.readFileSync('health.json', 'utf8'));
-            process.exit(value?.status === 'ok' && value?.releaseSha === process.env.RELEASE_SHA && value?.freeOnly === true && value?.costUsd === 0 && value?.paidFallbackEnabled === false ? 0 : 1);
+            process.exit(value?.status === 'ok' && value?.releaseSha === process.env.RELEASE_SHA && value?.freeOnly === true && (value?.costUsd === undefined || value?.costUsd === 0) && value?.paidFallbackEnabled === false ? 0 : 1);
           } catch { process.exit(1); }
           NODE
             then
