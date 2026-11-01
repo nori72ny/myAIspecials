@@ -76,6 +76,21 @@ describe('cloudflareRasterImageProviderV15', () => {
     });
   });
 
+  it('rejects the unqualified 9B model before any provider or inference request', async () => {
+    const fetchMock = vi.fn() as unknown as typeof fetch;
+    const env = { ...ENV, ORIGIN_CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-2-klein-9b' };
+    await expect(getCloudflareRasterStatusV15(env, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      model: null,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+      paidFallbackEnabled: false,
+    });
+    await expect(generateCloudflareRasterImageV15({ prompt: 'test' }, env, fetchMock))
+      .rejects.toThrow('CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('accepts only a non-paid Workers account state', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
