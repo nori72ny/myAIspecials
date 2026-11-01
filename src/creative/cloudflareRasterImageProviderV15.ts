@@ -8,12 +8,10 @@ import {
 import { classifyCloudflareWorkersAiFailureV15 } from './cloudflareWorkersAiErrorV15.js';
 
 const API_ORIGIN = 'https://api.cloudflare.com';
-// Prefer 4B for the daily free Neuron budget; 9B remains an explicit opt-in.
+// Keep one bounded model candidate. The 9B variant is deliberately not admitted:
+// no request-correlated Neuron estimate or atomic 8,500-Neuron reservation exists.
 const DEFAULT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
-const ALLOWED_MODELS = new Set([
-  '@cf/black-forest-labs/flux-2-klein-9b',
-  '@cf/black-forest-labs/flux-2-klein-4b',
-]);
+const ALLOWED_MODELS = new Set([DEFAULT_MODEL]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
