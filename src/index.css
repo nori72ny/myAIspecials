@@ -527,3 +527,33 @@ button:first-child:has(svg) * {
 :root[data-theme="dark"] .origin-app main div:has(> [data-testid="origin-core-logo"]) > p {
   color: var(--text-secondary) !important;
 }
+
+/* ==============================================================================
+   [ACOS 2.0] 社長ご指示：ロゴ下移動 ＆ スクロール不要プラスボタン常時表示
+   ============================================================================== */
+
+/* 1. 縦スクロールを完全に防ぎ、100dvhで画面内に収める（プラスボタンが隠れるバグ解消） */
+html, body, #root, #app, .origin-app-viewport {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+/* 2. メイン領域：ロゴと「今日は何をしますか？」を赤矢印の位置（黄金比）へ下げる */
+main, .origin-main-content, [role="main"] {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding-top: clamp(48px, 10vh, 84px) !important; /* 赤矢印の位置へ降下 */
+  min-height: 0 !important;
+  flex: 1 !important;
+}
+
+/* 3. 最下部入力欄：画面をずらさずにプラスボタン（+）を最初から100%常時表示 */
+footer, .origin-input-dock, form {
+  flex-shrink: 0 !important;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px) !important;
+  z-index: 50 !important;
+}
