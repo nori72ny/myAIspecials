@@ -47,6 +47,7 @@ describe("OriginAnswerQualityBenchmark", () => {
       categoryCount: 2,
       unsupportedMaterialClaimCount: 1,
       totalProviderRequests: 5,
+      costEvidenceStatus: "NOT_MEASURED",
       totalCostUsd: 0,
       repairSuccessRate: 1,
     });
