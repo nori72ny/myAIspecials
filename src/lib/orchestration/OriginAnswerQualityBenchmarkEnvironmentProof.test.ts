@@ -71,6 +71,8 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
     expect(result.value.baseUrl).toBe("https://candidate.example/");
     expect(result.value.observedReleaseSha).toBe(sha);
     expect(result.value.codingReady).toBe(true);
+    expect(result.value.maxPermittedCostUsd).toBe(0);
+    expect(result.value).not.toHaveProperty("costUsd");
     expect(result.value.runtimeIds).toEqual({
       research: "grounded-research-v1.1",
       coding: "coding-v1.4",
