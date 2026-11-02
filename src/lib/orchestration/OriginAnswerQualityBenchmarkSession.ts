@@ -67,7 +67,8 @@ export interface OriginAnswerQualityBenchmarkSessionSuccess {
   readonly corpus: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly measuredRun: OriginAnswerQualityBenchmarkMeasuredBoundRun;
   /** Billing is not independently reconciled; legacy costUsd: 0 is not proof. */
-  readonly costEvidence: OriginAnswerQualityBenchmarkCostEvidenceResult;
+  /** Optional only for legacy serialized adapters; current session runner always supplies it. */
+  readonly costEvidence?: OriginAnswerQualityBenchmarkCostEvidenceResult;
 }
 
 export type OriginAnswerQualityBenchmarkSessionResult =
