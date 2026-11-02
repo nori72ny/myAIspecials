@@ -4,7 +4,7 @@ import { validateCompetitiveBenchmarkEvidenceV2 } from "../scripts/validate-comp
 const sha40 = "a".repeat(40);
 const sha256 = "b".repeat(64);
 const systems = [
-  { systemId: "origin-web", productId: "origin-personal", surface: "web-ui", modelLabel: "free-model-label", planTier: "free", accessDate: "2026-11-02", executionMode: "deterministic-local", isCandidate: true, candidateSha: sha40, status: "AVAILABLE" },
+  { systemId: "origin-web", productId: "origin-personal", surface: "web-ui", modelLabel: "free-model-label", planTier: "free", accessDate: "2026-11-02", executionMode: "live-product-ui", isCandidate: true, candidateSha: sha40, status: "AVAILABLE" },
   { systemId: "chatgpt-web", productId: "chatgpt", surface: "web-ui", modelLabel: "visible-model-label", planTier: "free", accessDate: "2026-11-02", executionMode: "live-product-ui", isCandidate: false, status: "AVAILABLE" },
   { systemId: "claude-web", productId: "claude", surface: "web-ui", modelLabel: "visible-model-label", planTier: "free", accessDate: "2026-11-02", executionMode: "live-product-ui", isCandidate: false, status: "AVAILABLE" },
 ];
@@ -14,8 +14,7 @@ function makeEvidence() {
     const taskId = `task.family${Math.floor(i / 5)}.${String(i).padStart(3, "0")}`;
     const taskFamily = `family${Math.floor(i / 5)}`;
     for (const system of systems) {
-      const local = system.executionMode === "deterministic-local";
-      results.push({
+        results.push({
         taskId, taskFamily, systemId: system.systemId, status: "EXECUTED",
         executionId: `run:${system.systemId}:${i}`,
         executedAt: "2026-11-02T10:00:00.000Z",
@@ -24,7 +23,7 @@ function makeEvidence() {
         passed: true,
         evidenceRef: "evidence:run-output-0001",
         rationale: "The observed output satisfies the task success criteria with verified evidence.",
-        cost: { amountUsd: 0, verification: local ? "local-only" : "free-entitlement", evidenceRef: "evidence:verified-cost-0001" },
+        cost: { amountUsd: 0, verification: "free-entitlement", evidenceRef: "evidence:verified-cost-0001" },
       });
     }
   }
@@ -88,4 +87,10 @@ test("rejects inconsistent task-family labels across paired systems", () => {
   const bad = makeEvidence();
   bad.results.find(row => row.taskId === "task.family0.000" && row.systemId === "claude-web").taskFamily = "family5";
   expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("TASK_FAMILY_INCONSISTENT");
+});
+
+test("rejects deterministic local fixtures as competitive system profiles", () => {
+  const bad = makeEvidence();
+  bad.systems[0].executionMode = "deterministic-local";
+  expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("LIVE_EXECUTION_MODE_REQUIRED");
 });
