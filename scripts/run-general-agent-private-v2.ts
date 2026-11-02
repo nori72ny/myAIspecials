@@ -31,6 +31,7 @@ import {
   type AgentRunConsumptionStore,
 } from '../src/agent/agentOrchestratorV3.js';
 import { runVerification, type VerificationKind } from '../src/agent/verificationRunner.js';
+import { hasExplicitZeroCostMetadata } from '../src/agent/explicitZeroCostMetadataV1.js';
 
 const MAX_CORPUS_B64 = 4_000_000;
 const MAX_CORPUS_BYTES = 4_000_000;
@@ -143,8 +144,9 @@ function createEventWriter(startedAtMs: number) {
   };
 }
 
-function responseCostSafe(body: any): boolean {
-  return body?.costUsd === undefined || body?.costUsd === 0;
+function responseCostSafe(body: unknown): boolean {
+  // Missing cost metadata is unknown, never evidence of zero cost.
+  return hasExplicitZeroCostMetadata(body);
 }
 
 async function evaluateTask(
