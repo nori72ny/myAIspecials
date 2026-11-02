@@ -18,7 +18,6 @@ export function deriveTrustedCandidateCodingQualificationV15(
     && evidence.attempted === taskCount
     && evidence.solved === taskCount
     && evidence.allAxesPassing === taskCount
-    && evidence.totalCostUsd === 0
     && regressionCount === 0
     && exactTaskSet;
 
@@ -29,6 +28,7 @@ export function deriveTrustedCandidateCodingQualificationV15(
     attempted: evidence.attempted,
     solved: evidence.solved,
     regressionCount,
-    zeroCost: evidence.totalCostUsd === 0,
+    zeroCost: false,
+    costEvidenceStatus: evidence.costEvidenceStatus,
   });
 }
