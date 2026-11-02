@@ -130,7 +130,10 @@ async function main() {
   const hardGates = comparison.hardGates || {};
   const blockers = [];
   for (const [key, value] of Object.entries(hardGates)) {
-    if (value !== true) blockers.push(`HARD_GATE:${key}`);
+    if (typeof value === "boolean" && value !== true) blockers.push(`HARD_GATE:${key}`);
+  }
+  if (hardGates.costEvidenceStatus !== "ZERO_COST_VERIFIED") {
+    blockers.push("COST_EVIDENCE_NOT_VERIFIED");
   }
   if (regressionFamilies.length) blockers.push("CRITICAL_FAMILY_REGRESSION");
   if (!targetedImprovementObserved) blockers.push("NO_TARGETED_IMPROVEMENT");
