@@ -1,10 +1,22 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function bottomSafeAreaInset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-bottom:env(safe-area-inset-bottom, 0px)';
+    document.body.appendChild(probe);
+    const inset = Number.parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+    probe.remove();
+    return inset;
+  });
+}
 
 test.describe('mobile composer layout', () => {
   test('keeps the first-screen composer low, wide, and visually quiet at 390px', async ({ page }) => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
+    const safeAreaBottom = await bottomSafeAreaInset(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -27,7 +39,8 @@ test.describe('mobile composer layout', () => {
 
     expect(composerBox!.width).toBeGreaterThanOrEqual(360);
     expect(inputBox!.width).toBeGreaterThanOrEqual(composerBox!.width - 24);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 24);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - safeAreaBottom - 12);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height - safeAreaBottom + 1);
     expect(inputBox!.y).toBeLessThan(addBox!.y);
     expect(inputBox!.y).toBeLessThan(sendBox!.y);
     expect(Math.abs(addBox!.y - sendBox!.y)).toBeLessThanOrEqual(2);
@@ -55,6 +68,7 @@ test.describe('mobile composer layout', () => {
   test('preserves typing width and touch targets at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.goto('/');
+    const safeAreaBottom = await bottomSafeAreaInset(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -71,7 +85,8 @@ test.describe('mobile composer layout', () => {
     expect(inputBox && composerBox ? inputBox.width >= composerBox.width - 24 : false).toBe(true);
     expect(addBox?.width).toBeGreaterThanOrEqual(44);
     expect(sendBox?.width).toBeGreaterThanOrEqual(44);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(568 - 24);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(568 - safeAreaBottom - 12);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(568 - safeAreaBottom + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });
@@ -80,6 +95,7 @@ test.describe('mobile composer layout', () => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
+    const safeAreaBottom = await bottomSafeAreaInset(page);
 
     const logo = page.getByTestId('origin-core-logo');
     const heading = page.locator('.origin-app main h1').first();
@@ -102,8 +118,9 @@ test.describe('mobile composer layout', () => {
     expect(logoBox!.y).toBeGreaterThan(80);
     expect(logoBox!.y).toBeLessThan(viewport.height * 0.55);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThan(composerBox!.y);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 24);
-    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
+    expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(viewport.height * 0.30);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - safeAreaBottom - 12);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height - safeAreaBottom + 1);
   });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 390, height: 560 }]) {
