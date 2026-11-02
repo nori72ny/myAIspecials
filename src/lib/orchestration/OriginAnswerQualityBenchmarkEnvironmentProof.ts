@@ -6,13 +6,13 @@ import {
 } from "./OriginAnswerQualityBenchmarkRuntimeAdapter.js";
 
 export interface OriginAnswerQualityBenchmarkEnvironmentProof {
-  readonly schemaVersion: "origin.aq-benchmark-environment-proof.v1";
+  readonly schemaVersion: "origin.aq-benchmark-environment-proof.v2";
   readonly baseUrl: string;
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
   /** Maximum permitted benchmark spend; actual request cost is verified per execution. */
-  readonly costUsd: 0;
+  readonly maxPermittedCostUsd: 0;
   readonly paidFallbackEnabled: false;
   readonly runtimeIds: Readonly<Record<
     Exclude<OriginAnswerQualityBenchmarkExecutionLane, "chat">,
@@ -155,12 +155,12 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
   return {
     ok: true,
     value: Object.freeze({
-      schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+      schemaVersion: "origin.aq-benchmark-environment-proof.v2",
       baseUrl: base.href,
       expectedGitSha,
       observedReleaseSha: health.releaseSha,
       freeOnly: true,
-      costUsd: 0,
+      maxPermittedCostUsd: 0,
       paidFallbackEnabled: false,
       runtimeIds: Object.freeze({
         research: "grounded-research-v1.1",
@@ -173,12 +173,12 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
 }
 
 export interface OriginAnswerQualityBenchmarkScopedEnvironmentProof {
-  readonly schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1";
+  readonly schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v2";
   readonly baseUrl: string;
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
-  readonly costUsd: 0;
+  readonly maxPermittedCostUsd: 0;
   readonly paidFallbackEnabled: false;
   readonly requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[];
   readonly runtimeIds: Readonly<Partial<Record<
@@ -307,12 +307,12 @@ export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
   return {
     ok: true,
     value: Object.freeze({
-      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v1",
+      schemaVersion: "origin.aq-benchmark-scoped-environment-proof.v2",
       baseUrl: base.href,
       expectedGitSha,
       observedReleaseSha: health.releaseSha,
       freeOnly: true,
-      costUsd: 0,
+      maxPermittedCostUsd: 0,
       paidFallbackEnabled: false,
       requiredLanes: normalized,
       runtimeIds: Object.freeze(runtimeIds),
