@@ -153,3 +153,42 @@ Therefore the first safe code integration must be a server-side trust boundary w
 - UNVERIFIED: whether any live provider request was actually billed zero; no provider billing records or host ledger were queried.
 - NOT IMPLEMENTED: trusted host ledger, provider billing adapter, external trust registry, durable nonce store, verifier-owned receipt transport, and end-to-end AQ qualification integration.
 - NOT EXECUTED: no live inference, billing query, deployment, merge, or external provider request was made.
+
+
+## Adjacent zero-cost assertion audit addendum (2026-11-03)
+
+A second repository-wide search on the current main baseline found additional consumers and producers outside the AQ V2 call graph. These are not covered by the AQ V2 provider-usage gate and must not inherit a zero-cost certification from it.
+
+### Runtime readiness and UI interpretation
+
+- `src/components/AgentWorkspaceView.tsx` treats a capability response with `freeOnly === true`, `costUsd === 0`, and `paidFallbackEnabled === false` as ready. This is a configuration/readiness predicate, not request-level billing evidence. Keep it explicitly labelled as policy readiness; do not use it as a historical spend claim.
+- `scripts/run-general-agent-private-v2.ts` accepts a missing `costUsd` field or numeric zero as `responseCostSafe`, then emits a synthetic `costUsd: 0` when its local `costSafe` accumulator remains true. Missing cost must be UNKNOWN, not zero. A policy health response must not seed a measured-cost accumulator.
+- `scripts/verify-production-deployment.mjs` currently expects `health.costUsd === 0`. This expectation conflicts with PR #1073's corrected health contract, where health exposes a maximum permitted cost policy and intentionally does not claim actual `costUsd`. Deployment verification must validate `maxPermittedCostUsd === 0`, `freeOnly === true`, and `paidFallbackEnabled === false` as policy only, while checking request-level cost separately from trusted evidence.
+
+### Benchmark and research reporting
+
+- `src/agent/heldOutGeneralAgentBenchmarkV2.ts` qualifies safety from caller-provided `run.costUsd === 0` and `paidFallbackUsed === false`. Require a trusted run receipt or report cost as UNVERIFIED; do not treat these fields as authoritative.
+- `src/agent/heldOutCodingFinalQualificationV14.ts` derives `zeroCost` from submitted score rows and sums caller-provided `score.costUsd`. This is a separate qualification path requiring independent provenance and exact run-to-request reconciliation.
+- `src/components/personal/ResearchWorkspaceV31.tsx` accepts a grounded result when its payload asserts `freeOnly`, `costUsd: 0`, and no paid fallback. These are response assertions unless backed by a verifier-owned receipt.
+- `scripts/run-general-agent-synthetic-live-v2.ts` emits `zeroCostSafe: true`. Synthetic internal runs must distinguish “no external provider execution performed” from “provider execution independently verified at $0”; the latter must not be inferred from the former.
+- `scripts/run-general-agent-research-live-v1.ts` continues to emit `zeroCostSafe: true` and `providerRequests: 0` for a live research workflow. This is not a valid measurement without the trusted host ledger; successful live research cannot default its provider request count to zero.
+
+### Provider client and source-verification boundaries
+
+- `src/legacy/originProviderClient.ts` and `src/legacy/originProviderStreamClient.ts` construct result objects with literal `actualCostUsd: 0` and `usage.costUsd: 0` after successful provider responses. Their strict model/provider policy checks are useful pre-execution controls, but those literals are not authenticated billing evidence.
+- `src/lib/orchestration/OriginSourceVerification.ts` accepts a candidate source record with `actualCostUsd === 0`. The source-verification record needs an explicit cost-evidence state and receipt reference; source-grounding success must not imply provider billing verification.
+- `scripts/run-artifact-private-heldout-v1.ts` and `scripts/preflight-trusted-answer-runtime-v2.ts` validate response-level `actualCostUsd === 0` / request-count claims. Those are test/runtime assertions, not independent provider billing reconciliation.
+
+### Required migration rule
+
+For every path above, separate three states instead of collapsing them into a numeric zero:
+
+1. `POLICY_ALLOWED`: the selected execution plan is constrained to free-only, no paid fallback, and a zero maximum permitted cost.
+2. `NOT_MEASURED` / `BLOCKED_UNVERIFIED`: no independently authenticated request-level billing receipt exists. Missing cost, missing IDs, or unsupported provider evidence must land here.
+3. `ZERO_COST_VERIFIED`: only a verifier-owned receipt reconciles the complete trusted host request ledger with authenticated provider-origin usage/billing records for the exact run and billing window.
+
+No TypeScript literal, response JSON field, environment flag, health endpoint, unit fixture, or policy ceiling may transition state 2 to state 3. Existing client contracts should be migrated deliberately with compatibility tests; do not make a broad mechanical replacement that could break execution semantics or hide nonzero costs.
+
+### Exact source evidence
+
+The audit fetched the current main versions of the files listed above and inspected the relevant cost/request-count predicates. The source findings are CODE-PROVEN as local implementation behavior only. They do not establish actual provider charges, provider billing completeness, or production deployment state. No live provider request or billing API was used.
