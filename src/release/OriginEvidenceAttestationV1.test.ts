@@ -115,6 +115,14 @@ describe("ORIGIN signed evidence attestation V1", () => {
       .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_REPLAY_DETECTED" });
   });
 
+  it("rejects duplicate key IDs and keys that are not yet valid", async () => {
+    const value = fixture();
+    await expect(verifyOriginEvidenceAttestationV1(value.raw, value.signature, [value.key, value.key], expected, async () => true, { nowMs }))
+      .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_TRUST_REGISTRY_AMBIGUOUS" });
+    await expect(verifyOriginEvidenceAttestationV1(value.raw, value.signature, [{ ...value.key, validFrom: "2026-11-03T00:00:00.000Z" }], expected, async () => true, { nowMs }))
+      .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_KEY_OUTSIDE_VALIDITY" });
+  });
+
   it("rejects expired attestations and invalid signature encodings", async () => {
     const expired = fixture({ expiresAt: "2026-11-02T11:00:00.000Z" });
     await expect(verifyOriginEvidenceAttestationV1(expired.raw, expired.signature, [expired.key], expected, async () => true, { nowMs }))
