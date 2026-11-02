@@ -88,7 +88,8 @@ describe("OriginAnswerQualityBenchmarkQualification", () => {
     expect(result.value.familyCount).toBe(10);
     expect(result.value.hardGates.exactCorpusMatch).toBe(true);
     expect(result.value.hardGates.sameProviderAndModel).toBe(true);
-    expect(result.value.hardGates.zeroCost).toBe(true);
+    expect(result.value.hardGates.zeroCost).toBe(false);
+    expect(result.value.hardGates.costEvidenceStatus).toBe("NOT_MEASURED");
     expect(result.value.hardGates.unsupportedClaimsNotWorse).toBe(true);
   });
 
