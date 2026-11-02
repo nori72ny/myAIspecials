@@ -115,7 +115,7 @@ function shards(): OriginAnswerQualityOfficialShardComparison[] {
 }
 
 describe("OriginAnswerQualityOfficialShardedComparison", () => {
-  it("reassembles exactly forty paired cases without pretending they were one run", () => {
+  it("reassembles forty paired cases while explicitly withholding billing certification", () => {
     const result = aggregateOriginAnswerQualityOfficialShards(
       full,
       plan,
