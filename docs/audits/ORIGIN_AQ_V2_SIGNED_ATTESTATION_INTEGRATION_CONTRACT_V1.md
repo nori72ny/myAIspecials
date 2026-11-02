@@ -95,3 +95,34 @@ Each negative case must assert a stable blocker code and no qualified result. Ad
 - UNVERIFIED: evidence is absent, self-asserted, incomplete, or not independently authenticated.
 
 Never promote UNVERIFIED to EXECUTED or ZERO-COST-VERIFIED based on configuration, schema shape, or a passing unit test alone.
+
+
+## 10. Source-level audit: benchmark execution and cost path
+
+The following existing source paths were inspected on `main` (baseline `a43e91cbe96f07b8743735534c0d76ebd63f76df`) and the corresponding environment-proof changes in PR #1073:
+
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkRunner.ts`
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkHttpRuntimeAdapters.ts`
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkRunProvenance.ts`
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkSession.ts`
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkTwoPhaseSession.ts`
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkEnvironmentProof.ts`
+
+Confirmed implementation boundary:
+
+1. The runner's `validExecution` accepts an execution record when its caller-supplied `costUsd` is exactly numeric zero. It does not verify a provider-signed usage record or billing statement.
+2. `runOriginAnswerQualityBenchmarkExecutionOnly` constructs the aggregate with `totalCostUsd: 0` after those local checks. The aggregate digest then commits to that locally constructed value; hashing does not authenticate its origin.
+3. `createOriginAnswerQualityBenchmarkRunProvenance` validates the literal `totalCostUsd === 0` and returns a typed zero-cost provenance object. It does not receive provider billing evidence.
+4. The HTTP adapters consume response fields such as `routing.actualCostUsd`, `usage.costUsd`, research `body.costUsd`, or artifact response headers. These are application response assertions, not independently authenticated provider-side billing records in the inspected implementation.
+5. PR #1073 correctly changes environment proof semantics to `maxPermittedCostUsd: 0` and deliberately rejects `costUsd` in `/api/health`. This is a policy ceiling, not proof of actual request cost. The downstream runner and provenance path still require a separate authenticated cost-evidence integration.
+6. In the inspected HTTP adapter, research execution evidence currently records `providerRequests: 0`; request counts and exact provider request IDs therefore also need an authoritative host-side request ledger before billing reconciliation can be complete.
+
+Required implementation change before any ZERO-COST-VERIFIED label:
+
+- Replace locally asserted per-case `costUsd` as the certification authority with a required verified-evidence reference produced by a trusted host/provider reconciliation adapter.
+- Bind exact request IDs, provider/model identifiers, timestamps, run ID, candidate SHA, and billing coverage window to a signed provider-usage attestation.
+- Derive aggregate cost only by reconciling the complete request ledger against authenticated provider usage/billing records; never initialize or hardcode the certified aggregate to zero.
+- Missing request IDs, missing/delayed billing records, unsupported providers, incomplete coverage, nonzero usage, or verifier/ledger failure must return a stable blocker and prevent qualification.
+- Keep `maxPermittedCostUsd: 0` as a pre-execution policy guard, not as an actual-cost assertion.
+
+Evidence classification: CODE-PROVEN for the local zero-value construction and response-field checks described above; UNVERIFIED for actual provider billing and $0.00. No live inference was performed.
