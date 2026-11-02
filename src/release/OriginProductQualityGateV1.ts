@@ -51,6 +51,7 @@ export interface OriginCodingQualityEvidence {
   readonly attempted: number;
   readonly solved: number;
   readonly regressionCount: number;
+  /** @deprecated Caller booleans are not provider billing evidence. */
   readonly zeroCost: boolean;
 }
 
