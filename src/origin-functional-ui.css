@@ -122,6 +122,20 @@
     padding-bottom: 0 !important;
   }
 
+  /* In an active conversation, return the research action to normal flow
+     above the composer so it cannot cover the first or later chat messages. */
+  .origin-app main:has([role="log"]) [data-testid="origin-ultra-v16-anchor"] {
+    height: auto !important;
+    margin: 0 0 4px !important;
+  }
+  .origin-app main:has([role="log"]) [data-testid="origin-ultra-v16-anchor"] > div {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    margin: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
   .origin-add-menu[open]::before {
     content: "";
     position: fixed;
