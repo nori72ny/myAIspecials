@@ -65,6 +65,17 @@ A second pass inspected the current `main` source at baseline `a43e91cbe96f07b87
 | `src/legacy/originProviderClient.ts` | Provider response billing metadata is checked, then the local result type is populated with literal `actualCostUsd: 0` and `usage.costUsd: 0`. | Provider-reported response metadata is not the same as a complete billing ledger; retries/segments and later adjustments may be absent. | Preserve raw provider request IDs and raw usage metadata; independently reconcile before any zero-cost certification. |
 | `src/lib/orchestration/OriginAnswerQualityBenchmark.ts` | Observation schema requires numeric `costUsd === 0` and aggregates it into `totalCostUsd`. | The schema validates a number, not its provenance. | Add an evidence state/receipt reference; aggregation must reject unverified cost. |
 
+### General-agent evaluator event is not an independent attestation
+
+The PR #1081 branch was inspected beyond the helper itself. In `scripts/run-general-agent-private-v2.ts`, the evaluator computes `costSafe` from a policy readiness flag and explicit numeric `costUsd: 0` response metadata, then emits an evaluator-originated event named `cost-attestation`. `src/agent/trustedGeneralAgentEvidenceV2.ts` accepts that event and copies its numeric value into `GeneralAgentHeldOutRunV2.costUsd`. Therefore:
+
+- PR #1081 correctly fixes the narrow missing-field-as-zero defect.
+- It does not transform response metadata into independently verified billing evidence.
+- The event name `cost-attestation` is semantically stronger than its evidence source warrants.
+- Until the host request ledger and provider-origin usage verifier are integrated, this path must remain labelled policy/response metadata and must not be used for a final zero-cost claim.
+
+Do not treat the local `LocalAtomicConsumptionStore` in the private evaluator as the required durable billing nonce ledger. It only provides process-local run-consumption behavior and does not authenticate provider billing or protect a separate verification trust boundary.
+
 ### Important distinction for provider response checks
 
 The existing OpenRouter adapter performs useful preventive checks (free model allowlist, free-tier signals when present, upstream inference cost when present, BYOK state, and strict zero response cost). These are **CODE-PROVEN policy/response checks**, not independent post-run billing reconciliation. A missing optional provider metadata field is not evidence of zero; the adapter already fails closed for required cost and BYOK fields in the inspected path. Do not weaken these preventive checks while adding independent verification.
