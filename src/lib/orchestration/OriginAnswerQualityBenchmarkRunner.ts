@@ -23,6 +23,7 @@ export interface OriginAnswerQualityBenchmarkExecutionEvidence {
   readonly providerRequests: number;
   readonly toolCalls: number;
   readonly latencyMs: number;
+  /** @deprecated Legacy benchmark sentinel; never provider billing evidence or proof of $0.00. */
   readonly costUsd: number;
   readonly failureCode: string | null;
 }
@@ -62,6 +63,7 @@ export interface OriginAnswerQualityBenchmarkExecutionOnlySuccess {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
+  /** @deprecated Compatibility sentinel only; never provider billing evidence or proof of $0.00. */
   readonly totalCostUsd: 0;
   readonly executionOnlyDigest: string;
 }
