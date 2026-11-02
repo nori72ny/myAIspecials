@@ -22,8 +22,8 @@ function fetchFor(overrides: Record<string, unknown> = {}) {
       service: "acos-2",
       releaseSha: overrides.releaseSha ?? sha,
       freeOnly: true,
-      costUsd: 0,
       paidFallbackEnabled: false,
+      ...((overrides.health as object | undefined) ?? {}),
     });
     if (path === "/api/research/v1.1/status") return response({
       ok: true,
@@ -76,6 +76,15 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
       coding: "coding-v1.4",
       artifact: "artifact-v1.2",
     });
+  });
+
+  it("rejects an unverified cost assertion added to the health response", async () => {
+    const result = await probeOriginAnswerQualityBenchmarkEnvironment(
+      "https://candidate.example/",
+      sha,
+      fetchFor({ health: { costUsd: 0 } }) as typeof fetch,
+    );
+    expect(result).toEqual({ ok: false, code: "AQ_BENCHMARK_ENV_HEALTH_INVALID" });
   });
 
   it("rejects a deployment whose release SHA differs from the measured git SHA", async () => {
