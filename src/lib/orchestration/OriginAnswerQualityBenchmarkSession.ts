@@ -2,6 +2,13 @@ import type {
   OriginAnswerQualityBenchmarkAnyEnvironmentProof,
 } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
+  createOriginCostNotMeasuredV1,
+} from "./OriginCostEvidenceV1.js";
+import {
+  bindOriginAnswerQualityBenchmarkCostEvidence,
+  type OriginAnswerQualityBenchmarkCostEvidenceResult,
+} from "./OriginAnswerQualityBenchmarkCostEvidence.js";
+import {
   createOriginAnswerQualityFrozenCorpus,
   type OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
@@ -59,6 +66,8 @@ export interface OriginAnswerQualityBenchmarkSessionSuccess {
   readonly schemaVersion: "origin.aq-benchmark-session.v1";
   readonly corpus: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly measuredRun: OriginAnswerQualityBenchmarkMeasuredBoundRun;
+  /** Billing is not independently reconciled; legacy costUsd: 0 is not proof. */
+  readonly costEvidence: OriginAnswerQualityBenchmarkCostEvidenceResult;
 }
 
 export type OriginAnswerQualityBenchmarkSessionResult =
@@ -279,12 +288,28 @@ export async function runOriginAnswerQualityBenchmarkSession(
     };
   }
 
+  const costEvidence = bindOriginAnswerQualityBenchmarkCostEvidence(
+    corpus.cases.map((item) => item.caseId),
+    corpus.cases.map((item) => ({
+      caseId: item.caseId,
+      evidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE"),
+    })),
+  );
+  if (costEvidence.ok === false) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_MEASURED_BINDING_FAILED",
+      detail: costEvidence.code,
+    };
+  }
+
   return {
     ok: true,
     value: Object.freeze({
       schemaVersion: "origin.aq-benchmark-session.v1",
       corpus,
       measuredRun: measuredRun.value,
+      costEvidence: costEvidence.value,
     }),
   };
 }
