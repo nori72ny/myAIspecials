@@ -50,3 +50,37 @@ No missing field, TypeScript literal, environment flag, health endpoint, policy 
 
 ## Release decision
 **NO-GO for any claim that actual provider spend is proven to be USD 0.00.** Policy-only free routing can be evaluated separately, but it must not be described as measured zero cost. PR #1079 is a useful verifier prototype, not a production trust infrastructure or integrated AQ proof.
+
+
+## Source audit addendum 2 — qualification and user-facing consumers (2026-11-03)
+
+A second pass inspected the current `main` source at baseline `a43e91cbe96f07b8743735534c0d76ebd63f76df`. These are distinct from the missing-field defect fixed on PR #1081 and remain open until trusted receipt integration is available.
+
+| Path | Confirmed behavior | Why it is not proof | Required correction |
+|---|---|---|---|
+| `src/agent/heldOutGeneralAgentBenchmarkV2.ts` | `scoreGeneralAgentHeldOutRunV2` marks safety as passed when caller-provided `run.costUsd === 0` and `paidFallbackUsed === false`. | The scorer receives ordinary run JSON; no verifier-owned receipt or authenticated billing source is required. | Keep qualification blocked unless the exact run has a trusted verifier receipt. |
+| `src/agent/heldOutCodingComparisonV14.ts` | `totalCostUsd` sums caller-supplied `run.costUsd`, while absent or malformed values contribute zero. | Missing evidence is silently converted to a zero contribution. | Represent cost evidence separately from amounts; unknown must block qualification and aggregation. |
+| `src/agent/heldOutCodingFinalQualificationV14.ts` | `summarizeHeldOutFinalEvidenceV14` derives zero-cost status from submitted score-row `costUsd` values. | A score row is evaluator input, not an independent provider billing record. | Require one verifier receipt per run and bind the receipt digest into final evidence. |
+| `src/components/personal/ResearchWorkspaceV31.tsx` | Research success validation accepts response fields `freeOnly: true`, `costUsd: 0`, and `paidFallbackUsed: false`. | These are claims in the same application response being validated. | Label this as policy/response metadata only; do not present it as measured spend. |
+| `src/legacy/originProviderClient.ts` | Provider response billing metadata is checked, then the local result type is populated with literal `actualCostUsd: 0` and `usage.costUsd: 0`. | Provider-reported response metadata is not the same as a complete billing ledger; retries/segments and later adjustments may be absent. | Preserve raw provider request IDs and raw usage metadata; independently reconcile before any zero-cost certification. |
+| `src/lib/orchestration/OriginAnswerQualityBenchmark.ts` | Observation schema requires numeric `costUsd === 0` and aggregates it into `totalCostUsd`. | The schema validates a number, not its provenance. | Add an evidence state/receipt reference; aggregation must reject unverified cost. |
+
+### Important distinction for provider response checks
+
+The existing OpenRouter adapter performs useful preventive checks (free model allowlist, free-tier signals when present, upstream inference cost when present, BYOK state, and strict zero response cost). These are **CODE-PROVEN policy/response checks**, not independent post-run billing reconciliation. A missing optional provider metadata field is not evidence of zero; the adapter already fails closed for required cost and BYOK fields in the inspected path. Do not weaken these preventive checks while adding independent verification.
+
+### Required behavior until infrastructure exists
+
+- Policy/readiness surfaces may report `POLICY_ALLOWED`, but must not imply historical spend was measured.
+- Any held-out scorer, AQ aggregator, or research result that lacks a verifier-owned receipt must report `BLOCKED_UNVERIFIED` (or remain ineligible); a caller-provided numeric zero is insufficient.
+- A numeric sum must not replace missing cost evidence with zero. Unknown is not a zero-valued line item.
+- The signed verifier prototype in PR #1079 must not be wired through caller-controlled trusted keys, host IDs, or nonce callbacks. The production trust boundary must be provisioned independently before integration.
+- No live provider call, billing query, merge, deployment, secret, paid service, or cloud resource is authorized by this source audit.
+
+### Evidence classification for this addendum
+
+- **CODE-PROVEN:** the listed field checks, zero defaults/aggregations, and local provider result construction exist in the inspected source baseline.
+- **TEST-COVERED:** not claimed by this source audit; existing unit tests may validate the current behavior but do not establish billing provenance.
+- **UNVERIFIED:** whether any real ORIGIN run incurred exactly USD 0.00.
+- **NOT IMPLEMENTED:** verifier-owned receipt propagation through general-agent, coding qualification, research workspace, and AQ observation aggregation.
+- **NOT EXECUTED:** no live provider inference, provider billing API query, or production operation was performed.
