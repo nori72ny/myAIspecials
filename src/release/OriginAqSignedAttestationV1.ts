@@ -80,6 +80,8 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{2,159}$/;
 const NONCE = /^[A-Za-z0-9_-]{22,128}$/;
 const MAX_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_ENVELOPE_BYTES = 256 * 1024;
+const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -126,6 +128,7 @@ function sameBinding(
 }
 
 function parseCanonicalEnvelope(raw: string): OriginAqSignedAttestationV1 | null {
+  if (Buffer.byteLength(raw, "utf8") > MAX_ENVELOPE_BYTES) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed) || canonicalizeOriginAqJsonV1(parsed) !== raw) return null;
@@ -149,7 +152,12 @@ export async function verifyOriginAqSignedAttestationV1(input: {
   if (!attestation) return { ok: false, code: "AQ_ATTESTATION_NON_CANONICAL" };
 
   if (
-    attestation.schemaVersion !== "origin.aq-signed-attestation.v1"
+    Object.keys(attestation).sort().join(",") !== [
+      "artifactDigest", "attestationType", "binding", "expiresAt", "issuedAt",
+      "keyId", "nonce", "payload", "schemaVersion", "signatureBase64",
+      "signerId", "signerRole",
+    ].sort().join(",")
+    || attestation.schemaVersion !== "origin.aq-signed-attestation.v1"
     || !["host-execution", "evaluator-score", "reference-answer", "judge-vote", "provider-usage"].includes(attestation.attestationType)
     || !ID.test(attestation.keyId)
     || !ID.test(attestation.signerId)
@@ -175,6 +183,10 @@ export async function verifyOriginAqSignedAttestationV1(input: {
   );
   if (!key) return { ok: false, code: "AQ_ATTESTATION_KEY_UNTRUSTED" };
 
+  if (input.artifactBytes.byteLength > MAX_ARTIFACT_BYTES) {
+    return { ok: false, code: "AQ_ATTESTATION_ARTIFACT_DIGEST_MISMATCH" };
+  }
+
   const now = input.nowMs ?? Date.now();
   const validFrom = Date.parse(key.validFrom);
   const validUntil = Date.parse(key.validUntil);
@@ -182,13 +194,13 @@ export async function verifyOriginAqSignedAttestationV1(input: {
   const expiresAt = Date.parse(attestation.expiresAt);
   if (key.revokedAt !== undefined) {
     const revokedAt = Date.parse(key.revokedAt);
-    if (!Number.isFinite(revokedAt) || revokedAt <= now) {
+    if (!Number.isFinite(revokedAt) || revokedAt <= now || revokedAt <= issuedAt) {
       return { ok: false, code: "AQ_ATTESTATION_KEY_REVOKED" };
     }
   }
   if (
     !Number.isFinite(validFrom) || !Number.isFinite(validUntil)
-    || now < validFrom || now > validUntil
+    || now < validFrom || now >= validUntil
     || issuedAt < validFrom || issuedAt > validUntil
   ) return { ok: false, code: "AQ_ATTESTATION_KEY_EXPIRED" };
   if (
