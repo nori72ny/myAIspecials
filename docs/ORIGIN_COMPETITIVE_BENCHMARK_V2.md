@@ -13,7 +13,7 @@ Measure ORIGIN Personal as a complete product and, separately, as a model/runtim
 - Keep API keys, private task content, account identifiers, and personal data out of evidence bundles.
 - Never assign a score to a NOT_RUN system/task.
 - Every claim is tied to an exact candidate SHA, task-set digest, rubric digest, evaluator digest, and round ID.
-- A free-tier label is not proof of zero cost. Record a verifiable free entitlement or usage record. Local-only is valid only for deterministic local execution with no external calls.
+- A free-tier label is not proof of zero cost. Every executed comparison row must be a live product UI or live API run with a verifiable free entitlement or usage record. Deterministic local fixtures are useful for CI but are NOT competitive evidence and cannot satisfy an executed comparison row.
 - A quality pass is not permission to merge or deploy.
 
 ## Comparison systems
