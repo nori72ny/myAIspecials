@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { createOriginCostNotMeasuredV1 } from "./OriginCostEvidenceV1.js";
+import { bindOriginAnswerQualityBenchmarkCostEvidence } from "./OriginAnswerQualityBenchmarkCostEvidence.js";
 
 import type { OriginAnswerQualityBenchmarkEnvironmentProof } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
@@ -299,12 +301,28 @@ export async function scoreOriginAnswerQualityBenchmarkExecutionSession(
     };
   }
 
+  const costEvidence = bindOriginAnswerQualityBenchmarkCostEvidence(
+    input.frozen.corpus.cases.map((item) => item.caseId),
+    input.frozen.corpus.cases.map((item) => ({
+      caseId: item.caseId,
+      evidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE"),
+    })),
+  );
+  if (costEvidence.ok === false) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_MEASURED_BINDING_FAILED",
+      detail: costEvidence.code,
+    };
+  }
+
   return {
     ok: true,
     value: Object.freeze({
       schemaVersion: "origin.aq-benchmark-session.v1",
       corpus: input.frozen.corpus,
       measuredRun: measuredRun.value,
+      costEvidence: costEvidence.value,
     }),
   };
 }
