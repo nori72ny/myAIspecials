@@ -126,3 +126,20 @@ Required implementation change before any ZERO-COST-VERIFIED label:
 - Keep `maxPermittedCostUsd: 0` as a pre-execution policy guard, not as an actual-cost assertion.
 
 Evidence classification: CODE-PROVEN for the local zero-value construction and response-field checks described above; UNVERIFIED for actual provider billing and $0.00. No live inference was performed.
+
+## 11. Provider usage gate prototype status (2026-11-03)
+
+A fail-closed prototype was added in PR #1079:
+
+- `src/release/OriginProviderUsageAttestationGateV1.ts` verifies a `provider-usage` Ed25519 attestation through the V1 verifier and checks the dedicated `provider-cost-verifier` role.
+- The signed statement binds run ID, provider ID, model ID, billing-window start/end, and a completeness marker.
+- The gate reconciles the provider request IDs exactly against the independently supplied host request-ID ledger. Missing, extra, duplicate, malformed, wrong-provider/model, out-of-window, or nonzero-cost rows block.
+- `src/release/OriginProviderUsageAttestationGateV1.test.ts` adds deterministic tests for valid reconciliation, missing and duplicate IDs, positive cost, wrong run, billing-window mismatch, empty trust, missing nonce ledger, and replay rejection.
+
+Current evidence classification:
+- CODE-PROVEN: prototype implements the above fail-closed checks on its input contract.
+- TEST-COVERED: adversarial test cases are authored, but the exact PR head has no completed CI evidence yet.
+- UNVERIFIED: no provider-origin billing adapter, independently provisioned host request ledger, enrolled production trust key, or durable atomic nonce service is connected.
+- NOT INTEGRATED: the AQ runner, frozen session, provenance constructor, and final qualification gate do not yet require this prototype. Existing local `totalCostUsd: 0` construction remains a certification blocker.
+
+The prototype is not a zero-cost certification and must not be used to authorize live inference. It is a component awaiting a trusted evidence source and runner integration. PR #1079 is a draft and must pass exact-head CI and code review before further integration.
