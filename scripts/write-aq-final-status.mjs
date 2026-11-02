@@ -46,7 +46,8 @@ async function main() {
       || completedShardCount !== expectedShardCount
       || promotion.caseCount !== 40
       || promotion.familyCount !== 10
-      || promotion.zeroCost !== true
+      || promotion.zeroCost !== false
+      || promotion.costEvidenceStatus !== "NOT_MEASURED"
       || typeof promotion.promotionEligible !== "boolean"
       || !Array.isArray(promotion.blockers)
       || promotion.promotionEligible !== (promotion.blockers.length === 0)
@@ -71,7 +72,8 @@ async function main() {
     completedShardCount,
     caseCount: measured ? 40 : 0,
     familyCount: measured ? 10 : 0,
-    zeroCost: measured ? true : null,
+    zeroCost: measured ? false : null,
+    costEvidenceStatus: measured ? promotion.costEvidenceStatus : "NOT_MEASURED",
     qualificationStatus,
     measured,
     promotionEligible: measured ? promotion.promotionEligible : false,
