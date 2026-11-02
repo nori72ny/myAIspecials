@@ -54,9 +54,12 @@ export type HeldOutFinalQualificationV14 = {
 };
 
 export type HeldOutFinalEvidenceV14 = HeldOutFinalQualificationV14 & {
+  /** Provider-reported cost fields below are telemetry only; billing is not independently verified. */
+  costEvidenceStatus: "NOT_MEASURED";
   attempted: number;
   solved: number;
   solveRate: number;
+  /** @deprecated Provider telemetry aggregate; never billing proof. */
   totalCostUsd: number;
   participant: string | null;
   allAxesPassing: number;
@@ -201,17 +204,18 @@ export function summarizeHeldOutFinalEvidenceV14(
     && unique(scoreTaskIds)
     && scoreTaskIds.every(id => expectedTaskIds.has(id));
   const participants = [...new Set(rows.map(score => score.participant).filter(Boolean))];
-  const zeroCost = rows.every(score => score.costUsd === 0);
   const evidenceReasons = [...qualification.reasons];
   if (!exactTaskSet) evidenceReasons.push('score-task-set-mismatch');
   if (participants.length !== 1) evidenceReasons.push('participant-not-uniform');
-  if (!zeroCost) evidenceReasons.push('non-zero-cost-observed');
+  // A numeric zero in run telemetry is not authenticated provider billing evidence.
+  evidenceReasons.push('billing-not-measured');
 
   const eligible = evidenceReasons.length === 0;
   const solved = rows.filter(score => score.solved).length;
   const allAxesPassing = rows.filter(score => Object.values(score.axes).every(Boolean)).length;
   return {
     ...qualification,
+    costEvidenceStatus: "NOT_MEASURED" as const,
     eligible,
     reasons: evidenceReasons,
     attempted: rows.length,
