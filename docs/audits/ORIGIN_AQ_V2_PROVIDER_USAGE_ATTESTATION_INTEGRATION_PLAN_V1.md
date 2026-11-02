@@ -41,6 +41,16 @@ The current branch was inspected at the following call sites:
 7. `src/lib/orchestration/OriginAnswerQualityBenchmarkQualification.ts`
    - The hard gate `zeroCost: true` follows from provenance values and comparability checks, not from an independently verified provider statement.
 
+## Existing request-correlation signals (not yet a trusted ledger)
+
+Additional source inspection found partial correlation signals that can reduce future integration work, but none currently satisfies the host-ledger requirement:
+
+- `src/legacy/originChatRouter.ts` creates a host-side `requestId` (default: timestamp + UUID), logs completion/failure with that ID, and exposes it as `routing.traceId`. This is useful correlation metadata, but a console log and client-visible trace field are not an independently controlled, durable, append-only usage ledger.
+- `src/lib/plugins/ai/OpenRouterPlugin.ts` reads the provider response `x-request-id` (or response `data.id`) and passes it to an optional `onUsage` callback. The callback is optional and the ID is not shown to be persisted to a trusted run-scoped ledger.
+- The AQ HTTP adapter currently consumes `routing.providerAttempts` and provider response fields; it does not retrieve the provider request IDs or verify them against a host-side ledger.
+
+Required next implementation: instrument the trusted provider dispatch boundary so it persists both host correlation ID and provider request ID (when returned), including failures/timeouts and retries. The ledger must be written server-side before the request result is returned to the benchmark adapter. If a provider does not return a stable request ID or authoritative billing API cannot reconcile it, that provider/run must remain ineligible for zero-cost attestation.
+
 ## Required end-to-end contract
 
 ### A. Host request ledger
