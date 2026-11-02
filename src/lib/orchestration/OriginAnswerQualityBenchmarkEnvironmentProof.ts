@@ -11,6 +11,7 @@ export interface OriginAnswerQualityBenchmarkEnvironmentProof {
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
+  /** Maximum permitted benchmark spend; actual request cost is verified per execution. */
   readonly costUsd: 0;
   readonly paidFallbackEnabled: false;
   readonly runtimeIds: Readonly<Record<
@@ -78,6 +79,14 @@ function zeroCost(value: JsonRecord): boolean {
     && value.paidFallbackEnabled === false;
 }
 
+// /api/health intentionally omits costUsd: it attests routing policy, not a
+// per-request billing event. Actual request cost is checked at execution time.
+function freeOnlyHealth(value: JsonRecord): boolean {
+  return value.freeOnly === true
+    && value.paidFallbackEnabled === false
+    && !("costUsd" in value);
+}
+
 export async function probeOriginAnswerQualityBenchmarkEnvironment(
   baseUrl: string,
   expectedGitSha: string,
@@ -102,7 +111,7 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
   if (
     health.status !== "ok"
     || health.service !== "acos-2"
-    || !zeroCost(health)
+    || !freeOnlyHealth(health)
     || typeof health.releaseSha !== "string"
     || !SHA40.test(health.releaseSha)
   ) {
