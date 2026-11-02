@@ -22,6 +22,8 @@ function makeEvidence() {
         inputSha256: sha256, outputSha256: sha256, durationMs: 1200,
         scores: { correctnessEvidence: 4, instructionCompleteness: 4, usabilityClarity: 4 },
         passed: true,
+        evidenceRef: "evidence:run-output-0001",
+        rationale: "The observed output satisfies the task success criteria with verified evidence.",
         cost: { amountUsd: 0, verification: local ? "local-only" : "free-entitlement", evidenceRef: "evidence:verified-cost-0001" },
       });
     }
