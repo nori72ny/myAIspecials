@@ -11,6 +11,7 @@ export interface OriginAnswerQualityBenchmarkEnvironmentProof {
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
+  /** @deprecated Runtime-reported compatibility sentinel only; not provider billing evidence or proof of $0.00. */
   readonly costUsd: 0;
   readonly paidFallbackEnabled: false;
   readonly runtimeIds: Readonly<Record<
@@ -72,6 +73,10 @@ async function getJson(fetchImpl: typeof fetch, base: URL, path: string): Promis
   }
 }
 
+/**
+ * Checks self-reported runtime policy flags only. This is not a billing measurement,
+ * provider receipt verification, or proof that the request incurred $0.00.
+ */
 function zeroCost(value: JsonRecord): boolean {
   return value.freeOnly === true
     && value.costUsd === 0
@@ -151,6 +156,7 @@ export async function probeOriginAnswerQualityBenchmarkEnvironment(
       expectedGitSha,
       observedReleaseSha: health.releaseSha,
       freeOnly: true,
+      // Legacy runtime-policy sentinel; billing remains NOT_MEASURED until independently reconciled.
       costUsd: 0,
       paidFallbackEnabled: false,
       runtimeIds: Object.freeze({
