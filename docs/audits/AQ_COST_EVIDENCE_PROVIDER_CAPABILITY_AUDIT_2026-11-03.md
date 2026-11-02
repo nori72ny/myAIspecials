@@ -37,12 +37,14 @@ Reviewed official OpenRouter pages on 2026-11-03:
 - `OriginAnswerQualityBenchmarkSession.ts` binds every AQ case to `NOT_MEASURED/BILLING_NOT_AVAILABLE`.
 - `OriginAnswerQualityBenchmarkHttpRuntimeAdapters.ts` checks application response fields such as `routing.actualCostUsd` and `routing.usage.costUsd`; these are application/provider-reported telemetry fields, not authenticated receipts.
 - Existing runner fields `costUsd: 0` and provenance `totalCostUsd: 0` remain compatibility sentinels and must never be promoted into billing proof.
-- The current request/evidence references are not a complete append-only ledger of every provider attempt, retry, fallback, tool charge, image request, error, and terminal outcome.
+- In `src/legacy/originProviderClient.ts`, the transport helper can retry an individual provider request up to three times, and policy-stage requests can be attempted in sequence. The AQ coding adapter increments `providerRequests` once around `executeOriginProvider`, not once per actual HTTP attempt. Thus the current count is an invocation-level count, not a complete outbound-attempt ledger.
+- The provider client requires `usage.cost === 0`, `is_byok === false`, and rejects non-zero upstream cost when present. These are useful fail-closed runtime policy checks, but the values are still returned by the provider response and are not signed receipts.
+- Some broader product release-gate interfaces still accept a plain boolean `zeroCost`. Those booleans are not themselves cryptographic proof. Before connecting any new cost-evidence flow to those gates, migrate them to a verifier-issued evidence reference/status and reject caller-supplied booleans.
 
 ## Required acceptance contract before a verifier can issue ZERO_COST_VERIFIED
 
 1. **Provider origin and authentication:** establish an official provider API or receipt format, authenticated transport, stable issuer identity, and a documented trust model. Do not invent signatures, headers, endpoints, or trust roots.
-2. **Complete request ledger:** host-generated unique request IDs; append-only records for every outbound attempt, retry, fallback, tool, image, and error; exact provider generation/request IDs; timestamps; model and served-provider identity; idempotency/replay controls.
+2. **Complete request ledger:** host-generated unique request IDs; append-only records at the actual HTTP transport boundary for every outbound attempt, retry, policy-stage request, fallback, tool, image, and error; exact provider generation/request IDs; timestamps; model and served-provider identity; idempotency/replay controls. Invocation-level counters are insufficient.
 3. **Reconciliation:** every host attempt must map to exactly one authoritative provider usage record or a provider-confirmed no-charge terminal record. Missing, duplicate, delayed, contradictory, or unmatched records block verification.
 4. **All cost dimensions:** include inference, upstream, server tools, web search, image, audio, caching, and any platform/transaction fees that are in scope. Do not infer zero from absent fields.
 5. **Time and integrity:** bounded receipt age, monotonic sequence or stable provider event identity, digest/integrity checks, replay rejection, and explicit coverage window.
