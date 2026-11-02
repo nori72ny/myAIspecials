@@ -245,7 +245,7 @@ export async function probeOriginAnswerQualityBenchmarkEnvironmentForLanes(
   if (
     health.status !== "ok"
     || health.service !== "acos-2"
-    || !zeroCost(health)
+    || !freeOnlyHealth(health)
     || typeof health.releaseSha !== "string"
     || !SHA40.test(health.releaseSha)
   ) {
