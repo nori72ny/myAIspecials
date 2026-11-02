@@ -33,6 +33,20 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       await expect(user).toBeVisible();
       await expect(assistant).toContainText('通常回答は会話面に自然につながり');
 
+      if (viewport.width <= 640) {
+        const researchAction = page.getByTestId('origin-ultra-v16-toggle');
+        const composer = page.locator('.origin-composer').last();
+        await expect(researchAction).toBeVisible();
+        const researchBox = await researchAction.boundingBox();
+        const userBox = await user.boundingBox();
+        const composerBox = await composer.boundingBox();
+        expect(researchBox).not.toBeNull();
+        expect(userBox).not.toBeNull();
+        expect(composerBox).not.toBeNull();
+        expect(researchBox!.y).toBeGreaterThanOrEqual(userBox!.y + userBox!.height);
+        expect(researchBox!.y + researchBox!.height).toBeLessThanOrEqual(composerBox!.y);
+      }
+
       const assistantStyle = await assistant.evaluate((element) => {
         const style = getComputedStyle(element);
         const rect = element.getBoundingClientRect();
