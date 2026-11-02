@@ -101,6 +101,7 @@ export interface OriginAnswerQualityBenchmarkRunnerSuccess {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
+  /** @deprecated Compatibility sentinel only; never provider billing evidence or proof of $0.00. */
   readonly totalCostUsd: 0;
 }
 
