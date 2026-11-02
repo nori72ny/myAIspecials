@@ -31,7 +31,7 @@ However, current evidence does not yet constitute a complete independent usabili
 
 ### Positive evidence
 
-- Responsive viewport coverage includes 320, 360, 390, 412-class mobile constraints in relevant specs, tablet and desktop sizes; several key checks assert no horizontal overflow.
+- Responsive viewport coverage includes 320, 360, 375, and 390 CSS-pixel mobile widths in inspected specs, plus tablet, landscape, and desktop sizes; 412px is not established by this inspected set. Several key checks assert no horizontal overflow.
 - The mobile composer has explicit width, lower-screen placement, button size, and long-input/menu collision checks.
 - Settings focus trapping and focus restoration are tested; automated axe checks exist.
 - Local history persistence and recovery after storage read failures are tested.
