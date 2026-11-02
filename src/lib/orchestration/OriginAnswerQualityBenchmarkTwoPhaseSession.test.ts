@@ -110,6 +110,14 @@ describe("OriginAnswerQualityBenchmarkTwoPhaseSession", () => {
     expect(scoreCalls).toBe(40);
     if (!scored.ok) return;
     expect(scored.value.measuredRun.boundRun.caseCount).toBe(40);
+    expect(scored.value.costEvidence?.summary).toMatchObject({
+      caseCount: 40,
+      zeroCostVerifiedCount: 0,
+      notMeasuredCount: 40,
+      blockedUnverifiedCount: 0,
+      status: "NOT_MEASURED",
+    });
+    expect(scored.value.costEvidence?.cases).toHaveLength(40);
   });
 
   it("rejects frozen execution tampering before any scorer call", async () => {
