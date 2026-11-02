@@ -1,5 +1,5 @@
-import { createOriginCostNotMeasuredV1 } from '../lib/orchestration/OriginCostEvidenceV1.js';
 // @vitest-environment node
+import { createOriginCostNotMeasuredV1 } from '../lib/orchestration/OriginCostEvidenceV1.js';
 import { describe, expect, it } from 'vitest';
 import type { HeldOutCodingScoreV14 } from '../agent/heldOutCodingBenchmarkV14.js';
 import type { HeldOutFinalEvidenceV14 } from '../agent/heldOutCodingFinalQualificationV14.js';
@@ -88,7 +88,7 @@ describe('trusted candidate coding qualification', () => {
     expect(deriveTrustedCandidateCodingQualificationV15(forged, scores())).toMatchObject({
       qualificationPassed: false,
       zeroCost: false,
-      costEvidenceStatus: 'ZERO_COST_VERIFIED',
+      costEvidenceStatus: 'BLOCKED_UNVERIFIED',
     });
   });
 
