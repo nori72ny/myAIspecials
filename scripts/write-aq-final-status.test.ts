@@ -65,7 +65,7 @@ describe("write-aq-final-status", () => {
     });
   });
 
-  it("records QUALIFIED only for exact complete zero-cost promotion evidence", () => {
+  it("records FAILED when quality metrics are complete but billing evidence is unmeasured", () => {
     const base = root();
     writeCompleteState(base);
     writeFileSync(
@@ -76,20 +76,22 @@ describe("write-aq-final-status", () => {
         baselineSha,
         caseCount: 40,
         familyCount: 10,
-        zeroCost: true,
+        zeroCost: false,
+        costEvidenceStatus: "NOT_MEASURED",
         shardCount: 16,
-        promotionEligible: true,
-        blockers: [],
+        promotionEligible: false,
+        blockers: ["HARD_GATE:zeroCost"],
       }),
     );
 
     const result = run(base);
     expect(result.status).toBe(0);
     const status = JSON.parse(readFileSync(resolve(base, "status/status.json"), "utf8"));
-    expect(status.qualificationStatus).toBe("QUALIFIED");
+    expect(status.qualificationStatus).toBe("FAILED");
     expect(status.measured).toBe(true);
-    expect(status.zeroCost).toBe(true);
-    expect(status.promotionEligible).toBe(true);
+    expect(status.zeroCost).toBe(false);
+    expect(status.costEvidenceStatus).toBe("NOT_MEASURED");
+    expect(status.promotionEligible).toBe(false);
     expect(status.completedShardCount).toBe(16);
   });
 
@@ -103,7 +105,7 @@ describe("write-aq-final-status", () => {
     expect(result.stderr).toContain("AQ_FINAL_STATUS_PROMOTION_INVALID_JSON");
   });
 
-  it("fails closed when completed promotion evidence violates zero-cost invariants", () => {
+  it("fails closed when completed promotion evidence contradicts the unmeasured billing state", () => {
     const base = root();
     writeCompleteState(base);
     writeFileSync(
@@ -114,7 +116,8 @@ describe("write-aq-final-status", () => {
         baselineSha,
         caseCount: 40,
         familyCount: 10,
-        zeroCost: false,
+        zeroCost: true,
+        costEvidenceStatus: "NOT_MEASURED",
         shardCount: 16,
         promotionEligible: true,
         blockers: [],
