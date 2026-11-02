@@ -39,7 +39,7 @@ describe("ObservabilityCenter Component", () => {
       await vi.advanceTimersByTimeAsync(7000);
     });
 
-    expect(screen.getByText((content) => content.includes("Q5 Validation Passed successfully."))).toBeTruthy();
+    expect(screen.getAllByText((content) => content.includes("Q5 Validation Passed successfully."))).toHaveLength(9);
   });
 
   it("switches to Performance tab and displays live stats", async () => {
