@@ -176,3 +176,15 @@ This contract can be marked implemented only when:
 - A separately approved, cost-safe verification procedure produces a real receipt for a bounded run.
 
 Until every condition is met, the release gate must treat actual cost as `NOT_MEASURED` or `BLOCKED_UNVERIFIED`, not USD 0.00.
+
+
+## 11. Concrete migration hazards found in the current main baseline
+
+The source audit confirms that this contract must be applied at the runner/scorer boundary, not merely at the final dashboard:
+
+- `OriginAnswerQualityBenchmarkExecutionRouter.ts` returns an unavailable-lane evidence object with `verifierResult: "BLOCKED_UNVERIFIED"`, `providerRequests: 0`, and `costUsd: 0`. That zero is a local sentinel emitted precisely when no provider execution occurred. It must not be interpreted as measured spend. The replacement should carry `costEvidence.status: "NOT_MEASURED"` or `"BLOCKED_UNVERIFIED"` and `measurement: null`.
+- The same router rejects a completed lane only when `result.costUsd !== 0`; this is a response-shape constraint, not proof of billing. The accepted result must instead reference a verifier-owned receipt before any zero-spend qualification.
+- `trustedGeneralAgentEvidenceV2.ts` currently recognizes an evaluator-originated event kind named `cost-attestation` with numeric `costUsd` and a boolean paid-fallback field. This event can remain useful as evaluator-observed policy metadata, but it must be renamed or explicitly typed as non-billing policy evidence. It cannot mint or substitute for a provider receipt.
+- `docs/TRUSTED_CANDIDATE_EVALUATION.md` documents an append-only GitHub Commit Status ledger used to reserve one-shot held-out corpus execution. That is useful precedent for replay-resistant audit history, but it is not a provider request ledger: it does not establish every outbound provider attempt, provider-side request ID, usage quantity, or charge.
+
+Migration rule: preserve the existing execution/replay safeguards, but do not reuse their names or semantics as proof of billing. Introduce a separate host-owned provider-attempt journal and receipt lifecycle. Do not overload the existing one-shot corpus ledger.
