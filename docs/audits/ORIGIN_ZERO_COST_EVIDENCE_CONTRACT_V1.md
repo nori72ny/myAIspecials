@@ -188,3 +188,64 @@ The source audit confirms that this contract must be applied at the runner/score
 - `docs/TRUSTED_CANDIDATE_EVALUATION.md` documents an append-only GitHub Commit Status ledger used to reserve one-shot held-out corpus execution. That is useful precedent for replay-resistant audit history, but it is not a provider request ledger: it does not establish every outbound provider attempt, provider-side request ID, usage quantity, or charge.
 
 Migration rule: preserve the existing execution/replay safeguards, but do not reuse their names or semantics as proof of billing. Introduce a separate host-owned provider-attempt journal and receipt lifecycle. Do not overload the existing one-shot corpus ledger.
+
+
+## 12. Additional concrete runtime/scoring paths confirmed on main
+
+The following paths were re-opened on the audited main baseline `a43e91cbe96f07b8743735534c0d76ebd63f76df` during the 2026-11-03 follow-up:
+
+1. **AQ execution evidence schema — `src/lib/orchestration/OriginAnswerQualityBenchmarkRunner.ts`**
+   - `OriginAnswerQualityBenchmarkExecutionEvidence.costUsd` is a required number.
+   - `validExecution()` accepts only finite numeric zero, but has no provenance or receipt field.
+   - Execution-only and full-run result types expose `totalCostUsd: 0` as a literal type.
+   - This makes a caller-provided numeric zero part of the schema contract, not independently verified spend.
+
+2. **AQ scorer — `src/lib/orchestration/OriginAnswerQualityBenchmarkScoring.ts`**
+   - The scorer rejects nonzero `execution.costUsd` and emits `costUsd: 0` in the measured observation.
+   - It does not require a verifier receipt or independently sourced usage evidence.
+   - A numeric zero can therefore pass the scoring boundary without proof of its origin.
+
+3. **AQ HTTP adapter — `src/lib/orchestration/OriginAnswerQualityBenchmarkHttpRuntimeAdapters.ts`**
+   - Chat response acceptance requires `routing.freeOnly === true` and `routing.actualCostUsd === 0`.
+   - Provider routing and usage metadata are checked for expected provider/model and zero usage cost, but those fields are response payload metadata. They are not an authenticated provider billing export reconciled to the host's complete outbound-attempt journal.
+   - Provider request count is inferred from response fields or provider presence; it is not a durable host-side append-only ledger.
+
+4. **Chat API — `src/legacy/originChatRouter.ts`**
+   - `applicationRouting()` returns `actualCostUsd: 0` and `estimatedCostUsd: 0` for application-side processing.
+   - Such a value can describe the absence of a model charge for that specific application-only path, but it must not be generalized into an attestation for every provider attempt or the complete run. The response schema should identify this as a non-billing application-path classification, not a universal actual-cost proof.
+
+5. **Research API — `src/legacy/originResearchRouter.ts`**
+   - The response includes `freeOnly: true` and `paidFallbackUsed: false` in its routing metadata.
+   - These are policy/route declarations. They do not independently establish the provider's actual billing outcome.
+
+6. **General Agent private evaluator — `scripts/run-general-agent-private-v2.ts`**
+   - On the audited main baseline, `responseCostSafe()` accepts a missing `costUsd` field or numeric zero.
+   - The evaluator uses a process-local `LocalAtomicConsumptionStore` for one-shot run consumption. That store is not a durable provider request ledger or cross-instance billing replay store.
+   - PR #1081 changes missing-cost handling to require explicit numeric-zero metadata, but even explicit response metadata is not independent provider billing evidence. Until merged, main retains the missing-field acceptance defect.
+
+### Required implementation order
+
+To avoid fixing only the display layer, the migration should proceed in this order:
+
+A. Introduce a shared evidence-state type and transition validator with no public constructor for `ZERO_COST_VERIFIED`.
+
+B. Change AQ execution evidence from required numeric `costUsd` to a typed cost-evidence envelope. Keep legacy numeric fields only as deprecated, non-authoritative compatibility metadata during migration; they must not qualify a run or feed a score.
+
+C. Change AQ execution-only aggregation and AQ scoring so that they require a verifier-owned receipt reference for any measured-cost assertion. If a receipt is absent, retain the answer-quality score only if the benchmark policy permits it, but mark cost evidence `NOT_MEASURED` or `BLOCKED_UNVERIFIED`; never silently substitute zero.
+
+D. Update HTTP adapters and chat/research routing metadata to distinguish application-only/no-provider execution, provider execution with unverified cost, policy allowed, and independently verified billing. Do not interpret `freeOnly`, `actualCostUsd: 0`, or `usage.costUsd: 0` from a candidate-controlled response as billing proof.
+
+E. Update General Agent and all held-out coding/research/artifact scorers to consume the same evidence envelope. The evaluator's own event stream can attest to observed policy/behavior, not provider-origin charges.
+
+F. Only after these type boundaries are stable, integrate a host-owned request journal and provider evidence verifier. Do not create fake receipt IDs, empty ledgers, or numeric sentinels to preserve old interfaces.
+
+### Regression acceptance tests for the identified paths
+
+- AQ unavailable lane has `measurement: null`; no numeric zero cost assertion is emitted.
+- AQ runner rejects caller-provided `costUsd: 0` as a billing proof.
+- AQ scorer cannot output a verified zero-cost observation without a valid verifier receipt.
+- AQ HTTP adapter rejects response-only `actualCostUsd: 0` as proof, while preserving an explicit `NOT_MEASURED` outcome.
+- Application-only chat responses are classified as no-provider execution and do not claim provider billing verification.
+- Research `freeOnly: true` and `paidFallbackUsed: false` remain policy metadata only.
+- General Agent missing cost, numeric zero, `zeroCostSafe`, and evaluator `cost-attestation` events cannot create `ZERO_COST_VERIFIED`.
+- Every affected scorer preserves answer-quality findings while separately reporting cost evidence status; cost verification failure must not be silently converted into a quality score of zero or a cost of zero.
