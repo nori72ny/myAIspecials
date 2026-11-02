@@ -80,7 +80,7 @@ describe("write-aq-final-status", () => {
         costEvidenceStatus: "NOT_MEASURED",
         shardCount: 16,
         promotionEligible: false,
-        blockers: ["HARD_GATE:zeroCost"],
+        blockers: ["HARD_GATE:zeroCost", "COST_EVIDENCE_NOT_VERIFIED"],
       }),
     );
 
