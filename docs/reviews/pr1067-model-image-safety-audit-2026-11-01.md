@@ -1,6 +1,6 @@
 # PR #1067 model catalog and image-routing safety audit
 
-Date: 2026-11-01
+Date: 2026-11-02
 Target branch: `remediation/mobile-geometry-benchmark-health`
 Base release candidate: `a43e91cbe96f07b8743735534c0d76ebd63f76df`
 Scope: model evidence refresh, Cloudflare raster model allowlist, zero-cost routing and failover review.
@@ -8,14 +8,16 @@ Scope: model evidence refresh, Cloudflare raster model allowlist, zero-cost rout
 ## 1. OpenRouter free-model catalog
 
 - `OriginFreeModelEvidence`, `OriginFreeModelId`, `OriginFreeModelCatalogResult`, and the public catalog selector function signatures remain unchanged.
-- The only executable model remains `google/gemma-4-31b-it:free`. Its public OpenRouter model page lists the exact `:free` variant at $0.00. Evidence window refreshed to 2026-11-01 through 2026-11-11.
+- `google/gemma-4-31b-it:free` is still listed at $0.00, but its only listed free provider is Google AI Studio. Google's Gemini API free tier permits submitted content to be used to improve products and may allow human review. This is incompatible with ORIGIN's personal-data/ZDR boundary. The 2026-11-01 price-only recheck therefore does **not** refresh runtime eligibility; the existing catalog evidence remains expired and the model is not executable.
+- OpenRouter's Free plan lists 50 requests/day and does not include Data Policy-Based Routing. ZDR routing is listed as available on every plan, but the exact Gemma free endpoint has not been proven to satisfy ZDR. Model price alone is not a privacy qualification. See `https://openrouter.ai/pricing`, `https://openrouter.ai/google/gemma-4-31b-it:free`, and `https://ai.google.dev/gemini-api/terms`.
 - The catalog does not add `openrouter/free`, aliases, paid model IDs, or model IDs without the `:free` suffix.
-- `nvidia/nemotron-3-ultra-550b-a55b:free` is not admitted to the executable catalog. The free endpoint disclosure allows provider logging and use for model improvement; current evidence does not establish compatibility with ORIGIN's ZDR and data-collection-deny requirements.
-- Catalog pricing evidence is not request-level billing proof. Runtime must continue to enforce `provider.zdr=true`, `data_collection=deny`, zero maximum price, disabled provider fallback, exact served-model identity, and fail-closed cost validation.
+- `nvidia/nemotron-3-ultra-550b-a55b:free` remains excluded. Its free endpoint disclosure explicitly permits provider logging and use for model improvement; it also asks users not to upload personal or confidential data. See `https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free`.
+- Catalog pricing evidence is not request-level billing proof. Runtime must enforce `provider.zdr=true`, `data_collection=deny`, zero maximum price, disabled provider fallback, exact served-model identity, and fail-closed cost validation. Until a compliant free endpoint is independently proven, no OpenRouter model is executable.
 
 ## 2. Execution-policy integrity
 
-- `OriginExecutionPolicy` remains unchanged: OpenRouter remains the deterministic primary; `allowProviderFallbacks=false`, `dataCollection="deny"`, and `requireZeroDataRetention=true`.
+- `OriginExecutionPolicy` remains `allowProviderFallbacks=false`, `dataCollection="deny"`, and `requireZeroDataRetention=true`.
+- A source audit found that `zeroCostRoutingPolicy.ts` previously retried after 403/404 by removing `zdr=true` and then weakening the price fields. That contradicted the execution policy and could permit a non-ZDR provider. This PR removes all relaxation stages: one policy only (`zdr=true`, `data_collection=deny`, `max_price={prompt:0,completion:0,request:0}`, `allow_fallbacks=false`). A 403/404 is terminal; no privacy or price constraint is relaxed.
 - Model catalog validity is time-bounded. Expired or invalid evidence returns a failure and must not silently select another model.
 - This PR does not claim that a live inference request has been executed or that request-level $0.00 has been proven.
 
@@ -38,6 +40,6 @@ Scope: model evidence refresh, Cloudflare raster model allowlist, zero-cost rout
 ## 5. Verification required on the new PR head
 
 - TypeScript, lint, catalog tests, execution-policy tests, Cloudflare provider tests, raster registry tests, raster router tests, and the complete PR CI must pass on the exact resulting HEAD SHA.
-- The test suite must demonstrate that expired model evidence fails closed; non-`:free`/automatic model IDs are rejected; Cloudflare 9B is rejected before network access; account-level free allocation does not authorize inference; and no paid fallback is possible.
+- The test suite must demonstrate that expired model evidence fails closed; non-`:free`/automatic model IDs are rejected; Cloudflare 9B is rejected before network access; account-level free allocation does not authorize inference; 403/404 never relax ZDR or zero-price policy; and no paid fallback is possible.
 - No live image inference, paid usage, merge, or production deployment is authorized by this audit.
 - The 8,500-Neuron runtime guard, live provider zero-cost proof, and 40-case image benchmark remain UNVERIFIED until their prerequisites are implemented and independently evidenced.
