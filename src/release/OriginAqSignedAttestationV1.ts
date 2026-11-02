@@ -180,8 +180,11 @@ export async function verifyOriginAqSignedAttestationV1(input: {
   const validUntil = Date.parse(key.validUntil);
   const issuedAt = Date.parse(attestation.issuedAt);
   const expiresAt = Date.parse(attestation.expiresAt);
-  if (key.revokedAt && Number.isFinite(Date.parse(key.revokedAt)) && Date.parse(key.revokedAt) <= now) {
-    return { ok: false, code: "AQ_ATTESTATION_KEY_REVOKED" };
+  if (key.revokedAt !== undefined) {
+    const revokedAt = Date.parse(key.revokedAt);
+    if (!Number.isFinite(revokedAt) || revokedAt <= now) {
+      return { ok: false, code: "AQ_ATTESTATION_KEY_REVOKED" };
+    }
   }
   if (
     !Number.isFinite(validFrom) || !Number.isFinite(validUntil)
@@ -216,7 +219,7 @@ export async function verifyOriginAqSignedAttestationV1(input: {
     return { ok: false, code: "AQ_ATTESTATION_SIGNATURE_INVALID" };
   }
 
-  const replayKey = [attestation.keyId, attestation.nonce, attestation.artifactDigest].join(":");
+  const replayKey = [attestation.keyId, attestation.nonce].join(":");
   if (!await input.claimNonce(replayKey)) return { ok: false, code: "AQ_ATTESTATION_REPLAY" };
 
   return Object.freeze({ ok: true, attestation, artifactDigest });
