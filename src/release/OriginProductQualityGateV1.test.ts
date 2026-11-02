@@ -102,8 +102,9 @@ describe("OriginProductQualityGateV1", () => {
       const input = passingInput();
       Object.assign(input[section], { [field]: malformed });
       const report = evaluateOriginProductQualityGate(input, nowMs);
-      expect(report.passed).toBe(true);
-      expect(report.blockers).toEqual([]);
+      expect(report.passed).toBe(false);
+      expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
+      expect(report.blockers).toContain("CODING_ZERO_COST_EVIDENCE_UNVERIFIED");
       expect(report.claudeCodeParityEstablished).toBe(false);
       expect(report.claudeCodeBlockers.length).toBeGreaterThan(0);
     }
@@ -229,7 +230,8 @@ describe("OriginProductQualityGateV1", () => {
         claudeCodeSolved: 6,
       },
     }, nowMs);
-    expect(report.passed).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
     expect(report.claudeCodeParityEstablished).toBe(false);
     expect(report.claudeCodeBlockers).toContain("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
   });
