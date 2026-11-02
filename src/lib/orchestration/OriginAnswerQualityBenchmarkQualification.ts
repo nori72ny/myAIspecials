@@ -47,7 +47,9 @@ export interface OriginAnswerQualityBenchmarkQualificationReport {
   readonly hardGates: {
     readonly exactCorpusMatch: true;
     readonly sameProviderAndModel: true;
-    readonly zeroCost: true;
+    /** Cannot pass without independently verified provider billing evidence. */
+    readonly zeroCost: false;
+    readonly costEvidenceStatus: "NOT_MEASURED";
     readonly unsupportedClaimsNotWorse: boolean;
     readonly verifierRejectionRateNotWorse: boolean;
   };
@@ -146,7 +148,8 @@ export function qualifyOriginAnswerQualityBenchmark(
       hardGates: Object.freeze({
         exactCorpusMatch: true,
         sameProviderAndModel: true,
-        zeroCost: true,
+        zeroCost: false,
+        costEvidenceStatus: "NOT_MEASURED",
         unsupportedClaimsNotWorse: delta.unsupportedMaterialClaimDelta <= 0,
         verifierRejectionRateNotWorse: delta.verifierRejectionRateDelta >= 0,
       }),
