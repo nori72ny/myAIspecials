@@ -66,6 +66,7 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
   const results = Array.isArray(input.results) ? input.results : [];
   if (!results.length) add("RESULTS_REQUIRED");
   const taskFamilies = new Map();
+  const taskFamilyById = new Map();
   const taskIds = new Set();
   const pairKeys = new Set();
   const executionIds = new Set();
@@ -76,8 +77,13 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
     else taskIds.add(row.taskId);
     if (typeof row.taskFamily !== "string" || !SAFE.test(row.taskFamily)) add("TASK_FAMILY_INVALID");
     else {
-      if (!taskFamilies.has(row.taskFamily)) taskFamilies.set(row.taskFamily, new Set());
-      if (typeof row.taskId === "string") taskFamilies.get(row.taskFamily).add(row.taskId);
+      if (typeof row.taskId === "string") {
+        const existingFamily = taskFamilyById.get(row.taskId);
+        if (existingFamily !== undefined && existingFamily !== row.taskFamily) add("TASK_FAMILY_INCONSISTENT");
+        taskFamilyById.set(row.taskId, row.taskFamily);
+        if (!taskFamilies.has(row.taskFamily)) taskFamilies.set(row.taskFamily, new Set());
+        taskFamilies.get(row.taskFamily).add(row.taskId);
+      }
     }
     if (!validSystemIds.has(row.systemId)) add("UNKNOWN_SYSTEM_ID");
     const pairKey = `${row.taskId}| ${row.systemId}`;
