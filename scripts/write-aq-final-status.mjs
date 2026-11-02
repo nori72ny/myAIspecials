@@ -48,8 +48,9 @@ async function main() {
       || promotion.familyCount !== 10
       || promotion.zeroCost !== false
       || promotion.costEvidenceStatus !== "NOT_MEASURED"
-      || typeof promotion.promotionEligible !== "boolean"
+      || promotion.promotionEligible !== false
       || !Array.isArray(promotion.blockers)
+      || !promotion.blockers.includes("COST_EVIDENCE_NOT_VERIFIED")
       || promotion.promotionEligible !== (promotion.blockers.length === 0)
     ) {
       throw new Error("AQ_FINAL_STATUS_PROMOTION_IDENTITY_INVALID");
