@@ -204,8 +204,10 @@ export async function verifyOriginEvidenceAttestationV1(
   if (!validTimeWindow(payload, nowMs)) return fail("ORIGIN_ATTESTATION_TIME_WINDOW_INVALID");
   if (!validExpectedBinding(payload, expected)) return fail("ORIGIN_ATTESTATION_BINDING_MISMATCH");
 
-  const key = trustedKeys.find(item => item.keyId === payload.keyId);
-  if (!key) return fail("ORIGIN_ATTESTATION_KEY_UNTRUSTED");
+  const matchingKeys = trustedKeys.filter(item => item.keyId === payload.keyId);
+  if (matchingKeys.length === 0) return fail("ORIGIN_ATTESTATION_KEY_UNTRUSTED");
+  if (matchingKeys.length !== 1) return fail("ORIGIN_ATTESTATION_TRUST_REGISTRY_AMBIGUOUS");
+  const key = matchingKeys[0];
   if (key.revoked === true) return fail("ORIGIN_ATTESTATION_KEY_REVOKED");
   if (key.signerId !== payload.signerId || key.role !== expectedRole || payload.signerRole !== key.role) {
     return fail("ORIGIN_ATTESTATION_TRUST_ROLE_MISMATCH");
@@ -213,7 +215,7 @@ export async function verifyOriginEvidenceAttestationV1(
   const keyStart = Date.parse(key.validFrom);
   const keyEnd = Date.parse(key.validUntil);
   const issuedAt = Date.parse(payload.issuedAt as string);
-  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || issuedAt < keyStart || issuedAt > keyEnd || nowMs > keyEnd) {
+  if (!Number.isFinite(keyStart) || !Number.isFinite(keyEnd) || nowMs < keyStart || issuedAt < keyStart || issuedAt > keyEnd || nowMs > keyEnd) {
     return fail("ORIGIN_ATTESTATION_KEY_OUTSIDE_VALIDITY");
   }
 
