@@ -456,7 +456,7 @@ export function restoreOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
   if (
     environmentProof.expectedGitSha !== artifact.gitSha
     || environmentProof.observedReleaseSha !== artifact.gitSha
-    || environmentProof.costUsd !== 0
+    || environmentProof.maxPermittedCostUsd !== 0
     || environmentProof.freeOnly !== true
     || environmentProof.paidFallbackEnabled !== false
   ) {
