@@ -71,7 +71,7 @@ function observations(
 }
 
 describe("OriginAnswerQualityBenchmarkQualification", () => {
-  it("qualifies only an exact comparable 40-case ten-family benchmark", () => {
+  it("reports exact comparable 40-case metrics without certifying unmeasured provider spend", () => {
     const m = manifest();
     const result = qualifyOriginAnswerQualityBenchmark({
       baselineManifest: m,
