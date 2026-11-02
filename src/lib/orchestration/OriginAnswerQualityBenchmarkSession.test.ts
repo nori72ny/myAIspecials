@@ -85,18 +85,16 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     expect(result.value.measuredRun.boundRun.totalProviderRequests).toBe(40);
     expect(result.value.measuredRun.measuredObservations).toHaveLength(40);
     expect(result.value.costEvidence.summary).toMatchObject({
-
       caseCount: 40,
-
       zeroCostVerifiedCount: 0,
-
       notMeasuredCount: 40,
-
       blockedUnverifiedCount: 0,
-
       status: "NOT_MEASURED",
-
     });
+    expect(result.value.costEvidence.cases).toHaveLength(40);
+    expect(JSON.stringify(result.value.costEvidence)).not.toMatch(
+      /"costUsd"|"totalCostUsd"|"amountUsd"/,
+    );
 
     expect(result.value.costEvidence.cases).toHaveLength(40);
 
