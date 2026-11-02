@@ -92,6 +92,28 @@ describe("OriginAnswerQualityBenchmarkCostEvidence", () => {
     });
   });
 
+  it("never serializes a numeric cost and prioritizes blocked evidence", () => {
+    const result = bindOriginAnswerQualityBenchmarkCostEvidence(
+      ["case-a", "case-b", "case-c"],
+      [
+        { caseId: "case-a", evidence: createOriginCostPolicyAllowedV1("policy:free-only") },
+        { caseId: "case-b", evidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE") },
+        { caseId: "case-c", evidence: { costUsd: 0, freeOnly: true } },
+      ],
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.summary.status).toBe("BLOCKED_UNVERIFIED");
+    expect(
+      result.value.summary.zeroCostVerifiedCount
+      + result.value.summary.policyAllowedCount
+      + result.value.summary.notMeasuredCount
+      + result.value.summary.blockedUnverifiedCount,
+    ).toBe(result.value.summary.caseCount);
+    expect(JSON.stringify(result.value)).not.toMatch(/"costUsd"|"totalCostUsd"|"amountUsd"/);
+  });
+
   it("rejects empty or duplicate expected case identifiers", () => {
     expect(bindOriginAnswerQualityBenchmarkCostEvidence([], [])).toEqual({
       ok: false,
