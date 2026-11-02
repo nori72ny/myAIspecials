@@ -61,7 +61,7 @@ test("allows repeated task IDs across systems but rejects duplicate task/system 
 test("rejects local-only cost evidence for a live product UI", () => {
   const bad = makeEvidence();
   bad.results[1].cost.verification = "local-only";
-  expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("LOCAL_ONLY_COST_EVIDENCE_MISMATCH");
+  expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("COST_VERIFICATION_INVALID");
 });
 test("requires two external products to be genuinely executed", () => {
   const bad = makeEvidence();
