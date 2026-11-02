@@ -75,7 +75,10 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
     if (typeof row.taskId !== "string" || !SAFE.test(row.taskId)) add("TASK_ID_INVALID");
     else taskIds.add(row.taskId);
     if (typeof row.taskFamily !== "string" || !SAFE.test(row.taskFamily)) add("TASK_FAMILY_INVALID");
-    else taskFamilies.set(row.taskFamily, (taskFamilies.get(row.taskFamily) ?? 0) + 1);
+    else {
+      if (!taskFamilies.has(row.taskFamily)) taskFamilies.set(row.taskFamily, new Set());
+      if (typeof row.taskId === "string") taskFamilies.get(row.taskFamily).add(row.taskId);
+    }
     if (!validSystemIds.has(row.systemId)) add("UNKNOWN_SYSTEM_ID");
     const pairKey = `${row.taskId}| ${row.systemId}`;
     if (pairKeys.has(pairKey)) add("DUPLICATE_TASK_SYSTEM_PAIR");
@@ -96,6 +99,8 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
     if (!SHA256.test(row.outputSha256 ?? "")) add("OUTPUT_DIGEST_INVALID");
     if (!Number.isFinite(row.durationMs) || row.durationMs < 0 || row.durationMs > 24 * 60 * 60 * 1000) add("DURATION_INVALID");
     if (typeof row.passed !== "boolean") add("PASS_FLAG_REQUIRED");
+    if (typeof row.evidenceRef !== "string" || row.evidenceRef.trim().length < 8) add("EXECUTION_EVIDENCE_REFERENCE_REQUIRED");
+    if (typeof row.rationale !== "string" || row.rationale.trim().length < 12) add("SCORE_RATIONALE_REQUIRED");
     const scores = row.scores && typeof row.scores === "object" && !Array.isArray(row.scores) ? Object.entries(row.scores) : [];
     if (scores.length < 3) add("APPLICABLE_DIMENSION_SCORES_REQUIRED");
     for (const [dimension, score] of scores) {
@@ -113,12 +118,13 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
   }
 
   if (taskIds.size < 30) add("MINIMUM_30_TASKS_REQUIRED");
-  if (taskFamilies.size < 6 || [...taskFamilies.values()].some((count) => count < 3)) add("SIX_FAMILIES_THREE_TASKS_EACH_REQUIRED");
+  if (taskFamilies.size < 6 || [...taskFamilies.values()].some((ids) => ids.size < 3)) add("SIX_FAMILIES_THREE_TASKS_EACH_REQUIRED");
   for (const taskId of taskIds) {
     for (const systemId of validSystemIds) {
       if (!pairKeys.has(`${taskId}| ${systemId}`)) add("INCOMPLETE_PAIRED_TASK_MATRIX");
     }
   }
+  if (!executedProducts.has("origin-personal")) add("ORIGIN_NOT_EXECUTED");
   const externalExecuted = [...executedProducts].filter((id) => id !== "origin-personal");
   if (externalExecuted.length < 2) add("TWO_EXTERNAL_PRODUCTS_NOT_EXECUTED");
 
