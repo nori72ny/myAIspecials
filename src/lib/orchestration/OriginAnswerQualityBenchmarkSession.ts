@@ -101,7 +101,7 @@ export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
   }
   if (
     proof.freeOnly !== true
-    || proof.costUsd !== 0
+    || proof.maxPermittedCostUsd !== 0
     || proof.paidFallbackEnabled !== false
   ) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID" };
@@ -117,7 +117,7 @@ export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
     artifact: "artifact-v1.2",
   };
 
-  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1") {
+  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v2") {
     if (requiredLanes.includes("coding") && proof.codingReady !== true) {
       return {
         ok: false,
