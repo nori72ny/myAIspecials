@@ -105,7 +105,7 @@ describe("write-aq-final-status", () => {
     expect(result.stderr).toContain("AQ_FINAL_STATUS_PROMOTION_INVALID_JSON");
   });
 
-  it("fails closed when completed promotion evidence contradicts the unmeasured billing state", () => {
+  it("rejects promotion claims even when the payload labels billing as unmeasured", () => {
     const base = root();
     writeCompleteState(base);
     writeFileSync(
@@ -116,7 +116,7 @@ describe("write-aq-final-status", () => {
         baselineSha,
         caseCount: 40,
         familyCount: 10,
-        zeroCost: true,
+        zeroCost: false,
         costEvidenceStatus: "NOT_MEASURED",
         shardCount: 16,
         promotionEligible: true,
