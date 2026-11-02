@@ -8,12 +8,12 @@ import {
 const currentTime = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 
 describe("selectCurrentOriginFreeModel", () => {
-  it("keeps only the privacy-qualified fixed Gemma model executable", () => {
+  it("does not extend price-only evidence without provider privacy proof", () => {
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG).toHaveLength(1);
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].modelId).toBe("google/gemma-4-31b-it:free");
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].modelId.endsWith(":free")).toBe(true);
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].sourceDescription).toContain("Nemotron 3 Ultra :free is intentionally excluded");
-    expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter).toBe("2026-11-11T23:59:59.999Z");
+    expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter).toBe("2026-10-30T13:40:00.000Z");
   });
   it("returns the evidence-backed fixed zero-cost model", () => {
     const result = selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, currentTime);
