@@ -124,7 +124,7 @@ export function isOriginCostZeroVerifiedV1(
     && typeof candidate.receiptDigest === "string"
     && /^sha256:[a-f0-9]{64}$/.test(candidate.receiptDigest)
     && typeof candidate.measuredAt === "string"
-    && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$/.test(candidate.measuredAt)
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(candidate.measuredAt)
     && Number.isFinite(Date.parse(candidate.measuredAt))
     && candidate.measurement?.totalCostUsd === "0.00"
     && Number.isSafeInteger(candidate.measurement.reconciledRequestCount)
