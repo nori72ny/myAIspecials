@@ -187,7 +187,7 @@ export async function verifyOriginEvidenceAttestationV1(
 
   if (payload.schemaVersion !== "origin.signed-evidence-attestation.v1") return fail("ORIGIN_ATTESTATION_SCHEMA_INVALID");
   const type = payload.attestationType;
-  if (typeof type !== "string" || !(type in ROLE_BY_TYPE)) return fail("ORIGIN_ATTESTATION_TYPE_INVALID");
+  if (typeof type !== "string" || !Object.hasOwn(ROLE_BY_TYPE, type)) return fail("ORIGIN_ATTESTATION_TYPE_INVALID");
   const expectedRole = ROLE_BY_TYPE[type as OriginEvidenceAttestationTypeV1];
   if (payload.signerRole !== expectedRole) return fail("ORIGIN_ATTESTATION_ROLE_INVALID");
   if (typeof payload.keyId !== "string" || !ID.test(payload.keyId)) return fail("ORIGIN_ATTESTATION_KEY_ID_INVALID");
