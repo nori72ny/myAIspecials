@@ -90,11 +90,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** RFC 8785-compatible canonical JSON for the supported JSON value domain. */
 export function canonicalizeOriginAqJsonV1(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError("AQ_ATTESTATION_JSON_VALUE_INVALID");
+    return encoded;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new TypeError("AQ_ATTESTATION_JSON_NUMBER_INVALID");
-    return JSON.stringify(value);
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError("AQ_ATTESTATION_JSON_NUMBER_INVALID");
+    return encoded;
   }
   if (Array.isArray(value)) {
     return "[" + value.map(item => canonicalizeOriginAqJsonV1(item)).join(",") + "]";
