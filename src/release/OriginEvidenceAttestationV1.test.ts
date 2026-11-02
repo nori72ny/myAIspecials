@@ -54,6 +54,12 @@ function fixture(overrides: Partial<OriginEvidenceAttestationPayloadV1> = {}) {
 }
 
 describe("ORIGIN signed evidence attestation V1", () => {
+  it("rejects inherited object-property names as attestation types", async () => {
+    const value = fixture({ attestationType: "toString" as OriginEvidenceAttestationPayloadV1["attestationType"] });
+    await expect(verifyOriginEvidenceAttestationV1(value.raw, value.signature, [value.key], expected, async () => true, { nowMs }))
+      .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_TYPE_INVALID" });
+  });
+
   it("accepts a correctly signed payload bound to the exact repository, candidate, corpus, rubric, round and artifact", async () => {
     const value = fixture();
     const result = await verifyOriginEvidenceAttestationV1(
