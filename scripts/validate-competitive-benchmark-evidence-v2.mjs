@@ -50,7 +50,7 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
     if (typeof system.modelLabel !== "string" || system.modelLabel.trim().length < 2) add("MODEL_LABEL_REQUIRED");
     if (typeof system.planTier !== "string" || system.planTier.trim().length < 2) add("PLAN_TIER_REQUIRED");
     if (typeof system.accessDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(system.accessDate)) add("ACCESS_DATE_REQUIRED");
-    if (!["live-product-ui", "live-api", "deterministic-local"].includes(system.executionMode)) add("EXECUTION_MODE_INVALID");
+    if (!["live-product-ui", "live-api"].includes(system.executionMode)) add("LIVE_EXECUTION_MODE_REQUIRED");
     if (typeof system.isCandidate !== "boolean") add("CANDIDATE_FLAG_REQUIRED");
     if (system.isCandidate === true) {
       candidateCount += 1;
@@ -116,10 +116,8 @@ export function validateCompetitiveBenchmarkEvidenceV2(input, nowMs = Date.now()
     const system = systems.find((item) => item?.systemId === row.systemId);
     if (system?.status === "NOT_RUN") add("UNAVAILABLE_SYSTEM_CANNOT_HAVE_EXECUTION");
     if (!row.cost || row.cost.amountUsd !== 0) add("ZERO_COST_NOT_PROVEN");
-    else if (!["free-entitlement", "usage-record", "local-only"].includes(row.cost.verification)) add("COST_VERIFICATION_INVALID");
+    else if (!["free-entitlement", "usage-record"].includes(row.cost.verification)) add("COST_VERIFICATION_INVALID");
     else if (typeof row.cost.evidenceRef !== "string" || row.cost.evidenceRef.trim().length < 8) add("COST_EVIDENCE_REFERENCE_REQUIRED");
-    else if (row.cost.verification === "local-only" && system?.executionMode !== "deterministic-local") add("LOCAL_ONLY_COST_EVIDENCE_MISMATCH");
-    else if (row.cost.verification !== "local-only" && system?.executionMode === "deterministic-local") add("DETERMINISTIC_LOCAL_COST_EVIDENCE_MISMATCH");
     if (system) executedProducts.add(system.productId);
   }
 
