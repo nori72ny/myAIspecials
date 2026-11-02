@@ -36,6 +36,11 @@ describe("OriginAnswerQualityBenchmarkCostEvidence", () => {
       status: "NOT_MEASURED",
       measurement: null,
     });
+    expect(Object.isFrozen(result.value)).toBe(true);
+    expect(Object.isFrozen(result.value.cases)).toBe(true);
+    expect(Object.isFrozen(result.value.summary)).toBe(true);
+    expect(result.value.cases.every((item) => Object.isFrozen(item)
+      && Object.isFrozen(item.evidence))).toBe(true);
   });
 
   it("downgrades serialized ZERO_COST_VERIFIED claims", () => {
