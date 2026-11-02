@@ -141,9 +141,10 @@ async function main() {
     baselineSha,
     caseCount: 40,
     familyCount: 10,
-    zeroCost:
-      comparison.baseline?.totalCostUsd === 0
-      && comparison.candidate?.totalCostUsd === 0,
+    // Legacy totalCostUsd sentinels are not billing measurements.
+    zeroCost: comparison.hardGates?.zeroCost === true
+      && comparison.hardGates?.costEvidenceStatus === "ZERO_COST_VERIFIED",
+    costEvidenceStatus: comparison.hardGates?.costEvidenceStatus ?? "NOT_MEASURED",
     shardCount: expectedShardCount,
     aggregateDigest: comparison.aggregateDigest,
     promotionEligible: blockers.length === 0,
