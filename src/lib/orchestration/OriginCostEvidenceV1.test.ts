@@ -56,6 +56,33 @@ describe("OriginCostEvidenceV1", () => {
   });
 
   it.each([
+    { measurement: { totalCostUsd: "0.00", reconciledRequestCount: 0 } },
+    { measurement: { totalCostUsd: "0.00", reconciledRequestCount: Number.MAX_SAFE_INTEGER + 1 } },
+    { receiptRef: " ".repeat(1) },
+    { receiptRef: "r".repeat(513) },
+    { measuredAt: "not-a-timestamp" },
+    { measuredAt: "2026-11-03" },
+  ])("rejects forged verified receipt metadata %#", (override) => {
+    const forged = {
+      schemaVersion: "origin.cost-evidence.v1",
+      status: "ZERO_COST_VERIFIED",
+      amountUsd: "0.00",
+      receiptRef: "receipt:forged",
+      receiptDigest: `sha256:${"a".repeat(64)}`,
+      measuredAt: "2026-11-03T00:00:00.000Z",
+      measurement: { totalCostUsd: "0.00", reconciledRequestCount: 1 },
+      ...override,
+    };
+
+    expect(isOriginCostZeroVerifiedV1(forged)).toBe(false);
+    expect(classifyOriginCostEvidenceV1(forged)).toMatchObject({
+      status: "BLOCKED_UNVERIFIED",
+      reason: "UNTRUSTED_PROVIDER_EVIDENCE",
+      measurement: null,
+    });
+  });
+
+  it.each([
     null,
     undefined,
     [],
