@@ -4,8 +4,10 @@ export type OriginProductQualityGateBlocker =
   | "UI_RENDER_REGRESSION"
   | "AQ_LIVE_EVIDENCE_MISSING"
   | "AQ_NOT_PROMOTION_ELIGIBLE"
+  | "AQ_ZERO_COST_EVIDENCE_UNVERIFIED"
   | "CODING_HELDOUT_EVIDENCE_MISSING"
-  | "CODING_NOT_QUALIFIED";
+  | "CODING_NOT_QUALIFIED"
+  | "CODING_ZERO_COST_EVIDENCE_UNVERIFIED";
 
 export type OriginClaudeCodeParityBlocker =
   | "CLAUDE_CODE_COMPARISON_MISSING"
@@ -37,6 +39,7 @@ export interface OriginAnswerQualityEvidence {
   readonly promotionEligible: boolean;
   readonly caseCount: number;
   readonly familyCount: number;
+  /** @deprecated Caller booleans are not provider billing evidence. */
   readonly zeroCost: boolean;
 }
 
@@ -217,13 +220,14 @@ export function evaluateOriginProductQualityGate(
   ) {
     blockers.push("AQ_LIVE_EVIDENCE_MISSING");
   } else {
-    answerPassed = input.answer.promotionEligible === true
+    answerPassed = false; // No trusted ZERO_COST_VERIFIED issuer is wired into this release gate.
+    blockers.push("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
+    const answerQualityPassed = input.answer.promotionEligible === true
       && Number.isInteger(input.answer.caseCount)
       && input.answer.caseCount >= MIN_ANSWER_QUALITY_CASES
       && Number.isInteger(input.answer.familyCount)
-      && input.answer.familyCount >= MIN_ANSWER_QUALITY_FAMILIES
-      && input.answer.zeroCost === true;
-    if (!answerPassed) blockers.push("AQ_NOT_PROMOTION_ELIGIBLE");
+      && input.answer.familyCount >= MIN_ANSWER_QUALITY_FAMILIES;
+    if (!answerQualityPassed) blockers.push("AQ_NOT_PROMOTION_ELIGIBLE");
   }
 
   let codingPassed = false;
@@ -235,14 +239,15 @@ export function evaluateOriginProductQualityGate(
   ) {
     blockers.push("CODING_HELDOUT_EVIDENCE_MISSING");
   } else {
-    codingPassed = input.coding.qualificationPassed === true
-      && input.coding.zeroCost === true
+    codingPassed = false; // No trusted ZERO_COST_VERIFIED issuer is wired into this release gate.
+    blockers.push("CODING_ZERO_COST_EVIDENCE_UNVERIFIED");
+    const codingQualityPassed = input.coding.qualificationPassed === true
       && validAttemptCounts(
         input.coding.attempted,
         input.coding.solved,
         input.coding.regressionCount,
       );
-    if (!codingPassed) blockers.push("CODING_NOT_QUALIFIED");
+    if (!codingQualityPassed) blockers.push("CODING_NOT_QUALIFIED");
   }
 
   const parity = evaluateOriginClaudeCodeParityGate(
