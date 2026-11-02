@@ -126,7 +126,7 @@ export function isOriginCostZeroVerifiedV1(
     && Number.isFinite(Date.parse(candidate.measuredAt))
     && candidate.measurement?.totalCostUsd === "0.00"
     && Number.isInteger(candidate.measurement.reconciledRequestCount)
-    && candidate.measurement.reconciledRequestCount >= 0;
+    && candidate.measurement.reconciledRequestCount >= 1;
 }
 
 /**
