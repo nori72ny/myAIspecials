@@ -1,3 +1,4 @@
+import { createOriginCostNotMeasuredV1, type OriginCostEvidenceV1 } from "../lib/orchestration/OriginCostEvidenceV1.js";
 import type { HeldOutCodingScoreV14, HeldOutCodingTaskV14 } from './heldOutCodingBenchmarkV14.js';
 
 export const HELD_OUT_FINAL_QUALIFICATION_VERSION_V14 = 'origin-held-out-final-qualification-v1' as const;
@@ -55,7 +56,8 @@ export type HeldOutFinalQualificationV14 = {
 
 export type HeldOutFinalEvidenceV14 = HeldOutFinalQualificationV14 & {
   /** Provider-reported cost fields below are telemetry only; billing is not independently verified. */
-  costEvidenceStatus: "NOT_MEASURED";
+  costEvidence: OriginCostEvidenceV1;
+  costEvidenceStatus: OriginCostEvidenceV1["status"];
   attempted: number;
   solved: number;
   solveRate: number;
@@ -215,6 +217,7 @@ export function summarizeHeldOutFinalEvidenceV14(
   const allAxesPassing = rows.filter(score => Object.values(score.axes).every(Boolean)).length;
   return {
     ...qualification,
+    costEvidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE"),
     costEvidenceStatus: "NOT_MEASURED" as const,
     eligible,
     reasons: evidenceReasons,
