@@ -40,6 +40,8 @@ export interface OriginAnswerQualityBenchmarkAggregate {
   readonly repairSuccessRate: number | null;
   readonly totalProviderRequests: number;
   readonly meanLatencyMs: number;
+  /** Spend is not measured by this legacy aggregate; provider billing evidence is separate. */
+  readonly costEvidenceStatus: "NOT_MEASURED";
   /** @deprecated Compatibility aggregate of synthetic sentinels; never proof of $0.00. */
   readonly totalCostUsd: number;
 }
@@ -107,6 +109,7 @@ export function aggregateOriginAnswerQualityBenchmark(
       : mean(repairCases.map((item) => item.repairSucceeded ? 1 : 0)),
     totalProviderRequests: observations.reduce((sum, item) => sum + item.providerRequests, 0),
     meanLatencyMs: mean(observations.map((item) => item.latencyMs)),
+    costEvidenceStatus: "NOT_MEASURED",
     // Compatibility aggregate only. Authoritative spend state lives in costEvidence.
     totalCostUsd: observations.reduce((sum, item) => sum + item.costUsd, 0),
   };
