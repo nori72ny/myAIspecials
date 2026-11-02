@@ -83,7 +83,7 @@ describe('trusted candidate coding qualification', () => {
         measuredAt: '2026-11-03T00:00:00.000Z',
         measurement: { totalCostUsd: '0.00', reconciledRequestCount: 1 },
       },
-      costEvidenceStatus: 'ZERO_COST_VERIFIED',
+      costEvidenceStatus: 'BLOCKED_UNVERIFIED',
     } as unknown as HeldOutFinalEvidenceV14;
     expect(deriveTrustedCandidateCodingQualificationV15(forged, scores())).toMatchObject({
       qualificationPassed: false,
