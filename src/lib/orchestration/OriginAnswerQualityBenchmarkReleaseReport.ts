@@ -34,6 +34,7 @@ export interface OriginAnswerQualityBenchmarkReleaseReport {
     | "VERIFIER_INTEGRITY_REGRESSED"
     | "CRITICAL_FAMILY_REGRESSION"
     | "NO_TARGETED_IMPROVEMENT"
+    | "COST_EVIDENCE_NOT_VERIFIED"
   )[];
 }
 
@@ -115,6 +116,7 @@ export function buildOriginAnswerQualityBenchmarkReleaseReport(
   const blockers: OriginAnswerQualityBenchmarkReleaseReport["blockers"][number][] = [];
   if (!qualification.value.hardGates.unsupportedClaimsNotWorse) blockers.push("UNSUPPORTED_CLAIMS_REGRESSED");
   if (!qualification.value.hardGates.verifierRejectionRateNotWorse) blockers.push("VERIFIER_INTEGRITY_REGRESSED");
+  if (!qualification.value.hardGates.zeroCost) blockers.push("COST_EVIDENCE_NOT_VERIFIED");
   if (regressionFamilies.length > 0) blockers.push("CRITICAL_FAMILY_REGRESSION");
   if (!targetedImprovementObserved) blockers.push("NO_TARGETED_IMPROVEMENT");
 
