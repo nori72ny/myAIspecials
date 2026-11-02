@@ -76,8 +76,12 @@ describe("ORIGIN signed evidence attestation V1", () => {
 
   it("rejects a forged payload or altered signature", async () => {
     const value = fixture();
-    await expect(verifyOriginEvidenceAttestationV1(value.raw, `${value.signature.slice(0, -2)}aa`, [value.key], expected, async () => true, { nowMs }))
+    const altered = Buffer.from(value.signature, "base64url");
+    altered[0] ^= 0x01;
+    await expect(verifyOriginEvidenceAttestationV1(value.raw, altered.toString("base64url"), [value.key], expected, async () => true, { nowMs }))
       .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_SIGNATURE_INVALID" });
+    await expect(verifyOriginEvidenceAttestationV1(value.raw, "not-a-signature", [value.key], expected, async () => true, { nowMs }))
+      .resolves.toEqual({ ok: false, code: "ORIGIN_ATTESTATION_SIGNATURE_ENCODING_INVALID" });
   });
 
   it("rejects a non-canonical or duplicate-key JSON payload", async () => {
