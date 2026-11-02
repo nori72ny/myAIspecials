@@ -65,8 +65,11 @@ function validIso(value: unknown): value is string {
 }
 
 function validExpected(expected: OriginProviderUsageExpectedV1): boolean {
-  return expected.runId.trim().length > 0
+  return typeof expected.runId === "string"
+    && expected.runId.trim().length > 0
+    && typeof expected.providerId === "string"
     && expected.providerId.trim().length > 0
+    && typeof expected.modelId === "string"
     && expected.modelId.trim().length > 0
     && validIso(expected.billingWindowStart)
     && validIso(expected.billingWindowEnd)
