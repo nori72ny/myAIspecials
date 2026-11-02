@@ -118,6 +118,14 @@ describe("OriginAnswerQualityBenchmarkTwoPhaseSession", () => {
       status: "NOT_MEASURED",
     });
     expect(scored.value.costEvidence?.cases).toHaveLength(40);
+    expect(scored.value.costEvidence?.cases.map((item) => item.caseId)).toEqual(
+      frozen.value.corpus.cases.map((item) => item.caseId),
+    );
+    expect(scored.value.costEvidence?.cases.every((item) => Object.isFrozen(item)
+      && Object.isFrozen(item.evidence))).toBe(true);
+    expect(JSON.stringify(scored.value.costEvidence)).not.toMatch(
+      /"costUsd"|"totalCostUsd"|"amountUsd"/,
+    );
   });
 
   it("rejects frozen execution tampering before any scorer call", async () => {
