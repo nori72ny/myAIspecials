@@ -109,6 +109,7 @@ describe("OriginAnswerQualityBenchmark", () => {
     expect(delta.unsupportedMaterialClaimDelta).toBe(-1);
     expect(delta.providerRequestDelta).toBe(1);
     expect(delta.latencyMsDelta).toBe(200);
+    expect(delta.costEvidenceStatus).toBe("NOT_MEASURED");
     expect(delta.totalCostUsdDelta).toBe(0);
   });
 });
