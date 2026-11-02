@@ -147,7 +147,7 @@ export async function verifyProductionDeployment(env = process.env) {
       } else {
         const health = await response.json();
         lastObservation = `releaseSha=${String(health.releaseSha ?? "missing")}`;
-        const healthPolicyVerified = health.costUsd === 0
+        const healthPolicyVerified = !("costUsd" in health)
           && health.freeOnly === true
           && health.paidFallbackEnabled === false
           && health.secretDelivery === "server-only";
