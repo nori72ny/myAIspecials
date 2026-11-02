@@ -100,6 +100,25 @@ describe("OriginCostEvidenceV1", () => {
     });
   });
 
+  it("strips unrelated numeric cost claims from otherwise valid policy metadata", () => {
+    const result = classifyOriginCostEvidenceV1({
+      schemaVersion: "origin.cost-evidence.v1",
+      status: "POLICY_ALLOWED",
+      policyRef: "policy:free-only",
+      measurement: null,
+      costUsd: 0,
+      totalCostUsd: 0,
+    });
+
+    expect(result).toEqual({
+      schemaVersion: "origin.cost-evidence.v1",
+      status: "POLICY_ALLOWED",
+      policyRef: "policy:free-only",
+      measurement: null,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/"costUsd"|"totalCostUsd"/);
+  });
+
   it("does not accept a local numeric cost field as an evidence state", () => {
     expect(classifyOriginCostEvidenceV1({ costUsd: 0, freeOnly: true })).toMatchObject({
       status: "BLOCKED_UNVERIFIED",
