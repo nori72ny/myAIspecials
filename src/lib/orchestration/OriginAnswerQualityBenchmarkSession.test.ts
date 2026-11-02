@@ -147,7 +147,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     });
   });
 
-  it("fails closed if any lane reports non-zero cost", async () => {
+  it("rejects executor evidence that violates the legacy free-only contract", async () => {
     const paidCoding: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
       caseId: item.caseId,
       finalAnswerRef: "answer",
