@@ -83,3 +83,9 @@ test("rejects unpaired or non-blind judging", () => {
   bad.judging.independentJudges = 1;
   expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("INDEPENDENT_BLIND_JUDGING_REQUIRED");
 });
+
+test("rejects inconsistent task-family labels across paired systems", () => {
+  const bad = makeEvidence();
+  bad.results.find(row => row.taskId === "task.family0.000" && row.systemId === "claude-web").taskFamily = "family5";
+  expect(validateCompetitiveBenchmarkEvidenceV2(bad, now).errors).toContain("TASK_FAMILY_INCONSISTENT");
+});
