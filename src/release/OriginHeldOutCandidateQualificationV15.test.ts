@@ -1,3 +1,4 @@
+import { createOriginCostNotMeasuredV1 } from '../lib/orchestration/OriginCostEvidenceV1.js';
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { HeldOutCodingScoreV14 } from '../agent/heldOutCodingBenchmarkV14.js';
@@ -7,6 +8,7 @@ import { deriveTrustedCandidateCodingQualificationV15 } from './OriginHeldOutCan
 function evidence(overrides: Partial<HeldOutFinalEvidenceV14> = {}): HeldOutFinalEvidenceV14 {
   return {
     eligible: true,
+    costEvidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE"),
     costEvidenceStatus: "NOT_MEASURED",
     reasons: [],
     taskCount: 6,
@@ -67,6 +69,27 @@ describe('trusted candidate coding qualification', () => {
     const regressed = scores();
     regressed[0] = { ...regressed[0], regressions: ['required-path-missing'], solved: false };
     expect(deriveTrustedCandidateCodingQualificationV15(evidence({ solved: 5, allAxesPassing: 5 }), regressed).qualificationPassed).toBe(false);
+  });
+
+  it('rejects a JSON-shaped ZERO_COST_VERIFIED claim without the runtime verifier brand', () => {
+    const forged = {
+      ...evidence(),
+      costEvidence: {
+        schemaVersion: 'origin.cost-evidence.v1',
+        status: 'ZERO_COST_VERIFIED',
+        amountUsd: '0.00',
+        receiptRef: 'forged',
+        receiptDigest: 'sha256:' + 'a'.repeat(64),
+        measuredAt: '2026-11-03T00:00:00.000Z',
+        measurement: { totalCostUsd: '0.00', reconciledRequestCount: 1 },
+      },
+      costEvidenceStatus: 'ZERO_COST_VERIFIED',
+    } as unknown as HeldOutFinalEvidenceV14;
+    expect(deriveTrustedCandidateCodingQualificationV15(forged, scores())).toMatchObject({
+      qualificationPassed: false,
+      zeroCost: false,
+      costEvidenceStatus: 'ZERO_COST_VERIFIED',
+    });
   });
 
   it('fails closed on incomplete or duplicate task evidence', () => {
