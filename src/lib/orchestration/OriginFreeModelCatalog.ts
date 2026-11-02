@@ -20,10 +20,10 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-11-01T00:00:00.000Z",
-    reviewAfter: "2026-11-11T23:59:59.999Z",
+    verifiedAt: "2026-10-20T13:40:00.000Z",
+    reviewAfter: "2026-10-30T13:40:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model listing was rechecked on 2026-11-01: the exact google/gemma-4-31b-it:free variant is listed as Free ($0.00) and supports tool calling. This catalog entry is a public model-price observation, not a request-level billing receipt or proof that a compliant provider endpoint is available. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned. Nemotron 3 Ultra :free is intentionally excluded from the executable catalog because its free endpoint disclosure permits provider logging and use for model improvement, which has not been shown to satisfy ORIGIN privacy requirements. This evidence expires on 2026-11-11T23:59:59.999Z.",
+    sourceDescription: "OpenRouter model price was last verified on 2026-10-20. A price-only recheck on 2026-11-01 did not establish a compliant provider endpoint, so the runtime evidence window is not extended. This catalog entry is expired; no model is executable until an exact :free endpoint is independently verified to satisfy zero data retention, data_collection=deny, max_price zero, no provider fallback, exact served-model identity, and request-level zero-cost evidence. Nemotron 3 Ultra :free is excluded because its free endpoint disclosure permits provider logging and use for model improvement.",
   },
 ] as const;
 
