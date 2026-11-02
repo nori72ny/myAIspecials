@@ -120,12 +120,14 @@ export function isOriginCostZeroVerifiedV1(
     && candidate.amountUsd === "0.00"
     && typeof candidate.receiptRef === "string"
     && candidate.receiptRef.trim().length > 0
+    && candidate.receiptRef.length <= 512
     && typeof candidate.receiptDigest === "string"
     && /^sha256:[a-f0-9]{64}$/.test(candidate.receiptDigest)
     && typeof candidate.measuredAt === "string"
+    && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$/.test(candidate.measuredAt)
     && Number.isFinite(Date.parse(candidate.measuredAt))
     && candidate.measurement?.totalCostUsd === "0.00"
-    && Number.isInteger(candidate.measurement.reconciledRequestCount)
+    && Number.isSafeInteger(candidate.measurement.reconciledRequestCount)
     && candidate.measurement.reconciledRequestCount >= 1;
 }
 
