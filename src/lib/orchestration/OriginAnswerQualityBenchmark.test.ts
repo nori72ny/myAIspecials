@@ -21,7 +21,7 @@ const base: OriginAnswerQualityBenchmarkObservation = {
 };
 
 describe("OriginAnswerQualityBenchmark", () => {
-  it("aggregates raw metrics without creating a winner score", () => {
+  it("aggregates quality metrics while keeping legacy cost sentinel non-authoritative", () => {
     const result = aggregateOriginAnswerQualityBenchmark([
       base,
       {
