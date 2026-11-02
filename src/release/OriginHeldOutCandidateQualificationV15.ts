@@ -1,4 +1,4 @@
-import { isOriginCostZeroVerifiedV1 } from "../lib/orchestration/OriginCostEvidenceV1.js";
+import { classifyOriginCostEvidenceV1, isOriginCostZeroVerifiedV1 } from "../lib/orchestration/OriginCostEvidenceV1.js";
 import type { HeldOutCodingScoreV14 } from '../agent/heldOutCodingBenchmarkV14.js';
 import type { HeldOutFinalEvidenceV14 } from '../agent/heldOutCodingFinalQualificationV14.js';
 
@@ -15,6 +15,9 @@ export function deriveTrustedCandidateCodingQualificationV15(
     && new Set(scores.map(score => score.taskId)).size === taskCount;
 
   const zeroCostVerified = isOriginCostZeroVerifiedV1(evidence.costEvidence);
+  const normalizedCostEvidence = zeroCostVerified
+    ? evidence.costEvidence
+    : classifyOriginCostEvidenceV1(evidence.costEvidence);
   const qualificationPassed = evidence.eligible === true
     && zeroCostVerified
     && taskCount >= 6
@@ -32,6 +35,6 @@ export function deriveTrustedCandidateCodingQualificationV15(
     solved: evidence.solved,
     regressionCount,
     zeroCost: zeroCostVerified,
-    costEvidenceStatus: evidence.costEvidence.status,
+    costEvidenceStatus: normalizedCostEvidence.status,
   });
 }
