@@ -12,7 +12,7 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG).toHaveLength(1);
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].modelId).toBe("google/gemma-4-31b-it:free");
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].modelId.endsWith(":free")).toBe(true);
-    expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].sourceDescription).toContain("Nemotron 3 Ultra :free is intentionally excluded");
+    expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].sourceDescription).toContain("Nemotron 3 Ultra :free is excluded because its free endpoint disclosure permits provider logging and use for model improvement.");
     expect(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter).toBe("2026-10-30T13:40:00.000Z");
   });
   it("returns the evidence-backed fixed zero-cost model", () => {
