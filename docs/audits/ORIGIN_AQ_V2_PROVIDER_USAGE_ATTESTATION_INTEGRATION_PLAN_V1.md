@@ -127,3 +127,29 @@ The host ledger, not a response field, is the source of provider request counts.
 ## Current disposition
 
 The verifier and provider-usage gate prototype exist, but the AQ execution path is not wired to them. The host request ledger, authoritative provider billing adapter, external trust-key enrollment, and durable nonce service are not provisioned. The release and zero-cost qualification decision therefore remains **NO-GO / UNVERIFIED**.
+
+
+## Source audit addendum (2026-11-03, main baseline a43e91c)
+
+A repository-wide symbol search expanded the call-site inventory beyond the initial seven files. The following additional paths must be included in the integration review:
+
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkExecutionRouter.ts`: creates fallback execution evidence with `providerRequests: 0` and `costUsd: 0` for blocked/error states. These values must remain explicitly non-measurement placeholders and must never be aggregated as verified usage.
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkScoring.ts`: copies provider request count from execution evidence but writes `costUsd: 0` into scoring observations. Scoring output must consume a verified receipt, not reassert zero.
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkCodingCheckoutAdapter.ts`: another producer of `OriginAnswerQualityBenchmarkExecutionEvidence`; it must report exact outbound request attempts from the trusted ledger or mark usage unavailable.
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkScoring.test.ts`, `OriginAnswerQualityBenchmarkRunner.test.ts`, `OriginAnswerQualityBenchmarkTwoPhaseSession.test.ts`, `OriginAnswerQualityBenchmarkOfficialScoringCollector.test.ts`: fixture producers and assertions will need coordinated updates when evidence becomes mandatory.
+- `src/lib/orchestration/OriginAnswerQualityBenchmarkRunBinding.ts` and `OriginAnswerQualityBenchmarkEvaluationBundle.ts`: currently serialize `freeOnly: true` and `totalCostUsd: 0` without a provider-usage receipt digest. Both must bind the same verifier-owned receipt digest as the frozen artifact and provenance.
+- `scripts/run-general-agent-research-live-v1.ts`: emits `providerRequests: 0` and `zeroCostSafe: true` in a live-research result artifact. This is a separate high-risk reporting path; it must not label a run zero-cost or claim zero requests without an independently reconciled ledger.
+- `scripts/run-trusted-answer-case-v2.ts`, `src/release/OriginTrustedAnswerRunV2.ts`, `src/release/OriginAnswerTrustedCaseLeaseV2.ts`, and `scripts/preflight-trusted-answer-runtime-v2.ts`: contain typed zero-cost / request-count assertions in the trusted-answer workflow. These require their own provenance review; AQ V2 integration alone does not validate them.
+
+### Safe integration boundary decision
+
+Do not retrofit a caller-supplied callback or a plain `verified: true` / receipt-shaped JSON field into the runner and treat it as trusted. That would only move the self-assertion one layer deeper. The runner executes in candidate-controlled application code, while the required ledger, provider billing source, trust-key registry, and atomic nonce store are not currently provisioned. A cryptographic verifier called with caller-controlled keys or a caller-controlled nonce callback is not an independent trust boundary.
+
+Therefore the first safe code integration must be a server-side trust boundary with credentials and storage unavailable to candidate-controlled execution, plus a narrowly scoped API that returns a signed, run-bound receipt. Until that exists, the AQ runner should report usage as unavailable / `BLOCKED_UNVERIFIED`, and qualification must not treat policy flags or local numeric zero as evidence. This is a deliberate fail-closed design decision, not a reason to invent a local mock ledger and call it production evidence.
+
+### Evidence classification
+
+- CODE-PROVEN: the symbol search identified the additional local zero/request-count paths above on main baseline `a43e91cbe96f07b8743735534c0d76ebd63f76df`.
+- UNVERIFIED: whether any live provider request was actually billed zero; no provider billing records or host ledger were queried.
+- NOT IMPLEMENTED: trusted host ledger, provider billing adapter, external trust registry, durable nonce store, verifier-owned receipt transport, and end-to-end AQ qualification integration.
+- NOT EXECUTED: no live inference, billing query, deployment, merge, or external provider request was made.
