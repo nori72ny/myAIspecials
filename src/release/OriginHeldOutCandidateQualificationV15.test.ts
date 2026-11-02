@@ -48,14 +48,15 @@ function scores(): HeldOutCodingScoreV14[] {
 }
 
 describe('trusted candidate coding qualification', () => {
-  it('requires 100% solved, all axes, zero regressions and $0', () => {
+  it('requires performance criteria but never treats numeric zero as verified billing', () => {
     expect(deriveTrustedCandidateCodingQualificationV15(evidence(), scores())).toMatchObject({
       heldOutRunCompleted: true,
-      qualificationPassed: true,
+      qualificationPassed: false,
       attempted: 6,
       solved: 6,
       regressionCount: 0,
-      zeroCost: true,
+      zeroCost: false,
+      costEvidenceStatus: 'NOT_MEASURED',
     });
 
     expect(deriveTrustedCandidateCodingQualificationV15(evidence({ solved: 5, solveRate: 5 / 6 }), scores()).qualificationPassed).toBe(false);
