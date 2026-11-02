@@ -7,6 +7,7 @@ import { deriveTrustedCandidateCodingQualificationV15 } from './OriginHeldOutCan
 function evidence(overrides: Partial<HeldOutFinalEvidenceV14> = {}): HeldOutFinalEvidenceV14 {
   return {
     eligible: true,
+    costEvidenceStatus: "NOT_MEASURED",
     reasons: [],
     taskCount: 6,
     recoveryTaskCount: 2,
