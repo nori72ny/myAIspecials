@@ -175,6 +175,7 @@ export interface OriginAnswerQualityBenchmarkScopedEnvironmentProof {
   readonly expectedGitSha: string;
   readonly observedReleaseSha: string;
   readonly freeOnly: true;
+  /** @deprecated Runtime-reported compatibility sentinel only; not provider billing evidence or proof of $0.00. */
   readonly costUsd: 0;
   readonly paidFallbackEnabled: false;
   readonly requiredLanes: readonly OriginAnswerQualityBenchmarkExecutionLane[];
