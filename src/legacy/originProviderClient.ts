@@ -311,14 +311,14 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
   throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamStatus: 404 });
 }
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
-  validate(providerRequest.plan);
-  validateRequiredTool(providerRequest.requiredTool);
-  const primary = pid(providerRequest.plan.providerId);
-  if (primary !== "openrouter") throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
-  const openRouterKey = env.OPENROUTER_API_KEY;
-  if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
   const transport = { count: 0 };
   try {
+    validate(providerRequest.plan);
+    validateRequiredTool(providerRequest.requiredTool);
+    const primary = pid(providerRequest.plan.providerId);
+    if (primary !== "openrouter") throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
+    const openRouterKey = env.OPENROUTER_API_KEY;
+    if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
     return await openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
   } catch (error) {
     if (error instanceof OriginProviderError) {
