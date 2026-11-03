@@ -69,7 +69,7 @@ describe("executeOriginProvider", () => {
     ["   ", "whitespace-only"],
     [42, "numeric"],
     [true, "boolean"],
-  ])("fails closed when the provider served-model identity is %s (%s)", async (servedModel) => {
+  ])("fails closed when the provider served-model identity is %s (%s)", async (servedModel, _description: string) => {
     const payload = successfulProviderPayload({ model: servedModel });
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
       status: 200,
