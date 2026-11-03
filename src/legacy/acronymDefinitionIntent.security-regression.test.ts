@@ -9,6 +9,7 @@ const catalogNow = () => Date.parse(evidence.verifiedAt) + 1;
 
 const executionResult = {
   text: "AIOはAI検索最適化を指す言葉として使われます。",
+  transportRequestCount: 1,
   actualCostUsd: 0,
   providerDataPolicy: {
     allowProviderFallbacks: false as const,
