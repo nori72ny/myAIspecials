@@ -241,7 +241,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   version: ORIGIN_SUPERVISOR_VERSION_V2,
                   status: supervisorArtifacts.status,
                   freeOnly: true,
-                  costUsd: 0,
+                  costUsd: null,
+                  policyMaxCostUsd: 0,
+                  costEvidenceStatus: "NOT_MEASURED",
                   paidFallbackUsed: false,
                   automaticProviderRetries: 0,
                   steps: [
