@@ -247,7 +247,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     const errorType = choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type;
     if (errorType === "rate_limit_exceeded") throw http(429);
     if (errorType === "timeout") throw http(504);
-    if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: safeUpstreamDiagnostic(errorType) });
+    if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamErrorType: safeUpstreamDiagnostic(errorType) });
     // Never substitute the requested model when the provider omits its served-model identity.
     // Missing identity is unverified routing and must fail closed before any result is returned.
     if (typeof data.model !== "string" || !data.model.trim()) {
