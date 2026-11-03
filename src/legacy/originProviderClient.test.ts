@@ -48,11 +48,12 @@ describe("executeOriginProvider", () => {
       const fetchMock = vi.fn()
         .mockResolvedValue(new Response("temporary failure", { status: 503 }));
       const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
-      await vi.advanceTimersByTimeAsync(2_500);
-      await expect(pending).rejects.toMatchObject({
+      const rejection = expect(pending).rejects.toMatchObject({
         code: "PROVIDER_UNAVAILABLE",
         diagnostic: { transportRequestCount: 3 },
       });
+      await vi.advanceTimersByTimeAsync(2_500);
+      await rejection;
       expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
