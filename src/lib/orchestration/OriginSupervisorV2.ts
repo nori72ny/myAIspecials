@@ -25,7 +25,9 @@ export type OriginSupervisorArtifactPayloadV2 = {
   verified: true;
   verification: readonly string[];
   freeOnly: true;
-  costUsd: 0;
+  costUsd: null;
+  policyMaxCostUsd: 0;
+  costEvidenceStatus: "NOT_MEASURED";
   paidFallbackUsed: false;
 };
 
@@ -220,7 +222,9 @@ export function generateOriginSupervisorArtifactsV2(
       verified: true,
       verification: [...generated.verification],
       freeOnly: true,
-      costUsd: 0,
+      costUsd: null,
+      policyMaxCostUsd: 0,
+      costEvidenceStatus: "NOT_MEASURED",
       paidFallbackUsed: false,
     });
     richOutputs.push({
