@@ -22,6 +22,7 @@ function providerRouting(
     providerId: EXPECTED_PROVIDER,
     modelId: EXPECTED_MODEL,
     providerAttempts,
+    providerTransportRequests: providerAttempts,
     verificationStatus,
     providerDataPolicy: {
       allowProviderFallbacks: false,
