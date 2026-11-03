@@ -27,7 +27,7 @@ const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentWorkPlan, resolvedPlan?: OriginResolvedWorkPlan, answerQualityInstruction?: string): string {
   return originChatSystemInstruction(intent, workPlan, resolvedPlan, answerQualityInstruction);
 }
-function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, freeOnly: true, traceId: requestId, verificationStatus }; }
+function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, traceId: requestId, verificationStatus }; }
 function requiresGroundedResearch(message: string): boolean { return requiresOriginGroundedResearch(message); }
 
 function groundedResearchAnswer(query: string, result: OriginResearchResult) {
@@ -291,6 +291,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   modelId: synthesisPlan.plan.modelId,
                   taskType: synthesisPlan.plan.taskType,
                   actualCostUsd: synthesisResult.actualCostUsd,
+                  costEvidenceStatus: "NOT_MEASURED",
                   estimatedCostUsd: synthesisPlan.plan.estimatedCostUsd,
                   freeOnly: true,
                   traceId: requestId,
