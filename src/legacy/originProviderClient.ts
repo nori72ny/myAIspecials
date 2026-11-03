@@ -23,10 +23,9 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
 export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; /** Actual billed cost is not measured by this application. */ actualCostUsd: null; reportedUsageCostUsd: 0; policyMaxCostUsd: 0; costEvidenceStatus: "NOT_MEASURED"; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; billingEvidence: { reportedUsageCostUsd: 0; isByok: false }; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; reportedCostUsd: 0; }; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
 export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
+const SAFE_UPSTREAM_ERROR_TYPES = new Set(["rate_limit_exceeded", "timeout", "provider_overloaded", "provider_unavailable"]);
 function safeUpstreamDiagnostic(value: unknown): string {
-  if (typeof value !== "string") return "unrecognized";
-  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 64);
-  return normalized || "unrecognized";
+  return typeof value === "string" && SAFE_UPSTREAM_ERROR_TYPES.has(value) ? value : "unrecognized";
 }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
@@ -254,7 +253,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
       throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouterの提供モデルを確認できません。", 502, false);
     }
     const servedModel = data.model.trim();
-    if (!allowedServedModel(provider, servedModel, requestData.plan.modelId, (data as { usage?: { cost?: unknown; is_byok?: unknown } }).usage?.cost, (data as { usage?: { is_byok?: unknown } }).usage?.is_byok)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: safeUpstreamDiagnostic(`served-model:${servedModel}`) });
+    if (!allowedServedModel(provider, servedModel, requestData.plan.modelId, (data as { usage?: { cost?: unknown; is_byok?: unknown } }).usage?.cost, (data as { usage?: { is_byok?: unknown } }).usage?.is_byok)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: "served-model-unverified" });
     // Validate required-tool structure before provider billing metadata so malformed tool
     // responses receive their precise contract error. Nothing is returned or emitted until
     // all billing and routing policy checks below have also succeeded.
