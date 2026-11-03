@@ -163,6 +163,7 @@ export async function judgeOriginAnswerQualityClaimsAgainstPrompt(
     ok: true,
     value: Object.freeze({
       ...raw,
+      actualCostUsd: null,
       supportedClaimIds: Object.freeze([...raw.supportedClaimIds]),
     }),
   };
