@@ -38,7 +38,11 @@ function request() {
 function result() {
   return {
     text: "Recursion is when a function solves a problem by calling itself on a smaller version.",
-    actualCostUsd: 0 as const,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0 as const,
+    policyMaxCostUsd: 0 as const,
+    costEvidenceStatus: "NOT_MEASURED" as const,
+    billingEvidence: { reportedUsageCostUsd: 0 as const, isByok: false as const },
     providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
     routingEvidence: {
       requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -48,7 +52,7 @@ function result() {
       attempt: 1 as const,
       fallbackUsed: false,
     },
-    usage: { costUsd: 0 as const },
+    usage: { reportedCostUsd: 0 as const },
   };
 }
 
