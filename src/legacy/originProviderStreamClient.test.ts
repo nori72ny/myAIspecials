@@ -185,6 +185,23 @@ describe("executeOriginProviderStream", () => {
     expect(deltas).toEqual([]);
   });
 
+  it.each([
+    ["missing", { is_byok: false }],
+    ["string zero", { cost: "0", is_byok: false }],
+    ["negative zero", { cost: -0, is_byok: false }],
+  ])("rejects streamed usage cost when it is %s and emits no text", async (_label, usage) => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage }),
+      "data: [DONE]\\n\\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: expect.stringMatching(/PROVIDER_(COST_UNVERIFIED|POLICY_VIOLATION)/), retryable: false });
+    expect(deltas).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a substituted served model before forwarding its content", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: "paid-or-substituted-model", choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
