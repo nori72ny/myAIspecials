@@ -133,7 +133,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 
-  test('captures the fail-closed zero-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
+  test('captures the fail-closed unverified-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
     const model = 'google/gemma-4-31b-it:free';
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -162,7 +162,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.getByTestId('origin-home-request').fill('無料条件の安全待機表示を確認');
     await page.getByTestId('start-request-button').click();
     const safeWaiting = page.getByTestId('origin-safe-waiting-state');
-    await expect(safeWaiting).toContainText('$0.00');
+    await expect(safeWaiting).toContainText('無料専用ポリシーに適合する応答を確認できない');
+    await expect(safeWaiting).not.toContainText('$0.00');
     await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-safe-waiting-mobile-390.png'), fullPage: true });
