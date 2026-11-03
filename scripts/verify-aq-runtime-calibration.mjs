@@ -8,6 +8,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 const image = 'node:22-bookworm-slim';
 const candidateSha = process.env.AQ_CALIBRATION_CANDIDATE_SHA;
 const candidateCheckout = path.resolve('candidate');
+const baselineCheckout = path.resolve('baseline');
+const baselineSha = process.env.AQ_CALIBRATION_BASE_SHA;
 const outputPath = path.resolve('test-results/aq-runtime-calibration.json');
 const prefix = 'ORIGIN_TRUSTED_ANSWER_RESULT ';
 const answer = 'Public calibration response. This is a transport fixture, not a quality score.';
@@ -79,7 +81,7 @@ function dockerArgs(extraEnv = []) {
     ...extraEnv.flatMap(value => ['--env', value]), image];
 }
 async function main() {
-  if (!/^[a-f0-9]{40}$/.test(candidateSha ?? '')) throw new Error('INVALID_SHA');
+  if (!/^[a-f0-9]{40}$/.test(candidateSha ?? '') || !/^[a-f0-9]{40}$/.test(baselineSha ?? '')) throw new Error('INVALID_SHA');
   // No credentials, sealed corpus, DB, ledger or real provider are used.
   for (const name of ['OPENROUTER_API_KEY', 'POSTGRES_URL', 'ORIGIN_AQ_V2_SEALED_CORPUS_GZIP_B64']) {
     if (process.env[name]) throw new Error('UNEXPECTED_SECRET');
@@ -88,6 +90,9 @@ async function main() {
   for (const dir of ['candidate', 'trusted', 'socket']) await fs.mkdir(path.join(root, dir), { mode: 0o700 });
   const actual = await run('git', ['-C', candidateCheckout, 'rev-parse', 'HEAD']);
   if (actual.code !== 0 || actual.output.trim() !== candidateSha) throw new Error('SHA_MISMATCH');
+  const baseline = await run('git', ['-C', baselineCheckout, 'rev-parse', 'HEAD']);
+  if (baseline.code !== 0 || baseline.output.trim() !== baselineSha) throw new Error('BASELINE_SHA_MISMATCH');
+  report.baselineSha = baselineSha;
   const evaluator = await run('git', ['rev-parse', 'HEAD']);
   report.evaluatorSha = evaluator.output.trim();
   const archive = path.join(root, 'candidate.tar');
@@ -96,7 +101,7 @@ async function main() {
   const extracted = await run('tar', ['-xf', archive, '-C', path.join(root, 'candidate'), '--no-same-owner', '--no-same-permissions']);
   if (extracted.code !== 0) throw new Error('ARCHIVE_FAILED');
   await fs.copyFile('scripts/trusted-answer-candidate-runner-v2.ts', path.join(root, 'trusted', 'trusted-answer-candidate-runner-v2.ts'));
-  await fs.copyFile(path.join(candidateCheckout, 'scripts/trusted-answer-candidate-runner-v2.ts'), path.join(root, 'trusted', 'baseline-runner.ts'));
+  await fs.copyFile(path.join(baselineCheckout, 'scripts/trusted-answer-candidate-runner-v2.ts'), path.join(root, 'trusted', 'baseline-runner.ts'));
   await fs.writeFile(path.join(root, 'trusted', 'loader-probe.ts'), "const value: string = 'AQ_LOADER_READY'; console.log(value);\n");
   await fs.writeFile(path.join(root, 'trusted', 'dependency-probe.ts'), [
     "import { createRequire } from 'node:module';",
