@@ -45,7 +45,11 @@ const request: OriginProviderExecutionRequest = {
 
 const result: OriginProviderExecutionResult = {
   text: '{"edits":[],"creates":[]}',
-  actualCostUsd: 0,
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0,
+  policyMaxCostUsd: 0,
+  costEvidenceStatus: "NOT_MEASURED",
+  billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -55,7 +59,7 @@ const result: OriginProviderExecutionResult = {
     attempt: 1,
     fallbackUsed: false,
   },
-  usage: { costUsd: 0 },
+  usage: { reportedCostUsd: 0 },
 };
 
 describe('trusted exact-candidate provider boundary', () => {
