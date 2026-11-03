@@ -22,7 +22,7 @@ export interface OriginClaimAssessmentRecord {
   sourceDigest: string;
   support: "supported" | "not-supported" | "conflicting";
   supportingExcerpt?: string;
-  actualCostUsd: 0;
+  actualCostUsd: null;
   attempts: 1;
 }
 
@@ -60,7 +60,7 @@ function isRecord(value: unknown): value is OriginClaimAssessmentRecord {
     && typeof r.sourceUrl === "string"
     && typeof r.sourceDigest === "string"
     && (r.support === "supported" || r.support === "not-supported" || r.support === "conflicting")
-    && typeof r.actualCostUsd === "number"
+    && r.actualCostUsd === null
     && r.attempts === 1
     && (r.supportingExcerpt === undefined || typeof r.supportingExcerpt === "string");
 }
@@ -118,7 +118,7 @@ export async function assessOriginClaimAgainstSource(
     return { ok: false, code: "CLAIM_ASSESSMENT_RECORD_MISMATCH" };
   }
 
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "CLAIM_ASSESSMENT_COST_UNVERIFIED" };
   }
 
