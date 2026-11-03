@@ -221,6 +221,8 @@ async function streamOpenRouter(
   let finishReason: string | undefined;
   let doneSeen = false;
   let usageSeen = false;
+  let reportedUsageCostUsd: 0 | undefined;
+  let reportedIsByok: false | undefined;
 
   const processLine = (rawLine: string) => {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
@@ -262,6 +264,9 @@ async function streamOpenRouter(
       completionTokens = chunk.usage.completion_tokens ?? completionTokens;
       totalTokens = chunk.usage.total_tokens ?? totalTokens;
       assertExactUsageCost(chunk.usage.cost);
+      if (chunk.usage.is_byok !== false) policyFailure("PROVIDER_POLICY_VIOLATION", "is_byok=false の明示的な証跡がありません。");
+      reportedUsageCostUsd = chunk.usage.cost;
+      reportedIsByok = chunk.usage.is_byok;
     }
   };
 
@@ -302,7 +307,7 @@ async function streamOpenRouter(
     text: output,
     transportRequestCount: transport.count,
     actualCostUsd: null,
-    reportedUsageCostUsd: 0,
+    reportedUsageCostUsd: reportedUsageCostUsd as 0,
     policyMaxCostUsd: 0,
     costEvidenceStatus: "NOT_MEASURED",
     providerDataPolicy: providerRequest.plan.providerDataPolicy,
@@ -314,8 +319,8 @@ async function streamOpenRouter(
       attempt: 1,
       fallbackUsed: false,
     },
-    billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
-    usage: { promptTokens, completionTokens, totalTokens, reportedCostUsd: 0 },
+    billingEvidence: { reportedUsageCostUsd: reportedUsageCostUsd as 0, isByok: reportedIsByok as false },
+    usage: { promptTokens, completionTokens, totalTokens, reportedCostUsd: reportedUsageCostUsd as 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
   // Release the complete response only after stream termination and all billing checks pass.
