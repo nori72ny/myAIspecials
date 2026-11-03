@@ -1317,6 +1317,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const model = 'google/gemma-4-31b-it:free';
     const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: null, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', estimatedCostUsd: 0, usage: { reportedCostUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
     expect(isFreeOnlyPolicyCompliantChatPayload(valid)).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, actualCostUsd: 0 } })).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, cost: 0 } })).toBe(false);
     expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
     expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, providerRouting: { ...valid.routing.providerRouting, servedModel: 'paid-model' } } })).toBe(false);
     expect(isFreeOnlyPolicyCompliantChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: null, actualCostUsd: null, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', estimatedCostUsd: 0 } })).toBe(true);
