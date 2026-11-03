@@ -22,7 +22,7 @@ export interface OriginProviderExecutionRequest {
 export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
 export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_INTERNAL_ERROR";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; }
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -315,5 +315,15 @@ export async function executeOriginProvider(providerRequest: OriginProviderExecu
   const openRouterKey = env.OPENROUTER_API_KEY;
   if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
   const transport = { count: 0 };
-  return openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
+  try {
+    return await openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
+    }
+    throw error;
+  }
 }
