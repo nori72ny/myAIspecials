@@ -11,6 +11,21 @@ const request = { plan, messages: [{ role: "user" as const, content: "確認し�
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) { return { model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ message: { content: "確認結果です。" } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0, is_byok: false }, ...overrides }; }
 
 describe("executeOriginProvider", () => {
+  it("does not retry HTTP 429 because failed attempts consume the free daily quota", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "120" },
+    }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
+        code: "PROVIDER_RATE_LIMITED",
+        status: 429,
+        retryable: false,
+        retryAfterSeconds: 120,
+        diagnostic: { transportRequestCount: 1 },
+      });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it.each([400, 404, 422])("preserves upstream HTTP %s as a safe diagnostic without parsing its body as an answer", async (status) => {
     const fetchMock = vi.fn(async () => new Response("private upstream body", { status }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", status: 503, retryable: false, diagnostic: { upstreamStatus: status } });
