@@ -324,16 +324,26 @@ export async function executeOriginProviderStream(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: OriginFetch = fetch,
 ): Promise<OriginProviderExecutionResult> {
-  validateStreamPlan(providerRequest.plan);
+  const transport = { count: 0 };
   const key = env.OPENROUTER_API_KEY;
-  if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
+  try {
+    validateStreamPlan(providerRequest.plan);
+    if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
+    }
+    throw error;
+  }
   const deadline = Date.now() + MAX_STREAM_TOTAL_BUDGET_MS;
   const boundedRequest: OriginProviderExecutionRequest = {
     ...providerRequest,
     plan: { ...providerRequest.plan, timeoutMs: Math.min(MAX_STREAM_TIMEOUT_MS, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS) },
   };
   let lastError: unknown;
-  const transport = { count: 0 };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
       const delay = STREAM_RETRY_DELAYS_MS[attempt - 1];
