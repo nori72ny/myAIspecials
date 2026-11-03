@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
+import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_ZERO_COST_PROVIDER_IDS } from "./OriginExecutionPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
