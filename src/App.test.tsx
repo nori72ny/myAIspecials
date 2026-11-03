@@ -1347,7 +1347,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const model = 'google/gemma-4-31b-it:free';
     const body = [
       `data: ${JSON.stringify({ type: 'delta', text: '検証済みSSE回答' })}`,
-      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false })}`,
       'data: [DONE]',
       '',
     ].join('\n\n');
@@ -1362,6 +1362,28 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('検証済みSSE回答')).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects legacy numeric-zero SSE completion without explicit NOT_MEASURED evidence', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '表示してはいけない旧形式の回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+      'data: [DONE]',
+      '',
+    ].join('\\n\\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '旧形式のSSEを拒否' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない旧形式の回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 
