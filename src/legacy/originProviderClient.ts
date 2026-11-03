@@ -268,7 +268,10 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     promptTokens += data.usage?.prompt_tokens ?? 0;
     completionTokens += data.usage?.completion_tokens ?? 0;
     totalTokens += data.usage?.total_tokens ?? 0;
-    zero(data.usage?.cost, "usage.cost");
+    const reportedUsageCostUsd = data.usage?.cost;
+    zero(reportedUsageCostUsd, "usage.cost");
+    const isByok = data.usage?.is_byok;
+    if (isByok !== false) fail("is_byok=false の明示的な証跡がありません。", "PROVIDER_POLICY_VIOLATION");
 
     if (requestData.requiredTool) {
       output = requiredOutput as string;
@@ -279,7 +282,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     }
 
     if (choice?.finish_reason !== "length") {
-      const result: OriginProviderExecutionResult = { text: output, transportRequestCount: transport.count, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { promptTokens, completionTokens, totalTokens, reportedCostUsd: 0 } };
+      const result: OriginProviderExecutionResult = { text: output, transportRequestCount: transport.count, actualCostUsd: null, reportedUsageCostUsd: reportedUsageCostUsd as 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), billingEvidence: { reportedUsageCostUsd: reportedUsageCostUsd as 0, isByok: isByok as false }, usage: { promptTokens, completionTokens, totalTokens, reportedCostUsd: reportedUsageCostUsd as 0 } };
       assertOriginZeroCostExecutionResult(result, requestData.plan.modelId, requestData.plan.providerId);
       return result;
     }
