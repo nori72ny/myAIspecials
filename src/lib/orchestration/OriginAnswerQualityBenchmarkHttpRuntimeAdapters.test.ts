@@ -169,6 +169,22 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     });
   });
 
+  it("blocks provider-backed AQ evidence when measured transport count is absent", async () => {
+    const { providerTransportRequests: _missing, ...routingWithoutTransportCount } = providerRouting("passed");
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({
+        content: "回答です",
+        answer: { answer: "回答です", evidence: [], verification: { status: "passed" } },
+        routing: routingWithoutTransportCount,
+      })) as typeof fetch,
+    });
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
+  });
+
   it("rejects a served model that differs from the comparison identity", async () => {
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
