@@ -28,7 +28,7 @@ export interface OriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
   readonly promptDigest: string;
   readonly claimSetDigest: string;
   readonly supportedClaimIds: readonly string[];
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -77,7 +77,7 @@ function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkPromptCl
     && typeof item.promptDigest === "string"
     && typeof item.claimSetDigest === "string"
     && Array.isArray(item.supportedClaimIds)
-    && typeof item.actualCostUsd === "number"
+    && item.actualCostUsd === null
     && item.attempts === 1;
 }
 
@@ -145,7 +145,7 @@ export async function judgeOriginAnswerQualityClaimsAgainstPrompt(
   ) {
     return { ok: false, code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_RECORD_MISMATCH" };
   }
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_COST_UNVERIFIED" };
   }
 
