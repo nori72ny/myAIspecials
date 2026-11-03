@@ -39,7 +39,7 @@ type RoutingMetadata = {
   taskType?: string;
   actualCostUsd?: number;
   estimatedCostUsd?: number;
-  costEvidenceStatus?: 'NOT_MEASURED' | 'BLOCKED_UNVERIFIED' | 'ZERO_COST_VERIFIED';
+  costEvidenceStatus?: 'NOT_MEASURED' | 'BLOCKED_UNVERIFIED';
   freeOnly?: boolean;
   traceId?: string;
   verificationStatus?: 'not-run' | 'not-required' | 'passed' | 'failed' | 'pending';
@@ -384,10 +384,10 @@ function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: 
   return isEn ? 'Not checked by another AI this time' : '今回は別のAIで確認していません';
 }
 
-function executionCostLabel(routing: RoutingMetadata, isEn: boolean): string {
-  // A free-model policy flag or provider-reported zero is not a billing receipt.
-  // Only the opaque trusted-evidence state may authorize a zero-cost UI claim.
-  if (routing.costEvidenceStatus === 'ZERO_COST_VERIFIED') return isEn ? 'Free (verified)' : '無料（検証済み）';
+function executionCostLabel(_routing: RoutingMetadata, isEn: boolean): string {
+  // API JSON cannot carry the private runtime brand used by the trusted verifier.
+  // No verifier/attestation transport is implemented, so never render a verified
+  // zero-cost claim from response metadata, policy flags, or numeric cost fields.
   return isEn ? 'Not verified' : '未確認';
 }
 
