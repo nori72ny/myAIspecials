@@ -192,7 +192,7 @@ describe("executeOriginProviderStream", () => {
   ])("rejects streamed usage cost when it is %s and emits no text", async (_label, usage) => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "must-not-render" }, finish_reason: null }] }),
-      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage }).replace('"cost":0', '"cost":-0'),
       "data: [DONE]\\n\\n",
     ]));
     const deltas: string[] = [];
