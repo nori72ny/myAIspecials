@@ -15,7 +15,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       materialContradictionsSurfaced: 0,
       verificationIntegrityAccurate: true,
       userActionabilityScore: 3,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -52,7 +52,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       materialContradictionsSurfaced: 0,
       verificationIntegrityAccurate: true,
       userActionabilityScore: 2,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     })));
 
@@ -104,7 +104,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       materialContradictionsSurfaced: 0,
       verificationIntegrityAccurate: true,
       userActionabilityScore: 3,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     })));
 
@@ -130,7 +130,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       verificationIntegrityAccurate: true,
       failClosedCorrect: true,
       userActionabilityScore: 3,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     })));
 
@@ -157,7 +157,7 @@ describe("OriginAnswerQualityBenchmarkSemanticJudge", () => {
       materialContradictionsSurfaced: 2,
       verificationIntegrityAccurate: true,
       userActionabilityScore: 4,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     })));
 
