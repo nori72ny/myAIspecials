@@ -136,6 +136,7 @@ export async function assessOriginClaimAgainstSource(
     ok: true,
     record: Object.freeze({
       ...raw,
+      actualCostUsd: null,
       supportingExcerpt: excerpt,
     }),
   };
