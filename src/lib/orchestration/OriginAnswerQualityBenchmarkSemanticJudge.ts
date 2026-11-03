@@ -69,9 +69,11 @@ function normalize(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
-function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemanticJudgeRecord {
+type RawOriginAnswerQualityBenchmarkSemanticJudgeRecord = Omit<OriginAnswerQualityBenchmarkSemanticJudgeRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginAnswerQualityBenchmarkSemanticJudgeRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Partial<OriginAnswerQualityBenchmarkSemanticJudgeRecord>;
+  const item = value as Partial<RawOriginAnswerQualityBenchmarkSemanticJudgeRecord>;
   return typeof item.caseId === "string"
     && typeof item.category === "string"
     && item.rubricVersion === "origin.aq-semantic-rubric.v1"
@@ -83,7 +85,6 @@ function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemantic
     && typeof item.verificationIntegrityAccurate === "boolean"
     && (item.failClosedCorrect === undefined || typeof item.failClosedCorrect === "boolean")
     && typeof item.userActionabilityScore === "number"
-    && item.actualCostUsd === null
     && item.attempts === 1;
 }
 
