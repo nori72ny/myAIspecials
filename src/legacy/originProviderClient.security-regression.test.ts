@@ -100,8 +100,9 @@ describe("originProviderClient security regressions", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: maliciousModel })), { status: 200, headers: { "Content-Type": "application/json" } }));
     const error = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch).then(() => undefined, (caught: unknown) => caught);
     const diagnostic = (error as OriginProviderError).diagnostic?.upstreamErrorType ?? "";
-    expect(diagnostic).toHaveLength(64);
-    expect(diagnostic).not.toMatch(/[\r\n\u0000-\u001f\u007f]/);
+    expect(diagnostic).toBe("served-model-unverified");
+    expect(diagnostic).not.toContain("bad");
+    expect(diagnostic).not.toContain("x".repeat(20));
   });
 
   it("rejects a numeric actualCostUsd field even when it is zero because actual billing is unmeasured", () => {
