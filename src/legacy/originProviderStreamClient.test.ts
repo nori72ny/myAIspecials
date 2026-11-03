@@ -115,7 +115,7 @@ describe("executeOriginProviderStream", () => {
   ])("rejects streamed content before forwarding when served-model identity is %s (%s)", async (servedModel, _description: string) => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: servedModel, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
-      "data: [DONE]\\n\\n",
+      "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
