@@ -217,7 +217,7 @@ describe("executeOriginProviderStream", () => {
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
+      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -227,7 +227,7 @@ describe("executeOriginProviderStream", () => {
       "data: [DONE]\n\n",
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
+      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
