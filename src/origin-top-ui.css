@@ -285,18 +285,19 @@
     height: 100% !important;
     min-height: 100% !important;
     box-sizing: border-box !important;
-    padding-block: 12px 0 !important;
+    padding-block: 20px 0 !important;
     justify-content: flex-start !important;
   }
   .origin-app main .origin-home-intro {
-    flex: 1 1 auto !important;
+    flex: 0 0 auto !important;
     min-height: 0 !important;
-    justify-content: center !important;
-    padding-block: 8px !important;
+    justify-content: flex-start !important;
+    padding-block: 0 8px !important;
   }
   .origin-app main .origin-home-composer {
     flex: 0 0 auto !important;
-    margin-top: 0 !important;
+    margin-top: auto !important;
+    margin-bottom: 0 !important;
     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
 }
