@@ -53,3 +53,24 @@ No success claim is made for these fresh runs until they complete.
 - Provider billing remains NOT_MEASURED; no `$0.00` claim is made.
 - No provider inference, paid API, paid database, new cloud resource, secret/account setting change, merge or deployment was performed.
 - PR remains Draft and NO-GO for release until exact-head CI, independent review, full ledger and trusted provider evidence are complete.
+
+
+## Follow-up exact-head triage — 2026-11-03
+
+Latest observed branch head: `11f83e3cc221a48155aed92fbe6b2a27f10ffee2`.
+
+The earlier head `25a2105a817ee2d640ad6cff26ce9f4d9cf33ec3` ran the full unit suite but failed one shared regression assertion in `src/legacy/originProviderClient.test.ts`:
+- 3,158 tests passed and 1 failed (3,159 total).
+- The test fixture was intended to isolate missing/zero transport count, but used a non-canonical provider identifier (`OpenRouter`) rather than the canonical routing identifier (`openrouter`).
+- The assertion therefore did not isolate the transport-count condition consistently with the provider-ID allow-list.
+- Corrected only the fixture's provider identifier to `openrouter`; production runtime behavior and the fail-closed checks were not weakened.
+- The same single failing test caused the ACOS Quality Gate, V1.4 hosted coding sandbox, and Production Release CI/CD unit-test stages to fail. Their logs show the same assertion; they are not three independent defects.
+- Exact-head workflows for `11f83e3cc221a48155aed92fbe6b2a27f10ffee2` have restarted: ACOS Quality Gate, V1.4 hosted coding sandbox, Production Release CI/CD, CodeQL and Scorecard. At the time of this update, results are pending/in progress; no green result is claimed.
+- AQ live unified lane quota shard is skipped and does not constitute live benchmark evidence.
+
+## Current release posture
+
+- PR #1083 remains Draft, open, unmerged and undeployed.
+- The provider cost state remains `NOT_MEASURED`; this change does not prove actual spend is $0.00.
+- The canonical provider identifier change is a test-fixture correction only. It is not evidence of provider billing, model pricing, or a trusted provider receipt.
+- No provider calls, paid service, new resource, account/secret mutation, merge or deployment was performed.
