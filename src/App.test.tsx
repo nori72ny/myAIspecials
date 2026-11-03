@@ -1372,7 +1372,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
       'data: [DONE]',
       '',
-    ].join('\\n\\n');
+    ].join('\n\n');
     const fetchMock = vi.fn(async () => new Response(body, {
       status: 200,
       headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
