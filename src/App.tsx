@@ -674,7 +674,8 @@ type OriginVerifiedChatPayload = {
   };
 };
 
-export const isVerifiedZeroCostChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
+/** Checks free-only routing and provider-reported zero telemetry for response admission; this is not a billing attestation. */
+export const isFreeOnlyPolicyCompliantChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
   const routing = payload.routing;
   if (!routing || routing.freeOnly !== true || routing.cost !== 0 || routing.actualCostUsd !== 0 || routing.estimatedCostUsd !== 0) return false;
   const visibleCosts = [payload.usage?.cost, payload.usage?.costUsd, routing.usage?.cost, routing.usage?.costUsd];
@@ -1717,7 +1718,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       let verifiedResponseText: string | undefined;
       if ((response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
         const payload = await response.json() as OriginVerifiedChatPayload;
-        if (!isVerifiedZeroCostChatPayload(payload)) {
+        if (!isFreeOnlyPolicyCompliantChatPayload(payload)) {
           enterSafeWaiting();
           return;
         }
