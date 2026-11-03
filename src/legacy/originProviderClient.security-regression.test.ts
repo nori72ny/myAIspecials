@@ -111,7 +111,7 @@ describe("originProviderClient security regressions", () => {
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 }, transportRequestCount: 1,
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("実費は未計測として扱う必要があります。");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("無料実行の費用を確認できません。");
   });
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
@@ -120,6 +120,6 @@ describe("originProviderClient security regressions", () => {
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       usage: { reportedCostUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("usage.reportedCostUsd が厳密な$0ポリシーを満たしません。");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシーに適合しない実行計画です。");
   });
 });
