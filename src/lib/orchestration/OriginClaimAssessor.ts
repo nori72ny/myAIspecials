@@ -53,14 +53,15 @@ function clean(value: string, max: number): string | null {
   return trimmed.length > 0 && trimmed.length <= max ? trimmed : null;
 }
 
-function isRecord(value: unknown): value is OriginClaimAssessmentRecord {
+type RawOriginClaimAssessmentRecord = Omit<OriginClaimAssessmentRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginClaimAssessmentRecord {
   if (!value || typeof value !== "object") return false;
-  const r = value as Partial<OriginClaimAssessmentRecord>;
+  const r = value as Partial<RawOriginClaimAssessmentRecord>;
   return typeof r.claim === "string"
     && typeof r.sourceUrl === "string"
     && typeof r.sourceDigest === "string"
     && (r.support === "supported" || r.support === "not-supported" || r.support === "conflicting")
-    && r.actualCostUsd === null
     && r.attempts === 1
     && (r.supportingExcerpt === undefined || typeof r.supportingExcerpt === "string");
 }
