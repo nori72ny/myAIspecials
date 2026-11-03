@@ -10,7 +10,11 @@ const catalogNow = () => Date.parse(evidence.verifiedAt) + 1;
 const executionResult = {
   text: "AIOはAI検索最適化を指す言葉として使われます。",
   transportRequestCount: 1,
-  actualCostUsd: 0,
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0 as const,
+  policyMaxCostUsd: 0 as const,
+  costEvidenceStatus: "NOT_MEASURED" as const,
+  billingEvidence: { reportedUsageCostUsd: 0 as const, isByok: false as const },
   providerDataPolicy: {
     allowProviderFallbacks: false as const,
     dataCollection: "deny" as const,
@@ -25,7 +29,7 @@ const executionResult = {
     attempt: 1,
     fallbackUsed: false,
   },
-  usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, costUsd: 0 },
+  usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, reportedCostUsd: 0 as const },
 };
 
 function createApp(
@@ -92,7 +96,8 @@ describe("stable acronym definition intent", () => {
       sourceCount: 1,
       researchProvider: "DuckDuckGo",
       freeOnly: true,
-      cost: 0,
+      cost: null,
+      policyMaxCostUsd: 0,
     }));
     expect(response.body.content).toContain("確認できた公開情報");
     expect(response.body.content).toContain("https://example.com/aio-current");
