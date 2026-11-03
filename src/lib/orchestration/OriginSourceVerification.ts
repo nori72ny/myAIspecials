@@ -35,7 +35,7 @@ export interface OriginSourceVerificationRecord {
   httpStatus: 200;
   contentDigest: string;
   externalFetchPerformed: true;
-  actualCostUsd: 0;
+  actualCostUsd: null;
   networkPolicy: {
     publicAddressOnly: true;
     redirectsFollowed: false;
@@ -122,7 +122,7 @@ function isVerificationRecord(value: unknown): value is OriginSourceVerification
     && candidate.httpStatus === 200
     && typeof candidate.contentDigest === "string"
     && candidate.externalFetchPerformed === true
-    && typeof candidate.actualCostUsd === "number"
+    && candidate.actualCostUsd === null
     && Boolean(networkPolicy)
     && networkPolicy?.publicAddressOnly === true
     && networkPolicy?.redirectsFollowed === false
@@ -219,7 +219,7 @@ export async function executeOriginSourceVerification(
     };
   }
 
-  if (record.actualCostUsd !== 0) {
+  if (record.actualCostUsd !== null) {
     return {
       ok: false,
       code: "VERIFICATION_COST_UNVERIFIED",
