@@ -64,8 +64,9 @@ describe("originProviderClient security regressions", () => {
   it("does not fall back to Gemini or another provider after a rate limit", async () => {
     const fetchMock = vi.fn(async () => new Response("rate limited", { status: 429 }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key", GEMINI_API_KEY: "synthetic-gemini-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryable: true });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryable: false });
+    // OpenRouter counts failed 429 attempts against its free daily allowance.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
