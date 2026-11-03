@@ -1740,11 +1740,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             const raw = line.slice(5).trim();
             if (doneSeen) throw new Error('event-after-done');
             if (raw === '[DONE]') { doneSeen = true; return; }
-            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costUsd?: unknown; fallbackUsed?: unknown };
+            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costEvidenceStatus?: unknown; fallbackUsed?: unknown };
             if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
             if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
               && (event.servedModel === ORIGIN_FIXED_FREE_MODEL || event.servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, ''))
-              && event.costUsd === 0 && event.fallbackUsed === false) { complete = true; return; }
+              && event.costEvidenceStatus === 'NOT_MEASURED' && event.fallbackUsed === false) { complete = true; return; }
             throw new Error('invalid-stream-event');
           };
           while (true) {
