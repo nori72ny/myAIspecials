@@ -20,6 +20,21 @@ describe('trusted exact-candidate evaluator contract', () => {
     expect(envBlock).not.toContain('ORIGIN_HELDOUT_FINAL_CORPUS_GZIP_B64');
   });
 
+  it('never publishes numeric zero as verified billing evidence for a held-out run', () => {
+    const controller = read('scripts/run-trusted-candidate-heldout-v15.ts');
+    const publicEvidenceStart = controller.indexOf('const publicEvidence = {');
+    const publicEvidenceEnd = controller.indexOf('};', publicEvidenceStart);
+    const publicEvidence = controller.slice(publicEvidenceStart, publicEvidenceEnd);
+    expect(publicEvidence).toContain("zeroCost: false");
+    expect(publicEvidence).toContain("costEvidenceStatus: 'NOT_MEASURED'");
+    expect(publicEvidence).not.toContain("zeroCost: true");
+    const summaryStart = controller.indexOf('process.stdout.write(JSON.stringify({');
+    const summaryEnd = controller.indexOf("}) + '\\\\n');", summaryStart);
+    const summary = controller.slice(summaryStart, summaryEnd);
+    expect(summary).toContain("costEvidenceStatus: 'NOT_MEASURED'");
+    expect(summary).not.toContain('costUsd: score.costUsd');
+  });
+
   it('uses a captured monotonic native clock instead of mutable Date.now for task budget evidence', () => {
     const runner = read('scripts/trusted-heldout-candidate-runner-v15.ts');
     expect(runner).toContain('const monotonicNow = process.hrtime.bigint');
