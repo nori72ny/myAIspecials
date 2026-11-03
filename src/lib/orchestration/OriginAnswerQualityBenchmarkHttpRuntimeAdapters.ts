@@ -112,26 +112,13 @@ async function executeChat(
       messages: [{ role: "user", content: item.prompt }],
     });
   } catch {
-    return {
-      ok: false,
-      content: "",
-      answerRef: null,
-      evidenceRef: null,
-      verification: "BLOCKED_UNVERIFIED",
-      providerRequests: 0,
-      evidenceJson: null,
-      failureCode: "AQ_BENCHMARK_CHAT_FETCH_FAILED",
-    };
+    throw new Error("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
   }
 
   const body = await jsonOrNull(response);
   if (!response.ok || !body) {
     const errorTransportRequests = body?.providerTransportRequests;
-    const providerError = typeof body?.code === "string" && body.code.startsWith("PROVIDER_");
-    if (
-      providerError
-      && (!Number.isInteger(errorTransportRequests) || Number(errorTransportRequests) < 0)
-    ) {
+    if (!Number.isSafeInteger(errorTransportRequests) || Number(errorTransportRequests) < 0) {
       throw new Error("AQ_BENCHMARK_CHAT_ERROR_TRANSPORT_COUNT_UNVERIFIED");
     }
     return {
