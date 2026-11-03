@@ -69,8 +69,11 @@ describe('required OpenRouter tool contract', () => {
 
     const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: 'synthetic-test-key' }, fetchMock as unknown as OriginFetch);
     expect(result.text).toBe(args);
-    expect(result.actualCostUsd).toBe(0);
-    expect(result.usage.costUsd).toBe(0);
+    expect(result.actualCostUsd).toBeNull();
+    expect(result.reportedUsageCostUsd).toBe(0);
+    expect(result.policyMaxCostUsd).toBe(0);
+    expect(result.costEvidenceStatus).toBe("NOT_MEASURED");
+    expect(result.usage.reportedCostUsd).toBe(0);
     expect(result.routingEvidence.fallbackUsed).toBe(false);
   });
 
