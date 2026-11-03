@@ -11,7 +11,7 @@ const verifiedCatalogTime = Date.parse(verifiedEvidence.verifiedAt) + 1;
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
   transportRequestCount: 1,
-  actualCostUsd: null as const,
+  actualCostUsd: null,
   reportedUsageCostUsd: 0 as const,
   policyMaxCostUsd: 0 as const,
   costEvidenceStatus: "NOT_MEASURED" as const,
