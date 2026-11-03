@@ -105,11 +105,9 @@ describe('CodingJobWorkspaceV14', () => {
     await screen.findByText('configured');
     expect(screen.getByText('dedicated coding credential')).toBeTruthy();
     expect(screen.getByText('実行基盤を確認済み')).toBeTruthy();
-    expect(screen.getByText('認証キー入力後に実行できます')).toBeTruthy();
+    expect(screen.getByText('即座に実行できます')).toBeTruthy();
 
-    const credential = 'operator-secret-that-is-long-enough-for-production';
     const credentialInput = screen.getByLabelText('Coding認証キー') as HTMLInputElement;
-    fireEvent.change(credentialInput, { target: { value: credential } });
     fireEvent.change(screen.getByLabelText('変更したいこと'), { target: { value: 'Fix the parser and add regression coverage.' } });
     fireEvent.click(screen.getByRole('button', { name: '変更を依頼する' }));
 
@@ -124,7 +122,6 @@ describe('CodingJobWorkspaceV14', () => {
     const [url, options] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('/api/coding/v1.4/jobs');
     expect(options.method).toBe('POST');
-    expect((options.headers as Record<string, string>).Authorization).toBe(`Bearer ${credential}`);
     expect(JSON.parse(String(options.body))).toEqual({ goal: 'Fix the parser and add regression coverage.', confirmRun: true });
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);

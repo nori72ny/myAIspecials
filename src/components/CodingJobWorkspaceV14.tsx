@@ -133,7 +133,9 @@ async function jsonBody(response: Response): Promise<JobResponse> {
 }
 
 function authHeaders(credential: string): HeadersInit {
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
+  return credential
+    ? { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` }
+    : { 'Content-Type': 'application/json' };
 }
 
 function formatTime(value: string | undefined): string {
@@ -277,7 +279,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
     const trimmedGoal = goal.trim();
     if (!trimmedGoal || busy || capability?.ready !== true) return;
     const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
     const epoch = beginOperation(credential);
     try {
       const response = await fetch('/api/coding/v1.4/jobs', { method: 'POST', headers: authHeaders(credential), body: JSON.stringify({ goal: trimmedGoal, confirmRun: true }) });
@@ -296,7 +297,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
     if (busy) return;
     if (!JOB_ID.test(jobId)) { setError('CODING_UI_INVALID_JOB_ID'); return; }
     const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
     const epoch = beginOperation(credential, jobId);
     try {
       const loaded = await loadJob(jobId, credential, epoch);
@@ -391,7 +391,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
+          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '即座に実行できます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
