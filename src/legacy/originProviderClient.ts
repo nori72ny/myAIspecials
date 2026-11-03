@@ -25,7 +25,7 @@ export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLI
 export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
 function safeUpstreamDiagnostic(value: unknown): string {
   if (typeof value !== "string") return "unrecognized";
-  const normalized = value.replace(/[\\u0000-\\u001f\\u007f]/g, " ").replace(/\\s+/g, " ").trim().slice(0, 64);
+  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 64);
   return normalized || "unrecognized";
 }
 
