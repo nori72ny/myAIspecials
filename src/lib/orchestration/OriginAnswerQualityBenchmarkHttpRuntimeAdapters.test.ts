@@ -235,6 +235,28 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
       .rejects.toThrow("AQ_BENCHMARK_CHAT_PROVIDER_IDENTITY_INVALID");
   });
 
+  it("fails closed when the Chat transport itself fails without request-count evidence", async () => {
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => { throw new Error("connection lost"); }) as typeof fetch,
+    });
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
+  });
+
+  it("fails closed for non-provider HTTP errors without measured provider request counts", async () => {
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({ code: "INTERNAL_SERVER_ERROR" }, 500)) as typeof fetch,
+    });
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_ERROR_TRANSPORT_COUNT_UNVERIFIED");
+  });
+
   it("does not retry a failed Chat request and reports it as blocked", async () => {
     const fetchImpl = vi.fn(async () => json({
       code: "PROVIDER_UNAVAILABLE",
