@@ -36,7 +36,7 @@ describe("executeOriginProvider", () => {
   it("rejects otherwise valid execution evidence when transport count is missing or zero", () => {
     const validWithoutCount = {
       text: "回答",
-      actualCostUsd: null as const, reportedUsageCostUsd: 0 as const, policyMaxCostUsd: 0 as const, costEvidenceStatus: "NOT_MEASURED" as const, billingEvidence: { reportedUsageCostUsd: 0 as const, isByok: false as const },
+      actualCostUsd: null, reportedUsageCostUsd: 0 as const, policyMaxCostUsd: 0 as const, costEvidenceStatus: "NOT_MEASURED" as const, billingEvidence: { reportedUsageCostUsd: 0 as const, isByok: false as const },
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
