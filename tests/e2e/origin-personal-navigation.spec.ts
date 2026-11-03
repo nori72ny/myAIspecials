@@ -230,6 +230,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
             minHeight: style.minHeight,
             heightStyle: style.height,
             overflowY: style.overflowY,
+            position: style.position,
+            bottomStyle: style.bottom,
+            paddingBottom: style.paddingBottom,
+            marginBottom: style.marginBottom,
+            display: style.display,
+            flex: style.flex,
           };
         };
         return {
@@ -241,6 +247,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           shell: rect('.origin-personal-shell'),
           app: rect('.origin-app'),
           main: rect('.origin-app main'),
+          scrollViewport: rect('.origin-app main > div.min-h-0.flex-1.overflow-y-auto'),
+          homeLayout: rect('.origin-app .origin-home-layout'),
+          homeComposer: rect('.origin-app .origin-home-composer'),
           composer: rect('.origin-app .origin-composer'),
           input: rect('[data-testid="origin-home-request"]'),
           logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
