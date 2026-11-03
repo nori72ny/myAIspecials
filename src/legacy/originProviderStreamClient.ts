@@ -98,7 +98,7 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
 function providerErrorType(errorType: unknown): never {
   const diagnostic = { upstreamErrorType: String(errorType) };
   if (errorType === "rate_limit_exceeded") {
-    throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, undefined, diagnostic);
+    throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }
   if (errorType === "timeout") {
     throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
@@ -369,12 +369,13 @@ export async function executeOriginProviderStream(
         const diagnostic = error.diagnostic;
         const upstreamStatus = diagnostic?.upstreamStatus;
         const transientUpstreamStatus = typeof upstreamStatus === "number"
-          && (upstreamStatus === 408 || upstreamStatus === 429 || [500, 502, 503, 504].includes(upstreamStatus));
+          && (upstreamStatus === 408 || [500, 502, 503, 504].includes(upstreamStatus));
         const transientTransportFailure = diagnostic?.transportFailure === "network"
           || diagnostic?.transportFailure === "timeout";
+        // Free-plan 429 responses and SSE rate_limit_exceeded events are never retried:
+        // failed requests can still consume the provider's daily free quota.
         const retryableTransientFailure = error.retryable
-          && (error.code === "PROVIDER_RATE_LIMITED"
-            || error.code === "PROVIDER_TIMEOUT"
+          && (error.code === "PROVIDER_TIMEOUT"
             || transientUpstreamStatus
             || transientTransportFailure);
         if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;
