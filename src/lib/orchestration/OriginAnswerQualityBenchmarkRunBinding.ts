@@ -14,6 +14,7 @@ export interface OriginAnswerQualityBenchmarkBoundRun {
   readonly providerId: string;
   readonly modelId: string;
   readonly freeOnly: true;
+  /** @deprecated Legacy compatibility sentinel; billing evidence is carried separately. */
   readonly totalCostUsd: 0;
   readonly startedAt: string;
   readonly completedAt: string;
@@ -132,6 +133,7 @@ export function bindOriginAnswerQualityBenchmarkRun(
       providerId: provenance.providerId,
       modelId: provenance.modelId,
       freeOnly: true,
+      // Compatibility sentinel only; not a provider receipt or $0.00 attestation.
       totalCostUsd: 0,
       startedAt: provenance.startedAt,
       completedAt: provenance.completedAt,

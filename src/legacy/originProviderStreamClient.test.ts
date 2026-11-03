@@ -42,6 +42,16 @@ function streamingResponse(parts: string[], status = 200) {
 const event = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
 
 describe("executeOriginProviderStream", () => {
+  it("reports zero streamed transport sends when the provider is not configured", async () => {
+    const fetchMock = vi.fn();
+    await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, {}, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
+        code: "PROVIDER_NOT_CONFIGURED",
+        diagnostic: { transportRequestCount: 0 },
+      });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards genuine upstream deltas and verifies the final zero-cost usage evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -63,10 +73,82 @@ describe("executeOriginProviderStream", () => {
     expect(deltas).toEqual(["ORIGIN"]);
     expect(result).toEqual(expect.objectContaining({
       text: "ORIGIN",
+      transportRequestCount: 1,
       actualCostUsd: 0,
       routingEvidence: expect.objectContaining({ requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, provider: "OpenRouter", attempt: 1, fallbackUsed: false }),
       usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6, costUsd: 0 },
     }));
+  });
+
+  it("does not retry or advance policy stages after HTTP 429 free-quota exhaustion", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "120" },
+    }));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: false,
+      retryAfterSeconds: 120,
+      diagnostic: { transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an SSE rate_limit_exceeded event on the free plan", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ error: { metadata: { error_type: "rate_limit_exceeded" } } }),
+    ]));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: false,
+      diagnostic: { transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts every streamed HTTP send across a 403 policy-stage fallback", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
+      .mockResolvedValueOnce(streamingResponse([
+        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
+        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
+        "data: [DONE]\n\n",
+      ]));
+    const result = await executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.transportRequestCount).toBe(2);
+  });
+
+  it("accumulates streamed HTTP sends across a retry of one logical execution", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
+        .mockResolvedValueOnce(streamingResponse([
+          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
+          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
+          "data: [DONE]\n\n",
+        ]));
+      const pending = executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+      await vi.advanceTimersByTimeAsync(700);
+      const result = await pending;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.transportRequestCount).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails closed when the terminal usage cost is non-zero, after never retrying", async () => {
@@ -105,9 +187,16 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects content before forwarding when served-model evidence is absent", async () => {
+  it.each([
+    [undefined, "omitted"],
+    [null, "null"],
+    ["", "empty"],
+    ["   ", "whitespace-only"],
+    [42, "numeric"],
+    [true, "boolean"],
+  ])("rejects streamed content before forwarding when served-model identity is %s (%s)", async (servedModel, _description: string) => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
+      event({ model: servedModel, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
     const deltas: string[] = [];

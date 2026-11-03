@@ -102,8 +102,9 @@ describe("OriginProductQualityGateV1", () => {
       const input = passingInput();
       Object.assign(input[section], { [field]: malformed });
       const report = evaluateOriginProductQualityGate(input, nowMs);
-      expect(report.passed).toBe(true);
-      expect(report.blockers).toEqual([]);
+      expect(report.passed).toBe(false);
+      expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
+      expect(report.blockers).toContain("CODING_ZERO_COST_EVIDENCE_UNVERIFIED");
       expect(report.claudeCodeParityEstablished).toBe(false);
       expect(report.claudeCodeBlockers.length).toBeGreaterThan(0);
     }
@@ -117,20 +118,23 @@ describe("OriginProductQualityGateV1", () => {
     expect(report.blockers).toContain("UI_VIEWPORT_COVERAGE_INCOMPLETE");
   });
 
-  it("passes Q1 core when UI, live AQ and held-out Coding all pass", () => {
+  it("fails closed when caller booleans claim $0 without trusted provider billing evidence", () => {
     const report = evaluateOriginProductQualityGate(passingInput(), nowMs);
     expect(report.schemaVersion).toBe("origin.product-quality-gate.v2");
-    expect(report.passed).toBe(true);
-    expect(report.blockers).toEqual([]);
+    expect(report.passed).toBe(false);
+    expect(report.answerPassed).toBe(false);
+    expect(report.codingPassed).toBe(false);
+    expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
+    expect(report.blockers).toContain("CODING_ZERO_COST_EVIDENCE_UNVERIFIED");
   });
 
-  it("accepts a larger independently qualified AQ suite without weakening the minimum gate", () => {
+  it("keeps quality and size checks independent from the missing billing attestation", () => {
     const input = passingInput();
     const expanded = evaluateOriginProductQualityGate({
       ...input,
       answer: { ...input.answer, caseCount: 48, familyCount: 12 },
     }, nowMs);
-    expect(expanded.answerPassed).toBe(true);
+    expect(expanded.answerPassed).toBe(false);
     expect(expanded.blockers).not.toContain("AQ_NOT_PROMOTION_ELIGIBLE");
 
     const undersized = evaluateOriginProductQualityGate({
@@ -170,9 +174,9 @@ describe("OriginProductQualityGateV1", () => {
   it("allows Q1 core acceptance without Claude comparison evidence but forbids parity claims", () => {
     const input = passingInput();
     const report = evaluateOriginProductQualityGate({ ...input, claudeCode: null }, nowMs);
-    expect(report.passed).toBe(true);
-    expect(report.blockers).toEqual([]);
-    expect(report.codingPassed).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
+    expect(report.codingPassed).toBe(false);
     expect(report.claudeCodeParityEstablished).toBe(false);
     expect(report.claudeCodeBlockers).toContain("CLAUDE_CODE_COMPARISON_MISSING");
   });
@@ -226,7 +230,8 @@ describe("OriginProductQualityGateV1", () => {
         claudeCodeSolved: 6,
       },
     }, nowMs);
-    expect(report.passed).toBe(true);
+    expect(report.passed).toBe(false);
+    expect(report.blockers).toContain("AQ_ZERO_COST_EVIDENCE_UNVERIFIED");
     expect(report.claudeCodeParityEstablished).toBe(false);
     expect(report.claudeCodeBlockers).toContain("CLAUDE_CODE_PARITY_NOT_ESTABLISHED");
   });

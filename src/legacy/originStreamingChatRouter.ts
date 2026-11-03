@@ -139,8 +139,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
             res.setHeader("Cache-Control", "no-store, no-transform");
             res.setHeader("X-Accel-Buffering", "no");
             res.setHeader("X-Origin-Free-Only", "true");
-            res.setHeader("X-Origin-Cost-Usd", "0");
-            res.setHeader("X-Origin-Billing-Tier", "free");
+            res.setHeader("X-Origin-Cost-Evidence", "NOT_MEASURED");
             res.setHeader("X-Origin-Model-Id", planningResult.plan.modelId);
             res.setHeader("X-Origin-Stream-Source", "upstream");
             res.setHeader("X-Origin-Stream-Protocol", "origin-verified-sse-v1");
@@ -158,14 +157,14 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         requestId,
         durationMs: Math.max(0, now() - startedAt),
         modelId: planningResult.plan.modelId,
-        costUsd: result.actualCostUsd,
+        costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
       });
       res.write(`data: ${JSON.stringify({
         type: "complete",
         modelId: planningResult.plan.modelId,
         servedModel: result.routingEvidence.servedModel,
-        costUsd: result.actualCostUsd,
+        costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: result.routingEvidence.fallbackUsed,
       })}\n\n`);
       res.end("data: [DONE]\n\n");

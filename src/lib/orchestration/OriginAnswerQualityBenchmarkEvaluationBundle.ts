@@ -46,6 +46,7 @@ function provenanceFromBoundRun(
     manifestDigest: run.manifestDigest,
     providerId: run.providerId,
     modelId: run.modelId,
+    // Legacy compatibility fields only; these are not provider billing evidence.
     freeOnly: true,
     totalCostUsd: 0,
     startedAt: run.startedAt,

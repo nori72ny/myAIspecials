@@ -59,7 +59,7 @@ function fetchFor(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
-  it("proves exact release SHA and zero-cost runtime readiness", async () => {
+  it("checks exact release SHA and self-reported free-only policy flags, not billing", async () => {
     const result = await probeOriginAnswerQualityBenchmarkEnvironment(
       "https://candidate.example/",
       sha,

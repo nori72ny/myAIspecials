@@ -112,27 +112,22 @@ async function executeChat(
       messages: [{ role: "user", content: item.prompt }],
     });
   } catch {
-    return {
-      ok: false,
-      content: "",
-      answerRef: null,
-      evidenceRef: null,
-      verification: "BLOCKED_UNVERIFIED",
-      providerRequests: 0,
-      evidenceJson: null,
-      failureCode: "AQ_BENCHMARK_CHAT_FETCH_FAILED",
-    };
+    throw new Error("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
   }
 
   const body = await jsonOrNull(response);
   if (!response.ok || !body) {
+    const errorTransportRequests = body?.providerTransportRequests;
+    if (!Number.isSafeInteger(errorTransportRequests) || Number(errorTransportRequests) < 0) {
+      throw new Error("AQ_BENCHMARK_CHAT_ERROR_TRANSPORT_COUNT_UNVERIFIED");
+    }
     return {
       ok: false,
       content: "",
       answerRef: null,
       evidenceRef: null,
       verification: "BLOCKED_UNVERIFIED",
-      providerRequests: 0,
+      providerRequests: Number.isInteger(errorTransportRequests) ? Number(errorTransportRequests) : 0,
       evidenceJson: null,
       failureCode: safeCode(body?.code, `AQ_BENCHMARK_CHAT_HTTP_${response.status}`),
     };
@@ -145,7 +140,7 @@ async function executeChat(
     : typeof answer?.answer === "string"
       ? answer.answer
       : "";
-  if (!content || !routing || routing.freeOnly !== true || routing.actualCostUsd !== 0) {
+  if (!content || !routing || routing.costEvidenceStatus !== "NOT_MEASURED" || routing.freeOnly !== true || routing.actualCostUsd !== 0) {
     throw new Error("AQ_BENCHMARK_CHAT_ZERO_COST_OR_RESPONSE_INVALID");
   }
 
@@ -172,12 +167,14 @@ async function executeChat(
     }
   }
 
-  const attempts = routing.providerAttempts;
-  const providerRequests = Number.isInteger(attempts) && Number(attempts) >= 0
-    ? Number(attempts)
-    : routing.providerId === undefined
-      ? 0
-      : 1;
+  const transportRequests = routing.providerTransportRequests;
+  if (
+    providerUsed
+    && (!Number.isInteger(transportRequests) || Number(transportRequests) < 1)
+  ) {
+    throw new Error("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
+  }
+  const providerRequests = providerUsed ? Number(transportRequests) : 0;
   const verificationStatus = answer && record(answer.verification)
     ? record(answer.verification)?.status
     : routing.verificationStatus;

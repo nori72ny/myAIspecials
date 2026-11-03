@@ -79,7 +79,7 @@ function measured(
 }
 
 describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
-  it("allows promotion when base report passes and VIR/FCA/UA do not regress", () => {
+  it("blocks promotion when quality passes but billing evidence is not verified", () => {
     const m = manifest();
     const baseline = baseObservations(m);
     const candidate = baseline.map((item) =>
@@ -99,8 +99,9 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.promotionEligible).toBe(true);
-    expect(result.value.blockers).toEqual([]);
+    expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toEqual(["BASE_RELEASE_REPORT_BLOCKED"]);
+    expect(result.value.releaseReport.blockers).toContain("COST_EVIDENCE_NOT_VERIFIED");
   });
 
   it("blocks a VIR regression even when base quality improves", () => {
@@ -129,6 +130,7 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toContain("BASE_RELEASE_REPORT_BLOCKED");
     expect(result.value.blockers).toContain("VERIFICATION_INTEGRITY_REGRESSED");
   });
 
@@ -157,6 +159,7 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.blockers).toContain("BASE_RELEASE_REPORT_BLOCKED");
     expect(result.value.blockers).toContain("FAIL_CLOSED_ACCURACY_REGRESSED");
   });
 
@@ -185,6 +188,7 @@ describe("OriginAnswerQualityBenchmarkMeasuredPromotion", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.blockers).toContain("BASE_RELEASE_REPORT_BLOCKED");
     expect(result.value.blockers).toContain("USER_ACTIONABILITY_REGRESSED");
     expect(result.value.userActionabilityRegressionFamilies).toContain("professional-advice");
   });

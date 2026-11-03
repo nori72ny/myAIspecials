@@ -23,6 +23,7 @@ export interface OriginAnswerQualityBenchmarkExecutionEvidence {
   readonly providerRequests: number;
   readonly toolCalls: number;
   readonly latencyMs: number;
+  /** @deprecated Legacy benchmark sentinel; never provider billing evidence or proof of $0.00. */
   readonly costUsd: number;
   readonly failureCode: string | null;
 }
@@ -62,6 +63,7 @@ export interface OriginAnswerQualityBenchmarkExecutionOnlySuccess {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
+  /** @deprecated Compatibility sentinel only; never provider billing evidence or proof of $0.00. */
   readonly totalCostUsd: 0;
   readonly executionOnlyDigest: string;
 }
@@ -99,6 +101,7 @@ export interface OriginAnswerQualityBenchmarkRunnerSuccess {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
+  /** @deprecated Compatibility sentinel only; never provider billing evidence or proof of $0.00. */
   readonly totalCostUsd: 0;
 }
 
@@ -153,6 +156,7 @@ function validExecution(
     && execution.toolCalls >= 0
     && Number.isFinite(execution.latencyMs)
     && execution.latencyMs >= 0
+    // Legacy executor contract guard only. This synthetic sentinel is not a billing measurement.
     && Number.isFinite(execution.costUsd)
     && execution.costUsd === 0
     && (execution.failureCode === null || execution.failureCode.trim().length > 0);
@@ -281,6 +285,7 @@ export async function runOriginAnswerQualityBenchmarkExecutionOnly(
     totalProviderRequests,
     totalToolCalls,
     totalLatencyMs,
+    // Legacy aggregate compatibility sentinel; actual spend is carried separately as NOT_MEASURED.
     totalCostUsd: 0 as const,
   };
 

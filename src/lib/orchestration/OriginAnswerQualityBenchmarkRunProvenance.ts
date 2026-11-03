@@ -8,6 +8,7 @@ export interface OriginAnswerQualityBenchmarkRunProvenance {
   readonly providerId: string;
   readonly modelId: string;
   readonly freeOnly: true;
+  /** @deprecated Legacy compatibility sentinel only; never evidence of provider billing or $0.00. */
   readonly totalCostUsd: 0;
   readonly startedAt: string;
   readonly completedAt: string;

@@ -45,6 +45,7 @@ export interface OriginAnswerQualityBenchmarkFrozenExecutionArtifact {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
+  /** @deprecated Legacy artifact compatibility sentinel; this artifact has no billing attestation. */
   readonly totalCostUsd: 0;
   readonly executionOnlyDigest: string;
   readonly executionSessionDigest: string;
@@ -220,6 +221,7 @@ export function parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
     || !nonNegativeInteger(value.totalProviderRequests)
     || !nonNegativeInteger(value.totalToolCalls)
     || !finiteNonNegative(value.totalLatencyMs)
+    // Legacy wire-format guard only; not a measurement of provider spend.
     || value.totalCostUsd !== 0
     || typeof value.executionOnlyDigest !== "string" || !SHA256.test(value.executionOnlyDigest)
     || typeof value.executionSessionDigest !== "string" || !SHA256.test(value.executionSessionDigest)

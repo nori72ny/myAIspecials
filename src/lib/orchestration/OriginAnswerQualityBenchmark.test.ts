@@ -21,7 +21,7 @@ const base: OriginAnswerQualityBenchmarkObservation = {
 };
 
 describe("OriginAnswerQualityBenchmark", () => {
-  it("aggregates raw metrics without creating a winner score", () => {
+  it("aggregates quality metrics while keeping legacy cost sentinel non-authoritative", () => {
     const result = aggregateOriginAnswerQualityBenchmark([
       base,
       {
@@ -47,6 +47,7 @@ describe("OriginAnswerQualityBenchmark", () => {
       categoryCount: 2,
       unsupportedMaterialClaimCount: 1,
       totalProviderRequests: 5,
+      costEvidenceStatus: "NOT_MEASURED",
       totalCostUsd: 0,
       repairSuccessRate: 1,
     });
@@ -108,6 +109,7 @@ describe("OriginAnswerQualityBenchmark", () => {
     expect(delta.unsupportedMaterialClaimDelta).toBe(-1);
     expect(delta.providerRequestDelta).toBe(1);
     expect(delta.latencyMsDelta).toBe(200);
+    expect(delta.costEvidenceStatus).toBe("NOT_MEASURED");
     expect(delta.totalCostUsdDelta).toBe(0);
   });
 });

@@ -11,14 +11,93 @@ const request = { plan, messages: [{ role: "user" as const, content: "確認し�
 function successfulProviderPayload(overrides: Record<string, unknown> = {}) { return { model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ message: { content: "確認結果です。" } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0, is_byok: false }, ...overrides }; }
 
 describe("executeOriginProvider", () => {
+  it("does not retry HTTP 429 because failed attempts consume the free daily quota", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "120" },
+    }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
+        code: "PROVIDER_RATE_LIMITED",
+        status: 429,
+        retryable: false,
+        retryAfterSeconds: 120,
+        diagnostic: { transportRequestCount: 1 },
+      });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it.each([400, 404, 422])("preserves upstream HTTP %s as a safe diagnostic without parsing its body as an answer", async (status) => {
     const fetchMock = vi.fn(async () => new Response("private upstream body", { status }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", status: 503, retryable: false, diagnostic: { upstreamStatus: status } });
     expect(fetchMock).toHaveBeenCalledTimes(status === 404 ? 3 : 1);
   });
   beforeEach(() => resetOriginProviderCooldownForTests());
-  it("rejects a paid or substituted executor result before a router can render its text", () => { const result = { text: "表示してはいけない応答", actualCostUsd: 0.000001, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const }, usage: { costUsd: 0.000001 } } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>; expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシー"); expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("許可された無料Provider/Modelの証跡を確認できません。"); });
-  it("enforces the fixed free model, one provider attempt, denied data collection, ZDR, and zero-cost routing evidence", async () => { const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => { const body = JSON.parse(String(init?.body)); const headers = init?.headers as Record<string, string>; expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL); expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" }); expect(body.max_tokens).toBe(4096); expect(body.reasoning).toBeUndefined(); expect(body.temperature).toBe(0.2); expect(body.top_p).toBe(0.9); expect(body.usage).toEqual({ include: true }); expect(body.provider).toEqual({ allow_fallbacks: false, data_collection: "deny", zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } }); expect(body.provider.only).toBeUndefined(); expect(body.provider.sort).toBeUndefined(); expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal"); expect(headers["X-OpenRouter-Metadata"]).toBeUndefined(); expect(headers["HTTP-Referer"]).toBe("https://myaispecials.ai.studio/"); return new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }); }); const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch); expect(result).toEqual({ text: "確認結果です。", actualCostUsd: 0, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } }); expect(fetchMock).toHaveBeenCalledTimes(1); });
+  it("rejects a paid or substituted executor result before a router can render its text", () => { const result = { text: "表示してはいけない応答", transportRequestCount: 1, actualCostUsd: 0.000001, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const }, usage: { costUsd: 0.000001 } } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>; expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシー"); expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("許可された無料Provider/Modelの証跡を確認できません。"); });
+  it("rejects otherwise valid execution evidence when transport count is missing or zero", () => {
+    const validWithoutCount = {
+      text: "回答",
+      actualCostUsd: 0 as const,
+      providerDataPolicy: plan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+        servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
+        strategy: "adaptive-primary",
+        // Use the canonical provider ID so this fixture isolates transport-count validation.
+        provider: "openrouter",
+        attempt: 1 as const,
+        fallbackUsed: false as const,
+      },
+      usage: { costUsd: 0 as const },
+    };
+    expect(() => assertOriginZeroCostExecutionResult(validWithoutCount as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0]))
+      .toThrow("実際のProvider HTTP送信回数を確認できません。");
+    expect(() => assertOriginZeroCostExecutionResult({
+      ...validWithoutCount,
+      transportRequestCount: 0,
+    } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0]))
+      .toThrow("実際のProvider HTTP送信回数を確認できません。");
+  });
+  it("enforces the fixed free model, one provider attempt, denied data collection, ZDR, and zero-cost routing evidence", async () => { const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => { const body = JSON.parse(String(init?.body)); const headers = init?.headers as Record<string, string>; expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL); expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" }); expect(body.max_tokens).toBe(4096); expect(body.reasoning).toBeUndefined(); expect(body.temperature).toBe(0.2); expect(body.top_p).toBe(0.9); expect(body.usage).toEqual({ include: true }); expect(body.provider).toEqual({ allow_fallbacks: false, data_collection: "deny", zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } }); expect(body.provider.only).toBeUndefined(); expect(body.provider.sort).toBeUndefined(); expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal"); expect(headers["X-OpenRouter-Metadata"]).toBeUndefined(); expect(headers["HTTP-Referer"]).toBe("https://myaispecials.ai.studio/"); return new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }); }); const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch); expect(result).toEqual({ text: "確認結果です。", transportRequestCount: 1, actualCostUsd: 0, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } }); expect(fetchMock).toHaveBeenCalledTimes(1); });
+  it("reports all transport sends when the provider exhausts retries", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValue(new Response("temporary failure", { status: 503 }));
+      const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+      const rejection = expect(pending).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        diagnostic: { transportRequestCount: 3 },
+      });
+      await vi.advanceTimersByTimeAsync(2_500);
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("counts every HTTP send across a 403 policy-stage fallback", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.transportRequestCount).toBe(2);
+  });
+  it("counts retry sends separately from a single logical provider execution", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }));
+      const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+      await vi.advanceTimersByTimeAsync(700);
+      const result = await pending;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.transportRequestCount).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("uses a bounded, task-aware one-request output budget without under-answering complex work", () => { expect(originCompletionTokenBudget("test")).toBe(2400); expect(originCompletionTokenBudget("ux")).toBe(4096); expect(originCompletionTokenBudget("review")).toBe(4096); expect(originCompletionTokenBudget("documentation")).toBe(6144); expect(originCompletionTokenBudget("implementation")).toBe(6144); });
   it("accepts normalized text-part content returned by compatible providers", async () => { const payload = successfulProviderPayload({ choices: [{ message: { content: [{ type: "text", text: "結論です。" }, { type: "text", text: "具体案です。" }] } }] }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch); expect(result.text).toBe("結論です。\n\n具体案です。"); });
   it("honors the execution-plan timeout instead of the legacy six-second transport limit", async () => {
@@ -46,7 +125,7 @@ describe("executeOriginProvider", () => {
   it("fails closed after the single bounded provider request", async () => { const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "まだ続く回答です。" }, finish_reason: "length" }] })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true }); expect(fetchMock).toHaveBeenCalledTimes(1); });
   it("fails closed on an empty response without automatic retry", async () => { const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "" }, finish_reason: "length" }] })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true }); expect(fetchMock).toHaveBeenCalledTimes(1); });
   it("maps a provider error embedded in a successful HTTP response", async () => { const payload = successfulProviderPayload({ choices: [{ message: { content: "" }, finish_reason: "error", error: { metadata: { error_type: "provider_unavailable" } } }] }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true, diagnostic: { upstreamErrorType: "provider_unavailable" } }); expect(fetchMock).toHaveBeenCalledTimes(1); });
-  it("fails closed instead of attempting another provider when unconfigured", async () => { const fetchMock = vi.fn(); await expect(executeOriginProvider(request, {}, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_NOT_CONFIGURED", status: 503, retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
+  it("fails closed instead of attempting another provider when unconfigured", async () => { const fetchMock = vi.fn(); await expect(executeOriginProvider(request, {}, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_NOT_CONFIGURED", status: 503, retryable: false, diagnostic: { transportRequestCount: 0 } }); expect(fetchMock).not.toHaveBeenCalled(); });
   it("rejects a non-free or unexpected execution plan before network access", async () => { const fetchMock = vi.fn(); const unsafePlan = { ...plan, modelId: "google/gemini-2.5-flash" } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: unsafePlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toBeInstanceOf(OriginProviderError); expect(fetchMock).not.toHaveBeenCalled(); });
   it("rejects a different free model plan before network access", async () => { const fetchMock = vi.fn(); const switchedPlan = { ...plan, modelId: "google/gemma-3-27b-it:free" } as unknown as OriginExecutionPlan; await expect(executeOriginProvider({ ...request, plan: switchedPlan }, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); expect(fetchMock).not.toHaveBeenCalled(); });
   it.each([
@@ -62,4 +141,28 @@ describe("executeOriginProvider", () => {
   it("rejects a response when zero cost cannot be verified", async () => { const payload = successfulProviderPayload({ usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); });
   it("discards the response when a nonzero cost is reported", async () => { const payload = successfulProviderPayload({ usage: { cost: 0.000001 } }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); });
   it.each([[{ billing_tier: "paid" }, "a paid billing tier"], [{ is_free: false }, "an explicit paid-model flag"], [{ pricing: { prompt: "0.000001", completion: "0" } }, "nonzero model pricing"], [{ usage: { cost: 0, is_byok: false, cost_details: { upstream_inference_cost: 0.000001 } } }, "an upstream inference charge"], [{ usage: { cost: 0, is_byok: true } }, "a bring-your-own-key billing route"]] as const)("discards zero-cost-looking responses containing %s", async (overrides, _description) => { const payload = successfulProviderPayload(overrides as Record<string, unknown>); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false }); });
+  it.each([
+    [undefined, "omitted"],
+    [null, "null"],
+    ["", "empty"],
+    ["   ", "whitespace-only"],
+    [42, "numeric"],
+    [true, "boolean"],
+  ])("fails closed when the provider served-model identity is %s (%s)", async (servedModel, _description: string) => {
+    const payload = successfulProviderPayload({ model: servedModel });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_ROUTING_UNVERIFIED",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
 });

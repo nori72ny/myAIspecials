@@ -147,6 +147,7 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
           modelId: planning.plan.modelId,
           actualCostUsd: 0,
           estimatedCostUsd: 0,
+          costEvidenceStatus: "NOT_MEASURED",
           freeOnly: true,
           traceId: requestId,
         },

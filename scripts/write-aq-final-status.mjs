@@ -46,9 +46,11 @@ async function main() {
       || completedShardCount !== expectedShardCount
       || promotion.caseCount !== 40
       || promotion.familyCount !== 10
-      || promotion.zeroCost !== true
-      || typeof promotion.promotionEligible !== "boolean"
+      || promotion.zeroCost !== false
+      || promotion.costEvidenceStatus !== "NOT_MEASURED"
+      || promotion.promotionEligible !== false
       || !Array.isArray(promotion.blockers)
+      || !promotion.blockers.includes("COST_EVIDENCE_NOT_VERIFIED")
       || promotion.promotionEligible !== (promotion.blockers.length === 0)
     ) {
       throw new Error("AQ_FINAL_STATUS_PROMOTION_IDENTITY_INVALID");
@@ -71,7 +73,8 @@ async function main() {
     completedShardCount,
     caseCount: measured ? 40 : 0,
     familyCount: measured ? 10 : 0,
-    zeroCost: measured ? true : null,
+    zeroCost: measured ? false : null,
+    costEvidenceStatus: measured ? promotion.costEvidenceStatus : "NOT_MEASURED",
     qualificationStatus,
     measured,
     promotionEligible: measured ? promotion.promotionEligible : false,

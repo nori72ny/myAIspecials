@@ -138,11 +138,12 @@ describe('V1.4 final held-out qualification gate', () => {
     ]));
   });
 
-  it('requires the public score set to cover every final task exactly once under one participant and zero cost', () => {
+  it('requires the exact public score set but does not infer billing from numeric zero telemetry', () => {
     const value = corpus();
     const validScores = value.tasks.map(row => score(row));
     expect(summarizeHeldOutFinalEvidenceV14(value, provenance(), validScores)).toMatchObject({
-      eligible: true,
+      eligible: false,
+      costEvidenceStatus: 'NOT_MEASURED',
       attempted: 6,
       solved: 6,
       solveRate: 1,
@@ -150,6 +151,7 @@ describe('V1.4 final held-out qualification gate', () => {
       participant: 'origin-v1.4',
       allAxesPassing: 6,
     });
+    expect(summarizeHeldOutFinalEvidenceV14(value, provenance(), validScores).reasons).toContain('billing-not-measured');
 
     const invalidScores = [
       ...validScores.slice(0, 5),
@@ -157,14 +159,15 @@ describe('V1.4 final held-out qualification gate', () => {
     ];
     const invalid = summarizeHeldOutFinalEvidenceV14(value, provenance(), invalidScores);
     expect(invalid.eligible).toBe(false);
-    expect(invalid.reasons).toEqual(expect.arrayContaining(['participant-not-uniform', 'non-zero-cost-observed']));
+    expect(invalid.reasons).toEqual(expect.arrayContaining(['participant-not-uniform', 'billing-not-measured']));
   });
 
   it('reports observed performance without inventing a pass threshold or winner', () => {
     const value = corpus();
     const scores = value.tasks.map((row, index) => score(row, index < 4));
     const result = summarizeHeldOutFinalEvidenceV14(value, provenance(), scores);
-    expect(result.eligible).toBe(true);
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toContain('billing-not-measured');
     expect(result.attempted).toBe(6);
     expect(result.solved).toBe(4);
     expect(result.solveRate).toBeCloseTo(4 / 6);

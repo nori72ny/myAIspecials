@@ -27,7 +27,7 @@ const edit = { path: 'math.js', search: 'a - b', replacement: 'a + b' };
 const batch = { edits: [edit], creates: [] as { path: string; content: string }[] };
 const response = (text = JSON.stringify(batch)): OriginProviderExecutionResult => ({
   text,
-  actualCostUsd: 0,
+  transportRequestCount: 1, actualCostUsd: 0,
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {

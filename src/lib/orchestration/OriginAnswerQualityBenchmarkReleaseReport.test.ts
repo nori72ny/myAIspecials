@@ -59,7 +59,7 @@ function observations(
 }
 
 describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
-  it("marks promotion eligible when at least one dimension improves and no family regresses", () => {
+  it("blocks promotion when quality improves but provider billing remains unverified", () => {
     const m = makeManifest();
     const baseline = observations(m);
     const candidate = observations(m, (item) =>
@@ -79,8 +79,8 @@ describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.promotionEligible).toBe(true);
-    expect(result.value.blockers).toEqual([]);
+    expect(result.value.promotionEligible).toBe(false);
+    expect(result.value.blockers).toEqual(["COST_EVIDENCE_NOT_VERIFIED"]);
     expect(result.value.targetedImprovementObserved).toBe(true);
     expect(result.value.regressionFamilies).toEqual([]);
   });
@@ -107,6 +107,7 @@ describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
     if (!result.ok) return;
     expect(result.value.promotionEligible).toBe(false);
     expect(result.value.blockers).toContain("CRITICAL_FAMILY_REGRESSION");
+    expect(result.value.blockers).toContain("COST_EVIDENCE_NOT_VERIFIED");
     expect(result.value.regressionFamilies).toContain("professional-advice");
   });
 
@@ -127,7 +128,7 @@ describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.promotionEligible).toBe(false);
-    expect(result.value.blockers).toEqual(["NO_TARGETED_IMPROVEMENT"]);
+    expect(result.value.blockers).toEqual(["COST_EVIDENCE_NOT_VERIFIED", "NO_TARGETED_IMPROVEMENT"]);
   });
 
   it("blocks unsupported-claim regression explicitly", () => {
@@ -152,6 +153,7 @@ describe("OriginAnswerQualityBenchmarkReleaseReport", () => {
     if (!result.ok) return;
     expect(result.value.promotionEligible).toBe(false);
     expect(result.value.blockers).toContain("UNSUPPORTED_CLAIMS_REGRESSED");
+    expect(result.value.blockers).toContain("COST_EVIDENCE_NOT_VERIFIED");
     expect(result.value.blockers).toContain("CRITICAL_FAMILY_REGRESSION");
   });
 });

@@ -130,7 +130,10 @@ async function main() {
   const hardGates = comparison.hardGates || {};
   const blockers = [];
   for (const [key, value] of Object.entries(hardGates)) {
-    if (value !== true) blockers.push(`HARD_GATE:${key}`);
+    if (typeof value === "boolean" && value !== true) blockers.push(`HARD_GATE:${key}`);
+  }
+  if (hardGates.costEvidenceStatus !== "ZERO_COST_VERIFIED") {
+    blockers.push("COST_EVIDENCE_NOT_VERIFIED");
   }
   if (regressionFamilies.length) blockers.push("CRITICAL_FAMILY_REGRESSION");
   if (!targetedImprovementObserved) blockers.push("NO_TARGETED_IMPROVEMENT");
@@ -141,9 +144,10 @@ async function main() {
     baselineSha,
     caseCount: 40,
     familyCount: 10,
-    zeroCost:
-      comparison.baseline?.totalCostUsd === 0
-      && comparison.candidate?.totalCostUsd === 0,
+    // Legacy totalCostUsd sentinels are not billing measurements.
+    zeroCost: comparison.hardGates?.zeroCost === true
+      && comparison.hardGates?.costEvidenceStatus === "ZERO_COST_VERIFIED",
+    costEvidenceStatus: comparison.hardGates?.costEvidenceStatus ?? "NOT_MEASURED",
     shardCount: expectedShardCount,
     aggregateDigest: comparison.aggregateDigest,
     promotionEligible: blockers.length === 0,

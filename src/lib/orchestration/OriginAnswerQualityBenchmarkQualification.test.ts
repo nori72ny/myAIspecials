@@ -71,7 +71,7 @@ function observations(
 }
 
 describe("OriginAnswerQualityBenchmarkQualification", () => {
-  it("qualifies only an exact comparable 40-case ten-family benchmark", () => {
+  it("reports exact comparable 40-case metrics without certifying unmeasured provider spend", () => {
     const m = manifest();
     const result = qualifyOriginAnswerQualityBenchmark({
       baselineManifest: m,
@@ -88,7 +88,8 @@ describe("OriginAnswerQualityBenchmarkQualification", () => {
     expect(result.value.familyCount).toBe(10);
     expect(result.value.hardGates.exactCorpusMatch).toBe(true);
     expect(result.value.hardGates.sameProviderAndModel).toBe(true);
-    expect(result.value.hardGates.zeroCost).toBe(true);
+    expect(result.value.hardGates.zeroCost).toBe(false);
+    expect(result.value.hardGates.costEvidenceStatus).toBe("NOT_MEASURED");
     expect(result.value.hardGates.unsupportedClaimsNotWorse).toBe(true);
   });
 

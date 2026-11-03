@@ -219,6 +219,7 @@ describe("AQ V2 world-class candidate gate", () => {
         "AQ_V2_TRUSTED_EXECUTION_NOT_PROVEN",
         "AQ_V2_EVIDENCE_BINDING_NOT_PROVEN",
         "AQ_V2_LIVE_PROVIDER_RUN_MISSING",
+        "AQ_V2_ZERO_COST_NOT_PROVEN",
       ],
     });
   });

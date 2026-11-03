@@ -52,7 +52,9 @@ export interface OriginAnswerQualityOfficialShardedComparison {
     readonly exactCorpusCoverage: true;
     readonly sameProviderAndModel: true;
     readonly sameScorer: true;
-    readonly zeroCost: true;
+    /** Billing evidence is not collected by this sharded comparison. */
+    readonly zeroCost: false;
+    readonly costEvidenceStatus: "NOT_MEASURED";
     readonly unsupportedClaimsNotWorse: boolean;
     readonly verifierRejectionRateNotWorse: boolean;
     readonly verificationIntegrityNotWorse: boolean;
@@ -312,7 +314,8 @@ export function aggregateOriginAnswerQualityOfficialShards(
         exactCorpusCoverage: true as const,
         sameProviderAndModel: true as const,
         sameScorer: true as const,
-        zeroCost: true as const,
+        zeroCost: false as const,
+        costEvidenceStatus: "NOT_MEASURED" as const,
         unsupportedClaimsNotWorse: delta.unsupportedMaterialClaimDelta <= 0,
         verifierRejectionRateNotWorse: delta.verifierRejectionRateDelta >= 0,
         verificationIntegrityNotWorse:

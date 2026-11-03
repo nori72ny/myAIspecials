@@ -553,7 +553,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(workspace.getByTitle('プレビュー')).toHaveAttribute('sandbox', 'allow-scripts');
   });
 
-  test('discards paid successful responses and shows a zero-cost safe-waiting state', async ({ page }) => {
+  test('discards paid successful responses and shows an unverified-cost safe-waiting state', async ({ page }) => {
     const model = 'google/gemma-4-31b-it:free';
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
@@ -574,7 +574,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('無料条件の安全網を確認');
     await page.getByTestId('start-request-button').click();
-    await expect(page.getByTestId('origin-safe-waiting-state')).toContainText('$0.00');
+    const safeWaiting = page.getByTestId('origin-safe-waiting-state');
+    await expect(safeWaiting).toContainText('無料専用ポリシーに適合する応答を確認できない');
+    await expect(safeWaiting).not.toContainText('$0.00');
     await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
   });

@@ -115,7 +115,7 @@ function shards(): OriginAnswerQualityOfficialShardComparison[] {
 }
 
 describe("OriginAnswerQualityOfficialShardedComparison", () => {
-  it("reassembles exactly forty paired cases without pretending they were one run", () => {
+  it("reassembles forty paired cases while explicitly withholding billing certification", () => {
     const result = aggregateOriginAnswerQualityOfficialShards(
       full,
       plan,
@@ -129,7 +129,8 @@ describe("OriginAnswerQualityOfficialShardedComparison", () => {
     expect(result.value.delta.factualSupportDelta).toBeCloseTo(0.1);
     expect(result.value.hardGates.exactCorpusCoverage).toBe(true);
     expect(result.value.hardGates.sameScorer).toBe(true);
-    expect(result.value.hardGates.zeroCost).toBe(true);
+    expect(result.value.hardGates.zeroCost).toBe(false);
+    expect(result.value.hardGates.costEvidenceStatus).toBe("NOT_MEASURED");
     expect(result.value.hardGates.userActionabilityNotWorse).toBe(true);
     expect(result.value.hardGates.userActionabilityFamiliesNotWorse).toBe(true);
     expect(result.value.userActionabilityRegressionFamilies).toEqual([]);

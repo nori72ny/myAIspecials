@@ -39,6 +39,7 @@ type RoutingMetadata = {
   taskType?: string;
   actualCostUsd?: number;
   estimatedCostUsd?: number;
+  costEvidenceStatus?: 'NOT_MEASURED' | 'BLOCKED_UNVERIFIED';
   freeOnly?: boolean;
   traceId?: string;
   verificationStatus?: 'not-run' | 'not-required' | 'passed' | 'failed' | 'pending';
@@ -383,11 +384,11 @@ function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: 
   return isEn ? 'Not checked by another AI this time' : '今回は別のAIで確認していません';
 }
 
-function executionCostLabel(routing: RoutingMetadata, isEn: boolean): string {
-  const actualCost = routing.actualCostUsd ?? routing.cost;
-  if (routing.freeOnly && actualCost === 0) return isEn ? 'Free' : '無料';
-  if (typeof actualCost === 'number' && Number.isFinite(actualCost)) return `${actualCost.toFixed(4)}`;
-  return isEn ? 'Not confirmed' : '未確認';
+function executionCostLabel(_routing: RoutingMetadata, isEn: boolean): string {
+  // API JSON cannot carry the private runtime brand used by the trusted verifier.
+  // No verifier/attestation transport is implemented, so never render a verified
+  // zero-cost claim from response metadata, policy flags, or numeric cost fields.
+  return isEn ? 'Not verified' : '未確認';
 }
 
 function executionTimeLabel(timeMs: number, isEn: boolean): string {

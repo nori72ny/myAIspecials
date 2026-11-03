@@ -20,9 +20,9 @@ export interface OriginProviderExecutionRequest {
   requiredTool?: OriginProviderRequiredTool;
 }
 export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
-export interface OriginProviderExecutionResult { text: string; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
-export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_INTERNAL_ERROR";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
+export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -38,6 +38,7 @@ function safeProviderMessage(code: OriginProviderErrorCode): string {
     case "PROVIDER_REQUIRED_TOOL_TRUNCATED": return "無料AIの必須ツール出力が完了しませんでした。";
     case "PROVIDER_COST_UNVERIFIED": return "無料実行の費用を確認できません。";
     case "PROVIDER_ROUTING_UNVERIFIED": return "許可された無料Provider/Modelの証跡を確認できません。";
+    case "PROVIDER_TRANSPORT_UNVERIFIED": return "実際のProvider HTTP送信回数を確認できません。";
     case "PROVIDER_POLICY_VIOLATION": return "0ドル固定ポリシーに適合しない実行計画です。";
     case "PROVIDER_INTERNAL_ERROR": return "無料AIとの通信に失敗しました。";
     default: return "無料AIを現在利用できません。";
@@ -95,6 +96,9 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
   zero(result.actualCostUsd, "actualCostUsd");
   zero(result.usage?.costUsd, "usage.costUsd");
+  if (!Number.isSafeInteger(result.transportRequestCount) || Number(result.transportRequestCount) < 1) {
+    fail("実際のProvider HTTP送信回数を確認できません。", "PROVIDER_TRANSPORT_UNVERIFIED");
+  }
   const evidence = result.routingEvidence;
   const provider = pid(evidence?.provider);
   if (!evidence || !provider || !allowed(provider, evidence.servedModel)) fail("許可された無料Provider/Modelの証跡を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
@@ -140,7 +144,7 @@ function http(status: number, retryAfterSeconds?: number): OriginProviderError {
   const diagnostic = { upstreamStatus: status };
   if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
   if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
-  if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, retryAfterSeconds, diagnostic);
+  if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
   if (status === 400 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
   if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
   return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
@@ -149,7 +153,7 @@ async function json(response: Response): Promise<unknown> {
   try { return await response.json(); }
   catch { throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true); }
 }
-async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit, timeoutMs: number, transport: { count: number }): Promise<Response> {
   const deadline = Date.now() + MAX_PROVIDER_TOTAL_BUDGET_MS;
   let last: unknown;
   for (let index = 0; index < 3; index += 1) {
@@ -164,6 +168,7 @@ async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: R
     const attemptTimeout = Math.max(1, Math.min(timeoutMs, remaining, 18_000));
     const timer = setTimeout(() => controller.abort(), attemptTimeout);
     try {
+      transport.count += 1;
       const response = await fetchImpl(input, { ...init, signal: controller.signal });
       if ([401, 402, 403, 429].includes(response.status)) {
         if (response.status === 403) return response;
@@ -212,14 +217,14 @@ function requiredToolArguments(message: OpenRouterMessage | undefined, requiredT
   if (typeof args !== "string" || !args.trim() || Buffer.byteLength(args, "utf8") > MAX_TOOL_ARGUMENT_BYTES) throw new OriginProviderError("PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID", "必須ツール引数を確認できません。", 502, true);
   return args.trim();
 }
-async function openrouter(requestData: OriginProviderExecutionRequest, key: string, fetchImpl: OriginFetch, provider: AllowedZeroCostProvider): Promise<OriginProviderExecutionResult> {
+async function openrouter(requestData: OriginProviderExecutionRequest, key: string, fetchImpl: OriginFetch, provider: AllowedZeroCostProvider, transport: { count: number }): Promise<OriginProviderExecutionResult> {
   let messages = msgs(requestData.messages, requestData.systemInstruction);
   let output = "";
   let promptTokens = 0;
   let completionTokens = 0;
   let totalTokens = 0;
   for (let index = 0; index < MAX_SEGMENTS; index += 1) {
-    const response = await requestFetch(fetchImpl, requestData, key, messages);
+    const response = await requestFetch(fetchImpl, requestData, key, messages, transport);
     if (!response.ok) throw http(response.status, retryAfter(response.headers.get("Retry-After")));
     const data = await json(response) as {
       model?: unknown;
@@ -235,7 +240,12 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     if (errorType === "rate_limit_exceeded") throw http(429);
     if (errorType === "timeout") throw http(504);
     if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
-    const servedModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : requestData.plan.modelId;
+    // Never substitute the requested model when the provider omits its served-model identity.
+    // Missing identity is unverified routing and must fail closed before any result is returned.
+    if (typeof data.model !== "string" || !data.model.trim()) {
+      throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouterの提供モデルを確認できません。", 502, false);
+    }
+    const servedModel = data.model.trim();
     if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${servedModel}` });
     // Validate required-tool structure before provider billing metadata so malformed tool
     // responses receive their precise contract error. Nothing is returned or emitted until
@@ -261,7 +271,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     }
 
     if (choice?.finish_reason !== "length") {
-      const result: OriginProviderExecutionResult = { text: output, actualCostUsd: 0, providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } };
+      const result: OriginProviderExecutionResult = { text: output, transportRequestCount: transport.count, actualCostUsd: 0, providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } };
       assertOriginZeroCostExecutionResult(result, requestData.plan.modelId, requestData.plan.providerId);
       return result;
     }
@@ -270,7 +280,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
   }
   throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
 }
-async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>): Promise<Response> {
+async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderExecutionRequest, key: string, messages: ReturnType<typeof msgs>, transport: { count: number }): Promise<Response> {
   validateRequiredTool(requestData.requiredTool);
   const structured = requestData.requiredTool ? {
     tools: [{ type: "function", function: { name: requestData.requiredTool.name, description: requestData.requiredTool.description, parameters: requestData.requiredTool.parameters } }],
@@ -296,17 +306,28 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
       body: JSON.stringify(sanitizePreEgressPayload(body)),
-    }, timeoutMs);
+    }, timeoutMs, transport);
     if (![403, 404].includes(response.status)) return response;
   }
   throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamStatus: 404 });
 }
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
-  validate(providerRequest.plan);
-  validateRequiredTool(providerRequest.requiredTool);
-  const primary = pid(providerRequest.plan.providerId);
-  if (primary !== "openrouter") throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
-  const openRouterKey = env.OPENROUTER_API_KEY;
-  if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
-  return openrouter(providerRequest, openRouterKey, fetchImpl, primary);
+  const transport = { count: 0 };
+  try {
+    validate(providerRequest.plan);
+    validateRequiredTool(providerRequest.requiredTool);
+    const primary = pid(providerRequest.plan.providerId);
+    if (primary !== "openrouter") throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "許可されていないProviderです。", 400, false);
+    const openRouterKey = env.OPENROUTER_API_KEY;
+    if (!openRouterKey) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
+    return await openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
+    }
+    throw error;
+  }
 }

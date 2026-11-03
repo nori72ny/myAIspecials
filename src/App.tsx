@@ -517,7 +517,7 @@ const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|j
 const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
-const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
+const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
 const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
 const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
@@ -674,7 +674,8 @@ type OriginVerifiedChatPayload = {
   };
 };
 
-export const isVerifiedZeroCostChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
+/** Checks free-only routing and provider-reported zero telemetry for response admission; this is not a billing attestation. */
+export const isFreeOnlyPolicyCompliantChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
   const routing = payload.routing;
   if (!routing || routing.freeOnly !== true || routing.cost !== 0 || routing.actualCostUsd !== 0 || routing.estimatedCostUsd !== 0) return false;
   const visibleCosts = [payload.usage?.cost, payload.usage?.costUsd, routing.usage?.cost, routing.usage?.costUsd];
@@ -1308,7 +1309,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     const enterSafeWaiting = () => {
       setAttachmentError(language === 'en'
-        ? 'A verified $0.00 free-model response is unavailable. The response was withheld; please try again later.'
+        ? 'A free-only policy-compliant response could not be confirmed. The response was withheld; please try again later.'
         : SAFE_WAITING_MESSAGE);
       setIsSafeWaiting(true);
     };
@@ -1717,7 +1718,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       let verifiedResponseText: string | undefined;
       if ((response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
         const payload = await response.json() as OriginVerifiedChatPayload;
-        if (!isVerifiedZeroCostChatPayload(payload)) {
+        if (!isFreeOnlyPolicyCompliantChatPayload(payload)) {
           enterSafeWaiting();
           return;
         }
@@ -1740,11 +1741,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             const raw = line.slice(5).trim();
             if (doneSeen) throw new Error('event-after-done');
             if (raw === '[DONE]') { doneSeen = true; return; }
-            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costUsd?: unknown; fallbackUsed?: unknown };
+            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costEvidenceStatus?: unknown; fallbackUsed?: unknown };
             if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
             if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
               && (event.servedModel === ORIGIN_FIXED_FREE_MODEL || event.servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, ''))
-              && event.costUsd === 0 && event.fallbackUsed === false) { complete = true; return; }
+              && event.costEvidenceStatus === 'NOT_MEASURED' && event.fallbackUsed === false) { complete = true; return; }
             throw new Error('invalid-stream-event');
           };
           while (true) {

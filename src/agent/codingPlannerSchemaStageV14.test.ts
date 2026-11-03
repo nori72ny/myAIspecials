@@ -14,7 +14,7 @@ afterAll(() => { Date.now = originalDateNow; });
 function response(text: string): OriginProviderExecutionResult {
   return {
     text,
-    actualCostUsd: 0,
+    transportRequestCount: 1, actualCostUsd: 0,
     usage: { costUsd: 0 },
     providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
     routingEvidence: {

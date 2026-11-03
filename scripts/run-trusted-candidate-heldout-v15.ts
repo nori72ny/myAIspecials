@@ -470,7 +470,9 @@ async function main(): Promise<void> {
         exitCode: check.exitCode,
         timedOut: check.timedOut,
       })),
-      zeroCost: true,
+      // Provider usage telemetry is not authenticated billing evidence.
+      zeroCost: false,
+      costEvidenceStatus: 'NOT_MEASURED',
       networkMode: 'candidate:none; verification:none; provider:unix-socket-trusted-host; verifier:unix-socket-trusted-host',
       trustedVerificationAttempts: trustedJournal.length,
       trustedRecoveryObserved: trustedJournal.slice(0, -1).some(row => row.checks.some(check => !check.ok || check.exitCode !== 0 || check.timedOut)),
@@ -487,7 +489,7 @@ async function main(): Promise<void> {
       solved: score.solved,
       regressions: score.regressions.length,
       durationMs: score.durationMs,
-      costUsd: score.costUsd,
+      costEvidenceStatus: 'NOT_MEASURED',
     }) + '\n');
   } finally {
     if (proxy) {

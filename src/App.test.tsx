@@ -50,7 +50,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isVerifiedZeroCostChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1186,7 +1186,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '安全な回答を依頼' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
     expect(screen.getByTestId('origin-safe-waiting-state').getAttribute('aria-live')).toBe('assertive');
     expect(screen.queryByText('表示してはいけない応答')).toBeNull();
     vi.unstubAllGlobals();
@@ -1314,10 +1314,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   it('accepts verified fixed-model JSON responses and rejects paid headers or unverifiable routing', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
-    expect(isVerifiedZeroCostChatPayload(valid)).toBe(true);
-    expect(isVerifiedZeroCostChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
-    expect(isVerifiedZeroCostChatPayload({ ...valid, routing: { ...valid.routing, providerRouting: { ...valid.routing.providerRouting, servedModel: 'paid-model' } } })).toBe(false);
-    expect(isVerifiedZeroCostChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0 } })).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload(valid)).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, providerRouting: { ...valid.routing.providerRouting, servedModel: 'paid-model' } } })).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0 } })).toBe(true);
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(valid), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
@@ -1337,7 +1337,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="en" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'Validate billing safety' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('$0.00'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('free-only policy-compliant response'));
     expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('withheld');
     expect(screen.queryByText('Paid streaming response must remain hidden')).toBeNull();
     vi.unstubAllGlobals();
@@ -1347,7 +1347,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const model = 'google/gemma-4-31b-it:free';
     const body = [
       `data: ${JSON.stringify({ type: 'delta', text: '検証済みSSE回答' })}`,
-      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false })}`,
       'data: [DONE]',
       '',
     ].join('\n\n');
@@ -1362,6 +1362,28 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('検証済みSSE回答')).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects legacy numeric-zero SSE completion without explicit NOT_MEASURED evidence', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '表示してはいけない旧形式の回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '旧形式のSSEを拒否' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない旧形式の回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 

@@ -16,6 +16,7 @@ const TEST_NOW = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1
 function providerResult(text: string): OriginProviderExecutionResult {
   return {
     text,
+    transportRequestCount: 1,
     actualCostUsd: 0,
     providerDataPolicy: {
       allowProviderFallbacks: false,
@@ -107,6 +108,8 @@ describe("MCP owner tool-chat router", () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.content).toBe("README.md was read successfully.");
+    expect(response.body.routing.costEvidenceStatus).toBe("NOT_MEASURED");
+    expect(response.body.routing.actualCostUsd).toBe(0); // Deprecated compatibility field; not a billing receipt.
     expect(response.body.mcp).toEqual({
       connectionId: CONNECTION,
       connectionVersion: 3,

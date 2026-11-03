@@ -98,7 +98,7 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
 function providerErrorType(errorType: unknown): never {
   const diagnostic = { upstreamErrorType: String(errorType) };
   if (errorType === "rate_limit_exceeded") {
-    throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, undefined, diagnostic);
+    throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }
   if (errorType === "timeout") {
     throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
@@ -113,7 +113,7 @@ function httpFailure(status: number, retryAfterSeconds?: number): OriginProvider
   const diagnostic = { upstreamStatus: status };
   if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
   if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
-  if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, true, retryAfterSeconds, diagnostic);
+  if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
   if (status === 400 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
   if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
   return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
@@ -154,6 +154,7 @@ async function streamOpenRouter(
   key: string,
   handlers: OriginProviderStreamHandlers,
   fetchImpl: OriginFetch,
+  transport: { count: number },
 ): Promise<OriginProviderExecutionResult> {
   const controller = new AbortController();
   const timeoutMs = Math.min(
@@ -164,6 +165,7 @@ async function streamOpenRouter(
   let response: Response | undefined;
   try {
     for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
+      transport.count += 1;
       response = await fetchImpl(OPENROUTER_STREAM_URL, {
         method: "POST",
         headers: {
@@ -297,6 +299,7 @@ async function streamOpenRouter(
 
   const result: OriginProviderExecutionResult = {
     text: output,
+    transportRequestCount: transport.count,
     actualCostUsd: 0,
     providerDataPolicy: providerRequest.plan.providerDataPolicy,
     routingEvidence: {
@@ -321,9 +324,20 @@ export async function executeOriginProviderStream(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: OriginFetch = fetch,
 ): Promise<OriginProviderExecutionResult> {
-  validateStreamPlan(providerRequest.plan);
+  const transport = { count: 0 };
   const key = env.OPENROUTER_API_KEY;
-  if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
+  try {
+    validateStreamPlan(providerRequest.plan);
+    if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
+    }
+    throw error;
+  }
   const deadline = Date.now() + MAX_STREAM_TOTAL_BUDGET_MS;
   const boundedRequest: OriginProviderExecutionRequest = {
     ...providerRequest,
@@ -338,19 +352,30 @@ export async function executeOriginProviderStream(
     }
     if (Date.now() >= deadline) break;
     try {
-      return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl);
+      try {
+        return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
+      } catch (error) {
+        if (error instanceof OriginProviderError) {
+          throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+            ...error.diagnostic,
+            transportRequestCount: transport.count,
+          });
+        }
+        throw error;
+      }
     } catch (error) {
       if (error instanceof OriginProviderError) {
         lastError = error;
         const diagnostic = error.diagnostic;
         const upstreamStatus = diagnostic?.upstreamStatus;
         const transientUpstreamStatus = typeof upstreamStatus === "number"
-          && (upstreamStatus === 408 || upstreamStatus === 429 || [500, 502, 503, 504].includes(upstreamStatus));
+          && (upstreamStatus === 408 || [500, 502, 503, 504].includes(upstreamStatus));
         const transientTransportFailure = diagnostic?.transportFailure === "network"
           || diagnostic?.transportFailure === "timeout";
+        // Free-plan 429 responses and SSE rate_limit_exceeded events are never retried:
+        // failed requests can still consume the provider's daily free quota.
         const retryableTransientFailure = error.retryable
-          && (error.code === "PROVIDER_RATE_LIMITED"
-            || error.code === "PROVIDER_TIMEOUT"
+          && (error.code === "PROVIDER_TIMEOUT"
             || transientUpstreamStatus
             || transientTransportFailure);
         if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;

@@ -23,7 +23,7 @@ function manifest() {
 const sha = "f".repeat(40);
 
 describe("OriginAnswerQualityBenchmarkRunProvenance", () => {
-  it("binds a run to exact code, manifest, model, time window and zero cost", () => {
+  it("binds a run to exact code, manifest, model and time window while retaining a legacy non-billing sentinel", () => {
     const m = manifest();
     const result = createOriginAnswerQualityBenchmarkRunProvenance({
       runId: "aq-run-baseline-1",

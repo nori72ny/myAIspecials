@@ -22,6 +22,7 @@ export interface OriginAnswerQualityBenchmarkObservation {
   readonly repairSucceeded?: boolean;
   readonly providerRequests: number;
   readonly latencyMs: number;
+  /** @deprecated Legacy synthetic benchmark sentinel; not a provider billing measurement. */
   readonly costUsd: number;
   readonly unsupportedMaterialClaimCount: number;
 }
@@ -39,6 +40,9 @@ export interface OriginAnswerQualityBenchmarkAggregate {
   readonly repairSuccessRate: number | null;
   readonly totalProviderRequests: number;
   readonly meanLatencyMs: number;
+  /** Spend is not measured by this legacy aggregate; provider billing evidence is separate. */
+  readonly costEvidenceStatus: "NOT_MEASURED";
+  /** @deprecated Compatibility aggregate of synthetic sentinels; never proof of $0.00. */
   readonly totalCostUsd: number;
 }
 
@@ -62,6 +66,7 @@ function validObservation(item: OriginAnswerQualityBenchmarkObservation): boolea
     && item.providerRequests >= 0
     && Number.isFinite(item.latencyMs)
     && item.latencyMs >= 0
+    // Legacy benchmark-contract guard only; this field is not measured spend.
     && Number.isFinite(item.costUsd)
     && item.costUsd === 0
     && Number.isInteger(item.unsupportedMaterialClaimCount)
@@ -104,6 +109,8 @@ export function aggregateOriginAnswerQualityBenchmark(
       : mean(repairCases.map((item) => item.repairSucceeded ? 1 : 0)),
     totalProviderRequests: observations.reduce((sum, item) => sum + item.providerRequests, 0),
     meanLatencyMs: mean(observations.map((item) => item.latencyMs)),
+    costEvidenceStatus: "NOT_MEASURED",
+    // Compatibility aggregate only. Authoritative spend state lives in costEvidence.
     totalCostUsd: observations.reduce((sum, item) => sum + item.costUsd, 0),
   };
 
@@ -120,6 +127,9 @@ export interface OriginAnswerQualityBenchmarkDelta {
   readonly repairSuccessRateDelta: number | null;
   readonly providerRequestDelta: number;
   readonly latencyMsDelta: number;
+  /** Spend comparison is unavailable from this legacy aggregate. */
+  readonly costEvidenceStatus: "NOT_MEASURED";
+  /** @deprecated Delta of legacy synthetic sentinels; not a billing delta. */
   readonly totalCostUsdDelta: number;
 }
 
@@ -142,6 +152,8 @@ export function compareOriginAnswerQualityBenchmark(
     repairSuccessRateDelta,
     providerRequestDelta: candidate.totalProviderRequests - baseline.totalProviderRequests,
     latencyMsDelta: candidate.meanLatencyMs - baseline.meanLatencyMs,
+    costEvidenceStatus: "NOT_MEASURED",
+    // Compatibility-only arithmetic; never use as provider billing comparison.
     totalCostUsdDelta: candidate.totalCostUsd - baseline.totalCostUsd,
   });
 }

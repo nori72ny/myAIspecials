@@ -18,6 +18,7 @@ export interface OriginAnswerWorldClassGateInputV2 {
   readonly trustedExecution: OriginAnswerTrustedExecutionQualificationV2 | null;
   readonly binding: OriginAnswerEvaluationBindingQualificationV2 | null;
   readonly liveProviderRunCompleted: boolean;
+  /** @deprecated Caller booleans are not provider billing evidence. */
   readonly zeroCost: boolean;
 }
 
@@ -64,9 +65,10 @@ export function evaluateOriginAnswerWorldClassGateV2(
   const bindingPassed = input.binding?.passed === true;
   if (!bindingPassed) blockers.push("AQ_V2_EVIDENCE_BINDING_NOT_PROVEN");
 
-  const liveEvidencePassed = input.liveProviderRunCompleted === true && input.zeroCost === true;
+  // A caller-supplied boolean cannot prove billing. No trusted provider verifier currently mints ZERO_COST_VERIFIED.
+  const liveEvidencePassed = false;
   if (!input.liveProviderRunCompleted) blockers.push("AQ_V2_LIVE_PROVIDER_RUN_MISSING");
-  if (!input.zeroCost) blockers.push("AQ_V2_ZERO_COST_NOT_PROVEN");
+  blockers.push("AQ_V2_ZERO_COST_NOT_PROVEN");
 
   return Object.freeze({
     schemaVersion: "origin.answer-world-class-gate.v2",

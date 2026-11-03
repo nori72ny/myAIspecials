@@ -43,6 +43,7 @@ function request(): OriginProviderExecutionRequest {
 function providerResult(text: string): OriginProviderExecutionResult {
   return {
     text,
+    transportRequestCount: 1,
     actualCostUsd: 0,
     providerDataPolicy: {
       allowProviderFallbacks: false,

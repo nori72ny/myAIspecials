@@ -33,10 +33,17 @@ function input(): OriginAnswerWorldClassGateInputV2 {
 describe("AQ V2 world-class gate exact-answer binding", () => {
   it("requires exact-answer scoring in addition to absolute and blind quality evidence", () => {
     const report = evaluateOriginAnswerWorldClassGateV2(input());
-    expect(report.worldClassCandidate).toBe(true);
+    expect(report.worldClassCandidate).toBe(false);
     expect(report.exactAnswerScoringPassed).toBe(true);
     expect(report.trustedCompetitiveEvidencePassed).toBe(true);
-    expect(report.blockers).toEqual([]);
+    expect(report.blockers).toContain("AQ_V2_ZERO_COST_NOT_PROVEN");
+  });
+
+  it("does not accept a caller-supplied zeroCost boolean as billing proof", () => {
+    const report = evaluateOriginAnswerWorldClassGateV2(input());
+    expect(report.liveEvidencePassed).toBe(false);
+    expect(report.worldClassCandidate).toBe(false);
+    expect(report.blockers).toContain("AQ_V2_ZERO_COST_NOT_PROVEN");
   });
 
   it("fails closed when generic absolute quality is present but exact executed answers were not independently scored", () => {
