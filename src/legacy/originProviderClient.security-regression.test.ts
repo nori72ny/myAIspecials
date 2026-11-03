@@ -77,12 +77,21 @@ describe("originProviderClient security regressions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("normalizes untrusted served-model diagnostics before logging", async () => {
+    const maliciousModel = `bad\\n${"x".repeat(200)}`;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: maliciousModel })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const error = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch).then(() => undefined, (caught: unknown) => caught);
+    const diagnostic = (error as OriginProviderError).diagnostic?.upstreamErrorType ?? "";
+    expect(diagnostic).toHaveLength(64);
+    expect(diagnostic).not.toMatch(/[\\r\\n\\u0000-\\u001f\\u007f]/);
+  });
+
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
     const result = {
       text: "x", actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, providerDataPolicy: request.plan.providerDataPolicy,
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       usage: { reportedCostUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)) .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("実費は未計測として扱う必要があります。");
   });
 });
