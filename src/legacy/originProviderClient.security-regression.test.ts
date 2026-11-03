@@ -45,6 +45,14 @@ describe("originProviderClient security regressions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects the canonical non-free slug before any provider request", async () => {
+    const fetchMock = vi.fn();
+    const unsafeRequest = { ...request, plan: { ...plan, modelId: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "") } };
+    await expect(executeOriginProvider(unsafeRequest, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a successful response served by a non-approved model", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: "paid-model" })), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
@@ -71,10 +79,10 @@ describe("originProviderClient security regressions", () => {
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
     const result = {
-      text: "x", actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy,
+      text: "x", actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, providerDataPolicy: request.plan.providerDataPolicy,
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
-      usage: { costUsd: 0.000001 },
+      usage: { reportedCostUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシーに適合しない実行計画です。");
+    expect(() => assertOriginZeroCostExecutionResult(result)) .toThrow("0ドル固定ポリシーに適合しない実行計画です。");
   });
 });
