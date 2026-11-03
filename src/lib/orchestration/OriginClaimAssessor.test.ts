@@ -26,7 +26,7 @@ describe("OriginClaimAssessor", () => {
       sourceDigest: source.contentDigest,
       support: "supported",
       supportingExcerpt: "includes a free tier",
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
 
@@ -53,7 +53,7 @@ describe("OriginClaimAssessor", () => {
         sourceUrl: source.finalUrl,
         sourceDigest: source.contentDigest,
         support,
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       });
       await expect(assessOriginClaimAgainstSource("The service has a free tier.", source, assess))
@@ -68,7 +68,7 @@ describe("OriginClaimAssessor", () => {
       sourceDigest: source.contentDigest,
       support: "supported" as const,
       supportingExcerpt: "includes a free tier",
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1 as const,
     };
 
