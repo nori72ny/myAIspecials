@@ -183,14 +183,18 @@ export async function qualifyRasterLiveV15(options: QualifyOptions = {}): Promis
   const status = await getCloudflareRasterStatusV15(env, fetchImpl);
   const provider = safeProviderEvidence(status);
   if (!status.ready
-    || !(status.zeroCostVerified || status.freeAllocationEligible === true)
-    || status.paymentMethodRequired
-    || status.paidFallbackEnabled
+    || status.zeroCostVerified !== true
+    || status.paymentMethodRequired !== false
+    || status.paidFallbackEnabled !== false
     || status.secretDelivery !== 'server-only') {
     return finalize({
       version: RASTER_LIVE_QUALIFICATION_VERSION_V15,
       state: 'blocked',
-      reason: status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+      reason: !status.configured || !status.ready
+        ? status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED'
+        : status.zeroCostVerified !== true
+          ? 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED'
+          : status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
       generatedAt,
       provider,
       generation: null,

@@ -76,7 +76,7 @@ describe('rasterLiveQualificationV15', () => {
 
     expect(result).toMatchObject({
       state: 'blocked',
-      reason: 'CLOUDFLARE_PER_REQUEST_COST_EVIDENCE_UNAVAILABLE',
+      reason: 'REQUEST_LEVEL_ZERO_COST_NOT_VERIFIED',
       provider: {
         id: 'cloudflare-workers-ai-free',
         ready: true,
@@ -99,6 +99,7 @@ describe('rasterLiveQualificationV15', () => {
     // Only the three read-only account/plan/model preflight calls are allowed.
     // No image inference or semantic-critic quota is consumed.
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_API_TOKEN);
     expect(JSON.stringify(result)).not.toContain(ENV.CLOUDFLARE_ACCOUNT_ID);
   });

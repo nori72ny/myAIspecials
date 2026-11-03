@@ -23,7 +23,7 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     verifiedAt: "2026-10-20T13:40:00.000Z",
     reviewAfter: "2026-10-30T13:40:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official model page was rechecked on 2026-10-20: the fixed google/gemma-4-31b-it:free alias is listed as Free and supports tool calling. This review timestamp is not, by itself, proof of a specific live ZDR endpoint or a billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage cost; any unverifiable or non-zero condition fails closed before an answer is returned.",
+    sourceDescription: "OpenRouter model price was last verified on 2026-10-20. A price-only recheck on 2026-11-01 did not establish a compliant provider endpoint, so the runtime evidence window is not extended. This catalog entry is expired; no model is executable until an exact :free endpoint is independently verified to satisfy zero data retention, data_collection=deny, max_price zero, no provider fallback, exact served-model identity, and request-level zero-cost evidence. Nemotron 3 Ultra :free is excluded because its free endpoint disclosure permits provider logging and use for model improvement.",
   },
 ] as const;
 
