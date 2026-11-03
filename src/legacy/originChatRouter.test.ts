@@ -448,7 +448,8 @@ describe("createOriginChatRouter", () => {
       synthesisStatus: "citation-validation-failed",
       synthesisFailureCode: "UNKNOWN_CITATION",
       freeOnly: true,
-      cost: 0,
+      cost: null,
+      policyMaxCostUsd: 0,
     }));
     expect(synthesisMock).toHaveBeenCalledTimes(1);
     expect(executeMock).not.toHaveBeenCalled();
@@ -489,7 +490,8 @@ describe("createOriginChatRouter", () => {
       synthesisStatus: "provider-failed",
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
       freeOnly: true,
-      cost: 0,
+      cost: null,
+      policyMaxCostUsd: 0,
     }));
     expect(response.body.supervisor).toEqual(expect.objectContaining({
       version: "origin.supervisor.v2",
@@ -538,7 +540,8 @@ describe("createOriginChatRouter", () => {
       synthesisStatus: "plan-unavailable",
       synthesisFailureCode: "FREE_PROVIDER_NOT_CONFIGURED",
       freeOnly: true,
-      cost: 0,
+      cost: null,
+      policyMaxCostUsd: 0,
     }));
     expect(synthesisMock).not.toHaveBeenCalled();
     expect(executeMock).not.toHaveBeenCalled();
