@@ -17,7 +17,11 @@ function providerResult(text: string): OriginProviderExecutionResult {
   return {
     text,
     transportRequestCount: 1,
-    actualCostUsd: 0,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0,
+    policyMaxCostUsd: 0,
+    costEvidenceStatus: "NOT_MEASURED",
+    billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
     providerDataPolicy: {
       allowProviderFallbacks: false,
       dataCollection: "deny",
@@ -31,7 +35,7 @@ function providerResult(text: string): OriginProviderExecutionResult {
       attempt: 1,
       fallbackUsed: false,
     },
-    usage: { costUsd: 0 },
+    usage: { reportedCostUsd: 0 },
   };
 }
 
@@ -109,7 +113,7 @@ describe("MCP owner tool-chat router", () => {
     expect(response.body.ok).toBe(true);
     expect(response.body.content).toBe("README.md was read successfully.");
     expect(response.body.routing.costEvidenceStatus).toBe("NOT_MEASURED");
-    expect(response.body.routing.actualCostUsd).toBe(0); // Deprecated compatibility field; not a billing receipt.
+    expect(response.body.routing.actualCostUsd).toBeNull();
     expect(response.body.mcp).toEqual({
       connectionId: CONNECTION,
       connectionVersion: 3,
