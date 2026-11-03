@@ -19,8 +19,8 @@ afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { rec
 
 const result = (text: string): OriginProviderExecutionResult => ({
   text,
-  transportRequestCount: 1, actualCostUsd: 0,
-  usage: { costUsd: 0 },
+  transportRequestCount: 1, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+  usage: { reportedCostUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -90,7 +90,7 @@ describe('V1.4 multi-stage coding navigator', () => {
   it('rejects paid first-stage evidence before repository search or a second provider call', async () => {
     const { root, context } = await fixture();
     const paid = result(JSON.stringify({ queries: ['renderStatus'] }));
-    paid.actualCostUsd = 1 as 0;
+    paid.reportedUsageCostUsd = 1 as 0; paid.billingEvidence.reportedUsageCostUsd = 1 as 0;
     const execute = vi.fn(async () => paid);
     await expect(createCodingNavigatorV14(root, { env: { OPENROUTER_API_KEY: 'test-only' }, execute })(context)).rejects.toThrow();
     expect(execute).toHaveBeenCalledTimes(1);
