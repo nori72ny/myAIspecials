@@ -304,3 +304,22 @@
     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
 }
+
+
+/* The home layout owns vertical placement. Do not apply the chat composer’s
+   sticky bottom offset a second time inside the home flex layout. */
+@media (max-width: 639px) {
+  .origin-app main .origin-home-composer {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .origin-app main .origin-home-composer > .origin-composer {
+    position: relative !important;
+    bottom: auto !important;
+  }
+}
+
+@media (max-width: 639px) and (max-height: 680px) {
+  .origin-app main .origin-home-composer {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+}
