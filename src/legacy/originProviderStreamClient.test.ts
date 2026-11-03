@@ -105,10 +105,17 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects content before forwarding when served-model evidence is absent", async () => {
+  it.each([
+    [undefined, "omitted"],
+    [null, "null"],
+    ["", "empty"],
+    ["   ", "whitespace-only"],
+    [42, "numeric"],
+    [true, "boolean"],
+  ])("rejects streamed content before forwarding when served-model identity is %s (%s)", async (servedModel) => {
     const fetchMock = vi.fn(async () => streamingResponse([
-      event({ choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
-      "data: [DONE]\n\n",
+      event({ model: servedModel, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
+      "data: [DONE]\\n\\n",
     ]));
     const deltas: string[] = [];
     await expect(executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
