@@ -112,7 +112,7 @@ describe("executeOriginProviderStream", () => {
     ["   ", "whitespace-only"],
     [42, "numeric"],
     [true, "boolean"],
-  ])("rejects streamed content before forwarding when served-model identity is %s (%s)", async (servedModel) => {
+  ])("rejects streamed content before forwarding when served-model identity is %s (%s)", async (servedModel, _description: string) => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: servedModel, choices: [{ delta: { content: "must-not-render" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\\n\\n",
