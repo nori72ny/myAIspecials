@@ -23,8 +23,12 @@ const scope = {
 const response = (): OriginProviderExecutionResult => ({
   text: JSON.stringify(scope),
   transportRequestCount: 1,
-  actualCostUsd: 0,
-  usage: { costUsd: 0 },
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0,
+  policyMaxCostUsd: 0,
+  costEvidenceStatus: "NOT_MEASURED",
+  billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+  usage: { reportedCostUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -63,7 +67,7 @@ describe('V1.4 repository scope scout', () => {
 
   it('rejects paid evidence', async () => {
     const paid = response();
-    paid.actualCostUsd = 1 as 0;
+    paid.reportedUsageCostUsd = 1 as 0;
     const scout = createCodingScoutV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute: async () => paid });
     await expect(scout(context)).rejects.toThrow();
   });
