@@ -157,7 +157,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         requestId,
         durationMs: Math.max(0, now() - startedAt),
         modelId: planningResult.plan.modelId,
-        costUsd: result.actualCostUsd,
+        costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
       });
       res.write(`data: ${JSON.stringify({
