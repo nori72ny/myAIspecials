@@ -12,7 +12,11 @@ function result(
 ): OriginProviderExecutionResult {
   return {
     text: JSON.stringify(value),
-    actualCostUsd: 0,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0,
+    policyMaxCostUsd: 0,
+    costEvidenceStatus: "NOT_MEASURED",
+    billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
     providerDataPolicy: request.plan.providerDataPolicy,
     routingEvidence: {
       requestedModel: request.plan.modelId,
@@ -26,7 +30,7 @@ function result(
       promptTokens: 10,
       completionTokens: 10,
       totalTokens: 20,
-      costUsd: 0,
+      reportedCostUsd: 0,
     },
   };
 }
@@ -164,7 +168,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       .toBe("Answer sentence.");
     expect(extracted).toMatchObject({
       answerDigest: `sha256:${"a".repeat(64)}`,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
     expect(promptJudged).toEqual({
