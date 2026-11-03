@@ -46,7 +46,6 @@ type OpenRouterStreamChunk = {
 };
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const MAX_STREAM_TIMEOUT_MS = 18_000;
 
 const streamedText = (content: unknown): string => {
@@ -60,7 +59,7 @@ const streamedText = (content: unknown): string => {
 
 const allowedServedModel = (value: unknown): value is string =>
   typeof value === "string"
-  && (value === ORIGIN_OPENROUTER_FREE_MODEL || value === OPENROUTER_CANONICAL_SERVED_MODEL);
+  && value === ORIGIN_OPENROUTER_FREE_MODEL;
 
 function policyFailure(code: "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED", message: string): never {
   throw new OriginProviderError(code, message, 502, false);
@@ -94,7 +93,7 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
 }
 
 function providerErrorType(errorType: unknown): never {
-  const diagnostic = { upstreamErrorType: String(errorType) };
+  const diagnostic = { upstreamErrorType: typeof errorType === "string" && ["rate_limit_exceeded", "timeout", "provider_overloaded", "provider_unavailable"].includes(errorType) ? errorType : "unrecognized" };
   if (errorType === "rate_limit_exceeded") {
     throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }
@@ -237,7 +236,7 @@ async function streamOpenRouter(
     if (chunk.model !== undefined) {
       const candidate = typeof chunk.model === "string" ? chunk.model.trim() : "";
       if (!allowedServedModel(candidate)) {
-        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${candidate || "missing"}` });
+        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${/^[A-Za-z0-9._:/-]{1,64}$/.test(candidate) ? candidate : "unrecognized"}` });
       }
       servedModel = candidate;
     }
@@ -296,7 +295,7 @@ async function streamOpenRouter(
   const result: OriginProviderExecutionResult = {
     text: output,
     transportRequestCount: transport.count,
-    actualCostUsd: 0,
+    actualCostUsd: null,\n    reportedUsageCostUsd: 0,
     providerDataPolicy: providerRequest.plan.providerDataPolicy,
     routingEvidence: {
       requestedModel: providerRequest.plan.modelId,
