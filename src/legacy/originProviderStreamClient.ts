@@ -342,7 +342,17 @@ export async function executeOriginProviderStream(
     }
     if (Date.now() >= deadline) break;
     try {
-      return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
+      try {
+        return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
+      } catch (error) {
+        if (error instanceof OriginProviderError) {
+          throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+            ...error.diagnostic,
+            transportRequestCount: transport.count,
+          });
+        }
+        throw error;
+      }
     } catch (error) {
       if (error instanceof OriginProviderError) {
         lastError = error;
