@@ -33,7 +33,7 @@ describe("originResearchRouter", () => {
     app.use(createOriginResearchRouter());
     const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "AIOの最新情報を教えて" }] });
     expect(response.status).toBe(200);
-    expect(response.body.routing).toMatchObject({ provider: "DuckDuckGo", cost: 0, actualCostUsd: 0, freeOnly: true });
+    expect(response.body.routing).toMatchObject({ provider: "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true });
     expect(response.body.research.sources).toHaveLength(2);
     expect(response.body.research.comparison).toEqual({
       sourceCount: 2,
@@ -145,7 +145,7 @@ describe("originResearchRouter", () => {
     expect(researchMock).not.toHaveBeenCalled();
   });
 
-  it("returns a dedicated zero-cost failure instead of falling through to an unverified model answer", async () => {
+  it("returns a dedicated unmeasured-cost failure instead of falling through to an unverified model answer", async () => {
     researchMock.mockResolvedValue({
       ok: false,
       sources: [],
@@ -163,6 +163,7 @@ describe("originResearchRouter", () => {
       code: "RESEARCH_SOURCE_UNAVAILABLE",
       retryable: true,
       retryAttempted: false,
+      costEvidenceStatus: "NOT_MEASURED",
       costUsd: 0,
       freeOnly: true,
       paidFallbackUsed: false,
