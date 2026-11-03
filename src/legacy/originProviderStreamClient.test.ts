@@ -83,6 +83,26 @@ describe("executeOriginProviderStream", () => {
     expect(result.transportRequestCount).toBe(2);
   });
 
+  it("accumulates streamed HTTP sends across a retry of one logical execution", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
+        .mockResolvedValueOnce(streamingResponse([
+          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
+          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
+          "data: [DONE]\\n\\n",
+        ]));
+      const pending = executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+      await vi.advanceTimersByTimeAsync(700);
+      const result = await pending;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.transportRequestCount).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails closed when the terminal usage cost is non-zero, after never retrying", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: null }] }),
