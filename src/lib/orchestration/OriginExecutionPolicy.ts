@@ -11,11 +11,11 @@ export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
 
 export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID | typeof ORIGIN_GROQ_FREE_PROVIDER_ID;
 /** Production primary route is OpenRouter. Gemini is a separately guarded secondary route only. Groq remains disabled until independently verified. */
-export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [ORIGIN_OPENROUTER_FREE_PROVIDER_ID, ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID];
+export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [ORIGIN_OPENROUTER_FREE_PROVIDER_ID];
 
 export interface OriginExecutionAvailability { openRouterConfigured: boolean; googleAiStudioConfigured?: boolean; groqConfigured?: boolean; }
 export interface OriginExecutionPolicy { freeOnly: true; maxEstimatedCostUsd: number; timeoutMs: number; }
-export type OriginProviderDataCollection = "deny" | "provider-free-tier";
+export type OriginProviderDataCollection = "deny";
 /** Gemini's free tier is not treated as ZDR: it is an explicit privacy boundary and is only usable through the guarded secondary route. */
 export interface OriginProviderDataPolicy { allowProviderFallbacks: boolean; dataCollection: OriginProviderDataCollection; requireZeroDataRetention: boolean; }
 export interface OriginProviderFreeEvidence { providerId: OriginExecutionProviderId; verifiedAt: string; reviewAfter: string; sourceUrl: string; }
