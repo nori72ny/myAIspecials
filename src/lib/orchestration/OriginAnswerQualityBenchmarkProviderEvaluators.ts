@@ -312,7 +312,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
         return {
           answerDigest: request.answerDigest,
           claims: [],
-          actualCostUsd: 0,
+          actualCostUsd: null,
           attempts: 1,
         };
       }
@@ -366,7 +366,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
       return {
         answerDigest: request.answerDigest,
         claims,
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       };
     },
@@ -379,7 +379,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
           promptDigest: request.promptDigest,
           claimSetDigest: request.claimSetDigest,
           supportedClaimIds: [],
-          actualCostUsd: 0,
+          actualCostUsd: null,
           attempts: 1,
         };
       }
@@ -416,7 +416,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
         promptDigest: request.promptDigest,
         claimSetDigest: request.claimSetDigest,
         supportedClaimIds: [...record.supportedClaimIds],
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       };
     },
@@ -468,7 +468,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
           ? { failClosedCorrect: record.failClosedCorrect }
           : {}),
         userActionabilityScore: actionability,
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       };
     },
@@ -504,7 +504,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
         ...(record.supportingExcerpt !== undefined
           ? { supportingExcerpt: record.supportingExcerpt }
           : {}),
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       };
     },
@@ -570,7 +570,7 @@ export function createOriginAnswerQualityBenchmarkProviderEvaluators(
       });
       return {
         items,
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       };
     },
