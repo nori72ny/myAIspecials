@@ -42,6 +42,16 @@ function streamingResponse(parts: string[], status = 200) {
 const event = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
 
 describe("executeOriginProviderStream", () => {
+  it("reports zero streamed transport sends when the provider is not configured", async () => {
+    const fetchMock = vi.fn();
+    await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, {}, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
+        code: "PROVIDER_NOT_CONFIGURED",
+        diagnostic: { transportRequestCount: 0 },
+      });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards genuine upstream deltas and verifies the final zero-cost usage evidence", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
