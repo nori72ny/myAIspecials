@@ -126,13 +126,21 @@ async function executeChat(
 
   const body = await jsonOrNull(response);
   if (!response.ok || !body) {
+    const errorTransportRequests = body?.providerTransportRequests;
+    const providerError = typeof body?.code === "string" && body.code.startsWith("PROVIDER_");
+    if (
+      providerError
+      && (!Number.isInteger(errorTransportRequests) || Number(errorTransportRequests) < 0)
+    ) {
+      throw new Error("AQ_BENCHMARK_CHAT_ERROR_TRANSPORT_COUNT_UNVERIFIED");
+    }
     return {
       ok: false,
       content: "",
       answerRef: null,
       evidenceRef: null,
       verification: "BLOCKED_UNVERIFIED",
-      providerRequests: 0,
+      providerRequests: Number.isInteger(errorTransportRequests) ? Number(errorTransportRequests) : 0,
       evidenceJson: null,
       failureCode: safeCode(body?.code, `AQ_BENCHMARK_CHAT_HTTP_${response.status}`),
     };
