@@ -34,7 +34,7 @@ describe("OriginAnswerQualityBenchmarkPromptClaimJudge", () => {
       promptDigest: request.promptDigest,
       claimSetDigest: request.claimSetDigest,
       supportedClaimIds: ["claim-a"],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -67,7 +67,7 @@ describe("OriginAnswerQualityBenchmarkPromptClaimJudge", () => {
         promptDigest: request.promptDigest,
         claimSetDigest: request.claimSetDigest,
         supportedClaimIds,
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       })));
 
@@ -89,7 +89,7 @@ describe("OriginAnswerQualityBenchmarkPromptClaimJudge", () => {
       promptDigest: `sha256:${"f".repeat(64)}`,
       claimSetDigest: request.claimSetDigest,
       supportedClaimIds: [],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     })));
 
