@@ -20,7 +20,7 @@ export interface OriginProviderExecutionRequest {
   requiredTool?: OriginProviderRequiredTool;
 }
 export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
-export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; /** Null until an authenticated billing receipt is available. */ actualCostUsd: null | 0; /** Provider-reported usage telemetry; not an actual billing receipt. */ reportedUsageCostUsd?: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
 export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
 
@@ -46,7 +46,8 @@ function safeProviderMessage(code: OriginProviderErrorCode): string {
 }
 
 export class OriginProviderError extends Error {
-  constructor(public readonly code: OriginProviderErrorCode, _message: string, public readonly status: number, public readonly retryable: boolean, public readonly retryAfterSeconds?: number, public readonly diagnostic?: OriginProviderDiagnostic) {
+  public readonly retryable = false;
+  constructor(public readonly code: OriginProviderErrorCode, _message: string, public readonly status: number, _retryable: boolean, public readonly retryAfterSeconds?: number, public readonly diagnostic?: OriginProviderDiagnostic) {
     super(safeProviderMessage(code));
     this.name = "OriginProviderError";
   }
@@ -61,15 +62,14 @@ const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
 export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;
 export type AllowedZeroCostProvider = (typeof ALLOWED_ZERO_COST_PROVIDERS)[number];
 export const ALLOWED_ZERO_COST_MODELS = { openrouter: [ORIGIN_OPENROUTER_FREE_MODEL] } as const;
-const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const IDS: Record<string, AllowedZeroCostProvider> = { OpenRouter: "openrouter", "openrouter-free": "openrouter" };
 export function resetOriginProviderCooldownForTests(): void { /* retained for test compatibility; cooldown circuit was removed */ }
 const pid = (value: unknown): AllowedZeroCostProvider | null => {
   if (typeof value !== "string") return null;
   return IDS[value] ?? (ALLOWED_ZERO_COST_PROVIDERS.includes(value as AllowedZeroCostProvider) ? value as AllowedZeroCostProvider : null);
 };
-const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && ((ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model) || (provider === "openrouter" && model === OPENROUTER_CANONICAL_SERVED_MODEL));
-function fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
+const allowed = (provider: AllowedZeroCostProvider, model: unknown): model is string => typeof model === "string" && (ALLOWED_ZERO_COST_MODELS[provider] as readonly string[]).includes(model);
+function normalizeDiagnosticToken(value: unknown, allowedValues: readonly string[]): string {\n  if (typeof value !== "string" || !allowedValues.includes(value)) return "unrecognized";\n  return value.replace(/[\\u0000-\\u001f\\u007f]/g, "").slice(0, 64) || "unrecognized";\n}\nfunction normalizeServedModelDiagnostic(value: unknown): string {\n  if (typeof value !== "string" || !/^[A-Za-z0-9._:/-]{1,64}$/.test(value)) return "unrecognized";\n  return value;\n}\nfunction fail(message: string, code: OriginProviderErrorCode = "PROVIDER_POLICY_VIOLATION"): never { throw new OriginProviderError(code, message, 502, false); }
 function zero(value: unknown, field: string): asserts value is 0 {
   if (typeof value !== "number" || !Number.isFinite(value)) fail(`${field} を検証できません。`, "PROVIDER_COST_UNVERIFIED");
   if (value !== 0 || !Object.is(value, 0)) fail(`${field} が厳密な$0ポリシーを満たしません。`, "PROVIDER_POLICY_VIOLATION");
@@ -92,7 +92,8 @@ function assertBillingMetadata(payload: unknown): void {
 }
 export function assertOriginZeroCostExecutionResult(result: OriginProviderExecutionResult, expectedModel?: string, expectedProvider?: string): void {
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
-  zero(result.actualCostUsd, "actualCostUsd");
+  if (result.actualCostUsd !== null) fail("実費は課金証跡がないため未計測として扱う必要があります。", "PROVIDER_COST_UNVERIFIED");
+  zero(result.reportedUsageCostUsd, "reportedUsageCostUsd");
   zero(result.usage?.costUsd, "usage.costUsd");
   if (!Number.isSafeInteger(result.transportRequestCount) || Number(result.transportRequestCount) < 1) {
     fail("実際のProvider HTTP送信回数を確認できません。", "PROVIDER_TRANSPORT_UNVERIFIED");
@@ -104,7 +105,7 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (evidence.attempt !== 1) fail("不正な試行番号です。", "PROVIDER_ROUTING_UNVERIFIED");
   const validStrategy = evidence.strategy === "adaptive-primary";
   const validFallback = evidence.fallbackUsed === false;
-  const validServedModel = evidence.requestedModel === evidence.servedModel || evidence.servedModel === OPENROUTER_CANONICAL_SERVED_MODEL;
+  const validServedModel = evidence.requestedModel === ORIGIN_OPENROUTER_FREE_MODEL && evidence.servedModel === ORIGIN_OPENROUTER_FREE_MODEL;
   if (!validStrategy || !validFallback || !validServedModel) fail("Provider fallback またはPrimary証跡が不正です。", "PROVIDER_ROUTING_UNVERIFIED");
   if (expectedProvider && pid(expectedProvider) !== provider) fail("Providerが一致しません。", "PROVIDER_ROUTING_UNVERIFIED");
 }
@@ -190,7 +191,7 @@ async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: R
 }
 function validate(plan: OriginExecutionPlan): void {
   const provider = pid(plan.providerId);
-  if (!plan.freeOnly || plan.estimatedCostUsd !== 0 || plan.providerDataPolicy.allowProviderFallbacks !== false || plan.providerDataPolicy.dataCollection !== "deny" || plan.providerDataPolicy.requireZeroDataRetention !== true || !provider || !allowed(provider, plan.modelId)) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル・ZDR固定ポリシーに適合しない実行計画です。", 400, false);
+  if (!plan.freeOnly || plan.estimatedCostUsd !== 0 || plan.providerId !== "openrouter-free" || plan.modelId !== ORIGIN_OPENROUTER_FREE_MODEL || plan.providerDataPolicy.allowProviderFallbacks !== false || plan.providerDataPolicy.dataCollection !== "deny" || plan.providerDataPolicy.requireZeroDataRetention !== true || !provider || !allowed(provider, plan.modelId)) throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル・ZDR固定ポリシーに適合しない実行計画です。", 400, false);
 }
 function validateRequiredTool(tool: OriginProviderRequiredTool | undefined): void {
   if (!tool) return;
@@ -237,14 +238,14 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     const errorType = choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type;
     if (errorType === "rate_limit_exceeded") throw http(429);
     if (errorType === "timeout") throw http(504);
-    if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
+    if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: normalizeDiagnosticToken(errorType, ["rate_limit_exceeded", "timeout", "provider_overloaded", "provider_unavailable"]) });
     // Never substitute the requested model when the provider omits its served-model identity.
     // Missing identity is unverified routing and must fail closed before any result is returned.
     if (typeof data.model !== "string" || !data.model.trim()) {
       throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouterの提供モデルを確認できません。", 502, false);
     }
     const servedModel = data.model.trim();
-    if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${servedModel}` });
+    if (!allowed(provider, servedModel)) throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${normalizeServedModelDiagnostic(servedModel)}` });
     // Validate required-tool structure before provider billing metadata so malformed tool
     // responses receive their precise contract error. Nothing is returned or emitted until
     // all billing and routing policy checks below have also succeeded.
@@ -269,7 +270,7 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     }
 
     if (choice?.finish_reason !== "length") {
-      const result: OriginProviderExecutionResult = { text: output, transportRequestCount: transport.count, actualCostUsd: 0, providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } };
+      const result: OriginProviderExecutionResult = { text: output, transportRequestCount: transport.count, actualCostUsd: null, reportedUsageCostUsd: 0, providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } };
       assertOriginZeroCostExecutionResult(result, requestData.plan.modelId, requestData.plan.providerId);
       return result;
     }
