@@ -47,6 +47,11 @@ type OpenRouterStreamChunk = {
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+function safeStreamDiagnostic(value: unknown): string {
+  if (typeof value !== "string") return "unrecognized";
+  const normalized = value.replace(/[\\u0000-\\u001f\\u007f]/g, " ").replace(/\\s+/g, " ").trim().slice(0, 64);
+  return normalized || "unrecognized";
+}
 const MAX_STREAM_TIMEOUT_MS = 18_000;
 
 const streamedText = (content: unknown): string => {
@@ -202,7 +207,7 @@ async function streamOpenRouter(
   }
   if (!response.body) {
     clearTimeout(timer);
-    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, false);
   }
 
   const reader = response.body.getReader();
@@ -227,7 +232,7 @@ async function streamOpenRouter(
     try {
       chunk = JSON.parse(payload) as OpenRouterStreamChunk;
     } catch {
-      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, false);
     }
 
     const errorType = chunk.choices?.[0]?.error?.metadata?.error_type ?? chunk.error?.metadata?.error_type;
@@ -237,7 +242,7 @@ async function streamOpenRouter(
     if (chunk.model !== undefined) {
       const candidate = typeof chunk.model === "string" ? chunk.model.trim() : "";
       if (!allowedServedModel(candidate)) {
-        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: `served-model:${candidate || "missing"}` });
+        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: safeStreamDiagnostic(`served-model:${candidate || "missing"}`) });
       }
       servedModel = candidate;
     }
@@ -284,10 +289,10 @@ async function streamOpenRouter(
   }
 
   if (!doneSeen || !usageSeen || !output.trim()) {
-    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, false);
   }
   if (finishReason === "length") {
-    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, false);
   }
   if (!allowedServedModel(servedModel)) {
     throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
@@ -296,7 +301,10 @@ async function streamOpenRouter(
   const result: OriginProviderExecutionResult = {
     text: output,
     transportRequestCount: transport.count,
-    actualCostUsd: 0,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0,
+    policyMaxCostUsd: 0,
+    costEvidenceStatus: "NOT_MEASURED",
     providerDataPolicy: providerRequest.plan.providerDataPolicy,
     routingEvidence: {
       requestedModel: providerRequest.plan.modelId,
@@ -306,7 +314,8 @@ async function streamOpenRouter(
       attempt: 1,
       fallbackUsed: false,
     },
-    usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
+    billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+    usage: { promptTokens, completionTokens, totalTokens, reportedCostUsd: 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
   // Release the complete response only after stream termination and all billing checks pass.
