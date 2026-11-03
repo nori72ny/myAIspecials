@@ -49,8 +49,12 @@ async function fixture() {
 
 const execute = vi.fn(async (): Promise<OriginProviderExecutionResult> => ({
   text: JSON.stringify({ edits: [{ path: 'src/math.js', search: 'a - b', replacement: 'a + b' }], creates: [] }),
-  actualCostUsd: 0,
-  usage: { costUsd: 0 },
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0,
+  policyMaxCostUsd: 0,
+  costEvidenceStatus: "NOT_MEASURED",
+  billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+  usage: { reportedCostUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
