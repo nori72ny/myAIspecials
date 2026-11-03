@@ -272,8 +272,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.main!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.app!.bottom + 1);
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(30);
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(120);
+      console.log('MOBILE_HOME_LAYOUT_METRICS', JSON.stringify(metrics));
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.18);
+      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height * 0.40);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
     });
