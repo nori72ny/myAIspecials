@@ -285,7 +285,6 @@
     height: 100% !important;
     min-height: 100% !important;
     box-sizing: border-box !important;
-    padding-block: 20px 0 !important;
     justify-content: flex-start !important;
   }
   .origin-app main .origin-home-intro {
@@ -306,6 +305,12 @@
 /* The home layout owns vertical placement. Do not apply the chat composer’s
    sticky bottom offset a second time inside the home flex layout. */
 @media (max-width: 639px) {
+  /* Override the older first-child shell rule, whose 2.5dvh bottom padding
+     was leaving 16–24px below the home composer. */
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+    padding-bottom: 0 !important;
+  }
   .origin-app main .origin-home-composer {
     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
