@@ -527,3 +527,20 @@ button:first-child:has(svg) * {
 :root[data-theme="dark"] .origin-app main div:has(> [data-testid="origin-core-logo"]) > p {
   color: var(--text-secondary) !important;
 }
+
+
+/* Keep the scroll viewport edge as the single source of truth for the
+   home composer offset; apply the safe-area inset exactly once. */
+@media (max-width: 639px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto {
+    padding-bottom: 0 !important;
+  }
+  .origin-app main .origin-home-composer {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+@media (max-width: 639px) and (max-height: 680px) {
+  .origin-app main .origin-home-composer {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+}
