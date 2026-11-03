@@ -133,7 +133,10 @@ async function main() {
         }
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, result: {
-          text: answer, transportRequestCount: 1, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 },
+          // Synthetic compatibility fixture for the pinned baseline runtime only; never a billing receipt or production response.
+          text: answer, transportRequestCount: 1, actualCostUsd: 0, providerDataPolicy: value.plan.providerDataPolicy,
+          routingEvidence: { requestedModel: value.plan.modelId, servedModel: value.plan.modelId, strategy: 'adaptive-primary', provider: 'OpenRouter', attempt: 1, fallbackUsed: false },
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 },
           providerDataPolicy: value.plan.providerDataPolicy,
           routingEvidence: { requestedModel: value.plan.modelId, servedModel: value.plan.modelId,
             strategy: 'adaptive-primary', provider: 'OpenRouter', attempt: 1, fallbackUsed: false },
