@@ -35,7 +35,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerPolicy).toContain("prompt: 0");
     expect(providerPolicy).toContain("completion: 0");
     expect(providerPolicy).toContain("request: 0");
-    expect(providerClient).toContain("zero(data.usage?.cost");
+    expect(providerClient).toContain("const reportedUsageCostUsd = data.usage?.cost;");
+    expect(providerClient).toContain('zero(reportedUsageCostUsd, "usage.cost");');
     expect(providerClient).toMatch(
       /routingEvidence:\s*evidence\([A-Za-z_$][\w$]*,\s*String\(servedModel\)\)/,
     );
