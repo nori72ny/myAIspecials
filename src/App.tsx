@@ -517,7 +517,7 @@ const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|j
 const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
-const SAFE_WAITING_MESSAGE = '無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
+const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
 const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
 const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
@@ -1309,7 +1309,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     };
     const enterSafeWaiting = () => {
       setAttachmentError(language === 'en'
-        ? 'A verified $0.00 free-model response is unavailable. The response was withheld; please try again later.'
+        ? 'A free-only policy-compliant response could not be confirmed. The response was withheld; please try again later.'
         : SAFE_WAITING_MESSAGE);
       setIsSafeWaiting(true);
     };
