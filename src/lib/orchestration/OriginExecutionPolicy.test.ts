@@ -7,6 +7,10 @@ const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
 
 describe("buildOriginExecutionPlan", () => {
+  it("allows only the strict OpenRouter free provider in the zero-cost provider set", () => {
+    expect(ORIGIN_ZERO_COST_PROVIDER_IDS).toEqual(["openrouter-free"]);
+  });
+
   it("always selects the verified OpenRouter free route when it is configured", () => {
     const result = buildOriginExecutionPlan({ goal: "認証処理を実装してください", requiresCodeChanges: true }, { openRouterConfigured: true, googleAiStudioConfigured: true, groqConfigured: true }, undefined, { nowMs: verifiedNow });
     expect(result.ok).toBe(true);
