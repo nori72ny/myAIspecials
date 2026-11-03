@@ -170,7 +170,10 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
   });
 
   it("blocks provider-backed AQ evidence when measured transport count is absent", async () => {
-    const { providerTransportRequests: _missing, ...routingWithoutTransportCount } = providerRouting("passed");
+    const routingWithoutTransportCount = Object.fromEntries(
+      Object.entries(providerRouting("passed"))
+        .filter(([key]) => key !== "providerTransportRequests"),
+    );
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
       expectedProviderId: EXPECTED_PROVIDER,
