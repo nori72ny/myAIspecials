@@ -194,6 +194,8 @@ describe('UnifiedChat', () => {
           timeMs: 25,
           actualCostUsd: 0,
           freeOnly: true,
+          // A caller/API-supplied status string is not a trusted runtime attestation.
+          costEvidenceStatus: 'ZERO_COST_VERIFIED',
           verificationStatus: 'not-run',
           verificationReason: 'この版では別AIによる確認を実行していません。',
         },
