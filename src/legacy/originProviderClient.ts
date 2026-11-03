@@ -95,6 +95,9 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   if (!result || typeof result !== "object") fail("実行結果を検証できません。", "PROVIDER_COST_UNVERIFIED");
   zero(result.actualCostUsd, "actualCostUsd");
   zero(result.usage?.costUsd, "usage.costUsd");
+  if (!Number.isSafeInteger(result.transportRequestCount) || Number(result.transportRequestCount) < 1) {
+    fail("実際のProvider HTTP送信回数を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
+  }
   const evidence = result.routingEvidence;
   const provider = pid(evidence?.provider);
   if (!evidence || !provider || !allowed(provider, evidence.servedModel)) fail("許可された無料Provider/Modelの証跡を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
