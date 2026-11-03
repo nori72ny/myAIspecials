@@ -171,6 +171,17 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("never marks an unexpected streaming executor failure as retryable", async () => {
+    const streamExecute = vi.fn(async () => { throw new Error("transport may already have completed"); }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "文章を作ってください" }] });
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({ code: "PROVIDER_INTERNAL_ERROR", retryable: false, retryAttempted: false });
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["capability question", "あなたは何ができるのですか？"],
     ["current information with a modifier", "今日のAIニュースを教えてください"],
