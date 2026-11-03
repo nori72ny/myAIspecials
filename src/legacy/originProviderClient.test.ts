@@ -27,7 +27,7 @@ describe("executeOriginProvider", () => {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         strategy: "adaptive-primary",
-        provider: "OpenRouter",
+        provider: "openrouter",
         attempt: 1 as const,
         fallbackUsed: false as const,
       },
