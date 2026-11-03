@@ -173,12 +173,13 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
-    padding-top: clamp(34px, 5.7dvh, 46px) !important;
+    justify-content: center !important;
+    padding-block: clamp(16px, 2.5dvh, 24px) !important;
     padding-inline: 0 !important;
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
-    margin-top: auto !important;
+    margin-top: 0 !important;
   }
   [data-testid="origin-core-logo"] {
     width: 64px !important;
@@ -241,5 +242,86 @@
     [aria-label="Creative workspace"]
   ) {
     padding: 12px !important;
+  }
+}
+
+
+/* ACOS 2.0 mobile geometry correction: keep the home mark in the upper
+   visual band and size the composer to the available short viewport. */
+@media (max-width: 639px) {
+  .origin-app main .origin-composer {
+    box-shadow: 0 7px 22px color-mix(in oklch, var(--shadow-color) 34%, transparent),
+      inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  }
+  .origin-app main .origin-composer:focus-within,
+  .origin-app main .origin-composer.is-focused {
+    box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 36%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent),
+      inset 0 1px 0 color-mix(in oklch, white 52%, transparent) !important;
+  }
+}
+
+@media (max-width: 639px) and (max-height: 680px) {
+  .origin-app main .origin-composer {
+    min-height: 106px !important;
+    bottom: 0 !important;
+    padding: 6px !important;
+    row-gap: 2px !important;
+    grid-template-rows: minmax(46px, auto) 44px !important;
+  }
+  .origin-app main .origin-composer > textarea,
+  .origin-app main .origin-composer > .origin-composer__input {
+    min-height: 46px !important;
+    padding: 6px 10px 4px !important;
+  }
+}
+
+
+/* The mobile home has two independent vertical zones: a centered intro and
+   a composer anchored to the bottom edge of the scroll viewport. */
+@media (max-width: 639px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
+    height: 100% !important;
+    min-height: 100% !important;
+    box-sizing: border-box !important;
+    justify-content: flex-start !important;
+  }
+  .origin-app main .origin-home-intro {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    justify-content: center !important;
+    padding-block: 8px !important;
+  }
+  .origin-app main .origin-home-composer {
+    flex: 0 0 auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+}
+
+
+/* The home layout owns vertical placement. Do not apply the chat composer’s
+   sticky bottom offset a second time inside the home flex layout. */
+@media (max-width: 639px) {
+  /* Override the older first-child shell rule, whose 2.5dvh bottom padding
+     was leaving 16–24px below the home composer. */
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+    padding-bottom: 0 !important;
+  }
+  .origin-app main .origin-home-composer {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+  .origin-app main .origin-home-composer > .origin-composer {
+    position: relative !important;
+    bottom: auto !important;
+  }
+}
+
+@media (max-width: 639px) and (max-height: 680px) {
+  .origin-app main .origin-home-composer {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
 }
