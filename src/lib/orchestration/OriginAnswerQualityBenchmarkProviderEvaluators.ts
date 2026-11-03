@@ -295,7 +295,7 @@ function evaluator(
     };
     options.beforeProviderRequest?.();
     const result = await execute(request, env);
-    if (result.actualCostUsd !== 0 || result.usage.costUsd !== 0) {
+    if (result.actualCostUsd !== null || result.costEvidenceStatus !== "NOT_MEASURED" || result.reportedUsageCostUsd !== 0 || result.usage.reportedCostUsd !== 0) {
       throw new Error("AQ_BENCHMARK_EVALUATOR_NON_ZERO_COST");
     }
     return parseToolJson(result);
