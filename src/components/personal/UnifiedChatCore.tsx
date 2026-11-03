@@ -39,6 +39,7 @@ type RoutingMetadata = {
   taskType?: string;
   actualCostUsd?: number;
   estimatedCostUsd?: number;
+  costEvidenceStatus?: 'NOT_MEASURED' | 'BLOCKED_UNVERIFIED' | 'ZERO_COST_VERIFIED';
   freeOnly?: boolean;
   traceId?: string;
   verificationStatus?: 'not-run' | 'not-required' | 'passed' | 'failed' | 'pending';
@@ -384,10 +385,10 @@ function verificationLabel(status: RoutingMetadata['verificationStatus'], isEn: 
 }
 
 function executionCostLabel(routing: RoutingMetadata, isEn: boolean): string {
-  const actualCost = routing.actualCostUsd ?? routing.cost;
-  if (routing.freeOnly && actualCost === 0) return isEn ? 'Free' : '無料';
-  if (typeof actualCost === 'number' && Number.isFinite(actualCost)) return `${actualCost.toFixed(4)}`;
-  return isEn ? 'Not confirmed' : '未確認';
+  // A free-model policy flag or provider-reported zero is not a billing receipt.
+  // Only the opaque trusted-evidence state may authorize a zero-cost UI claim.
+  if (routing.costEvidenceStatus === 'ZERO_COST_VERIFIED') return isEn ? 'Free (verified)' : '無料（検証済み）';
+  return isEn ? 'Not verified' : '未確認';
 }
 
 function executionTimeLabel(timeMs: number, isEn: boolean): string {
