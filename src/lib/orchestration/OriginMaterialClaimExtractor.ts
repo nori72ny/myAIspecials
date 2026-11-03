@@ -52,12 +52,13 @@ function answerDigest(answerText: string): string {
   return `sha256:${createHash("sha256").update(answerText, "utf8").digest("hex")}`;
 }
 
-function isRecord(value: unknown): value is OriginMaterialClaimExtractionRecord {
+type RawOriginMaterialClaimExtractionRecord = Omit<OriginMaterialClaimExtractionRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginMaterialClaimExtractionRecord {
   if (!value || typeof value !== "object") return false;
-  const r = value as Partial<OriginMaterialClaimExtractionRecord>;
+  const r = value as Partial<RawOriginMaterialClaimExtractionRecord>;
   return typeof r.answerDigest === "string"
     && Array.isArray(r.claims)
-    && r.actualCostUsd === null
     && r.attempts === 1;
 }
 
