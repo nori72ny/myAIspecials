@@ -2,6 +2,13 @@ import type {
   OriginAnswerQualityBenchmarkAnyEnvironmentProof,
 } from "./OriginAnswerQualityBenchmarkEnvironmentProof.js";
 import {
+  createOriginCostNotMeasuredV1,
+} from "./OriginCostEvidenceV1.js";
+import {
+  bindOriginAnswerQualityBenchmarkCostEvidence,
+  type OriginAnswerQualityBenchmarkCostEvidenceResult,
+} from "./OriginAnswerQualityBenchmarkCostEvidence.js";
+import {
   createOriginAnswerQualityFrozenCorpus,
   type OriginAnswerQualityBenchmarkFrozenCorpus,
 } from "./OriginAnswerQualityBenchmarkCorpus.js";
@@ -59,6 +66,9 @@ export interface OriginAnswerQualityBenchmarkSessionSuccess {
   readonly schemaVersion: "origin.aq-benchmark-session.v1";
   readonly corpus: OriginAnswerQualityBenchmarkFrozenCorpus;
   readonly measuredRun: OriginAnswerQualityBenchmarkMeasuredBoundRun;
+  /** Billing is not independently reconciled; legacy costUsd: 0 is not proof. */
+  /** Optional only for legacy serialized adapters; current session runner always supplies it. */
+  readonly costEvidence?: OriginAnswerQualityBenchmarkCostEvidenceResult;
 }
 
 export type OriginAnswerQualityBenchmarkSessionResult =
@@ -101,7 +111,7 @@ export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
   }
   if (
     proof.freeOnly !== true
-    || proof.maxPermittedCostUsd !== 0
+    || proof.costUsd !== 0
     || proof.paidFallbackEnabled !== false
   ) {
     return { ok: false, code: "AQ_BENCHMARK_SESSION_ENV_ZERO_COST_INVALID" };
@@ -117,7 +127,7 @@ export function validateOriginAnswerQualityBenchmarkSessionEnvironmentProof(
     artifact: "artifact-v1.2",
   };
 
-  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v2") {
+  if (proof.schemaVersion === "origin.aq-benchmark-environment-proof.v1") {
     if (requiredLanes.includes("coding") && proof.codingReady !== true) {
       return {
         ok: false,
@@ -279,12 +289,28 @@ export async function runOriginAnswerQualityBenchmarkSession(
     };
   }
 
+  const costEvidence = bindOriginAnswerQualityBenchmarkCostEvidence(
+    corpus.cases.map((item) => item.caseId),
+    corpus.cases.map((item) => ({
+      caseId: item.caseId,
+      evidence: createOriginCostNotMeasuredV1("BILLING_NOT_AVAILABLE"),
+    })),
+  );
+  if (costEvidence.ok === false) {
+    return {
+      ok: false,
+      code: "AQ_BENCHMARK_SESSION_MEASURED_BINDING_FAILED",
+      detail: costEvidence.code,
+    };
+  }
+
   return {
     ok: true,
     value: Object.freeze({
       schemaVersion: "origin.aq-benchmark-session.v1",
       corpus,
       measuredRun: measuredRun.value,
+      costEvidence: costEvidence.value,
     }),
   };
 }
