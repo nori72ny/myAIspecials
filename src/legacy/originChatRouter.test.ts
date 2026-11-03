@@ -10,6 +10,7 @@ const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedCatalogTime = Date.parse(verifiedEvidence.verifiedAt) + 1;
 const defaultExecutionResult = {
   text: "安全な確認結果です。",
+  transportRequestCount: 1,
   actualCostUsd: 0 as const,
   providerDataPolicy: { allowProviderFallbacks: false as const, dataCollection: "deny" as const, requireZeroDataRetention: true as const },
   routingEvidence: { requestedModel: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", strategy: "adaptive-primary" as const, provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
