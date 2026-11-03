@@ -38,6 +38,7 @@ function safeProviderMessage(code: OriginProviderErrorCode): string {
     case "PROVIDER_REQUIRED_TOOL_TRUNCATED": return "無料AIの必須ツール出力が完了しませんでした。";
     case "PROVIDER_COST_UNVERIFIED": return "無料実行の費用を確認できません。";
     case "PROVIDER_ROUTING_UNVERIFIED": return "許可された無料Provider/Modelの証跡を確認できません。";
+    case "PROVIDER_TRANSPORT_UNVERIFIED": return "実際のProvider HTTP送信回数を確認できません。";
     case "PROVIDER_POLICY_VIOLATION": return "0ドル固定ポリシーに適合しない実行計画です。";
     case "PROVIDER_INTERNAL_ERROR": return "無料AIとの通信に失敗しました。";
     default: return "無料AIを現在利用できません。";
@@ -96,7 +97,7 @@ export function assertOriginZeroCostExecutionResult(result: OriginProviderExecut
   zero(result.actualCostUsd, "actualCostUsd");
   zero(result.usage?.costUsd, "usage.costUsd");
   if (!Number.isSafeInteger(result.transportRequestCount) || Number(result.transportRequestCount) < 1) {
-    fail("実際のProvider HTTP送信回数を確認できません。", "PROVIDER_ROUTING_UNVERIFIED");
+    fail("実際のProvider HTTP送信回数を確認できません。", "PROVIDER_TRANSPORT_UNVERIFIED");
   }
   const evidence = result.routingEvidence;
   const provider = pid(evidence?.provider);
