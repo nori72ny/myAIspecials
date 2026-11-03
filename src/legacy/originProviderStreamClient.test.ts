@@ -233,6 +233,26 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("maps unknown upstream SSE error text to a fixed diagnostic label", async () => {
+    const maliciousError = `private\n${"secret-".repeat(30)}`;
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ error: { metadata: { error_type: maliciousError } } }),
+    ]));
+    const error = await executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    ).then(() => undefined, (caught: unknown) => caught);
+    expect(error).toMatchObject({
+      code: "PROVIDER_INVALID_RESPONSE",
+      retryable: false,
+      diagnostic: { upstreamErrorType: "unrecognized", transportRequestCount: 1 },
+    });
+    expect(JSON.stringify((error as Error & { diagnostic?: unknown }).diagnostic)).not.toContain("secret");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed on a truncated stream without DONE and does not retry", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
