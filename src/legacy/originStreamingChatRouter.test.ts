@@ -10,7 +10,11 @@ const evidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const catalogNow = () => Date.parse(evidence.verifiedAt) + 1;
 const result = (text: string): OriginProviderExecutionResult => ({
   text,
-  actualCostUsd: 0,
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0,
+  policyMaxCostUsd: 0,
+  costEvidenceStatus: "NOT_MEASURED",
+  billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
   providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
   routingEvidence: {
     requestedModel: evidence.modelId,
@@ -20,7 +24,7 @@ const result = (text: string): OriginProviderExecutionResult => ({
     attempt: 1,
     fallbackUsed: false,
   },
-  usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6, costUsd: 0 },
+  usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6, reportedCostUsd: 0 },
 });
 
 function appWith(streamExecute: OriginProviderStreamExecutor) {
@@ -162,7 +166,7 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.status).toBe(503);
     expect(response.headers["content-type"]).toContain("application/json");
     expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.body).toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true, retryAttempted: false, requestId: "origin-stream-test" });
+    expect(response.body).toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: false, retryAttempted: false, requestId: "origin-stream-test" });
     expect(JSON.stringify(response.body)).not.toContain("private-");
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
