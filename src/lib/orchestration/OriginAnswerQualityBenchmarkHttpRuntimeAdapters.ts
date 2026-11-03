@@ -172,12 +172,14 @@ async function executeChat(
     }
   }
 
-  const attempts = routing.providerAttempts;
-  const providerRequests = Number.isInteger(attempts) && Number(attempts) >= 0
-    ? Number(attempts)
-    : routing.providerId === undefined
-      ? 0
-      : 1;
+  const transportRequests = routing.providerTransportRequests;
+  if (
+    providerUsed
+    && (!Number.isInteger(transportRequests) || Number(transportRequests) < 1)
+  ) {
+    throw new Error("AQ_BENCHMARK_CHAT_TRANSPORT_REQUEST_COUNT_UNVERIFIED");
+  }
+  const providerRequests = providerUsed ? Number(transportRequests) : 0;
   const verificationStatus = answer && record(answer.verification)
     ? record(answer.verification)?.status
     : routing.verificationStatus;
