@@ -238,6 +238,7 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
   it("does not retry a failed Chat request and reports it as blocked", async () => {
     const fetchImpl = vi.fn(async () => json({
       code: "PROVIDER_UNAVAILABLE",
+      providerTransportRequests: 0,
     }, 503));
     const evidenceVault = createOriginAnswerQualityBenchmarkEphemeralEvidenceVault();
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
