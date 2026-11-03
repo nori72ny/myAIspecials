@@ -49,7 +49,7 @@ const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 function safeStreamDiagnostic(value: unknown): string {
   if (typeof value !== "string") return "unrecognized";
-  const normalized = value.replace(/[\\u0000-\\u001f\\u007f]/g, " ").replace(/\\s+/g, " ").trim().slice(0, 64);
+  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 64);
   return normalized || "unrecognized";
 }
 const MAX_STREAM_TIMEOUT_MS = 18_000;
