@@ -318,7 +318,7 @@ export async function executeOriginProvider(providerRequest: OriginProviderExecu
     return await openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
   } catch (error) {
     if (error instanceof OriginProviderError) {
-      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      throw new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, {
         ...error.diagnostic,
         transportRequestCount: transport.count,
       });
