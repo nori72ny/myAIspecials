@@ -161,7 +161,7 @@ describe("originResearchRouter", () => {
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
       code: "RESEARCH_SOURCE_UNAVAILABLE",
-      retryable: true,
+      retryable: false,
       retryAttempted: false,
       costEvidenceStatus: "NOT_MEASURED",
       costUsd: null,
