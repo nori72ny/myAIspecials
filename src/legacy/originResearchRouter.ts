@@ -212,7 +212,7 @@ export function createOriginResearchRouter() {
       return res.status(503).json({
         code: "RESEARCH_SOURCE_UNAVAILABLE",
         message,
-        retryable: true,
+        retryable: false,
         retryAttempted: false,
         costEvidenceStatus: "NOT_MEASURED",
         costUsd: null,
