@@ -27,6 +27,7 @@ describe("executeOriginProvider", () => {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         strategy: "adaptive-primary",
+        // Use the canonical provider ID so this fixture isolates transport-count validation.
         provider: "openrouter",
         attempt: 1 as const,
         fallbackUsed: false as const,
