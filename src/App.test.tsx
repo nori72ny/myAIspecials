@@ -1209,17 +1209,20 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
-  it('retries one explicitly retryable free-provider failure and accepts only the verified zero-cost result', async () => {
+  it('never replays a provider request even when the response incorrectly marks it retryable', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const valid = {
-      content: '再試行後の検証済み回答',
+      content: '再送後に表示してはいけない回答',
       routing: {
         modelId: model,
         freeOnly: true,
-        cost: 0,
-        actualCostUsd: 0,
+        cost: null,
+        actualCostUsd: null,
+        reportedUsageCostUsd: 0,
+        policyMaxCostUsd: 0,
+        costEvidenceStatus: 'NOT_MEASURED',
         estimatedCostUsd: 0,
-        usage: { costUsd: 0 },
+        usage: { reportedCostUsd: 0 },
         providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
       },
     };
@@ -1241,10 +1244,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '無料モデルの一時的な混雑を再試行' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('再試行後の検証済み回答')).toBeTruthy());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).model).toBe(model);
-    expect(JSON.parse(fetchMock.mock.calls[1][1]?.body as string).model).toBe(model);
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('再送後に表示してはいけない回答')).toBeNull();
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -1313,11 +1315,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
   it('accepts verified fixed-model JSON responses and rejects paid headers or unverifiable routing', async () => {
     const model = 'google/gemma-4-31b-it:free';
-    const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
+    const valid = { content: '検証済みの無料回答', routing: { modelId: model, freeOnly: true, cost: null, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', estimatedCostUsd: 0, usage: { reportedCostUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } } };
     expect(isFreeOnlyPolicyCompliantChatPayload(valid)).toBe(true);
     expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, freeOnly: false } })).toBe(false);
     expect(isFreeOnlyPolicyCompliantChatPayload({ ...valid, routing: { ...valid.routing, providerRouting: { ...valid.routing.providerRouting, servedModel: 'paid-model' } } })).toBe(false);
-    expect(isFreeOnlyPolicyCompliantChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0 } })).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload({ content: 'ローカル応答', routing: { model: 'ORIGIN アプリ内処理', freeOnly: true, cost: null, actualCostUsd: null, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', estimatedCostUsd: 0 } })).toBe(true);
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(valid), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
