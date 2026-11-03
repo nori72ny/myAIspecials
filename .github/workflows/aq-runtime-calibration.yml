@@ -21,8 +21,13 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: fa4c3981ef83284888d341a3bde6bfe5533693a2
+          ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -32,7 +37,8 @@ jobs:
       - run: docker pull node:22-bookworm-slim
       - name: Verify isolated runtime using public fixtures only
         env:
-          AQ_CALIBRATION_CANDIDATE_SHA: fa4c3981ef83284888d341a3bde6bfe5533693a2
+          AQ_CALIBRATION_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          AQ_CALIBRATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node scripts/verify-aq-runtime-calibration.mjs
       - name: Preserve calibration evidence (not answer-quality evidence)
         if: always()
