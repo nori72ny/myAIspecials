@@ -53,6 +53,24 @@ describe("originProviderClient security regressions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("accepts a canonical served slug only when the request was :free and usage cost plus BYOK evidence are zero/false", async () => {
+    const canonical = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: canonical, usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+    expect(result.routingEvidence.servedModel).toBe(canonical);
+    expect(result.actualCostUsd).toBeNull();
+    expect(result.costEvidenceStatus).toBe("NOT_MEASURED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a canonical served slug when reported usage cost is missing", async () => {
+    const canonical = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: canonical, usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a successful response served by a non-approved model", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: "paid-model" })), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
