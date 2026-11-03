@@ -58,22 +58,15 @@ describe("executeOriginProvider", () => {
       .toThrow("実際のProvider HTTP送信回数を確認できません。");
   });
   it("enforces the fixed free model, one provider attempt, denied data collection, ZDR, and zero-cost routing evidence", async () => { const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => { const body = JSON.parse(String(init?.body)); const headers = init?.headers as Record<string, string>; expect(body.model).toBe(ORIGIN_OPENROUTER_FREE_MODEL); expect(body.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" }); expect(body.max_tokens).toBe(4096); expect(body.reasoning).toBeUndefined(); expect(body.temperature).toBe(0.2); expect(body.top_p).toBe(0.9); expect(body.usage).toEqual({ include: true }); expect(body.provider).toEqual({ allow_fallbacks: false, data_collection: "deny", zdr: true, max_price: { prompt: 0, completion: 0, request: 0 } }); expect(body.provider.only).toBeUndefined(); expect(body.provider.sort).toBeUndefined(); expect(headers["X-OpenRouter-Title"]).toBe("ORIGIN Personal"); expect(headers["X-OpenRouter-Metadata"]).toBeUndefined(); expect(headers["HTTP-Referer"]).toBe("https://myaispecials.ai.studio/"); return new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }); }); const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch); expect(result).toEqual({ text: "確認結果です。", transportRequestCount: 1, actualCostUsd: 0, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } }); expect(fetchMock).toHaveBeenCalledTimes(1); });
-  it("reports all transport sends when the provider exhausts retries", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi.fn()
-        .mockResolvedValue(new Response("temporary failure", { status: 503 }));
-      const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
-      const rejection = expect(pending).rejects.toMatchObject({
+  it("does not retry transient HTTP failures because failed free-tier attempts consume quota", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("temporary failure", { status: 503 }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
         code: "PROVIDER_UNAVAILABLE",
-        diagnostic: { transportRequestCount: 3 },
+        retryable: false,
+        diagnostic: { upstreamStatus: 503, transportRequestCount: 1 },
       });
-      await vi.advanceTimersByTimeAsync(2_500);
-      await rejection;
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it.each([403, 404])("does not relax strict ZDR or retry after HTTP %s", async (status) => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -97,21 +90,6 @@ describe("executeOriginProvider", () => {
       diagnostic: { upstreamStatus: status, transportRequestCount: 1 },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-  it("counts retry sends separately from a single logical provider execution", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi.fn()
-        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }));
-      const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
-      await vi.advanceTimersByTimeAsync(700);
-      const result = await pending;
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result.transportRequestCount).toBe(2);
-    } finally {
-      vi.useRealTimers();
-    }
   });
   it("uses a bounded, task-aware one-request output budget without under-answering complex work", () => { expect(originCompletionTokenBudget("test")).toBe(2400); expect(originCompletionTokenBudget("ux")).toBe(4096); expect(originCompletionTokenBudget("review")).toBe(4096); expect(originCompletionTokenBudget("documentation")).toBe(6144); expect(originCompletionTokenBudget("implementation")).toBe(6144); });
   it("accepts normalized text-part content returned by compatible providers", async () => { const payload = successfulProviderPayload({ choices: [{ message: { content: [{ type: "text", text: "結論です。" }, { type: "text", text: "具体案です。" }] } }] }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch); expect(result.text).toBe("結論です。\n\n具体案です。"); });
