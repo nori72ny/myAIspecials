@@ -78,12 +78,22 @@ describe("originProviderClient security regressions", () => {
   });
 
   it("normalizes untrusted served-model diagnostics before logging", async () => {
-    const maliciousModel = `bad\\n${"x".repeat(200)}`;
+    const maliciousModel = `bad\n${"x".repeat(200)}`;
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: maliciousModel })), { status: 200, headers: { "Content-Type": "application/json" } }));
     const error = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch).then(() => undefined, (caught: unknown) => caught);
     const diagnostic = (error as OriginProviderError).diagnostic?.upstreamErrorType ?? "";
     expect(diagnostic).toHaveLength(64);
-    expect(diagnostic).not.toMatch(/[\\r\\n\\u0000-\\u001f\\u007f]/);
+    expect(diagnostic).not.toMatch(/[\r\n\u0000-\u001f\u007f]/);
+  });
+
+  it("rejects a numeric actualCostUsd field even when it is zero because actual billing is unmeasured", () => {
+    const result = {
+      text: "x", actualCostUsd: 0, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED",
+      providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
+      billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 }, transportRequestCount: 1,
+    } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("実費は未計測として扱う必要があります。");
   });
 
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
@@ -92,6 +102,6 @@ describe("originProviderClient security regressions", () => {
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
       usage: { reportedCostUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
-    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("実費は未計測として扱う必要があります。");
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("usage.reportedCostUsd が厳密な$0ポリシーを満たしません。");
   });
 });
