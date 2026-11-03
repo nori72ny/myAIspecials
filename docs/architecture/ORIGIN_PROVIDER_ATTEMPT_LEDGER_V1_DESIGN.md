@@ -181,3 +181,26 @@ Plain booleans such as `zeroCost: true` are not trusted evidence. Any product re
 - AQ cost evidence: `NOT_MEASURED`.
 - Release: NO-GO for any claim requiring independently verified $0.00.
 - No paid service, plan upgrade, new cloud resource, merge, or deployment is authorized by this document.
+
+
+## Existing persistence reuse assessment — 2026-11-03
+
+A read-only review checked whether ORIGIN can safely reuse an already-approved durable store instead of introducing a new database or paid service.
+
+### Findings
+
+- The repository's V1.4 production-readiness record states that the existing Supabase project `origin-personal` has the V1.4 coding-job and encrypted-result migrations applied, with RLS enabled and direct browser-role privileges revoked.
+- The same readiness record states that the Vercel production runtime does **not** currently expose a parseable PostgreSQL URI through `POSTGRES_URL`, `DATABASE_URL`, or `SUPABASE_DB_URL`; its status remains `databaseReady=false`, `storeConfigured=false`, and `resultStoreConfigured=false`. A database visible through a management interface is not evidence that the Vercel runtime can reach it.
+- The existing `origin_coding_jobs_v14` schema is a lifecycle/queue table, not an append-only provider-attempt journal. It permits status/attempt updates and has a bounded job lifecycle. The result table is encrypted result storage and has cancellation cleanup that deletes result evidence. Reusing either table for immutable provider billing evidence would violate their current data model and retention semantics.
+- The existing DB URL resolver accepts only the three server-side PostgreSQL environment candidates and intentionally fails closed. No credential or environment value was inspected during this review.
+- The repository's sanitized execution-trace design also states that process-memory sinks are test-only and that a production sink requires explicit retention, access-control, deletion, failure-policy, and owner-approval decisions.
+
+### Decision
+
+Do **not** reuse the V1.4 coding tables for provider attempts. Do **not** configure or expose database credentials, enable a new connection, alter RLS, create migrations, or provision another resource as part of this PR. Runtime database connectivity is currently unverified/unavailable according to the existing readiness record, and the existing tables are semantically unsuitable for append-only billing evidence.
+
+The implementation gate remains blocked pending (1) explicit owner approval of a specific already-existing durable sink, (2) proof that its use adds no cost and does not require account/secret/configuration changes beyond separately approved actions, (3) a dedicated append-only schema with atomic durable acknowledgements and retention controls, and (4) independent security review. Until then, use only ephemeral test observers for transport tests and never call them a ledger or cost proof.
+
+### Verification boundary
+
+This was a source/documentation review only. No production status endpoint was called, no database connection was attempted, no credentials were read, and no Supabase/Vercel settings or schema were changed. The readiness statements above are repository-recorded evidence, not a fresh live production measurement.
