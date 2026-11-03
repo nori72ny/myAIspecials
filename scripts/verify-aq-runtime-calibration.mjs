@@ -183,8 +183,8 @@ async function main() {
     } catch { return false; }
   };
   scenario = 'rate-limit'; requestCount = 0;
-  await stage('baseline-error-masking', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/baseline-runner.ts'],
-    expectFailure('PROVIDER_INTERNAL_ERROR', 503), 1);
+  await stage('baseline-provider-error-preserved', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/baseline-runner.ts'],
+    expectFailure('PROVIDER_RATE_LIMITED', 429), 1);
   requestCount = 0;
   await stage('provider-error-preserved', [...dockerArgs(env), 'node', '--import', 'tsx', '/trusted/trusted-answer-candidate-runner-v2.ts'],
     expectFailure('PROVIDER_RATE_LIMITED', 429), 1);
