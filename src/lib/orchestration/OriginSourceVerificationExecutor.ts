@@ -57,7 +57,7 @@ export function createOriginSourceVerificationExecutor(
       httpStatus: 200,
       contentDigest: fetched.value.contentDigest,
       externalFetchPerformed: true,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       networkPolicy: {
         publicAddressOnly: true,
         redirectsFollowed: false,
