@@ -26,10 +26,10 @@ describe("executeOriginProvider", () => {
       });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
-  it.each([400, 404, 422])("preserves upstream HTTP %s as a safe diagnostic without parsing its body as an answer", async (status) => {
+  it.each([400, 403, 404, 422])("preserves upstream HTTP %s as a safe diagnostic without parsing its body as an answer", async (status) => {
     const fetchMock = vi.fn(async () => new Response("private upstream body", { status }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", status: 503, retryable: false, diagnostic: { upstreamStatus: status } });
-    expect(fetchMock).toHaveBeenCalledTimes(status === 404 ? 3 : 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   beforeEach(() => resetOriginProviderCooldownForTests());
   it("rejects a paid or substituted executor result before a router can render its text", () => { const result = { text: "表示してはいけない応答", transportRequestCount: 1, actualCostUsd: 0.000001, providerDataPolicy: plan.providerDataPolicy, routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const }, usage: { costUsd: 0.000001 } } as unknown as Awaited<ReturnType<typeof executeOriginProvider>>; expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシー"); expect(() => assertOriginZeroCostExecutionResult({ ...result, actualCostUsd: 0, usage: { costUsd: 0 }, routingEvidence: { ...result.routingEvidence, servedModel: "paid-model" } })).toThrow("許可された無料Provider/Modelの証跡を確認できません。"); });
@@ -75,13 +75,28 @@ describe("executeOriginProvider", () => {
       vi.useRealTimers();
     }
   });
-  it("counts every HTTP send across a 403 policy-stage fallback", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload()), { status: 200, headers: { "Content-Type": "application/json" } }));
-    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.transportRequestCount).toBe(2);
+  it.each([403, 404])("does not relax strict ZDR or retry after HTTP %s", async (status) => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.provider).toEqual({
+        allow_fallbacks: false,
+        data_collection: "deny",
+        zdr: true,
+        max_price: { prompt: 0, completion: 0, request: 0 },
+      });
+      return new Response("strict privacy policy unavailable", { status });
+    });
+    await expect(executeOriginProvider(
+      request,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      status: 503,
+      retryable: false,
+      diagnostic: { upstreamStatus: status, transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
   it("counts retry sends separately from a single logical provider execution", async () => {
     vi.useFakeTimers();
