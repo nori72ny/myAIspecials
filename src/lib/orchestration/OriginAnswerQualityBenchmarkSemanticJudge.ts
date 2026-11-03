@@ -173,6 +173,6 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
 
   return {
     ok: true,
-    value: Object.freeze({ ...raw }),
+    value: Object.freeze({ ...raw, actualCostUsd: null }),
   };
 }
