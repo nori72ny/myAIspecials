@@ -225,8 +225,10 @@ describe("createOriginChatRouter", () => {
       synthesisStatus: "citation-validated",
       synthesisSourceCount: 2,
       providerAttempts: 1,
-      cost: 0,
-      actualCostUsd: 0,
+      cost: null,
+      actualCostUsd: null,
+      reportedUsageCostUsd: 0,
+      policyMaxCostUsd: 0,
       freeOnly: true,
     }));
     expect(response.body.answer.verification.status).toBe("not-run");
