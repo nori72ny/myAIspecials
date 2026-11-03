@@ -56,7 +56,7 @@ describe("OriginBatchClaimAssessor", () => {
           ? "includes a free tier"
           : "current version is 2.0",
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -85,7 +85,7 @@ describe("OriginBatchClaimAssessor", () => {
         sourceDigest: item.sourceDigest,
         support: "not-supported",
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -113,7 +113,7 @@ describe("OriginBatchClaimAssessor", () => {
         support: "supported",
         supportingExcerpt: "includes a free tier",
       }],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -132,7 +132,7 @@ describe("OriginBatchClaimAssessor", () => {
         support: "supported",
         supportingExcerpt: "not in source",
       }],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -176,7 +176,7 @@ describe("OriginBatchClaimAssessor", () => {
           supportingExcerpt: "Fact A.",
         },
       ],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
