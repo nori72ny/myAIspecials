@@ -55,7 +55,6 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.headers["x-origin-free-only"]).toBe("true");
     expect(response.headers["x-origin-cost-evidence"]).toBe("NOT_MEASURED");
     expect(response.headers["x-origin-cost-usd"]).toBeUndefined();
-    expect(response.headers["x-origin-cost-evidence"]).toBe("NOT_MEASURED");
     expect(response.headers["x-origin-billing-tier"]).toBeUndefined();
     expect(response.headers["x-origin-model-id"]).toBe(evidence.modelId);
     expect(response.text).toContain(`data: {"type":"delta","text":"first"}`);
