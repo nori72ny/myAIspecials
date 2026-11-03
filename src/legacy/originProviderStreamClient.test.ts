@@ -91,7 +91,7 @@ describe("executeOriginProviderStream", () => {
         .mockResolvedValueOnce(streamingResponse([
           event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
           event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
-          "data: [DONE]\\n\\n",
+          "data: [DONE]\n\n",
         ]));
       const pending = executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
       await vi.advanceTimersByTimeAsync(700);
