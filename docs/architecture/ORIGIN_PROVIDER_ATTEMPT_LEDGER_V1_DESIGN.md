@@ -42,6 +42,12 @@ The transport helper invokes the injected fetch implementation up to three times
 - every retry and every policy-stage request must receive its own attempt ID;
 - a logical execution may have multiple attempts, and all attempts must be accounted for before reconciliation.
 
+### Free-quota retry guard added 2026-11-03
+
+OpenRouter's current Free-plan documentation states that `:free` variants are limited to 20 requests/minute and 50 requests/day (unless the account has purchased credits); failed attempts also count toward the daily cap. The app's non-stream transport previously treated HTTP 429 as retryable, which could issue up to three requests after quota exhaustion. The non-stream and stream clients now classify 429 as non-retryable, preserve the provider's `Retry-After` value, and retain the one actual send in the transport counter. Regression tests assert exactly one outbound send for 429 in both paths. This is a quota-preservation change, not proof of $0.00 actual spend.
+
+Other transient transport failures (for example selected 5xx/network/timeouts) retain bounded retry behavior. Each actual send still requires its own durable attempt ID/event; the in-process transport counter does not satisfy the append-only ledger or provider reconciliation contract.
+
 ## Event model
 
 Use two distinct identifiers:
