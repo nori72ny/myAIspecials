@@ -28,6 +28,8 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   const draft = { value: '' };
   const files = { files: [] as unknown[] };
   const busy = { value: false };
+  const dialog = { value: false };
+  const activeEditable = { value: '' as '' | 'contenteditable' | 'textbox' };
   const timers: Listener[] = [];
   const intervals: Listener[] = [];
   const storage = new Map<string, string>();
@@ -52,8 +54,14 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     ...eventTarget(),
     visibilityState: 'visible',
     documentElement: { dataset: { originStorageState: 'ready' } },
+    activeElement: {
+      closest: (selector: string) => activeEditable.value === 'contenteditable' && selector.includes('contenteditable') || activeEditable.value === 'textbox' && selector.includes('[role="textbox"]') ? {} : null,
+    },
     querySelectorAll: (selector: string) => selector.includes('file') ? [files] : [draft],
-    querySelector: () => busy.value ? {} : null,
+    querySelector: (selector: string) => {
+      if (selector.includes('role="dialog"')) return dialog.value ? {} : null;
+      return busy.value ? {} : null;
+    },
   };
   const window = {
     ...eventTarget(),
@@ -83,7 +91,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   await Promise.resolve();
   await Promise.resolve();
   return {
-    draft, files, busy, document, window, registration,
+    draft, files, busy, dialog, activeEditable, document, window, registration,
     reloads: () => reloads,
     activations: () => activations,
     announcements: () => announcements,
@@ -194,6 +202,39 @@ describe('PWA controller changes preserve user work', () => {
     assert.equal(app.reloads(), 0);
     app.document.documentElement.dataset.originStorageState = 'ready';
     app.document.emit('visibilitychange');
+    assert.equal(app.reloads(), 1);
+  });
+
+
+  it('defers updates while a dialog contains transient, unsaved form state', async () => {
+    const app = await launch(true);
+    app.dialog.value = true;
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.retry();
+    assert.equal(app.reloads(), 0);
+    app.dialog.value = false;
+    app.retry();
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('defers updates while a rich-text editor is active, even when it has no input.value', async () => {
+    const app = await launch(true);
+    app.activeEditable.value = 'contenteditable';
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.activeEditable.value = '';
+    app.retry();
+    assert.equal(app.reloads(), 1);
+  });
+
+  it('defers updates while an ARIA textbox editor is active without a normal input value', async () => {
+    const app = await launch(true);
+    app.activeEditable.value = 'textbox';
+    app.changeController();
+    assert.equal(app.reloads(), 0);
+    app.activeEditable.value = '';
+    app.retry();
     assert.equal(app.reloads(), 1);
   });
 

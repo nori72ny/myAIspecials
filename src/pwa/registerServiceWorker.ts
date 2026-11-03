@@ -9,8 +9,22 @@ function announceUpdateReady() {
 
 function hasUnsavedUserWork(): boolean {
   if (document.visibilityState !== 'visible') return true;
-  const textInputs = Array.from(document.querySelectorAll('textarea, input[type="text"], input[type="search"]'));
-  if (textInputs.some((element) => (element as HTMLInputElement | HTMLTextAreaElement).value.length > 0)) return true;
+
+  // Keep any open dialog/modal mounted until the user closes it. This protects
+  // transient form state that may not yet have been persisted anywhere.
+  if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return true;
+
+  // Rich-text editors can hold unsaved work without exposing an input.value.
+  if (document.activeElement?.closest?.('[contenteditable="true"], [role="textbox"]')) return true;
+
+  const editableInputs = Array.from(document.querySelectorAll(
+    'textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"])',
+  ));
+  if (editableInputs.some((element) => {
+    const value = (element as HTMLInputElement | HTMLTextAreaElement).value;
+    return typeof value === 'string' && value.length > 0;
+  })) return true;
+
   if (document.documentElement.dataset.originStorageState === 'hydrating') return true;
   if (document.querySelector('[data-testid="origin-thinking"], [aria-busy="true"]')) return true;
   const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));

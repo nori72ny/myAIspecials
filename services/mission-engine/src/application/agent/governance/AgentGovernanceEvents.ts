@@ -13,6 +13,18 @@ export interface AgentGovernanceEvent {
   description: string;
 }
 
+const EVENT_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function createEventId(): string {
+  // Generate each character independently so the identifier always has the
+  // documented nine-character suffix (base-36 fractional strings can be short).
+  let suffix = "";
+  for (let index = 0; index < 9; index += 1) {
+    suffix += EVENT_ID_ALPHABET[Math.floor(Math.random() * EVENT_ID_ALPHABET.length)];
+  }
+  return `EVT-${suffix}`;
+}
+
 export class AgentGovernanceEvents {
   private static instance: AgentGovernanceEvents;
   private events: AgentGovernanceEvent[] = [];
@@ -28,7 +40,7 @@ export class AgentGovernanceEvents {
 
   public record(eventType: AgentEventType, agentId: string, details: Record<string, any> = {}, description?: string): AgentGovernanceEvent {
     const event: AgentGovernanceEvent = {
-      id: `EVT-${Math.random().toString(36).substring(2, 11).toUpperCase()}`,
+      id: createEventId(),
       timestamp: new Date(),
       eventType,
       agentId,
