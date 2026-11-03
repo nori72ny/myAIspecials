@@ -115,12 +115,12 @@ describe("OriginAnswerQualityOfficialBenchmarkComparison", () => {
     const probeEnvironment = vi.fn(async (baseUrl: string, gitSha: string) => ({
       ok: true as const,
       value: {
-        schemaVersion: "origin.aq-benchmark-environment-proof.v1" as const,
+        schemaVersion: "origin.aq-benchmark-environment-proof.v2" as const,
         baseUrl,
         expectedGitSha: gitSha,
         observedReleaseSha: gitSha,
         freeOnly: true as const,
-        costUsd: 0 as const,
+        maxPermittedCostUsd: 0 as const,
         paidFallbackEnabled: false as const,
         runtimeIds: {
           research: "grounded-research-v1.1" as const,
@@ -170,12 +170,12 @@ describe("OriginAnswerQualityOfficialBenchmarkComparison", () => {
         probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => ({
           ok: true as const,
           value: {
-            schemaVersion: "origin.aq-benchmark-environment-proof.v1" as const,
+            schemaVersion: "origin.aq-benchmark-environment-proof.v2" as const,
             baseUrl,
             expectedGitSha: gitSha,
             observedReleaseSha: gitSha,
             freeOnly: true as const,
-            costUsd: 0 as const,
+            maxPermittedCostUsd: 0 as const,
             paidFallbackEnabled: false as const,
             runtimeIds: {
               research: "grounded-research-v1.1" as const,
@@ -265,12 +265,12 @@ describe("OriginAnswerQualityOfficialBenchmarkComparison", () => {
         probeEnvironment: vi.fn(async (baseUrl: string, gitSha: string) => ({
           ok: true as const,
           value: {
-            schemaVersion: "origin.aq-benchmark-environment-proof.v1" as const,
+            schemaVersion: "origin.aq-benchmark-environment-proof.v2" as const,
             baseUrl,
             expectedGitSha: gitSha,
             observedReleaseSha: gitSha,
             freeOnly: true as const,
-            costUsd: 0 as const,
+            maxPermittedCostUsd: 0 as const,
             paidFallbackEnabled: false as const,
             runtimeIds: {
               research: "grounded-research-v1.1" as const,
