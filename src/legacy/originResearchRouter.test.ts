@@ -33,7 +33,7 @@ describe("originResearchRouter", () => {
     app.use(createOriginResearchRouter());
     const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: "AIOの最新情報を教えて" }] });
     expect(response.status).toBe(200);
-    expect(response.body.routing).toMatchObject({ provider: "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true });
+    expect(response.body.routing).toMatchObject({ provider: "DuckDuckGo", cost: null, actualCostUsd: null, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true });
     expect(response.body.research.sources).toHaveLength(2);
     expect(response.body.research.comparison).toEqual({
       sourceCount: 2,
@@ -164,7 +164,8 @@ describe("originResearchRouter", () => {
       retryable: true,
       retryAttempted: false,
       costEvidenceStatus: "NOT_MEASURED",
-      costUsd: 0,
+      costUsd: null,
+      policyMaxCostUsd: 0,
       freeOnly: true,
       paidFallbackUsed: false,
       research: {
