@@ -366,7 +366,9 @@ describe("createOriginChatRouter", () => {
       version: "origin.supervisor.v2",
       status: "completed",
       freeOnly: true,
-      costUsd: 0,
+      costUsd: null,
+      policyMaxCostUsd: 0,
+      costEvidenceStatus: "NOT_MEASURED",
       paidFallbackUsed: false,
       automaticProviderRetries: 0,
       steps: [
