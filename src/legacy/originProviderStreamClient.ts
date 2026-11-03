@@ -336,7 +336,7 @@ export async function executeOriginProviderStream(
     if (!key) throw new OriginProviderError("PROVIDER_NOT_CONFIGURED", "利用可能な無料AIが設定されていません。", 503, false);
   } catch (error) {
     if (error instanceof OriginProviderError) {
-      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      throw new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, {
         ...error.diagnostic,
         transportRequestCount: transport.count,
       });
