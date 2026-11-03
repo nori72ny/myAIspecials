@@ -100,6 +100,24 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry an SSE rate_limit_exceeded event on the free plan", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ error: { metadata: { error_type: "rate_limit_exceeded" } } }),
+    ]));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: false,
+      diagnostic: { transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("counts every streamed HTTP send across a 403 policy-stage fallback", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
