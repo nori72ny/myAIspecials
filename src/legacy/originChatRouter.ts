@@ -431,6 +431,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           message: error.message,
           retryable: error.retryable,
           retryAfterSeconds: error.retryAfterSeconds,
+          providerTransportRequests: error.diagnostic?.transportRequestCount,
           requestId,
           retryAttempted: false,
         });
