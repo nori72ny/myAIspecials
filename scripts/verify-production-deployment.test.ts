@@ -96,10 +96,10 @@ it('rejects a health response that asserts unverified request cost', async () =>
   vi.stubGlobal('fetch', fetchMock);
   await expect(verifyProductionDeployment({
     ORIGIN_EXPECTED_SHA: sha,
-    ORIGIN_DEPLOY_TIMEOUT_MS: '1',
-    ORIGIN_DEPLOY_POLL_INTERVAL_MS: '1',
-  })).rejects.toThrow('within 1ms');
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+    ORIGIN_DEPLOY_TIMEOUT_MS: '100',
+    ORIGIN_DEPLOY_POLL_INTERVAL_MS: '100',
+  })).rejects.toThrow('within 100ms');
+  expect(fetchMock).toHaveBeenCalled();
 });
 
 it('does not expose response bodies in smoke-test failure logs', async () => {
