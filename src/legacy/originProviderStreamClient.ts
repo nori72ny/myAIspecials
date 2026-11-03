@@ -48,8 +48,6 @@ type OpenRouterStreamChunk = {
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
 const MAX_STREAM_TIMEOUT_MS = 18_000;
-const MAX_STREAM_TOTAL_BUDGET_MS = 60_000;
-const STREAM_RETRY_DELAYS_MS = [700, 1_800] as const;
 
 const streamedText = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -336,53 +334,24 @@ export async function executeOriginProviderStream(
     }
     throw error;
   }
-  const deadline = Date.now() + MAX_STREAM_TOTAL_BUDGET_MS;
   const boundedRequest: OriginProviderExecutionRequest = {
     ...providerRequest,
     plan: { ...providerRequest.plan, timeoutMs: Math.min(MAX_STREAM_TIMEOUT_MS, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS) },
   };
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) {
-      const delay = STREAM_RETRY_DELAYS_MS[attempt - 1];
-      if (Date.now() + delay >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+  // A failed free-tier attempt consumes quota even if the response is lost.
+  // Do not replay a request whose provider-side completion is ambiguous.
+  try {
+    return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
     }
-    if (Date.now() >= deadline) break;
-    try {
-      try {
-        return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
-      } catch (error) {
-        if (error instanceof OriginProviderError) {
-          throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
-            ...error.diagnostic,
-            transportRequestCount: transport.count,
-          });
-        }
-        throw error;
-      }
-    } catch (error) {
-      if (error instanceof OriginProviderError) {
-        lastError = error;
-        const diagnostic = error.diagnostic;
-        const upstreamStatus = diagnostic?.upstreamStatus;
-        const transientUpstreamStatus = typeof upstreamStatus === "number"
-          && (upstreamStatus === 408 || [500, 502, 503, 504].includes(upstreamStatus));
-        const transientTransportFailure = diagnostic?.transportFailure === "network"
-          || diagnostic?.transportFailure === "timeout";
-        // Free-plan 429 responses and SSE rate_limit_exceeded events are never retried:
-        // failed requests can still consume the provider's daily free quota.
-        const retryableTransientFailure = error.retryable
-          && (error.code === "PROVIDER_TIMEOUT"
-            || transientUpstreamStatus
-            || transientTransportFailure);
-        if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;
-      } else {
-        lastError = error;
-        if (attempt === 2 || Date.now() >= deadline) break;
-      }
-    }
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, {
+      transportFailure: "network",
+      transportRequestCount: transport.count,
+    });
   }
-  if (lastError instanceof OriginProviderError) throw lastError;
-  throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIとの通信に失敗しました。", 504, true, undefined, { transportFailure: "timeout" });
 }
