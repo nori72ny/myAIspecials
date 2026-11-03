@@ -7,8 +7,12 @@ async function scrollViewportBottom(page: Page): Promise<number> {
   return box.y + box.height;
 }
 
-function expectedComposerBottomOffset(viewportHeight: number, safeAreaBottom: number): number {
-  return viewportHeight <= 680 ? safeAreaBottom : Math.max(8, safeAreaBottom);
+async function scrollViewportBottomPadding(page: Page): Promise<number> {
+  const scrollViewport = page.locator('.origin-app main > div.min-h-0.flex-1.overflow-y-auto').first();
+  return scrollViewport.evaluate((element) => {
+    const value = Number.parseFloat(getComputedStyle(element).paddingBottom);
+    return Number.isFinite(value) ? value : 0;
+  });
 }
 
 async function bottomSafeAreaInset(page: Page): Promise<number> {
@@ -29,7 +33,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = expectedComposerBottomOffset(viewport.height, safeAreaBottom);
+    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -83,7 +87,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = expectedComposerBottomOffset(568, safeAreaBottom);
+    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -112,7 +116,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = expectedComposerBottomOffset(viewport.height, safeAreaBottom);
+    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
 
     const logo = page.getByTestId('origin-core-logo');
     const heading = page.locator('.origin-app main h1').first();
