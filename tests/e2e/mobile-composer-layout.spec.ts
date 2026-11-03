@@ -1,10 +1,36 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function scrollViewportBottom(page: Page): Promise<number> {
+  const viewport = page.locator('.origin-app main > div.min-h-0.flex-1.overflow-y-auto').first();
+  const box = await viewport.boundingBox();
+  if (!box) throw new Error('Mobile scroll viewport is not measurable.');
+  return box.y + box.height;
+}
+
+async function bottomSafeAreaInset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-bottom:env(safe-area-inset-bottom, 0px)';
+    document.body.appendChild(probe);
+    const inset = Number.parseFloat(getComputedStyle(probe).paddingBottom) || 0;
+    probe.remove();
+    return inset;
+  });
+}
+
+function composerBottomOffset(viewportHeight: number, safeAreaBottom: number): number {
+  return viewportHeight <= 680 ? safeAreaBottom : Math.max(8, safeAreaBottom);
+}
+
 
 test.describe('mobile composer layout', () => {
   test('keeps the first-screen composer low, wide, and visually quiet at 390px', async ({ page }) => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
+    const scrollBottom = await scrollViewportBottom(page);
+    const safeAreaBottom = await bottomSafeAreaInset(page);
+    const bottomOffset = composerBottomOffset(viewport.height, safeAreaBottom);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -53,8 +79,12 @@ test.describe('mobile composer layout', () => {
   });
 
   test('preserves typing width and touch targets at 320px', async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 568 });
+    const viewport = { width: 320, height: 568 };
+    await page.setViewportSize(viewport);
     await page.goto('/');
+    const scrollBottom = await scrollViewportBottom(page);
+    const safeAreaBottom = await bottomSafeAreaInset(page);
+    const bottomOffset = composerBottomOffset(viewport.height, safeAreaBottom);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -71,7 +101,8 @@ test.describe('mobile composer layout', () => {
     expect(inputBox && composerBox ? inputBox.width >= composerBox.width - 24 : false).toBe(true);
     expect(addBox?.width).toBeGreaterThanOrEqual(44);
     expect(sendBox?.width).toBeGreaterThanOrEqual(44);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(568 - 24);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - bottomOffset + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 });
@@ -80,6 +111,9 @@ test.describe('mobile composer layout', () => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
+    const scrollBottom = await scrollViewportBottom(page);
+    const safeAreaBottom = await bottomSafeAreaInset(page);
+    const bottomOffset = composerBottomOffset(viewport.height, safeAreaBottom);
 
     const logo = page.getByTestId('origin-core-logo');
     const heading = page.locator('.origin-app main h1').first();
@@ -102,8 +136,8 @@ test.describe('mobile composer layout', () => {
     expect(logoBox!.y).toBeGreaterThan(80);
     expect(logoBox!.y).toBeLessThan(viewport.height * 0.55);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThan(composerBox!.y);
-    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(viewport.height - 24);
-    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(viewport.height);
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - bottomOffset + 1);
   });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 390, height: 560 }]) {
