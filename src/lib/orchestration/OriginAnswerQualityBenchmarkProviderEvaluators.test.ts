@@ -376,7 +376,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       promptDigest: `sha256:${"1".repeat(64)}`,
       claimSetDigest: `sha256:${"2".repeat(64)}`,
       supportedClaimIds: ["claim-a"],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
     const payload = JSON.parse((execute.mock.calls[0][0] as OriginProviderExecutionRequest).messages[0].content);
