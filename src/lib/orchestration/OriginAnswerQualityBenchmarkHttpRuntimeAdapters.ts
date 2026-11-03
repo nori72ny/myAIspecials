@@ -140,7 +140,7 @@ async function executeChat(
     : typeof answer?.answer === "string"
       ? answer.answer
       : "";
-  if (!content || !routing || routing.freeOnly !== true || routing.actualCostUsd !== 0) {
+  if (!content || !routing || routing.costEvidenceStatus !== "NOT_MEASURED" || routing.freeOnly !== true || routing.actualCostUsd !== 0) {
     throw new Error("AQ_BENCHMARK_CHAT_ZERO_COST_OR_RESPONSE_INVALID");
   }
 
