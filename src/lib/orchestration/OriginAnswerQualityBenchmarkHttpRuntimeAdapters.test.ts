@@ -170,6 +170,25 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     });
   });
 
+  it("blocks Chat evidence when the API omits explicit NOT_MEASURED cost status", async () => {
+    const routingWithoutCostStatus = Object.fromEntries(
+      Object.entries(providerRouting("passed"))
+        .filter(([key]) => key !== "costEvidenceStatus"),
+    );
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({
+        content: "回答です",
+        answer: { answer: "回答です", evidence: [], verification: { status: "passed" } },
+        routing: routingWithoutCostStatus,
+      })) as typeof fetch,
+    });
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_ZERO_COST_OR_RESPONSE_INVALID");
+  });
+
   it("retains measured transport requests from provider error responses", async () => {
     const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
       environmentProof: proof,
