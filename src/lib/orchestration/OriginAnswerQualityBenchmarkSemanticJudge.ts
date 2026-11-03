@@ -34,7 +34,7 @@ export interface OriginAnswerQualityBenchmarkSemanticJudgeRecord {
   readonly verificationIntegrityAccurate: boolean;
   readonly failClosedCorrect?: boolean;
   readonly userActionabilityScore: 0 | 1 | 2 | 3;
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -83,7 +83,7 @@ function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemantic
     && typeof item.verificationIntegrityAccurate === "boolean"
     && (item.failClosedCorrect === undefined || typeof item.failClosedCorrect === "boolean")
     && typeof item.userActionabilityScore === "number"
-    && typeof item.actualCostUsd === "number"
+    && item.actualCostUsd === null
     && item.attempts === 1;
 }
 
@@ -153,7 +153,7 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
   ) {
     return { ok: false, code: "AQ_BENCHMARK_SEMANTIC_JUDGE_RECORD_MISMATCH" };
   }
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "AQ_BENCHMARK_SEMANTIC_JUDGE_COST_UNVERIFIED" };
   }
   if (
