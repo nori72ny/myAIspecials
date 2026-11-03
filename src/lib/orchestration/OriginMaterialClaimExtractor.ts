@@ -24,7 +24,7 @@ export interface OriginMaterialClaimExtractionRequest {
 export interface OriginMaterialClaimExtractionRecord {
   readonly answerDigest: string;
   readonly claims: readonly OriginMaterialClaimInput[];
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -57,7 +57,7 @@ function isRecord(value: unknown): value is OriginMaterialClaimExtractionRecord 
   const r = value as Partial<OriginMaterialClaimExtractionRecord>;
   return typeof r.answerDigest === "string"
     && Array.isArray(r.claims)
-    && typeof r.actualCostUsd === "number"
+    && r.actualCostUsd === null
     && r.attempts === 1;
 }
 
@@ -104,7 +104,7 @@ export async function extractOriginMaterialClaims(
     return { ok: false, code: "CLAIM_EXTRACTION_RECORD_MISMATCH" };
   }
 
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "CLAIM_EXTRACTION_COST_UNVERIFIED" };
   }
 
