@@ -52,7 +52,7 @@ function sendSafeProviderFailure(res: Response, error: OriginProviderError, requ
   return res.status(error.status).json({
     code: error.code,
     message: error.message,
-    retryable: error.retryable,
+    retryable: false,
     retryAfterSeconds: error.retryAfterSeconds,
     requestId,
     retryAttempted: false,
