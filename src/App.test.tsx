@@ -1247,7 +1247,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('再送後に表示してはいけない回答')).toBeNull();
-    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy();
     vi.unstubAllGlobals();
   });
 
