@@ -154,6 +154,7 @@ async function streamOpenRouter(
   key: string,
   handlers: OriginProviderStreamHandlers,
   fetchImpl: OriginFetch,
+  transport: { count: number },
 ): Promise<OriginProviderExecutionResult> {
   const controller = new AbortController();
   const timeoutMs = Math.min(
@@ -164,6 +165,7 @@ async function streamOpenRouter(
   let response: Response | undefined;
   try {
     for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
+      transport.count += 1;
       response = await fetchImpl(OPENROUTER_STREAM_URL, {
         method: "POST",
         headers: {
@@ -297,6 +299,7 @@ async function streamOpenRouter(
 
   const result: OriginProviderExecutionResult = {
     text: output,
+    transportRequestCount: transport.count,
     actualCostUsd: 0,
     providerDataPolicy: providerRequest.plan.providerDataPolicy,
     routingEvidence: {
@@ -330,6 +333,7 @@ export async function executeOriginProviderStream(
     plan: { ...providerRequest.plan, timeoutMs: Math.min(MAX_STREAM_TIMEOUT_MS, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS) },
   };
   let lastError: unknown;
+  const transport = { count: 0 };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
       const delay = STREAM_RETRY_DELAYS_MS[attempt - 1];
@@ -338,7 +342,7 @@ export async function executeOriginProviderStream(
     }
     if (Date.now() >= deadline) break;
     try {
-      return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl);
+      return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
     } catch (error) {
       if (error instanceof OriginProviderError) {
         lastError = error;
