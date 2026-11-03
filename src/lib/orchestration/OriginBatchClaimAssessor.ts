@@ -38,7 +38,7 @@ export interface OriginBatchClaimAssessmentRecordItem {
 
 export interface OriginBatchClaimAssessmentRecord {
   readonly items: readonly OriginBatchClaimAssessmentRecordItem[];
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -83,7 +83,7 @@ function isRecord(value: unknown): value is OriginBatchClaimAssessmentRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<OriginBatchClaimAssessmentRecord>;
   return Array.isArray(record.items)
-    && typeof record.actualCostUsd === "number"
+    && record.actualCostUsd === null
     && record.attempts === 1;
 }
 
@@ -161,7 +161,7 @@ export async function assessOriginClaimsAgainstSourcesBatchDetailed(
     return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_RECORD_MISMATCH" };
   }
 
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "BATCH_CLAIM_ASSESSMENT_COST_UNVERIFIED" };
   }
 
@@ -216,7 +216,7 @@ export async function assessOriginClaimsAgainstSourcesBatchDetailed(
     ok: true,
     record: Object.freeze({
       items: Object.freeze(normalized),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }),
   };
