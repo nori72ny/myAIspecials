@@ -63,6 +63,7 @@ describe("executeOriginProviderStream", () => {
     expect(deltas).toEqual(["ORIGIN"]);
     expect(result).toEqual(expect.objectContaining({
       text: "ORIGIN",
+      transportRequestCount: 1,
       actualCostUsd: 0,
       routingEvidence: expect.objectContaining({ requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, provider: "OpenRouter", attempt: 1, fallbackUsed: false }),
       usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6, costUsd: 0 },
