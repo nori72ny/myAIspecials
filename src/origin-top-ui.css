@@ -343,14 +343,14 @@
     justify-content: flex-start !important;
   }
   .origin-app main .origin-home-intro {
-    flex: 0 0 auto !important;
+    flex: 1 1 auto !important;
     min-height: 0 !important;
     justify-content: center !important;
     padding-block: 8px !important;
   }
   .origin-app main .origin-home-composer {
     flex: 0 0 auto !important;
-    margin-top: auto !important;
+    margin-top: 0 !important;
     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
   .origin-app main .origin-home-composer > .origin-composer {
