@@ -433,7 +433,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         return res.status(error.status).json({
           code: error.code,
           message: error.message,
-          retryable: error.retryable,
+          retryable: false,
           retryAfterSeconds: error.retryAfterSeconds,
           providerTransportRequests: error.diagnostic?.transportRequestCount,
           requestId,
