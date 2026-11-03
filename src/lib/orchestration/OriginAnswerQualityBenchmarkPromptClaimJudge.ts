@@ -69,15 +69,16 @@ function claimSetDigest(claims: OriginClaimSet["claims"]): string {
   return sha256(canonical);
 }
 
-function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
+type RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord = Omit<OriginAnswerQualityBenchmarkPromptClaimJudgeRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Partial<OriginAnswerQualityBenchmarkPromptClaimJudgeRecord>;
+  const item = value as Partial<RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord>;
   return typeof item.caseId === "string"
     && item.rubricVersion === "origin.aq-prompt-claim-support.v1"
     && typeof item.promptDigest === "string"
     && typeof item.claimSetDigest === "string"
     && Array.isArray(item.supportedClaimIds)
-    && item.actualCostUsd === null
     && item.attempts === 1;
 }
 
