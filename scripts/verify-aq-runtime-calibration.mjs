@@ -55,6 +55,16 @@ function diagnostic(output) {
   if (/ERR_UNKNOWN_FILE_EXTENSION/.test(output)) return 'typescript-loader';
   if (/SyntaxError/.test(output)) return 'syntax';
   if (/FREE_MODEL_EVIDENCE_STALE/.test(output)) return 'catalog-expired';
+  const marker = output.lastIndexOf(prefix);
+  if (marker >= 0) {
+    try {
+      const envelope = JSON.parse(output.slice(marker + prefix.length).split('\\n')[0]);
+      if (typeof envelope.error === 'string' && /^(?:PROVIDER|FREE_MODEL|FREE_PROVIDER|INVALID_EXECUTION|TRUSTED_ANSWER)_[A-Z0-9_:-]+$/.test(envelope.error)) return 'candidate-error:' + envelope.error.slice(0, 64);
+      if (Number.isInteger(envelope.httpStatus)) return 'candidate-http-' + envelope.httpStatus;
+      if (envelope.schemaVersion !== 'origin.trusted-answer-candidate-result.v2') return 'candidate-envelope-invalid';
+      if (typeof envelope.content !== 'string') return 'candidate-content-invalid';
+    } catch { return 'candidate-envelope-unparseable'; }
+  }
   if (/TRUSTED_ANSWER_CANDIDATE_FATAL/.test(output)) return 'candidate-fatal';
   return 'unclassified';
 }
