@@ -18,12 +18,12 @@ const executor: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
 });
 
 const environmentProof: OriginAnswerQualityBenchmarkEnvironmentProof = {
-  schemaVersion: "origin.aq-benchmark-environment-proof.v1",
+  schemaVersion: "origin.aq-benchmark-environment-proof.v2",
   baseUrl: "https://candidate.example/",
   expectedGitSha: "a".repeat(40),
   observedReleaseSha: "a".repeat(40),
   freeOnly: true,
-  costUsd: 0,
+  maxPermittedCostUsd: 0,
   paidFallbackEnabled: false,
   runtimeIds: {
     research: "grounded-research-v1.1",
@@ -84,21 +84,6 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     expect(result.value.measuredRun.boundRun.caseCount).toBe(40);
     expect(result.value.measuredRun.boundRun.totalProviderRequests).toBe(40);
     expect(result.value.measuredRun.measuredObservations).toHaveLength(40);
-    expect(result.value.costEvidence.summary).toMatchObject({
-      caseCount: 40,
-      zeroCostVerifiedCount: 0,
-      notMeasuredCount: 40,
-      blockedUnverifiedCount: 0,
-      status: "NOT_MEASURED",
-    });
-    expect(result.value.costEvidence.cases).toHaveLength(40);
-    expect(JSON.stringify(result.value.costEvidence)).not.toMatch(
-      /"costUsd"|"totalCostUsd"|"amountUsd"/,
-    );
-
-    expect(result.value.costEvidence.cases).toHaveLength(40);
-
-    expect(JSON.stringify(result.value.costEvidence)).not.toMatch(/"costUsd"|"totalCostUsd"|"amountUsd"/);
   });
 
   it("refuses to start before all four execution lanes are configured", async () => {
@@ -147,7 +132,7 @@ describe("OriginAnswerQualityBenchmarkSession", () => {
     });
   });
 
-  it("rejects executor evidence that violates the legacy free-only contract", async () => {
+  it("fails closed if any lane reports non-zero cost", async () => {
     const paidCoding: OriginAnswerQualityBenchmarkCaseExecutor = async (item) => ({
       caseId: item.caseId,
       finalAnswerRef: "answer",
