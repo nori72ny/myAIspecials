@@ -22,8 +22,8 @@ function fetchFor(overrides: Record<string, unknown> = {}) {
       service: "acos-2",
       releaseSha: overrides.releaseSha ?? sha,
       freeOnly: true,
-      costUsd: 0,
       paidFallbackEnabled: false,
+      ...((overrides.health as object | undefined) ?? {}),
     });
     if (path === "/api/research/v1.1/status") return response({
       ok: true,
@@ -59,7 +59,7 @@ function fetchFor(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
-  it("checks exact release SHA and self-reported free-only policy flags, not billing", async () => {
+  it("proves exact release SHA and zero-cost runtime readiness", async () => {
     const result = await probeOriginAnswerQualityBenchmarkEnvironment(
       "https://candidate.example/",
       sha,
@@ -71,11 +71,22 @@ describe("OriginAnswerQualityBenchmarkEnvironmentProof", () => {
     expect(result.value.baseUrl).toBe("https://candidate.example/");
     expect(result.value.observedReleaseSha).toBe(sha);
     expect(result.value.codingReady).toBe(true);
+    expect(result.value.maxPermittedCostUsd).toBe(0);
+    expect(result.value).not.toHaveProperty("costUsd");
     expect(result.value.runtimeIds).toEqual({
       research: "grounded-research-v1.1",
       coding: "coding-v1.4",
       artifact: "artifact-v1.2",
     });
+  });
+
+  it("rejects an unverified cost assertion added to the health response", async () => {
+    const result = await probeOriginAnswerQualityBenchmarkEnvironment(
+      "https://candidate.example/",
+      sha,
+      fetchFor({ health: { costUsd: 0 } }) as typeof fetch,
+    );
+    expect(result).toEqual({ ok: false, code: "AQ_BENCHMARK_ENV_HEALTH_INVALID" });
   });
 
   it("rejects a deployment whose release SHA differs from the measured git SHA", async () => {
