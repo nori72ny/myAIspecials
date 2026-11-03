@@ -99,17 +99,17 @@ function assertStreamBillingMetadata(chunk: OpenRouterStreamChunk): void {
 }
 
 function providerErrorType(errorType: unknown): never {
-  const diagnostic = { upstreamErrorType: String(errorType) };
+  const diagnostic = { upstreamErrorType: safeStreamDiagnostic(errorType) };
   if (errorType === "rate_limit_exceeded") {
     throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }
   if (errorType === "timeout") {
-    throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
+    throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, false, undefined, diagnostic);
   }
   if (errorType === "provider_overloaded" || errorType === "provider_unavailable") {
-    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
   }
-  throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, diagnostic);
+  throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, false, undefined, diagnostic);
 }
 
 function httpFailure(status: number, retryAfterSeconds?: number): OriginProviderError {
@@ -118,8 +118,8 @@ function httpFailure(status: number, retryAfterSeconds?: number): OriginProvider
   if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
   if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
   if (status === 400 || status === 403 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
-  if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
-  return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
+  if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, false, undefined, diagnostic);
+  return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
 }
 
 function retryAfter(value: string | null): number | undefined {
@@ -193,9 +193,9 @@ async function streamOpenRouter(
     clearTimeout(timer);
     if (error instanceof OriginProviderError) throw error;
     if ((error as Error)?.name === "AbortError") {
-      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
+      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, false, undefined, { transportFailure: "timeout" });
     }
-    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { transportFailure: "network" });
   }
 
   if (!response || !response.ok) {
@@ -280,9 +280,9 @@ async function streamOpenRouter(
   } catch (error) {
     if (error instanceof OriginProviderError) throw error;
     if ((error as Error)?.name === "AbortError") {
-      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
+      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, false, undefined, { transportFailure: "timeout" });
     }
-    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { transportFailure: "network" });
   } finally {
     clearTimeout(timer);
     try { await reader.cancel(); } catch { /* stream already completed */ }
