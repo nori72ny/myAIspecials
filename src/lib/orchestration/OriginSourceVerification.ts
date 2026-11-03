@@ -108,9 +108,11 @@ function validateRequest(
   };
 }
 
-function isVerificationRecord(value: unknown): value is OriginSourceVerificationRecord {
+type RawOriginSourceVerificationRecord = Omit<OriginSourceVerificationRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isVerificationRecord(value: unknown): value is RawOriginSourceVerificationRecord {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<OriginSourceVerificationRecord>;
+  const candidate = value as Partial<RawOriginSourceVerificationRecord>;
   const networkPolicy = candidate.networkPolicy;
   const checks = candidate.checks;
 
@@ -122,7 +124,6 @@ function isVerificationRecord(value: unknown): value is OriginSourceVerification
     && candidate.httpStatus === 200
     && typeof candidate.contentDigest === "string"
     && candidate.externalFetchPerformed === true
-    && candidate.actualCostUsd === null
     && Boolean(networkPolicy)
     && networkPolicy?.publicAddressOnly === true
     && networkPolicy?.redirectsFollowed === false
