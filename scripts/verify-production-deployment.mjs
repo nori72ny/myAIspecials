@@ -147,7 +147,9 @@ export async function verifyProductionDeployment(env = process.env) {
       } else {
         const health = await response.json();
         lastObservation = `releaseSha=${String(health.releaseSha ?? "missing")}`;
-        const healthPolicyVerified = health.costUsd === 0
+        // Health attests routing policy only; it must not claim measured request cost.
+        // Request-level zero cost is checked against the verified chat response below.
+        const healthPolicyVerified = !("costUsd" in health)
           && health.freeOnly === true
           && health.paidFallbackEnabled === false
           && health.secretDelivery === "server-only";

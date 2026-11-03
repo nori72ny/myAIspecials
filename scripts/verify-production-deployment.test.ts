@@ -74,12 +74,32 @@ it('rejects a post-completion-style response that does not identify genuine upst
 it('does not repeat inference when health matches but the chat fails', async () => {
   const sha = 'a'.repeat(40);
   const fetchMock = vi.fn()
-    .mockResolvedValueOnce(Response.json({ status: 'ok', service: 'acos-2', releaseSha: sha, costUsd: 0, freeOnly: true, paidFallbackEnabled: false, secretDelivery: 'server-only' }))
+    .mockResolvedValueOnce(Response.json({ status: 'ok', service: 'acos-2', releaseSha: sha, freeOnly: true, paidFallbackEnabled: false, secretDelivery: 'server-only' }))
     .mockResolvedValueOnce(new Response('<title>ORIGIN Personal</title>', { headers: { 'content-type': 'text/html' } }))
     .mockResolvedValueOnce(Response.json({ code: 'PROVIDER_UNAVAILABLE', message: 'private upstream response' }, { status: 503 }));
   vi.stubGlobal('fetch', fetchMock);
   await expect(verifyProductionDeployment({ ORIGIN_EXPECTED_SHA: sha })).rejects.toThrow('received 503; code=PROVIDER_UNAVAILABLE');
   expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+it('rejects a health response that asserts unverified request cost', async () => {
+  const sha = 'b'.repeat(40);
+  const fetchMock = vi.fn(async () => Response.json({
+    status: 'ok',
+    service: 'acos-2',
+    releaseSha: sha,
+    costUsd: 0,
+    freeOnly: true,
+    paidFallbackEnabled: false,
+    secretDelivery: 'server-only',
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(verifyProductionDeployment({
+    ORIGIN_EXPECTED_SHA: sha,
+    ORIGIN_DEPLOY_TIMEOUT_MS: '100',
+    ORIGIN_DEPLOY_POLL_INTERVAL_MS: '100',
+  })).rejects.toThrow('within 100ms');
+  expect(fetchMock).toHaveBeenCalled();
 });
 
 it('does not expose response bodies in smoke-test failure logs', async () => {
