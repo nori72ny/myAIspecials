@@ -1186,7 +1186,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '安全な回答を依頼' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料モデルの$0.00応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
     expect(screen.getByTestId('origin-safe-waiting-state').getAttribute('aria-live')).toBe('assertive');
     expect(screen.queryByText('表示してはいけない応答')).toBeNull();
     vi.unstubAllGlobals();
@@ -1337,7 +1337,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="en" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'Validate billing safety' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('$0.00'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('free-only policy-compliant response'));
     expect(screen.getByTestId('origin-safe-waiting-state').textContent).toContain('withheld');
     expect(screen.queryByText('Paid streaming response must remain hidden')).toBeNull();
     vi.unstubAllGlobals();
