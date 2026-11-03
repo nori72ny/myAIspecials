@@ -47,10 +47,9 @@ type OpenRouterStreamChunk = {
 
 const OPENROUTER_STREAM_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_CANONICAL_SERVED_MODEL = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+const SAFE_STREAM_ERROR_TYPES = new Set(["rate_limit_exceeded", "timeout", "provider_overloaded", "provider_unavailable"]);
 function safeStreamDiagnostic(value: unknown): string {
-  if (typeof value !== "string") return "unrecognized";
-  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 64);
-  return normalized || "unrecognized";
+  return typeof value === "string" && SAFE_STREAM_ERROR_TYPES.has(value) ? value : "unrecognized";
 }
 const MAX_STREAM_TIMEOUT_MS = 18_000;
 
@@ -244,7 +243,7 @@ async function streamOpenRouter(
     if (chunk.model !== undefined) {
       const candidate = typeof chunk.model === "string" ? chunk.model.trim() : "";
       if (!allowedServedModel(candidate)) {
-        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: safeStreamDiagnostic(`served-model:${candidate || "missing"}`) });
+        throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false, undefined, { upstreamErrorType: "served-model-unverified" });
       }
       servedModel = candidate;
     }
