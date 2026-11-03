@@ -114,7 +114,7 @@ function httpFailure(status: number, retryAfterSeconds?: number): OriginProvider
   if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
   if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
   if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
-  if (status === 400 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
+  if (status === 400 || status === 403 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
   if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
   return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
 }
@@ -164,30 +164,28 @@ async function streamOpenRouter(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response | undefined;
   try {
-    for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
-      transport.count += 1;
-      response = await fetchImpl(OPENROUTER_STREAM_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-          "HTTP-Referer": "https://myaispecials.ai.studio/",
-          "X-OpenRouter-Title": "ORIGIN Personal",
-        },
-        signal: controller.signal,
-        body: JSON.stringify(sanitizePreEgressPayload({
-          model: providerRequest.plan.modelId,
-          messages: requestMessages(providerRequest),
-          max_tokens: originCompletionTokenBudget(providerRequest.plan.taskType),
-          temperature: 0.2,
-          top_p: 0.9,
-          stream: true,
-          usage: { include: true },
-          provider: policy,
-        })),
-      });
-      if (![403, 404].includes(response.status)) break;
-    }
+    const policy = ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES[0];
+    transport.count += 1;
+    response = await fetchImpl(OPENROUTER_STREAM_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        "HTTP-Referer": "https://myaispecials.ai.studio/",
+        "X-OpenRouter-Title": "ORIGIN Personal",
+      },
+      signal: controller.signal,
+      body: JSON.stringify(sanitizePreEgressPayload({
+        model: providerRequest.plan.modelId,
+        messages: requestMessages(providerRequest),
+        max_tokens: originCompletionTokenBudget(providerRequest.plan.taskType),
+        temperature: 0.2,
+        top_p: 0.9,
+        stream: true,
+        usage: { include: true },
+        provider: policy,
+      })),
+    });
   } catch (error) {
     clearTimeout(timer);
     if (error instanceof OriginProviderError) throw error;
