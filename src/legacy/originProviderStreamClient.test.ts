@@ -80,6 +80,26 @@ describe("executeOriginProviderStream", () => {
     }));
   });
 
+  it("does not retry or advance policy stages after HTTP 429 free-quota exhaustion", async () => {
+    const fetchMock = vi.fn(async () => new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "120" },
+    }));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: false,
+      retryAfterSeconds: 120,
+      diagnostic: { transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("counts every streamed HTTP send across a 403 policy-stage fallback", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
