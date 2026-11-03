@@ -140,7 +140,7 @@ async function executeChat(
     : typeof answer?.answer === "string"
       ? answer.answer
       : "";
-  if (!content || !routing || routing.costEvidenceStatus !== "NOT_MEASURED" || routing.freeOnly !== true || routing.actualCostUsd !== null || routing.reportedUsageCostUsd !== 0 || routing.policyMaxCostUsd !== 0) {
+  if (!content || !routing || routing.costEvidenceStatus !== "NOT_MEASURED" || routing.freeOnly !== true || routing.actualCostUsd !== null || routing.reportedUsageCostUsd !== 0 || routing.policyMaxCostUsd !== 0 || routing.costEvidenceStatus !== "NOT_MEASURED") {
     throw new Error("AQ_BENCHMARK_CHAT_ZERO_COST_OR_RESPONSE_INVALID");
   }
 
