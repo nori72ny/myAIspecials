@@ -133,7 +133,7 @@ async function main() {
         }
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, result: {
-          text: answer, actualCostUsd: 0, usage: { costUsd: 0 },
+          text: answer, transportRequestCount: 1, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: 'NOT_MEASURED', billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 },
           providerDataPolicy: value.plan.providerDataPolicy,
           routingEvidence: { requestedModel: value.plan.modelId, servedModel: value.plan.modelId,
             strategy: 'adaptive-primary', provider: 'OpenRouter', attempt: 1, fallbackUsed: false },
