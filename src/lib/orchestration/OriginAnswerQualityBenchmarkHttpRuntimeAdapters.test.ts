@@ -169,6 +169,33 @@ describe("OriginAnswerQualityBenchmarkHttpRuntimeAdapters", () => {
     });
   });
 
+  it("retains measured transport requests from provider error responses", async () => {
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({
+        code: "PROVIDER_UNAVAILABLE",
+        providerTransportRequests: 3,
+      }, 503)) as typeof fetch,
+    });
+    const result = await adapter(item("professional-advice"));
+    expect(result.verifierResult).toBe("BLOCKED_UNVERIFIED");
+    expect(result.providerRequests).toBe(3);
+    expect(result.failureCode).toBe("PROVIDER_UNAVAILABLE");
+  });
+
+  it("rejects provider error responses without transport-count evidence", async () => {
+    const adapter = createOriginAnswerQualityBenchmarkChatHttpAdapter({
+      environmentProof: proof,
+      expectedProviderId: EXPECTED_PROVIDER,
+      expectedModelId: EXPECTED_MODEL,
+      fetchImpl: vi.fn(async () => json({ code: "PROVIDER_UNAVAILABLE" }, 503)) as typeof fetch,
+    });
+    await expect(adapter(item("professional-advice")))
+      .rejects.toThrow("AQ_BENCHMARK_CHAT_ERROR_TRANSPORT_COUNT_UNVERIFIED");
+  });
+
   it("blocks provider-backed AQ evidence when measured transport count is absent", async () => {
     const routingWithoutTransportCount = Object.fromEntries(
       Object.entries(providerRouting("passed"))
