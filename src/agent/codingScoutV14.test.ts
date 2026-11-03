@@ -22,6 +22,7 @@ const scope = {
 };
 const response = (): OriginProviderExecutionResult => ({
   text: JSON.stringify(scope),
+  transportRequestCount: 1,
   actualCostUsd: 0,
   usage: { costUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
