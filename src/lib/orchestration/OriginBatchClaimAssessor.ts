@@ -79,11 +79,12 @@ function clean(value: string, max: number): string | null {
   return trimmed.length > 0 && trimmed.length <= max ? trimmed : null;
 }
 
-function isRecord(value: unknown): value is OriginBatchClaimAssessmentRecord {
+type RawOriginBatchClaimAssessmentRecord = Omit<OriginBatchClaimAssessmentRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginBatchClaimAssessmentRecord {
   if (!value || typeof value !== "object") return false;
-  const record = value as Partial<OriginBatchClaimAssessmentRecord>;
+  const record = value as Partial<RawOriginBatchClaimAssessmentRecord>;
   return Array.isArray(record.items)
-    && record.actualCostUsd === null
     && record.attempts === 1;
 }
 
