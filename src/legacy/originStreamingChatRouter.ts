@@ -170,9 +170,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       res.end("data: [DONE]\n\n");
       return;
     } catch (error) {
-      const safeError = error instanceof OriginProviderError
-        ? error
-        : new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true);
+      const safeError = error instanceof OriginProviderError\n        ? new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, error.diagnostic)\n        : new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, false);
       console.warn("[origin-chat] upstream stream failed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
