@@ -16,6 +16,7 @@ const TEST_NOW = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1
 function providerResult(text: string): OriginProviderExecutionResult {
   return {
     text,
+    transportRequestCount: 1,
     actualCostUsd: 0,
     providerDataPolicy: {
       allowProviderFallbacks: false,
