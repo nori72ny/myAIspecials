@@ -53,12 +53,13 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.headers["x-origin-stream-source"]).toBe("upstream");
     expect(response.headers["x-origin-stream-protocol"]).toBe("origin-verified-sse-v1");
     expect(response.headers["x-origin-free-only"]).toBe("true");
-    expect(response.headers["x-origin-cost-usd"]).toBe("0");
-    expect(response.headers["x-origin-billing-tier"]).toBe("free");
+    expect(response.headers["x-origin-cost-evidence"]).toBe("NOT_MEASURED");
+    expect(response.headers["x-origin-cost-usd"]).toBeUndefined();
+    expect(response.headers["x-origin-billing-tier"]).toBeUndefined();
     expect(response.headers["x-origin-model-id"]).toBe(evidence.modelId);
     expect(response.text).toContain(`data: {"type":"delta","text":"first"}`);
     expect(response.text).toContain(`data: {"type":"delta","text":" second"}`);
-    expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${evidence.modelId}","costUsd":0,"fallbackUsed":false}`);
+    expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${evidence.modelId}","costEvidenceStatus":"NOT_MEASURED","fallbackUsed":false}`);
     expect(response.text).toMatch(/data: \[DONE\]\s*$/);
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
