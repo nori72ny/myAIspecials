@@ -177,7 +177,7 @@ describe("OriginAnswerQualityBenchmarkProviderEvaluators", () => {
       promptDigest: `sha256:${"b".repeat(64)}`,
       claimSetDigest: `sha256:${"c".repeat(64)}`,
       supportedClaimIds: ["claim-a"],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
   });
