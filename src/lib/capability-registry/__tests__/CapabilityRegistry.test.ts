@@ -219,6 +219,19 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     }
   });
 
+  it('should expose only the canonical model from OpenRouterAdapter in FREE_ONLY mode', async () => {
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const providers = await new OpenRouterAdapter().getSelfDeclaredProviders();
+      expect(providers.map(provider => provider.id)).toEqual(["google/gemma-4-31b-it:free"]);
+      expect(providers[0].adapterId).toBe("OpenRouter");
+    } finally {
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
   it('should enforce FREE_ONLY during provider registration and registry reads', () => {
     const originalFreeOnly = process.env.FREE_ONLY;
     process.env.FREE_ONLY = "true";
