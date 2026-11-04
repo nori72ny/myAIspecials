@@ -13,6 +13,7 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     "provider/free",
     "provider/model:free:preview",
     "provider/model:FREE-extra",
+    " google/gemma-4-31b-it:free ",
   ])("rejects non-canonical free model identifiers: %s", async (modelId) => {
     vi.stubEnv("FREE_ONLY", "false");
     const fetchSpy = vi.fn();
