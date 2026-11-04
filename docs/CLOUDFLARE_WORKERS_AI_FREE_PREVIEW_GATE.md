@@ -57,7 +57,7 @@ Required before enabling preview inference:
 3. The owner confirms the Free-plan status and enables the two preview flags only after verification. The flag is an owner attestation, not the runtime proof.
 4. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as server-side secrets. The API token must be read-only and limited to `Account Settings Read`, `Billing Read`, and `Workers AI Read`; no Edit/Write permissions are required.
 5. Set a cryptographically random server-side `ORIGIN_PREVIEW_TOKEN` of at least 32 characters as a Wrangler secret; it must never be placed in source, browser code, logs, or this document.
-6. Before every inference, the Worker reads the account's Workers usage model, subscription list, and exact model schema. It requires `default_usage_model=bundled`, no active paid Workers subscription, and a valid schema for the fixed model. Any API permission failure, timeout, paid-plan indication, or ambiguous response fails closed before inference.
+6. Before every inference, the Worker reads the account's Workers usage model, subscription list, and exact model schema. It requires `default_usage_model=bundled`, no active paid Workers subscription, and a valid schema for the fixed model. Any API permission failure, timeout, paid-plan indication, incomplete/paginated subscription response, or ambiguous response fails closed before inference. The current implementation requires the subscription list to fit entirely in the API response; it does not silently accept a partial first page.
 7. Any missing or ambiguous condition keeps inference disabled.
 
 The preview returns `actualCostUsd: null` and `costEvidenceStatus: NOT_MEASURED`. Provider usage metadata does not prove the final billed amount. Actual billing evidence remains a separate requirement.
@@ -74,7 +74,7 @@ The preview returns `actualCostUsd: null` and `costEvidenceStatus: NOT_MEASURED`
 - No prompt or response logging is added by this Worker.
 - Unapproved browser origins are rejected.
 - Provider errors fail closed.
-- Every inference is preceded by read-only live verification of Workers account settings, Billing subscriptions, and the exact model schema; no inference is sent if the account is not verifiably on the bundled Workers Free allocation.
+- Every inference is preceded by read-only live verification of Workers account settings, a complete non-paginated Billing subscription list, and the exact model schema; no inference is sent if any billing evidence is incomplete or the account is not verifiably on the bundled Workers Free allocation.
 - Unit tests use a mocked AI binding and do not perform live inference.
 
 ## Release boundary
