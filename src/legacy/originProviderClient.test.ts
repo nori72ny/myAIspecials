@@ -50,7 +50,7 @@ describe("executeOriginProvider", () => {
       usage: { costUsd: 0 as const },
     };
     expect(() => assertOriginZeroCostExecutionResult(result as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0]))
-      .toThrow("許可された無料要求モデルの証跡を確認できません。");
+      .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
   });
   it("rejects otherwise valid execution evidence when transport count is missing or zero", () => {
     const validWithoutCount = {
