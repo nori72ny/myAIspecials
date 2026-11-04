@@ -39,13 +39,131 @@ function corsHeaders(request, env) {
   return headers;
 }
 
-function previewExecutionEnabled(env) {
+function previewControlsConfigured(env) {
   return env.FREE_ONLY === "true"
     && env.CF_WORKERS_AI_PREVIEW_ENABLED === "true"
     && env.CF_WORKERS_AI_FREE_PLAN_CONFIRMED === "true"
     && typeof env.ORIGIN_PREVIEW_TOKEN === "string"
     && env.ORIGIN_PREVIEW_TOKEN.length >= 32
-    && Boolean(env.AI && typeof env.AI.run === "function");
+    && Boolean(env.AI && typeof env.AI.run === "function")
+    && validCloudflareCredentials(env);
+}
+
+function validCloudflareCredentials(env) {
+  const accountId = typeof env.CLOUDFLARE_ACCOUNT_ID === "string" ? env.CLOUDFLARE_ACCOUNT_ID.trim() : "";
+  const apiToken = typeof env.CLOUDFLARE_API_TOKEN === "string" ? env.CLOUDFLARE_API_TOKEN.trim() : "";
+  return /^[a-f0-9]{32}$/i.test(accountId) && apiToken.length >= 20 && apiToken.length <= 4096;
+}
+
+function cloudflareCredentials(env) {
+  return {
+    accountId: env.CLOUDFLARE_ACCOUNT_ID.trim(),
+    apiToken: env.CLOUDFLARE_API_TOKEN.trim(),
+  };
+}
+
+async function readCloudflareJson(url, apiToken, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+        accept: "application/json",
+      },
+      redirect: "error",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => null);
+    return { response, body };
+  } catch {
+    return { response: null, body: null };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function isActiveSubscription(value) {
+  return ["Trial", "Provisioned", "Paid", "AwaitingPayment"].includes(String(value?.state ?? ""));
+}
+
+function subscriptionPlanText(value) {
+  const plan = value?.rate_plan && typeof value.rate_plan === "object" && !Array.isArray(value.rate_plan)
+    ? value.rate_plan
+    : {};
+  return [plan.id, plan.public_name, plan.name, plan.scope, ...(Array.isArray(plan.sets) ? plan.sets : [])]
+    .filter(item => typeof item === "string")
+    .join(" ")
+    .toLowerCase();
+}
+
+async function verifyWorkersFreePlan(env) {
+  const { accountId, apiToken } = cloudflareCredentials(env);
+  const accountBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}`;
+
+  const settings = await readCloudflareJson(
+    `${accountBase}/workers/account-settings`,
+    apiToken,
+  );
+  if (!settings.response?.ok || settings.body?.success !== true) {
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
+  }
+
+  const settingsResult = settings.body.result && typeof settings.body.result === "object" && !Array.isArray(settings.body.result)
+    ? settings.body.result
+    : {};
+  const usageModel = typeof settingsResult.default_usage_model === "string"
+    ? settingsResult.default_usage_model.toLowerCase()
+    : "";
+  if (usageModel === "standard" || usageModel === "unbound") {
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
+  }
+  if (usageModel !== "bundled") {
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
+  }
+
+  const subscriptions = await readCloudflareJson(
+    `${accountBase}/subscriptions`,
+    apiToken,
+  );
+  if (!subscriptions.response?.ok || subscriptions.body?.success !== true || !Array.isArray(subscriptions.body.result)) {
+    return { ok: false, reason: "CLOUDFLARE_BILLING_READ_REQUIRED" };
+  }
+
+  for (const row of subscriptions.body.result) {
+    if (!row || typeof row !== "object" || !isActiveSubscription(row)) continue;
+    const planText = subscriptionPlanText(row);
+    if (!planText.includes("worker")) continue;
+    const numericPrice = typeof row.price === "number" && Number.isFinite(row.price) ? row.price : null;
+    if ((numericPrice !== null && numericPrice > 0) || planText.includes("paid") || !planText.includes("free")) {
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
+    }
+  }
+
+  const schema = await readCloudflareJson(
+    `${accountBase}/ai/models/schema?model=${encodeURIComponent(MODEL_ID)}`,
+    apiToken,
+  );
+  if (!schema.response?.ok || schema.body?.success !== true) {
+    const errors = Array.isArray(schema.body?.errors) ? schema.body.errors : [];
+    const paidOnly = errors.some(error => Number(error?.code) === 5035);
+    if (paidOnly) return { ok: false, reason: "CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN" };
+    if ([401, 403].includes(schema.response?.status ?? 0)) {
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED" };
+    }
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED" };
+  }
+
+  const schemaResult = schema.body.result && typeof schema.body.result === "object" && !Array.isArray(schema.body.result)
+    ? schema.body.result
+    : {};
+  if (!schemaResult.input || !schemaResult.output) {
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED" };
+  }
+
+  return { ok: true, reason: null };
 }
 
 function validPreviewToken(request, env) {
@@ -98,7 +216,7 @@ async function readBodyWithinLimit(request) {
 }
 
 async function handlePreviewChat(request, env, headers) {
-  if (!previewExecutionEnabled(env)) {
+  if (!previewControlsConfigured(env)) {
     return json({
       error: "ORIGIN_CF_AI_PREVIEW_NOT_ENABLED",
       message: "Cloudflare Workers AI preview is disabled until the Free plan and preview controls are confirmed.",
@@ -140,6 +258,15 @@ async function handlePreviewChat(request, env, headers) {
   const prompt = body && typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt || prompt.length > MAX_PROMPT_CHARS) {
     return json({ error: "INVALID_PROMPT", retryable: false }, 400, headers);
+  }
+
+  const freePlanProof = await verifyWorkersFreePlan(env);
+  if (!freePlanProof.ok) {
+    return json({
+      error: freePlanProof.reason,
+      message: "The Cloudflare Workers Free plan, billing state, and exact model eligibility could not all be verified. Inference was not sent.",
+      retryable: false,
+    }, 503, headers);
   }
 
   let result;
@@ -188,6 +315,8 @@ async function handlePreviewChat(request, env, headers) {
       promptTokens: safeTokenCount(usage.prompt_tokens),
       completionTokens: safeTokenCount(usage.completion_tokens),
     },
+    freeAllocationEligible: true,
+    planEvidenceStatus: "VERIFIED_WORKERS_FREE",
     actualCostUsd: null,
     costEvidenceStatus: "NOT_MEASURED",
     retryable: false,
@@ -217,7 +346,8 @@ export default {
         runtime: "cloudflare-worker",
         freeOnly: env.FREE_ONLY === "true",
         aiBindingConfigured: Boolean(env.AI && typeof env.AI.run === "function"),
-        previewExecutionEnabled: previewExecutionEnabled(env),
+        previewControlsConfigured: previewControlsConfigured(env),
+        freePlanProofRequired: true,
         model: MODEL_ID,
       }, 200, headers);
     }
