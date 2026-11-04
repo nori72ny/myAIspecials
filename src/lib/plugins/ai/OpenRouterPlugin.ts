@@ -17,10 +17,10 @@ export class OpenRouterError extends Error {
 export class OpenRouterPlugin implements IAIProviderPlugin {
   public manifest: AIProviderManifest = {
     id: "plugin-openrouter",
-    name: "OpenRouter Provider Plugin",
+    name: "OpenRouter Legacy Compatibility Plugin",
     version: "1.0.0",
     author: "ACOS Core Team",
-    description: "Provides access to explicitly free models via OpenRouter API",
+    description: "Legacy metadata only; direct provider execution is disabled",
     provider: "OpenRouter",
     models: [
       {
@@ -58,7 +58,7 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   }
 
   /**
-   * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
+   * Legacy compatibility method. Real provider calls must use the canonical ORIGIN execution boundary.
    */
   public async generateText(modelId: string, prompt: string, _options?: any): Promise<string> {
     if (!this.isFreeModel(modelId)) {
