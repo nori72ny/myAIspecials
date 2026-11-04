@@ -33,8 +33,8 @@ export function createOriginApp(
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
 
-  // Release 1 exposes only the canonical chat API and health identity. Keep every
-  // later-generation API unreachable in production until its own release gate passes.
+  // Release 1 exposes health, canonical chat, and the exact artifact v1.2 routes
+  // covered by their independent release gate. Every other API remains unreachable.
   if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") {
     app.use((req, res, next) => {
       // Express routing is case-insensitive by default. Normalize before enforcing
