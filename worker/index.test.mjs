@@ -29,7 +29,7 @@ function enabledEnv(run = vi.fn().mockResolvedValue({
     ...freeEnv,
     CF_WORKERS_AI_PREVIEW_ENABLED: "true",
     CF_WORKERS_AI_FREE_PLAN_CONFIRMED: "true",
-    ORIGIN_PREVIEW_TOKEN: "synthetic-preview-token",
+    ORIGIN_PREVIEW_TOKEN: "synthetic-preview-token-0123456789abcdef",
     AI: { run },
   };
 }
@@ -98,6 +98,19 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     expect(JSON.stringify(body)).not.toContain(privatePrompt);
     expect(run).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("keeps preview inference disabled when the server-side token is weak", async () => {
+    const run = vi.fn();
+    const env = { ...enabledEnv(run), ORIGIN_PREVIEW_TOKEN: "short" };
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: "short" }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("ORIGIN_CF_AI_PREVIEW_NOT_ENABLED");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects requests without the server-side preview token", async () => {
