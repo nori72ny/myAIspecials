@@ -24,6 +24,12 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain('const MODEL_ID = "@cf/google/gemma-4-26b-a4b-it"');
     expect(worker).toContain('CF_WORKERS_AI_PREVIEW_ENABLED === "true"');
     expect(worker).toContain('CF_WORKERS_AI_FREE_PLAN_CONFIRMED === "true"');
+    expect(worker).toContain("verifyWorkersFreePlan(env)");
+    expect(worker).toContain("/workers/account-settings");
+    expect(worker).toContain("/subscriptions");
+    expect(worker).toContain("/ai/models/schema");
+    expect(worker).toContain("CLOUDFLARE_BILLING_READ_REQUIRED");
+    expect(worker).toContain("CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN");
     expect(worker).toContain('error: "ORIGIN_CF_AI_PREVIEW_NOT_ENABLED"');
     expect(worker).toContain("actualCostUsd: null");
     expect(worker).toContain('costEvidenceStatus: "NOT_MEASURED"');
