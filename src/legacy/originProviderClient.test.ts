@@ -41,7 +41,7 @@ describe("executeOriginProvider", () => {
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, ""),
-        servedModel: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, ""),
+        servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         strategy: "adaptive-primary",
         provider: "openrouter",
         attempt: 1 as const,
