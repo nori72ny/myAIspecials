@@ -43,7 +43,7 @@ export function createOriginApp(
       if (req.method === "GET" && (requestPath === "/health" || requestPath === "/api/health" || requestPath === "/api/artifacts/v1.2/status")) return next();
       if ((requestPath === "/api/chat" && req.method === "POST") || (requestPath === "/api/artifacts/v1.2/generate" && req.method === "POST")) return next();
       if (requestPath === "/api/chat" || requestPath === "/api/artifacts/v1.2/status" || requestPath === "/api/artifacts/v1.2/generate") {
-        res.setHeader("Allow", "POST");
+        res.setHeader("Allow", requestPath === "/api/artifacts/v1.2/status" ? "GET" : "POST");
         return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "このAPIで許可されていないHTTPメソッドです。", retryable: false, requestId: "UNKNOWN" });
       }
       if (requestPath === "/api" || requestPath.startsWith("/api/") || requestPath === "/sites" || requestPath.startsWith("/sites/")) {
