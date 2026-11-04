@@ -222,16 +222,24 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps only the health identity and canonical chat method available in production", async () => {
+  it("exposes only health, canonical chat, and the independently gated artifact v1.2 endpoints in production", async () => {
     const app = createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" });
     const health = await request(app).get("/api/health");
     const unsupportedChatMethod = await request(app).get("/api/chat");
+    const artifactStatus = await request(app).get("/api/artifacts/v1.2/status");
+    const unsupportedArtifactMethod = await request(app).get("/api/artifacts/v1.2/generate");
+    const artifactGeneration = await request(app).post("/api/artifacts/v1.2/generate").send({ type: "pdf", title: "Release gate" });
 
     expect(health.status).toBe(200);
     expect(health.body.releaseSha).toBe("unknown");
     expect(unsupportedChatMethod.status).toBe(405);
     expect(unsupportedChatMethod.headers.allow).toBe("POST");
     expect(unsupportedChatMethod.body.code).toBe("METHOD_NOT_ALLOWED");
+    expect(artifactStatus.status).toBe(200);
+    expect(unsupportedArtifactMethod.status).toBe(405);
+    expect(unsupportedArtifactMethod.headers.allow).toBe("POST");
+    expect(artifactGeneration.status).not.toBe(404);
+    expect(artifactGeneration.body.code).not.toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
   });
 
   it("sets strict production security headers and removes Express fingerprinting", async () => {
