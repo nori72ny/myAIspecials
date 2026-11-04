@@ -28,14 +28,16 @@ Official references:
 
 The current preview hard-codes Gemma 4 26B A4B as a cost-efficient baseline because Cloudflare documents it as ZDR, Free-plan eligible, multilingual, vision-capable, reasoning-capable, and function-calling capable.
 
-A second candidate must be included in the quality review before selecting the long-term primary model:
+Additional candidates must be included in the quality review before selecting the long-term primary model:
 - `@cf/nvidia/nemotron-3-120b-a12b`: Cloudflare documents it as ZDR, reasoning-capable, function-calling capable, and available on Workers Free. It is described as an agentic model with a 256K context window. Its published token rates are materially higher than Gemma 4 (0.50/1.50 USD per million input/output tokens versus 0.10/0.30).
-- At an illustrative 1,000 input + 1,000 output tokens, the published neuron rates imply about 182 Neurons for Nemotron versus 36 Neurons for Gemma. This is a rate-based estimate, not measured usage or billing.
+- `@cf/zai-org/glm-4.7-flash`: Cloudflare documents it as ZDR, reasoning-capable, function-calling capable, multilingual, and available on Workers Free, with a 131K context window. Its published token rates are 0.0605/0.40 USD per million input/output tokens.
+- At an illustrative 1,000 input + 1,000 output tokens, the published neuron rates imply about 182 Neurons for Nemotron, 42 for GLM-4.7-Flash, and 36 for Gemma. This is a rate-based estimate, not measured usage or billing.
 
 Do not interpret model size or vendor descriptions as a verified quality ranking. Keep Gemma as the current preview baseline until the same Japanese and English held-out task set is run against both models under the same Free-plan and privacy constraints. No automatic fallback or runtime model rotation is permitted. Model selection remains a manual release decision.
 
 Official candidate references:
 - Nemotron model and ZDR: https://developers.cloudflare.com/ai/models/%40cf/nvidia/nemotron-3-120b-a12b/
+- GLM-4.7-Flash model and ZDR: https://developers.cloudflare.com/workers-ai/models/glm-4.7-flash/
 - Workers Free model eligibility: https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/
 - Gemma model and ZDR: https://developers.cloudflare.com/ai/models/%40cf/google/gemma-4-26b-a4b-it/
 
