@@ -144,7 +144,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(app).toContain("paidFallbackEnabled: false");
     expect(app).toContain('secretDelivery: "server-only"');
     expect(app).toContain("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
-    expect(app).toContain('req.path === "/api/chat" && req.method === "POST"');
+    expect(app).toContain('requestPath === "/api/chat" && req.method === "POST"');
+    expect(app).toContain("req.path.toLowerCase()");
     expect(gate).toContain("本番API allowlist");
     expect(app).toContain("env.VERCEL_GIT_COMMIT_SHA");
     expect(app).toContain('["/health", "/api/health"]');
