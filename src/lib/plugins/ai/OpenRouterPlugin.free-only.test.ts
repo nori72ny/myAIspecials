@@ -63,7 +63,18 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     const plugin = new OpenRouterPlugin(apiKey);
 
     await expect(plugin.generateText("google/gemma-4-31b-it:free", "test"))
-      .rejects.toMatchObject({ message: "OPENROUTER_NOT_CONFIGURED", statusCode: 503 });
+      .rejects.toMatchObject({ message: "FREE_ONLY_PROVIDER_BOUNDARY_REQUIRED", statusCode: 503 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("never sends a direct legacy request even with a valid key and canonical model", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const plugin = new OpenRouterPlugin("configured-key");
+
+    await expect(plugin.generateText("google/gemma-4-31b-it:free", "test"))
+      .rejects.toMatchObject({ message: "FREE_ONLY_PROVIDER_BOUNDARY_REQUIRED", statusCode: 503 });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
