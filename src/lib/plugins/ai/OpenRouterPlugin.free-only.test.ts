@@ -24,7 +24,30 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("accepts only an exact :free suffix without contacting the network in test mode", async () => {
+  it("rejects an unlisted model even when its identifier ends in :free", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const plugin = new OpenRouterPlugin("test-key");
+
+    await expect(plugin.generateText("unlisted/provider-model:free", "test", { throwOnBlock: true }))
+      .rejects.toMatchObject({ message: "FREE_MODEL_UNAVAILABLE", statusCode: 400 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "mock-placeholder"])("fails closed when runtime credentials are unavailable: %s", async (apiKey) => {
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const plugin = new OpenRouterPlugin(apiKey);
+
+    await expect(plugin.generateText("google/gemini-2.5-flash:free", "test"))
+      .rejects.toMatchObject({ message: "OPENROUTER_NOT_CONFIGURED", statusCode: 503 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts the catalogued free model through deterministic test mock only", async () => {
+    vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("FREE_ONLY", "false");
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
