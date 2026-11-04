@@ -4,9 +4,9 @@ Status: Release decision record
 
 Owner: ノリさん
 
-Candidate branch: `fix/audit-remediation-v2`
+Candidate branch: `fix/security-audit-zero-cost-provider-boundary`
 
-Last aligned: 2026-08-02
+Last aligned: 2026-11-04
 
 ## 公開するもの
 
@@ -28,6 +28,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 - 現行カタログの`google/gemma-4-31b-it:free`は、OpenRouterのモデル別Endpoints APIで、配信先が`Google AI Studio`の1エンドポイントとして返る。モデル一覧・当該endpoint情報のprompt/completion価格は0だが、これはProvider側のデータ保持条件や実際の請求記録を証明しない。
 - GoogleのGemini API追加利用規約は、無料サービスについて、送信コンテンツと生成回答をGoogleの製品・サービス・機械学習技術の提供・改善・開発に使用する場合があり、人間のレビュアーが確認する場合もあると説明している。
 - したがって、Google AI Studio無料endpointをORIGINのZDR適格endpointとして承認しない。OpenRouterの`provider.zdr: true`および`data_collection: deny`は維持し、ZDR適格endpointが選ばれない場合は実行失敗を許容する。ZDRを外す、data collection制限を弱める、別endpointへ無条件fallbackする変更は禁止する。
+- OpenRouterの現行公式Provider Routing仕様では、リクエスト単位の`provider.zdr: true`はZDR endpointに制限する一方、アカウントのPrivacy SettingsまたはGuardrailが許可している場合はSafety Retention endpointも候補になり得る。Safety Retentionは通常のZDRと異なり、不正利用対策目的でprompt/responseを保持する可能性がある。厳格なZDR-onlyを公開条件とし、アカウントまたは適用Guardrailの実効設定でSafety Retentionが無効であることを確認する。現時点でそのアカウント設定は未確認であり、この作業では変更しない（UNVERIFIED）。公式仕様: https://openrouter.ai/docs/guides/routing/provider-selection および https://openrouter.ai/docs/guides/features/zdr。
 - この候補モデルは、OpenRouterの認証済みZDR endpoint情報と、Google側の当該endpointに適用される保持条件を独立に確認できるまで、本番公開のAIモデルとして未承認（NO-GO）とする。価格が0であることを、ZDRまたは実費$0.00の証明に読み替えない。
 
 ## Personal画面の実装境界
