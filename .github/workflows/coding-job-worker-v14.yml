@@ -64,10 +64,9 @@ jobs:
           FREE_ONLY: 'true'
         run: |
           set -euo pipefail
-          # Exit 2 means the controller intentionally left the durable job
-          # retryable/lease-lost. Read the controller's shared lease policy; after it expires the
-          # next invocation first runs recoverStaleJob and atomically reclaims it.
-          # This keeps recovery inside one bounded hosted run with no polling server.
+          # Exit 2 means the controller left an ambiguous retryable/lease-lost outcome.
+          # Never replay automatically: the previous run may already have called the provider.
+          # Inspect durable state before an operator explicitly dispatches recovery.
           # Never replay a job automatically after an ambiguous worker outcome.
           # The prior invocation may already have issued one or more provider requests.
           # Exit 2 is surfaced for explicit operator recovery after inspecting durable state.
