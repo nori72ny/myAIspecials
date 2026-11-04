@@ -128,11 +128,23 @@ async function verifyWorkersFreePlan(env) {
     `${accountBase}/subscriptions`,
     apiToken,
   );
-  if (!subscriptions.response?.ok || subscriptions.body?.success !== true || !Array.isArray(subscriptions.body.result)) {
-    return { ok: false, reason: "CLOUDFLARE_BILLING_READ_REQUIRED" };
+  const subscriptionInfo = subscriptions.body?.result_info;
+  const subscriptionRows = subscriptions.body?.result;
+  if (
+    !subscriptions.response?.ok
+    || subscriptions.body?.success !== true
+    || !Array.isArray(subscriptionRows)
+    || !subscriptionInfo
+    || !Number.isSafeInteger(subscriptionInfo.count)
+    || !Number.isSafeInteger(subscriptionInfo.total_count)
+    || subscriptionInfo.count !== subscriptionRows.length
+    || subscriptionInfo.total_count !== subscriptionRows.length
+  ) {
+    // The endpoint is paginated. Never infer a Free account from an incomplete first page.
+    return { ok: false, reason: "CLOUDFLARE_BILLING_READ_INCOMPLETE" };
   }
 
-  for (const row of subscriptions.body.result) {
+  for (const row of subscriptionRows) {
     if (!row || typeof row !== "object" || !isActiveSubscription(row)) continue;
     const planText = subscriptionPlanText(row);
     if (!planText.includes("worker")) continue;
