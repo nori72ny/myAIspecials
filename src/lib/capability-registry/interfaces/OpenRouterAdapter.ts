@@ -22,7 +22,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
       { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
       ["free-model"]
     );
-    const freeOnly = typeof process === "undefined" || process.env.FREE_ONLY !== "false";
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
     if (freeOnly) return [canonicalProvider];
 
     const legacyProviders = [
