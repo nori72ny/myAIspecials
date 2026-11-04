@@ -1,6 +1,6 @@
 import { Provider, ProviderHealth } from '../entities/Provider';
 import { SearchQuery, RoutingDecision } from '../../interfaces/types';
-import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../orchestration/OriginFreeModelCatalog';
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../../orchestration/OriginFreeModelCatalog';
 
 export class RoutingService {
   /**
