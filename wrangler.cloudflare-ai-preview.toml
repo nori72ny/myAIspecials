@@ -1,0 +1,18 @@
+name = "origin-cloudflare-ai-preview"
+main = "worker/index.mjs"
+compatibility_date = "2026-11-04"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+[vars]
+FREE_ONLY = "true"
+CF_WORKERS_AI_PREVIEW_ENABLED = "false"
+CF_WORKERS_AI_FREE_PLAN_CONFIRMED = "false"
+APP_URL = "https://acos-staging.pages.dev"
+
+# ORIGIN_PREVIEW_TOKEN must be added only as a Wrangler secret after owner approval.
+# Never put API tokens or preview credentials in this file.
+# Preview inference remains disabled until the Cloudflare Workers Free plan is verified.
+# No paid Workers plan, AI Gateway credits, or paid fallback is permitted.
