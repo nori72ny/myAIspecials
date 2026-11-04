@@ -96,6 +96,33 @@ describe('RoutingEngine', () => {
     expect(result.integrationAI?.id).toBe("ai-smart"); // ai-smart is best for integration (Quality 10)
   });
 
+  it('enforces the canonical free model in FREE_ONLY mode', () => {
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const models: AIModel[] = [
+        { ...mockModels[1], id: "openai/gpt-4o", provider: "OpenAI" },
+        {
+          id: "google/gemma-4-31b-it:free",
+          name: "ORIGIN Approved Free Model",
+          provider: "OpenRouter",
+          speed: 7,
+          cost: 0,
+          quality: 8,
+          failureRate: 0.02,
+          available: true,
+          specialties: ["Reasoning", "Text Generation"]
+        }
+      ];
+      const result = new RoutingEngine(models).route({ input: "こんにちは", priority: "quality" });
+      expect(result.primaryAI.id).toBe("google/gemma-4-31b-it:free");
+      expect(result.secondaryAIs).toHaveLength(0);
+    } finally {
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
   it('should throw if no available models', () => {
     const engine = new RoutingEngine([{ ...mockModels[0], available: false }]);
     expect(() => engine.route({ input: "テスト" })).toThrow("No available AI models.");
