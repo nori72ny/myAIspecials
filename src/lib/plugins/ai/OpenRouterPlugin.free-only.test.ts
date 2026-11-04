@@ -41,7 +41,7 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     vi.stubGlobal("fetch", fetchSpy);
     const plugin = new OpenRouterPlugin(apiKey);
 
-    await expect(plugin.generateText("google/gemini-2.5-flash:free", "test"))
+    await expect(plugin.generateText("google/gemma-4-31b-it:free", "test"))
       .rejects.toMatchObject({ message: "OPENROUTER_NOT_CONFIGURED", statusCode: 503 });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -53,7 +53,7 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     vi.stubGlobal("fetch", fetchSpy);
     const plugin = new OpenRouterPlugin("test-key");
 
-    await expect(plugin.generateText("google/gemini-2.5-flash:free", "test"))
+    await expect(plugin.generateText("google/gemma-4-31b-it:free", "test"))
       .resolves.toBeTruthy();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
