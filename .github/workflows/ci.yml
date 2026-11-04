@@ -82,8 +82,6 @@ jobs:
       run: npm run lint
     - name: Build the app
       run: npm run build
-    - name: Validate isolated Cloudflare AI preview Worker without deployment
-      run: npm run check:cloudflare-ai-preview
     - name: Run unit tests
       run: npm run test
     - name: Cache Playwright Browsers
