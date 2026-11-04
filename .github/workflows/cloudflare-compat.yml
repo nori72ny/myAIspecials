@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "worker.ts"
+      - "worker/index.mjs"
+      - "worker/index.test.mjs"
+      - "wrangler.cloudflare-ai-preview.toml"
       - "worker-cloudflare.d.ts"
       - "wrangler.jsonc"
       - "public/_headers"
@@ -37,6 +40,9 @@ jobs:
 
       - name: Validate Worker bundle without credentials
         run: npm run check:worker
+
+      - name: Validate isolated Cloudflare AI preview bundle without deployment
+        run: npm run check:cloudflare-ai-preview
 
       - name: Verify Node production runtime
         run: node scripts/verify-node-production-runtime.mjs
