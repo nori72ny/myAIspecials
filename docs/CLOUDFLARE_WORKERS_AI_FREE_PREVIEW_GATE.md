@@ -24,6 +24,21 @@ Official references:
 - Free allocation and model pricing: https://developers.cloudflare.com/workers-ai/platform/pricing/
 - Workers Free model eligibility: https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/
 
+## Model selection status
+
+The current preview hard-codes Gemma 4 26B A4B as a cost-efficient baseline because Cloudflare documents it as ZDR, Free-plan eligible, multilingual, vision-capable, reasoning-capable, and function-calling capable.
+
+A second candidate must be included in the quality review before selecting the long-term primary model:
+- `@cf/nvidia/nemotron-3-120b-a12b`: Cloudflare documents it as ZDR, reasoning-capable, function-calling capable, and available on Workers Free. It is described as an agentic model with a 256K context window. Its published token rates are materially higher than Gemma 4 (0.50/1.50 USD per million input/output tokens versus 0.10/0.30).
+- At an illustrative 1,000 input + 1,000 output tokens, the published neuron rates imply about 182 Neurons for Nemotron versus 36 Neurons for Gemma. This is a rate-based estimate, not measured usage or billing.
+
+Do not interpret model size or vendor descriptions as a verified quality ranking. Keep Gemma as the current preview baseline until the same Japanese and English held-out task set is run against both models under the same Free-plan and privacy constraints. No automatic fallback or runtime model rotation is permitted. Model selection remains a manual release decision.
+
+Official candidate references:
+- Nemotron model and ZDR: https://developers.cloudflare.com/ai/models/%40cf/nvidia/nemotron-3-120b-a12b/
+- Workers Free model eligibility: https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/
+- Gemma model and ZDR: https://developers.cloudflare.com/ai/models/%40cf/google/gemma-4-26b-a4b-it/
+
 ## Cost boundary
 
 Cloudflare Workers Free includes 10,000 Neurons per account per day. On the Free plan, usage beyond that allocation fails with an error; it does not silently continue as free usage. On Workers Paid, usage above the 10,000-Neuron allocation is billed at $0.011 per 1,000 Neurons. Cloudflare's published pricing also lists the selected model at $0.10 per million input tokens and $0.30 per million output tokens (9,091 and 27,273 Neurons respectively). These are metered rates, not zero-priced inference.
