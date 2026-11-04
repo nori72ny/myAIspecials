@@ -1,5 +1,16 @@
 [
   {
+    "id": "google/gemma-4-31b-it:free",
+    "name": "ORIGIN Approved Free Model",
+    "provider": "OpenRouter",
+    "speed": 7,
+    "cost": 0,
+    "quality": 8,
+    "failureRate": 0.02,
+    "available": true,
+    "specialties": ["Reasoning", "Text Generation", "Code", "Math", "Research", "Translation"]
+  },
+  {
     "id": "gpt-4o",
     "name": "GPT-4o",
     "provider": "OpenAI",
