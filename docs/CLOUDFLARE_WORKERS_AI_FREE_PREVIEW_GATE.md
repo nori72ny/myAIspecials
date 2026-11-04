@@ -49,9 +49,9 @@ The preview returns `actualCostUsd: null` and `costEvidenceStatus: NOT_MEASURED`
 - It requires `FREE_ONLY=true`, `CF_WORKERS_AI_PREVIEW_ENABLED=true`, `CF_WORKERS_AI_FREE_PLAN_CONFIRMED=true`, the Cloudflare AI binding, and the server-side preview token.
 - One fixed model only.
 - No retries, provider fallback, model fallback, or paid fallback.
-- Maximum request body: 16 KiB.
+- Maximum request body: 64 KiB, enforced while streaming the request body.
 - Maximum prompt length: 12,000 characters.
-- Maximum output: 1,024 tokens.
+- Maximum output: 1,024 tokens. Busy inference requests are rejected immediately; no queue wait, retry, provider fallback, or model fallback is attempted.
 - No prompt or response logging is added by this Worker.
 - Unapproved browser origins are rejected.
 - Provider errors fail closed.
