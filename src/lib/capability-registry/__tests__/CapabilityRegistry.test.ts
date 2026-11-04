@@ -219,6 +219,33 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     }
   });
 
+  it('does not allow FREE_ONLY=false to enable paid providers outside tests', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.NODE_ENV = "production";
+    process.env.FREE_ONLY = "false";
+    try {
+      const registry = new CapabilityRegistry();
+      const paid = new Provider(
+        "openai/gpt-4o",
+        "Paid GPT",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 7, latency: 700, quality: 9, failureRate: 0.01 },
+        ["paid-model"]
+      );
+      expect(() => registry.registerProvider(paid)).toThrow("FREE_ONLY_PROVIDER_BLOCKED");
+      expect(await new OpenRouterAdapter().getSelfDeclaredProviders())
+        .toHaveLength(1);
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
   it('should expose only the canonical model from OpenRouterAdapter in FREE_ONLY mode', async () => {
     const originalFreeOnly = process.env.FREE_ONLY;
     process.env.FREE_ONLY = "true";
