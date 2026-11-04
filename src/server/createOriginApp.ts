@@ -40,9 +40,9 @@ export function createOriginApp(
       // Express routing is case-insensitive by default. Normalize before enforcing
       // the production allowlist so mixed-case paths cannot reach mounted routers.
       const requestPath = req.path.toLowerCase();
-      if (req.method === "GET" && (requestPath === "/health" || requestPath === "/api/health")) return next();
-      if (requestPath === "/api/chat" && req.method === "POST") return next();
-      if (requestPath === "/api/chat") {
+      if (req.method === "GET" && (requestPath === "/health" || requestPath === "/api/health" || requestPath === "/api/artifacts/v1.2/status")) return next();
+      if ((requestPath === "/api/chat" && req.method === "POST") || (requestPath === "/api/artifacts/v1.2/generate" && req.method === "POST")) return next();
+      if (requestPath === "/api/chat" || requestPath === "/api/artifacts/v1.2/status" || requestPath === "/api/artifacts/v1.2/generate") {
         res.setHeader("Allow", "POST");
         return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "このAPIで許可されていないHTTPメソッドです。", retryable: false, requestId: "UNKNOWN" });
       }
