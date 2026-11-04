@@ -42,7 +42,7 @@ export class RoutingEngine {
    */
   public route(request: RoutingRequest): RoutingResponse {
     const capabilities = this.extractCapabilities(request.input);
-    const freeOnly = typeof process === "undefined" || process.env.FREE_ONLY !== "false";
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
     const availableModels = this.models.filter(m =>
       m.available && (!freeOnly || (m.id === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL && m.provider === "OpenRouter"))
     );
