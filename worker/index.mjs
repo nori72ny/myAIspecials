@@ -187,9 +187,16 @@ async function verifyWorkersFreePlan(env) {
     const hasExplicitFreePlanId = ratePlanId === "free" || ratePlanId === "partners_free";
     const hasExactZeroPrice = typeof row.price === "number" && Number.isFinite(row.price) && row.price === 0;
     const explicitlyNotExternallyManaged = ratePlan.externally_managed === false;
+    const explicitlyNotContracted = ratePlan.is_contract === false;
 
     // Every optional billing field must positively prove the free Workers entitlement.
-    if (!hasExplicitFreePlanId || !hasExactZeroPrice || !explicitlyNotExternallyManaged || planText.includes("paid")) {
+    if (
+      !hasExplicitFreePlanId
+      || !hasExactZeroPrice
+      || !explicitlyNotExternallyManaged
+      || !explicitlyNotContracted
+      || planText.includes("paid")
+    ) {
       return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
     }
   }
