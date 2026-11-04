@@ -70,7 +70,9 @@ describe("ORIGIN Personal release 1 gate", () => {
 
     // Historical audit finding: latent legacy code must also remain zero-retry/zero-cost
     // so a future reactivation cannot silently restore the old retry=3 / cost-cap=$1 defaults.
-    expect(legacyPlugin).toContain("const maxAttempts = 1");
+    expect(legacyPlugin).toContain("Legacy direct provider execution is disabled");
+    expect(legacyPlugin).toContain("FREE_ONLY_PROVIDER_BOUNDARY_REQUIRED");
+    expect(legacyPlugin).not.toContain("fetch(");
     expect(legacyPlugin).not.toContain("maxRetries ?? 3");
     expect(legacyAppState).toContain("maxCostCap: 0");
     expect(legacyAppState).toContain("retryCount: 0");
