@@ -489,6 +489,61 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("fails closed when the Workers Free subscription omits the contract flag", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([{
+        state: "Provisioned",
+        price: 0,
+        rate_plan: {
+          id: "free",
+          public_name: "Workers Free",
+          sets: ["workers"],
+          externally_managed: false,
+        },
+      }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a contracted Workers subscription even if its rate plan claims Free", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([{
+        state: "Provisioned",
+        price: 0,
+        rate_plan: {
+          id: "free",
+          public_name: "Workers Free",
+          sets: ["workers"],
+          externally_managed: false,
+          is_contract: true,
+        },
+      }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("accepts an explicitly verified free Workers subscription", async () => {
     const run = vi.fn().mockResolvedValue({ response: "確認済み", usage: {} });
     const env = enabledEnv(run);
@@ -497,7 +552,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       .mockResolvedValueOnce(cloudflareJson([{
         state: "Provisioned",
         price: 0,
-        rate_plan: { id: "free", public_name: "Workers Free", sets: ["workers"], externally_managed: false },
+        rate_plan: { id: "free", public_name: "Workers Free", sets: ["workers"], externally_managed: false, is_contract: false },
       }]))
       .mockResolvedValueOnce(cloudflareJson({ input: {}, output: {} }));
     vi.stubGlobal("fetch", fetchMock);
