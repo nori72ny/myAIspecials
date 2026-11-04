@@ -9,7 +9,7 @@ function verifiedStreamResponse() {
   const first = `data: ${JSON.stringify({ type: 'delta', text: 'ORIGIN-CONTEXT-42\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}\n\n`;
   const second = [
     `data: ${JSON.stringify({ type: 'delta', text: 'STREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\nSTREAM-CHECK\n' })}`,
-    `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costUsd: 0, fallbackUsed: false })}`,
+    `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false })}`,
     'data: [DONE]',
     '',
   ].join('\n\n');
@@ -27,21 +27,29 @@ function verifiedStreamResponse() {
       'x-origin-stream-source': 'upstream',
       'x-origin-stream-protocol': 'origin-verified-sse-v1',
       'x-origin-free-only': 'true',
-      'x-origin-cost-usd': '0',
-      'x-origin-billing-tier': 'free',
+      'x-origin-cost-evidence': 'NOT_MEASURED',
       'x-origin-model-id': 'google/gemma-4-31b-it:free',
       'x-vercel-id': 'synthetic-vercel-id',
     },
   });
 }
 
-it('accepts a genuine upstream multi-chunk response that proves multi-turn context', async () => {
+it('accepts verified buffered upstream SSE without claiming measured billing or progressive delivery', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => verifiedStreamResponse()));
   const result = await verifyLiveChat('https://example.com', 1000);
-  expect(result).toMatchObject({ status: 200, streamSource: 'upstream', contextVerified: true, streamChunkCount: 2 });
+  expect(result).toMatchObject({ status: 200, streamSource: 'upstream', deliveryMode: 'buffered-until-billing-verification', contextVerified: true });
 });
 
-it('classifies a verified partial upstream stream interruption without exposing provider details', async () => {
+it('rejects a production response that falsely reports measured zero actual cost', async () => {
+  const response = verifiedStreamResponse();
+  response.headers.set('x-origin-cost-usd', '0');
+  vi.stubGlobal('fetch', vi.fn(async () => response));
+  await expect(verifyLiveChat('https://example.com', 1000)).rejects.toThrow(
+    'must not publish an unmeasured actual-cost value',
+  );
+});
+
+it('classifies a verified upstream SSE interruption without exposing provider details', async () => {
   const model = 'google/gemma-4-31b-it:free';
   const body = [
     `data: ${JSON.stringify({ type: 'delta', text: 'verified partial' })}`,
@@ -55,8 +63,7 @@ it('classifies a verified partial upstream stream interruption without exposing 
       'x-origin-stream-source': 'upstream',
       'x-origin-stream-protocol': 'origin-verified-sse-v1',
       'x-origin-free-only': 'true',
-      'x-origin-cost-usd': '0',
-      'x-origin-billing-tier': 'free',
+      'x-origin-cost-evidence': 'NOT_MEASURED',
       'x-origin-model-id': model,
       'x-vercel-id': 'synthetic-vercel-id',
     },
