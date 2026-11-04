@@ -40,9 +40,11 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 |---|---|---|
 | Vercel serverless `api/index.ts` | SELECTED | 第2公開で選択した唯一の正式公開経路。`createOriginApp()`から正式`/api/chat`と`/api/health`を提供し、Vercelの`VERCEL_GIT_COMMIT_SHA`をリリースIDに使用する |
 | Node/Docker `server.ts` | NOT SELECTED | ローカル・将来候補としてコードは維持するが、第2公開では使用しない。`ORIGIN_RELEASE_SHA`を明示注入しないDocker実行を公開済みと扱わない |
-| Cloudflare Worker `worker/index.mjs` | NOT ELIGIBLE | status用途に限定され、provider executionは明示的に無効 |
+| Cloudflare Workers AI preview `worker/index.mjs` | NOT ELIGIBLE for Release 1 | 別Worker・別設定のpreview専用。Free plan確認フラグとpreviewフラグが既定falseの間は実行不可。Vercel本番chatへ接続しない |
 | legacy provider endpoint | NOT ELIGIBLE | ORIGINの安全・無料実行境界を迂回できないよう無効 |
 | AI Studio direct runtime | NOT ELIGIBLE | fail-closed境界のみで、正式routeへ未接続 |
+
+Cloudflare Workers AI previewの実装・評価は `docs/CLOUDFLARE_WORKERS_AI_FREE_PREVIEW_GATE.md` を参照する。Previewの存在は一次公開のProvider承認を意味せず、Cloudflare Free planの実効状態・ZDR・Neuron上限・実請求額の独立証拠を得るまで本番経路へ接続しない。
 
 第2公開の公開先はVercelだけとする。ただし、実際のデプロイはオーナーが別途明示承認した後に限る。この文書はホスティングサービス、アカウント、認証情報、課金設定の変更を承認しない。
 
