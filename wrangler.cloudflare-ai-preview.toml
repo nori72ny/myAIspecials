@@ -12,7 +12,9 @@ CF_WORKERS_AI_PREVIEW_ENABLED = "false"
 CF_WORKERS_AI_FREE_PLAN_CONFIRMED = "false"
 APP_URL = "https://acos-staging.pages.dev"
 
-# ORIGIN_PREVIEW_TOKEN must be added only as a Wrangler secret after owner approval.
+# ORIGIN_PREVIEW_TOKEN and CLOUDFLARE_API_TOKEN must be added only as Wrangler secrets after owner approval.
+# CLOUDFLARE_API_TOKEN must have only Account Settings Read, Billing Read, and Workers AI Read.
+# CLOUDFLARE_ACCOUNT_ID may be added as a Worker variable or secret.
 # Never put API tokens or preview credentials in this file.
 # Preview inference remains disabled until the Cloudflare Workers Free plan is verified.
 # No paid Workers plan, AI Gateway credits, or paid fallback is permitted.
