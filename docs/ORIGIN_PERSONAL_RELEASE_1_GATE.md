@@ -98,3 +98,8 @@ AI Studio direct runtimeは一次公開の期限を遅らせる条件にしな�
 - 未実装機能やfake dataが正式画面に現れない
 
 この確認前は「マージ済み」「デプロイ実行済み」「公開検証中」を区別し、日常利用可能とは表現しない。
+
+
+### Production artifact v1.2 route exception
+
+The Release 1 production API allowlist includes only the exact artifact endpoints already covered by the Node production runtime gate: `GET /api/artifacts/v1.2/status` and `POST /api/artifacts/v1.2/generate`. No other `/api/artifacts/*` route is implicitly enabled. Unsupported methods on these exact paths return `405`; unlisted API paths remain `404 ORIGIN_RELEASE_ROUTE_NOT_ENABLED`. The artifact generator must continue to enforce its own input, isolation, integrity, and zero-cost policy checks.
