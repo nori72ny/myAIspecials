@@ -26,7 +26,9 @@ Official references:
 
 ## Cost boundary
 
-Cloudflare Workers Free includes 10,000 Neurons per account per day. On the Free plan, usage beyond that allocation requires upgrading to Workers Paid; requests over the Free allocation fail rather than continuing as Free usage. Workers Paid usage above the allocation is billed at $0.011 per 1,000 Neurons.
+Cloudflare Workers Free includes 10,000 Neurons per account per day. On the Free plan, usage beyond that allocation fails with an error; it does not silently continue as free usage. On Workers Paid, usage above the 10,000-Neuron allocation is billed at $0.011 per 1,000 Neurons. Cloudflare's published pricing also lists the selected model at $0.10 per million input tokens and $0.30 per million output tokens (9,091 and 27,273 Neurons respectively). These are metered rates, not zero-priced inference.
+
+The selected model is separately listed by Cloudflare as a Workers Free-accessible model and as a Zero Data Retention model. This establishes provider-published model eligibility, not the user's actual account plan or billing state.
 
 The selected model's published unit rates are:
 - Input: $0.10 per million tokens / 9,091 Neurons per million tokens
