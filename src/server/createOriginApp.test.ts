@@ -189,6 +189,24 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "/api/agent/v3/status",
+    "/api/coding/v1.4/status",
+    "/api/research/v1.1/status",
+    "/api/creative/v1.5/raster/status",
+    "/api/builder/v1.3.1/status",
+    "/sites/release-one-probe",
+  ])("rejects non-release production routes before parsing request bodies: %s", async (path) => {
+    const response = await request(createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" }))
+      .post(path)
+      .set("Content-Type", "application/json")
+      .send("{malformed-json");
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("keeps only the health identity and canonical chat method available in production", async () => {
     const app = createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" });
     const health = await request(app).get("/api/health");
