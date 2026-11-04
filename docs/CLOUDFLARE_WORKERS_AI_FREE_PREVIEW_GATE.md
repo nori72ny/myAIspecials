@@ -51,7 +51,7 @@ Required before enabling preview inference:
 1. The owner verifies in the Cloudflare dashboard that the account is on Workers Free.
 2. No Workers Paid plan, AI Gateway prepaid credits, or paid billing route is used for this preview.
 3. The owner confirms the Free-plan status and enables the two preview flags only after verification.
-4. A server-side `ORIGIN_PREVIEW_TOKEN` is set as a Wrangler secret; it must never be placed in source, browser code, logs, or this document.
+4. A cryptographically random server-side `ORIGIN_PREVIEW_TOKEN` of at least 32 characters is set as a Wrangler secret; it must never be placed in source, browser code, logs, or this document.
 5. Any missing or ambiguous condition keeps inference disabled.
 
 The preview returns `actualCostUsd: null` and `costEvidenceStatus: NOT_MEASURED`. Provider usage metadata does not prove the final billed amount. Actual billing evidence remains a separate requirement.
