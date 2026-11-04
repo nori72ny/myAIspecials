@@ -36,9 +36,9 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 ## 本番API allowlist
 
-- `NODE_ENV=production`または`VERCEL_ENV=production`では、公開APIは`GET /health`、`GET /api/health`、`POST /api/chat`だけを許可する。
+- `NODE_ENV=production`または`VERCEL_ENV=production`では、`GET /health`、`GET /api/health`、`POST /api/chat`に加え、独立したArtifact v1.2ゲートで検証する`GET /api/artifacts/v1.2/status`と`POST /api/artifacts/v1.2/generate`だけを許可する。
 - `/api/chat`のPOST以外のHTTP methodは405で拒否する。
-- Agent、Coding、Research、Artifact、Builder、MCP、Image generation、Publicationおよびその他の`/api/*`・`/sites/*`経路は一次公開では404で拒否し、リクエストbodyを解析する前に停止する。
+- Agent、Coding、Research、Builder、MCP、Image generation、Publication、Artifact v1.2の上記2経路以外の`/api/*`・`/sites/*`経路は一次公開では404で拒否し、リクエストbodyを解析する前に停止する。
 - 新しいAPIを公開する場合は、機能別の独立監査・テスト・明示承認を経てallowlistを更新する。単にrouterを登録しただけでは公開可能にしない。
 
 ## 許可する公開経路
