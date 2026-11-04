@@ -19,7 +19,7 @@ This preview does not change the Release 1 production provider decision. The Ver
 - Cloudflare's Workers Free plan changelog lists this model among models available on Workers Free.
 
 Official references:
-- Model and ZDR: https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/
+- Model and ZDR: https://developers.cloudflare.com/ai/models/%40cf/google/gemma-4-26b-a4b-it/
 - Workers AI data usage: https://developers.cloudflare.com/workers-ai/platform/data-usage/
 - Free allocation and model pricing: https://developers.cloudflare.com/workers-ai/platform/pricing/
 - Workers Free model eligibility: https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/
@@ -28,7 +28,7 @@ Official references:
 
 Cloudflare Workers Free includes 10,000 Neurons per account per day. On the Free plan, usage beyond that allocation fails with an error; it does not silently continue as free usage. On Workers Paid, usage above the 10,000-Neuron allocation is billed at $0.011 per 1,000 Neurons. Cloudflare's published pricing also lists the selected model at $0.10 per million input tokens and $0.30 per million output tokens (9,091 and 27,273 Neurons respectively). These are metered rates, not zero-priced inference.
 
-The selected model is separately listed by Cloudflare as a Workers Free-accessible model and as a Zero Data Retention model. This establishes provider-published model eligibility, not the user's actual account plan or billing state.
+The selected model is separately listed by Cloudflare as a Workers Free-accessible model and as a Zero Data Retention model. This establishes provider-published model eligibility, not the user's actual account plan or billing state. Cloudflare's general Workers AI data-usage commitment says standard inference inputs and outputs are not retained after processing and are not used for model training. The documented exceptions include stateful features, customer-enabled logging/caching, and legal obligations; this preview must not enable those storage features or log prompt/response content.
 
 These are metered unit rates, not a claim that all usage is free. The $0.00 condition depends on the account actually remaining on Workers Free and staying within the 10,000-Neuron daily allocation. The application cannot independently prove the Cloudflare account plan from this Worker.
 
