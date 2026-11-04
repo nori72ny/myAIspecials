@@ -23,6 +23,13 @@ Last aligned: 2026-08-02
 
 AI StudioはORIGINそのものではなく、将来追加できるprovider adapterまたは開発環境として扱う。公式の無料条件、保存・学習利用、安定したモデルID、実行前後の費用証拠、fallback無効化、エラー時のfail-closedを確認できるまで正式routeへ接続しない。
 
+## 現行OpenRouter無料モデルのProvider適格性（2026-11-04再確認）
+
+- 現行カタログの`google/gemma-4-31b-it:free`は、OpenRouterのモデル別Endpoints APIで、配信先が`Google AI Studio`の1エンドポイントとして返る。モデル一覧・当該endpoint情報のprompt/completion価格は0だが、これはProvider側のデータ保持条件や実際の請求記録を証明しない。
+- GoogleのGemini API追加利用規約は、無料サービスについて、送信コンテンツと生成回答をGoogleの製品・サービス・機械学習技術の提供・改善・開発に使用する場合があり、人間のレビュアーが確認する場合もあると説明している。
+- したがって、Google AI Studio無料endpointをORIGINのZDR適格endpointとして承認しない。OpenRouterの`provider.zdr: true`および`data_collection: deny`は維持し、ZDR適格endpointが選ばれない場合は実行失敗を許容する。ZDRを外す、data collection制限を弱める、別endpointへ無条件fallbackする変更は禁止する。
+- この候補モデルは、OpenRouterの認証済みZDR endpoint情報と、Google側の当該endpointに適用される保持条件を独立に確認できるまで、本番公開のAIモデルとして未承認（NO-GO）とする。価格が0であることを、ZDRまたは実費$0.00の証明に読み替えない。
+
 ## Personal画面の実装境界
 
 - Personal版は旧ダッシュボードの状態管理を読み込まない。
