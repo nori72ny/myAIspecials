@@ -10,6 +10,17 @@ ORIGIN keeps the $0 boundary without sending a request to a second provider afte
 2. Provider selection is constrained to endpoints satisfying ZDR, `data_collection:"deny"`, and maximum price $0.
 3. ORIGIN performs no automatic cross-provider fallback and no same-provider retry.
 
+## Quality-first rule at permanent $0
+
+ORIGIN does not optimize for the cheapest answer because the allowed cost is already fixed at exactly $0. Within that hard boundary, it optimizes for the strongest currently evidenced result.
+
+- The runtime quality objective is `max-quality-within-verified-zero-cost`.
+- A different free provider/model may replace the current audited route only when current task-specific comparative evidence shows a material quality improvement and its pricing/privacy/authentication evidence is also valid.
+- “Free tier”, “free credits”, or a provider marketing label are not sufficient proof. Successful provider-backed execution must still resolve to actual cost USD 0 under the authoritative runtime evidence for that route.
+- When comparative quality evidence is absent, stale, tied, or not production-compatible, ORIGIN keeps the safer audited route and makes no superiority claim.
+- Quality should first be improved with $0 local work: planning, source checking, structured critics, deterministic validation, file reopen/render checks, code typecheck/lint/test/build, and bounded repair that does not introduce paid execution.
+- External best-of-N, retries, model switching, or critic calls are permitted only after the same exact-$0 evidence exists for every additional external execution.
+
 ## Privacy boundary
 
 Before external egress, ORIGIN blocks structured credentials and high-confidence personal information, including email addresses, phone numbers, payment identifiers, government IDs, financial accounts, postal addresses, medical information, and explicitly labelled personal data.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
+import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_QUALITY_OBJECTIVE, ORIGIN_QUALITY_SELECTION_POLICY } from "./OriginExecutionPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
@@ -17,6 +17,11 @@ describe("buildOriginExecutionPlan", () => {
     expect(result.plan.estimatedCostUsd).toBe(0);
     expect(result.plan.capabilityDecision).toEqual({ capability: "coding", reason: "keyword", confidence: "high" });
     expect(result.plan.providerDataPolicy).toEqual({ allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true });
+    expect(result.plan.qualityObjective).toBe(ORIGIN_QUALITY_OBJECTIVE);
+    expect(result.plan.qualitySelectionPolicy).toBe(ORIGIN_QUALITY_SELECTION_POLICY);
+    expect(result.plan.qualityEvidenceStatus).toBe("audited-route-no-superiority-claim");
+    expect(result.plan.reason).toContain("費用0円を絶対条件");
+    expect(result.plan.reason).toContain("比較評価・料金・プライバシー証拠");
     expect(result.plan.modelEvidence.sourceUrl).toContain("openrouter.ai");
   });
 
@@ -46,6 +51,17 @@ describe("buildOriginExecutionPlan", () => {
     if (!result.ok) return;
     expect(result.plan.capabilityDecision).toEqual({ capability: "answer", reason: "default", confidence: "low" });
     expect(result.plan.taskType).toBe("review");
+  });
+
+  it("does not claim a quality winner without comparative evidence", () => {
+    const result = buildOriginExecutionPlan({ goal: "最高品質の回答を作ってください" }, { openRouterConfigured: true, googleAiStudioConfigured: true }, undefined, { nowMs: verifiedNow });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.qualityObjective).toBe("max-quality-within-verified-zero-cost");
+    expect(result.plan.qualityEvidenceStatus).toBe("audited-route-no-superiority-claim");
+    expect(result.plan.reason).toContain("優越性を未証明のまま主張せず");
+    expect(result.plan.providerId).toBe("openrouter-free");
+    expect(result.plan.estimatedCostUsd).toBe(0);
   });
 
   it("fails closed when OpenRouter is not configured even if legacy providers are configured", () => {

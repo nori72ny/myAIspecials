@@ -3,7 +3,10 @@ import { assertOriginZeroCostExecutionResult, executeOriginProvider, originCompl
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
-  providerId: "openrouter-free", providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_OPENROUTER_FREE_MODEL, taskType: "review", freeOnly: true, estimatedCostUsd: 0, timeoutMs: 30_000, requiresOwnerApproval: false, reason: "test",
+  providerId: "openrouter-free", providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_OPENROUTER_FREE_MODEL, taskType: "review", freeOnly: true, estimatedCostUsd: 0, timeoutMs: 30_000, requiresOwnerApproval: false,
+    qualityObjective: "max-quality-within-verified-zero-cost",
+    qualitySelectionPolicy: "benchmark-preferred-when-current-otherwise-retain-audited-route",
+    qualityEvidenceStatus: "audited-route-no-superiority-claim", reason: "test",
   providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
   modelEvidence: { providerId: "openrouter-free", verifiedAt: "2026-09-07T00:00:00.000Z", reviewAfter: "2026-09-17T00:00:00.000Z", sourceUrl: "https://openrouter.ai/google/gemma-4-26b-a4b-it:free" },
 };
