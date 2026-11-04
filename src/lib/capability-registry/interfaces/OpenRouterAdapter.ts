@@ -11,7 +11,22 @@ export class OpenRouterAdapter implements IProviderAdapter {
    */
   public async getSelfDeclaredProviders(): Promise<Provider[]> {
     return [
-      // === FREE MODELS ===
+      // Canonical ORIGIN FREE_ONLY route. This is the only model accepted by
+      // RoutingService when FREE_ONLY is enabled.
+      new Provider(
+        "google/gemma-4-31b-it:free",
+        "ORIGIN Approved Free Model",
+        this.id,
+        new Map([
+          ["Reasoning", 5], ["Planning", 5], ["Coding", 5], ["Writing", 5],
+          ["Analysis", 5], ["Research", 5], ["Translation", 5]
+        ]),
+        "healthy",
+        { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+        ["free-model"]
+      ),
+
+      // === LEGACY MODEL DECLARATIONS (non-FREE_ONLY only) ===
       // 1. Google Gemini 2.5 Flash Free - Exceptional speed and multimodal
       new Provider(
         "google/gemini-2.5-flash:free",
