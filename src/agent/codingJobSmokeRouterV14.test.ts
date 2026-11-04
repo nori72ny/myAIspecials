@@ -44,7 +44,7 @@ describe('V1.4 production coding smoke router', () => {
         job: { jobId: 'coding-abcdefghijklmnopqrstuv', status: 'queued' },
         resultDetailsState: 'pending',
         freeOnly: true,
-        costUsd: 0,
+        costUsd: null, costEvidenceStatus: 'NOT_MEASURED',
         paidFallbackUsed: false,
       }), { status: 202, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
@@ -102,13 +102,13 @@ describe('V1.4 production coding smoke router', () => {
           diffs: [{ path: CODING_SMOKE_CREATED_PATH_V14, kind: 'created', before: null, after: CODING_SMOKE_CREATED_CONTENT_V14, beforeTruncated: false, afterTruncated: false, previewAvailable: true }],
           verificationChecks: ['typecheck', 'lint', 'test', 'build'].map(kind => ({ kind, ok: true, exitCode: 0, timedOut: false, attempt: 0 })),
           freeOnly: true,
-          costUsd: 0,
+          costUsd: null, costEvidenceStatus: 'NOT_MEASURED',
           gitPublished: false,
           deployed: false,
         },
         resultDetailsState: 'available',
         freeOnly: true,
-        costUsd: 0,
+        costUsd: null, costEvidenceStatus: 'NOT_MEASURED',
         paidFallbackUsed: false,
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
