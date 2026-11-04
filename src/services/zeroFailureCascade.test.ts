@@ -19,22 +19,22 @@ describe('zero failure cascade', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('returns a public text response when the keyless endpoint is available', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('A grounded fallback answer.', { status: 200 })));
+  it('uses only labelled Wikipedia excerpts and never calls a public text-generation provider', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      query: { search: [{ title: 'Tidal current', snippet: 'A <span>moving</span> body of water.' }] },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
     const result = await executeZeroFailureCascade('What is a tidal current?');
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.source).toBe('pollinations-text');
-      expect(result.content).toBe('A grounded fallback answer.');
-    }
+    expect(result).toMatchObject({ ok: true, source: 'wikipedia' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('en.wikipedia.org');
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('pollinations.ai');
   });
 
   it('formats Wikipedia fallback excerpts with real line breaks', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response('', { status: 503 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        query: { search: [{ title: 'Tidal current', snippet: 'A <span>moving</span> body of water.' }] },
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      query: { search: [{ title: 'Tidal current', snippet: 'A <span>moving</span> body of water.' }] },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await executeZeroFailureCascade('What is a tidal current?');
