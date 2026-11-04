@@ -18,9 +18,15 @@ These are process defects, not reasons to blame an individual contributor. The r
 
 ## Open-PR backlog control
 
-A live repository snapshot on 2026-11-05 returned 100 open PR records (the API page was capped at 100), including 46 Draft PRs; 94 of those records targeted `main`, and several active PRs covered overlapping subject areas such as mobile geometry, zero-cost/provider security, and image Free-only routing. This is a verified backlog signal, not proof that every PR is redundant or obsolete.
+A paginated GitHub API snapshot on 2026-11-05 returned **247 distinct open PRs** across three pages: **141 Draft**, **106 non-Draft**, **153 based on `main`**, and **94 based on other PR branches**. The oldest returned PR was last updated on 2026-08-29. This is a verified repository-state snapshot, not proof that every PR is redundant or obsolete.
 
-This backlog is a major contributor to repeated work: parallel proposals can target the same behavior, carry different baselines, and receive separate audits/CI. A later integration then exposes contradictions or requires the same component to be retested.
+A changed-file and patch comparison confirmed concrete overlap:
+- **Provider/security:** PRs #1088, #1089, #1090, and #1091 all touch `src/legacy/originProviderClient.ts`, `src/legacy/originProviderStreamClient.ts`, and `src/legacy/zeroCostRoutingPolicy.ts`. The `zeroCostRoutingPolicy.ts` patch in #1091 is identical to the patch in #1088, while #1091 also spans a much broader set of application, release, workflow, and routing files. This is a duplicate-candidate / integration-risk signal, not proof that the complete PRs are equivalent.
+- **Mobile geometry:** PRs #1051, #1066, #1067, #1069, and #1087 all modify `src/origin-top-ui.css`. Their actual patches use different vertical-layout strategies (large viewport-relative top padding, centered flex zones, bottom margin auto, and explicit composer positioning). These are competing implementations of the same layout surface and must not be combined without viewport regression testing.
+- **Image generation:** PRs #1052 and #1059 both modify `src/creative/cloudflareRasterImageProviderV15.ts` and `src/creative/rasterImageV15Router.test.ts`; PR #1061 is a broader image-history/provider change that also touches image routing and provider files. These require a single integrated candidate and one shared test baseline.
+- **Answer-quality benchmark:** PRs #1073 and #1086 share the same benchmark environment-proof, frozen-execution, HTTP runtime-adapter, session, two-phase session, and official-comparison files. They are direct duplicate-candidate scope overlap and must be diff-reconciled before either is treated as canonical.
+
+This backlog is a demonstrated contributor to repeated work: parallel proposals target the same source files with different implementation approaches, bases, and test assumptions. The corrective action is not mass-closing PRs; it is evidence-based workstream consolidation with one canonical candidate and explicit parking of the others.
 
 Required triage before starting new implementation:
 1. Search all open PRs and issues for the same files, behavior, acceptance criteria, and root cause.
@@ -32,6 +38,21 @@ Required triage before starting new implementation:
 7. Publish a short triage ledger with each PR's disposition, canonical successor (if any), exact head SHA, required action, and owner.
 
 Limit the active release train to one canonical PR per workstream. Other PRs remain parked until the canonical candidate is accepted or explicitly rejected. New work starts only after checking this ledger.
+
+## Initial workstream triage — 2026-11-05
+
+This is a read-only triage recommendation based on the live 247-PR snapshot and changed-file/patch evidence. It does not close, merge, rebase, or rewrite any PR.
+
+| Workstream | Canonical audit candidate | Related PRs to park/reconcile | Initial disposition |
+|---|---:|---|---|
+| Provider strict-ZDR boundary | #1088 (narrow policy candidate only) | #1089, #1090, #1091 | #1089/#1090 are duplicate-candidates; #1091 is a broad duplicate-candidate and must be split/reconciled. OpenRouter provider eligibility remains independently blocked by ZDR evidence; this is not production approval. |
+| Mobile home geometry | #1087 (candidate only; latest direct-main CSS proposal) | #1069, #1067, #1066, #1051 | Competing CSS implementations. #1069 is stacked on #1067; compare behavior and exact patches before selecting final implementation. Require 320×568, 390×844, and 412×915 browser evidence. |
+| Image generation / history | #1052 (candidate only) | #1059, #1061, #1062, #1054 | Shared provider/router files and different scopes. Keep all image generation disabled for Release 1 until real-provider, Free-plan, ZDR, and actual-cost evidence are independently proven. |
+| Answer-quality benchmark proof | #1073 (candidate only) | #1086, #1091 | #1073/#1086 share the benchmark proof files; #1091 overlaps a broad set. Diff and test equivalence must be reconciled before choosing one. |
+| Cloudflare Workers AI Preview | #1092 parent + #1094 child | None identified in this narrow pair | Keep disabled and outside Release 1. #1094 must be evaluated as a child of #1092; its passing compatibility CI does not prove account Free plan, billing, or live ZDR. |
+| Change-control governance | #1095 | #1058, #1072, #1080, #1082 | #1095 is the active governance proposal; consolidate compatible governance criteria after comparing exact content, without merging by title alone. |
+
+The candidate labels above mean audit order only, not acceptance or merge authorization. Final dispositions require full diff review, branch ancestry checks, exact-SHA CI, and independent review. In particular, no implementation PR is release-eligible solely because its tests pass.
 
 ## Non-negotiable operating rules
 
