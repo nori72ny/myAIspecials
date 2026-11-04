@@ -146,7 +146,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       messages: expect.arrayContaining([
         expect.objectContaining({ role: "user", content: "こんにちは" }),
       ]),
-    }));
+    }), { rejectIfBusy: true });
     expect(body).toEqual({
       response: "こんにちは。これはプレビュー応答です。",
       provider: "cloudflare-workers-ai",
@@ -174,7 +174,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     const run = vi.fn();
     const env = enabledEnv(run);
     const response = await worker.fetch(
-      aiRequest(JSON.stringify({ prompt: "x".repeat(17_000) }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      aiRequest(JSON.stringify({ prompt: "x".repeat(70_000) }), { token: env.ORIGIN_PREVIEW_TOKEN }),
       env,
     );
 
