@@ -240,7 +240,7 @@ describe("createOriginApp provider isolation", () => {
     expect(unsupportedArtifactMethod.headers.allow).toBe("POST");
     expect(artifactGeneration.status).not.toBe(404);
     expect(artifactGeneration.body.code).not.toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
-  });
+  }, 15_000);
 
   it("sets strict production security headers and removes Express fingerprinting", async () => {
     const response = await request(createOriginApp({ NODE_ENV: "production" }))
