@@ -1,5 +1,6 @@
 import { Provider, ProviderHealth } from '../entities/Provider';
 import { SearchQuery, RoutingDecision } from '../../interfaces/types';
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../orchestration/OriginFreeModelCatalog';
 
 export class RoutingService {
   /**
@@ -26,12 +27,12 @@ export class RoutingService {
 
         // Free-only mode enforcement & paid model blocking
         if (isFreeOnly) {
-          const isFree = p.id.toLowerCase().includes(':free') ||
-                         p.id.toLowerCase().includes('-free') ||
-                         p.metrics.cost === 0 ||
-                         p.routingHints.includes('free-model') ||
-                         p.id === 'openrouter/auto';
-          if (!isFree) return false; // Block paid models entirely
+          // FREE_ONLY is an execution boundary, not a heuristic. Accept only the
+          // single model identity verified by ORIGIN's canonical free-model catalog.
+          // Never trust provider-supplied cost scores, routing hints, suffixes, or auto routing.
+          if (p.id !== ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL || p.adapterId !== "OpenRouter") {
+            return false;
+          }
         }
 
         // Filter by hard constraints if specified
