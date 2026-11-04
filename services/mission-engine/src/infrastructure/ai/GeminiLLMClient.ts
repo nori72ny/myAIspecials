@@ -24,6 +24,10 @@ export class GeminiLLMClient implements ILLMClient {
   }
 
   async generateText(prompt: string, systemPrompt?: string, model: string = "gemini-2.5-flash"): Promise<string> {
+    if (process.env.FREE_ONLY === "true") {
+      throw new Error("FREE_ONLY_PROVIDER_BLOCKED: Gemini native API is disabled; use the canonical verified OpenRouter :free boundary.");
+    }
+
     const startTime = Date.now();
 
     // The organization router may return an OpenRouter provider slug. Gemini's
