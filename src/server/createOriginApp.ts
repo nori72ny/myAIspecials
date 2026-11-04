@@ -37,13 +37,16 @@ export function createOriginApp(
   // later-generation API unreachable in production until its own release gate passes.
   if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") {
     app.use((req, res, next) => {
-      if (req.method === "GET" && (req.path === "/health" || req.path === "/api/health")) return next();
-      if (req.path === "/api/chat" && req.method === "POST") return next();
-      if (req.path === "/api/chat") {
+      // Express routing is case-insensitive by default. Normalize before enforcing
+      // the production allowlist so mixed-case paths cannot reach mounted routers.
+      const requestPath = req.path.toLowerCase();
+      if (req.method === "GET" && (requestPath === "/health" || requestPath === "/api/health")) return next();
+      if (requestPath === "/api/chat" && req.method === "POST") return next();
+      if (requestPath === "/api/chat") {
         res.setHeader("Allow", "POST");
         return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "このAPIで許可されていないHTTPメソッドです。", retryable: false, requestId: "UNKNOWN" });
       }
-      if (req.path === "/api" || req.path.startsWith("/api/") || req.path === "/sites" || req.path.startsWith("/sites/")) {
+      if (requestPath === "/api" || requestPath.startsWith("/api/") || requestPath === "/sites" || requestPath.startsWith("/sites/")) {
         return res.status(404).json({ code: "ORIGIN_RELEASE_ROUTE_NOT_ENABLED", message: "この機能はORIGIN Personalの一次公開では提供していません。", retryable: false, requestId: "UNKNOWN" });
       }
       return next();
