@@ -162,7 +162,7 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("ORIGIN自身およびOpenRouter provider層のfallbackを禁止");
     expect(gate).toContain("allow_fallbacks: false");
     expect(gate).toContain("実費`$0.00`");
-    expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
+    expect(gate).toContain("ORIGINおよびOpenRouter provider層のfallbackは常に禁止する");
   });
 
   it("states the selected serverless route and explicit deployment approval boundary", () => {
