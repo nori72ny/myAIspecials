@@ -35,19 +35,12 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     ]
   };
 
-  private _apiKey: string;
-
-  constructor(apiKey: string) {
-    // Sanitize API Key input - avoid trailing whitespace
-    this._apiKey = (apiKey || "").trim();
+  constructor(_apiKey: string) {
+    // The legacy adapter deliberately does not retain provider credentials.
   }
 
   public async initialize(): Promise<void> {
-    if (!this._apiKey) {
-      Logger.warn("[OpenRouterPlugin] No API Key provided. OpenRouter will run in fallback mock mode.");
-    } else {
-      Logger.info("[OpenRouterPlugin] Initialized successfully with API Key.");
-    }
+    Logger.warn("[OpenRouterPlugin] Legacy direct provider execution is disabled; use the canonical ORIGIN execution boundary.");
   }
 
   public async shutdown(): Promise<void> {
@@ -67,164 +60,21 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
   /**
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
    */
-  public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
-    // This legacy adapter is permanently free-only; no environment flag or caller option may opt out.
-    const isFreeOnly = true;
-
-    // 1. Free-only enforcement / Paid model blocking
-    if (isFreeOnly && !this.isFreeModel(modelId)) {
-      Logger.warn("[OpenRouterPlugin] Blocked model outside the approved free-model allowlist.");
-      if (options?.throwOnBlock) {
-        throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
-      }
-      return "FREE_MODEL_UNAVAILABLE";
+  public async generateText(modelId: string, prompt: string, _options?: any): Promise<string> {
+    if (!this.isFreeModel(modelId)) {
+      Logger.warn("[OpenRouterPlugin] Blocked model outside the immutable ORIGIN free-model allowlist.");
+      throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
     }
 
-    // Deterministic mocks are test-only. Missing or mock credentials must fail closed at runtime.
+    // Deterministic output is permitted only in tests; it never contacts a provider.
     if (process.env.NODE_ENV === "test") {
       return this.getFallbackMockResponse(prompt, modelId);
     }
-    if (!this._apiKey || this._apiKey.startsWith("mock-")) {
-      throw new OpenRouterError("OPENROUTER_NOT_CONFIGURED", 503);
-    }
 
-    // Legacy plugin safety: one provider attempt, zero automatic retries.
-    const maxAttempts = 1;
-    const initialDelayMs = options?.initialDelayMs ?? 1000;
-    const timeoutMs = options?.timeout ?? 30000;
-
-    let attempt = 0;
-    while (attempt < maxAttempts) {
-      attempt++;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, timeoutMs);
-
-      let onAbort: (() => void) | undefined;
-      if (options?.signal) {
-        onAbort = () => {
-          controller.abort();
-        };
-        options.signal.addEventListener('abort', onAbort);
-      }
-
-      try {
-        Logger.info(`[OpenRouterPlugin] Executing generation request. Model: ${modelId}, Attempt: ${attempt}/${maxAttempts}`);
-
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${this._apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://ai.studio/build",
-            "X-Title": "Intelligence OS"
-          },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [{ role: "user", content: prompt }],
-            temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.max_tokens
-          }),
-          signal: controller.signal
-        });
-
-        if (!response.ok) {
-          const status = response.status;
-          let errorBody = "";
-          try {
-            errorBody = await response.text();
-          } catch (_) {}
-
-          const requestId = response.headers.get("x-request-id") || undefined;
-
-          if (status === 429) {
-            Logger.warn(`[OpenRouterPlugin] Rate-limited (429) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxAttempts) {
-              await this.delay(initialDelayMs * Math.pow(2, attempt));
-              continue;
-            }
-            throw new OpenRouterError("Rate limit exceeded on OpenRouter. Please try again later.", 429, requestId, errorBody);
-          }
-
-          if (status >= 500) {
-            Logger.warn(`[OpenRouterPlugin] Server Error (${status}) on attempt ${attempt}. Request ID: ${requestId}`);
-            if (attempt < maxAttempts) {
-              await this.delay(initialDelayMs * Math.pow(2, attempt));
-              continue;
-            }
-            throw new OpenRouterError(`OpenRouter server returned an error: ${status}`, status, requestId, errorBody);
-          }
-
-          throw new OpenRouterError(`OpenRouter request failed with status: ${status}`, status, requestId, errorBody);
-        }
-
-        const data = await response.json() as any;
-        if (!data || typeof data !== 'object') {
-          throw new OpenRouterError("Invalid JSON structure received from OpenRouter API.", response.status);
-        }
-
-        const requestId = response.headers.get("x-request-id") || data.id || "unknown-id";
-
-        if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-          throw new OpenRouterError("OpenRouter API returned an empty choices array.", response.status, requestId, data);
-        }
-
-        const content = data.choices[0]?.message?.content ?? data.choices[0]?.text;
-        if (content === undefined || content === null) {
-          throw new OpenRouterError("OpenRouter API choices did not contain expected content text.", response.status, requestId, data);
-        }
-
-        const usage = data.usage || {};
-        const promptTokens = usage.prompt_tokens ?? Math.ceil(prompt.length / 4);
-        const completionTokens = usage.completion_tokens ?? Math.ceil(content.length / 4);
-        const totalTokens = usage.total_tokens ?? (promptTokens + completionTokens);
-
-        Logger.info(`[OpenRouterPlugin] LLM completed successfully.`, {
-          requestId,
-          model: modelId,
-          promptTokens,
-          completionTokens,
-          totalTokens
-        });
-
-        if (options?.onUsage && typeof options.onUsage === 'function') {
-          options.onUsage({ promptTokens, completionTokens, totalTokens, requestId });
-        }
-
-        return content;
-      } catch (error: any) {
-        const isAbort = error.name === 'AbortError';
-        if (isAbort) {
-          Logger.warn(`[OpenRouterPlugin] Request timed out or was interrupted. Model: ${modelId}`);
-          throw new OpenRouterError("OpenRouter request timed out or was aborted by the client.", 408);
-        }
-
-        if (error instanceof OpenRouterError) {
-          throw error;
-        }
-
-        Logger.error(`[OpenRouterPlugin] Request error on attempt ${attempt}: ${error.message}`, error);
-
-        if (attempt < maxAttempts) {
-          await this.delay(initialDelayMs * Math.pow(2, attempt));
-          continue;
-        }
-        throw new OpenRouterError(error.message || "An unexpected error occurred during OpenRouter generation.", undefined, undefined, error);
-      } finally {
-        clearTimeout(timeoutId);
-        if (options?.signal && onAbort) {
-          options.signal.removeEventListener('abort', onAbort);
-        }
-      }
-    }
-
-    throw new OpenRouterError("Max retries exceeded without obtaining a successful response.", 500);
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    // This legacy API payload cannot prove the canonical execution plan, ZDR,
+    // data-collection denial, zero max-price, exact served-model identity, or
+    // provider-reported billing. Never send it to OpenRouter.
+    throw new OpenRouterError("FREE_ONLY_PROVIDER_BOUNDARY_REQUIRED", 503);
   }
 
   private getFallbackMockResponse(prompt: string, modelId: string): string {
