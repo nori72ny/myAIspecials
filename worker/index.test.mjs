@@ -45,7 +45,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     });
   });
 
-  it("reports preview execution disabled without exposing secrets", async () => {
+  it("reports preview execution controls without exposing secrets", async () => {
     const env = enabledEnv();
     const response = await worker.fetch(new Request("https://example.test/api/v1/status"), env);
     const body = await response.json();
