@@ -18,7 +18,7 @@ describe("ORIGIN Personal release 1 gate", () => {
 
   it("keeps the Cloudflare Workers AI preview isolated from release 1 and disabled by default", () => {
     const worker = readRepositoryFile("worker/index.mjs");
-    const workerConfig = readRepositoryFile("wrangler.toml");
+    const workerConfig = readRepositoryFile("wrangler.cloudflare-ai-preview.toml");
     const productionServer = readRepositoryFile("src/server/createOriginApp.ts");
 
     expect(worker).toContain('const MODEL_ID = "@cf/google/gemma-4-26b-a4b-it"');
