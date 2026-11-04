@@ -49,11 +49,13 @@ describe('V1.4 workflow coverage', () => {
     expect(worker).toContain('leaseSeconds: WORKER_LEASE_SECONDS');
   });
 
-  it('waits beyond a freshly renewed lease before hosted recovery', () => {
+  it('never automatically replays an ambiguous hosted worker outcome', () => {
     const workflow = readWorkflow('.github/workflows/coding-job-worker-v14.yml');
+    expect(workflow).toContain('Never replay a job automatically');
+    expect(workflow).toContain('explicit operator recovery');
+    expect(workflow).toContain('exit "$status"');
+    expect(workflow).not.toContain('for attempt in 1 2 3');
+    expect(workflow).not.toContain('sleep "$recovery_wait"');
     expect(CODING_WORKER_RECOVERY_WAIT_SECONDS).toBeGreaterThan(CODING_WORKER_LEASE_SECONDS);
-    expect(workflow).toContain('import { CODING_WORKER_RECOVERY_WAIT_SECONDS }');
-    expect(workflow).toContain('sleep "$recovery_wait"');
-    expect(workflow).not.toContain('sleep 125');
   });
 });
