@@ -16,7 +16,8 @@ export class RoutingService {
       throw new Error("No providers available to rank.");
     }
 
-    const isFreeOnly = process.env.FREE_ONLY === "true" || (query as any).freeOnly === true || query.routingHints?.includes("free-only");
+    const isFreeOnly = typeof process === "undefined" || process.env.FREE_ONLY !== "false" ||
+      (query as any).freeOnly === true || query.routingHints?.includes("free-only");
 
     const scoredProviders = providers
       .filter(p => {
