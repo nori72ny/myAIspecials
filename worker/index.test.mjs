@@ -188,7 +188,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/subscriptions",
       `https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/models/schema?model=${encodeURIComponent(MODEL_ID)}`,
     ]);
-    expect(fetchMock.mock.calls.every(call => (call[1] as RequestInit)?.method === "GET")).toBe(true);
+    expect(fetchMock.mock.calls.every(call => call[1]?.method === "GET")).toBe(true);
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("こんにちは");
     expect(run).toHaveBeenCalledWith(MODEL_ID, expect.objectContaining({
       max_tokens: 1024,
