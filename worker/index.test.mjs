@@ -370,6 +370,60 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("rejects a Paid subscription even when its rate plan metadata claims Free at zero price", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([{
+        state: "Paid",
+        price: 0,
+        rate_plan: {
+          id: "free",
+          public_name: "Workers Free",
+          sets: ["workers"],
+          externally_managed: false,
+        },
+      }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an AwaitingPayment subscription even when its rate plan metadata claims Free", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([{
+        state: "AwaitingPayment",
+        price: 0,
+        rate_plan: {
+          id: "free",
+          public_name: "Workers Free",
+          sets: ["workers"],
+          externally_managed: false,
+        },
+      }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed for an unrecognized subscription state", async () => {
     const run = vi.fn();
     const env = enabledEnv(run);
