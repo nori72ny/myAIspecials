@@ -16,6 +16,23 @@ The recent ORIGIN history shows recurring rework risk from five systemic causes:
 
 These are process defects, not reasons to blame an individual contributor. The remedy is a single evidence-backed change-control process.
 
+## Open-PR backlog control
+
+A live repository snapshot on 2026-11-05 returned 100 open PR records (the API page was capped at 100), including 46 Draft PRs; 94 of those records targeted `main`, and several active PRs covered overlapping subject areas such as mobile geometry, zero-cost/provider security, and image Free-only routing. This is a verified backlog signal, not proof that every PR is redundant or obsolete.
+
+This backlog is a major contributor to repeated work: parallel proposals can target the same behavior, carry different baselines, and receive separate audits/CI. A later integration then exposes contradictions or requires the same component to be retested.
+
+Required triage before starting new implementation:
+1. Search all open PRs and issues for the same files, behavior, acceptance criteria, and root cause.
+2. Classify each candidate as `KEEP`, `SUPERSEDED`, `DUPLICATE-CANDIDATE`, `BLOCKED`, or `NEEDS-REBASE`; do not infer duplicate status from title alone.
+3. Select one canonical implementation PR per workstream. Move valid missing commits into that PR only after diff and test equivalence are proven.
+4. Record dependencies and merge order. A child PR is not release-ready until its parent is integrated and the child is retested against current `main`.
+5. Do not create another PR for a small correction when it belongs to the same active workstream; amend the canonical branch before its review freeze.
+6. Do not silently close, merge, or rewrite existing PRs. Require owner approval for destructive or repository-state changes.
+7. Publish a short triage ledger with each PR's disposition, canonical successor (if any), exact head SHA, required action, and owner.
+
+Limit the active release train to one canonical PR per workstream. Other PRs remain parked until the canonical candidate is accepted or explicitly rejected. New work starts only after checking this ledger.
+
 ## Non-negotiable operating rules
 
 - GitHub `main` is the source of truth. A PR branch is a proposal, not a release.
