@@ -30,10 +30,6 @@ Cloudflare Workers Free includes 10,000 Neurons per account per day. On the Free
 
 The selected model is separately listed by Cloudflare as a Workers Free-accessible model and as a Zero Data Retention model. This establishes provider-published model eligibility, not the user's actual account plan or billing state.
 
-The selected model's published unit rates are:
-- Input: $0.10 per million tokens / 9,091 Neurons per million tokens
-- Output: $0.30 per million tokens / 27,273 Neurons per million tokens
-
 These are metered unit rates, not a claim that all usage is free. The $0.00 condition depends on the account actually remaining on Workers Free and staying within the 10,000-Neuron daily allocation. The application cannot independently prove the Cloudflare account plan from this Worker.
 
 Required before enabling preview inference:
