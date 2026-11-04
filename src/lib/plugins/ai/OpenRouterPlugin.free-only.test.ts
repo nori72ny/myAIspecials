@@ -25,6 +25,26 @@ describe("OpenRouterPlugin strict free model boundary", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("does not let callers expand the mutable public manifest into paid-model authorization", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const plugin = new OpenRouterPlugin("test-key");
+    plugin.manifest.models.push({
+      id: "openai/gpt-4o",
+      name: "Injected paid model",
+      speed: 10,
+      cost: 0,
+      quality: 10,
+      failureRate: 0,
+      specialties: []
+    });
+
+    await expect(plugin.generateText("openai/gpt-4o", "test", { throwOnBlock: true }))
+      .rejects.toMatchObject({ message: "FREE_MODEL_UNAVAILABLE", statusCode: 400 });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("rejects an unlisted model even when its identifier ends in :free", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const fetchSpy = vi.fn();
