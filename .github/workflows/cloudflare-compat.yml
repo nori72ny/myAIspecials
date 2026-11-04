@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run isolated Cloudflare AI preview unit tests
+        run: npm run test:cloudflare-ai-preview
+
       - name: Validate Worker bundle without credentials
         run: npm run check:worker
 
