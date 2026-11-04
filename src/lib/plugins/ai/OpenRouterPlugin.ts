@@ -58,20 +58,15 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
   private isFreeModel(modelId: string): boolean {
-    const lowerId = modelId.toLowerCase();
-    return (
-      lowerId.includes(':free') ||
-      lowerId.includes('-free') ||
-      lowerId.endsWith('/free')
-    );
+    return typeof modelId === "string" && modelId.trim().toLowerCase().endsWith(":free");
   }
 
   /**
    * Generates text via the OpenRouter Chat Completions API with detailed safety and reliability wrappers.
    */
   public async generateText(modelId: string, prompt: string, options?: any): Promise<string> {
-    // This project is free-only by default. Paid routing requires an explicit local opt-out.
-    const isFreeOnly = process.env.FREE_ONLY !== "false" || options?.freeOnly === true;
+    // This legacy adapter is permanently free-only; no environment flag or caller option may opt out.
+    const isFreeOnly = true;
 
     // 1. Free-only enforcement / Paid model blocking
     if (isFreeOnly && !this.isFreeModel(modelId)) {
