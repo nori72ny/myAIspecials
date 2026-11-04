@@ -5,7 +5,7 @@ workers_dev = true
 
 [vars]
 FREE_ONLY = "true"
-OPENROUTER_FREE_MODEL = "google/gemini-2.5-flash:free"
+OPENROUTER_FREE_MODEL = "google/gemma-4-31b-it:free"
 APP_URL = "https://acos-staging.pages.dev"
 
 # OPENROUTER_API_KEY must be added with `wrangler secret put`.
