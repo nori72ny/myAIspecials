@@ -149,8 +149,17 @@ async function verifyWorkersFreePlan(env) {
     if (!row || typeof row !== "object" || !isActiveSubscription(row)) continue;
     const planText = subscriptionPlanText(row);
     if (!planText.includes("worker")) continue;
-    const numericPrice = typeof row.price === "number" && Number.isFinite(row.price) ? row.price : null;
-    if ((numericPrice !== null && numericPrice > 0) || planText.includes("paid") || !planText.includes("free")) {
+
+    const ratePlan = row.rate_plan && typeof row.rate_plan === "object" && !Array.isArray(row.rate_plan)
+      ? row.rate_plan
+      : {};
+    const ratePlanId = typeof ratePlan.id === "string" ? ratePlan.id.toLowerCase() : "";
+    const hasExplicitFreePlanId = ratePlanId === "free" || ratePlanId === "partners_free";
+    const hasExactZeroPrice = typeof row.price === "number" && Number.isFinite(row.price) && row.price === 0;
+    const externallyManaged = ratePlan.externally_managed === true;
+
+    // Subscription fields are optional in the API schema. Missing price or plan ID is not proof of $0.
+    if (!hasExplicitFreePlanId || !hasExactZeroPrice || externallyManaged || planText.includes("paid")) {
       return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
     }
   }
