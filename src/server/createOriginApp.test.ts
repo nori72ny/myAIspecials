@@ -169,6 +169,38 @@ describe("createOriginApp provider isolation", () => {
     expect(malformedResponse.body.releaseSha).toBe("unknown");
   });
 
+  it.each([
+    "/api/agent/v3/status",
+    "/api/coding/v1.4/status",
+    "/api/research/v1.1/status",
+    "/api/creative/v1.5/raster/status",
+    "/api/builder/v1.3.1/status",
+    "/sites/release-one-probe",
+  ])("keeps non-release APIs unreachable in production: %s", async (path) => {
+    const response = await request(createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" })).get(path);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      code: "ORIGIN_RELEASE_ROUTE_NOT_ENABLED",
+      message: "この機能はORIGIN Personalの一次公開では提供していません。",
+      retryable: false,
+      requestId: "UNKNOWN",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the health identity and canonical chat method available in production", async () => {
+    const app = createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" });
+    const health = await request(app).get("/api/health");
+    const unsupportedChatMethod = await request(app).get("/api/chat");
+
+    expect(health.status).toBe(200);
+    expect(health.body.releaseSha).toBe("unknown");
+    expect(unsupportedChatMethod.status).toBe(405);
+    expect(unsupportedChatMethod.headers.allow).toBe("POST");
+    expect(unsupportedChatMethod.body.code).toBe("METHOD_NOT_ALLOWED");
+  });
+
   it("sets strict production security headers and removes Express fingerprinting", async () => {
     const response = await request(createOriginApp({ NODE_ENV: "production" }))
       .get("/api/health");
