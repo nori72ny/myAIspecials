@@ -85,8 +85,11 @@ async function readCloudflareJson(url, apiToken, timeoutMs = 10_000) {
   }
 }
 
-function isActiveSubscription(value) {
-  return ["Trial", "Provisioned", "Paid", "AwaitingPayment"].includes(String(value?.state ?? ""));
+function subscriptionState(value) {
+  const state = String(value?.state ?? "");
+  if (["Trial", "Provisioned", "Paid", "AwaitingPayment"].includes(state)) return "active";
+  if (["Cancelled", "Expired", "Failed"].includes(state)) return "inactive";
+  return "unknown";
 }
 
 function subscriptionPlanText(value) {
@@ -146,20 +149,54 @@ async function verifyWorkersFreePlan(env) {
   }
 
   for (const row of subscriptionRows) {
-    if (!row || typeof row !== "object" || !isActiveSubscription(row)) continue;
-    const planText = subscriptionPlanText(row);
-    if (!planText.includes("worker")) continue;
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
+    }
+
+    const state = subscriptionState(row);
+    if (state === "inactive") continue;
+    if (state === "unknown") {
+      // An unrecognized state must not be silently treated as an inactive subscription.
+      return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
+    }
+    if (row.state === "Paid" || row.state === "AwaitingPayment") {
+      // A paid or payment-pending subscription is never accepted as Free,
+      // even if an inconsistent rate_plan object claims a zero-priced Free tier.
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
+    }
 
     const ratePlan = row.rate_plan && typeof row.rate_plan === "object" && !Array.isArray(row.rate_plan)
       ? row.rate_plan
       : {};
+    const planText = subscriptionPlanText(row);
+    if (!planText) {
+      return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
+    }
+
+    if (!planText.includes("worker")) {
+      // Non-Workers products may be ignored only when their product identity is explicit.
+      const productMarkers = [ratePlan.scope, ...(Array.isArray(ratePlan.sets) ? ratePlan.sets : [])]
+        .filter(item => typeof item === "string" && item.trim().length > 0);
+      if (productMarkers.length === 0) {
+        return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
+      }
+      continue;
+    }
+
     const ratePlanId = typeof ratePlan.id === "string" ? ratePlan.id.toLowerCase() : "";
     const hasExplicitFreePlanId = ratePlanId === "free" || ratePlanId === "partners_free";
     const hasExactZeroPrice = typeof row.price === "number" && Number.isFinite(row.price) && row.price === 0;
-    const externallyManaged = ratePlan.externally_managed === true;
+    const explicitlyNotExternallyManaged = ratePlan.externally_managed === false;
+    const explicitlyNotContracted = ratePlan.is_contract === false;
 
-    // Subscription fields are optional in the API schema. Missing price or plan ID is not proof of $0.
-    if (!hasExplicitFreePlanId || !hasExactZeroPrice || externallyManaged || planText.includes("paid")) {
+    // Every optional billing field must positively prove the free Workers entitlement.
+    if (
+      !hasExplicitFreePlanId
+      || !hasExactZeroPrice
+      || !explicitlyNotExternallyManaged
+      || !explicitlyNotContracted
+      || planText.includes("paid")
+    ) {
       return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
     }
   }
