@@ -41,7 +41,8 @@ export type CodingJobResultV14 = {
   // Absent on historical records; absence is never proof of a release match.
   executionEvidence?: CodingJobExecutionEvidenceV14;
   freeOnly: true;
-  costUsd: 0;
+  costUsd: null;
+  costEvidenceStatus: 'NOT_MEASURED';
   gitPublished: false;
   deployed: false;
 };
@@ -152,7 +153,8 @@ export async function buildCodingJobResultV14(
     verificationChecks: latestVerification(session.audit),
     ...(executionEvidence === undefined ? {} : { executionEvidence: { ...executionEvidence } }),
     freeOnly: true,
-    costUsd: 0,
+    costUsd: null,
+    costEvidenceStatus: 'NOT_MEASURED',
     gitPublished: false,
     deployed: false,
   };
@@ -187,12 +189,18 @@ function validDiff(value: unknown): value is CodingJobDiffPreviewV14 {
 function normalizeResult(value: unknown): CodingJobResultV14 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('CODING_JOB_RESULT_INVALID');
   const item = value as Record<string, unknown>;
-  const exactKeys = ['schemaVersion', 'sessionStatus', 'repairRounds', 'diffs', 'verificationChecks', 'freeOnly', 'costUsd', 'gitPublished', 'deployed'];
+  const legacyKeys = ['schemaVersion', 'sessionStatus', 'repairRounds', 'diffs', 'verificationChecks', 'freeOnly', 'costUsd', 'gitPublished', 'deployed'];
+  const currentKeys = [...legacyKeys, 'costEvidenceStatus'];
   if (Object.prototype.hasOwnProperty.call(item, 'executionEvidence')) {
-    exactKeys.push('executionEvidence');
+    legacyKeys.push('executionEvidence');
+    currentKeys.push('executionEvidence');
     if (!validCodingJobExecutionEvidenceV14(item.executionEvidence)) throw new Error('CODING_JOB_RESULT_INVALID');
   }
-  if (Object.keys(item).sort().join('|') !== [...exactKeys].sort().join('|')) throw new Error('CODING_JOB_RESULT_INVALID');
+  const keys = Object.keys(item).sort().join('|');
+  const isLegacyCostShape = keys === [...legacyKeys].sort().join('|') && item.costUsd === 0;
+  const isCurrentCostShape = keys === [...currentKeys].sort().join('|')
+    && item.costUsd === null && item.costEvidenceStatus === 'NOT_MEASURED';
+  if (!isLegacyCostShape && !isCurrentCostShape) throw new Error('CODING_JOB_RESULT_INVALID');
   if (item.schemaVersion !== 1 || !['verified', 'blocked', 'repair_limit'].includes(String(item.sessionStatus))) throw new Error('CODING_JOB_RESULT_INVALID');
   if (!Number.isInteger(item.repairRounds) || Number(item.repairRounds) < 0 || Number(item.repairRounds) > 3) throw new Error('CODING_JOB_RESULT_INVALID');
   if (!Array.isArray(item.diffs) || item.diffs.length > MAX_DIFFS || item.diffs.some(diff => !validDiff(diff))) throw new Error('CODING_JOB_RESULT_INVALID');
@@ -200,8 +208,14 @@ function normalizeResult(value: unknown): CodingJobResultV14 {
   if (item.verificationChecks.length === 4 && new Set(item.verificationChecks.map(check => check.kind)).size !== 4) throw new Error('CODING_JOB_RESULT_INVALID');
   if (item.sessionStatus === 'verified' && (item.verificationChecks.length !== 4 || item.verificationChecks.some(check =>
     !check.ok || check.exitCode !== 0 || check.timedOut || check.attempt !== item.repairRounds))) throw new Error('CODING_JOB_RESULT_INVALID');
-  if (item.freeOnly !== true || item.costUsd !== 0 || item.gitPublished !== false || item.deployed !== false) throw new Error('CODING_JOB_RESULT_INVALID');
-  return item as CodingJobResultV14;
+  if (item.freeOnly !== true || item.gitPublished !== false || item.deployed !== false) throw new Error('CODING_JOB_RESULT_INVALID');
+  // Migrate historical records that used costUsd: 0 as a policy claim. That value
+  // was not measured billing evidence and must never be returned as actual cost.
+  return {
+    ...item,
+    costUsd: null,
+    costEvidenceStatus: 'NOT_MEASURED',
+  } as CodingJobResultV14;
 }
 
 export function encryptCodingJobResultV14(jobId: string, result: CodingJobResultV14, env: NodeJS.ProcessEnv = process.env): string {
