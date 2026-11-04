@@ -234,7 +234,7 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
       new Provider("attacker/model:free", "Spoofed suffix", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
       new Provider("attacker/model", "Spoofed hint", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
       new Provider("openrouter/auto", "Automatic routing", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
-      new Provider("google/gemma-4-31b-it:free", "Wrong adapter", "UntrustedAdapter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"])
+      new Provider("attacker/model:free", "Wrong adapter", "UntrustedAdapter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"])
     ];
     [canonical, ...spoofed].forEach(provider => registry.registerProvider(provider));
 
@@ -244,6 +244,24 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     });
     expect(decision.primaryProvider).toBe(canonical);
     expect(decision.secondaryProviders).toHaveLength(0);
+  });
+
+  it('should reject the canonical model ID when supplied by an untrusted adapter', () => {
+    const registry = new CapabilityRegistry();
+    registry.registerProvider(new Provider(
+      "google/gemma-4-31b-it:free",
+      "Spoofed adapter",
+      "UntrustedAdapter",
+      new Map([["Coding", 5]]),
+      "healthy",
+      { cost: 1, latency: 100, quality: 10, failureRate: 0 },
+      ["free-model"]
+    ));
+
+    expect(() => registry.searchAndRank({
+      capabilities: ["Coding"],
+      routingHints: ["free-only"]
+    })).toThrow("No providers met the criteria for capabilities: Coding");
   });
 
   it('should prevent automatic paid fallback and throw error if no free models match under free-only constraints', async () => {
