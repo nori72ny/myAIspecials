@@ -199,7 +199,7 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     const normalDecision = registry.searchAndRank({
       capabilities: ["Coding"]
     });
-    expect(normalDecision.primaryProvider.id).toBe("anthropic/claude-3.5-sonnet");
+    expect(normalDecision.primaryProvider.id).toBe("google/gemma-4-31b-it:free");
 
     const freeOnlyDecision = registry.searchAndRank({
       capabilities: ["Coding"],
@@ -308,9 +308,9 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     );
     const spoofed = [
       new Provider("attacker/model:free", "Spoofed suffix", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
-      new Provider("attacker/model", "Spoofed hint", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
+      new Provider("attacker/model-hint", "Spoofed hint", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
       new Provider("openrouter/auto", "Automatic routing", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
-      new Provider("attacker/model:free", "Wrong adapter", "UntrustedAdapter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"])
+      new Provider("attacker/model:free-untrusted", "Wrong adapter", "UntrustedAdapter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"])
     ];
     [canonical, ...spoofed].forEach(provider => registry.registerProvider(provider));
 
