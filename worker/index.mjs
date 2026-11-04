@@ -43,13 +43,24 @@ function previewExecutionEnabled(env) {
   return env.FREE_ONLY === "true"
     && env.CF_WORKERS_AI_PREVIEW_ENABLED === "true"
     && env.CF_WORKERS_AI_FREE_PLAN_CONFIRMED === "true"
-    && Boolean(env.ORIGIN_PREVIEW_TOKEN)
+    && typeof env.ORIGIN_PREVIEW_TOKEN === "string"
+    && env.ORIGIN_PREVIEW_TOKEN.length >= 32
     && Boolean(env.AI && typeof env.AI.run === "function");
 }
 
 function validPreviewToken(request, env) {
   const authorization = request.headers.get("authorization") ?? "";
-  return authorization === `Bearer ${env.ORIGIN_PREVIEW_TOKEN}`;
+  if (!authorization.startsWith("Bearer ")) return false;
+
+  const expected = new TextEncoder().encode(env.ORIGIN_PREVIEW_TOKEN);
+  const provided = new TextEncoder().encode(authorization.slice(7));
+  if (provided.length !== expected.length) return false;
+
+  let mismatch = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    mismatch |= expected[index] ^ provided[index];
+  }
+  return mismatch === 0;
 }
 
 function safeTokenCount(value) {
