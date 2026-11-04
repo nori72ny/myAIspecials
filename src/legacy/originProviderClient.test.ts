@@ -41,7 +41,7 @@ describe("executeOriginProvider", () => {
       providerDataPolicy: plan.providerDataPolicy,
       routingEvidence: {
         requestedModel: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, ""),
-        servedModel: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, ""),
+        servedModel: ORIGIN_OPENROUTER_FREE_MODEL,
         strategy: "adaptive-primary",
         provider: "openrouter",
         attempt: 1 as const,
@@ -49,8 +49,11 @@ describe("executeOriginProvider", () => {
       },
       usage: { costUsd: 0 as const },
     };
+    // Note: OriginProviderError resolves its message from the error code
+    // (PROVIDER_ROUTING_UNVERIFIED), so both the served-model and
+    // requested-model rejection paths produce the same message.
     expect(() => assertOriginZeroCostExecutionResult(result as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0]))
-      .toThrow("許可された無料要求モデルの証跡を確認できません。");
+      .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
   });
   it("rejects otherwise valid execution evidence when transport count is missing or zero", () => {
     const validWithoutCount = {
