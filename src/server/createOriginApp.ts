@@ -83,10 +83,10 @@ export function createOriginApp(
   app.use(createWorldClassImageV16Router(env));
   app.use(createImageGatewayEvalPreflightRouter(env));
   app.use(createOriginResearchRouter());
-  // Browser clients request text/event-stream. Handle provider-eligible requests here
-  // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
-  // remains the fail-closed JSON/local-answer path and is never used to fake provider
-  // streaming for eligible requests.
+  // Browser clients request text/event-stream. The provider client buffers upstream
+  // SSE privately until terminal model and billing evidence pass, then releases the
+  // verified response through this SSE route. This is SSE transport, not progressive
+  // token delivery. The legacy router remains the fail-closed JSON/local-answer path.
   app.use(createOriginStreamingChatRouter({ env }));
   app.use(createOriginChatRouter({ env }));
   app.all("/api/chat", originChatBoundaryGuard);
