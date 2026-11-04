@@ -130,10 +130,11 @@ async function verifyWorkersFreePlan(env) {
   );
   const subscriptionInfo = subscriptions.body?.result_info;
   const subscriptionRows = subscriptions.body?.result;
+  if (!subscriptions.response?.ok || subscriptions.body?.success !== true) {
+    return { ok: false, reason: "CLOUDFLARE_BILLING_READ_REQUIRED" };
+  }
   if (
-    !subscriptions.response?.ok
-    || subscriptions.body?.success !== true
-    || !Array.isArray(subscriptionRows)
+    !Array.isArray(subscriptionRows)
     || !subscriptionInfo
     || !Number.isSafeInteger(subscriptionInfo.count)
     || !Number.isSafeInteger(subscriptionInfo.total_count)
