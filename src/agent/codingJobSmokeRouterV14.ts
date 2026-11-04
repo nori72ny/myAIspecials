@@ -119,7 +119,7 @@ export function createCodingJobSmokeV14Router(
         signal: AbortSignal.timeout(15_000),
       });
       const payload = await boundedJson(upstream);
-      if (upstream.status !== 202 || !payload || payload.ok !== true || payload.freeOnly !== true || payload.costUsd !== 0 || payload.paidFallbackUsed !== false) {
+      if (upstream.status !== 202 || !payload || payload.ok !== true || payload.freeOnly !== true || payload.costUsd !== null || payload.costEvidenceStatus !== 'NOT_MEASURED' || payload.paidFallbackUsed !== false) {
         return res.status(503).json({ ok: false, code: safeUpstreamCode(payload?.code), releaseSha: currentRelease });
       }
       const job = payload.job;
@@ -133,7 +133,8 @@ export function createCodingJobSmokeV14Router(
         job,
         resultDetailsState: payload.resultDetailsState,
         freeOnly: true,
-        costUsd: 0,
+        costUsd: null,
+        costEvidenceStatus: 'NOT_MEASURED',
         paidFallbackUsed: false,
       });
     } catch {
@@ -172,7 +173,7 @@ export function createCodingJobSmokeV14Router(
         signal: AbortSignal.timeout(15_000),
       });
       const payload = await boundedJson(upstream);
-      if (upstream.status !== 200 || !payload || payload.ok !== true || payload.freeOnly !== true || payload.costUsd !== 0 || payload.paidFallbackUsed !== false) {
+      if (upstream.status !== 200 || !payload || payload.ok !== true || payload.freeOnly !== true || payload.costUsd !== null || payload.costEvidenceStatus !== 'NOT_MEASURED' || payload.paidFallbackUsed !== false) {
         return res.status(upstream.status === 404 ? 404 : 503).json({ ok: false, code: safeUpstreamCode(payload?.code), releaseSha: currentRelease });
       }
       const job = payload.job;
@@ -187,7 +188,8 @@ export function createCodingJobSmokeV14Router(
         result: payload.result ?? null,
         resultDetailsState: payload.resultDetailsState,
         freeOnly: true,
-        costUsd: 0,
+        costUsd: null,
+        costEvidenceStatus: 'NOT_MEASURED',
         paidFallbackUsed: false,
       });
     } catch {
