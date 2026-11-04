@@ -227,6 +227,44 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("rejects an active paid Workers subscription even if the usage model is bundled", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([{
+        state: "Paid",
+        price: 5,
+        rate_plan: { id: "workers_paid", public_name: "Workers Paid", sets: ["workers"] },
+      }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the Workers usage model is missing or ambiguous", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn().mockResolvedValueOnce(cloudflareJson({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PLAN_UNVERIFIED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Billing Read evidence is unavailable", async () => {
     const run = vi.fn();
     const env = enabledEnv(run);
