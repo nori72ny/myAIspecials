@@ -32,6 +32,23 @@ export function createOriginApp(
   app.disable("x-powered-by");
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
+
+  // Release 1 exposes only the canonical chat API and health identity. Keep every
+  // later-generation API unreachable in production until its own release gate passes.
+  if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") {
+    app.use((req, res, next) => {
+      if (req.method === "GET" && (req.path === "/health" || req.path === "/api/health")) return next();
+      if (req.path === "/api/chat" && req.method === "POST") return next();
+      if (req.path === "/api/chat") {
+        res.setHeader("Allow", "POST");
+        return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "このAPIで許可されていないHTTPメソッドです。", retryable: false, requestId: "UNKNOWN" });
+      }
+      if (req.path === "/api" || req.path.startsWith("/api/") || req.path === "/sites" || req.path.startsWith("/sites/")) {
+        return res.status(404).json({ code: "ORIGIN_RELEASE_ROUTE_NOT_ENABLED", message: "この機能はORIGIN Personalの一次公開では提供していません。", retryable: false, requestId: "UNKNOWN" });
+      }
+      return next();
+    });
+  }
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/research/v1.1", createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
