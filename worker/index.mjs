@@ -159,6 +159,11 @@ async function verifyWorkersFreePlan(env) {
       // An unrecognized state must not be silently treated as an inactive subscription.
       return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
     }
+    if (row.state === "Paid" || row.state === "AwaitingPayment") {
+      // A paid or payment-pending subscription is never accepted as Free,
+      // even if an inconsistent rate_plan object claims a zero-priced Free tier.
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
+    }
 
     const ratePlan = row.rate_plan && typeof row.rate_plan === "object" && !Array.isArray(row.rate_plan)
       ? row.rate_plan
