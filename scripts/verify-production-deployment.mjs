@@ -88,8 +88,9 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
   assert.match(contentType, /text\/event-stream/i, `Production /api/chat returned an unexpected real-stream content type: ${contentType || "missing"}; x-vercel-id=${vercelId || "missing"}; body=[response body withheld]`);
   assert.equal(response.headers.get("x-origin-stream-protocol"), "origin-verified-sse-v1", "Production /api/chat must use the verified upstream delta protocol.");
   assert.equal(response.headers.get("x-origin-free-only"), "true", "Production /api/chat must remain free-only.");
-  assert.equal(response.headers.get("x-origin-cost-usd"), "0", "Production /api/chat must report zero cost.");
-  assert.equal(response.headers.get("x-origin-billing-tier"), "free", "Production /api/chat must report the free billing tier.");
+  assert.equal(response.headers.get("x-origin-cost-evidence"), "NOT_MEASURED", "Production /api/chat must not claim measured billing cost.");
+  assert.equal(response.headers.get("x-origin-cost-usd"), null, "Production /api/chat must not publish an unmeasured actual-cost value.");
+  assert.equal(response.headers.get("x-origin-billing-tier"), null, "Production /api/chat must not claim a billing tier without billing-side evidence.");
   assert.equal(response.headers.get("x-origin-model-id"), EXPECTED_FREE_MODEL, "Production /api/chat must use the reviewed fixed free model.");
   let generated = ""; let completion; let doneSeen = false;
   for (const line of body.split(/\r?\n/)) {
@@ -106,10 +107,11 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
     } else assert.fail("Production stream emitted an unsafe event.");
   }
   assert.ok(doneSeen && completion, "Production stream must include a verified completion and DONE.");
-  assert.deepEqual({ modelId: completion.modelId, costUsd: completion.costUsd, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costUsd: 0, fallbackUsed: false });
+  assert.deepEqual({ modelId: completion.modelId, costEvidenceStatus: completion.costEvidenceStatus, fallbackUsed: completion.fallbackUsed }, { modelId: EXPECTED_FREE_MODEL, costEvidenceStatus: "NOT_MEASURED", fallbackUsed: false });
   assert.ok(generated.includes(CONTEXT_TOKEN), "Production /api/chat must recover the synthetic token from earlier multi-turn context.");
   assert.ok((generated.match(new RegExp(STREAM_MARKER, "g")) ?? []).length >= 8, "Production /api/chat must return enough requested marker text to exercise progressive delivery.");
-  assert.ok(streamChunkCount >= 2, `Production /api/chat must deliver more than one network chunk from the upstream stream; observed ${streamChunkCount}.`);
+  // Provider deltas are deliberately buffered until terminal model and billing evidence pass.
+  // Network chunk count is transport-dependent and is not a progressive-rendering guarantee.
 
   return {
     status: response.status,
@@ -117,6 +119,7 @@ export async function verifyLiveChat(baseUrl, requestTimeoutMs) {
     bytes: Buffer.byteLength(body),
     streamChunkCount,
     streamSource: "upstream",
+    deliveryMode: "buffered-until-billing-verification",
     contextVerified: true,
     modelId: EXPECTED_FREE_MODEL,
     vercelId,
@@ -179,7 +182,7 @@ export async function verifyProductionDeployment(env = process.env) {
 if (process.argv[1]?.endsWith("verify-production-deployment.mjs")) {
   try {
     const result = await verifyProductionDeployment();
-    console.log(JSON.stringify({ status: "passed", check: "origin-production-deployment-live-upstream-stream-and-multiturn", ...result }));
+    console.log(JSON.stringify({ status: "passed", check: "origin-production-deployment-verified-buffered-upstream-sse-and-multiturn", ...result }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
