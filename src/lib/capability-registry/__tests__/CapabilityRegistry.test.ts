@@ -219,6 +219,42 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     }
   });
 
+  it('should enforce FREE_ONLY during provider registration and registry reads', () => {
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const registry = new CapabilityRegistry();
+      const canonical = new Provider(
+        "google/gemma-4-31b-it:free",
+        "Canonical Free Model",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+        ["free-model"]
+      );
+      const paid = new Provider(
+        "openai/gpt-4o",
+        "Paid GPT",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 7, latency: 700, quality: 9, failureRate: 0.01 },
+        ["paid-model"]
+      );
+
+      registry.registerProvider(canonical);
+      expect(() => registry.registerProvider(paid))
+        .toThrow("FREE_ONLY_PROVIDER_BLOCKED");
+      expect(registry.getAllProviders()).toEqual([canonical]);
+      expect(registry.getProvider(paid.id)).toBeUndefined();
+      expect(registry.getProvidersByCapability("Coding")).toEqual([canonical]);
+    } finally {
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
   it('should reject spoofed free suffixes, free-model hints, zero-cost claims, and auto routing', () => {
     const registry = new CapabilityRegistry();
     const canonical = new Provider(
