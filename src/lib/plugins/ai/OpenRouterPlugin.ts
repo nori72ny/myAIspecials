@@ -1,5 +1,6 @@
 import { IAIProviderPlugin, AIProviderManifest } from '../../kernel/plugin/types';
 import { Logger } from '../../../../services/mission-engine/src/infrastructure/logging/Logger';
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../orchestration/OriginFreeModelCatalog';
 
 export class OpenRouterError extends Error {
   constructor(
@@ -23,8 +24,8 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
     provider: "OpenRouter",
     models: [
       {
-        id: "google/gemini-2.5-flash:free",
-        name: "Gemini 2.5 Flash (OpenRouter Free)",
+        id: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
+        name: "ORIGIN Approved Free Model",
         speed: 8,
         cost: 0,
         quality: 8,
