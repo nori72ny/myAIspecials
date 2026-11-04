@@ -41,7 +41,8 @@ type CodingJobResult = {
     attempt: number;
   }>;
   freeOnly: true;
-  costUsd: 0;
+  costUsd: null;
+  costEvidenceStatus: 'NOT_MEASURED';
   gitPublished: false;
   deployed: false;
 };
@@ -73,7 +74,8 @@ type CapabilityResponse = {
   authorizationMode?: CodingJobAuthorizationMode;
   authorizationScope?: string;
   freeOnly?: boolean;
-  costUsd?: number;
+  costUsd?: number | null;
+  costEvidenceStatus?: 'NOT_MEASURED';
   gitPublished?: boolean;
   deployed?: boolean;
 };
