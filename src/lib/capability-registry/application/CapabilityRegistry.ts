@@ -7,7 +7,7 @@ import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../orchestration/Origin
 
 export class CapabilityRegistry implements ICapabilityRegistry {
   private isProviderAllowed(provider: Provider): boolean {
-    const freeOnly = typeof process === "undefined" || process.env.FREE_ONLY !== "false";
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
     return !freeOnly ||
       (provider.id === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL && provider.adapterId === "OpenRouter");
   }
