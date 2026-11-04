@@ -23,6 +23,8 @@ Official references:
 - Workers AI data usage: https://developers.cloudflare.com/workers-ai/platform/data-usage/
 - Free allocation and model pricing: https://developers.cloudflare.com/workers-ai/platform/pricing/
 - Workers Free model eligibility: https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/
+- Cloudflare API token permission groups: https://developers.cloudflare.com/fundamentals/api/reference/permissions/
+- Billing API token permission: https://developers.cloudflare.com/billing/understand/billing-permissions/
 
 ## Model selection status
 
