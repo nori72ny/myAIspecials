@@ -74,7 +74,8 @@ function captureResult(session: { status: 'verified' | 'blocked' | 'repair_limit
     diffs: [],
     verificationChecks: kinds.map(kind => ({ kind, ok: true, exitCode: 0, timedOut: false, attempt: 0 })),
     freeOnly: true as const,
-    costUsd: 0 as const,
+    costUsd: null,
+    costEvidenceStatus: 'NOT_MEASURED' as const,
     gitPublished: false as const,
     deployed: false as const,
   });
