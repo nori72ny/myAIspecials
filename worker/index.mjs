@@ -1,5 +1,5 @@
 const MODEL_ID = "@cf/google/gemma-4-26b-a4b-it";
-const MAX_BODY_BYTES = 16 * 1024;
+const MAX_BODY_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = 12_000;
 const MAX_OUTPUT_TOKENS = 1_024;
 
@@ -144,7 +144,7 @@ async function handlePreviewChat(request, env, headers) {
       ],
       max_tokens: MAX_OUTPUT_TOKENS,
       temperature: 0.3,
-    });
+    }, { rejectIfBusy: true });
   } catch {
     return json({
       error: "ORIGIN_CF_AI_PROVIDER_UNAVAILABLE",
