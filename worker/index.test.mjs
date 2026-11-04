@@ -40,6 +40,9 @@ function cloudflareJson(result, status = 200, errors = []) {
   return new Response(JSON.stringify({
     success: status >= 200 && status < 300,
     result,
+    ...(Array.isArray(result) ? {
+      result_info: { count: result.length, page: 1, per_page: 20, total_count: result.length },
+    } : {}),
     errors,
     messages: [],
   }), {
@@ -225,6 +228,28 @@ describe("ACOS Cloudflare Workers AI preview", () => {
     expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the Billing subscriptions response is paginated", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        result: [],
+        result_info: { count: 20, page: 1, per_page: 20, total_count: 21 },
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_BILLING_READ_INCOMPLETE");
+    expect(run).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects an active paid Workers subscription even if the usage model is bundled", async () => {
