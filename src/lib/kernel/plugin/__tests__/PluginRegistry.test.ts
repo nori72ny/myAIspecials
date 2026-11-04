@@ -12,8 +12,8 @@ describe('PluginRegistry', () => {
     const aiProviders = registry.getAIProviders();
     expect(aiProviders.length).toBe(1);
     expect(aiProviders[0].manifest.provider).toBe("OpenRouter");
-    expect(aiProviders[0].manifest.models[0].name).toBe("Gemini 2.5 Flash (OpenRouter Free)");
-    expect(aiProviders[0].manifest.models[0].id).toBe("google/gemini-2.5-flash:free");
+    expect(aiProviders[0].manifest.models[0].name).toBe("ORIGIN Approved Free Model");
+    expect(aiProviders[0].manifest.models[0].id).toBe("google/gemma-4-31b-it:free");
     expect(aiProviders[0].manifest.models[0].cost).toBe(0);
   });
 
