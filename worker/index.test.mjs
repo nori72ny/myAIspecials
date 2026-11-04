@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "./index.mjs";
 
 const MODEL_ID = "@cf/google/gemma-4-26b-a4b-it";
@@ -30,9 +30,34 @@ function enabledEnv(run = vi.fn().mockResolvedValue({
     CF_WORKERS_AI_PREVIEW_ENABLED: "true",
     CF_WORKERS_AI_FREE_PLAN_CONFIRMED: "true",
     ORIGIN_PREVIEW_TOKEN: "synthetic-preview-token-0123456789abcdef",
+    CLOUDFLARE_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+    CLOUDFLARE_API_TOKEN: "synthetic-cloudflare-readonly-token-0123456789",
     AI: { run },
   };
 }
+
+function cloudflareJson(result, status = 200, errors = []) {
+  return new Response(JSON.stringify({
+    success: status >= 200 && status < 300,
+    result,
+    errors,
+    messages: [],
+  }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function mockFreePlanProof() {
+  return vi.fn()
+    .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+    .mockResolvedValueOnce(cloudflareJson([]))
+    .mockResolvedValueOnce(cloudflareJson({ input: {}, output: {} }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("ACOS Cloudflare Workers AI preview", () => {
   it("returns a lightweight health response", async () => {
@@ -56,7 +81,8 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       runtime: "cloudflare-worker",
       freeOnly: true,
       aiBindingConfigured: true,
-      previewExecutionEnabled: true,
+      previewControlsConfigured: true,
+      freePlanProofRequired: true,
       model: MODEL_ID,
     });
     expect(JSON.stringify(body)).not.toContain(env.ORIGIN_PREVIEW_TOKEN);
@@ -146,6 +172,8 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       usage: { prompt_tokens: 12, completion_tokens: 8 },
     });
     const env = enabledEnv(run);
+    const fetchMock = mockFreePlanProof();
+    vi.stubGlobal("fetch", fetchMock);
     const response = await worker.fetch(
       aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
       env,
@@ -154,6 +182,14 @@ describe("ACOS Cloudflare Workers AI preview", () => {
 
     expect(response.status).toBe(200);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(call => String(call[0]))).toEqual([
+      "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/workers/account-settings",
+      "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/subscriptions",
+      `https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/models/schema?model=${encodeURIComponent(MODEL_ID)}`,
+    ]);
+    expect(fetchMock.mock.calls.every(call => (call[1] as RequestInit)?.method === "GET")).toBe(true);
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("こんにちは");
     expect(run).toHaveBeenCalledWith(MODEL_ID, expect.objectContaining({
       max_tokens: 1024,
       messages: expect.arrayContaining([
@@ -165,10 +201,67 @@ describe("ACOS Cloudflare Workers AI preview", () => {
       provider: "cloudflare-workers-ai",
       model: MODEL_ID,
       usage: { promptTokens: 12, completionTokens: 8 },
+      freeAllocationEligible: true,
+      planEvidenceStatus: "VERIFIED_WORKERS_FREE",
       actualCostUsd: null,
       costEvidenceStatus: "NOT_MEASURED",
       retryable: false,
     });
+  });
+
+  it("rejects a paid Workers usage model before inference", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      cloudflareJson({ default_usage_model: "standard" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Billing Read evidence is unavailable", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson(null, 403));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_BILLING_READ_REQUIRED");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects a model that requires a paid plan", async () => {
+    const run = vi.fn();
+    const env = enabledEnv(run);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(cloudflareJson([]))
+      .mockResolvedValueOnce(cloudflareJson(null, 403, [{ code: 5035 }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await worker.fetch(
+      aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects invalid prompts without calling the provider", async () => {
@@ -198,6 +291,7 @@ describe("ACOS Cloudflare Workers AI preview", () => {
   it("does not retry or switch providers when Cloudflare inference fails", async () => {
     const run = vi.fn().mockRejectedValue(new Error("synthetic upstream failure"));
     const env = enabledEnv(run);
+    vi.stubGlobal("fetch", mockFreePlanProof());
     const response = await worker.fetch(
       aiRequest(JSON.stringify({ prompt: "こんにちは" }), { token: env.ORIGIN_PREVIEW_TOKEN }),
       env,
