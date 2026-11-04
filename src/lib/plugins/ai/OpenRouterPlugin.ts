@@ -59,8 +59,9 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
   private isFreeModel(modelId: string): boolean {
-    return typeof modelId === "string" &&
-      this.manifest.models.some((model) => model.id === modelId && model.id.endsWith(":free"));
+    // The public manifest is presentation metadata and may be mutated by callers.
+    // Authorization must depend only on the immutable canonical catalog constant.
+    return typeof modelId === "string" && modelId === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL;
   }
 
   /**
