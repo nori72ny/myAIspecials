@@ -58,7 +58,10 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
    * Automatic routing is intentionally excluded because it may select a paid model.
    */
   private isFreeModel(modelId: string): boolean {
-    return typeof modelId === "string" && modelId.trim().toLowerCase().endsWith(":free");
+    if (typeof modelId !== "string") return false;
+    const normalized = modelId.trim();
+    return normalized.endsWith(":free") &&
+      this.manifest.models.some((model) => model.id === normalized && model.id.endsWith(":free"));
   }
 
   /**
@@ -70,17 +73,19 @@ export class OpenRouterPlugin implements IAIProviderPlugin {
 
     // 1. Free-only enforcement / Paid model blocking
     if (isFreeOnly && !this.isFreeModel(modelId)) {
-      Logger.warn(`[OpenRouterPlugin] Blocked execution of paid or automatic model '${modelId}' under free-only constraints.`);
+      Logger.warn("[OpenRouterPlugin] Blocked model outside the approved free-model allowlist.");
       if (options?.throwOnBlock) {
         throw new OpenRouterError("FREE_MODEL_UNAVAILABLE", 400);
       }
       return "FREE_MODEL_UNAVAILABLE";
     }
 
-    // Fallback Mock Mode (e.g., in deterministic tests or when no key is specified)
-    if (!this._apiKey || this._apiKey.startsWith("mock-") || process.env.NODE_ENV === "test") {
-      Logger.info(`[OpenRouterPlugin] Running generateText in fallback mock mode for model: ${modelId}`);
+    // Deterministic mocks are test-only. Missing or mock credentials must fail closed at runtime.
+    if (process.env.NODE_ENV === "test") {
       return this.getFallbackMockResponse(prompt, modelId);
+    }
+    if (!this._apiKey || this._apiKey.startsWith("mock-")) {
+      throw new OpenRouterError("OPENROUTER_NOT_CONFIGURED", 503);
     }
 
     // Legacy plugin safety: one provider attempt, zero automatic retries.
