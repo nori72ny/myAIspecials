@@ -16,11 +16,22 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(vercelConfig.rewrites).toContainEqual({ source: "/api/(.*)", destination: "/api/index.ts" });
   });
 
-  it("keeps the Cloudflare Worker provider route ineligible for release 1", () => {
+  it("keeps the Cloudflare Workers AI preview isolated from release 1 and disabled by default", () => {
     const worker = readRepositoryFile("worker/index.mjs");
-    expect(worker).toContain("providerExecutionEnabled: false");
-    expect(worker).toContain('url.pathname === "/api/v1/ai/free-chat"');
-    expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
+    const workerConfig = readRepositoryFile("wrangler.toml");
+    const productionServer = readRepositoryFile("src/server/createOriginApp.ts");
+
+    expect(worker).toContain('const MODEL_ID = "@cf/google/gemma-4-26b-a4b-it"');
+    expect(worker).toContain('CF_WORKERS_AI_PREVIEW_ENABLED === "true"');
+    expect(worker).toContain('CF_WORKERS_AI_FREE_PLAN_CONFIRMED === "true"');
+    expect(worker).toContain('error: "ORIGIN_CF_AI_PREVIEW_NOT_ENABLED"');
+    expect(worker).toContain("actualCostUsd: null");
+    expect(worker).toContain('costEvidenceStatus: "NOT_MEASURED"');
+    expect(worker).toContain("return handlePreviewChat(request, env, headers)");
+    expect(workerConfig).toContain('CF_WORKERS_AI_PREVIEW_ENABLED = "false"');
+    expect(workerConfig).toContain('CF_WORKERS_AI_FREE_PLAN_CONFIRMED = "false"');
+    expect(productionServer).not.toContain("CF_WORKERS_AI_PREVIEW_ENABLED");
+    expect(productionServer).not.toContain("@cf/google/gemma-4-26b-a4b-it");
   });
 
   it("locks execution to one approved free provider/model without cross-provider fallback", () => {
