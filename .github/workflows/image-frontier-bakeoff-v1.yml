@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   run-bakeoff:
-    if: contains(github.event.head_commit.message, '[run-image-bakeoff-v1]')
+    # ORIGIN's standing $0.00 policy forbids paid image/model evaluation.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:

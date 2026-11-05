@@ -17,7 +17,7 @@ describe("OriginSourceVerificationExecutor", () => {
       sourceDigest: supportedDigest,
       support: "supported",
       supportingExcerpt: "free tier",
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
 
@@ -53,7 +53,7 @@ describe("OriginSourceVerificationExecutor", () => {
       finalUrl: "https://example.com/docs",
       claim: "The service has a free tier.",
       externalFetchPerformed: true,
-      actualCostUsd: 0,
+      actualCostUsd: null,
       checks: {
         content: "passed",
         freshness: "not-applicable",
@@ -93,7 +93,7 @@ describe("OriginSourceVerificationExecutor", () => {
       sourceUrl: "https://example.com/docs",
       sourceDigest: unsupportedDigest,
       support: "not-supported",
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     });
 

@@ -67,7 +67,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
         support: "supported",
         supportingExcerpt: item.claim,
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -118,7 +118,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
         support: "supported",
         supportingExcerpt: item.claim,
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -164,7 +164,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
         support: index === 0 ? "supported" : "conflicting",
         supportingExcerpt: item.claim,
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -202,7 +202,7 @@ describe("OriginBatchAnswerSourceVerification", () => {
         support: "supported",
         supportingExcerpt: item.claim,
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 

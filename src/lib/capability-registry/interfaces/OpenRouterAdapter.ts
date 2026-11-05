@@ -10,8 +10,23 @@ export class OpenRouterAdapter implements IProviderAdapter {
    * including standard free-tier models, declaring their capabilities and metrics.
    */
   public async getSelfDeclaredProviders(): Promise<Provider[]> {
-    return [
-      // === FREE MODELS ===
+    const canonicalProvider = new Provider(
+      "google/gemma-4-31b-it:free",
+      "ORIGIN Approved Free Model",
+      this.id,
+      new Map([
+        ["Reasoning", 5], ["Planning", 5], ["Coding", 5], ["Writing", 5],
+        ["Analysis", 5], ["Research", 5], ["Translation", 5]
+      ]),
+      "healthy",
+      { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+      ["free-model"]
+    );
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
+    if (freeOnly) return [canonicalProvider];
+
+    const legacyProviders = [
+      // === LEGACY MODEL DECLARATIONS (non-FREE_ONLY only) ===
       // 1. Google Gemini 2.5 Flash Free - Exceptional speed and multimodal
       new Provider(
         "google/gemini-2.5-flash:free",
@@ -139,5 +154,6 @@ export class OpenRouterAdapter implements IProviderAdapter {
         ["real-time-data", "paid-model"]
       )
     ];
+    return [canonicalProvider, ...legacyProviders];
   }
 }

@@ -49,8 +49,12 @@ async function fixture() {
 
 const execute = vi.fn(async (): Promise<OriginProviderExecutionResult> => ({
   text: JSON.stringify({ edits: [{ path: 'src/math.js', search: 'a - b', replacement: 'a + b' }], creates: [] }),
-  actualCostUsd: 0,
-  usage: { costUsd: 0 },
+  actualCostUsd: null,
+  reportedUsageCostUsd: 0,
+  policyMaxCostUsd: 0,
+  costEvidenceStatus: "NOT_MEASURED",
+  billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+  usage: { reportedCostUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -70,7 +74,8 @@ function captureResult(session: { status: 'verified' | 'blocked' | 'repair_limit
     diffs: [],
     verificationChecks: kinds.map(kind => ({ kind, ok: true, exitCode: 0, timedOut: false, attempt: 0 })),
     freeOnly: true as const,
-    costUsd: 0 as const,
+    costUsd: null,
+    costEvidenceStatus: 'NOT_MEASURED' as const,
     gitPublished: false as const,
     deployed: false as const,
   });

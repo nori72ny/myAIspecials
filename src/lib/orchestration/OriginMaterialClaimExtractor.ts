@@ -24,7 +24,7 @@ export interface OriginMaterialClaimExtractionRequest {
 export interface OriginMaterialClaimExtractionRecord {
   readonly answerDigest: string;
   readonly claims: readonly OriginMaterialClaimInput[];
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -52,12 +52,13 @@ function answerDigest(answerText: string): string {
   return `sha256:${createHash("sha256").update(answerText, "utf8").digest("hex")}`;
 }
 
-function isRecord(value: unknown): value is OriginMaterialClaimExtractionRecord {
+type RawOriginMaterialClaimExtractionRecord = Omit<OriginMaterialClaimExtractionRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginMaterialClaimExtractionRecord {
   if (!value || typeof value !== "object") return false;
-  const r = value as Partial<OriginMaterialClaimExtractionRecord>;
+  const r = value as Partial<RawOriginMaterialClaimExtractionRecord>;
   return typeof r.answerDigest === "string"
     && Array.isArray(r.claims)
-    && typeof r.actualCostUsd === "number"
     && r.attempts === 1;
 }
 
@@ -104,7 +105,7 @@ export async function extractOriginMaterialClaims(
     return { ok: false, code: "CLAIM_EXTRACTION_RECORD_MISMATCH" };
   }
 
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "CLAIM_EXTRACTION_COST_UNVERIFIED" };
   }
 

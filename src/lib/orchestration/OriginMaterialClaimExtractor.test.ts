@@ -14,7 +14,7 @@ describe("OriginMaterialClaimExtractor", () => {
         evidenceRequirement: "supporting-evidence",
         risk: "medium",
       }],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     }));
 
@@ -54,7 +54,7 @@ describe("OriginMaterialClaimExtractor", () => {
         evidenceRequirement: "supporting-evidence",
         risk: "low",
       }],
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     };
 
@@ -98,7 +98,7 @@ describe("OriginMaterialClaimExtractor", () => {
           evidenceRequirement: "supporting-evidence",
           risk: "medium",
         }],
-        actualCostUsd: 0,
+        actualCostUsd: null,
         attempts: 1,
       })),
     );

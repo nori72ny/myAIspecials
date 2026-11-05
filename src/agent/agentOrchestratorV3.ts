@@ -76,15 +76,16 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const approvalSigningConfigured = v3CapabilityConfigured(env);
     const operatorAuthenticationConfigured = agentOperatorConfiguredV3(env);
     const authorizationMode = agentOperatorAuthorizationModeV3(env);
+    const credentialSeparationConfigured = authorizationMode === 'agent-operator';
     const replayProtectionConfigured = Boolean(consumptionStore);
     return res.status(200).json({
       ok: true,
       protocolVersion: 3,
-      ready: approvalSigningConfigured && operatorAuthenticationConfigured && replayProtectionConfigured,
+      ready: approvalSigningConfigured && operatorAuthenticationConfigured && credentialSeparationConfigured && replayProtectionConfigured,
       approvalSigningConfigured,
       operatorAuthenticationConfigured,
       authorizationMode,
-      credentialSeparationConfigured: authorizationMode === 'agent-operator',
+      credentialSeparationConfigured,
       replayProtectionConfigured,
       replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
       freeOnly: true,

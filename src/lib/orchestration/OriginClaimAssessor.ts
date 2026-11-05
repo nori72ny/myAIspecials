@@ -22,7 +22,7 @@ export interface OriginClaimAssessmentRecord {
   sourceDigest: string;
   support: "supported" | "not-supported" | "conflicting";
   supportingExcerpt?: string;
-  actualCostUsd: 0;
+  actualCostUsd: null;
   attempts: 1;
 }
 
@@ -53,14 +53,15 @@ function clean(value: string, max: number): string | null {
   return trimmed.length > 0 && trimmed.length <= max ? trimmed : null;
 }
 
-function isRecord(value: unknown): value is OriginClaimAssessmentRecord {
+type RawOriginClaimAssessmentRecord = Omit<OriginClaimAssessmentRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginClaimAssessmentRecord {
   if (!value || typeof value !== "object") return false;
-  const r = value as Partial<OriginClaimAssessmentRecord>;
+  const r = value as Partial<RawOriginClaimAssessmentRecord>;
   return typeof r.claim === "string"
     && typeof r.sourceUrl === "string"
     && typeof r.sourceDigest === "string"
     && (r.support === "supported" || r.support === "not-supported" || r.support === "conflicting")
-    && typeof r.actualCostUsd === "number"
     && r.attempts === 1
     && (r.supportingExcerpt === undefined || typeof r.supportingExcerpt === "string");
 }
@@ -118,7 +119,7 @@ export async function assessOriginClaimAgainstSource(
     return { ok: false, code: "CLAIM_ASSESSMENT_RECORD_MISMATCH" };
   }
 
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "CLAIM_ASSESSMENT_COST_UNVERIFIED" };
   }
 
@@ -135,6 +136,7 @@ export async function assessOriginClaimAgainstSource(
     ok: true,
     record: Object.freeze({
       ...raw,
+      actualCostUsd: null,
       supportingExcerpt: excerpt,
     }),
   };

@@ -33,7 +33,9 @@ describe('OriginSupervisorV2 research deliverables', () => {
     for (const artifact of result.artifacts) {
       expect(artifact.verified).toBe(true);
       expect(artifact.freeOnly).toBe(true);
-      expect(artifact.costUsd).toBe(0);
+      expect(artifact.costUsd).toBeNull();
+      expect(artifact.policyMaxCostUsd).toBe(0);
+      expect(artifact.costEvidenceStatus).toBe("NOT_MEASURED");
       expect(artifact.paidFallbackUsed).toBe(false);
       expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
       expect(artifact.byteLength).toBeGreaterThan(0);

@@ -1,6 +1,7 @@
 import { AIModel, AICapability, RoutingRequest, RoutingResponse } from './types';
 import aiModelsData from './data/ai-models.json';
 import capabilityRules from './data/capability-rules.json';
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../orchestration/OriginFreeModelCatalog';
 
 export class RoutingEngine {
   private models: AIModel[];
@@ -41,7 +42,10 @@ export class RoutingEngine {
    */
   public route(request: RoutingRequest): RoutingResponse {
     const capabilities = this.extractCapabilities(request.input);
-    const availableModels = this.models.filter(m => m.available);
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
+    const availableModels = this.models.filter(m =>
+      m.available && (!freeOnly || (m.id === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL && m.provider === "OpenRouter"))
+    );
 
     if (availableModels.length === 0) {
       throw new Error("No available AI models.");

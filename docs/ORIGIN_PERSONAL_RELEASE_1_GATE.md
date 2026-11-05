@@ -4,9 +4,9 @@ Status: Release decision record
 
 Owner: ノリさん
 
-Candidate branch: `fix/audit-remediation-v2`
+Candidate branch: `fix/security-audit-zero-cost-provider-boundary`
 
-Last aligned: 2026-08-02
+Last aligned: 2026-11-04
 
 ## 公開するもの
 
@@ -23,16 +23,31 @@ Last aligned: 2026-08-02
 
 AI StudioはORIGINそのものではなく、将来追加できるprovider adapterまたは開発環境として扱う。公式の無料条件、保存・学習利用、安定したモデルID、実行前後の費用証拠、fallback無効化、エラー時のfail-closedを確認できるまで正式routeへ接続しない。
 
+## 現行OpenRouter無料モデルのProvider適格性（2026-11-04再確認）
+
+- 現行カタログの`google/gemma-4-31b-it:free`は、OpenRouterのモデル別Endpoints APIで、配信先が`Google AI Studio`の1エンドポイントとして返る。モデル一覧・当該endpoint情報のprompt/completion価格は0だが、これはProvider側のデータ保持条件や実際の請求記録を証明しない。
+- GoogleのGemini API追加利用規約は、無料サービスについて、送信コンテンツと生成回答をGoogleの製品・サービス・機械学習技術の提供・改善・開発に使用する場合があり、人間のレビュアーが確認する場合もあると説明している。
+- したがって、Google AI Studio無料endpointをORIGINのZDR適格endpointとして承認しない。OpenRouterの`provider.zdr: true`および`data_collection: deny`は維持し、ZDR適格endpointが選ばれない場合は実行失敗を許容する。ZDRを外す、data collection制限を弱める、別endpointへ無条件fallbackする変更は禁止する。
+- OpenRouterの現行公式Provider Routing仕様では、リクエスト単位の`provider.zdr: true`はZDR endpointに制限する一方、アカウントのPrivacy SettingsまたはGuardrailが許可している場合はSafety Retention endpointも候補になり得る。Safety Retentionは通常のZDRと異なり、不正利用対策目的でprompt/responseを保持する可能性がある。厳格なZDR-onlyを公開条件とし、アカウントまたは適用Guardrailの実効設定でSafety Retentionが無効であることを確認する。現時点でそのアカウント設定は未確認であり、この作業では変更しない（UNVERIFIED）。公式仕様: https://openrouter.ai/docs/guides/routing/provider-selection および https://openrouter.ai/docs/guides/features/zdr。
+- この候補モデルは、OpenRouterの認証済みZDR endpoint情報と、Google側の当該endpointに適用される保持条件を独立に確認できるまで、本番公開のAIモデルとして未承認（NO-GO）とする。価格が0であることを、ZDRまたは実費$0.00の証明に読み替えない。
+
 ## Personal画面の実装境界
 
 - Personal版は旧ダッシュボードの状態管理を読み込まない。
 - 端末に保存する設定は表示言語と明暗テーマだけとし、AI選択、費用上限、再試行回数をブラウザ設定から変更できない。
-- 実行ポリシーは費用上限`$0.00`、ORIGIN自身による別provider・別modelへの自動fallbackなし、回答経路を確認できない場合はfail-closedとする。OpenRouterのprovider層では、同一固定model内に限り、`data_collection: deny`、`zdr: true`、全価格0の制約を満たす候補へのbounded failoverを許可する。
+- 実行ポリシーは費用上限`$0.00`、ORIGIN自身およびOpenRouter provider層のfallbackを禁止し、回答経路を確認できない場合はfail-closedとする。OpenRouterには`allow_fallbacks: false`、`data_collection: deny`、`zdr: true`、`max_price`全項目0を固定送信する。別Provider・別モデル・別候補への自動切替は許可しない。
 - 日本語を初期表示とし、英語を明示的に選択した場合だけ英語へ切り替える。
 - AI回答内の外部画像URLは自動読込せず、一次公開で未対応であることを表示する。
 - スマートフォン、タブレット、PCを正式な対象端末とする。390×844を含むモバイルでは動的viewportとsafe areaを考慮し、タブレットとPCでは画面を単純に引き伸ばさず、回答本文、入力欄、ナビゲーションの幅と密度を最適化する。
 - 端末の縦横回転やウィンドウ幅の変更後も、ナビゲーションが画面外へ残ったり主要操作を覆ったりしない。
 - 外部Webフォントを読み込まず、端末のシステムフォントを使用する。
+
+## 本番API allowlist
+
+- `NODE_ENV=production`または`VERCEL_ENV=production`では、`GET /health`、`GET /api/health`、`POST /api/chat`に加え、独立したArtifact v1.2ゲートで検証する`GET /api/artifacts/v1.2/status`と`POST /api/artifacts/v1.2/generate`だけを許可する。
+- `/api/chat`のPOST以外のHTTP methodは405で拒否する。
+- Agent、Coding、Research、Builder、MCP、Image generation、Publication、Artifact v1.2の上記2経路以外の`/api/*`・`/sites/*`経路は一次公開では404で拒否し、リクエストbodyを解析する前に停止する。
+- 新しいAPIを公開する場合は、機能別の独立監査・テスト・明示承認を経てallowlistを更新する。単にrouterを登録しただけでは公開可能にしない。
 
 ## 許可する公開経路
 
@@ -52,20 +67,20 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 2. PRをReadyへ変更する承認と、mainへマージする承認がある。
 3. デプロイについて、マージとは別の明示承認がある。
 4. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
-5. 実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。
-6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、model fallback未使用、provider routing policyの適合を確認する。
+5. 実行モデルIDが承認済みの固定`:free`モデルIDと完全一致し、ORIGINおよびProvider層のfallbackが無効、`allow_fallbacks: false`、`data_collection: deny`、`zdr: true`、最大価格がすべて`0`である。
+6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、Provider報告使用料`$0.00`、要求モデルと提供モデルの一致、fallback未使用、provider routing policyの適合を確認する。アプリのsmoke testは実際の請求額を測定しないため、実請求の`$0.00`は別の請求側証拠で確認する。請求側証拠が得られるまでは実費を`NOT_MEASURED`として扱い、公開条件未達とする。
 7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
 8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
 9. Vercel公開直後の`/api/health`が40桁の16進数SHAを返し、デプロイ対象のExact SHAと完全一致する。不一致または`unknown`の場合は公開成功と扱わない。
 
 ## 停止条件
 
-次のいずれかに該当する場合、公開またはAI回答を停止する。ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない。OpenRouter内部のprovider-layer failoverは、固定model、`data_collection: deny`、`zdr: true`、全価格0という制約から外れた場合は停止する。
+次のいずれかに該当する場合、公開またはAI回答を停止する。ORIGINおよびOpenRouter provider層のfallbackは常に禁止する。`allow_fallbacks: false`、固定モデル、`data_collection: deny`、`zdr: true`、全価格0のいずれかを確認できない場合は実行しない。
 
 - 無料であることを実行前に確認できない
 - 実費`$0.00`を実行後に確認できない
 - 要求した`:free`モデルと実際のroutingが一致しない
-- OpenRouterが固定model外へfallbackした、またはprovider routing policyへの適合を証明できない
+- OpenRouterがfallbackを実施した、またはprovider routing policyへの適合を証明できない
 - 認証情報が未設定、無効、または露出した疑いがある
 - 本番環境だけで発生するP0/P1、秘密情報漏えい、誤表示が見つかった
 - デプロイ承認の範囲を超える設定変更が必要になった
@@ -86,8 +101,13 @@ AI Studio direct runtimeは一次公開の期限を遅らせる条件にしな�
 - `/api/health`のリリースIDがデプロイ対象のExact SHAと一致する
 - `/api/chat`が正式ORIGIN境界を通る
 - 秘密情報を使わないsmoke inputへ回答できる
-- 実費`$0.00`、model fallback未使用、provider routing policy適合を確認できる
+- Provider報告使用料`$0.00`、fallback未使用、provider routing policy適合を確認でき、さらに別途の請求側証拠で実際の請求額`$0.00`を確認できる
 - 表示した検証範囲が実行記録と一致する
 - 未実装機能やfake dataが正式画面に現れない
 
 この確認前は「マージ済み」「デプロイ実行済み」「公開検証中」を区別し、日常利用可能とは表現しない。
+
+
+### Production artifact v1.2 route exception
+
+The Release 1 production API allowlist includes only the exact artifact endpoints already covered by the Node production runtime gate: `GET /api/artifacts/v1.2/status` and `POST /api/artifacts/v1.2/generate`. No other `/api/artifacts/*` route is implicitly enabled. Unsupported methods on these exact paths return `405`; unlisted API paths remain `404 ORIGIN_RELEASE_ROUTE_NOT_ENABLED`. The artifact generator must continue to enforce its own input, isolation, integrity, and zero-cost policy checks.

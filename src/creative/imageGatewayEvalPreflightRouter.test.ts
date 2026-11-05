@@ -4,19 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createImageGatewayEvalPreflightRouter } from './imageGatewayEvalPreflightRouter';
 
-function app(env: NodeJS.ProcessEnv) {
+function app() {
   const instance = express();
-  instance.use(createImageGatewayEvalPreflightRouter(env));
+  instance.use(createImageGatewayEvalPreflightRouter());
   return instance;
 }
-
-const MODELS = [
-  'bytedance/seedream-5.0-pro',
-  'bytedance/seedream-5.0-lite',
-  'recraft/recraft-v4.1',
-  'recraft/recraft-v4',
-  'bfl/flux-pro-1.1',
-];
 
 describe('imageGatewayEvalPreflightRouter', () => {
   afterEach(() => {
@@ -24,80 +16,17 @@ describe('imageGatewayEvalPreflightRouter', () => {
     vi.restoreAllMocks();
   });
 
-  it('does not contact paid gateway metadata endpoints when FREE_ONLY is enabled', async () => {
+  it.each([
+    ['free production', { FREE_ONLY: 'true', VERCEL_ENV: 'production' }],
+    ['free preview', { FREE_ONLY: 'true', VERCEL_ENV: 'preview' }],
+    ['misconfigured preview', { FREE_ONLY: 'false', VERCEL_ENV: 'preview' }],
+    ['unset environment', {}],
+  ])('permanently disables paid gateway evaluation for %s', async (_label, _env) => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const response = await request(app({
-      FREE_ONLY: 'true',
-      VERCEL_ENV: 'preview',
-      VERCEL_OIDC_TOKEN: 'token',
-    })).get('/api/eval/image-gateway/credits');
+    const response = await request(app()).get('/api/eval/image-gateway/credits');
     expect(response.status).toBe(404);
-    expect(response.body.code).toBe('EVAL_ROUTE_DISABLED_BY_FREE_ONLY_POLICY');
+    expect(response.body.code).toBe('EVAL_ROUTE_NOT_AVAILABLE');
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('is unavailable in production', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    const response = await request(app({
-      VERCEL_ENV: 'production',
-      VERCEL_OIDC_TOKEN: 'token',
-    })).get('/api/eval/image-gateway/credits');
-    expect(response.status).toBe(404);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('fails closed in preview without Vercel OIDC', async () => {
-    const response = await request(app({ VERCEL_ENV: 'preview' }))
-      .get('/api/eval/image-gateway/credits');
-    expect(response.status).toBe(503);
-    expect(response.body.code).toBe('VERCEL_OIDC_TOKEN_NOT_AVAILABLE');
-  });
-
-  it('reports model readiness and whether at least $6 is funded without generating an image', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        balance: '10',
-        total_used: '2.5',
-      }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        object: 'list',
-        data: MODELS.map((id) => ({ id })),
-      }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const response = await request(app({ VERCEL_ENV: 'preview' }))
-      .get('/api/eval/image-gateway/credits')
-      .set('x-vercel-oidc-token', 'oidc-token');
-
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      ok: true,
-      previewOnly: true,
-      oidcAuthenticated: true,
-      allRequiredModelsAvailable: true,
-      fundedForEvaluation: true,
-      minimumEvaluationBalanceUsd: 6,
-      hardEvaluationCapUsd: 6,
-      publicationEffect: 'none',
-    });
-    expect(response.body.credits).toEqual({ balanceUsd: 10, totalUsedUsd: 2.5 });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('reports an unfunded evaluation when gateway balance is below the hard round cap', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ balance: '0', total_used: '0' }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: MODELS.map((id) => ({ id })) }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const response = await request(app({ VERCEL_ENV: 'preview' }))
-      .get('/api/eval/image-gateway/credits')
-      .set('x-vercel-oidc-token', 'oidc-token');
-
-    expect(response.status).toBe(200);
-    expect(response.body.fundedForEvaluation).toBe(false);
-    expect(response.body.credits.balanceUsd).toBe(0);
   });
 });

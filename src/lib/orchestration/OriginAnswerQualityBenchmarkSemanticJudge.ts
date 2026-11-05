@@ -34,7 +34,7 @@ export interface OriginAnswerQualityBenchmarkSemanticJudgeRecord {
   readonly verificationIntegrityAccurate: boolean;
   readonly failClosedCorrect?: boolean;
   readonly userActionabilityScore: 0 | 1 | 2 | 3;
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -69,9 +69,11 @@ function normalize(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
-function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemanticJudgeRecord {
+type RawOriginAnswerQualityBenchmarkSemanticJudgeRecord = Omit<OriginAnswerQualityBenchmarkSemanticJudgeRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginAnswerQualityBenchmarkSemanticJudgeRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Partial<OriginAnswerQualityBenchmarkSemanticJudgeRecord>;
+  const item = value as Partial<RawOriginAnswerQualityBenchmarkSemanticJudgeRecord>;
   return typeof item.caseId === "string"
     && typeof item.category === "string"
     && item.rubricVersion === "origin.aq-semantic-rubric.v1"
@@ -83,7 +85,6 @@ function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkSemantic
     && typeof item.verificationIntegrityAccurate === "boolean"
     && (item.failClosedCorrect === undefined || typeof item.failClosedCorrect === "boolean")
     && typeof item.userActionabilityScore === "number"
-    && typeof item.actualCostUsd === "number"
     && item.attempts === 1;
 }
 
@@ -153,7 +154,7 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
   ) {
     return { ok: false, code: "AQ_BENCHMARK_SEMANTIC_JUDGE_RECORD_MISMATCH" };
   }
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "AQ_BENCHMARK_SEMANTIC_JUDGE_COST_UNVERIFIED" };
   }
   if (
@@ -172,6 +173,6 @@ export async function judgeOriginAnswerQualityBenchmarkSemantics(
 
   return {
     ok: true,
-    value: Object.freeze({ ...raw }),
+    value: Object.freeze({ ...raw, actualCostUsd: null }),
   };
 }

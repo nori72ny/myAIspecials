@@ -52,7 +52,7 @@ function sendSafeProviderFailure(res: Response, error: OriginProviderError, requ
   return res.status(error.status).json({
     code: error.code,
     message: error.message,
-    retryable: error.retryable,
+    retryable: false,
     retryAfterSeconds: error.retryAfterSeconds,
     requestId,
     retryAttempted: false,
@@ -151,7 +151,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       });
 
       if (!downstreamStarted || !result.text.trim()) {
-        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, false);
       }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
@@ -172,13 +172,13 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     } catch (error) {
       const safeError = error instanceof OriginProviderError
         ? error
-        : new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, true);
+        : new OriginProviderError("PROVIDER_INTERNAL_ERROR", "無料AIとの通信に失敗しました。", 503, false);
       console.warn("[origin-chat] upstream stream failed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
         code: safeError.code,
         status: safeError.status,
-        retryable: safeError.retryable,
+        retryable: false,
         diagnostic: safeError.diagnostic,
         downstreamStarted,
         providerDeltaCount,

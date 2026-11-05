@@ -15,7 +15,6 @@ import { generateLocalCanvasRasterV15 } from './creative/localRasterCanvasV15';
 import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
-import { recoverWithAutonomousCascade } from './services/zeroFailureCascade';
 
 export interface ArtifactBlock {
   id: string;
@@ -516,7 +515,6 @@ const copyText = async (value: string) => {
 const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|json|csv|ts|tsx|js|jsx|css|html|svg|xml|yml|yaml)$/i.test(file.name);
 const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
-const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
 const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
@@ -660,16 +658,19 @@ async function fetchOriginChat(body: string, signal: AbortSignal): Promise<Respo
 type OriginVerifiedChatPayload = {
   content?: unknown;
   model?: unknown;
-  usage?: { cost?: unknown; costUsd?: unknown };
+  usage?: { cost?: unknown; costUsd?: unknown; reportedCostUsd?: unknown };
   routing?: {
     model?: unknown;
     modelId?: unknown;
     freeOnly?: unknown;
     cost?: unknown;
     actualCostUsd?: unknown;
+    reportedUsageCostUsd?: unknown;
+    policyMaxCostUsd?: unknown;
+    costEvidenceStatus?: unknown;
     estimatedCostUsd?: unknown;
     billingTier?: unknown;
-    usage?: { cost?: unknown; costUsd?: unknown };
+    usage?: { cost?: unknown; costUsd?: unknown; reportedCostUsd?: unknown };
     providerRouting?: { requestedModel?: unknown; servedModel?: unknown; fallbackUsed?: unknown };
   };
 };
@@ -677,9 +678,9 @@ type OriginVerifiedChatPayload = {
 /** Checks free-only routing and provider-reported zero telemetry for response admission; this is not a billing attestation. */
 export const isFreeOnlyPolicyCompliantChatPayload = (payload: OriginVerifiedChatPayload): boolean => {
   const routing = payload.routing;
-  if (!routing || routing.freeOnly !== true || routing.cost !== 0 || routing.actualCostUsd !== 0 || routing.estimatedCostUsd !== 0) return false;
-  const visibleCosts = [payload.usage?.cost, payload.usage?.costUsd, routing.usage?.cost, routing.usage?.costUsd];
-  if (visibleCosts.some((cost) => cost !== undefined && (typeof cost !== 'number' || !Number.isFinite(cost) || cost !== 0))) return false;
+  if (!routing || routing.freeOnly !== true || routing.cost !== null || routing.actualCostUsd !== null || routing.policyMaxCostUsd !== 0 || routing.costEvidenceStatus !== 'NOT_MEASURED' || routing.estimatedCostUsd !== 0) return false;
+  const reportedCosts = [payload.usage?.cost, payload.usage?.costUsd, payload.usage?.reportedCostUsd, routing.reportedUsageCostUsd, routing.usage?.cost, routing.usage?.costUsd, routing.usage?.reportedCostUsd];
+  if (reportedCosts.some((cost) => cost !== undefined && (typeof cost !== 'number' || !Number.isFinite(cost) || !Object.is(cost, 0)))) return false;
   if (routing.billingTier !== undefined && routing.billingTier !== 'free') return false;
   if (routing.modelId === undefined) return routing.model === 'ORIGIN アプリ内処理' && payload.model === undefined;
   const route = routing.providerRouting;
@@ -688,7 +689,8 @@ export const isFreeOnlyPolicyCompliantChatPayload = (payload: OriginVerifiedChat
     && route?.requestedModel === ORIGIN_FIXED_FREE_MODEL
     && route.servedModel === ORIGIN_FIXED_FREE_MODEL
     && route.fallbackUsed === false
-    && routing.usage?.costUsd === 0;
+    && routing.reportedUsageCostUsd === 0
+    && routing.usage?.reportedCostUsd === 0;
 };
 const readAttachment = async (file: File): Promise<Attachment> => {
   if (file.type.startsWith('image/')) {
@@ -1664,37 +1666,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       let failure: OriginChatFailurePayload | null = null;
       if (!response.ok) failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
 
-      const shouldRetry = failure?.retryAttempted !== true
-        && failure?.retryable === true
-        && typeof failure?.code === 'string'
-        && TRANSIENT_PROVIDER_CODES.has(failure.code);
-      if (!response.ok && shouldRetry && !controller.signal.aborted) {
-        // One bounded retry only for an explicitly retryable transient free-provider response.
-        // Keep the same request body/model; never retry an API response that already retried.
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
-        if (controller.signal.aborted) return;
-        response = await fetchOriginChat(requestBody, controller.signal);
-        failure = !response.ok
-          ? await response.json().catch(() => null) as OriginChatFailurePayload | null
-          : null;
-      }
-
       if (!response.ok) {
-        const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
-        if (isModelBusy) {
-          // The API may already have exhausted its retry budget. Do not launch
-          // another network cascade in that case; report the concrete busy
-          // state and keep the $0.00/no-unverified-answer boundary intact.
-          if (failure?.retryAttempted === true) {
-            appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-            return;
-          }
-          const cascade = await recoverWithAutonomousCascade(text, controller.signal);
-          if (cascade.ok) {
-            updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
-            setAttachmentError('');
-            setIsSafeWaiting(false);
-          } else appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+        if (typeof failure?.code === 'string' && ['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR'].includes(failure.code)) {
+          // Provider requests are one-shot: an ambiguous or transient failure is never replayed or cascaded.
+          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {

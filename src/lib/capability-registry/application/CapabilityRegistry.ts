@@ -3,8 +3,15 @@ import { Provider, ProviderHealth, ProviderMetrics } from '../domain/entities/Pr
 import { Capability } from '../domain/entities/Capability';
 import { RoutingService } from '../domain/services/RoutingService';
 import { globalEventBus } from '../../kernel/events/EventBus';
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from '../../orchestration/OriginFreeModelCatalog';
 
 export class CapabilityRegistry implements ICapabilityRegistry {
+  private isProviderAllowed(provider: Provider): boolean {
+    const freeOnly = typeof process === "undefined" || process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true";
+    return !freeOnly ||
+      (provider.id === ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL && provider.adapterId === "OpenRouter");
+  }
+
   private capabilities: Map<string, Capability> = new Map();
   private providers: Map<string, Provider> = new Map();
   private routingService: RoutingService;
@@ -27,6 +34,9 @@ export class CapabilityRegistry implements ICapabilityRegistry {
    * Register a new Provider
    */
   public registerProvider(provider: Provider): void {
+    if (!this.isProviderAllowed(provider)) {
+      throw new Error("FREE_ONLY_PROVIDER_BLOCKED: provider is not the canonical ORIGIN free model.");
+    }
     if (this.providers.has(provider.id)) {
       throw new Error(`Provider with id '${provider.id}' is already registered.`);
     }
@@ -69,21 +79,24 @@ export class CapabilityRegistry implements ICapabilityRegistry {
    * Retrieve a registered provider by ID
    */
   public getProvider(providerId: string): Provider | undefined {
-    return this.providers.get(providerId);
+    const provider = this.providers.get(providerId);
+    return provider && this.isProviderAllowed(provider) ? provider : undefined;
   }
 
   /**
    * Get all registered providers
    */
   public getAllProviders(): Provider[] {
-    return Array.from(this.providers.values());
+    return Array.from(this.providers.values()).filter(provider => this.isProviderAllowed(provider));
   }
 
   /**
    * Filter providers that declare a rating for a specific capability
    */
   public getProvidersByCapability(capability: string): Provider[] {
-    return Array.from(this.providers.values()).filter(p => p.getCapabilityRating(capability) > 0);
+    return Array.from(this.providers.values()).filter(p =>
+      this.isProviderAllowed(p) && p.getCapabilityRating(capability) > 0
+    );
   }
 
   /**

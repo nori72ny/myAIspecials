@@ -169,6 +169,79 @@ describe("createOriginApp provider isolation", () => {
     expect(malformedResponse.body.releaseSha).toBe("unknown");
   });
 
+  it.each([
+    "/api/agent/v3/status",
+    "/api/coding/v1.4/status",
+    "/api/research/v1.1/status",
+    "/api/creative/v1.5/raster/status",
+    "/api/builder/v1.3.1/status",
+    "/sites/release-one-probe",
+  ])("keeps non-release APIs unreachable in production: %s", async (path) => {
+    const response = await request(createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" })).get(path);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      code: "ORIGIN_RELEASE_ROUTE_NOT_ENABLED",
+      message: "この機能はORIGIN Personalの一次公開では提供していません。",
+      retryable: false,
+      requestId: "UNKNOWN",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/api/agent/v3/status",
+    "/api/coding/v1.4/status",
+    "/api/research/v1.1/status",
+    "/api/creative/v1.5/raster/status",
+    "/api/builder/v1.3.1/status",
+    "/sites/release-one-probe",
+  ])("rejects non-release production routes before parsing request bodies: %s", async (path) => {
+    const response = await request(createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" }))
+      .post(path)
+      .set("Content-Type", "application/json")
+      .send("{malformed-json");
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/API/agent/v3/status",
+    "/Api/coding/v1.4/status",
+    "/API/research/v1.1/status",
+    "/API/creative/v1.5/raster/status",
+    "/API/builder/v1.3.1/status",
+    "/SITES/release-one-probe",
+  ])("blocks mixed-case production route aliases: %s", async (path) => {
+    const response = await request(createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" })).get(path);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("exposes only health, canonical chat, and the independently gated artifact v1.2 endpoints in production", async () => {
+    const app = createOriginApp({ NODE_ENV: "production", VERCEL_ENV: "production" });
+    const health = await request(app).get("/api/health");
+    const unsupportedChatMethod = await request(app).get("/api/chat");
+    const artifactStatus = await request(app).get("/api/artifacts/v1.2/status");
+    const unsupportedArtifactMethod = await request(app).get("/api/artifacts/v1.2/generate");
+    const artifactGeneration = await request(app).post("/api/artifacts/v1.2/generate").send({ type: "pdf", title: "Release gate" });
+
+    expect(health.status).toBe(200);
+    expect(health.body.releaseSha).toBe("unknown");
+    expect(unsupportedChatMethod.status).toBe(405);
+    expect(unsupportedChatMethod.headers.allow).toBe("POST");
+    expect(unsupportedChatMethod.body.code).toBe("METHOD_NOT_ALLOWED");
+    expect(artifactStatus.status).toBe(200);
+    expect(unsupportedArtifactMethod.status).toBe(405);
+    expect(unsupportedArtifactMethod.headers.allow).toBe("POST");
+    expect(artifactGeneration.status).not.toBe(404);
+    expect(artifactGeneration.body.code).not.toBe("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
+  }, 15_000);
+
   it("sets strict production security headers and removes Express fingerprinting", async () => {
     const response = await request(createOriginApp({ NODE_ENV: "production" }))
       .get("/api/health");

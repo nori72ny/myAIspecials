@@ -45,6 +45,32 @@ describe("originProviderClient security regressions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects the canonical non-free slug before any provider request", async () => {
+    const fetchMock = vi.fn();
+    const unsafeRequest = { ...request, plan: { ...plan, modelId: ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "") } };
+    await expect(executeOriginProvider(unsafeRequest, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a canonical served slug only when the request was :free and usage cost plus BYOK evidence are zero/false", async () => {
+    const canonical = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: canonical, usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+    expect(result.routingEvidence.servedModel).toBe(canonical);
+    expect(result.actualCostUsd).toBeNull();
+    expect(result.costEvidenceStatus).toBe("NOT_MEASURED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a canonical served slug when reported usage cost is missing", async () => {
+    const canonical = ORIGIN_OPENROUTER_FREE_MODEL.replace(/:free$/, "");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: canonical, usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a successful response served by a non-approved model", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: "paid-model" })), { status: 200, headers: { "Content-Type": "application/json" } }));
     await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
@@ -69,11 +95,31 @@ describe("originProviderClient security regressions", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("normalizes untrusted served-model diagnostics before logging", async () => {
+    const maliciousModel = `bad\n${"x".repeat(200)}`;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(openRouterPayload({ model: maliciousModel })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const error = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch).then(() => undefined, (caught: unknown) => caught);
+    const diagnostic = (error as OriginProviderError).diagnostic?.upstreamErrorType ?? "";
+    expect(diagnostic).toBe("served-model-unverified");
+    expect(diagnostic).not.toContain("bad");
+    expect(diagnostic).not.toContain("x".repeat(20));
+  });
+
+  it("rejects a numeric actualCostUsd field even when it is zero because actual billing is unmeasured", () => {
+    const result = {
+      text: "x", actualCostUsd: 0, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED",
+      providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
+      billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 }, transportRequestCount: 1,
+    } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
+    expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("無料実行の費用を確認できません。");
+  });
+
   it("rejects non-zero cost evidence even with valid routing evidence", () => {
     const result = {
-      text: "x", actualCostUsd: 0, providerDataPolicy: request.plan.providerDataPolicy,
+      text: "x", actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, providerDataPolicy: request.plan.providerDataPolicy,
       routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
-      usage: { costUsd: 0.000001 },
+      usage: { reportedCostUsd: 0.000001 },
     } as unknown as Parameters<typeof assertOriginZeroCostExecutionResult>[0];
     expect(() => assertOriginZeroCostExecutionResult(result)).toThrow("0ドル固定ポリシーに適合しない実行計画です。");
   });

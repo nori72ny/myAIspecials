@@ -64,7 +64,7 @@ function dependencies(options: {
       evidenceRequirement: "supporting-evidence",
       risk: "medium",
     }] : [],
-    actualCostUsd: 0,
+    actualCostUsd: null,
     attempts: 1,
   }));
 
@@ -74,7 +74,7 @@ function dependencies(options: {
     promptDigest: request.promptDigest,
     claimSetDigest: request.claimSetDigest,
     supportedClaimIds: options.promptSupported && claimText ? ["claim-a"] : [],
-    actualCostUsd: 0,
+    actualCostUsd: null,
     attempts: 1,
   }));
 
@@ -95,7 +95,7 @@ function dependencies(options: {
       ? { failClosedCorrect: options.semantic?.failClosedCorrect ?? true }
       : {}),
     userActionabilityScore: options.semantic?.userActionabilityScore ?? 3,
-    actualCostUsd: 0,
+    actualCostUsd: null,
     attempts: 1,
   }));
 
@@ -118,7 +118,7 @@ function dependencies(options: {
         support: "supported",
         supportingExcerpt: "The service has a free tier.",
       })),
-      actualCostUsd: 0,
+      actualCostUsd: null,
       attempts: 1,
     };
   });

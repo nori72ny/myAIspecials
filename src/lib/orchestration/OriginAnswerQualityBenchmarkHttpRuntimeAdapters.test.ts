@@ -19,7 +19,9 @@ function providerRouting(
   return {
     freeOnly: true,
     costEvidenceStatus: "NOT_MEASURED",
-    actualCostUsd: 0,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0,
+    policyMaxCostUsd: 0,
     providerId: EXPECTED_PROVIDER,
     modelId: EXPECTED_MODEL,
     providerAttempts,
@@ -35,7 +37,7 @@ function providerRouting(
       servedModel,
       fallbackUsed: false,
     },
-    usage: { costUsd: 0 },
+    usage: { reportedCostUsd: 0 },
   };
 }
 

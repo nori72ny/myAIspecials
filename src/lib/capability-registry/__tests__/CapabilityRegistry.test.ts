@@ -199,13 +199,13 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
     const normalDecision = registry.searchAndRank({
       capabilities: ["Coding"]
     });
-    expect(normalDecision.primaryProvider.id).toBe("anthropic/claude-3.5-sonnet");
+    expect(normalDecision.primaryProvider.id).toBe("google/gemma-4-31b-it:free");
 
     const freeOnlyDecision = registry.searchAndRank({
       capabilities: ["Coding"],
       routingHints: ["free-only"]
     });
-    expect(freeOnlyDecision.primaryProvider.id).toBe("google/gemini-2.5-flash:free");
+    expect(freeOnlyDecision.primaryProvider.id).toBe("google/gemma-4-31b-it:free");
 
     const originalFreeOnly = process.env.FREE_ONLY;
     process.env.FREE_ONLY = "true";
@@ -213,10 +213,131 @@ describe('CapabilityRegistry & Domain Model Tests', () => {
       const envFreeDecision = registry.searchAndRank({
         capabilities: ["Coding"]
       });
-      expect(envFreeDecision.primaryProvider.id).toBe("google/gemini-2.5-flash:free");
+      expect(envFreeDecision.primaryProvider.id).toBe("google/gemma-4-31b-it:free");
     } finally {
       process.env.FREE_ONLY = originalFreeOnly;
     }
+  });
+
+  it('does not allow FREE_ONLY=false to enable paid providers outside tests', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.NODE_ENV = "production";
+    process.env.FREE_ONLY = "false";
+    try {
+      const registry = new CapabilityRegistry();
+      const paid = new Provider(
+        "openai/gpt-4o",
+        "Paid GPT",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 7, latency: 700, quality: 9, failureRate: 0.01 },
+        ["paid-model"]
+      );
+      expect(() => registry.registerProvider(paid)).toThrow("FREE_ONLY_PROVIDER_BLOCKED");
+      expect(await new OpenRouterAdapter().getSelfDeclaredProviders())
+        .toHaveLength(1);
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
+  it('should expose only the canonical model from OpenRouterAdapter in FREE_ONLY mode', async () => {
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const providers = await new OpenRouterAdapter().getSelfDeclaredProviders();
+      expect(providers.map(provider => provider.id)).toEqual(["google/gemma-4-31b-it:free"]);
+      expect(providers[0].adapterId).toBe("OpenRouter");
+    } finally {
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
+  it('should enforce FREE_ONLY during provider registration and registry reads', () => {
+    const originalFreeOnly = process.env.FREE_ONLY;
+    process.env.FREE_ONLY = "true";
+    try {
+      const registry = new CapabilityRegistry();
+      const canonical = new Provider(
+        "google/gemma-4-31b-it:free",
+        "Canonical Free Model",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+        ["free-model"]
+      );
+      const paid = new Provider(
+        "openai/gpt-4o",
+        "Paid GPT",
+        "OpenRouter",
+        new Map([["Coding", 5]]),
+        "healthy",
+        { cost: 7, latency: 700, quality: 9, failureRate: 0.01 },
+        ["paid-model"]
+      );
+
+      registry.registerProvider(canonical);
+      expect(() => registry.registerProvider(paid))
+        .toThrow("FREE_ONLY_PROVIDER_BLOCKED");
+      expect(registry.getAllProviders()).toEqual([canonical]);
+      expect(registry.getProvider(paid.id)).toBeUndefined();
+      expect(registry.getProvidersByCapability("Coding")).toEqual([canonical]);
+    } finally {
+      if (originalFreeOnly === undefined) delete process.env.FREE_ONLY;
+      else process.env.FREE_ONLY = originalFreeOnly;
+    }
+  });
+
+  it('should reject spoofed free suffixes, free-model hints, zero-cost claims, and auto routing', () => {
+    const registry = new CapabilityRegistry();
+    const canonical = new Provider(
+      "google/gemma-4-31b-it:free",
+      "Canonical Free Model",
+      "OpenRouter",
+      new Map([["Coding", 4]]),
+      "healthy",
+      { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+      ["free-model"]
+    );
+    const spoofed = [
+      new Provider("attacker/model:free", "Spoofed suffix", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
+      new Provider("attacker/model-hint", "Spoofed hint", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
+      new Provider("openrouter/auto", "Automatic routing", "OpenRouter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"]),
+      new Provider("attacker/model:free-untrusted", "Wrong adapter", "UntrustedAdapter", new Map([["Coding", 5]]), "healthy", { cost: 1, latency: 100, quality: 10, failureRate: 0 }, ["free-model"])
+    ];
+    [canonical, ...spoofed].forEach(provider => registry.registerProvider(provider));
+
+    const decision = registry.searchAndRank({
+      capabilities: ["Coding"],
+      routingHints: ["free-only"]
+    });
+    expect(decision.primaryProvider).toBe(canonical);
+    expect(decision.secondaryProviders).toHaveLength(0);
+  });
+
+  it('should reject the canonical model ID when supplied by an untrusted adapter', () => {
+    const registry = new CapabilityRegistry();
+    registry.registerProvider(new Provider(
+      "google/gemma-4-31b-it:free",
+      "Spoofed adapter",
+      "UntrustedAdapter",
+      new Map([["Coding", 5]]),
+      "healthy",
+      { cost: 1, latency: 100, quality: 10, failureRate: 0 },
+      ["free-model"]
+    ));
+
+    expect(() => registry.searchAndRank({
+      capabilities: ["Coding"],
+      routingHints: ["free-only"]
+    })).toThrow("No providers met the criteria for capabilities: Coding");
   });
 
   it('should prevent automatic paid fallback and throw error if no free models match under free-only constraints', async () => {

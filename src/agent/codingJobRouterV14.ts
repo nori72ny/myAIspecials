@@ -132,11 +132,11 @@ async function readiness(
 function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, store: CodingJobApiStoreV14 | undefined): { store: CodingJobApiStoreV14; ownerHash: string } | null {
   const controlReady = Boolean(store) && codingJobOperatorConfiguredV14(env) && codingJobOwnerHashConfiguredV14(env);
   if (!controlReady) {
-    res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+    res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     return null;
   }
   if (!authenticateCodingJobOperatorV14(req, env)) {
-    res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+    res.status(401).json({ ok: false, code: 'CODING_JOB_AUTHENTICATION_REQUIRED', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     return null;
   }
   try {
@@ -145,7 +145,7 @@ function requireApiAuth(req: Request, res: Response, env: NodeJS.ProcessEnv, sto
       ownerHash: hashCodingJobOwnerV14(CODING_JOB_OPERATOR_OWNER_BINDING_V14, env),
     };
   } catch {
-    res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+    res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     return null;
   }
 }
@@ -217,7 +217,7 @@ export function createCodingJobV14Router(
       authorizationScope: 'coding-v1.4-only-when-dedicated',
       workerOptInRequired: true,
       freeOnly: true,
-      costUsd: 0,
+      costUsd: null, costEvidenceStatus: 'NOT_MEASURED',
       paidFallbackEnabled: false,
       gitPublished: false,
       deployed: false,
@@ -227,21 +227,21 @@ export function createCodingJobV14Router(
   router.post('/api/coding/v1.4/jobs', async (req, res) => {
     const state = await readiness(env, store, resultStore);
     if (!state.ready) {
-      return res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(503).json({ ok: false, code: 'CODING_JOB_API_NOT_READY', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
     const auth = requireApiAuth(req, res, env, store);
     if (!auth) return;
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return res.status(400).json({ ok: false, code: 'CODING_JOB_REQUEST_INVALID', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(400).json({ ok: false, code: 'CODING_JOB_REQUEST_INVALID', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
     const input = body as Record<string, unknown>;
     if (!Object.keys(input).every(key => ['goal', 'confirmRun', 'ttlMinutes'].includes(key)) || input.confirmRun !== true || typeof input.goal !== 'string') {
-      return res.status(400).json({ ok: false, code: 'CODING_JOB_CONFIRMATION_REQUIRED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(400).json({ ok: false, code: 'CODING_JOB_CONFIRMATION_REQUIRED', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
     const ttlMinutes = input.ttlMinutes === undefined ? DEFAULT_TTL_MINUTES : input.ttlMinutes;
     if (!Number.isInteger(ttlMinutes) || Number(ttlMinutes) < 1 || Number(ttlMinutes) > MAX_TTL_MINUTES) {
-      return res.status(400).json({ ok: false, code: 'CODING_JOB_TTL_INVALID', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(400).json({ ok: false, code: 'CODING_JOB_TTL_INVALID', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
 
     try {
@@ -252,7 +252,7 @@ export function createCodingJobV14Router(
         ttlMs: Number(ttlMinutes) * 60_000,
       }, env);
       const created = await auth.store.create(envelope);
-      if (!created) return res.status(409).json({ ok: false, code: 'CODING_JOB_CREATE_CONFLICT', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      if (!created) return res.status(409).json({ ok: false, code: 'CODING_JOB_CREATE_CONFLICT', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
       try {
         await dispatch(created.jobId, env);
       } catch (error) {
@@ -261,7 +261,7 @@ export function createCodingJobV14Router(
         const dispatchCode = error instanceof Error && /^CODING_DISPATCH_[A-Z_]+$/.test(error.message)
           ? error.message.replace(/^CODING_DISPATCH_/, 'CODING_JOB_DISPATCH_')
           : 'CODING_JOB_DISPATCH_UNAVAILABLE';
-        return res.status(503).json({ ok: false, code: dispatchCode, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+        return res.status(503).json({ ok: false, code: dispatchCode, freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
       }
       return res.status(202).json({
         ok: true,
@@ -269,11 +269,11 @@ export function createCodingJobV14Router(
         result: null,
         resultDetailsState: 'pending' satisfies ResultDetailsState,
         freeOnly: true,
-        costUsd: 0,
+        costUsd: null, costEvidenceStatus: 'NOT_MEASURED',
         paidFallbackUsed: false,
       });
     } catch {
-      return res.status(422).json({ ok: false, code: 'CODING_JOB_REQUEST_BLOCKED', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(422).json({ ok: false, code: 'CODING_JOB_REQUEST_BLOCKED', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
   });
 
@@ -286,9 +286,9 @@ export function createCodingJobV14Router(
       const record = await auth.store.getJob(jobId, auth.ownerHash);
       if (!record) return res.status(404).json({ ok: false, code: 'CODING_JOB_NOT_FOUND' });
       const details = await resultDetails(record, resultStore, env);
-      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     } catch {
-      return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
   });
 
@@ -302,9 +302,9 @@ export function createCodingJobV14Router(
       if (!record) return res.status(404).json({ ok: false, code: 'CODING_JOB_NOT_FOUND' });
       await eraseCancelledResult(record, resultStore);
       const details = await resultDetails(record, resultStore, env);
-      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(200).json({ ok: true, job: publicJson(record), ...details, freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     } catch {
-      return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: 0, paidFallbackUsed: false });
+      return res.status(503).json({ ok: false, code: 'CODING_JOB_STORE_UNAVAILABLE', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false });
     }
   });
 

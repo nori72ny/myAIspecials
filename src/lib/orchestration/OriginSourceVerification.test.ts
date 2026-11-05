@@ -33,7 +33,7 @@ const validRecord: OriginSourceVerificationRecord = {
   httpStatus: 200,
   contentDigest: `sha256:${"a".repeat(64)}`,
   externalFetchPerformed: true,
-  actualCostUsd: 0,
+  actualCostUsd: null,
   networkPolicy: {
     publicAddressOnly: true,
     redirectsFollowed: false,

@@ -47,7 +47,8 @@ const result: CodingJobResultV14 = {
   }],
   verificationChecks: (['typecheck', 'lint', 'test', 'build'] as const).map(kind => ({ kind, ok: true, exitCode: 0, timedOut: false, attempt: 0 })),
   freeOnly: true,
-  costUsd: 0,
+  costUsd: null,
+  costEvidenceStatus: 'NOT_MEASURED',
   gitPublished: false,
   deployed: false,
 };

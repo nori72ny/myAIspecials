@@ -28,7 +28,7 @@ export interface OriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
   readonly promptDigest: string;
   readonly claimSetDigest: string;
   readonly supportedClaimIds: readonly string[];
-  readonly actualCostUsd: 0;
+  readonly actualCostUsd: null;
   readonly attempts: 1;
 }
 
@@ -69,15 +69,16 @@ function claimSetDigest(claims: OriginClaimSet["claims"]): string {
   return sha256(canonical);
 }
 
-function isRecord(value: unknown): value is OriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
+type RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord = Omit<OriginAnswerQualityBenchmarkPromptClaimJudgeRecord, "actualCostUsd"> & { actualCostUsd: unknown };
+
+function isRecord(value: unknown): value is RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Partial<OriginAnswerQualityBenchmarkPromptClaimJudgeRecord>;
+  const item = value as Partial<RawOriginAnswerQualityBenchmarkPromptClaimJudgeRecord>;
   return typeof item.caseId === "string"
     && item.rubricVersion === "origin.aq-prompt-claim-support.v1"
     && typeof item.promptDigest === "string"
     && typeof item.claimSetDigest === "string"
     && Array.isArray(item.supportedClaimIds)
-    && typeof item.actualCostUsd === "number"
     && item.attempts === 1;
 }
 
@@ -145,7 +146,7 @@ export async function judgeOriginAnswerQualityClaimsAgainstPrompt(
   ) {
     return { ok: false, code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_RECORD_MISMATCH" };
   }
-  if (raw.actualCostUsd !== 0 || !Number.isFinite(raw.actualCostUsd)) {
+  if (raw.actualCostUsd !== null) {
     return { ok: false, code: "AQ_BENCHMARK_PROMPT_CLAIM_JUDGE_COST_UNVERIFIED" };
   }
 
@@ -162,6 +163,7 @@ export async function judgeOriginAnswerQualityClaimsAgainstPrompt(
     ok: true,
     value: Object.freeze({
       ...raw,
+      actualCostUsd: null,
       supportedClaimIds: Object.freeze([...raw.supportedClaimIds]),
     }),
   };

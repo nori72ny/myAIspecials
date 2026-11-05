@@ -16,13 +16,13 @@ const target = 'src/agent/__origin_coding_smoke_v14__.ts';
 function fixture() {
   return {
     ok: true, releaseSha: sha, job: { jobId, status: 'verified', changedPaths: [target] },
-    resultDetailsState: 'available', freeOnly: true, costUsd: 0, paidFallbackUsed: false,
+    resultDetailsState: 'available', freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', paidFallbackUsed: false,
     result: {
       sessionStatus: 'verified', repairRounds: 1,
       executionEvidence: { sourceRevision: sha, workerRunId: '12345', workerRunAttempt: 1 },
       verificationChecks: ['typecheck', 'lint', 'test', 'build'].map(kind => ({ kind, ok: true, exitCode: 0, timedOut: false, attempt: 1 })),
       diffs: [{ path: target, kind: 'created', before: null, after: 'export const ORIGIN_CODING_SMOKE_V14 = true;\n', previewAvailable: true }],
-      freeOnly: true, costUsd: 0, gitPublished: false, deployed: false,
+      freeOnly: true, costUsd: null, costEvidenceStatus: 'NOT_MEASURED', gitPublished: false, deployed: false,
     },
   };
 }

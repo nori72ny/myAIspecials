@@ -35,7 +35,8 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerPolicy).toContain("prompt: 0");
     expect(providerPolicy).toContain("completion: 0");
     expect(providerPolicy).toContain("request: 0");
-    expect(providerClient).toContain("zero(data.usage?.cost");
+    expect(providerClient).toContain("const reportedUsageCostUsd = data.usage?.cost;");
+    expect(providerClient).toContain('zero(reportedUsageCostUsd, "usage.cost");');
     expect(providerClient).toMatch(
       /routingEvidence:\s*evidence\([A-Za-z_$][\w$]*,\s*String\(servedModel\)\)/,
     );
@@ -69,7 +70,9 @@ describe("ORIGIN Personal release 1 gate", () => {
 
     // Historical audit finding: latent legacy code must also remain zero-retry/zero-cost
     // so a future reactivation cannot silently restore the old retry=3 / cost-cap=$1 defaults.
-    expect(legacyPlugin).toContain("const maxAttempts = 1");
+    expect(legacyPlugin).toContain("Legacy direct provider execution is disabled");
+    expect(legacyPlugin).toContain("FREE_ONLY_PROVIDER_BOUNDARY_REQUIRED");
+    expect(legacyPlugin).not.toContain("fetch(");
     expect(legacyPlugin).not.toContain("maxRetries ?? 3");
     expect(legacyAppState).toContain("maxCostCap: 0");
     expect(legacyAppState).toContain("retryCount: 0");
@@ -82,7 +85,9 @@ describe("ORIGIN Personal release 1 gate", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerSecurityRegression = readRepositoryFile("src/legacy/originProviderClient.security-regression.test.ts");
 
-    expect(providerClient).toContain("const RETRY: readonly number[] = [700, 1_800]");
+    expect(providerClient).not.toContain("const RETRY: readonly number[]");
+    expect(providerClient).toContain("Never automatically");
+    expect(providerClient).toContain("replay an ambiguous or transient failure");
     expect(providerClient).toContain("const MAX_SEGMENTS = 1");
     expect(providerClient).toContain("attempt: 1");
     expect(providerClient).toContain("fallbackUsed: false");
@@ -126,20 +131,44 @@ describe("ORIGIN Personal release 1 gate", () => {
     const metadata = JSON.parse(readRepositoryFile("metadata.json")) as { majorCapabilities?: string[] };
     const app = readRepositoryFile("src/server/createOriginApp.ts");
     const gate = readRepositoryFile("docs/ORIGIN_PERSONAL_RELEASE_1_GATE.md");
+    const geminiLegacy = readRepositoryFile("services/mission-engine/src/infrastructure/ai/GeminiLLMClient.ts");
+    const evalRouter = readRepositoryFile("src/creative/imageGatewayEvalPreflightRouter.ts");
+    const codingRouter = readRepositoryFile("src/agent/codingJobRouterV14.ts");
+    const codingWorkerWorkflow = readRepositoryFile(".github/workflows/coding-job-worker-v14.yml");
+    const csp = readRepositoryFile("vercel.json");
+    const zeroFailureCascade = readRepositoryFile("src/services/zeroFailureCascade.ts");
     expect(metadata.majorCapabilities).toBeUndefined();
     expect(app).toContain("releaseSha: resolveOriginReleaseSha(env)");
     expect(app).not.toContain("costUsd: 0");
     expect(app).toContain("freeOnly: true");
     expect(app).toContain("paidFallbackEnabled: false");
     expect(app).toContain('secretDelivery: "server-only"');
+    expect(app).toContain("ORIGIN_RELEASE_ROUTE_NOT_ENABLED");
+    expect(app).toContain('requestPath === "/api/chat" && req.method === "POST"');
+    expect(app).toContain('requestPath === "/api/artifacts/v1.2/generate" && req.method === "POST"');
+    expect(app).toContain('requestPath === "/api/artifacts/v1.2/status"');
+    expect(app).toContain("req.path.toLowerCase()");
+    expect(gate).toContain("本番API allowlist");
     expect(app).toContain("env.VERCEL_GIT_COMMIT_SHA");
     expect(app).toContain('["/health", "/api/health"]');
     expect(app).not.toContain("legacyRoutes");
     expect(app).not.toContain("MissionEngine");
+    expect(app).not.toContain("imageGatewayEvalPreflightRouter");
+    expect(evalRouter).toContain("EVAL_ROUTE_NOT_AVAILABLE");
+    expect(evalRouter).not.toContain("ai-gateway.vercel.sh");
+    expect(geminiLegacy).not.toContain("GoogleGenAI");
+    expect(geminiLegacy).toContain("provider credentials are forbidden in deterministic tests");
+    expect(codingRouter).not.toContain("costUsd: 0");
+    expect(codingRouter).toContain("costEvidenceStatus: 'NOT_MEASURED'");
+    expect(codingWorkerWorkflow).not.toContain("for attempt in 1 2 3");
+    expect(codingWorkerWorkflow).toContain("Never replay a job automatically");
+    expect(csp).not.toContain("text.pollinations.ai");
+    expect(zeroFailureCascade).not.toContain("text.pollinations.ai");
     expect(gate).toContain("AI Studio direct runtimeは一次公開に含めない");
-    expect(gate).toContain("provider層は同一固定model内の候補だけに限定され");
+    expect(gate).toContain("ORIGIN自身およびOpenRouter provider層のfallbackを禁止");
+    expect(gate).toContain("allow_fallbacks: false");
     expect(gate).toContain("実費`$0.00`");
-    expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
+    expect(gate).toContain("ORIGINおよびOpenRouter provider層のfallbackは常に禁止する");
   });
 
   it("states the selected serverless route and explicit deployment approval boundary", () => {

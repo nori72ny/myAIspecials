@@ -15,6 +15,7 @@ import { Capability } from "../lib/capability-registry/domain/entities/Capabilit
 import { Provider } from "../lib/capability-registry/domain/entities/Provider";
 import { CapabilityRegistry } from "../lib/capability-registry/application/CapabilityRegistry";
 import { RoutingEngine } from "../lib/routing-engine/RoutingEngine";
+import { ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginFreeModelCatalog";
 
 export interface ProviderDetail {
   id: string;
@@ -199,6 +200,18 @@ export class ACOSValidationManager {
 
   private initializeDefaultProviders() {
     const defaultProviders = [
+      new Provider(
+        ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
+        "ORIGIN Approved Free Model",
+        "OpenRouter",
+        new Map([
+          ["Reasoning", 5], ["Planning", 5], ["Coding", 5], ["Writing", 5],
+          ["Analysis", 5], ["Research", 5], ["Translation", 5]
+        ]),
+        "healthy",
+        { cost: 1, latency: 900, quality: 8, failureRate: 0.02 },
+        ["free-model"]
+      ),
       new Provider(
         "openrouter/anthropic/claude-3.5-sonnet",
         "Claude 3.5 Sonnet (OpenRouter)",

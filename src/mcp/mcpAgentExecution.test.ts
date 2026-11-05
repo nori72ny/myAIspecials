@@ -44,7 +44,11 @@ function providerResult(text: string): OriginProviderExecutionResult {
   return {
     text,
     transportRequestCount: 1,
-    actualCostUsd: 0,
+    actualCostUsd: null,
+    reportedUsageCostUsd: 0,
+    policyMaxCostUsd: 0,
+    costEvidenceStatus: "NOT_MEASURED",
+    billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
     providerDataPolicy: {
       allowProviderFallbacks: false,
       dataCollection: "deny",
@@ -58,7 +62,7 @@ function providerResult(text: string): OriginProviderExecutionResult {
       attempt: 1,
       fallbackUsed: false,
     },
-    usage: { costUsd: 0 },
+    usage: { reportedCostUsd: 0 },
   };
 }
 

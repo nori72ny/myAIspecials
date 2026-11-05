@@ -19,7 +19,6 @@ import { createWebPublicationV131Router } from "../builder/webPublicationV131Rou
 import { createVisualArtifactV15Router } from "../creative/visualArtifactV15Router.js";
 import { createRasterImageV15Router } from "../creative/rasterImageV15Router.js";
 import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Router.js";
-import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
@@ -33,6 +32,26 @@ export function createOriginApp(
   app.disable("x-powered-by");
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
+
+  // Release 1 exposes health, canonical chat, and the exact artifact v1.2 routes
+  // covered by their independent release gate. Every other API remains unreachable.
+  if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") {
+    app.use((req, res, next) => {
+      // Express routing is case-insensitive by default. Normalize before enforcing
+      // the production allowlist so mixed-case paths cannot reach mounted routers.
+      const requestPath = req.path.toLowerCase();
+      if (req.method === "GET" && (requestPath === "/health" || requestPath === "/api/health" || requestPath === "/api/artifacts/v1.2/status")) return next();
+      if ((requestPath === "/api/chat" && req.method === "POST") || (requestPath === "/api/artifacts/v1.2/generate" && req.method === "POST")) return next();
+      if (requestPath === "/api/chat" || requestPath === "/api/artifacts/v1.2/status" || requestPath === "/api/artifacts/v1.2/generate") {
+        res.setHeader("Allow", requestPath === "/api/artifacts/v1.2/status" ? "GET" : "POST");
+        return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "このAPIで許可されていないHTTPメソッドです。", retryable: false, requestId: "UNKNOWN" });
+      }
+      if (requestPath === "/api" || requestPath.startsWith("/api/") || requestPath === "/sites" || requestPath.startsWith("/sites/")) {
+        return res.status(404).json({ code: "ORIGIN_RELEASE_ROUTE_NOT_ENABLED", message: "この機能はORIGIN Personalの一次公開では提供していません。", retryable: false, requestId: "UNKNOWN" });
+      }
+      return next();
+    });
+  }
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/research/v1.1", createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
@@ -81,12 +100,11 @@ export function createOriginApp(
   app.use(createVisualArtifactV15Router(env));
   app.use(createRasterImageV15Router(env));
   app.use(createWorldClassImageV16Router(env));
-  app.use(createImageGatewayEvalPreflightRouter(env));
   app.use(createOriginResearchRouter());
-  // Browser clients request text/event-stream. Handle provider-eligible requests here
-  // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
-  // remains the fail-closed JSON/local-answer path and is never used to fake provider
-  // streaming for eligible requests.
+  // Browser clients request text/event-stream. The provider client buffers upstream
+  // SSE privately until terminal model and billing evidence pass, then releases the
+  // verified response through this SSE route. This is SSE transport, not progressive
+  // token delivery. The legacy router remains the fail-closed JSON/local-answer path.
   app.use(createOriginStreamingChatRouter({ env }));
   app.use(createOriginChatRouter({ env }));
   app.all("/api/chat", originChatBoundaryGuard);

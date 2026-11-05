@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
+import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL, ORIGIN_ZERO_COST_PROVIDER_IDS } from "./OriginExecutionPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
@@ -7,6 +7,10 @@ const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedNow = Date.parse(verifiedEvidence.verifiedAt) + 1;
 
 describe("buildOriginExecutionPlan", () => {
+  it("allows only the strict OpenRouter free provider in the zero-cost provider set", () => {
+    expect(ORIGIN_ZERO_COST_PROVIDER_IDS).toEqual(["openrouter-free"]);
+  });
+
   it("always selects the verified OpenRouter free route when it is configured", () => {
     const result = buildOriginExecutionPlan({ goal: "認証処理を実装してください", requiresCodeChanges: true }, { openRouterConfigured: true, googleAiStudioConfigured: true, groqConfigured: true }, undefined, { nowMs: verifiedNow });
     expect(result.ok).toBe(true);

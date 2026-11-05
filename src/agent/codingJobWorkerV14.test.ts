@@ -27,7 +27,7 @@ const env = {
   ORIGIN_CODING_JOB_OWNER_HMAC_SECRET: Buffer.alloc(40, 19).toString('base64'),
 };
 const modelResult = (text: string): OriginProviderExecutionResult => ({
-  text, transportRequestCount: 1, actualCostUsd: 0, usage: { costUsd: 0 }, providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
+  text, transportRequestCount: 1, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false }, usage: { reportedCostUsd: 0 }, providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: { requestedModel: ORIGIN_OPENROUTER_FREE_MODEL, servedModel: ORIGIN_OPENROUTER_FREE_MODEL, provider: 'OpenRouter', strategy: 'adaptive-primary', attempt: 1, fallbackUsed: false },
 });
 

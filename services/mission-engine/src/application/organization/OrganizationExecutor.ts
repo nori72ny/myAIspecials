@@ -563,6 +563,10 @@ export class OrganizationExecutor {
     customClient?: any,
     options?: { onApprovalRequired?: (req: HumanApprovalRequest, executor: OrganizationExecutor) => Promise<void> }
   ): Promise<OrganizationState> {
+    if (process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true") {
+      throw new Error("FREE_ONLY_PROVIDER_BOUNDARY: legacy OrganizationExecutor routing is disabled outside deterministic tests; use the canonical verified OpenRouter :free execution boundary.");
+    }
+
     // 1. Create Organization State
     const state = this.createOrganization(missionId, "IDL 2035 Autonomic Corp");
     state.teamFormation = this.determineTeams(objective);

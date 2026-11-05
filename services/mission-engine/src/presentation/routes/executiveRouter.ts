@@ -54,6 +54,17 @@ export const createExecutiveRouter = (llmClient: GeminiLLMClient) => {
 
   // POST /api/v1/executive/run
   router.post("/run", asyncHandler(async (req, res) => {
+    if (process.env.NODE_ENV !== "test" || process.env.FREE_ONLY === "true") {
+      res.status(503).json({
+        success: false,
+        error: {
+          code: "FREE_ONLY_EXECUTION_BOUNDARY",
+          message: "The legacy Executive Brain is disabled outside deterministic tests. No provider request was made."
+        }
+      });
+      return;
+    }
+
     const { input, userId } = req.body;
 
     if (!input || typeof input !== "string" || input.trim() === "") {

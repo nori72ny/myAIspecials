@@ -54,7 +54,7 @@ describe('agent orchestrator v3', () => {
     expect(ready.body).toEqual({
       ok: true,
       protocolVersion: 3,
-      ready: true,
+      ready: false,
       approvalSigningConfigured: true,
       operatorAuthenticationConfigured: true,
       authorizationMode: 'legacy-approval-compat',

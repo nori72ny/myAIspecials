@@ -27,8 +27,8 @@ const edit = { path: 'math.js', search: 'a - b', replacement: 'a + b' };
 const batch = { edits: [edit], creates: [] as { path: string; content: string }[] };
 const response = (text = JSON.stringify(batch)): OriginProviderExecutionResult => ({
   text,
-  transportRequestCount: 1, actualCostUsd: 0,
-  usage: { costUsd: 0 },
+  transportRequestCount: 1, actualCostUsd: null, reportedUsageCostUsd: 0, policyMaxCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", billingEvidence: { reportedUsageCostUsd: 0, isByok: false },
+  usage: { reportedCostUsd: 0 },
   providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY,
   routingEvidence: {
     requestedModel: ORIGIN_OPENROUTER_FREE_MODEL,
@@ -213,7 +213,7 @@ describe('coding model protocol', () => {
 
   it('rejects paid evidence without accepting or retrying the patch', async () => {
     const paid = response();
-    paid.actualCostUsd = 1 as 0;
+    paid.reportedUsageCostUsd = 1 as 0;
     const execute = vi.fn(async () => paid);
     const planner = createCodingPlannerV14({ env: { OPENROUTER_API_KEY: 'test-only' }, execute });
     await expect(planner(context)).rejects.toThrow();
