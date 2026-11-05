@@ -68,6 +68,7 @@ export function createOriginApp(
     freeOnly: true,
     paidFallbackEnabled: false,
     secretDelivery: "server-only",
+    costUsd: 0,
   }));
   if (integrations.mcpSession) app.use(integrations.mcpSession);
   if (integrations.mcpAgent) app.use(integrations.mcpAgent);
