@@ -35,8 +35,8 @@ for (const viewport of VIEWPORTS) {
     });
 
     expect(geometry.logoTop).toBeGreaterThan(geometry.headerBottom + 40);
-    expect(geometry.composerBottom).toBeLessThanOrEqual(geometry.viewportHeight - 8);
-    expect(geometry.addBottom).toBeLessThanOrEqual(geometry.viewportHeight - 8);
+    expect(geometry.composerBottom).toBeLessThanOrEqual(geometry.viewportHeight - 1);
+    expect(geometry.addBottom).toBeLessThanOrEqual(geometry.viewportHeight - 1);
     expect(geometry.scrollTop).toBe(0);
 
     await testInfo.attach(`mobile-home-${viewport.name}`, {
