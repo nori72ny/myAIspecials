@@ -59,7 +59,10 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
 
     const input = page.getByTestId('origin-chat-request');
     await expect(input).toHaveAttribute('aria-describedby', 'origin-chat-guidance');
-    await expect(page.locator('#origin-chat-guidance')).toContainText(/Control|Command/);
+    // The guidance must name the primary send shortcut. Since the Enter-to-send
+    // change (PR #1102), that is Enter (Shift+Enter inserts a newline);
+    // Ctrl/Cmd+Enter remains supported as a legacy alternative.
+    await expect(page.locator('#origin-chat-guidance')).toContainText(/Enter/);
     await expect(page.locator('#origin-chat-guidance')).not.toContainText(/パスワードやAPIキー/);
   });
 
