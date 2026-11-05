@@ -75,5 +75,8 @@
       "main": false,
       "release-*": true
     }
+  },
+  "github": {
+    "autoAlias": false
   }
 }
