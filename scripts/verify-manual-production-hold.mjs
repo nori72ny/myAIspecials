@@ -8,15 +8,15 @@ import { fileURLToPath } from 'node:url';
  * exact SHA; ordinary pushes to main MUST NOT publish automatically.
  */
 export function assertManualProductionGitHold(config) {
-  if (config?.github?.autoAlias !== false) {
-    throw new Error('ORIGIN_AUTOMATIC_PRODUCTION_ALIAS_FORBIDDEN');
-  }
   const deployments = config?.git?.deploymentEnabled;
   if (deployments === null || typeof deployments !== 'object' || Array.isArray(deployments)) {
     throw new Error('ORIGIN_MANUAL_PRODUCTION_GATE_CONFIG_MISSING');
   }
   if (deployments.main !== false || deployments['**'] !== false) {
     throw new Error('ORIGIN_IMPLICIT_PRODUCTION_GIT_DEPLOYMENT_FORBIDDEN');
+  }
+  if (config?.github?.autoAlias !== false) {
+    throw new Error('ORIGIN_AUTOMATIC_PRODUCTION_ALIAS_FORBIDDEN');
   }
   if (deployments['release-*'] !== true) {
     throw new Error('ORIGIN_REVIEWED_RELEASE_PREVIEW_DEPLOYMENT_DISABLED');
