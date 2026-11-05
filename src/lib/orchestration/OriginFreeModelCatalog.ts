@@ -20,10 +20,10 @@ export const DEFAULT_ORIGIN_FREE_MODEL_CATALOG: readonly OriginFreeModelEvidence
     providerId: "openrouter-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL,
-    verifiedAt: "2026-11-03T01:00:12.156Z",
-    reviewAfter: "2026-11-13T01:00:12.155Z",
+    verifiedAt: "2026-11-05T09:30:00.000Z",
+    reviewAfter: "2026-11-15T09:30:00.000Z",
     sourceUrl: ORIGIN_OPENROUTER_FREE_MODEL_SOURCE,
-    sourceDescription: "OpenRouter official /api/v1/models pricing was rechecked on 2026-11-03: google/gemma-4-31b-it:free reports prompt and completion prices of 0. This catalog check does not verify live endpoint-level ZDR, request-level charges, or an authenticated billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage telemetry; any unverifiable or non-zero condition fails closed before an answer is returned.",
+    sourceDescription: "OpenRouter official /api/v1/models pricing was rechecked on 2026-11-05: google/gemma-4-31b-it:free reports prompt and completion prices of 0. This catalog check does not verify live endpoint-level ZDR, request-level charges, or an authenticated billing receipt. Runtime must continue enforcing provider.zdr=true, data_collection=deny, max-price zero, no provider fallback, exact served-model identity, and zero reported usage telemetry; any unverifiable or non-zero condition fails closed before an answer is returned.",
   },
 ] as const;
 
