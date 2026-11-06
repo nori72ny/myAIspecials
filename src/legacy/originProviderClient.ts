@@ -19,10 +19,16 @@ export interface OriginProviderExecutionRequest {
   /** Optional single required function contract. The provider must return exactly one matching tool call. */
   requiredTool?: OriginProviderRequiredTool;
 }
-export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: 1; fallbackUsed: boolean; }
-export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; }
+export interface OriginProviderRoutingEvidence { requestedModel: string; servedModel: string; strategy: string; provider: string; region?: string; attempt: number; fallbackUsed: boolean; neurons?: number; }
+/**
+ * One executed route attempt inside a failover composite result. Results only ever carry
+ * attempts that were actually executed; routes that were skipped before execution (for
+ * example a missing token or stale evidence) are recorded on the error diagnostic instead.
+ */
+export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; transportRequestCount?: number; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; }
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
