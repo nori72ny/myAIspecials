@@ -14,7 +14,7 @@ Last aligned: 2026-08-02
 
 - ホーム、チャット、設定
 - 正式な`/api/chat`境界
-- 無料と確認できるOpenRouterの`:free`モデルによる単独AI実行
+- 無料と確認できるOpenRouterの`:free`モデルによるAI実行（第1経路）と、第1経路の可用性エラー時に限り切り替える、同一水準で検証されたCloudflare Workers AIの固定無料モデルによるAI実行（第2経路）
 - 回答、出典確認範囲、独立した別AI確認の有無、実費用、実行制約の正確な表示
 - 秘密情報の入力遮断と、無料・routing証拠を確認できない場合のfail-closed
 - 最新情報の検索が未接続であることを明示し、古い可能性がある知識だけでは回答しない境界
@@ -27,7 +27,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 - Personal版は旧ダッシュボードの状態管理を読み込まない。
 - 端末に保存する設定は表示言語と明暗テーマだけとし、AI選択、費用上限、再試行回数をブラウザ設定から変更できない。
-- 実行ポリシーは費用上限`$0.00`、ORIGIN自身による別provider・別modelへの自動fallbackなし、回答経路を確認できない場合はfail-closedとする。OpenRouterのprovider層では、同一固定model内に限り、`data_collection: deny`、`zdr: true`、全価格0の制約を満たす候補へのbounded failoverを許可する。
+- 実行ポリシーは費用上限`$0.00`、回答経路を確認できない場合はfail-closedとする。第1経路はOpenRouterの固定`:free`モデルとし、OpenRouterのprovider層では、同一固定model内に限り、`data_collection: deny`、`zdr: true`、全価格0の制約を満たす候補へのbounded failoverを許可する。第1経路が可用性エラー（利用上限・不通・タイムアウト・未設定）で失敗した場合に限り、オーナー決定（2026-11-06）により、独立に検証された無料ZDR経路であるCloudflare Workers AIの固定モデル（第2経路）へ自動で切り替えることを許可する。切替は有料provider・有料modelへは決して行わず、各経路は証拠の鮮度、実費`$0.00`、データ保持なし・学習利用なし、提供モデルの一致を個別に検証し、試行履歴を証跡として記録する。費用・経路・ポリシーの検証に失敗した場合は切替せず、その場でfail-closedとする。
 - 日本語を初期表示とし、英語を明示的に選択した場合だけ英語へ切り替える。
 - AI回答内の外部画像URLは自動読込せず、一次公開で未対応であることを表示する。
 - スマートフォン、タブレット、PCを正式な対象端末とする。390×844を含むモバイルでは動的viewportとsafe areaを考慮し、タブレットとPCでは画面を単純に引き伸ばさず、回答本文、入力欄、ナビゲーションの幅と密度を最適化する。
@@ -52,7 +52,7 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 2. PRをReadyへ変更する承認と、mainへマージする承認がある。
 3. デプロイについて、マージとは別の明示承認がある。
 4. 公開環境のサーバー側に既存の`OPENROUTER_API_KEY`が安全に設定されている。値をチャット、ログ、コード、PRへ入力・表示しない。
-5. 実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。
+5. 第1経路の実行モデルIDが`:free`で終わり、ORIGINのmodel fallbackが無効、provider層は同一固定model内の候補だけに限定され、最大価格がすべて`0`である。第2経路を使う場合は、Cloudflare Workers AIの固定モデルIDが証拠カタログと一致し、実行前にWorkers Freeプランと価格`$0`の機械証明が成功している。
 6. 公開環境のsmoke testで、秘密情報を含まない入力に対する成功、実費`$0.00`、要求モデルと提供モデルの一致、model fallback未使用、provider routing policyの適合を確認する。
 7. APIキー未設定、無料証拠欠落、routing証拠不一致、provider不通の場合に回答を表示せず停止することを確認する。
 8. ノリさんがモバイルまたは日常利用端末で、入力、回答の読みやすさ、エラー表示を最終確認する。
@@ -60,9 +60,10 @@ AI StudioはORIGINそのものではなく、将来追加できるprovider adapt
 
 ## 停止条件
 
-次のいずれかに該当する場合、公開またはAI回答を停止する。ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない。OpenRouter内部のprovider-layer failoverは、固定model、`data_collection: deny`、`zdr: true`、全価格0という制約から外れた場合は停止する。
+次のいずれかに該当する場合、公開またはAI回答を停止する。経路間の自動切替は、第1経路の可用性エラー時に、証拠・`$0.00`・ZDRの検証を全て通過した第2経路へのみ許可され、それ以外の切替は行わない。OpenRouter内部のprovider-layer failoverは、固定model、`data_collection: deny`、`zdr: true`、全価格0という制約から外れた場合は停止する。
 
 - 無料であることを実行前に確認できない
+- 第2経路（Cloudflare Workers AI）の無料証拠が期限切れ、またはWorkers Freeプラン・価格`$0`の機械証明が確認できない（この場合は第2経路だけを停止し、第1経路のみで継続する。全経路が停止した場合は回答を停止する）
 - 実費`$0.00`を実行後に確認できない
 - 要求した`:free`モデルと実際のroutingが一致しない
 - OpenRouterが固定model外へfallbackした、またはprovider routing policyへの適合を証明できない
