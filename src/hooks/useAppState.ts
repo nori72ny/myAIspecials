@@ -549,7 +549,6 @@ export function updateACOSAdaptiveLearning(resultData: any, categoryId: string) 
     };
 
     localStorage.setItem("acos_provider_performance_metrics", JSON.stringify(savedMetrics));
-    console.log(`[ACOS Adaptive Learning Engine] Metrics written to local storage for ${providerId}:`, savedMetrics[providerId]);
 
     // 2. Phase 2: Knowledge DNA Archive Saving
     // Automatic analysis of success/failure factors and improvements after mission completion.
@@ -582,7 +581,6 @@ export function updateACOSAdaptiveLearning(resultData: any, categoryId: string) 
 
     dnaList.unshift(newDna);
     localStorage.setItem("acos_knowledge_dna", JSON.stringify(dnaList.slice(0, 50)));
-    console.log(`[ACOS Knowledge DNA Archive] Stored Knowledge DNA successfully:`, newDna);
   } catch (err) {
     console.error("Failed to run adaptive learning feedback loop", err);
   }

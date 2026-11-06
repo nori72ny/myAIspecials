@@ -9,25 +9,25 @@ export function cn(...inputs: ClassValue[]) {
 export class ProductionLogger {
   private static isProd = true;
 
-  static log(message: string, ...optionalParams: any[]) {
+  static log(message: string, ...optionalParams: unknown[]) {
     if (!this.isProd) {
       void 0 //(`[ACOS INFO]: ${message}`, ...optionalParams);
     }
   }
 
-  static warn(message: string, ...optionalParams: any[]) {
+  static warn(message: string, ...optionalParams: unknown[]) {
     if (!this.isProd) {
       console.warn(`[ACOS WARN]: ${message}`, ...optionalParams);
     }
   }
 
-  static error(message: string, ...optionalParams: any[]) {
+  static error(message: string, ...optionalParams: unknown[]) {
     console.error(`[ACOS ERROR]: ${message}`, ...optionalParams);
   }
 }
 
 export class SafeStorage {
-  static get<T>(key: string, validator: (data: any) => boolean): T | null {
+  static get<T>(key: string, validator: (data: unknown) => boolean): T | null {
     try {
       const stored = localStorage.getItem(key);
       if (!stored) {
@@ -71,7 +71,7 @@ export class SafeStorage {
   }
 
   // Backwards compatibility
-  static getItem<T>(key: string, validator: (data: any) => boolean, defaultValue: T): T {
+  static getItem<T>(key: string, validator: (data: unknown) => boolean, defaultValue: T): T {
     const res = this.get<T>(key, validator);
     return res !== null ? res : defaultValue;
   }

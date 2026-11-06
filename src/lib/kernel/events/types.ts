@@ -77,7 +77,7 @@ export interface ExecutionStartedPayload extends BaseEventPayload {
 export interface ExecutionFinishedPayload extends BaseEventPayload {
   missionId: string;
   taskId: string;
-  result: any;
+  result: unknown;
   success: boolean;
   error?: string;
 }
@@ -85,7 +85,7 @@ export interface ExecutionFinishedPayload extends BaseEventPayload {
 export interface ConsensusFinishedPayload extends BaseEventPayload {
   missionId: string;
   taskId: string;
-  agreedResult: any;
+  agreedResult: unknown;
   participatingAgentIds: string[];
 }
 
