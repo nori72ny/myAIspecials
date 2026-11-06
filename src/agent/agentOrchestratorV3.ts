@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import express, { type Router } from 'express';
+import { rateLimit, type AugmentedRequest } from 'express-rate-limit';
 import { executeToolWithPermission, type ToolName, type ToolParams, type ToolExecutionContext } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
 import { verifyBeforeReportingCompletion } from './completionVerificationGate.js';
@@ -232,9 +233,37 @@ export interface AgentRunConsumptionStore {
 
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort }): Router {
   const router = express.Router();
-  // One shared limiter instance is passed directly as middleware to each
-  // POST route defined below, so all five routes draw on the same token
-  // bucket with the shared thresholds and the CHAT_RATE_LIMITED /
+  // Outer guard: express-rate-limit, the standard library that static
+  // analysis (CodeQL js/missing-rate-limiting) recognizes as rate limiting.
+  // It enforces the sustained ceiling of 60 requests per minute per IP and
+  // answers with the same 429 contract as the inner limiter below
+  // (CHAT_RATE_LIMITED + Retry-After).
+  const agentV3RateLimitGuard = rateLimit({
+    windowMs: 60_000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      const resetTime = (req as AugmentedRequest).rateLimit?.resetTime;
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil(((resetTime?.getTime() ?? Date.now() + 60_000) - Date.now()) / 1_000),
+      );
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({
+        code: 'CHAT_RATE_LIMITED',
+        message: '短時間の依頼が集中しています。少し待ってから再度お試しください。',
+        retryable: true,
+        requestId: `origin-${randomUUID()}`,
+        retryAfterSeconds,
+        retryAfterMs: retryAfterSeconds * 1_000,
+      });
+    },
+  });
+  // Inner enforcement: one shared limiter instance is passed directly as
+  // middleware to each POST route defined below, so all five routes draw
+  // on the same token bucket with the shared thresholds (burst 8,
+  // sustained 60/min, concurrency 2) and the CHAT_RATE_LIMITED /
   // Retry-After contract. GET /status is read-only and stays unmetered.
   const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
@@ -266,7 +295,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/plan', agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/plan', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
@@ -357,7 +386,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   };
 
-  router.post('/api/agent/v3/approval', agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/approval', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
@@ -374,14 +403,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
    * digest, marked authMode 'browser', and still single-use through the
    * shared replay-consumption store at execution time.
    */
-  router.post('/api/agent/v3/browser-approval', agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/browser-approval', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     if (!isSameOriginBrowserRequest(req, env)) return res.status(403).json({ ok: false, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' });
     if (req.body?.confirm !== true) return res.status(400).json({ ok: false, code: 'AGENT_CONFIRMATION_REQUIRED' });
     return issueBoundApproval(req, res, 'browser');
   });
 
-  router.post('/api/agent/v3/cancel', agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/cancel', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     const { runId, planToken } = req.body ?? {};
@@ -427,7 +456,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
-  router.post('/api/agent/v3/execute', agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/execute', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
     const { runId, approvalToken } = req.body ?? {};
     // Authorization has two modes. Operator mode (admin) uses the operator
     // credential as before. Browser mode requires a same-origin request plus

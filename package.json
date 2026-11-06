@@ -66,6 +66,7 @@
     "dompurify": "^3.4.13",
     "dotenv": "^17.2.3",
     "express": "5.2.1",
+    "express-rate-limit": "^8.7.3",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "pg": "^8.22.0",
