@@ -156,6 +156,9 @@ describe("MCP owner tool-chat router", () => {
     expect(fixture.executeProvider).not.toHaveBeenCalled();
   });
 
+  // The credential below is an intentionally obvious fake fixture (repeated
+  // "FAKE", shorter than a real token suffix). Never use a realistic-format
+  // token string here: this repository is public.
   it("blocks detected credentials before connector or model egress", async () => {
     const fixture = app();
     const response = await request(fixture.instance)
@@ -164,7 +167,7 @@ describe("MCP owner tool-chat router", () => {
       .send({
         connectionId: CONNECTION,
         version: 3,
-        messages: [{ role: "user", content: "Use token ghp_abcdefghijklmnopqrstuvwxyz1234567890 to inspect the repo." }],
+        messages: [{ role: "user", content: "Use token ghp_FAKEFAKEFAKEFAKEFAKEFAKE to inspect the repo." }],
       });
 
     expect(response.status).toBe(422);

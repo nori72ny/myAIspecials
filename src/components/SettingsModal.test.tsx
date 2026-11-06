@@ -43,12 +43,11 @@ describe('SettingsModal pointer-event isolation', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('closes from the close button through pointerdown without a click handler', () => {
+  it('closes from the close button through click', () => {
     const { onClose } = renderSettings();
     const button = screen.getByTestId('close-settings-button');
 
-    expect(button.getAttribute('onclick')).toBeNull();
-    fireEvent.pointerDown(button);
+    fireEvent.click(button);
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
@@ -62,7 +61,7 @@ describe('SettingsModal release identity', () => {
     expect(await screen.findByText('0123456789ab…')).toBeTruthy();
     expect(screen.queryByText(RELEASE_SHA)).toBeNull();
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: '全文を表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '全文を表示' }));
     expect(screen.getByText(RELEASE_SHA)).toBeTruthy();
     expect(screen.getByRole('button', { name: '短く表示' }).getAttribute('aria-expanded')).toBe('true');
   });
@@ -77,7 +76,7 @@ describe('SettingsModal release identity', () => {
 
     renderSettings();
     await screen.findByText('0123456789ab…');
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'コピー' }));
+    fireEvent.click(screen.getByRole('button', { name: 'コピー' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'コピー済み' })).toBeTruthy());
     expect(writeText).toHaveBeenCalledWith(RELEASE_SHA);
@@ -92,7 +91,7 @@ describe('SettingsModal release identity', () => {
 
     renderSettings();
     await screen.findByText('0123456789ab…');
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'コピー' }));
+    fireEvent.click(screen.getByRole('button', { name: 'コピー' }));
 
     expect(await screen.findByText('リリースIDをコピーできませんでした。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'コピー済み' })).toBeNull();
@@ -158,9 +157,9 @@ describe('SettingsModal appearance and history actions', () => {
 
     await screen.findByText('0123456789ab…');
     expect(screen.getByRole('button', { name: 'Minimal' }).getAttribute('aria-pressed')).toBe('true');
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Luxury' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Luxury' }));
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ designTheme: 'luxury', selectedTheme: 'light', maxCostCap: 0 }));
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Glass' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Glass' }));
     expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ designTheme: 'glass', maxCostCap: 0 }));
   });
 
@@ -178,7 +177,7 @@ describe('SettingsModal appearance and history actions', () => {
     );
 
     await screen.findByText('0123456789ab…');
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'システム設定' }));
+    fireEvent.click(screen.getByRole('button', { name: 'システム設定' }));
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ selectedTheme: 'system' }));
     expect(screen.getByRole('button', { name: 'システム設定' }).getAttribute('aria-pressed')).toBe('false');
   });
@@ -201,8 +200,8 @@ describe('SettingsModal appearance and history actions', () => {
 
     await screen.findByText('0123456789ab…');
     expect(screen.getByText('このブラウザーの会話は現在 3 件です。')).toBeTruthy();
-    fireEvent.pointerDown(screen.getByRole('button', { name: '書き出す' }));
-    fireEvent.pointerDown(screen.getByRole('button', { name: '初期化' }));
+    fireEvent.click(screen.getByRole('button', { name: '書き出す' }));
+    fireEvent.click(screen.getByRole('button', { name: '初期化' }));
     expect(onExportHistory).toHaveBeenCalledOnce();
     expect(onResetHistory).toHaveBeenCalledOnce();
     expect(screen.getByText('会話履歴を初期化しました。')).toBeTruthy();

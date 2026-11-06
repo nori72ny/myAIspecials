@@ -418,23 +418,24 @@ button[type="submit"], [class*="submit"], [class*="send"] {
   border-radius: 12px !important;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25) !important;
   opacity: 1 !important;
-  color: #FFFFFF !important;
+  color: var(--text-on-accent) !important;
 }
 
 button[type="submit"] *, [class*="submit"] *, [class*="send"] * {
-  fill: #FFFFFF !important;
-  stroke: #FFFFFF !important;
-  color: #FFFFFF !important;
+  fill: var(--text-on-accent) !important;
+  stroke: var(--text-on-accent) !important;
+  color: var(--text-on-accent) !important;
   opacity: 1 !important;
 }
 
-/* 左下の「＋」ボタン */
-button:first-child:has(svg) {
+/* 左下の「＋」ボタン（選択中を示すプライマリボタンは対象外：
+   背景を透明化すると白文字のラベルが読めなくなるため） */
+button:first-child:has(svg):not(.origin-primary-button) {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
-button:first-child:has(svg) * {
+button:first-child:has(svg):not(.origin-primary-button) * {
   stroke: #475569 !important;
   color: #475569 !important;
 }
@@ -504,14 +505,14 @@ button:first-child:has(svg) * {
 :root[data-theme="dark"] [class*="submit"],
 :root[data-theme="dark"] [class*="send"] {
   background: var(--accent-primary) !important;
-  color: #fff !important;
+  color: var(--text-on-accent) !important;
 }
-:root[data-theme="dark"] button:first-child:has(svg) {
+:root[data-theme="dark"] button:first-child:has(svg):not(.origin-primary-button) {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
-:root[data-theme="dark"] button:first-child:has(svg) * {
+:root[data-theme="dark"] button:first-child:has(svg):not(.origin-primary-button) * {
   stroke: var(--text-secondary) !important;
   color: var(--text-secondary) !important;
 }
