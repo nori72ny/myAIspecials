@@ -5,6 +5,7 @@ import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
+import { generateCloudflareRasterImageFreeProofV15 } from './cloudflareRasterFreeGenerationV15.js';
 
 const BASE_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 const EDIT_BODY_KEYS = new Set([...BASE_BODY_KEYS, 'referenceImages']);
@@ -105,6 +106,31 @@ function parseBody(body: unknown, mode: 'generate' | 'edit' = 'generate'): Raste
   };
 }
 
+function cloudflareCredentialsConfigured(env: NodeJS.ProcessEnv): boolean {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? '';
+  const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? '';
+  return /^[a-f0-9]{32}$/i.test(accountId) && apiToken.length >= 20 && apiToken.length <= 4096;
+}
+
+// Proof-stage failures are policy blocks, not transient faults: an immediate
+// retry cannot change plan, quota, evidence, or reconciliation state.
+const NON_RETRYABLE_GENERATION_CODES = new Set([
+  'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+  'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED',
+  'CLOUDFLARE_MODEL_NOT_PRICED_FOR_FREE_PROOF',
+  'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED',
+  'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+  'CLOUDFLARE_BILLING_READ_REQUIRED',
+  'CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED',
+  'CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN',
+  'CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED',
+  'RASTER_PRICING_EVIDENCE_STALE',
+  'RASTER_PRICING_EVIDENCE_INVALID',
+  'CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT',
+  'CLOUDFLARE_DAILY_USAGE_UNVERIFIED',
+  'CLOUDFLARE_USAGE_RECONCILIATION_FAILED',
+]);
+
 export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env) {
   const router = Router();
 
@@ -148,8 +174,12 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
         paidFallbackEnabled: false,
         secretDelivery: 'server-only',
         deliveryGateWired: true,
-        enabled: false,
-        activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
+        // The semantic gate is wired into the guarded generation pipeline and
+        // runs per request once Cloudflare credentials are configured. This
+        // status read stays local-only (no provider fan-out), so enablement
+        // reflects configuration presence, not a live probe.
+        enabled: cloudflareCredentialsConfigured(_env),
+        activationGate: 'cloudflare-free-proof-pipeline-v1',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -209,42 +239,128 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
       return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
     }
 
+    let plan: ReturnType<typeof planRasterVisualRequestV15>;
     try {
-      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
-      if (!plan.ready) {
-        return res.status(409).json({
-          ok: false,
-          code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
-          message: '画像の仕上がりを大きく左右する情報が不足しています。',
-          questions: plan.questions,
-          plan: {
-            version: plan.version,
-            purpose: plan.purpose,
-            platform: plan.platform,
-            width: plan.width,
-            height: plan.height,
-          },
-          candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
-          freeOnly: true,
-          paidFallbackUsed: false,
-          providerExecutions: 0,
-          secretDelivery: 'server-only',
-        });
-      }
-    // Release safety boundary: raster inference remains disabled until exact-request
-    // pre-inference $0.00 evidence is independently verifiable. This server-side
-    // guard applies to direct API calls as well as the browser UI.
-    return fail(
-      res,
-      503,
-      'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
-      'リクエスト単位で費用0円を事前保証できないため、AI画像生成・編集は停止しています。',
-      false,
-    );
+      plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
+    } catch (error) {
+      return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
+    }
+    if (!plan.ready) {
+      return res.status(409).json({
+        ok: false,
+        code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
+        message: '画像の仕上がりを大きく左右する情報が不足しています。',
+        questions: plan.questions,
+        plan: {
+          version: plan.version,
+          purpose: plan.purpose,
+          platform: plan.platform,
+          width: plan.width,
+          height: plan.height,
+        },
+        candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
+        freeOnly: true,
+        paidFallbackUsed: false,
+        providerExecutions: 0,
+        secretDelivery: 'server-only',
+      });
+    }
 
-      } catch (error) {
-        return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
+    // Release safety boundary: raster inference stays disabled unless the
+    // guarded Cloudflare Free proof pipeline is configured server-side. The
+    // pipeline itself enforces, per request and before any inference is sent:
+    // pricing-evidence freshness, Workers Free plan proof, a quota pre-check
+    // against today's measured Neuron usage, critic delivery gates, and
+    // post-generation usage reconciliation. Any stage that cannot be proven
+    // fails closed and no image is delivered. Pollinations is never used:
+    // its credit balance can draw from paid funds, so a structural $0.00
+    // proof is impossible there.
+    if (!cloudflareCredentialsConfigured(_env)) {
+      return fail(
+        res,
+        503,
+        'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+        'リクエスト単位で費用0円を事前保証できないため、AI画像生成・編集は停止しています。',
+        false,
+      );
+    }
+
+    try {
+      const delivery = await generateCloudflareRasterImageFreeProofV15(
+        { ...input, width: plan.width, height: plan.height },
+        _env,
+        fetch,
+        {
+          maxCandidates: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose).recommendedCandidates,
+        },
+      );
+      const { result } = delivery;
+      return res.status(200).json({
+        ok: true,
+        code: 'RASTER_GENERATED',
+        image: {
+          dataUrl: `data:${result.mimeType};base64,${result.bytes.toString('base64')}`,
+          mimeType: result.mimeType,
+          width: result.width,
+          height: result.height,
+          sha256: result.sha256,
+        },
+        model: result.model,
+        providerId: result.providerId,
+        costUsd: 0,
+        costEvidence: result.costEvidence,
+        freeOnly: true,
+        paidFallbackUsed: false,
+        secretDelivery: 'server-only',
+        providerExecutions: 1,
+        plan: {
+          version: plan.version,
+          purpose: plan.purpose,
+          platform: plan.platform,
+          width: plan.width,
+          height: plan.height,
+        },
+        critics: {
+          structural: {
+            version: delivery.structural.version,
+            passed: delivery.structural.passed,
+            score: delivery.structural.score,
+            checks: delivery.structural.checks,
+          },
+          technicalPixel: {
+            version: 'raster-technical-critic-v1',
+            execution: 'client-side-inspectRasterBlobV15',
+            deliveryGateWired: true,
+            semanticVisionJudgment: false,
+          },
+          semantic: {
+            version: delivery.semantic.version,
+            passed: delivery.semantic.passed,
+            score: delivery.semantic.score,
+            model: delivery.semantic.model,
+            scores: delivery.semantic.scores,
+            issues: delivery.semantic.issues,
+            summary: delivery.semantic.summary,
+          },
+        },
+        usage: delivery.usage,
+        quality: delivery.quality,
+        externalNetworkRequests: delivery.externalNetworkRequests,
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'RASTER_GENERATION_FAILED';
+      if (code === 'RASTER_STRUCTURAL_CRITIC_REJECTED' || code === 'RASTER_SEMANTIC_CRITIC_REJECTED') {
+        return fail(
+          res,
+          422,
+          code,
+          '生成された画像が品質ゲートを通過しなかったため、配信しませんでした。',
+          false,
+        );
       }
+      const safeCode = /^[A-Z0-9_]{3,80}$/.test(code) ? code : 'RASTER_GENERATION_FAILED';
+      return fail(res, 503, safeCode, undefined, NON_RETRYABLE_GENERATION_CODES.has(safeCode) ? false : undefined);
+    }
   };
 
   router.post('/api/creative/v1.5/raster/generate', handler('generate'));
