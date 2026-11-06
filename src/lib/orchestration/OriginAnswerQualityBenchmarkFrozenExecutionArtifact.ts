@@ -45,7 +45,7 @@ export interface OriginAnswerQualityBenchmarkFrozenExecutionArtifact {
   readonly totalProviderRequests: number;
   readonly totalToolCalls: number;
   readonly totalLatencyMs: number;
-  /** @deprecated Legacy artifact compatibility sentinel; this artifact has no billing attestation. */
+  /** @deprecated Compatibility sentinel only; not billing evidence. See costEvidence (NOT_MEASURED). */
   readonly totalCostUsd: 0;
   readonly executionOnlyDigest: string;
   readonly executionSessionDigest: string;
@@ -221,7 +221,7 @@ export function parseOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
     || !nonNegativeInteger(value.totalProviderRequests)
     || !nonNegativeInteger(value.totalToolCalls)
     || !finiteNonNegative(value.totalLatencyMs)
-    // Legacy wire-format guard only; not a measurement of provider spend.
+    // Legacy wire-format guard only; not a provider charge measurement.
     || value.totalCostUsd !== 0
     || typeof value.executionOnlyDigest !== "string" || !SHA256.test(value.executionOnlyDigest)
     || typeof value.executionSessionDigest !== "string" || !SHA256.test(value.executionSessionDigest)
@@ -357,6 +357,7 @@ export function createOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
     totalProviderRequests: frozen.execution.totalProviderRequests,
     totalToolCalls: frozen.execution.totalToolCalls,
     totalLatencyMs: frozen.execution.totalLatencyMs,
+    // Compatibility sentinel only; independent billing evidence remains NOT_MEASURED.
     totalCostUsd: 0 as const,
     executionOnlyDigest: frozen.execution.executionOnlyDigest,
     executionSessionDigest: frozen.executionSessionDigest,
@@ -405,6 +406,7 @@ function executionFromArtifact(
         providerRequests: item.providerRequests,
         toolCalls: item.toolCalls,
         latencyMs: item.latencyMs,
+        // Restored legacy sentinel; never interpret this as provider billing evidence.
         costUsd: 0,
         failureCode: item.failureCode,
       }),
@@ -418,6 +420,7 @@ function executionFromArtifact(
     totalProviderRequests: artifact.totalProviderRequests,
     totalToolCalls: artifact.totalToolCalls,
     totalLatencyMs: artifact.totalLatencyMs,
+    // Restored legacy sentinel; never interpret this as provider billing evidence.
     totalCostUsd: 0,
     executionOnlyDigest: artifact.executionOnlyDigest,
   });
@@ -458,7 +461,7 @@ export function restoreOriginAnswerQualityBenchmarkFrozenExecutionArtifact(
   if (
     environmentProof.expectedGitSha !== artifact.gitSha
     || environmentProof.observedReleaseSha !== artifact.gitSha
-    || environmentProof.costUsd !== 0
+    || environmentProof.maxPermittedCostUsd !== 0
     || environmentProof.freeOnly !== true
     || environmentProof.paidFallbackEnabled !== false
   ) {
