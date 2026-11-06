@@ -42,7 +42,8 @@ export function createOriginApp(
   app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["GET", "POST"]));
   app.use("/api/creative/v1.6", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use("/api/generate-image", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
-  app.use("/api/agent/v3", createOriginChatRateLimiter(Date.now, ["POST"]));
+  // /api/agent/v3 is rate limited inside createAgentOrchestratorV3Router
+  // itself, so the limiter sits in the same file as the route definitions.
   // Reference-image edits are explicitly isolated from the normal 64kb JSON boundary.
   // The router applies stricter decoded-image count/size/dimension checks before provider execution.
   app.use("/api/creative/v1.5/raster/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));

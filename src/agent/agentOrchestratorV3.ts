@@ -13,6 +13,7 @@ import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPl
 import { planAgentToolsV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
+import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -231,6 +232,11 @@ export interface AgentRunConsumptionStore {
 
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort }): Router {
   const router = express.Router();
+  // The shared rate limiter is mounted on this router itself (the same
+  // in-file pattern as the MCP routers) so every POST route defined below
+  // is guarded with the shared thresholds and the CHAT_RATE_LIMITED /
+  // Retry-After contract. GET /status is read-only and stays unmetered.
+  router.use('/api/agent/v3', createOriginChatRateLimiter(Date.now, ['POST']));
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
 
   router.get('/api/agent/v3/status', (_req, res) => {
