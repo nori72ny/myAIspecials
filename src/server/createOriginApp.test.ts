@@ -126,6 +126,7 @@ describe("createOriginApp provider isolation", () => {
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: "server-only",
+      costUsd: 0,
     });
   });
 
