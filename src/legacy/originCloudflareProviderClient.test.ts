@@ -90,6 +90,16 @@ function proofFetch(subscriptions: unknown[] = []) {
   });
 }
 
+function proofFetchWithSettings(settingsResult: unknown, subscriptions: unknown[] = []) {
+  return vi.fn(async (url: string | URL | Request) => {
+    const target = String(url);
+    if (target.includes("/workers/account-settings")) return cloudflareJson(settingsResult);
+    if (target.includes("/subscriptions")) return cloudflareJson(subscriptions);
+    if (target.includes("/ai/models/schema")) return cloudflareJson({ input: {}, output: {} });
+    throw new Error(`unexpected proof URL: ${target}`);
+  });
+}
+
 describe("verifyOriginCloudflareWorkersFreePlan", () => {
   it("accepts a bundled account with no subscriptions", async () => {
     const transport = { count: 0 };
@@ -102,17 +112,42 @@ describe("verifyOriginCloudflareWorkersFreePlan", () => {
     await expect(verifyOriginCloudflareWorkersFreePlan(proofFetch([freeSubscription()]) as unknown as OriginFetch, credentials, transport)).resolves.toEqual({ ok: true });
   });
 
-  it("rejects a paid Workers usage model", async () => {
-    const fetchMock = vi.fn(async () => cloudflareJson({ default_usage_model: "standard" }));
+  it.each(["standard", "unbound"])("rejects a paid Workers usage model (%s)", async (usageModel) => {
+    const fetchMock = vi.fn(async () => cloudflareJson({ default_usage_model: usageModel }));
     await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
       .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("fails closed when the usage model is missing or ambiguous", async () => {
-    const fetchMock = vi.fn(async () => cloudflareJson({}));
+  it("accepts a missing usage model when an explicitly free Workers subscription proves the plan", async () => {
+    const transport = { count: 0 };
+    const fetchMock = proofFetchWithSettings({}, [freeSubscription()]);
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, transport)).resolves.toEqual({ ok: true });
+    expect(transport.count).toBe(3);
+  });
+
+  it("fails closed when the usage model is missing and no subscription proves the free plan", async () => {
+    const fetchMock = proofFetchWithSettings({}, []);
     await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
       .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" });
+  });
+
+  it("fails closed when the usage model is missing and only a non-Workers free subscription exists", async () => {
+    const other = {
+      state: "Trial",
+      price: 0,
+      rate_plan: { id: "r2_free", public_name: "R2 Free", scope: "r2", sets: ["r2"], externally_managed: false, is_contract: false },
+    };
+    const fetchMock = proofFetchWithSettings({}, [other]);
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" });
+  });
+
+  it("fails closed on a non-empty unknown usage model", async () => {
+    const fetchMock = vi.fn(async () => cloudflareJson({ default_usage_model: "something-else" }));
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when the subscriptions response is paginated", async () => {
