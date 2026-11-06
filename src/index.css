@@ -412,7 +412,7 @@ textarea, input[type="text"] {
 
 /* 4. 送信ボタン */
 button[type="submit"], [class*="submit"], [class*="send"] {
-  background: linear-gradient(135deg, #0284C7, #2563EB) !important;
+  background: #2563EB !important;
   background-color: #2563EB !important;
   border: 1px solid transparent !important;
   border-radius: 12px !important;
@@ -504,7 +504,7 @@ button:first-child:has(svg):not(.origin-primary-button) * {
 :root[data-theme="dark"] button[type="submit"],
 :root[data-theme="dark"] [class*="submit"],
 :root[data-theme="dark"] [class*="send"] {
-  background: linear-gradient(135deg, #0284c7, #2563eb) !important;
+  background: #2563EB !important;
   color: #fff !important;
 }
 :root[data-theme="dark"] button:first-child:has(svg):not(.origin-primary-button) {
