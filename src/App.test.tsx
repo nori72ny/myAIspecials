@@ -703,6 +703,20 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('sends with plain Enter, keeps Shift+Enter as a newline, and never submits during IME composition', async () => {
+    const fetchMock = vi.fn(async () => new Response('Enter送信への回答', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    const input = screen.getByTestId('origin-home-request');
+    fireEvent.change(input, { target: { value: 'Enterで送る文章' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true, keyCode: 13 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    vi.unstubAllGlobals();
+  });
+
   it('recognizes explicit repository code-change requests without hijacking code questions', () => {
     expect(isDirectCodingWorkspaceRequest('ログイン画面のバグを修正して、関連テストも追加して')).toBe(true);
     expect(isDirectCodingWorkspaceRequest('このAPI実装を直して')).toBe(true);
