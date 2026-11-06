@@ -9,6 +9,7 @@ import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
+import { createAgentCodingDelegationV14 } from "../agent/agentCodingDelegationV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
 import { createCodingJobSmokeV14Router } from "../agent/codingJobSmokeRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
@@ -58,7 +59,9 @@ export function createOriginApp(
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
-  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore));
+  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, {
+    codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
+  }));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
   app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({

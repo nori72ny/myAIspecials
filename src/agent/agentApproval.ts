@@ -11,6 +11,8 @@ export interface AgentApprovalOperation {
   action: ApprovalAction;
   toolName?: string;
   params?: unknown;
+  /** Ordered multi-step execution set (Agent V3 multi-tool plans). */
+  steps?: unknown;
   checkpointId?: string;
   runId?: string;
 }
