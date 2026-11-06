@@ -21,6 +21,10 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     'b2d110fdecfe11d88313866bc898edf14301517c',
     // 2026-10-29 @hono/node-server 2.1.5 security patch; exact lockfile blob only.
     'b42872be62c970c93dd9a8725e9bc7bd615ac915',
+    // 2026-11-06 express-rate-limit 8.7.3 direct dependency for the agent v3 rate-limit
+    // guard (CodeQL js/missing-rate-limiting remediation, PR #1110); owner-approved
+    // baseline update after review of the exact dependency-only lockfile delta.
+    '1cee086d3fa3a423295066e2bef0a8c161103ee5',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
