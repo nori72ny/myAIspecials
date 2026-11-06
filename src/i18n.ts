@@ -74,6 +74,10 @@ type Translation = {
   keyboardGuidance: string;
   homeHeading: string;
   homeDescription: string;
+  homeSuggestion1: string;
+  homeSuggestion2: string;
+  homeSuggestion3: string;
+  homeSuggestion4: string;
   startWith: string;
   freeOnlyNotice: string;
   starterCards: readonly StarterCard[];
@@ -180,6 +184,10 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     keyboardGuidance: 'Enterで送信、Shift+Enterで改行できます。',
     homeHeading: '今日は何をしますか？',
     homeDescription: '相談、調査、文章・資料づくり、コードまで。普通の言葉で頼むだけで、ORIGINが必要な進め方を選びます。',
+    homeSuggestion1: '今日のニュースを要約して',
+    homeSuggestion2: '企画書の草案を作って',
+    homeSuggestion3: 'Pythonでデータ分析のコードを書いて',
+    homeSuggestion4: '旅行プランを立てて',
     startWith: '始め方を選ぶ',
     freeOnlyNotice: '無料で使えるAIのみを利用します。詳しくは設定をご確認ください。',
     starterCards: [
@@ -289,6 +297,10 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     keyboardGuidance: 'Press Enter to send, Shift+Enter for a new line.',
     homeHeading: 'What are we working on today?',
     homeDescription: 'Ask for advice, research, writing, files, or code in plain language. ORIGIN chooses the useful path for the task.',
+    homeSuggestion1: "Summarize today's news",
+    homeSuggestion2: 'Draft a proposal',
+    homeSuggestion3: 'Write Python code for data analysis',
+    homeSuggestion4: 'Plan a trip',
     startWith: 'Start with an executive workflow',
     freeOnlyNotice: 'Uses only AI options available at no cost. See Settings for details.',
     starterCards: [

@@ -204,6 +204,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(send.textContent).not.toContain('送信');
   });
 
+  it('shows tappable home suggestions on the empty state', () => {
+    render(<App language="ja" onOpenResearch={() => undefined} />);
+
+    const suggestion1 = screen.getByTestId('home-suggestion-1');
+    const suggestion2 = screen.getByTestId('home-suggestion-2');
+    const suggestion3 = screen.getByTestId('home-suggestion-3');
+    const suggestion4 = screen.getByTestId('home-suggestion-4');
+
+    expect(suggestion1.textContent).toBe('今日のニュースを要約して');
+    expect(suggestion2.textContent).toBe('企画書の草案を作って');
+    expect(suggestion3.textContent).toBe('Pythonでデータ分析のコードを書いて');
+    expect(suggestion4.textContent).toBe('旅行プランを立てて');
+    expect(suggestion1.getAttribute('type')).toBe('button');
+  });
+
+  it('shows English home suggestions when language is English', () => {
+    render(<App language="en" onOpenResearch={() => undefined} />);
+
+    expect(screen.getByTestId('home-suggestion-1').textContent).toBe("Summarize today's news");
+    expect(screen.getByTestId('home-suggestion-2').textContent).toBe('Draft a proposal');
+    expect(screen.getByTestId('home-suggestion-3').textContent).toBe('Write Python code for data analysis');
+    expect(screen.getByTestId('home-suggestion-4').textContent).toBe('Plan a trip');
+  });
+
   it('opens renderable artifacts in preview first and exposes source only on demand', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
 
