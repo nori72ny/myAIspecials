@@ -9,7 +9,16 @@ const NOW_IN_WINDOW = () => Date.parse('2026-11-06T12:00:00.000Z');
 const RECONCILE_FAST = { attempts: 2, delayMs: 0, totalMs: 1_000 };
 
 function envelope(result: unknown, status = 200): Response {
-  return new Response(JSON.stringify({ success: status >= 200 && status < 300, result, errors: [], messages: [] }), {
+  return new Response(JSON.stringify({
+    success: status >= 200 && status < 300,
+    result,
+    // v2 plan proof requires a verifiably complete subscriptions read.
+    ...(Array.isArray(result) ? {
+      result_info: { count: result.length, page: 1, per_page: 20, total_count: result.length },
+    } : {}),
+    errors: [],
+    messages: [],
+  }), {
     status,
     headers: { 'content-type': 'application/json' },
   });

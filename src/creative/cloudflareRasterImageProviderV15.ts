@@ -25,6 +25,7 @@ const MAX_REFERENCE_DIMENSION_EXCLUSIVE = 512;
 type CloudflareEnvelope = {
   success?: unknown;
   result?: unknown;
+  result_info?: { count?: unknown; total_count?: unknown; next_page?: unknown };
   errors?: unknown;
 };
 
@@ -60,8 +61,11 @@ function headers(token: string, jsonBody = true): HeadersInit {
   };
 }
 
-function activeSubscription(value: Subscription): boolean {
-  return ['Trial', 'Provisioned', 'Paid', 'AwaitingPayment'].includes(String(value.state ?? ''));
+function subscriptionState(value: Subscription): 'active' | 'inactive' | 'unknown' {
+  const state = String(value?.state ?? '');
+  if (['Trial', 'Provisioned', 'Paid', 'AwaitingPayment'].includes(state)) return 'active';
+  if (['Cancelled', 'Expired', 'Failed'].includes(state)) return 'inactive';
+  return 'unknown';
 }
 
 function workerPlanText(value: Subscription): string {
@@ -80,25 +84,41 @@ async function verifyWorkersFreePlan(
   model: string,
   fetchImpl: typeof fetch,
 ): Promise<{ ok: boolean; requests: number; reason: string | null }> {
-  const settings = await timedFetch(
-    `${API_ORIGIN}/client/v4/accounts/${accountId}/workers/account-settings`,
-    { method: 'GET', headers: headers(apiToken) },
-    fetchImpl,
-    10_000,
-  );
-  if (!settings.ok) return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
-  const settingsBody = await settings.json().catch(() => null) as CloudflareEnvelope | null;
-  const settingsResult = settingsBody?.result && typeof settingsBody.result === 'object' && !Array.isArray(settingsBody.result)
-    ? settingsBody.result as Record<string, unknown>
-    : null;
-  const usageModel = typeof settingsResult?.default_usage_model === 'string'
-    ? settingsResult.default_usage_model.toLowerCase()
-    : '';
-  if (usageModel === 'standard' || usageModel === 'unbound') {
-    return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
-  }
-  if (usageModel && usageModel !== 'bundled') {
-    return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  // Settings leg (v2, mirroring verifyOriginCloudflareWorkersFreePlan): advisory
+  // and negative-only. Cloudflare does not offer workers/account-settings on
+  // every account — measured on a dashboard-confirmed Workers Free account it
+  // returns HTTP 401 (error 10023) for account and user tokens alike — so a
+  // failed read (HTTP error, success !== true, network failure) is neutral and
+  // never blocks by itself. Strictness is carried by the subscriptions and
+  // schema legs below, which each require their own successful read.
+  try {
+    const settings = await timedFetch(
+      `${API_ORIGIN}/client/v4/accounts/${accountId}/workers/account-settings`,
+      { method: 'GET', headers: headers(apiToken) },
+      fetchImpl,
+      10_000,
+    );
+    if (settings.ok) {
+      const settingsBody = await settings.json().catch(() => null) as CloudflareEnvelope | null;
+      if (settingsBody?.success === true) {
+        const settingsResult = settingsBody.result && typeof settingsBody.result === 'object' && !Array.isArray(settingsBody.result)
+          ? settingsBody.result as Record<string, unknown>
+          : null;
+        const usageModel = typeof settingsResult?.default_usage_model === 'string'
+          ? settingsResult.default_usage_model.toLowerCase()
+          : '';
+        if (usageModel === 'standard' || usageModel === 'unbound') {
+          return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
+        }
+        // A missing/empty default_usage_model is neutral (the field is
+        // optional). A non-empty unknown value is unverifiable and blocks here.
+        if (usageModel && usageModel !== 'bundled') {
+          return { ok: false, requests: 1, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+        }
+      }
+    }
+  } catch {
+    // A network-level failure of the advisory settings read is neutral (v2).
   }
 
   const subscriptions = await timedFetch(
@@ -109,30 +129,88 @@ async function verifyWorkersFreePlan(
   );
   if (!subscriptions.ok) return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_READ_REQUIRED' };
   const subscriptionsBody = await subscriptions.json().catch(() => null) as CloudflareEnvelope | null;
-  const rows = Array.isArray(subscriptionsBody?.result) ? subscriptionsBody!.result as Subscription[] : null;
-  if (!rows) return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
+  if (subscriptionsBody?.success !== true) return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_READ_REQUIRED' };
+  const rows = Array.isArray(subscriptionsBody.result) ? subscriptionsBody.result as Subscription[] : null;
+  // Completeness of the paginated read, same rule as the chat proof: when both
+  // count fields are present they must be safe integers matching the row count
+  // exactly; when both are absent (the shape Cloudflare's current billing API
+  // returns) the read is complete only on an explicit next_page === false.
+  const subscriptionInfo = subscriptionsBody.result_info;
+  const hasCount = subscriptionInfo?.count !== undefined;
+  const hasTotalCount = subscriptionInfo?.total_count !== undefined;
+  const countsComplete = hasCount && hasTotalCount && rows !== null
+    && Number.isSafeInteger(subscriptionInfo?.count)
+    && Number.isSafeInteger(subscriptionInfo?.total_count)
+    && subscriptionInfo?.count === rows.length
+    && subscriptionInfo?.total_count === rows.length;
+  const nextPageComplete = !hasCount && !hasTotalCount && subscriptionInfo?.next_page === false;
+  if (!rows || !subscriptionInfo || (!countsComplete && !nextPageComplete)) {
+    return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_READ_INCOMPLETE' };
+  }
 
   let provenFreeWorkersSubscription = false;
   for (const row of rows) {
-    if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;
-    const text = workerPlanText(row);
-    if (!text.includes('worker')) continue;
-    const numericPrice = typeof row.price === 'number' && Number.isFinite(row.price) ? row.price : null;
-    if (numericPrice !== null && numericPrice > 0) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED' };
+    }
+    const state = subscriptionState(row);
+    if (state === 'inactive') continue;
+    if (state === 'unknown') {
+      // An unrecognized state must not be silently treated as inactive.
+      return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED' };
+    }
+    if (row.state === 'Paid' || row.state === 'AwaitingPayment') {
+      // A paid or payment-pending subscription is never accepted as Free,
+      // even if an inconsistent rate_plan object claims a zero-priced Free tier.
       return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
     }
-    if (text.includes('paid') || !text.includes('free')) {
+
+    const ratePlan = row.rate_plan && typeof row.rate_plan === 'object' && !Array.isArray(row.rate_plan)
+      ? row.rate_plan as Record<string, unknown>
+      : {};
+    const text = workerPlanText(row);
+    if (!text) {
+      return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED' };
+    }
+
+    if (!text.includes('worker')) {
+      // Non-Workers products may be ignored only when their product identity is explicit.
+      const productMarkers = [ratePlan.scope, ...(Array.isArray(ratePlan.sets) ? ratePlan.sets : [])]
+        .filter(item => typeof item === 'string' && item.trim().length > 0);
+      if (productMarkers.length === 0) {
+        return { ok: false, requests: 2, reason: 'CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED' };
+      }
+      continue;
+    }
+
+    const ratePlanId = typeof ratePlan.id === 'string' ? ratePlan.id.toLowerCase() : '';
+    const hasExplicitFreePlanId = ratePlanId === 'free' || ratePlanId === 'partners_free';
+    const hasExactZeroPrice = typeof row.price === 'number' && Number.isFinite(row.price) && row.price === 0;
+    const explicitlyNotExternallyManaged = ratePlan.externally_managed === false;
+    const explicitlyNotContracted = ratePlan.is_contract === false;
+
+    // Every optional billing field must positively prove the free Workers entitlement.
+    if (
+      !hasExplicitFreePlanId
+      || !hasExactZeroPrice
+      || !explicitlyNotExternallyManaged
+      || !explicitlyNotContracted
+      || text.includes('paid')
+    ) {
       return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
     }
     provenFreeWorkersSubscription = true;
   }
 
-  // A missing/empty usage model is not by itself evidence of the bundled free
-  // allocation (Cloudflare omits the optional field on some free accounts).
-  // Without an explicit 'bundled', an active Workers row that is explicitly
-  // free (free label, no paid label, no positive price) must have positively
-  // proven the free plan in the loop above; otherwise fail closed.
-  if (usageModel !== 'bundled' && !provenFreeWorkersSubscription) {
+  // Positive proof (v2): the subscriptions leg carries the proof on its own.
+  // The read above succeeded (Billing Read) and is complete, and every row
+  // passed the strict checks. What remains is one of two positive shapes: at
+  // least one proven free Workers row, or zero rows at all. An empty result is
+  // positive evidence, not missing evidence: a complete Billing Read that
+  // returns no subscriptions shows there is no billing contract, and the
+  // Workers Free plan has no overage-billing mechanism that could start
+  // charging. A non-empty read with no proven free Workers row stays unverified.
+  if (rows.length > 0 && !provenFreeWorkersSubscription) {
     return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 

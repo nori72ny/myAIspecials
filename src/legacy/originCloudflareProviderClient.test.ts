@@ -90,6 +90,16 @@ function proofFetch(subscriptions: unknown[] = []) {
   });
 }
 
+function rawJson(body: string, status = 200) {
+  return new Response(body, { status, headers: { "Content-Type": "application/json" } });
+}
+
+// Verbatim payloads measured on the real account (2026-11-07, diag1/diag2):
+// the settings endpoint is not offered (401/10023) and the subscriptions read
+// is empty with no count/total_count fields, only next_page.
+const REAL_SETTINGS_401_BODY = "{\"result\": null, \"success\": false, \"errors\": [{\"code\": 10023, \"message\": \"You do not have access to this feature. Please ensure it is enabled. If you are an Enterprise user, reach out to your account team.\"}], \"messages\": []}";
+const REAL_SUBSCRIPTIONS_EMPTY_BODY = "{\"errors\":[],\"messages\":[],\"result\":[],\"result_info\":{\"page\":1,\"per_page\":25,\"next_page\":false},\"success\":true}";
+
 function proofFetchWithSettings(settingsResult: unknown, subscriptions: unknown[] = []) {
   return vi.fn(async (url: string | URL | Request) => {
     const target = String(url);
@@ -126,10 +136,78 @@ describe("verifyOriginCloudflareWorkersFreePlan", () => {
     expect(transport.count).toBe(3);
   });
 
-  it("fails closed when the usage model is missing and no subscription proves the free plan", async () => {
+  // v2: a complete subscriptions read with zero rows is positive proof on its
+  // own (Billing Read shows no billing contract exists), so a missing usage
+  // model no longer blocks an otherwise empty read. This replaces the pre-v2
+  // expectation that an empty read failed closed.
+  it("accepts a missing usage model when a complete subscriptions read returns no rows", async () => {
+    const transport = { count: 0 };
     const fetchMock = proofFetchWithSettings({}, []);
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, transport)).resolves.toEqual({ ok: true });
+    expect(transport.count).toBe(3);
+  });
+
+  it("accepts the verbatim real-account payloads: settings 401/10023 and an empty count-less subscriptions read", async () => {
+    const transport = { count: 0 };
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes("/workers/account-settings")) return rawJson(REAL_SETTINGS_401_BODY, 401);
+      if (target.includes("/subscriptions")) return rawJson(REAL_SUBSCRIPTIONS_EMPTY_BODY);
+      if (target.includes("/ai/models/schema")) return cloudflareJson({ input: {}, output: {} });
+      throw new Error(`unexpected proof URL: ${target}`);
+    });
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, transport)).resolves.toEqual({ ok: true });
+    expect(transport.count).toBe(3);
+  });
+
+  it("treats a network failure on the advisory settings read as neutral", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes("/workers/account-settings")) throw new Error("network unreachable");
+      if (target.includes("/subscriptions")) return rawJson(REAL_SUBSCRIPTIONS_EMPTY_BODY);
+      if (target.includes("/ai/models/schema")) return cloudflareJson({ input: {}, output: {} });
+      throw new Error(`unexpected proof URL: ${target}`);
+    });
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 })).resolves.toEqual({ ok: true });
+  });
+
+  it("still rejects a paid Workers subscription when the settings read failed", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes("/workers/account-settings")) return rawJson(REAL_SETTINGS_401_BODY, 401);
+      if (target.includes("/subscriptions")) return cloudflareJson([freeSubscription({ state: "Paid", price: 5 })]);
+      if (target.includes("/ai/models/schema")) return cloudflareJson({ input: {}, output: {} });
+      throw new Error(`unexpected proof URL: ${target}`);
+    });
     await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
-      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" });
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" });
+  });
+
+  it("fails closed when billing read is denied even if the settings read failed first", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(rawJson(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(cloudflareJson(null, 403));
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_BILLING_READ_REQUIRED" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when a count-less subscriptions read still has a next page", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(rawJson(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(rawJson("{\"errors\":[],\"messages\":[],\"result\":[],\"result_info\":{\"page\":1,\"per_page\":25,\"next_page\":true},\"success\":true}"));
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_BILLING_READ_INCOMPLETE" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when only one of the pagination count fields is present", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cloudflareJson({ default_usage_model: "bundled" }))
+      .mockResolvedValueOnce(rawJson("{\"success\":true,\"result\":[],\"result_info\":{\"count\":0,\"page\":1,\"per_page\":25},\"errors\":[],\"messages\":[]}"));
+    await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_BILLING_READ_INCOMPLETE" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when the usage model is missing and only a non-Workers free subscription exists", async () => {
@@ -206,7 +284,11 @@ describe("verifyOriginCloudflareWorkersFreePlan", () => {
       .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" });
   });
 
-  it("ignores a non-Workers subscription whose product identity is explicit", async () => {
+  // v2: the row itself is still ignored (its product identity is explicit and
+  // it passes the strict checks), but a non-empty read with no proven free
+  // Workers row no longer satisfies the positive proof — the pre-v2 version of
+  // this test let the "bundled" usage model substitute for a Workers row.
+  it("fails closed when the only subscription is a non-Workers one, even with a bundled usage model", async () => {
     const other = {
       state: "Trial",
       price: 0,
@@ -214,7 +296,7 @@ describe("verifyOriginCloudflareWorkersFreePlan", () => {
     };
     const fetchMock = proofFetch([other]);
     await expect(verifyOriginCloudflareWorkersFreePlan(fetchMock as unknown as OriginFetch, credentials, { count: 0 }))
-      .resolves.toEqual({ ok: true });
+      .resolves.toEqual({ ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" });
   });
 
   it("rejects a model that requires a paid plan", async () => {

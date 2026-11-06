@@ -22,8 +22,8 @@ import {
  * This executor is only reachable through originProviderFailover when the owner enables
  * ORIGIN_CF_FAILOVER_ENABLED. It never runs on its own from a router, and it never relaxes
  * the zero-cost contract: before every inference it mechanically proves that the account is
- * on the Workers Free plan (bundled usage model, no paid Workers subscription, exact $0
- * prices, live model schema) using the read-only proof token. Any unverifiable condition
+ * on the Workers Free plan (no paid Workers subscription, exact $0 prices on any Workers
+ * row, live model schema) using the read-only proof token. Any unverifiable condition
  * blocks the route before inference is sent (fail closed), mirroring the plan-proof logic
  * first built for PR #1092 and tightened by PR #1094. Cloudflare documents zero data
  * retention and no training on Customer Content for Workers AI, which is why this route can
@@ -87,7 +87,7 @@ export function resolveOriginCloudflareCredentials(env: NodeJS.ProcessEnv): Orig
 interface CloudflareEnvelope {
   success?: unknown;
   result?: unknown;
-  result_info?: { count?: unknown; total_count?: unknown };
+  result_info?: { count?: unknown; total_count?: unknown; next_page?: unknown };
   errors?: Array<{ code?: unknown; message?: unknown }>;
   usage?: unknown;
 }
@@ -140,13 +140,21 @@ export type OriginCloudflarePlanProofResult = { ok: true } | { ok: false; reason
 
 /**
  * Mechanical $0.00 proof for the Cloudflare route, ported from the PR #1092 preview worker
- * with the PR #1094 fail-closed tightening. Every optional billing field must positively
- * prove the free Workers entitlement; anything ambiguous, paginated, externally
- * managed, contracted, or paid blocks the route. One exception: `default_usage_model`
- * is optional in the Cloudflare API and is omitted on some genuinely free accounts,
- * so its absence is treated as neutral — never as proof — and shifts the burden
- * entirely onto the subscription proof, which must then positively prove an active
- * free Workers row (see below).
+ * with the PR #1094 fail-closed tightening, and revised (v2, 2026-11-07) against the real
+ * API responses measured on a dashboard-confirmed Workers Free account ($0, no payment
+ * method registered):
+ * - `workers/account-settings` is not offered on that account at all (HTTP 401, error
+ *   10023, for account and user tokens alike), so the settings read is advisory only:
+ *   it can veto the route (paid usage model, unknown non-empty value) but a failed
+ *   read never blocks by itself.
+ * - `subscriptions` omits the `count`/`total_count` pagination fields; a read in that
+ *   shape is complete only when the API explicitly states `next_page === false`.
+ * - The subscriptions result is empty even though the account is genuinely on Workers
+ *   Free (the dashboard billing rows are not exposed through this API), so the positive
+ *   proof is: a complete read whose rows all pass the strict free checks below, with
+ *   either at least one proven free Workers row or zero rows at all.
+ * Every row that is present must still pass the strict checks; anything paid, ambiguous,
+ * externally managed, or contracted blocks the route.
  */
 export async function verifyOriginCloudflareWorkersFreePlan(
   fetchImpl: OriginFetch,
@@ -155,25 +163,27 @@ export async function verifyOriginCloudflareWorkersFreePlan(
 ): Promise<OriginCloudflarePlanProofResult> {
   const accountBase = `${CLOUDFLARE_API_BASE}/accounts/${credentials.accountId}`;
 
+  // Settings leg (v2): advisory, negative-only. Strictness is carried by the
+  // subscriptions and schema legs below, which each require their own successful
+  // read — a revoked or under-privileged proof token fails the subscriptions
+  // read, so demoting this leg cannot open the route on a broken token.
   const settings = await readCloudflareJson(fetchImpl, `${accountBase}/workers/account-settings`, credentials.proofToken, transport);
-  if (!settings.response?.ok || settings.body?.success !== true) {
-    return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
-  }
-  const settingsResult = settings.body.result && typeof settings.body.result === "object" && !Array.isArray(settings.body.result)
-    ? settings.body.result as Record<string, unknown>
-    : {};
-  const usageModel = typeof settingsResult.default_usage_model === "string"
-    ? settingsResult.default_usage_model.toLowerCase()
-    : "";
-  if (usageModel === "standard" || usageModel === "unbound") {
-    return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
-  }
-  // A missing/empty default_usage_model is neutral (the field is optional and
-  // Cloudflare omits it on some free accounts). A non-empty unknown value is
-  // still unverifiable and blocks the route here.
-  const usageModelMissing = usageModel === "";
-  if (!usageModelMissing && usageModel !== "bundled") {
-    return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
+  if (settings.response?.ok && settings.body?.success === true) {
+    const settingsResult = settings.body.result && typeof settings.body.result === "object" && !Array.isArray(settings.body.result)
+      ? settings.body.result as Record<string, unknown>
+      : {};
+    const usageModel = typeof settingsResult.default_usage_model === "string"
+      ? settingsResult.default_usage_model.toLowerCase()
+      : "";
+    if (usageModel === "standard" || usageModel === "unbound") {
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
+    }
+    // A missing/empty default_usage_model is neutral (the field is optional and
+    // Cloudflare omits it on some free accounts). A non-empty unknown value is
+    // still unverifiable and blocks the route here.
+    if (usageModel !== "" && usageModel !== "bundled") {
+      return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
+    }
   }
 
   const subscriptions = await readCloudflareJson(fetchImpl, `${accountBase}/subscriptions`, credentials.proofToken, transport);
@@ -182,15 +192,22 @@ export async function verifyOriginCloudflareWorkersFreePlan(
   if (!subscriptions.response?.ok || subscriptions.body?.success !== true) {
     return { ok: false, reason: "CLOUDFLARE_BILLING_READ_REQUIRED" };
   }
-  if (
-    !Array.isArray(subscriptionRows)
-    || !subscriptionInfo
-    || !Number.isSafeInteger(subscriptionInfo.count)
-    || !Number.isSafeInteger(subscriptionInfo.total_count)
-    || subscriptionInfo.count !== subscriptionRows.length
-    || subscriptionInfo.total_count !== subscriptionRows.length
-  ) {
-    // The endpoint is paginated. Never infer a Free account from an incomplete first page.
+  // Completeness of the paginated read. When both count fields are present they
+  // must be safe integers matching the row count exactly. When both are absent
+  // (the shape Cloudflare's current billing API returns), the read is complete
+  // only on an explicit `next_page === false`. Anything else — exactly one count
+  // field, a mismatch, `next_page` true or missing — is an incomplete read:
+  // never infer a Free account from a partial page.
+  const rowCount = Array.isArray(subscriptionRows) ? subscriptionRows.length : -1;
+  const hasCount = subscriptionInfo?.count !== undefined;
+  const hasTotalCount = subscriptionInfo?.total_count !== undefined;
+  const countsComplete = hasCount && hasTotalCount
+    && Number.isSafeInteger(subscriptionInfo?.count)
+    && Number.isSafeInteger(subscriptionInfo?.total_count)
+    && subscriptionInfo?.count === rowCount
+    && subscriptionInfo?.total_count === rowCount;
+  const nextPageComplete = !hasCount && !hasTotalCount && subscriptionInfo?.next_page === false;
+  if (!Array.isArray(subscriptionRows) || !subscriptionInfo || (!countsComplete && !nextPageComplete)) {
     return { ok: false, reason: "CLOUDFLARE_BILLING_READ_INCOMPLETE" };
   }
 
@@ -249,10 +266,16 @@ export async function verifyOriginCloudflareWorkersFreePlan(
     provenFreeWorkersSubscription = true;
   }
 
-  // Without an explicit "bundled" usage model, the subscription proof above is
-  // the only evidence of the free plan: at least one active Workers row must
-  // have passed the strict free checks, otherwise the route stays unverified.
-  if (usageModel !== "bundled" && !provenFreeWorkersSubscription) {
+  // Positive proof (v2): the subscriptions leg carries the proof on its own.
+  // The read above succeeded under a Billing Read token and is complete, and
+  // every row passed the strict checks (any paid, unknown-state, or unverifiable
+  // row already returned). What remains is one of two positive shapes: at least
+  // one proven free Workers row, or zero rows at all. An empty result is
+  // positive evidence, not missing evidence: a complete Billing Read that
+  // returns no subscriptions shows there is no billing contract, and the
+  // Workers Free plan has no overage-billing mechanism that could start
+  // charging. A non-empty read with no proven free Workers row stays unverified.
+  if (subscriptionRows.length > 0 && !provenFreeWorkersSubscription) {
     return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
   }
 

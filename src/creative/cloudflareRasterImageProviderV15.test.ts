@@ -11,11 +11,29 @@ const ENV: NodeJS.ProcessEnv = {
 };
 
 function json(result: unknown, status = 200) {
-  return new Response(JSON.stringify({ success: status >= 200 && status < 300, result, errors: [], messages: [] }), {
+  return new Response(JSON.stringify({
+    success: status >= 200 && status < 300,
+    result,
+    ...(Array.isArray(result) ? {
+      result_info: { count: result.length, page: 1, per_page: 20, total_count: result.length },
+    } : {}),
+    errors: [],
+    messages: [],
+  }), {
     status,
     headers: { 'content-type': 'application/json' },
   });
 }
+
+function raw(body: string, status = 200) {
+  return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+}
+
+// Verbatim payloads measured on the real account (2026-11-07, diag1/diag2):
+// the settings endpoint is not offered (401/10023) and the subscriptions read
+// is empty with no count/total_count fields, only next_page.
+const REAL_SETTINGS_401_BODY = '{"result": null, "success": false, "errors": [{"code": 10023, "message": "You do not have access to this feature. Please ensure it is enabled. If you are an Enterprise user, reach out to your account team."}], "messages": []}';
+const REAL_SUBSCRIPTIONS_EMPTY_BODY = '{"errors":[],"messages":[],"result":[],"result_info":{"page":1,"per_page":25,"next_page":false},"success":true}';
 
 function failure(status: number, code: number) {
   return new Response(JSON.stringify({
@@ -103,24 +121,93 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([undefined, '', 'unknown'])('does not treat a missing or unknown usage model as free (%s)', async (usageModel) => {
+  // v2: a missing/empty usage model is neutral — with a complete, empty
+  // subscriptions read the proof stands on the subscriptions leg alone. The
+  // pre-v2 version of this case expected PLAN_UNVERIFIED for undefined/''.
+  it.each([undefined, ''])('treats a missing or empty usage model as neutral when the subscriptions read is completely empty (%s)', async (usageModel) => {
     const settings = usageModel === undefined ? {} : { default_usage_model: usageModel };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json(settings))
-      .mockResolvedValueOnce(json([])) as unknown as typeof fetch;
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} })) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: true,
+      freeAllocationEligible: true,
+      reason: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails closed on a non-empty unknown usage model', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'unknown' })) as unknown as typeof fetch;
 
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
       ready: false,
       zeroCostVerified: false,
       reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(usageModel && usageModel !== 'bundled' ? 1 : 2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the verbatim real-account payloads: settings 401/10023 and an empty count-less subscriptions read', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(raw(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(raw(REAL_SUBSCRIPTIONS_EMPTY_BODY))
+      .mockResolvedValueOnce(json({ input: {}, output: {} })) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      configured: true,
+      ready: true,
+      freeAllocationEligible: true,
+      reason: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails closed when a count-less subscriptions read still has a next page', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(raw(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(raw('{"errors":[],"messages":[],"result":[],"result_info":{"page":1,"per_page":25,"next_page":true},"success":true}')) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_BILLING_READ_INCOMPLETE',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed on a subscription row with an unrecognized state', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(raw(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(json([{ state: 'SomethingNew', price: 0, rate_plan: { id: 'free', public_name: 'Workers Free', scope: 'workers', sets: ['workers'], externally_managed: false, is_contract: false } }])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires Billing Read evidence even when the settings read failed first', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(raw(REAL_SETTINGS_401_BODY, 401))
+      .mockResolvedValueOnce(json({}, 403)) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      reason: 'CLOUDFLARE_BILLING_READ_REQUIRED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('accepts a missing usage model when an active explicitly free Workers subscription proves the plan', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({}))
-      .mockResolvedValueOnce(json([{ state: 'Provisioned', price: 0, rate_plan: { id: 'free', public_name: 'Workers Free', sets: ['workers'] } }]))
+      .mockResolvedValueOnce(json([{ state: 'Provisioned', price: 0, rate_plan: { id: 'free', public_name: 'Workers Free', sets: ['workers'], externally_managed: false, is_contract: false } }]))
       .mockResolvedValueOnce(json({ input: {}, output: {} })) as unknown as typeof fetch;
 
     await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
