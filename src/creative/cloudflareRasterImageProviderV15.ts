@@ -112,6 +112,7 @@ async function verifyWorkersFreePlan(
   const rows = Array.isArray(subscriptionsBody?.result) ? subscriptionsBody!.result as Subscription[] : null;
   if (!rows) return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
 
+  let provenFreeWorkersSubscription = false;
   for (const row of rows) {
     if (!row || typeof row !== 'object' || !activeSubscription(row)) continue;
     const text = workerPlanText(row);
@@ -123,10 +124,15 @@ async function verifyWorkersFreePlan(
     if (text.includes('paid') || !text.includes('free')) {
       return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED' };
     }
+    provenFreeWorkersSubscription = true;
   }
 
-  // A missing/empty usage model is unknown, not evidence of the bundled free allocation.
-  if (usageModel !== 'bundled') {
+  // A missing/empty usage model is not by itself evidence of the bundled free
+  // allocation (Cloudflare omits the optional field on some free accounts).
+  // Without an explicit 'bundled', an active Workers row that is explicitly
+  // free (free label, no paid label, no positive price) must have positively
+  // proven the free plan in the loop above; otherwise fail closed.
+  if (usageModel !== 'bundled' && !provenFreeWorkersSubscription) {
     return { ok: false, requests: 2, reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED' };
   }
 

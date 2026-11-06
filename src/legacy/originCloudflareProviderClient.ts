@@ -141,8 +141,12 @@ export type OriginCloudflarePlanProofResult = { ok: true } | { ok: false; reason
 /**
  * Mechanical $0.00 proof for the Cloudflare route, ported from the PR #1092 preview worker
  * with the PR #1094 fail-closed tightening. Every optional billing field must positively
- * prove the free Workers entitlement; anything missing, ambiguous, paginated, externally
- * managed, contracted, or paid blocks the route.
+ * prove the free Workers entitlement; anything ambiguous, paginated, externally
+ * managed, contracted, or paid blocks the route. One exception: `default_usage_model`
+ * is optional in the Cloudflare API and is omitted on some genuinely free accounts,
+ * so its absence is treated as neutral — never as proof — and shifts the burden
+ * entirely onto the subscription proof, which must then positively prove an active
+ * free Workers row (see below).
  */
 export async function verifyOriginCloudflareWorkersFreePlan(
   fetchImpl: OriginFetch,
@@ -164,7 +168,11 @@ export async function verifyOriginCloudflareWorkersFreePlan(
   if (usageModel === "standard" || usageModel === "unbound") {
     return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
   }
-  if (usageModel !== "bundled") {
+  // A missing/empty default_usage_model is neutral (the field is optional and
+  // Cloudflare omits it on some free accounts). A non-empty unknown value is
+  // still unverifiable and blocks the route here.
+  const usageModelMissing = usageModel === "";
+  if (!usageModelMissing && usageModel !== "bundled") {
     return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
   }
 
@@ -186,6 +194,7 @@ export async function verifyOriginCloudflareWorkersFreePlan(
     return { ok: false, reason: "CLOUDFLARE_BILLING_READ_INCOMPLETE" };
   }
 
+  let provenFreeWorkersSubscription = false;
   for (const row of subscriptionRows) {
     if (!row || typeof row !== "object" || Array.isArray(row)) {
       return { ok: false, reason: "CLOUDFLARE_BILLING_SUBSCRIPTION_UNVERIFIED" };
@@ -237,6 +246,14 @@ export async function verifyOriginCloudflareWorkersFreePlan(
     ) {
       return { ok: false, reason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" };
     }
+    provenFreeWorkersSubscription = true;
+  }
+
+  // Without an explicit "bundled" usage model, the subscription proof above is
+  // the only evidence of the free plan: at least one active Workers row must
+  // have passed the strict free checks, otherwise the route stays unverified.
+  if (usageModel !== "bundled" && !provenFreeWorkersSubscription) {
+    return { ok: false, reason: "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED" };
   }
 
   const schema = await readCloudflareJson(

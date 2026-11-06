@@ -117,6 +117,34 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(fetchMock).toHaveBeenCalledTimes(usageModel && usageModel !== 'bundled' ? 1 : 2);
   });
 
+  it('accepts a missing usage model when an active explicitly free Workers subscription proves the plan', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([{ state: 'Provisioned', price: 0, rate_plan: { id: 'free', public_name: 'Workers Free', sets: ['workers'] } }]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} })) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      configured: true,
+      ready: true,
+      freeAllocationEligible: true,
+      reason: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails closed when the usage model is missing and only a non-Workers free subscription exists', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([{ state: 'Provisioned', price: 0, rate_plan: { id: 'r2_free', public_name: 'R2 Free', sets: ['r2'] } }])) as unknown as typeof fetch;
+
+    await expect(getCloudflareRasterStatusV15(ENV, fetchMock)).resolves.toMatchObject({
+      ready: false,
+      zeroCostVerified: false,
+      reason: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects an active paid Workers subscription even when the usage-model field is ambiguous', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({}))
