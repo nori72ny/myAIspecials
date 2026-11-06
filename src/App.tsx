@@ -521,6 +521,8 @@ const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を�
 const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
 const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
+const RATE_LIMIT_MESSAGE = '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。';
+const RATE_LIMIT_MESSAGE_EN = 'The free AI usage limit has been reached. Your input is preserved; please wait a moment and try again.';
 
 type OriginChatFailurePayload = {
   code?: unknown;
@@ -1119,6 +1121,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const [isSafeWaiting, setIsSafeWaiting] = useState(false);
+  // The most recent chat request that failed with a user-recoverable error
+  // (rate limit, busy, transport, generic). Drives the inline retry button;
+  // only set for sends without attachments, whose content is baked into the
+  // history entry and could not be reconstructed faithfully on a retry.
+  const [failedChatRequest, setFailedChatRequest] = useState<{ text: string } | null>(null);
   const [isImageGenerationPanelOpen, setIsImageGenerationPanelOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [imageEditTarget, setImageEditTarget] = useState<{ assetId: string; shortSha: string } | null>(null);
@@ -1172,7 +1179,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1285,6 +1292,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
 
     setAttachmentError('');
     setIsSafeWaiting(false);
+    setFailedChatRequest(null);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
@@ -1314,6 +1322,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       setIsSafeWaiting(true);
     };
     let streamRenderBatcher: OriginStreamRenderBatcher | null = null;
+    // Set once the plain chat exchange (not the image path) has started, so
+    // the shared catch block only offers chat retries for chat failures.
+    let chatExchangeStarted = false;
     try {
       const shouldGenerateImage = !interruptCurrent
         && attachments.length === 0
@@ -1660,6 +1671,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
 
       const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages });
+      chatExchangeStarted = true;
       let response = await fetchOriginChat(requestBody, controller.signal);
       let failure: OriginChatFailurePayload | null = null;
       if (!response.ok) failure = await response.json().catch(() => null) as OriginChatFailurePayload | null;
@@ -1687,6 +1699,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           // state and keep the $0.00/no-unverified-answer boundary intact.
           if (failure?.retryAttempted === true) {
             appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+            if (attachments.length === 0) setFailedChatRequest({ text });
             return;
           }
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
@@ -1694,7 +1707,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
             setAttachmentError('');
             setIsSafeWaiting(false);
-          } else appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+          } else {
+            appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+            if (attachments.length === 0) setFailedChatRequest({ text });
+          }
+          return;
+        }
+        if (failure?.code === 'PROVIDER_RATE_LIMITED') {
+          // A non-retryable rate limit (e.g. the free daily cap) is not
+          // "busy" and must not collapse into the generic error: name the
+          // cause and offer a manual retry instead.
+          appendFailure(language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE);
+          if (attachments.length === 0) setFailedChatRequest({ text });
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
@@ -1702,6 +1726,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
         appendFailure(t.error);
+        if (attachments.length === 0) setFailedChatRequest({ text });
         return;
       }
       const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
@@ -1771,13 +1796,27 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       }
       updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
     } catch (error) {
-      if ((error as DOMException).name !== 'AbortError') appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+      if ((error as DOMException).name !== 'AbortError') {
+        appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+        if (chatExchangeStarted && attachments.length === 0) setFailedChatRequest({ text });
+      }
     }
     finally {
       streamRenderBatcher?.cancel();
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
       if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); }
     }
+  };
+  const handleRetryFailedChat = () => {
+    if (!failedChatRequest || isLoading || isOffline) return;
+    const retryText = failedChatRequest.text;
+    setFailedChatRequest(null);
+    setAttachmentError('');
+    setIsSafeWaiting(false);
+    // Drop the failed exchange's user turn first: handleSend appends it
+    // again as part of the new attempt, so the log must not keep both.
+    updateMessages((current) => current.at(-1)?.role === 'user' ? current.slice(0, -1) : current);
+    void handleSend(retryText);
   };
   const requestImageEdit = async (image: GeneratedImageMessage) => {
     if (isLoading || isOffline) return;
@@ -1879,8 +1918,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     {onOpenCreative && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenCreative(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '作る' : 'Create a deliverable'}</button>}
     {onOpenDetails && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenDetails(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '詳細・作業状況' : 'Details & status'}</button>}
   </div>
-</details>{isLoading ? <button type="button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-base font-black" aria-describedby="origin-chat-guidance">■</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} title={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-black disabled:cursor-not-allowed disabled:opacity-40" aria-describedby="origin-chat-guidance">↑</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="mt-2 text-[13px] text-[var(--danger)]">{attachmentError}</p>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
-  return <div className={`origin-app flex ${embedded ? "h-full w-full" : "h-[100dvh] w-screen"} overflow-hidden font-sans`}><main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden"><HeaderV12 className="origin-header flex min-h-14 items-center justify-between px-3 backdrop-blur-md sm:px-4">
+</details>{isLoading ? <button type="button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-base font-black" aria-describedby="origin-chat-guidance">■</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} title={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-black disabled:cursor-not-allowed" aria-describedby="origin-chat-guidance">↑</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2"><p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="text-[13px] text-[var(--danger)]">{attachmentError}</p>{failedChatRequest && !isLoading && !isOffline && <button type="button" data-testid="chat-retry-button" onClick={handleRetryFailedChat} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '再試行' : 'Retry'}</button>}</div>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
+  return <div className={`origin-app flex ${embedded ? "h-full w-full" : "h-[100dvh] w-screen"} overflow-hidden font-sans`}><main id="origin-main" tabIndex={-1} className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden"><HeaderV12 className="origin-header flex min-h-14 items-center justify-between px-3 backdrop-blur-md sm:px-4">
   <div className="flex items-center gap-2">
     
   <div className="flex items-center gap-2">

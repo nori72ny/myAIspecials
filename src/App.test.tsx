@@ -1209,6 +1209,58 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('names the rate-limit cause for a non-retryable 429 and offers a manual retry that does not duplicate the user turn', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const valid = {
+      content: '再試行で得られた検証済み回答',
+      routing: {
+        modelId: model,
+        freeOnly: true,
+        cost: 0,
+        actualCostUsd: 0,
+        estimatedCostUsd: 0,
+        usage: { costUsd: 0 },
+        providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+      },
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(valid), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 'PROVIDER_RATE_LIMITED',
+        message: '無料AIの利用上限に達しました。',
+        retryable: false,
+        retryAttempted: false,
+      }), { status: 429, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '上限到達時の再試行' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。')).toBeTruthy());
+    expect(screen.queryByText('エラーが発生しました。再度お試しください。')).toBeNull();
+    const retryButton = screen.getByTestId('chat-retry-button');
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(screen.getByText('再試行で得られた検証済み回答')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText('上限到達時の再試行')).toHaveLength(1);
+    expect(screen.queryByTestId('chat-retry-button')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not offer a chat retry for a safe-waiting policy failure', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: 'PROVIDER_POLICY_VIOLATION' }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'ポリシー失敗時の再試行ボタン確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy());
+    expect(screen.queryByTestId('chat-retry-button')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it('retries one explicitly retryable free-provider failure and accepts only the verified zero-cost result', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const valid = {
