@@ -163,9 +163,19 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ matrix.browser }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Install ${{ matrix.browser }}
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Install ${{ matrix.browser }} system deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps ${{ matrix.browser }}
       - run: npm run build
       - name: Exercise isolated preview boundary
         env:
