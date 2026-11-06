@@ -232,11 +232,11 @@ export interface AgentRunConsumptionStore {
 
 export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort }): Router {
   const router = express.Router();
-  // The shared rate limiter is mounted on this router itself (the same
-  // in-file pattern as the MCP routers) so every POST route defined below
-  // is guarded with the shared thresholds and the CHAT_RATE_LIMITED /
+  // One shared limiter instance is passed directly as middleware to each
+  // POST route defined below, so all five routes draw on the same token
+  // bucket with the shared thresholds and the CHAT_RATE_LIMITED /
   // Retry-After contract. GET /status is read-only and stays unmetered.
-  router.use('/api/agent/v3', createOriginChatRateLimiter(Date.now, ['POST']));
+  const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
 
   router.get('/api/agent/v3/status', (_req, res) => {
@@ -266,7 +266,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/plan', (req, res) => {
+  router.post('/api/agent/v3/plan', agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
@@ -357,7 +357,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   };
 
-  router.post('/api/agent/v3/approval', (req, res) => {
+  router.post('/api/agent/v3/approval', agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
@@ -374,14 +374,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
    * digest, marked authMode 'browser', and still single-use through the
    * shared replay-consumption store at execution time.
    */
-  router.post('/api/agent/v3/browser-approval', (req, res) => {
+  router.post('/api/agent/v3/browser-approval', agentV3RateLimiter, (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     if (!isSameOriginBrowserRequest(req, env)) return res.status(403).json({ ok: false, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' });
     if (req.body?.confirm !== true) return res.status(400).json({ ok: false, code: 'AGENT_CONFIRMATION_REQUIRED' });
     return issueBoundApproval(req, res, 'browser');
   });
 
-  router.post('/api/agent/v3/cancel', (req, res) => {
+  router.post('/api/agent/v3/cancel', agentV3RateLimiter, (req, res) => {
     if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
     if (!authenticateAgentOperatorV3(req, env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
     const { runId, planToken } = req.body ?? {};
@@ -427,7 +427,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return undefined;
   });
 
-  router.post('/api/agent/v3/execute', (req, res) => {
+  router.post('/api/agent/v3/execute', agentV3RateLimiter, (req, res) => {
     const { runId, approvalToken } = req.body ?? {};
     // Authorization has two modes. Operator mode (admin) uses the operator
     // credential as before. Browser mode requires a same-origin request plus
