@@ -437,19 +437,19 @@ textarea, input[type="text"] {
 
 /* 4. 送信ボタン */
 button[type="submit"], [class*="submit"], [class*="send"] {
-  background: #2563EB !important;
-  background-color: #2563EB !important;
+  background: var(--accent-primary) !important;
+  background-color: var(--accent-primary) !important;
   border: 1px solid transparent !important;
   border-radius: 12px !important;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25) !important;
   opacity: 1 !important;
-  color: #FFFFFF !important;
+  color: var(--text-on-accent) !important;
 }
 
 button[type="submit"] *, [class*="submit"] *, [class*="send"] * {
-  fill: #FFFFFF !important;
-  stroke: #FFFFFF !important;
-  color: #FFFFFF !important;
+  fill: var(--text-on-accent) !important;
+  stroke: var(--text-on-accent) !important;
+  color: var(--text-on-accent) !important;
   opacity: 1 !important;
 }
 
@@ -529,8 +529,8 @@ button:first-child:has(svg):not(.origin-primary-button) * {
 :root[data-theme="dark"] button[type="submit"],
 :root[data-theme="dark"] [class*="submit"],
 :root[data-theme="dark"] [class*="send"] {
-  background: #2563EB !important;
-  color: #fff !important;
+  background: var(--accent-primary) !important;
+  color: var(--text-on-accent) !important;
 }
 :root[data-theme="dark"] button:first-child:has(svg):not(.origin-primary-button) {
   background: transparent !important;
