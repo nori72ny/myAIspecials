@@ -185,7 +185,14 @@ describe('rasterProviderRegistryV15', () => {
   });
 
   it('blocks Cloudflare when Free allocation is known but request-level cost is unverified', async () => {
-    const response = (body: unknown) => new Response(JSON.stringify({ success: true, result: body }), {
+    const response = (body: unknown) => new Response(JSON.stringify({
+      success: true,
+      result: body,
+      // v2 plan proof requires a verifiably complete subscriptions read.
+      ...(Array.isArray(body) ? {
+        result_info: { count: body.length, page: 1, per_page: 20, total_count: body.length },
+      } : {}),
+    }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });

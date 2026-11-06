@@ -13,6 +13,10 @@ function envelope(result: unknown, status = 200) {
   return new Response(JSON.stringify({
     success: status >= 200 && status < 300,
     result,
+    // v2 plan proof requires a verifiably complete subscriptions read.
+    ...(Array.isArray(result) ? {
+      result_info: { count: result.length, page: 1, per_page: 20, total_count: result.length },
+    } : {}),
     errors: [],
     messages: [],
   }), {
