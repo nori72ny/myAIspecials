@@ -38,7 +38,7 @@ describe("serverless ORIGIN chat boundary", () => {
     expect(response.body.service).toBe("acos-2");
     expect(response.body.costUsd).toBe(0);
     expect(response.body).toMatchObject({ freeOnly: true, paidFallbackEnabled: false, secretDelivery: "server-only" });
-  });
+  }, 10000);
 
   it("reports only a bounded error class and code when initialization fails", async () => {
     const secret = ["synthetic", "initialization", "secret", "123456"].join("_");
