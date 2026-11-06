@@ -204,6 +204,30 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(send.textContent).not.toContain('送信');
   });
 
+  it('shows tappable home suggestions on the empty state', () => {
+    render(<App language="ja" onOpenResearch={() => undefined} />);
+
+    const suggestion1 = screen.getByTestId('home-suggestion-1');
+    const suggestion2 = screen.getByTestId('home-suggestion-2');
+    const suggestion3 = screen.getByTestId('home-suggestion-3');
+    const suggestion4 = screen.getByTestId('home-suggestion-4');
+
+    expect(suggestion1.textContent).toBe('今日のニュースを要約して');
+    expect(suggestion2.textContent).toBe('企画書の草案を作って');
+    expect(suggestion3.textContent).toBe('Pythonでデータ分析のコードを書いて');
+    expect(suggestion4.textContent).toBe('旅行プランを立てて');
+    expect(suggestion1.getAttribute('type')).toBe('button');
+  });
+
+  it('shows English home suggestions when language is English', () => {
+    render(<App language="en" onOpenResearch={() => undefined} />);
+
+    expect(screen.getByTestId('home-suggestion-1').textContent).toBe("Summarize today's news");
+    expect(screen.getByTestId('home-suggestion-2').textContent).toBe('Draft a proposal');
+    expect(screen.getByTestId('home-suggestion-3').textContent).toBe('Write Python code for data analysis');
+    expect(screen.getByTestId('home-suggestion-4').textContent).toBe('Plan a trip');
+  });
+
   it('opens renderable artifacts in preview first and exposes source only on demand', () => {
     render(<ArtifactWorkspace artifact={artifact} isOpen language="ja" onClose={() => undefined} />);
 
@@ -1220,6 +1244,58 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('names the rate-limit cause for a non-retryable 429 and offers a manual retry that does not duplicate the user turn', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const valid = {
+      content: '再試行で得られた検証済み回答',
+      routing: {
+        modelId: model,
+        freeOnly: true,
+        cost: 0,
+        actualCostUsd: 0,
+        estimatedCostUsd: 0,
+        usage: { costUsd: 0 },
+        providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false },
+      },
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(valid), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 'PROVIDER_RATE_LIMITED',
+        message: '無料AIの利用上限に達しました。',
+        retryable: false,
+        retryAttempted: false,
+      }), { status: 429, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '上限到達時の再試行' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText('無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。')).toBeTruthy());
+    expect(screen.queryByText('エラーが発生しました。再度お試しください。')).toBeNull();
+    const retryButton = screen.getByTestId('chat-retry-button');
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(screen.getByText('再試行で得られた検証済み回答')).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText('上限到達時の再試行')).toHaveLength(1);
+    expect(screen.queryByTestId('chat-retry-button')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not offer a chat retry for a safe-waiting policy failure', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: 'PROVIDER_POLICY_VIOLATION' }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'ポリシー失敗時の再試行ボタン確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByTestId('origin-safe-waiting-state')).toBeTruthy());
+    expect(screen.queryByTestId('chat-retry-button')).toBeNull();
     vi.unstubAllGlobals();
   });
 

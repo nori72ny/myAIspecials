@@ -23,10 +23,18 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(worker).toContain("return json(DISABLED_AI_RESPONSE, 503, headers)");
   });
 
-  it("locks execution to one approved free provider/model without cross-provider fallback", () => {
+  // Owner decision 2026-11-06 replaced the previous single-provider lock with a bounded
+  // failover between independently verified free ZDR routes. The primary executor remains
+  // locked to OpenRouter; the second route lives in separate modules and must prove its
+  // Workers Free plan mechanically before every inference.
+  it("locks execution to approved free providers/models with bounded cross-route failover", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerPolicy = readRepositoryFile("src/legacy/zeroCostRoutingPolicy.ts");
     const modelCatalog = readRepositoryFile("src/lib/orchestration/OriginFreeModelCatalog.ts");
+    const cloudflareCatalog = readRepositoryFile("src/lib/orchestration/OriginCloudflareFreeModelCatalog.ts");
+    const failover = readRepositoryFile("src/legacy/originProviderFailover.ts");
+    const cloudflareClient = readRepositoryFile("src/legacy/originCloudflareProviderClient.ts");
+    const executionPolicy = readRepositoryFile("src/lib/orchestration/OriginExecutionPolicy.ts");
     expect(providerClient).toContain('export const ALLOWED_ZERO_COST_PROVIDERS = ["openrouter"] as const;');
     expect(providerClient).toContain("openrouter: [ORIGIN_OPENROUTER_FREE_MODEL]");
     expect(providerPolicy).toContain("allow_fallbacks: false");
@@ -46,6 +54,20 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(providerClient).not.toContain("GEMINI_API_KEY");
     expect(modelCatalog).toContain('"google/gemma-4-31b-it:free"');
     expect(modelCatalog).not.toContain('"openrouter/free"');
+    expect(cloudflareCatalog).toContain('"@cf/google/gemma-4-26b-a4b-it"');
+    expect(cloudflareCatalog).toContain("https://developers.cloudflare.com/");
+    expect(executionPolicy).toContain('"cloudflare-workers-ai-free"');
+    expect(failover).toContain("ORIGIN_FAILOVER_TRIGGER_CODES");
+    expect(failover).toContain('"PROVIDER_RATE_LIMITED"');
+    expect(failover).not.toContain("generativelanguage.googleapis.com");
+    expect(failover).not.toContain("GEMINI_API_KEY");
+    expect(cloudflareClient).toContain("ORIGIN_CF_FAILOVER_ENABLED");
+    expect(cloudflareClient).toContain("/workers/account-settings");
+    expect(cloudflareClient).toContain("/subscriptions");
+    expect(cloudflareClient).toContain("/ai/models/schema");
+    expect(cloudflareClient).toContain("CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
+    expect(cloudflareClient).not.toContain("generativelanguage.googleapis.com");
+    expect(cloudflareClient).not.toContain("GEMINI_API_KEY");
   });
 
   it("keeps production chat bounded-retry and excludes legacy retry runtimes", () => {
@@ -60,7 +82,11 @@ describe("ORIGIN Personal release 1 gate", () => {
       expect(source).not.toContain("executeWithRetry");
       expect(source).not.toContain("MAX_RETRIES");
     }
-    expect(chat).toContain("providerAttempts: 1");
+    // providerAttempts reports the honestly executed route count (owner decision
+    // 2026-11-06): it is derived from the result's attempt evidence, never a fixed 1.
+    expect(chat).toContain("providerAttempts: providerAttemptCount(result)");
+    expect(chat).toContain("providerAttempts: providerAttemptCount(synthesisResult)");
+    expect(chat).not.toMatch(/providerAttempts:\s*1[,}]/);
     expect(streaming).toContain("const result = await streamExecute(providerRequest");
     expect(streaming).toContain("retryAttempted: false");
     expect(server).not.toContain("OpenRouterPlugin");
@@ -139,7 +165,11 @@ describe("ORIGIN Personal release 1 gate", () => {
     expect(gate).toContain("AI Studio direct runtimeは一次公開に含めない");
     expect(gate).toContain("provider層は同一固定model内の候補だけに限定され");
     expect(gate).toContain("実費`$0.00`");
-    expect(gate).toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
+    // Owner decision 2026-11-06: bounded failover to the verified free ZDR Cloudflare
+    // route is approved; the previous blanket "never switch providers" rule is replaced.
+    expect(gate).toContain("オーナー決定（2026-11-06）");
+    expect(gate).toContain("Cloudflare Workers AIの固定モデル（第2経路）");
+    expect(gate).not.toContain("ORIGIN自身が別モデルまたは別providerへ自動で切り替えることはない");
   });
 
   it("states the selected serverless route and explicit deployment approval boundary", () => {

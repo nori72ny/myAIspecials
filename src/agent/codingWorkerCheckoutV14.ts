@@ -6,7 +6,10 @@ import path from 'node:path';
 const EXCLUDED_ROOT_NAMES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', 'test-results']);
 // Reviewed public template with an empty provider credential. A changed template
 // requires a new review; never copy arbitrary .env.example contents or symlinks.
-const PUBLIC_TEMPLATE_SHA256 = 'ad1aa998042cd8deffe4b7325c6cd54d09965b8979eae227bab58bda2a7b81dd';
+// Re-reviewed 2026-11-06: the template now also documents the (commented-out, empty)
+// Cloudflare failover variables for the free-provider failover Phase 1 change. The added
+// lines contain no credential values, matching the template's existing convention.
+const PUBLIC_TEMPLATE_SHA256 = 'f5ae58ed4cbdeca1d61385cae3d37f2b52c7347f73a1a42ea9539a6bd3a617b0';
 
 export async function copyTrustedCodingCheckoutV14(source: string, destination: string): Promise<void> {
   const templatePath = path.join(source, '.env.example');

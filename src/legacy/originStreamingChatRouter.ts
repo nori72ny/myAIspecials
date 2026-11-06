@@ -10,7 +10,8 @@ import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilit
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
-import { executeOriginProviderStream, type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
+import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
+import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
 import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
   detectSensitiveConversation,
@@ -66,7 +67,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
   const catalogNow = options.catalogNow ?? Date.now;
   const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY;
   const createRequestId = options.createRequestId ?? (() => `origin-stream-${now()}-${randomUUID()}`);
-  const streamExecute = options.streamExecute ?? ((request, handlers) => executeOriginProviderStream(request, handlers, env));
+  const streamExecute = options.streamExecute ?? ((request, handlers) => executeOriginProviderStreamWithFailover(request, handlers, env));
 
   router.post("/api/chat", async (req, res, next: NextFunction) => {
     if (!wantsUpstreamStreaming(req)) return next();

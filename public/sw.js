@@ -22,7 +22,21 @@ self.addEventListener('install', (event) => {
     await cache.addAll([...SAFE_STATIC_PATHS]);
     try {
       const response = await fetch('/', { credentials: 'same-origin' });
-      if (response.ok) await cache.put(APP_SHELL_KEY, response);
+      if (response.ok) {
+        const shell = response.clone();
+        await cache.put(APP_SHELL_KEY, response);
+        // Precache the hashed JS/CSS assets referenced by the shell. Without
+        // them an offline reload serves the shell HTML but the application
+        // bundle cannot load, leaving a blank white page. The runtime fetch
+        // handler only caches assets that pass through it after the worker
+        // takes control, which is too late for the very first visit.
+        const html = await shell.text();
+        const assetPaths = new Set();
+        for (const match of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) assetPaths.add(match[1]);
+        if (assetPaths.size > 0) {
+          await Promise.all([...assetPaths].map((path) => cache.add(path).catch(() => undefined)));
+        }
+      }
     } catch { /* offline-first installation fallback */ }
   }));
 });
