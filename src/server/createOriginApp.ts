@@ -9,6 +9,7 @@ import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
+import { createAgentCodingDelegationV14 } from "../agent/agentCodingDelegationV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
 import { createCodingJobSmokeV14Router } from "../agent/codingJobSmokeRouterV14.js";
 import { createGroundedResearchV11Router } from "../research/groundedResearchV11Router.js";
@@ -41,6 +42,8 @@ export function createOriginApp(
   app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["GET", "POST"]));
   app.use("/api/creative/v1.6", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use("/api/generate-image", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
+  // /api/agent/v3 is rate limited inside createAgentOrchestratorV3Router
+  // itself, so the limiter sits in the same file as the route definitions.
   // Reference-image edits are explicitly isolated from the normal 64kb JSON boundary.
   // The router applies stricter decoded-image count/size/dimension checks before provider execution.
   app.use("/api/creative/v1.5/raster/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));
@@ -58,7 +61,9 @@ export function createOriginApp(
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
-  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore));
+  app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, {
+    codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
+  }));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
   app.get(["/health", "/api/health"], (_req, res) => res.status(200).json({

@@ -7,12 +7,15 @@ import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolic
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { FileMutationCheckpoint } from './checkpointManager.js';
 import { researchCurrentInformation } from '../legacy/originResearchSource.js';
+import { generateArtifactV12Async, type ArtifactType } from '../artifacts/artifactGeneratorV12.js';
+import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner';
 export type ToolParams = Record<string, unknown>;
 export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
+export type ToolExecutionContext = { codeDelegation?: AgentCodeDelegationPort };
 
-type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams) => Promise<ToolResult> };
+type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams, context?: ToolExecutionContext) => Promise<ToolResult> };
 const MAX_TEXT = 12000;
 const MAX_CHECKPOINT_SNAPSHOT_BYTES = 256 * 1024;
 const textParam = (params: ToolParams, key: string) => typeof params[key] === 'string' ? String(params[key]).slice(0, MAX_TEXT) : '';
@@ -23,11 +26,133 @@ const readExisting = async (filePath: string): Promise<string | undefined> => {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
 };
 
+const ARTIFACT_FORMATS: readonly ArtifactType[] = ['markdown', 'csv', 'pdf', 'docx', 'xlsx', 'pptx'];
+const MAX_OUTLINE_SECTIONS = 12;
+
+function stringListParam(params: ToolParams, key: string): string[] {
+  const value = params[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map(item => item.trim().slice(0, 120)).slice(0, MAX_OUTLINE_SECTIONS);
+}
+
+/**
+ * Composes the document body for the Artifact V12 delegation. Caller-provided
+ * content wins; otherwise a structured draft is assembled from the title, the
+ * request brief, and the planned outline. The output is a real document
+ * scaffold (headings + brief + sections), never the raw request echoed back.
+ */
+function composeDocumentContent(params: ToolParams, title: string): string {
+  const provided = typeof params.content === 'string' ? params.content.trim() : '';
+  if (provided) return provided.slice(0, MAX_TEXT);
+  const brief = textParam(params, 'brief').trim();
+  const outline = stringListParam(params, 'outline');
+  const lines = [`# ${title}`, ''];
+  if (brief) lines.push('## 概要', brief, '');
+  for (const section of outline) {
+    if (section === '概要' && brief) continue;
+    lines.push(`## ${section}`, `${section}について、確認できた事実と根拠に基づいて記載します。`, '');
+  }
+  if (!brief && outline.length === 0) lines.push('## 本文', '内容は依頼内容に基づいて構成されます。', '');
+  return lines.join('\n').slice(0, MAX_TEXT);
+}
+
+const CODE_SIGNAL_PATTERN = /[{}();=<>]|\b(function|def|class|return|import|from|const|let|var|SELECT|INSERT|if|for|while)\b/;
+
+/**
+ * A provided-code payload must actually look like code. Natural-language
+ * prose (for example the goal text itself) is rejected so a plan can never
+ * pass a Japanese instruction sentence off as executable code again.
+ */
+export function looksLikeCode(value: string): boolean {
+  const code = value.trim();
+  if (code.length < 2 || code.length > MAX_TEXT) return false;
+  if (!CODE_SIGNAL_PATTERN.test(code)) return false;
+  if (/。$/.test(code) && !/[\n;{}]/.test(code)) return false;
+  return true;
+}
+
 const registry: Record<ToolName, ToolDefinition> = {
-  // These legacy adapters only echoed caller input. Until a real generation
-  // backend and task-level verifier are wired, they cannot certify completion.
-  code_interpreter: { name: 'code_interpreter', capability: 'read_repository', description: 'Code generation and repair are unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_GENERATION_UNAVAILABLE' }) },
-  document_generator: { name: 'document_generator', capability: 'read_repository', description: 'Document generation is unavailable in this legacy Agent V3 adapter.', sideEffects: 'none', requiresApproval: true, execute: async () => ({ ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_GENERATION_UNAVAILABLE' }) },
+  code_interpreter: {
+    name: 'code_interpreter',
+    capability: 'read_repository',
+    description: 'Delegates code generation and repair to the V14 durable coding-job pipeline (dedicated worker, isolated verification). Fails closed when the V14 backend is not configured; never executes caller code in this process.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params, context) => {
+      const legacyCode = typeof params.code === 'string' ? params.code : '';
+      const mode = params.mode === 'provided-code' || legacyCode ? 'provided-code' : 'generate';
+      const instruction = textParam(params, 'instruction').trim()
+        || (mode === 'generate' ? '' : '与えられたコードを検証し、必要な修正を行ってください。');
+      const language = textParam(params, 'language').trim() || undefined;
+      const targetPath = textParam(params, 'targetPath').trim() || undefined;
+      if (mode === 'provided-code' && !looksLikeCode(legacyCode)) {
+        return { ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_PARAMS_INVALID' };
+      }
+      if (mode === 'generate' && !instruction) {
+        return { ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_PARAMS_INVALID' };
+      }
+      if (!context?.codeDelegation) {
+        return { ok: false, tool: 'code_interpreter', message: 'AGENT_CODE_BACKEND_NOT_CONFIGURED' };
+      }
+      const delegated = await context.codeDelegation.dispatch({
+        mode,
+        instruction,
+        ...(mode === 'provided-code' ? { code: legacyCode } : {}),
+        ...(language ? { language } : {}),
+        ...(targetPath ? { targetPath } : {}),
+      });
+      if (delegated.state === 'unavailable') {
+        return { ok: false, tool: 'code_interpreter', message: delegated.code };
+      }
+      const artifact = JSON.stringify({
+        kind: 'coding-job',
+        jobId: delegated.jobId,
+        targetKey: delegated.targetKey,
+        status: 'dispatched',
+        completionCertified: false,
+        note: 'Code generation/repair runs in the V14 worker pipeline with isolated verification. This agent run dispatched the job; it does not certify the code result.',
+      });
+      return { ok: true, tool: 'code_interpreter', artifact, message: `Coding job dispatched to the V14 pipeline (${delegated.jobId}).` };
+    },
+  },
+  document_generator: {
+    name: 'document_generator',
+    capability: 'read_repository',
+    description: 'Generates a real document (markdown/docx/pdf/csv/xlsx/pptx) locally through the Artifact V12 generator with structural verification.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params) => {
+      const formatValue = textParam(params, 'format') || textParam(params, 'type');
+      const format = (ARTIFACT_FORMATS.includes(formatValue as ArtifactType) ? formatValue : 'markdown') as ArtifactType;
+      const hasInput = Boolean(
+        textParam(params, 'title').trim()
+        || (typeof params.content === 'string' && params.content.trim())
+        || textParam(params, 'brief').trim()
+        || stringListParam(params, 'outline').length > 0,
+      );
+      if (!hasInput) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+      const title = textParam(params, 'title').trim().slice(0, 120) || '文書';
+      const content = composeDocumentContent(params, title);
+      if (!content.trim()) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+      if (containsLikelySecret(content)) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_CONTENT_BLOCKED' };
+      const generated = await generateArtifactV12Async({ type: format, title, content });
+      if (!generated.verified) {
+        return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_VERIFICATION_FAILED' };
+      }
+      const artifact = JSON.stringify({
+        kind: 'document',
+        format: generated.type,
+        filename: generated.filename,
+        mimeType: generated.mimeType,
+        bytes: generated.bytes.length,
+        sha256: generated.sha256,
+        verified: generated.verified,
+        verification: generated.verification,
+        ...(generated.type === 'markdown' ? { content } : {}),
+      });
+      return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${generated.filename}, ${generated.bytes.length} bytes).` };
+    },
+  },
   web_search_grounding: {
     name: 'web_search_grounding',
     capability: 'grounded_research',
@@ -84,7 +209,7 @@ const registry: Record<ToolName, ToolDefinition> = {
 
 export const toolRegistry = Object.freeze(registry);
 
-export async function executeToolWithPermission(toolName: ToolName, params: ToolParams, approval: { approved: boolean; costInUSD?: number; safetyPolicyPassed?: boolean } = { approved: false }): Promise<ToolResult> {
+export async function executeToolWithPermission(toolName: ToolName, params: ToolParams, approval: { approved: boolean; costInUSD?: number; safetyPolicyPassed?: boolean } = { approved: false }, context?: ToolExecutionContext): Promise<ToolResult> {
   const tool = toolRegistry[toolName];
   if (!tool) throw new Error('TOOL_NOT_REGISTERED');
   if (!approval.approved) throw new Error('HUMAN_APPROVAL_REQUIRED');
@@ -92,5 +217,5 @@ export async function executeToolWithPermission(toolName: ToolName, params: Tool
   if (!securityPolicyPassed) throw new Error('SAFETY_POLICY_BLOCKED');
   if (approval.costInUSD !== undefined && approval.costInUSD !== 0) throw new Error('ZERO_COST_BOUNDARY_BLOCKED');
   if (!isCapabilityAllowed({ capability: tool.capability, explicitIntent: approval.approved, securityPolicyPassed })) throw new Error('AGENT_CAPABILITY_DENIED');
-  return tool.execute(params);
+  return tool.execute(params, context);
 }

@@ -7,6 +7,7 @@ type AgentCapability = {
   approvalSigningConfigured: boolean;
   replayProtectionConfigured: boolean;
   replayProtection: string;
+  browserApprovalEnabled: boolean;
   freeOnly: boolean;
   costUsd: number;
   paidFallbackEnabled: boolean;
@@ -26,12 +27,14 @@ type AgentTool = (typeof tools)[number];
 const isAgentTool = (value: unknown): value is AgentTool => typeof value === 'string' && tools.includes(value as AgentTool);
 
 type AgentPlanStep = { id: string; title: string };
+type AgentToolStep = { toolName: AgentTool; params: Record<string, unknown> };
 type AgentPlan = {
   runId: string;
   planToken: string;
   expiresAt: string;
   selectedTool: AgentTool;
   params: Record<string, unknown>;
+  steps: AgentToolStep[];
   goal: string;
   plan: AgentPlanStep[];
 };
@@ -67,13 +70,27 @@ function toolLabel(tool: AgentTool): string {
 
 function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): boolean {
   if (tool === 'web_search_grounding') return typeof params.query === 'string' && params.query.trim().length > 0;
-  if (tool === 'file_writer') return typeof params.path === 'string' && params.path.trim().length > 0 && typeof params.content === 'string' && params.content.length > 0;
+  if (tool === 'file_writer') {
+    if (typeof params.path !== 'string' || params.path.trim().length === 0) return false;
+    return (typeof params.content === 'string' && params.content.length > 0) || params.contentFromPreviousArtifact === true;
+  }
   if (tool === 'file_reader') return typeof params.path === 'string' && params.path.trim().length > 0;
   if (tool === 'verification_runner') return ['test', 'typecheck', 'lint', 'build'].includes(String(params.kind));
   if (tool === 'image_prompt_compiler') return typeof params.prompt === 'string' && params.prompt.trim().length > 0;
-  if (tool === 'document_generator') return typeof params.content === 'string' && params.content.trim().length > 0;
-  if (tool === 'code_interpreter') return typeof params.code === 'string' && params.code.trim().length > 0;
+  if (tool === 'document_generator') {
+    return (typeof params.title === 'string' && params.title.trim().length > 0)
+      || (typeof params.content === 'string' && params.content.trim().length > 0);
+  }
+  if (tool === 'code_interpreter') {
+    if (params.mode === 'provided-code') return typeof params.code === 'string' && params.code.trim().length > 0;
+    if (params.mode === 'generate') return typeof params.instruction === 'string' && params.instruction.trim().length > 0;
+    return typeof params.code === 'string' && params.code.trim().length > 0;
+  }
   return tool === 'repository_explorer';
+}
+
+function hasExecutableSteps(plan: AgentPlan): boolean {
+  return plan.steps.length > 0 && plan.steps.every((step) => hasExecutableParams(step.toolName, step.params));
 }
 
 function phaseLabel(phase: Phase): string {
@@ -110,6 +127,7 @@ export default function AgentWorkspaceView() {
           approvalSigningConfigured: data.approvalSigningConfigured === true,
           replayProtectionConfigured: data.replayProtectionConfigured === true,
           replayProtection: typeof data.replayProtection === 'string' ? data.replayProtection : 'unavailable',
+          browserApprovalEnabled: data.browserApprovalEnabled === true,
           freeOnly: data.freeOnly === true,
           costUsd: typeof data.costUsd === 'number' ? data.costUsd : -1,
           paidFallbackEnabled: data.paidFallbackEnabled === true,
@@ -141,7 +159,8 @@ export default function AgentWorkspaceView() {
 
   const requestPlan = useCallback(async () => {
     const trimmed = goal.trim();
-    if (!trimmed || phase === 'planning' || phase === 'executing' || capability?.ready !== true) return;
+    const planCapable = capability?.ready === true || capability?.browserApprovalEnabled === true;
+    if (!trimmed || phase === 'planning' || phase === 'executing' || !planCapable) return;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -157,16 +176,22 @@ export default function AgentWorkspaceView() {
         body: JSON.stringify({ goal: trimmed }),
         signal: controller.signal,
       });
-      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string };
+      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string; steps?: Array<{ toolName?: unknown; params?: unknown }> };
       if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool) || !data.params || typeof data.params !== 'object' || Array.isArray(data.params)) {
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
+      const parsedSteps: AgentToolStep[] = Array.isArray(data.steps)
+        ? data.steps
+          .filter((step): step is { toolName: AgentTool; params: Record<string, unknown> } => Boolean(step) && isAgentTool(step.toolName) && Boolean(step.params) && typeof step.params === 'object' && !Array.isArray(step.params))
+          .map((step) => ({ toolName: step.toolName, params: step.params }))
+        : [];
       const next: AgentPlan = {
         runId: data.runId,
         planToken: data.planToken,
         expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
         selectedTool: data.selectedTool,
         params: data.params as Record<string, unknown>,
+        steps: parsedSteps.length > 0 ? parsedSteps : [{ toolName: data.selectedTool, params: data.params as Record<string, unknown> }],
         goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
@@ -176,14 +201,14 @@ export default function AgentWorkspaceView() {
         '# 自律エージェント 実行計画',
         '',
         `Goal: ${next.goal}`,
-        `機能: ${toolLabel(next.selectedTool)}`,
+        `機能: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
-        '実行には、計画で指定した1つの機能に限定した認証付き承認が必要です。',
+        '実行には、この計画の内容に限定した承認が必要です。',
         '承認はこの実行内容だけに有効で、再利用はできません。',
       ].join('\n'));
-      setLog((current) => [...current, `計画を作成しました。実行する機能: ${toolLabel(next.selectedTool)}。まだツールは実行していません。`]);
+      setLog((current) => [...current, `計画を作成しました。実行する機能: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}。まだツールは実行していません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -192,16 +217,14 @@ export default function AgentWorkspaceView() {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [capability?.ready, goal, phase]);
+  }, [capability?.browserApprovalEnabled, capability?.ready, goal, phase]);
 
   const approveAndExecute = useCallback(async () => {
     if (!plan || phase !== 'awaiting_approval') return;
+    // Two approval modes: with an operator credential the admin endpoint is
+    // used; without one, the browser approval endpoint authorizes the exact
+    // plan from this same-origin session after the explicit approve action.
     const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) {
-      setLog((current) => [...current, '実行には実行認証キーが必要です。キーは端末へ保存しません。']);
-      credentialInputRef.current?.focus();
-      return;
-    }
     if (plan.expiresAt && Date.parse(plan.expiresAt) <= Date.now()) {
       setPlan(null);
       setPhase('failed');
@@ -210,10 +233,9 @@ export default function AgentWorkspaceView() {
       return;
     }
 
-    const toolParams = plan.params;
-    if (!hasExecutableParams(plan.selectedTool, toolParams)) {
+    if (!hasExecutableSteps(plan)) {
       setPhase('failed');
-      setLog((current) => [...current, `計画ツール ${toolLabel(plan.selectedTool)} に必要な明示パラメータが不足しているため、承認前に停止しました。`]);
+      setLog((current) => [...current, '計画のステップに必要な明示パラメータが不足しているため、承認前に停止しました。']);
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
@@ -221,17 +243,22 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${toolLabel(plan.selectedTool)}`, '実行前の安全確認を取得しています。']);
+    setLog((current) => [...current, `承認対象: ${plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`, credential ? '実行前の安全確認を取得しています。' : 'このブラウザで承認し、実行前の安全確認を取得しています。']);
+    // Single-step plans keep the legacy {toolName, params} wire shape; the
+    // server canonicalizes both shapes to the same signed operation.
+    const operationBody = plan.steps.length === 1
+      ? { toolName: plan.steps[0].toolName, params: plan.steps[0].params }
+      : { steps: plan.steps };
     try {
-      const approvalResponse = await fetch('/api/agent/v3/approval', {
+      const approvalResponse = await fetch(credential ? '/api/agent/v3/approval' : '/api/agent/v3/browser-approval', {
         method: 'POST',
-        headers: authorizationHeaders(credential),
+        headers: credential ? authorizationHeaders(credential) : { 'Content-Type': 'application/json' },
         cache: 'no-store',
         body: JSON.stringify({
           runId: plan.runId,
           planToken: plan.planToken,
-          toolName: plan.selectedTool,
-          params: toolParams,
+          ...operationBody,
+          ...(credential ? {} : { confirm: true }),
         }),
         signal: controller.signal,
       });
@@ -242,12 +269,11 @@ export default function AgentWorkspaceView() {
 
       const executeResponse = await fetch('/api/agent/v3/execute', {
         method: 'POST',
-        headers: authorizationHeaders(credential),
+        headers: credential ? authorizationHeaders(credential) : { 'Content-Type': 'application/json' },
         cache: 'no-store',
         body: JSON.stringify({
           runId: plan.runId,
-          toolName: plan.selectedTool,
-          params: toolParams,
+          ...operationBody,
           approvalToken: approval.approvalToken,
         }),
         signal: controller.signal,
@@ -286,11 +312,11 @@ export default function AgentWorkspaceView() {
     setLog((current) => [...current, `端末内のチェックポイント ${checkpoint.checkpointId} を表示しました。サーバー側の変更を巻き戻したとは主張しません。`]);
   };
 
-  const ready = capability?.ready === true
+  const ready = (capability?.ready === true || capability?.browserApprovalEnabled === true)
     && capability.freeOnly === true
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
-  const plannedParamsReady = plan ? hasExecutableParams(plan.selectedTool, plan.params) : false;
+  const plannedParamsReady = plan ? hasExecutableSteps(plan) : false;
 
   return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="自律エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
@@ -326,16 +352,16 @@ export default function AgentWorkspaceView() {
 
           <p className="mt-4 block text-xs font-bold text-slate-500">実行する機能</p>
           <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
-            {toolLabel(plan.selectedTool)}
+            {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">実行に必要な認証</summary>
-            <p className="mb-2 text-xs leading-5 text-slate-500">実行時だけ使用します。ブラウザーには保存しません。</p>
+            <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
+            <p className="mb-2 text-xs leading-5 text-slate-500">通常は空欄のままで問題ありません。「承認して実行」を押すと、このブラウザ上で計画を確認したものとして承認されます。管理者キーを入力した場合は管理者用の承認経路を使います。キーはブラウザーに保存しません。</p>
             <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
-              placeholder="実行認証キー"
+              placeholder="実行認証キー（任意）"
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
           </details>
 

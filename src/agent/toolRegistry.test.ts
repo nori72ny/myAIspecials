@@ -29,21 +29,65 @@ describe('toolRegistry safety boundary', () => {
     });
   });
 
-  it('does not pass echoed code off as a completed operation', async () => {
+  it('never executes caller code in-process and fails closed without a configured V14 backend', async () => {
     const result = await executeToolWithPermission('code_interpreter', { code: 'process.env.SHOULD_NOT_EXECUTE = "1"' }, approved);
     expect(result.ok).toBe(false);
     expect(result.artifact).toBeUndefined();
-    expect(result.message).toBe('AGENT_CODE_GENERATION_UNAVAILABLE');
+    expect(result.message).toBe('AGENT_CODE_BACKEND_NOT_CONFIGURED');
     expect(process.env.SHOULD_NOT_EXECUTE).toBeUndefined();
   });
 
-  it('does not pass a document request off as a generated report', async () => {
-    const result = await executeToolWithPermission('document_generator', {
-      content: '商品A: 1200円×3個。商品B: 800円×2個。売上合計と改善提案を含む完成レポートを作成してください。',
-    }, approved);
+  it('rejects natural-language prose passed off as code', async () => {
+    const result = await executeToolWithPermission('code_interpreter', { code: '売上データを集計するコードを実行してください' }, approved);
     expect(result.ok).toBe(false);
-    expect(result.artifact).toBeUndefined();
-    expect(result.message).toBe('AGENT_DOCUMENT_GENERATION_UNAVAILABLE');
+    expect(result.message).toBe('AGENT_CODE_PARAMS_INVALID');
+  });
+
+  it('dispatches coding work to the V14 pipeline when a delegation port is configured', async () => {
+    const dispatched: unknown[] = [];
+    const result = await executeToolWithPermission('code_interpreter', {
+      mode: 'generate',
+      instruction: 'CSVを集計するコードを作成してください',
+      language: 'python',
+    }, approved, {
+      codeDelegation: {
+        dispatch: async (request) => {
+          dispatched.push(request);
+          return { state: 'dispatched', jobId: 'job-test-1', targetKey: 'origin:self' };
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(dispatched).toHaveLength(1);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { kind?: string; jobId?: string; completionCertified?: boolean };
+    expect(artifact.kind).toBe('coding-job');
+    expect(artifact.jobId).toBe('job-test-1');
+    // Dispatching is not completion: the artifact must not certify the code.
+    expect(artifact.completionCertified).toBe(false);
+  });
+
+  it('generates a real verified document instead of echoing the request', async () => {
+    const request = '商品A: 1200円×3個。商品B: 800円×2個。売上合計と改善提案を含む完成レポートを作成してください。';
+    const result = await executeToolWithPermission('document_generator', {
+      title: '売上レポート',
+      format: 'markdown',
+      brief: request,
+      outline: ['進捗サマリー', '主な実績'],
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { kind?: string; verified?: boolean; sha256?: string; filename?: string; content?: string };
+    expect(artifact.kind).toBe('document');
+    expect(artifact.verified).toBe(true);
+    expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(artifact.filename).toContain('売上レポート');
+    expect(artifact.content).toContain('# 売上レポート');
+    expect(artifact.content).not.toBe(request);
+  });
+
+  it('fails closed for a document request without any usable input', async () => {
+    const result = await executeToolWithPermission('document_generator', {}, approved);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
   });
 
   it('keeps repository tools pinned to the server-owned repository root', async () => {

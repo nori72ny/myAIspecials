@@ -27,10 +27,9 @@ describe('agent orchestrator v3', () => {
   it.each([
     ['code_interpreter', { code: 'function add(a,b) { return a + ; }' }],
     ['code_interpreter', { code: 'function add(a,b) { return a - b; }' }],
-    ['document_generator', { content: '商品A:1200円×3個、商品B:800円×2個。売上合計と提案を作成してください。' }],
   ] as const)('does not certify an echoed %s artifact as completed', async (toolName, params) => {
     const app = appFor(env, { consume: async () => true });
-    const goal = toolName === 'code_interpreter' ? 'Repair this code.' : 'Create a sales report.';
+    const goal = 'Repair this code.';
     const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
     expect(plan.status).toBe(201);
     const approval = await request(app).post('/api/agent/v3/approval')
@@ -47,6 +46,29 @@ describe('agent orchestrator v3', () => {
     expect(result.body.checkpoint).toBeUndefined();
   });
 
+  it('completes a document run with a real generated artifact, not an echo', async () => {
+    const app = appFor(env, { consume: async () => true });
+    const goal = 'Create a sales report.';
+    const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
+    expect(plan.status).toBe(201);
+    expect(plan.body.selectedTool).toBe('document_generator');
+    const approval = await request(app).post('/api/agent/v3/approval')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName: 'document_generator', params: plan.body.params });
+    expect(approval.status).toBe(201);
+    const result = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.body.runId, approvalToken: approval.body.approvalToken, toolName: 'document_generator', params: plan.body.params });
+    expect(result.status).toBe(200);
+    expect(result.body.status).toBe('completed');
+    const artifact = JSON.parse(result.body.artifact as string) as { kind?: string; verified?: boolean; sha256?: string; content?: string };
+    expect(artifact.kind).toBe('document');
+    expect(artifact.verified).toBe(true);
+    expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(artifact.content).not.toBe(goal);
+    expect(result.body.checkpoint).toBeDefined();
+  });
+
   it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
     const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
@@ -61,6 +83,7 @@ describe('agent orchestrator v3', () => {
       credentialSeparationConfigured: false,
       replayProtectionConfigured: true,
       replayProtection: 'shared-atomic',
+      browserApprovalEnabled: true,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -288,7 +311,12 @@ describe('agent orchestrator v3', () => {
     });
     expect(response.body.runId).toMatch(/^run-/);
     expect(response.body.planToken).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-    expect(response.body.params).toEqual({ content: goal });
+    expect(response.body.params).toEqual({
+      title: '営業提案書',
+      format: 'markdown',
+      brief: goal,
+      outline: ['目的', '背景と課題', '提案内容', '期待効果', '実施計画'],
+    });
   });
 
   it('returns structured web-search parameters and a default sales-table file without code fences', async () => {
@@ -306,11 +334,37 @@ describe('agent orchestrator v3', () => {
     expect(table.body.params.content).toContain('=SUM(E2:E3)');
   });
 
-  it('fails closed when one goal requires multiple tools instead of pretending one tool can finish it', async () => {
+  it('plans multiple tools in dependency order instead of rejecting a multi-tool goal', async () => {
     const response = await request(appFor()).post('/api/agent/v3/plan')
       .send({ goal: '最新市場を調べて、その結果から提案書を作って' });
-    expect(response.status).toBe(422);
-    expect(response.body).toEqual({ ok: false, code: 'AGENT_MULTI_TOOL_PLAN_REQUIRED', protocolVersion: 3 });
+    expect(response.status).toBe(201);
+    expect(response.body.toolChoice).toMatchObject({ source: 'deterministic-local', mode: 'multi-step' });
+    expect((response.body.steps as Array<{ toolName: string }>).map(step => step.toolName)).toEqual([
+      'web_search_grounding',
+      'document_generator',
+    ]);
+    expect(response.body.selectedTool).toBe('web_search_grounding');
+  });
+
+  it('treats a document-creation goal as one document step, not a document plus a file write', async () => {
+    const response = await request(appFor()).post('/api/agent/v3/plan')
+      .send({ goal: '週次報告書のドキュメントを作成してください' });
+    expect(response.status).toBe(201);
+    expect((response.body.steps as Array<{ toolName: string }>).map(step => step.toolName)).toEqual(['document_generator']);
+    expect(response.body.params).toMatchObject({ title: '週次報告書のドキュメント', format: 'markdown' });
+  });
+
+  it('generates structured code parameters instead of copying the goal into a code field', async () => {
+    const response = await request(appFor()).post('/api/agent/v3/plan')
+      .send({ goal: 'PythonでCSVを集計するコードを実行してください' });
+    expect(response.status).toBe(201);
+    expect(response.body.selectedTool).toBe('code_interpreter');
+    expect(response.body.params).toEqual({
+      mode: 'generate',
+      instruction: 'PythonでCSVを集計するコードを実行してください',
+      language: 'python',
+    });
+    expect(response.body.params.code).toBeUndefined();
   });
 
   it('cryptographically binds approval to the tool selected by the plan', async () => {
@@ -363,5 +417,132 @@ describe('agent orchestrator v3', () => {
     const response = await request(appFor()).post('/api/agent/v3/execute').send({ runId: 'run-12345678', toolName: 'document_generator', params: {}, approvalToken: 'x' });
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+  });
+});
+
+describe('agent orchestrator v3 browser approval', () => {
+  const browserEnv = { ...env, APP_URL: 'https://example.test' };
+  const store: AgentRunConsumptionStore = { consume: async () => true };
+  const origin = { Origin: 'https://example.test' };
+
+  const planInBrowser = async (app: express.Express, goal: string) => {
+    const plan = await request(app).post('/api/agent/v3/plan').send({ goal });
+    expect(plan.status).toBe(201);
+    return plan.body as { runId: string; planToken: string; steps: Array<{ toolName: string; params: Record<string, unknown> }> };
+  };
+
+  it('requires a same-origin Origin header and an explicit confirmation', async () => {
+    const app = appFor(browserEnv, store);
+    const plan = await planInBrowser(app, 'Inspect repository structure');
+
+    const noOrigin = await request(app).post('/api/agent/v3/browser-approval')
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(noOrigin.status).toBe(403);
+    expect(noOrigin.body.code).toBe('AGENT_BROWSER_ORIGIN_REQUIRED');
+
+    const crossOrigin = await request(app).post('/api/agent/v3/browser-approval')
+      .set('Origin', 'https://evil.example')
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(crossOrigin.status).toBe(403);
+    expect(crossOrigin.body.code).toBe('AGENT_BROWSER_ORIGIN_REQUIRED');
+
+    const noConfirm = await request(app).post('/api/agent/v3/browser-approval')
+      .set(origin)
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps });
+    expect(noConfirm.status).toBe(400);
+    expect(noConfirm.body.code).toBe('AGENT_CONFIRMATION_REQUIRED');
+  });
+
+  it('lets a browser user approve and execute without the operator credential', async () => {
+    const app = appFor(browserEnv, store);
+    const plan = await planInBrowser(app, 'Read the file `package.json`');
+    expect(plan.steps.map(step => step.toolName)).toEqual(['file_reader']);
+
+    const approval = await request(app).post('/api/agent/v3/browser-approval')
+      .set(origin)
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(approval.status).toBe(201);
+    expect(approval.body.authMode).toBe('browser');
+
+    const result = await request(app).post('/api/agent/v3/execute')
+      .set(origin)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(result.status).toBe(200);
+    expect(result.body.status).toBe('completed');
+    expect(result.body.authMode).toBe('browser');
+    expect(result.body.artifact).toContain('"scripts"');
+  });
+
+  it('never executes without an approval capability, even from a browser', async () => {
+    const app = appFor(browserEnv, store);
+    const plan = await planInBrowser(app, 'Inspect repository structure');
+    const result = await request(app).post('/api/agent/v3/execute')
+      .set(origin)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: 'forged' });
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('AGENT_AUTHENTICATED_APPROVAL_REQUIRED');
+  });
+
+  it('does not let a browser-issued approval ride the operator path or vice versa', async () => {
+    const app = appFor(browserEnv, store);
+    const plan = await planInBrowser(app, 'Inspect repository structure');
+    const approval = await request(app).post('/api/agent/v3/browser-approval')
+      .set(origin)
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(approval.status).toBe(201);
+
+    const operatorPath = await request(app).post('/api/agent/v3/execute')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(operatorPath.status).toBe(403);
+
+    const noOrigin = await request(app).post('/api/agent/v3/execute')
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(noOrigin.status).toBe(401);
+  });
+
+  it('keeps browser executions single-use through the shared replay store', async () => {
+    const used = new Set<string>();
+    const singleUseStore: AgentRunConsumptionStore = { consume: async (runId) => {
+      if (used.has(runId)) return false;
+      used.add(runId);
+      return true;
+    } };
+    const app = appFor(browserEnv, singleUseStore);
+    const plan = await planInBrowser(app, 'Inspect repository structure');
+    const approval = await request(app).post('/api/agent/v3/browser-approval')
+      .set(origin)
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(approval.status).toBe(201);
+
+    const first = await request(app).post('/api/agent/v3/execute')
+      .set(origin)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(first.status).toBe(200);
+    const replay = await request(app).post('/api/agent/v3/execute')
+      .set(origin)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(replay.status).toBe(409);
+    expect(replay.body.code).toBe('AGENT_RUN_ALREADY_CONSUMED');
+  });
+
+  it('executes a multi-step plan sequentially through the task graph', async () => {
+    const app = appFor(browserEnv, store);
+    const plan = await planInBrowser(app, 'リポジトリの構成を確認して、`package.json` ファイルも読んでください');
+    expect(plan.steps.map(step => step.toolName)).toEqual(['repository_explorer', 'file_reader']);
+
+    const approval = await request(app).post('/api/agent/v3/browser-approval')
+      .set(origin)
+      .send({ runId: plan.runId, planToken: plan.planToken, steps: plan.steps, confirm: true });
+    expect(approval.status).toBe(201);
+
+    const result = await request(app).post('/api/agent/v3/execute')
+      .set(origin)
+      .send({ runId: plan.runId, steps: plan.steps, approvalToken: approval.body.approvalToken });
+    expect(result.status).toBe(200);
+    expect(result.body.status).toBe('completed');
+    expect(result.body.steps).toHaveLength(2);
+    expect(result.body.steps.map((step: { toolName: string }) => step.toolName)).toEqual(['repository_explorer', 'file_reader']);
+    expect(result.body.artifact).toContain('"scripts"');
   });
 });

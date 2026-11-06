@@ -7,13 +7,17 @@ const MAX_TOKEN_LENGTH = 2048;
 
 type CapabilityKind = 'plan' | 'approval';
 
+export type AgentApprovalAuthModeV3 = 'operator' | 'browser';
+
 type CapabilityPayload = {
   v: 3;
   kind: CapabilityKind;
   runId: string;
   digest: string;
   plannedTool?: string;
+  plannedTools?: string[];
   paramsDigest?: string;
+  authMode?: AgentApprovalAuthModeV3;
   iat: number;
   exp: number;
 };
@@ -37,6 +41,7 @@ function issue(
   now: number,
   plannedTool?: string,
   paramsDigest?: string,
+  extras?: { plannedTools?: string[]; authMode?: AgentApprovalAuthModeV3 },
 ): string {
   const key = secret(env);
   if (!key) throw new Error('AGENT_APPROVAL_NOT_CONFIGURED');
@@ -46,7 +51,9 @@ function issue(
     runId,
     digest,
     ...(kind === 'plan' && plannedTool ? { plannedTool } : {}),
+    ...(kind === 'plan' && extras?.plannedTools?.length ? { plannedTools: extras.plannedTools } : {}),
     ...(kind === 'plan' && paramsDigest ? { paramsDigest } : {}),
+    ...(kind === 'approval' && extras?.authMode ? { authMode: extras.authMode } : {}),
     iat: now,
     exp: now + ttlMs,
   };
@@ -70,7 +77,9 @@ function verify(token: string, expectedKind: CapabilityKind, env: NodeJS.Process
     if (typeof parsed.runId !== 'string' || !parsed.runId.startsWith('run-')) return null;
     if (typeof parsed.digest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.digest)) return null;
     if (parsed.plannedTool !== undefined && (typeof parsed.plannedTool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(parsed.plannedTool))) return null;
+    if (parsed.plannedTools !== undefined && (!Array.isArray(parsed.plannedTools) || parsed.plannedTools.length < 1 || parsed.plannedTools.length > 8 || parsed.plannedTools.some(tool => typeof tool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(tool)))) return null;
     if (parsed.paramsDigest !== undefined && (typeof parsed.paramsDigest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.paramsDigest))) return null;
+    if (parsed.authMode !== undefined && parsed.authMode !== 'operator' && parsed.authMode !== 'browser') return null;
     if (typeof parsed.iat !== 'number' || typeof parsed.exp !== 'number' || parsed.exp <= now || parsed.iat > now + 30_000) return null;
     return parsed as CapabilityPayload;
   } catch {
@@ -89,8 +98,9 @@ export function issuePlanCapability(
   now = Date.now(),
   plannedTool?: string,
   paramsDigest?: string,
+  plannedTools?: string[],
 ): { token: string; expiresAt: number } {
-  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now, plannedTool, paramsDigest), expiresAt: now + PLAN_TTL_MS };
+  return { token: issue('plan', runId, goalDigest, PLAN_TTL_MS, env, now, plannedTool, paramsDigest, { plannedTools }), expiresAt: now + PLAN_TTL_MS };
 }
 
 export function verifyPlanCapability(token: string, env: NodeJS.ProcessEnv, now = Date.now()): CapabilityPayload | null {
@@ -102,8 +112,8 @@ export function latestApprovalExpiryForPlan(planExpiresAt: number): number {
   return planExpiresAt + APPROVAL_TTL_MS;
 }
 
-export function issueApprovalCapability(runId: string, operationDigest: string, env: NodeJS.ProcessEnv, now = Date.now()): { token: string; expiresAt: number } {
-  return { token: issue('approval', runId, operationDigest, APPROVAL_TTL_MS, env, now), expiresAt: now + APPROVAL_TTL_MS };
+export function issueApprovalCapability(runId: string, operationDigest: string, env: NodeJS.ProcessEnv, now = Date.now(), authMode: AgentApprovalAuthModeV3 = 'operator'): { token: string; expiresAt: number } {
+  return { token: issue('approval', runId, operationDigest, APPROVAL_TTL_MS, env, now, undefined, undefined, { authMode }), expiresAt: now + APPROVAL_TTL_MS };
 }
 
 export function verifyApprovalCapability(token: string, env: NodeJS.ProcessEnv, now = Date.now()): CapabilityPayload | null {

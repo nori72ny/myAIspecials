@@ -325,4 +325,45 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("rate limits repeated agent v3 approval requests before the approval handler", async () => {
+    const secret = "x".repeat(40);
+    const app = createOriginApp({ ORIGIN_AGENT_APPROVAL_SECRET: secret });
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await request(app).post("/api/agent/v3/approval")
+        .set("Authorization", `Bearer ${secret}`)
+        .send({ runId: "run-rate-limit-check", planToken: "not-a-real-plan-token" });
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("INVALID_TOOL");
+    }
+
+    const limited = await request(app).post("/api/agent/v3/approval")
+      .set("Authorization", `Bearer ${secret}`)
+      .send({ runId: "run-rate-limit-check", planToken: "not-a-real-plan-token" });
+
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe("CHAT_RATE_LIMITED");
+    expect(limited.body.requestId).toMatch(/^origin-/);
+    expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(limited.body.retryAfterMs).toBeGreaterThanOrEqual(1000);
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets a normal agent v3 plan and approval attempt reach the handlers", async () => {
+    const secret = "x".repeat(40);
+    const app = createOriginApp({ ORIGIN_AGENT_APPROVAL_SECRET: secret });
+    const plan = await request(app).post("/api/agent/v3/plan").send({ goal: "Create a sales report." });
+    expect(plan.status).toBe(201);
+
+    const approval = await request(app).post("/api/agent/v3/approval")
+      .set("Authorization", `Bearer ${secret}`)
+      .send({ runId: plan.body.runId, planToken: plan.body.planToken, toolName: plan.body.selectedTool, params: plan.body.params });
+    // This app has no database configured, so the approval handler itself
+    // reports the replay-protection store as unavailable. The point is that
+    // the request passed the rate limiter and reached the handler (no 429).
+    expect(approval.status).toBe(503);
+    expect(approval.body.code).toBe("AGENT_REPLAY_PROTECTION_UNAVAILABLE");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
 });

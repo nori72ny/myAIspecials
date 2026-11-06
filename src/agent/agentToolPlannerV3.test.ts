@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectAgentToolV3 } from './agentToolPlannerV3.js';
+import { planAgentToolsV3, selectAgentToolV3 } from './agentToolPlannerV3.js';
 
 describe('Agent V3 deterministic tool planner', () => {
   it.each([
@@ -29,5 +29,70 @@ describe('Agent V3 deterministic tool planner', () => {
       ok: false,
       code: 'AGENT_TOOL_SELECTION_AMBIGUOUS',
     });
+  });
+});
+
+describe('planAgentToolsV3 multi-step planning', () => {
+  const stepsOf = (goal: string) => {
+    const plan = planAgentToolsV3(goal);
+    return plan.ok ? plan.steps.map(step => step.toolName) : plan;
+  };
+
+  it('plans research then document generation for a compound goal (benchmark A4 shape)', () => {
+    expect(stepsOf('最新のAIニュースを調べて、要約ドキュメントを作成してください')).toEqual([
+      'web_search_grounding',
+      'document_generator',
+    ]);
+  });
+
+  it('does not reject a single-intent document goal as multi-tool (benchmark A2 shape)', () => {
+    expect(stepsOf('週次報告書のドキュメントを作成してください')).toEqual(['document_generator']);
+  });
+
+  it('keeps a document plus explicit file path as generate-then-write', () => {
+    expect(stepsOf('提案書のドキュメントを作成して、`docs/proposal.md` ファイルに保存してください')).toEqual([
+      'document_generator',
+      'file_writer',
+    ]);
+  });
+
+  it('orders gathering before production and verification last', () => {
+    expect(stepsOf('リポジトリの構成を確認して、テストも実行してください')).toEqual([
+      'repository_explorer',
+      'verification_runner',
+    ]);
+  });
+
+  it('falls back to the single best weak match for a code goal (benchmark A3 shape)', () => {
+    expect(stepsOf('PythonでCSVを集計するコードを実行してください')).toEqual(['code_interpreter']);
+  });
+
+  it('routes a natural code-generation phrasing to the coding backend, not the file writer', () => {
+    expect(stepsOf('CSVを読み込んで平均を計算するPythonコードを作成してください')).toEqual(['code_interpreter']);
+  });
+
+  it('does not treat a code review request as code generation', () => {
+    expect(stepsOf('このコードをレビューして')).toEqual(['code_interpreter']);
+  });
+
+  it('plans a named-file read before document generation', () => {
+    expect(stepsOf('notes.txtの内容を確認して、その概要をドキュメントにまとめてください')).toEqual([
+      'file_reader',
+      'document_generator',
+    ]);
+  });
+
+  it('plans a single named-file read instead of reporting ambiguity', () => {
+    expect(stepsOf('package.json の中身を確認して')).toEqual(['file_reader']);
+  });
+
+  it('reports ambiguity with candidates instead of a bare rejection (benchmark A5 shape)', () => {
+    const plan = planAgentToolsV3('何か面白いことをして');
+    expect(plan.ok).toBe(false);
+    if ('code' in plan) {
+      expect(plan.code).toBe('AGENT_TOOL_SELECTION_AMBIGUOUS');
+      expect(Array.isArray(plan.candidates)).toBe(true);
+      expect(plan.candidates.length).toBeGreaterThan(0);
+    }
   });
 });

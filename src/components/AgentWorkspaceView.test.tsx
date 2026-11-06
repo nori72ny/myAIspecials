@@ -199,4 +199,43 @@ describe('AgentWorkspaceView v3', () => {
     await screen.findByText('処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。');
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent/v3/execute')).toBe(false);
   });
+
+  it('lets a general user approve in the browser with no credential at all', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json({ ...readyStatus(), browserApprovalEnabled: true });
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      if (url === '/api/agent/v3/browser-approval') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({ runId: 'run-test-1', planToken: 'signed-plan-token', toolName: 'document_generator', confirm: true });
+        expect(body.params).toEqual({ content: '文書案を作ってください' });
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', approvalToken: 'signed-browser-approval-token', authMode: 'browser', scope: 'exact-operation' }, 201);
+      }
+      if (url === '/api/agent/v3/execute') {
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({ runId: 'run-test-1', toolName: 'document_generator', approvalToken: 'signed-browser-approval-token' });
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# ブラウザ承認で完成した文書' });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('自律エージェントを利用できます');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    // No credential is typed anywhere: the browser approval path must be used.
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+
+    await screen.findByText('# ブラウザ承認で完成した文書');
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      '/api/agent/v3/status',
+      '/api/agent/v3/plan',
+      '/api/agent/v3/browser-approval',
+      '/api/agent/v3/execute',
+    ]);
+  });
 });
