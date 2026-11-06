@@ -2,13 +2,16 @@
 
 /* ORIGIN canonical shell — Release 2
    Visual source of truth for the primary ORIGIN shell. Preserved responsive interaction contracts load above. */
+/* Shell colors follow the theme tokens so dark mode darkens the whole
+   shell, not just the content inside it. In light mode the tokens resolve
+   to the same white / slate pairing this block originally hardcoded. */
 .origin-personal-shell {
-  background: #FFFFFF !important;
-  color: #0F172A !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
 }
 .origin-personal-shell .origin-app {
-  background: #FFFFFF !important;
-  color: #0F172A !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
 }
 .origin-header {
   min-height: 60px !important;

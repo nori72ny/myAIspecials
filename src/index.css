@@ -213,7 +213,11 @@
 }
 .origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-primary-button:hover:not(:disabled) { background: var(--accent-hover); }
-.origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-placeholder); }
+/* Disabled primary actions keep a readable glyph: --text-secondary on
+   --bg-surface-muted measures ~5.9:1, while the enabled state stays
+   unmistakable (accent background with on-accent glyph). Do not re-add a
+   blanket opacity here; it dropped the send glyph to ~1.5:1 effective. */
+.origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-secondary); }
 .origin-secondary-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-primary); }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); }
 .origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
@@ -290,6 +294,27 @@
   .origin-header > div:last-child { gap: 0; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; } }
+
+/* Skip link: visually hidden until keyboard focus, then pinned to the
+   top-left above the shell so keyboard users can bypass the header. */
+.origin-skip-link {
+  position: absolute;
+  top: -200px;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-control);
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.origin-skip-link:focus-visible {
+  top: max(1rem, env(safe-area-inset-top));
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
 
 .origin-pwa-update-notice {
   position: fixed;
