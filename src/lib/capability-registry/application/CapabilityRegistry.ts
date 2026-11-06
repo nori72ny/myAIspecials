@@ -18,9 +18,6 @@ export class CapabilityRegistry implements ICapabilityRegistry {
    */
   public registerCapability(capability: Capability): void {
     this.capabilities.set(capability.name, capability);
-    
-    // We can emit a capability registered event if needed
-    console.log(`[CapabilityRegistry] Capability registered: ${capability.name}`);
   }
 
   /**
@@ -42,8 +39,6 @@ export class CapabilityRegistry implements ICapabilityRegistry {
       adapterId: provider.adapterId,
       capabilities: Array.from(provider.capabilities.keys())
     } as any).catch(err => console.error("Event publication error:", err));
-
-    console.log(`[CapabilityRegistry] Provider registered: ${provider.name} (id: ${provider.id})`);
   }
 
   /**
@@ -61,8 +56,6 @@ export class CapabilityRegistry implements ICapabilityRegistry {
       timestamp: Date.now(),
       providerId
     } as any).catch(err => console.error("Event publication error:", err));
-
-    console.log(`[CapabilityRegistry] Provider unregistered: ${providerId}`);
   }
 
   /**
@@ -135,8 +128,6 @@ export class CapabilityRegistry implements ICapabilityRegistry {
       oldHealth,
       newHealth: health
     } as any).catch(err => console.error("Event publication error:", err));
-
-    console.log(`[CapabilityRegistry] Provider health changed for ${providerId}: ${oldHealth} -> ${health}`);
   }
 
   /**

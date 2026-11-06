@@ -69,16 +69,16 @@ export function processTruthAndEvidence(successData: any): any {
   let sumAgreementRate = 0;
 
   // 1. Process and filter each verification's sources
-  verifications.forEach((ver: any) => {
+  verifications.forEach((ver) => {
     // Filter out dummy/prohibited sources
     const rawSources = ver.sources || [];
-    const validSources = rawSources.filter((src: any) => src && src.url && !isProhibitedUrl(src.url));
+    const validSources = rawSources.filter((src) => src && src.url && !isProhibitedUrl(src.url));
     
     ver.sources = validSources;
     totalCitations += validSources.length;
 
     // Standardize source reliability scores and populate required properties
-    validSources.forEach((src: any) => {
+    validSources.forEach((src) => {
       if (typeof src.reliabilityScore !== "number" || isNaN(src.reliabilityScore)) {
         // Fallback for missing reliabilityScore based on type
         if (src.type === "official" || src.type === "primary") {
@@ -124,7 +124,7 @@ export function processTruthAndEvidence(successData: any): any {
       ver.status = "Unverified";
       ver.reasoning = ver.reasoning || "Citations cannot be verified as no valid sources are present or they have been filtered out.";
     } else {
-      const avgSourceReliability = validSources.reduce((acc: number, curr: any) => acc + curr.reliabilityScore, 0) / validSources.length;
+      const avgSourceReliability = validSources.reduce((acc: number, curr) => acc + curr.reliabilityScore, 0) / validSources.length;
       // Confidence score is derived from source reliability (70%) and AI agreement rate (30%)
       ver.confidenceScore = Math.min(100, Math.max(0, Math.round(avgSourceReliability * 0.7 + ver.aiAgreementRate * 0.3)));
       
@@ -153,7 +153,7 @@ export function processTruthAndEvidence(successData: any): any {
   // - There are 0 total valid citations
   // - OR any verification has status "Needs Review" or "Unverified"
   // - OR the average reliability of sources is below 60
-  const hasNeedsReviewClaim = verifications.some((v: any) => v.status === "Needs Review" || v.status === "Unverified");
+  const hasNeedsReviewClaim = verifications.some((v) => v.status === "Needs Review" || v.status === "Unverified");
   const isEvidenceInsufficient = totalCitations === 0 || hasNeedsReviewClaim || avgReliability < 60;
 
   let overallStatus: "Verified" | "Partially Verified" | "Needs Review" | "Unverified" = "Verified";
@@ -161,7 +161,7 @@ export function processTruthAndEvidence(successData: any): any {
     overallStatus = "Needs Review";
   } else if (isEvidenceInsufficient) {
     overallStatus = "Needs Review";
-  } else if (verifications.some((v: any) => v.status === "Partially Verified")) {
+  } else if (verifications.some((v) => v.status === "Partially Verified")) {
     overallStatus = "Partially Verified";
   }
 
