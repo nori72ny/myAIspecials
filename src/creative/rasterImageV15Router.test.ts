@@ -92,7 +92,7 @@ describe('rasterImageV15Router', () => {
         secretDelivery: 'server-only',
         deliveryGateWired: true,
         enabled: false,
-        activationGate: 'real-free-image-e2e-plus-semantic-effectiveness-and-quota-evidence',
+        activationGate: 'cloudflare-free-proof-pipeline-v1',
       },
       templateEngine: {
         version: 'raster-template-engine-v1',
@@ -290,7 +290,8 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('blocks Cloudflare Free allocation before inference without request-level zero-cost proof', async () => {
+  it('fails closed at the quota pre-check when daily usage cannot be verified, before any inference', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
@@ -301,11 +302,13 @@ describe('rasterImageV15Router', () => {
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
+    // Plan proof passes, but the GraphQL usage read is unavailable, so the
+    // request-level $0.00 proof cannot be completed and inference never runs.
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
+    expect(response.body.code).toBe('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
     expect(response.body.freeOnly).toBe(true);
     expect(response.body.paidFallbackUsed).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.body.retryable).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
   });
 
@@ -345,7 +348,8 @@ describe('rasterImageV15Router', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
   });
 
-  it('does not fall back to another free-allocation provider when neither has request-level cost proof', async () => {
+  it('does not fall back to another provider when the Cloudflare proof pipeline cannot complete', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const scopedKeyInfo = {
       valid: true,
       type: 'secret',
@@ -376,11 +380,13 @@ describe('rasterImageV15Router', () => {
       .post('/api/generate-image')
       .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
 
+    // The Cloudflare quota read receives a non-GraphQL payload and fails
+    // closed; Pollinations is never used as a fallback (its credit balance
+    // can draw from paid funds, so no structural $0.00 proof exists there).
     expect(response.status).toBe(503);
-    expect(response.body.code).toBe('RASTER_GENERATION_DISABLED_ZERO_COST_POLICY');
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.body.code).toBe('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/image/'))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/images/generations'))).toBe(false);
   });
 
   it('rejects unexpected request fields instead of forwarding them upstream', async () => {
@@ -397,8 +403,9 @@ describe('rasterImageV15Router', () => {
   });
 
 
-  it('blocks direct valid generate and edit API calls before any provider network request', async () => {
-    const fetchMock = vi.fn();
+  it('fails closed for direct valid generate and edit API calls when the plan proof cannot complete', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const fetchMock = vi.fn(async (_url: string) => { throw new Error('network unavailable'); });
     vi.stubGlobal('fetch', fetchMock);
     const instance = app(CF_ENV);
     const prompt = '高級で未来的なORIGINのスマホ広告画像を9:16で作ってください';
@@ -414,13 +421,193 @@ describe('rasterImageV15Router', () => {
       expect(response.status).toBe(503);
       expect(response.body).toMatchObject({
         ok: false,
-        code: 'RASTER_GENERATION_DISABLED_ZERO_COST_POLICY',
+        code: 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED',
         freeOnly: true,
         paidFallbackUsed: false,
         retryable: false,
       });
     }
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/ai/run/'))).toBe(false);
+  });
+
+  it('reports the semantic gate as enabled in status once Cloudflare credentials are configured', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV)).get('/api/creative/v1.5/raster/status');
+
+    expect(response.status).toBe(503);
+    expect(response.body.semanticVisionCritic).toMatchObject({
+      enabled: true,
+      deliveryGateWired: true,
+      activationGate: 'cloudflare-free-proof-pipeline-v1',
+    });
+    // Status remains a local-only read even when the gate is enabled.
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('delivers an image only when the full Cloudflare Free proof pipeline passes', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    const criticAnswer = JSON.stringify({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+      safetyPassed: true,
+      safetyIssues: [],
+      criticalIssues: [],
+      summary: '依頼どおりの画像です。',
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+      if (target.includes('/subscriptions')) return cfEnvelope([]);
+      if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+      if (target.includes('/graphql')) {
+        return json({
+          data: {
+            viewer: {
+              accounts: [{
+                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: state.usedNeurons, requestCount: 1 } }],
+              }],
+            },
+          },
+        });
+      }
+      if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
+        state.imageRuns += 1;
+        state.usedNeurons += 140;
+        return cfEnvelope(Buffer.from(pngBytes(768, 1024)).toString('base64'));
+      }
+      if (target.includes('/ai/run/@cf/moondream/')) return cfEnvelope({ answer: criticAnswer });
+      throw new Error(`unexpected fetch: ${target}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      code: 'RASTER_GENERATED',
+      model: '@cf/black-forest-labs/flux-2-klein-4b',
+      providerId: 'cloudflare-workers-ai-free',
+      costUsd: 0,
+      costEvidence: 'post-generation-usage-zero-confirmed',
+      freeOnly: true,
+      paidFallbackUsed: false,
+      providerExecutions: 1,
+    });
+    expect(response.body.image.dataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(response.body.image).toMatchObject({ width: 768, height: 1024, mimeType: 'image/png' });
+    expect(response.body.critics.semantic).toMatchObject({ passed: true, score: 100 });
+    expect(response.body.usage).toMatchObject({
+      allocationNeurons: 10_000,
+      usedBeforeNeurons: 100,
+      // Single-candidate policy for this prompt: (126 generation + 256
+      // critic reserve) x (1 candidate + 1 budgeted retry).
+      reservedNeurons: 764,
+      candidatesPlanned: 1,
+      observedDeltaNeurons: 140,
+      usedAfterNeurons: 240,
+    });
+    expect(state.imageRuns).toBe(1);
+  });
+
+  it('runs best-of-2 candidate selection for quality-critical purposes within the quota reserve', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    const criticAnswer = (score: number) => JSON.stringify({
+      promptAdherence: score, composition: score, subjectIntegrity: score, styleExecution: score,
+      textHandling: score, artifactControl: score, professionalUsefulness: score,
+      safetyPassed: true, safetyIssues: [], criticalIssues: [], summary: '評価済みです。',
+    });
+    const criticAnswers = [criticAnswer(3.6), criticAnswer(4)];
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+      if (target.includes('/subscriptions')) return cfEnvelope([]);
+      if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+      if (target.includes('/graphql')) {
+        return json({
+          data: {
+            viewer: {
+              accounts: [{
+                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: state.usedNeurons, requestCount: 1 } }],
+              }],
+            },
+          },
+        });
+      }
+      if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
+        state.imageRuns += 1;
+        state.usedNeurons += 140;
+        return cfEnvelope(Buffer.from(pngBytes(768, 1024)).toString('base64'));
+      }
+      if (target.includes('/ai/run/@cf/moondream/')) return cfEnvelope({ answer: criticAnswers.shift() });
+      throw new Error(`unexpected fetch: ${target}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '高級で未来的なORIGINのスマホ広告画像を作ってください', width: 768, height: 1024 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.plan).toMatchObject({ purpose: 'advertisement' });
+    expect(state.imageRuns).toBe(2);
+    expect(response.body.usage).toMatchObject({ candidatesPlanned: 2, candidatesGenerated: 2 });
+    expect(response.body.quality).toMatchObject({
+      retryUsed: false,
+      selectedCandidateIndex: 1,
+      candidates: [
+        { index: 0, semanticScore: 90, passed: true, selected: false },
+        { index: 1, semanticScore: 100, passed: true, selected: true },
+      ],
+    });
+  });
+
+  it('refuses generation before inference when the daily free allocation cannot cover the reserve', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { imageRuns: 0 };
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+      if (target.includes('/subscriptions')) return cfEnvelope([]);
+      if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+      if (target.includes('/graphql')) {
+        return json({
+          data: {
+            viewer: {
+              accounts: [{
+                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: 9_900, requestCount: 40 } }],
+              }],
+            },
+          },
+        });
+      }
+      if (target.includes('/ai/run/')) {
+        state.imageRuns += 1;
+        return cfEnvelope('');
+      }
+      throw new Error(`unexpected fetch: ${target}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT');
+    expect(response.body.retryable).toBe(false);
+    expect(state.imageRuns).toBe(0);
   });
 
 });
