@@ -1134,7 +1134,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [queueNotice, setQueueNotice] = useState('');
   const queuedRequestsRef = useRef<QueuedChatRequest[]>([]);
   const queueSequenceRef = useRef(0);
+  const messageSequenceRef = useRef(0);
   const isLoadingRef = useRef(isLoading);
+  const committedLoadingRef = useRef(isLoading);
   const idleWaitersRef = useRef<Array<() => void>>([]);
   const queueDrainPendingRef = useRef(false);
   const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[]) => Promise<void>) | null>(null);
@@ -1160,10 +1162,31 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
   const messagesRef = useRef(messages);
+  const committedMessagesRef = useRef(messages);
   const attachmentBytes = attachments.reduce((total, attachment) => total + attachment.bytes, 0);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => {
-    isLoadingRef.current = isLoading;
+    // updateMessages advances messagesRef synchronously, ahead of the render
+    // that commits the same array. Copying this render's array into the ref
+    // unconditionally would rewind the ref whenever a newer updateMessages
+    // call landed between that render and this effect — silently discarding
+    // the newer update (a drained chat response whose content never renders).
+    // Sync from the render only when the ref still holds exactly the
+    // previously committed array, i.e. nothing advanced it meanwhile; that
+    // preserves the controlled-prop sync this effect exists for.
+    if (messagesRef.current === committedMessagesRef.current) {
+      messagesRef.current = messages;
+    }
+    committedMessagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    // Same guard as messagesRef: handleSend maintains isLoadingRef
+    // synchronously at the exact start/settle points, so this effect must
+    // not rewind it with a stale render value (e.g. flipping it back to
+    // false while a drained request is already in flight).
+    if (isLoadingRef.current === committedLoadingRef.current) {
+      isLoadingRef.current = isLoading;
+    }
+    committedLoadingRef.current = isLoading;
     if (!isLoading && idleWaitersRef.current.length) {
       const waiters = idleWaitersRef.current.splice(0, idleWaitersRef.current.length);
       waiters.forEach((resolve) => resolve());
@@ -1199,15 +1222,27 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
   const updateQueue = (updater: (current: QueuedChatRequest[]) => QueuedChatRequest[]) => { const next = updater(queuedRequestsRef.current); queuedRequestsRef.current = next; setQueuedRequests(next); return next; };
+  // Message ids key the per-message updates (streamed content, verified
+  // delivery state), so they must stay unique even when two sends land in
+  // the same millisecond — e.g. queued requests drained back to back. A bare
+  // `a-${Date.now()}` id collides in that case, and every id-targeted update
+  // then writes the newest response into all messages sharing the id.
+  const nextMessageId = (prefix: 'u' | 'a') => `${prefix}-${Date.now()}-${(messageSequenceRef.current += 1)}`;
   const waitUntilChatIdle = () => (isLoadingRef.current
     ? new Promise<void>((resolve) => { idleWaitersRef.current.push(resolve); })
     : Promise.resolve());
   // Sends the head of the send queue once the current response has fully
   // settled. handleSend's finally block schedules this again after each
   // drained request, so the queue empties strictly one request at a time in
-  // FIFO order. A drained request that never starts generating (offline,
-  // privacy rejection, workspace handoff) stops the chain on purpose: the
-  // remaining chips stay visible for manual send or removal.
+  // FIFO order. The drain keys off isLoadingRef, which handleSend maintains
+  // synchronously at the exact start/settle points, so draining proceeds as a
+  // microtask chain from the state transition itself instead of waiting for a
+  // React commit + effect round trip per queued request; waitUntilChatIdle
+  // remains as the safety net for a drain scheduled while a request that
+  // started outside the finally path is still in flight. A drained request
+  // that never starts generating (offline, privacy rejection, workspace
+  // handoff) stops the chain on purpose: the remaining chips stay visible for
+  // manual send or removal.
   const scheduleQueueDrain = () => {
     if (queueDrainPendingRef.current) return;
     queueDrainPendingRef.current = true;
@@ -1222,7 +1257,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       if (send) void send(head.text, false, head.attachments);
     })();
   };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); updateQueue(() => []); setQueueNotice(''); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setImageEditTarget(null); setIsLoading(false); isLoadingRef.current = false; setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); updateQueue(() => []); setQueueNotice(''); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1252,7 +1287,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     const sendAttachments = attachmentSnapshot ?? attachments;
     const preservesComposer = attachmentSnapshot !== undefined;
     if (!text.trim() && !sendAttachments.length) return;
-    if (isLoading && !interruptCurrent) {
+    // The in-flight gate reads the ref, not the render-closure state: the ref
+    // is updated synchronously where generation starts and settles, so a
+    // queued request drained from the finally block is never mistaken for a
+    // new interrupt (and never re-queued) just because React has not yet
+    // committed the isLoading=false render.
+    if (isLoadingRef.current && !interruptCurrent) {
       pendingImageRequestRef.current = null;
       // Do not stop or drop the in-flight response: hold this request in the
       // send queue with a snapshot of the current attachments. It is sent via
@@ -1307,8 +1347,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         : 'この依頼をCodingワークスペースへ引き継ぎました。リポジトリ変更は専用Coding認証後に開始し、この経路ではGit公開・デプロイを行いません。';
       updateMessages((current) => [
         ...current,
-        { id: `u-${Date.now()}`, role: 'user', content: codingGoal },
-        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+        { id: nextMessageId('u'), role: 'user', content: codingGoal },
+        { id: nextMessageId('a'), role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
       ]);
       if (!preservesComposer) { setInputText(''); setAttachments([]); }
       setAttachmentError('');
@@ -1329,8 +1369,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         : 'この依頼を「作る」ワークスペースへ内容ごと引き継ぎました。引き継ぎだけでは画像・プロバイダ生成を開始していません。';
       updateMessages((current) => [
         ...current,
-        { id: `u-${Date.now()}`, role: 'user', content: creativeRequest },
-        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+        { id: nextMessageId('u'), role: 'user', content: creativeRequest },
+        { id: nextMessageId('a'), role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
       ]);
       if (!preservesComposer) { setInputText(''); setAttachments([]); }
       setAttachmentError('');
@@ -1346,7 +1386,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '方向修正' : 'Direction update'}: ${text.trim()}` : text.trim();
-    const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
+    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
     const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
@@ -1355,6 +1395,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     }
     if (!preservesComposer) { setInputText(''); setAttachments([]); }
     setIsLoading(true);
+    isLoadingRef.current = true;
     const controller = new AbortController(); abortRef.current = controller;
     const appendFailure = (content: string) => {
       setAttachmentError(content);
@@ -1445,7 +1486,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             };
             pendingImageRequestRef.current = null;
             updateMessages((current) => [...current, {
-              id: `a-${Date.now()}`, role: 'assistant',
+              id: nextMessageId('a'), role: 'assistant',
               content: language === 'en'
                 ? 'Created a procedural PNG locally in your browser (not an AI-generated image). It was SHA-256 verified and passed the technical raster checks.'
                 : 'ブラウザー内で手続き型のPNG画像を作成しました（AIモデルによる画像生成ではありません）。SHA-256を検証し、技術的なラスタ検査に合格しました。',
@@ -1483,7 +1524,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
                 height: pendingImageRequest?.height,
               };
               updateMessages((current) => [...current, {
-                id: `a-${Date.now()}`,
+                id: nextMessageId('a'),
                 role: 'assistant',
                 content: language === 'en'
                   ? `Before I generate it, I need ${questions.length === 1 ? 'one detail' : 'a few details'}:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
@@ -1572,7 +1613,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
 
-        const assistantId = `a-${Date.now()}`;
+        const assistantId = nextMessageId('a');
         const baseAssetId = sha256.toLowerCase();
         const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
 
@@ -1754,7 +1795,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           }
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
           if (cascade.ok) {
-            updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
+            updateMessages((current) => [...current, { id: nextMessageId('a'), role: 'assistant', content: cascade.content }]);
             setAttachmentError('');
             setIsSafeWaiting(false);
           } else {
@@ -1800,7 +1841,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (typeof payload.content !== 'string') throw new Error('invalid-response');
         verifiedResponseText = payload.content;
       }
-      const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
+      const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = nextMessageId('a');
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
       const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
@@ -1854,7 +1895,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     finally {
       streamRenderBatcher?.cancel();
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
-      if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); if (!controller.signal.aborted) scheduleQueueDrain(); }
+      if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); isLoadingRef.current = false; if (!controller.signal.aborted) scheduleQueueDrain(); }
     }
   };
   handleSendRef.current = handleSend;
