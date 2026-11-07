@@ -229,6 +229,10 @@ export type ConversationMessage = {
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
+// A request submitted while a response is still generating. Held in a FIFO
+// queue (session state only, never persisted) with a snapshot of the
+// attachments taken at enqueue time.
+type QueuedChatRequest = { id: string; text: string; attachments: Attachment[] };
 export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
 
 export const searchOriginLocalSnapshot = (query: string, sessions: readonly ConversationSession[], artifacts: readonly ArtifactBlock[]): OriginLocalSearchResult[] => {
@@ -1127,6 +1131,16 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   // only set for sends without attachments, whose content is baked into the
   // history entry and could not be reconstructed faithfully on a retry.
   const [failedChatRequest, setFailedChatRequest] = useState<{ text: string } | null>(null);
+  const [queuedRequests, setQueuedRequests] = useState<QueuedChatRequest[]>([]);
+  const [queueNotice, setQueueNotice] = useState('');
+  const queuedRequestsRef = useRef<QueuedChatRequest[]>([]);
+  const queueSequenceRef = useRef(0);
+  const messageSequenceRef = useRef(0);
+  const isLoadingRef = useRef(isLoading);
+  const committedLoadingRef = useRef(isLoading);
+  const idleWaitersRef = useRef<Array<() => void>>([]);
+  const queueDrainPendingRef = useRef(false);
+  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[]) => Promise<void>) | null>(null);
   const [isImageGenerationPanelOpen, setIsImageGenerationPanelOpen] = useState(false);
   const [motionImage, setMotionImage] = useState<{ url: string; downloadName: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1150,8 +1164,36 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
   const messagesRef = useRef(messages);
+  const committedMessagesRef = useRef(messages);
   const attachmentBytes = attachments.reduce((total, attachment) => total + attachment.bytes, 0);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => {
+    // updateMessages advances messagesRef synchronously, ahead of the render
+    // that commits the same array. Copying this render's array into the ref
+    // unconditionally would rewind the ref whenever a newer updateMessages
+    // call landed between that render and this effect — silently discarding
+    // the newer update (a drained chat response whose content never renders).
+    // Sync from the render only when the ref still holds exactly the
+    // previously committed array, i.e. nothing advanced it meanwhile; that
+    // preserves the controlled-prop sync this effect exists for.
+    if (messagesRef.current === committedMessagesRef.current) {
+      messagesRef.current = messages;
+    }
+    committedMessagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    // Same guard as messagesRef: handleSend maintains isLoadingRef
+    // synchronously at the exact start/settle points, so this effect must
+    // not rewind it with a stale render value (e.g. flipping it back to
+    // false while a drained request is already in flight).
+    if (isLoadingRef.current === committedLoadingRef.current) {
+      isLoadingRef.current = isLoading;
+    }
+    committedLoadingRef.current = isLoading;
+    if (!isLoading && idleWaitersRef.current.length) {
+      const waiters = idleWaitersRef.current.splice(0, idleWaitersRef.current.length);
+      waiters.forEach((resolve) => resolve());
+    }
+  }, [isLoading]);
   useEffect(() => () => {
     for (const url of rasterObjectUrls.current) URL.revokeObjectURL(url);
     rasterObjectUrls.current.clear();
@@ -1179,6 +1221,56 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     return () => { cancelled = true; };
   }, [messages]);
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
+  const updateQueue = (updater: (current: QueuedChatRequest[]) => QueuedChatRequest[]) => { const next = updater(queuedRequestsRef.current); queuedRequestsRef.current = next; setQueuedRequests(next); return next; };
+  // Message ids key the per-message updates (streamed content, verified
+  // delivery state), so they must stay unique even when two sends land in
+  // the same millisecond — e.g. queued requests drained back to back. A bare
+  // `a-${Date.now()}` id collides in that case, and every id-targeted update
+  // then writes the newest response into all messages sharing the id.
+  const nextMessageId = (prefix: 'u' | 'a') => `${prefix}-${Date.now()}-${(messageSequenceRef.current += 1)}`;
+  const waitUntilChatIdle = () => (isLoadingRef.current
+    ? new Promise<void>((resolve) => { idleWaitersRef.current.push(resolve); })
+    : Promise.resolve());
+  // Sends the head of the send queue once the current response has fully
+  // settled. handleSend's finally block schedules this again after each
+  // drained request, so the queue empties strictly one request at a time in
+  // FIFO order. The drain keys off isLoadingRef, which handleSend maintains
+  // synchronously at the exact start/settle points, so draining proceeds as a
+  // microtask chain from the state transition itself instead of waiting for a
+  // React commit + effect round trip per queued request; waitUntilChatIdle
+  // remains as the safety net for a drain scheduled while a request that
+  // started outside the finally path is still in flight. A drained request
+  // that never starts generating (offline, privacy rejection, workspace
+  // handoff) stops the chain on purpose: the remaining chips stay visible for
+  // manual send or removal.
+  const scheduleQueueDrain = () => {
+    if (queueDrainPendingRef.current) return;
+    queueDrainPendingRef.current = true;
+    void (async () => {
+      await waitUntilChatIdle();
+      queueDrainPendingRef.current = false;
+      if (isLoadingRef.current) return;
+      const head = queuedRequestsRef.current[0];
+      if (!head) return;
+      updateQueue((current) => current.filter((item) => item.id !== head.id));
+      const send = handleSendRef.current;
+      if (send) void send(head.text, false, head.attachments);
+    })();
+  };
+  // A conversation reset also discards any queued sends and the loading
+  // ref: a queued request belongs to the conversation it was queued in and
+  // must never drain into the fresh one. resetConversation itself predates
+  // the queue, so the queue side of a reset lives in this wrapper (used by
+  // the new-conversation button) and in the resetSignal effect below.
+  const resetConversationWithQueue = () => { resetConversation(); isLoadingRef.current = false; updateQueue(() => []); setQueueNotice(''); };
+  const queueResetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (queueResetSignalRef.current === resetSignal) return;
+    queueResetSignalRef.current = resetSignal;
+    isLoadingRef.current = false;
+    updateQueue(() => []);
+    setQueueNotice('');
+  }, [resetSignal]);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
   const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
@@ -1206,11 +1298,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     if (loaded.length) setAttachments((current) => [...current, ...loaded]);
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
-  const handleSend = async (textToSend?: string, interruptCurrent = false) => {
-    const text = textToSend || inputText;
-    if (!text.trim() && !attachments.length) return;
-    if (isLoading && !interruptCurrent) {
+  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[]) => {
+    const text = textToSend !== undefined ? textToSend : inputText;
+    const sendAttachments = attachmentSnapshot ?? attachments;
+    const preservesComposer = attachmentSnapshot !== undefined;
+    if (!text.trim() && !sendAttachments.length) return;
+    // The in-flight gate reads the ref, not the render-closure state: the ref
+    // is updated synchronously where generation starts and settles, so a
+    // queued request drained from the finally block is never mistaken for a
+    // new interrupt (and never re-queued) just because React has not yet
+    // committed the isLoading=false render.
+    if (isLoadingRef.current && !interruptCurrent) {
       pendingImageRequestRef.current = null;
+      // Do not stop or drop the in-flight response: hold this request in the
+      // send queue with a snapshot of the current attachments. It is sent via
+      // handleSend once the current response completes naturally.
+      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments] }]);
+      if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
+      setQueueNotice(t.queueAcceptedNotice.replace('{count}', String(nextQueue.length)));
       return;
     }
     if (isOffline) {
@@ -1218,7 +1323,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。');
       return;
     }
-    if (imageEditTarget && attachments.length > 0) {
+    if (imageEditTarget && sendAttachments.length > 0) {
       pendingImageRequestRef.current = null;
       setAttachmentError(language === 'en'
         ? 'Image edit mode uses the selected verified source image only. Remove additional attachments or cancel image edit mode first.'
@@ -1227,11 +1332,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     }
     const privacyInput = [
       text,
-      ...attachments.map((attachment) => attachment.name),
-      ...attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => attachment.content),
+      ...sendAttachments.map((attachment) => attachment.name),
+      ...sendAttachments.filter((attachment) => attachment.kind === 'text').map((attachment) => attachment.content),
     ].join('\n');
     const containsPrivateText = detectSensitiveInput(privacyInput).containsSensitiveInput;
-    const containsUninspectableImage = attachments.some((attachment) => attachment.kind === 'image');
+    const containsUninspectableImage = sendAttachments.some((attachment) => attachment.kind === 'image');
     if (containsPrivateText || containsUninspectableImage) {
       pendingImageRequestRef.current = null;
       setAttachmentError(language === 'en'
@@ -1248,7 +1353,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
 
     if (
       !interruptCurrent
-      && attachments.length === 0
+      && sendAttachments.length === 0
       && onOpenCoding
       && isDirectCodingWorkspaceRequest(text.trim())
     ) {
@@ -1258,11 +1363,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         : 'この依頼をCodingワークスペースへ引き継ぎました。リポジトリ変更は専用Coding認証後に開始し、この経路ではGit公開・デプロイを行いません。';
       updateMessages((current) => [
         ...current,
-        { id: `u-${Date.now()}`, role: 'user', content: codingGoal },
-        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+        { id: nextMessageId('u'), role: 'user', content: codingGoal },
+        { id: nextMessageId('a'), role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
       ]);
-      setInputText('');
-      setAttachments([]);
+      if (!preservesComposer) { setInputText(''); setAttachments([]); }
       setAttachmentError('');
       setIsSafeWaiting(false);
       onOpenCoding(codingGoal);
@@ -1271,7 +1375,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
 
     if (
       !interruptCurrent
-      && attachments.length === 0
+      && sendAttachments.length === 0
       && onOpenCreative
       && isDirectCreativeWorkspaceRequest(text.trim())
     ) {
@@ -1281,11 +1385,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         : 'この依頼を「作る」ワークスペースへ内容ごと引き継ぎました。引き継ぎだけでは画像・プロバイダ生成を開始していません。';
       updateMessages((current) => [
         ...current,
-        { id: `u-${Date.now()}`, role: 'user', content: creativeRequest },
-        { id: `a-${Date.now()}`, role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
+        { id: nextMessageId('u'), role: 'user', content: creativeRequest },
+        { id: nextMessageId('a'), role: 'assistant', content: handoffMessage, deliveryState: 'verified' },
       ]);
-      setInputText('');
-      setAttachments([]);
+      if (!preservesComposer) { setInputText(''); setAttachments([]); }
       setAttachmentError('');
       setIsSafeWaiting(false);
       onOpenCreative(creativeRequest);
@@ -1297,16 +1400,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     setFailedChatRequest(null);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
-    const attachmentMessage = attachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
+    const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '方向修正' : 'Direction update'}: ${text.trim()}` : text.trim();
-    const userMessage: ConversationMessage = { id: `u-${Date.now()}`, role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
+    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
     const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
       const latestMessage = requestMessages.at(-1);
       if (latestMessage) latestMessage.content += `\n\n[生成途中の作成物: ${interruptedArtifact.title}]\n` + '```' + `${interruptedArtifact.language}:${interruptedArtifact.title}\n${interruptedArtifact.content.slice(0, 24_000)}\n` + '```' + '\n\n上記の途中作成物を土台として、最新の方向修正を優先して作成物を完成してください。';
     }
-    setInputText(''); setAttachments([]); setIsLoading(true);
+    if (!preservesComposer) { setInputText(''); setAttachments([]); }
+    setIsLoading(true);
+    isLoadingRef.current = true;
     const controller = new AbortController(); abortRef.current = controller;
     const appendFailure = (content: string) => {
       setAttachmentError(content);
@@ -1329,7 +1434,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     let chatExchangeStarted = false;
     try {
       const shouldGenerateImage = !interruptCurrent
-        && attachments.length === 0
+        && sendAttachments.length === 0
         && !isImageClarificationCancellation(text.trim())
         && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
       if (shouldGenerateImage) {
@@ -1397,7 +1502,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             };
             pendingImageRequestRef.current = null;
             updateMessages((current) => [...current, {
-              id: `a-${Date.now()}`, role: 'assistant',
+              id: nextMessageId('a'), role: 'assistant',
               content: language === 'en'
                 ? 'Created a procedural PNG locally in your browser (not an AI-generated image). It was SHA-256 verified and passed the technical raster checks.'
                 : 'ブラウザー内で手続き型のPNG画像を作成しました（AIモデルによる画像生成ではありません）。SHA-256を検証し、技術的なラスタ検査に合格しました。',
@@ -1435,7 +1540,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
                 height: pendingImageRequest?.height,
               };
               updateMessages((current) => [...current, {
-                id: `a-${Date.now()}`,
+                id: nextMessageId('a'),
                 role: 'assistant',
                 content: language === 'en'
                   ? `Before I generate it, I need ${questions.length === 1 ? 'one detail' : 'a few details'}:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
@@ -1524,7 +1629,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
 
-        const assistantId = `a-${Date.now()}`;
+        const assistantId = nextMessageId('a');
         const baseAssetId = sha256.toLowerCase();
         const baseDownloadName = rasterFilenameFromDisposition(response.headers.get('content-disposition'), mimeType);
 
@@ -1701,17 +1806,17 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           // state and keep the $0.00/no-unverified-answer boundary intact.
           if (failure?.retryAttempted === true) {
             appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-            if (attachments.length === 0) setFailedChatRequest({ text });
+            if (sendAttachments.length === 0) setFailedChatRequest({ text });
             return;
           }
           const cascade = await recoverWithAutonomousCascade(text, controller.signal);
           if (cascade.ok) {
-            updateMessages((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', content: cascade.content }]);
+            updateMessages((current) => [...current, { id: nextMessageId('a'), role: 'assistant', content: cascade.content }]);
             setAttachmentError('');
             setIsSafeWaiting(false);
           } else {
             appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-            if (attachments.length === 0) setFailedChatRequest({ text });
+            if (sendAttachments.length === 0) setFailedChatRequest({ text });
           }
           return;
         }
@@ -1720,7 +1825,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           // "busy" and must not collapse into the generic error: name the
           // cause and offer a manual retry instead.
           appendFailure(language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE);
-          if (attachments.length === 0) setFailedChatRequest({ text });
+          if (sendAttachments.length === 0) setFailedChatRequest({ text });
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
@@ -1728,7 +1833,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           return;
         }
         appendFailure(t.error);
-        if (attachments.length === 0) setFailedChatRequest({ text });
+        if (sendAttachments.length === 0) setFailedChatRequest({ text });
         return;
       }
       const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
@@ -1752,7 +1857,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (typeof payload.content !== 'string') throw new Error('invalid-response');
         verifiedResponseText = payload.content;
       }
-      const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = `a-${Date.now()}`;
+      const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = nextMessageId('a');
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
       const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
@@ -1800,14 +1905,26 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     } catch (error) {
       if ((error as DOMException).name !== 'AbortError') {
         appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-        if (chatExchangeStarted && attachments.length === 0) setFailedChatRequest({ text });
+        if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text });
       }
     }
     finally {
       streamRenderBatcher?.cancel();
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
-      if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); }
+      if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); isLoadingRef.current = false; if (!controller.signal.aborted) scheduleQueueDrain(); }
     }
+  };
+  handleSendRef.current = handleSend;
+  const removeQueuedRequest = (id: string) => { updateQueue((current) => current.filter((item) => item.id !== id)); };
+  const sendQueuedRequestNow = (item: QueuedChatRequest) => {
+    if (isLoading || isOffline) return;
+    removeQueuedRequest(item.id);
+    void handleSend(item.text, false, item.attachments);
+  };
+  const queuedRequestSummary = (item: QueuedChatRequest) => {
+    const firstLine = item.text.trim().split('\n').find((line) => line.trim()) ?? '';
+    if (firstLine) return firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine;
+    return item.attachments.map((attachment) => attachment.name).join(', ');
   };
   const handleRetryFailedChat = () => {
     if (!failedChatRequest || isLoading || isOffline) return;
@@ -1909,7 +2026,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, []);
-  const composer = <><div data-testid="origin-ultra-v16-anchor" className="relative z-10 mb-1 flex w-full justify-end"><OriginUltraV16 /></div><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? `画像編集モード · SHA-256 ${imageEditTarget.shortSha}… · 変えたいところを入力` : `Image edit mode · SHA-256 ${imageEditTarget.shortSha}… · describe what to change`}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<p className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.keyboardGuidance}</p><div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} disabled={isLoading} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
+  const composer = <><div data-testid="origin-ultra-v16-anchor" className="relative z-10 mb-1 flex w-full justify-end"><OriginUltraV16 /></div><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? `画像編集モード · SHA-256 ${imageEditTarget.shortSha}… · 変えたいところを入力` : `Image edit mode · SHA-256 ${imageEditTarget.shortSha}… · describe what to change`}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<p className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.keyboardGuidance}</p><p role="status" aria-live="polite" className="sr-only">{queueNotice}</p>{queuedRequests.length > 0 && <div data-testid="origin-send-queue" aria-label={t.queueLabel} className="mb-2 flex flex-wrap items-center gap-2 text-[13px]"><span className="font-semibold text-[var(--accent-primary)]">{t.queueLabel}</span>{queuedRequests.map((item) => { const summary = queuedRequestSummary(item); return <span key={item.id} data-testid="origin-send-queue-chip" className="origin-surface-muted flex max-w-full items-center gap-1.5 rounded-[10px] py-1 pl-2.5 pr-1"><span className="min-w-0 truncate">{summary}</span>{item.attachments.length > 0 && <span aria-label={t.attachedFiles} className="shrink-0">📎{item.attachments.length}</span>}<button type="button" data-testid="origin-send-queue-send-now" aria-label={`${t.queueSendNow}: ${summary}`} title={t.queueSendNow} disabled={isLoading || isOffline} onClick={() => sendQueuedRequestNow(item)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">▶</button><button type="button" data-testid="origin-send-queue-remove" aria-label={`${t.queueRemove}: ${summary}`} title={t.queueRemove} onClick={() => removeQueuedRequest(item.id)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold">✕</button></span>; })}</div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" onClick={(event) => { event.preventDefault(); const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = !details.open; }} aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
     <button type="button" role="menuitem" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); setIsImageGenerationPanelOpen(true); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10"><span aria-hidden="true">🎨</span> {language === 'ja' ? '画像生成' : 'Generate image'}</button>
@@ -1920,12 +2037,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     {onOpenCreative && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenCreative(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '作る' : 'Create a deliverable'}</button>}
     {onOpenDetails && <button type="button" role="menuitem" onClick={(event) => { closeComposerMenu(event.currentTarget); onOpenDetails(); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{language === 'ja' ? '詳細・作業状況' : 'Details & status'}</button>}
   </div>
-</details>{isLoading ? <button type="button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-base font-black" aria-describedby="origin-chat-guidance">■</button> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} title={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-black disabled:cursor-not-allowed" aria-describedby="origin-chat-guidance">↑</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2"><p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="text-[13px] text-[var(--danger)]">{attachmentError}</p>{failedChatRequest && !isLoading && !isOffline && <button type="button" data-testid="chat-retry-button" onClick={handleRetryFailedChat} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '再試行' : 'Retry'}</button>}</div>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
+</details>{isLoading ? <><button type="button" data-testid="queue-send-button" aria-label={t.queueSend} title={t.queueSend} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-black disabled:cursor-not-allowed disabled:opacity-50" aria-describedby="origin-chat-guidance">↑</button><button type="button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-danger-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-base font-black" aria-describedby="origin-chat-guidance">■</button></> : <button type="button" data-testid={messages.length ? 'send-request-button' : 'start-request-button'} aria-label={messages.length ? t.sendRequest : t.startRequest} title={messages.length ? t.sendRequest : t.startRequest} onClick={() => void handleSend()} disabled={(!inputText.trim() && !attachments.length)} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 text-xl font-black disabled:cursor-not-allowed" aria-describedby="origin-chat-guidance">↑</button>}</div>{attachments.length > 0 && <div className="origin-muted mt-2 flex flex-wrap gap-2 text-[13px]"><span className="sr-only">{t.attachedFiles}</span>{attachments.map((attachment, index) => <span key={`${attachment.name}-${index}`} className="origin-surface-muted flex items-center gap-2 rounded-[10px] px-2 py-1"><span>{t.attach}: {attachment.name}</span><button type="button" onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label={`${t.removeAttachment}: ${attachment.name}`} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px]">✕</button></span>)}</div>}{attachmentError && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2"><p data-testid={isSafeWaiting ? "origin-safe-waiting-state" : undefined} role="alert" aria-live={isSafeWaiting ? "assertive" : undefined} className="text-[13px] text-[var(--danger)]">{attachmentError}</p>{failedChatRequest && !isLoading && !isOffline && <button type="button" data-testid="chat-retry-button" onClick={handleRetryFailedChat} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '再試行' : 'Retry'}</button>}</div>}<p id="origin-chat-guidance" className="sr-only">{t.keyboardGuidance}{t.dropFiles}</p></>;
   return <div className={`origin-app flex ${embedded ? "h-full w-full" : "h-[100dvh] w-screen"} overflow-hidden font-sans`}><main id="origin-main" tabIndex={-1} className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden"><HeaderV12 className="origin-header flex min-h-14 items-center justify-between px-3 backdrop-blur-md sm:px-4">
   <div className="flex items-center gap-2">
     
   <div className="flex items-center gap-2">
-    <div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-glow)]" aria-hidden="true" /><span className="text-base font-extrabold tracking-tight">ORIGIN</span></div><div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"><Settings aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversation} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><Plus aria-hidden="true" size={18} strokeWidth={2.1} /><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
+    <div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-glow)]" aria-hidden="true" /><span className="text-base font-extrabold tracking-tight">ORIGIN</span></div><div className="flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"><Settings aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversationWithQueue} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><Plus aria-hidden="true" size={18} strokeWidth={2.1} /><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
   </div>
 
   </div>
