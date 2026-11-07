@@ -231,6 +231,32 @@ describe("createOriginApp provider isolation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("blocks cross-origin research queries before any provider execution", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/research/v1.1/query")
+      .set("Origin", "https://attacker.example")
+      .send({ query: "東京の天気を調べてください" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rate limits repeated legacy agent requests before the approval handler", async () => {
+    const app = createOriginApp();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await request(app).post("/api/agent/approval").send({});
+      expect(response.status).toBe(503);
+      expect(response.body.code).toBe("AGENT_APPROVAL_NOT_CONFIGURED");
+    }
+
+    const limited = await request(app).post("/api/agent/approval").send({});
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe("CHAT_RATE_LIMITED");
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns a sanitized error for malformed JSON", async () => {
     const response = await request(createOriginApp())
       .post("/api/chat")

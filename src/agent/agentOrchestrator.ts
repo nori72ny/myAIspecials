@@ -10,6 +10,7 @@ import { executeNextTask, resumeTaskGraph } from './taskGraphExecutor.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 import { agentApprovalConfigured, authenticateAgentRequest, consumeApproval, issueApproval, type AgentApprovalOperation } from './agentApproval.js';
 import { AgentRunSession } from './agentRunContract.js';
+import { createOriginChatRateLimiter, requireSafeOriginChatRequest } from '../server/originSecurity.js';
 
 type AgentStep = { id: string; title: string; status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'aborted'; detail: string };
 const sse = (res: express.Response, payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -39,6 +40,15 @@ function requireAuthenticatedApproval(req: express.Request, operation: AgentAppr
 
 export function createAgentOrchestratorRouter(): Router {
   const router = express.Router();
+
+  // Same baseline guards as the v3 router and the other provider-consuming
+  // routes (security audit 2026-11-08): the legacy /api/agent prefix was the
+  // only POST surface without the shared Origin gate and rate limiter. The
+  // limiter sits inside the router, mirroring createAgentOrchestratorV3Router.
+  // Operator server-to-server calls carry no Origin header and pass the gate
+  // unchanged; execution still requires the authenticated one-time approval.
+  router.use(requireSafeOriginChatRequest());
+  router.use(createOriginChatRateLimiter(Date.now, ['POST']));
 
   router.post('/api/agent/approval', (req, res) => {
     if (!agentApprovalConfigured()) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
