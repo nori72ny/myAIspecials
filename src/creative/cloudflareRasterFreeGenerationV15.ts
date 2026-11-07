@@ -26,9 +26,15 @@
  *      client-side through the existing inspectRasterBlobV15 path; it is not
  *      silently dropped, it is simply not a server gate (see PR notes).
  *   5. Post-generation reconciliation: the measured account-level Neuron
- *      delta must be positive and within the reserved bound. Otherwise the
- *      generated image is withheld — a generated-but-unproven image is never
- *      delivered.
+ *      delta must be positive and within the reserved bound. Cloudflare's
+ *      analytics aggregation lags minutes behind inference, so when the
+ *      delta has not appeared inside the polling window the delivery may
+ *      instead rest on the usage every inference call of this request
+ *      reported for itself — complete reports only, total within the same
+ *      reserved bound, and no contrary aggregate evidence (an over-bound
+ *      or backwards-moving delta, or a window with no successful aggregate
+ *      read, never falls back). Otherwise the generated image is withheld
+ *      — a generated-but-unproven image is never delivered.
  *
  * Quality layer, all inside the same $0.00 proof:
  *   - Prompt enhancement (fail-soft): the user prompt is first rewritten by
@@ -45,6 +51,7 @@
 import {
   generateCloudflareRasterImageV15,
   verifyCloudflareRasterFreeModelV15,
+  type CloudflareRasterImageResultV15,
 } from './cloudflareRasterImageProviderV15.js';
 import { critiqueRasterStructureV15, type RasterStructuralCriticResultV15 } from './rasterImageCriticV15.js';
 import {
@@ -54,6 +61,7 @@ import {
 import type { RasterImageRequestV15, RasterImageResultV15 } from './rasterImageProviderV15.js';
 import {
   assertCloudflareRasterPricingEvidenceCurrentV15,
+  decideCloudflareUsageReconciliationV15,
   estimateCloudflareRasterGenerationNeuronsV15,
   fetchCloudflareDailyNeuronsUsedV15,
   reconcileCloudflareRasterUsageV15,
@@ -61,6 +69,7 @@ import {
   CLOUDFLARE_RASTER_PRICED_MODELS_V15,
   RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15,
   type CloudflareRasterPricedModelV15,
+  type CloudflareUsageReconciliationMethodV15,
   type CloudflareUsageReconciliationOptionsV15,
 } from './cloudflareRasterFreeQuotaV15.js';
 import { enhanceRasterPromptV15 } from './rasterPromptEnhancementV15.js';
@@ -80,6 +89,15 @@ export type CloudflareRasterFreeProofUsageV15 = {
   retryBudgeted: boolean;
   observedDeltaNeurons: number;
   usedAfterNeurons: number;
+  /** Which evidence carried the delivery decision at Stage 5. */
+  reconciliationMethod: CloudflareUsageReconciliationMethodV15;
+  /**
+   * Total Neurons the request's own inference calls reported for
+   * themselves, or null when at least one call reported no usable number.
+   * Informational on the aggregate path; the delivery basis on the
+   * per-request path.
+   */
+  reportedNeurons: number | null;
 };
 
 export type CloudflareRasterFreeProofQualityV15 = {
@@ -128,7 +146,7 @@ function errorCode(error: unknown): string {
 type CandidateAttemptV15 = {
   index: number;
   retried: boolean;
-  result: RasterImageResultV15 | null;
+  result: CloudflareRasterImageResultV15 | null;
   structural: RasterStructuralCriticResultV15 | null;
   semantic: RasterSemanticCriticResultV15 | null;
   errorCode: string | null;
@@ -278,7 +296,13 @@ export async function generateCloudflareRasterImageFreeProofV15(
 
   // Stage 5: post-generation usage reconciliation. Images exist at this
   // point but are withheld unless their consumption is attributable to the
-  // reserved free allocation.
+  // reserved free allocation — primarily by the measured aggregate delta.
+  // Cloudflare's analytics aggregation lags minutes behind inference, so a
+  // delta that simply has not appeared yet may fall back to the usage each
+  // inference call reported for itself; the decision function in the quota
+  // module keeps every doubtful branch (over-bound or backwards delta, no
+  // successful aggregate read, any unreported call, reports over the
+  // reserve) fail-closed.
   const reconciliation = await reconcileCloudflareRasterUsageV15(
     auth,
     baseline.usedNeurons,
@@ -286,13 +310,43 @@ export async function generateCloudflareRasterImageFreeProofV15(
     fetchImpl,
     options.usageVerification,
   );
-  if (!reconciliation.reconciled || reconciliation.observedDeltaNeurons === null || reconciliation.finalUsedNeurons === null) {
+  // One entry per inference call this request actually made, across every
+  // candidate and the retry: the generation call, plus the semantic-critic
+  // call whenever one ran. A call whose usage is unknown is entered as
+  // null, which keeps the per-request fallback closed.
+  const reportedCallsNeurons: (number | null)[] = [];
+  for (const candidate of attempts) {
+    reportedCallsNeurons.push(candidate.result?.reportedNeurons ?? null);
+    if (candidate.semantic) {
+      reportedCallsNeurons.push(candidate.semantic.reportedNeurons);
+    } else if (candidate.result && candidate.errorCode !== 'RASTER_STRUCTURAL_CRITIC_REJECTED') {
+      // Generation produced an image but the semantic verdict (and its
+      // usage report) is missing without a structural rejection to explain
+      // the absence: count the critic call as unreported.
+      reportedCallsNeurons.push(null);
+    }
+  }
+  const decision = decideCloudflareUsageReconciliationV15(
+    reconciliation,
+    reservedNeurons,
+    reportedCallsNeurons,
+  );
+  if (
+    !decision.deliver
+    || decision.method === null
+    || reconciliation.observedDeltaNeurons === null
+    || reconciliation.finalUsedNeurons === null
+  ) {
     throw new Error('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
   }
+  const reconciliationMethod = decision.method;
+  const deliveryCostEvidence: RasterImageResultV15['costEvidence'] = reconciliationMethod === 'aggregate-delta'
+    ? 'post-generation-usage-zero-confirmed'
+    : 'per-request-usage-reported; aggregate-reconciliation-deferred';
 
   const attemptRequests = attempts.reduce((sum, candidate) => sum + candidate.externalNetworkRequests, 0);
   return {
-    result: { ...winner.result, costEvidence: 'post-generation-usage-zero-confirmed' },
+    result: { ...winner.result, costEvidence: deliveryCostEvidence },
     structural: winner.structural,
     semantic: winner.semantic,
     usage: {
@@ -307,6 +361,8 @@ export async function generateCloudflareRasterImageFreeProofV15(
       retryBudgeted,
       observedDeltaNeurons: reconciliation.observedDeltaNeurons,
       usedAfterNeurons: reconciliation.finalUsedNeurons,
+      reconciliationMethod,
+      reportedNeurons: decision.totalReportedNeurons,
     },
     quality: {
       promptEnhancement: {

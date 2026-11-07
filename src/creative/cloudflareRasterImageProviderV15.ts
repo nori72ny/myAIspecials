@@ -27,7 +27,37 @@ type CloudflareEnvelope = {
   result?: unknown;
   result_info?: { count?: unknown; total_count?: unknown; next_page?: unknown };
   errors?: unknown;
+  usage?: unknown;
 };
+
+/**
+ * A Cloudflare generation result plus the Neurons the inference response
+ * itself reported for this call (usage.neurons, wherever the model's
+ * envelope carries it), or null when the response reported no numeric
+ * usage — including raw-image responses, which carry no envelope at all.
+ * The report is evidence for post-generation reconciliation only; it never
+ * substitutes for the plan proof or the quota pre-check.
+ */
+export type CloudflareRasterImageResultV15 = RasterImageResultV15 & {
+  reportedNeurons: number | null;
+};
+
+function reportedNeuronsValue(value: unknown): number | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const neurons = (value as Record<string, unknown>).neurons;
+  return typeof neurons === 'number' && Number.isFinite(neurons) && neurons >= 0 ? neurons : null;
+}
+
+function extractReportedNeurons(body: unknown): number | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const envelope = body as CloudflareEnvelope;
+  const result = envelope.result;
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const fromResult = reportedNeuronsValue((result as Record<string, unknown>).usage);
+    if (fromResult !== null) return fromResult;
+  }
+  return reportedNeuronsValue(envelope.usage);
+}
 
 type Subscription = {
   state?: unknown;
@@ -456,7 +486,7 @@ export async function generateCloudflareRasterImageV15(
   input: RasterImageRequestV15,
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
-): Promise<RasterImageResultV15> {
+): Promise<CloudflareRasterImageResultV15> {
   const auth = credentials(env);
   if (!auth) throw new Error('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
   const model = env.ORIGIN_CLOUDFLARE_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
@@ -531,6 +561,7 @@ export async function generateCloudflareRasterImageV15(
   }
 
   let bytes: Buffer;
+  let reportedNeurons: number | null = null;
   const responseType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (responseType.startsWith('image/')) {
     const raw = await readBoundedProviderBodyV15(response, MAX_IMAGE_BYTES);
@@ -542,6 +573,7 @@ export async function generateCloudflareRasterImageV15(
     try { parsed = JSON.parse(body.toString('utf8')) as unknown; }
     catch { throw new Error('CLOUDFLARE_IMAGE_RESPONSE_INVALID_JSON'); }
     bytes = decodeCloudflareResult(parsed);
+    reportedNeurons = extractReportedNeurons(parsed);
   }
 
   const mimeType = imageMime(bytes);
@@ -560,5 +592,6 @@ export async function generateCloudflareRasterImageV15(
     costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     freeOnly: true,
     externalNetworkRequests: proof.requests + 1,
+    reportedNeurons,
   };
 }

@@ -44,6 +44,14 @@ export type RasterSemanticCriticResultV15 = {
   paidFallbackEnabled: false;
   secretDelivery: 'server-only';
   externalNetworkRequests: number;
+  /**
+   * Neurons this call's own run response reported for itself
+   * (result.usage.neurons in the live-verified envelope), or null when the
+   * response carried no numeric usage. Evidence for the caller's
+   * post-generation reconciliation fallback only; never a gate by itself
+   * and never a substitute for the plan proof or the quota pre-check.
+   */
+  reportedNeurons: number | null;
 };
 
 type CloudflareEnvelope = {
@@ -84,6 +92,12 @@ async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetc
 
 function axisScore(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 4 ? value : null;
+}
+
+function usageNeurons(value: unknown): number | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const neurons = (value as Record<string, unknown>).neurons;
+  return typeof neurons === 'number' && Number.isFinite(neurons) && neurons >= 0 ? neurons : null;
 }
 
 function parseSemanticJson(answer: string): unknown {
@@ -239,6 +253,15 @@ export async function critiqueCloudflareRasterSemanticV15(
   const answer = typeof nestedAnswer === 'string' ? nestedAnswer : resultObject.answer;
   if (typeof answer !== 'string') throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
 
+  // The same live-verified envelope carries the call's own usage report at
+  // result.usage.neurons (measured 34-36 Neurons per critic call on
+  // 2026-11-07). It is surfaced verbatim for the caller's reconciliation;
+  // a missing or malformed usage block is reported as null, never invented.
+  const reportedNeurons = usageNeurons(resultObject.usage)
+    ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? usageNeurons((nested as Record<string, unknown>).usage)
+      : null);
+
   const parsed = parseSemanticPayload(answer.trim());
   const checks: string[] = [];
   const thresholdAxes: RasterSemanticAxisV15[] = [
@@ -280,5 +303,6 @@ export async function critiqueCloudflareRasterSemanticV15(
     paidFallbackEnabled: false,
     secretDelivery: 'server-only',
     externalNetworkRequests: 4,
+    reportedNeurons,
   };
 }

@@ -15,7 +15,16 @@
  *   3. Post-generation reconciliation (this module): after generation, the
  *      measured account-level Neuron delta must be positive and no larger
  *      than the reserved upper bound, so the consumption is attributable to
- *      the free allocation that was reserved.
+ *      the free allocation that was reserved. Cloudflare's analytics
+ *      aggregation lags by minutes, far beyond any in-request polling
+ *      window, so when the aggregate delta simply has not appeared yet the
+ *      decision may fall back to the usage each inference call reported
+ *      for itself in its own run response — but only when every call of
+ *      the request reported, the reported total is positive and within the
+ *      same reserved bound, and the aggregate shows no contrary evidence
+ *      (decideCloudflareUsageReconciliationV15). An over-bound aggregate
+ *      delta, a backwards-moving aggregate, or a window with no successful
+ *      aggregate read at all never falls back.
  *
  * Any ambiguity (usage API errors, malformed payloads, stale pricing
  * evidence, deltas that cannot be reconciled) fails closed: no image is
@@ -365,5 +374,115 @@ export async function reconcileCloudflareRasterUsageV15(
     observedDeltaNeurons: lastUsed === null ? null : lastUsed - baselineUsedNeurons,
     finalUsedNeurons: lastUsed,
     requests,
+  };
+}
+
+export type CloudflareUsageReconciliationMethodV15 = 'aggregate-delta' | 'per-request-reported';
+
+export type CloudflareUsageReconciliationDecisionV15 = {
+  deliver: boolean;
+  method: CloudflareUsageReconciliationMethodV15 | null;
+  /** Sum of the per-request usage reports, or null when any call did not report a usable number. */
+  totalReportedNeurons: number | null;
+  reason:
+    | 'aggregate-reconciled'
+    | 'per-request-reported-within-reserve'
+    | 'aggregate-unobserved'
+    | 'aggregate-over-reserve'
+    | 'aggregate-moved-backwards'
+    | 'aggregate-inconsistent'
+    | 'per-request-usage-incomplete'
+    | 'per-request-usage-implausible'
+    | 'per-request-usage-over-reserve';
+};
+
+/**
+ * Delivery decision after the reconciliation polling window closes.
+ *
+ * The aggregate path is authoritative and unchanged: a measured delta that
+ * is positive and within the reserved bound delivers as 'aggregate-delta'.
+ * The per-request fallback exists only for the measured reality that
+ * Cloudflare's analytics aggregation reflects new usage minutes later,
+ * long after a 40-second polling window closes (observed in production on
+ * 2026-11-07: generations completed and the daily total did grow, but never
+ * inside the window, so every delivery was withheld). The fallback is
+ * deliberately narrow and every doubtful branch fails closed:
+ *
+ *   - an over-bound aggregate delta can never shrink back into bounds and
+ *     never falls back ('aggregate-over-reserve');
+ *   - a backwards-moving aggregate (e.g. the UTC accounting day rolled
+ *     over between the baseline read and the polling window, or an
+ *     analytics correction) voids the comparison entirely
+ *     ('aggregate-moved-backwards');
+ *   - a window in which no aggregate read succeeded at all provides no
+ *     account-level evidence to defer against ('aggregate-unobserved');
+ *   - otherwise the delta is ~zero — the consumption has not been
+ *     reflected yet — and delivery requires positive evidence from the
+ *     request itself: every inference call it made (all generations and
+ *     all semantic-critic calls, across candidates and the retry) must
+ *     have reported its own Neurons in its run response, the reported
+ *     total must be positive (an all-zero report is not evidence of
+ *     attribution), and the total must fit the same reserved bound the
+ *     pre-check enforced. One unreported call keeps the image withheld.
+ *
+ * The $0.00 guarantee never rests on this fallback alone: it rests on the
+ * Workers Free plan proof, the pre-generation quota check with its
+ * up-front reserve, and the plan's structural absence of overage billing.
+ * The fallback only decides whether already-generated, already-reserved
+ * consumption may be delivered when the aggregate ledger lags.
+ */
+export function decideCloudflareUsageReconciliationV15(
+  reconciliation: CloudflareUsageReconciliationV15,
+  maxDeltaNeurons: number,
+  reportedCallsNeurons: readonly (number | null)[],
+): CloudflareUsageReconciliationDecisionV15 {
+  const allReported = reportedCallsNeurons.length > 0
+    && reportedCallsNeurons.every(
+      (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0,
+    );
+  const totalReportedNeurons = allReported
+    ? Math.round(reportedCallsNeurons.reduce((sum, value) => sum + (value as number), 0) * 1000) / 1000
+    : null;
+
+  if (
+    reconciliation.reconciled
+    && reconciliation.observedDeltaNeurons !== null
+    && reconciliation.finalUsedNeurons !== null
+  ) {
+    return { deliver: true, method: 'aggregate-delta', totalReportedNeurons, reason: 'aggregate-reconciled' };
+  }
+
+  const delta = reconciliation.observedDeltaNeurons;
+  if (delta === null || reconciliation.finalUsedNeurons === null) {
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'aggregate-unobserved' };
+  }
+  if (delta > maxDeltaNeurons + DELTA_EPSILON) {
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'aggregate-over-reserve' };
+  }
+  if (delta < -DELTA_EPSILON) {
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'aggregate-moved-backwards' };
+  }
+  if (delta > DELTA_EPSILON) {
+    // The poller returns every positive in-bounds delta as reconciled, so a
+    // positive unreconciled delta is inconsistent evidence. Fail closed.
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'aggregate-inconsistent' };
+  }
+
+  // ~zero delta: the aggregate has not reflected this request yet. Only the
+  // request's own complete, in-bounds usage reports may carry the delivery.
+  if (!allReported || totalReportedNeurons === null) {
+    return { deliver: false, method: null, totalReportedNeurons: null, reason: 'per-request-usage-incomplete' };
+  }
+  if (totalReportedNeurons <= DELTA_EPSILON) {
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'per-request-usage-implausible' };
+  }
+  if (totalReportedNeurons > maxDeltaNeurons + DELTA_EPSILON) {
+    return { deliver: false, method: null, totalReportedNeurons, reason: 'per-request-usage-over-reserve' };
+  }
+  return {
+    deliver: true,
+    method: 'per-request-reported',
+    totalReportedNeurons,
+    reason: 'per-request-reported-within-reserve',
   };
 }

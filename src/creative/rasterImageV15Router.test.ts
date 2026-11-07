@@ -525,6 +525,11 @@ describe('rasterImageV15Router', () => {
       candidatesPlanned: 1,
       observedDeltaNeurons: 140,
       usedAfterNeurons: 240,
+      // The usage object is serialized verbatim into the response, so the
+      // reconciliation method and the per-request report total reach API
+      // clients as delivery evidence.
+      reconciliationMethod: 'aggregate-delta',
+      reportedNeurons: null,
     });
     expect(state.imageRuns).toBe(1);
   });

@@ -74,6 +74,12 @@ type MockState = {
   graphqlBroken?: boolean;
   generationPrompts: string[];
   openRouterAnswer?: string;
+  /** Analytics lag: the GraphQL total never reflects this request's runs. */
+  lagUsage?: boolean;
+  /** When set, the FLUX run envelope reports this many Neurons for itself. */
+  generationReportedNeurons?: number;
+  /** When set, the critic run envelope (live shape) reports this many Neurons. */
+  criticReportedNeurons?: number;
 };
 
 function usageResponse(usedNeurons: number): Response {
@@ -89,6 +95,9 @@ function usageResponse(usedNeurons: number): Response {
 }
 
 function dispatchFetch(state: MockState) {
+  // What the analytics GraphQL read reports. Generation moves it unless the
+  // lag scenario pins it to the pre-generation baseline for the whole test.
+  let graphqlUsedNeurons = state.usedNeurons;
   return vi.fn(async (url: string, init?: RequestInit) => {
     const target = String(url);
     if (target.includes('/workers/account-settings')) {
@@ -103,7 +112,7 @@ function dispatchFetch(state: MockState) {
           headers: { 'content-type': 'application/json' },
         });
       }
-      return usageResponse(state.usedNeurons);
+      return usageResponse(graphqlUsedNeurons);
     }
     if (target.includes('openrouter.ai/api/v1/chat/completions')) {
       return new Response(JSON.stringify({
@@ -113,11 +122,15 @@ function dispatchFetch(state: MockState) {
     if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-')) {
       state.imageRuns += 1;
       state.usedNeurons += state.generationDelta;
+      if (!state.lagUsage) graphqlUsedNeurons += state.generationDelta;
       const form = init?.body as FormData | undefined;
       if (form && typeof form.get === 'function') {
         state.generationPrompts.push(String(form.get('prompt') ?? ''));
       }
       const bytes = state.imageBytes ?? pngBytes(256, 256);
+      if (state.generationReportedNeurons !== undefined) {
+        return envelope({ image: bytes.toString('base64'), usage: { neurons: state.generationReportedNeurons } });
+      }
       return envelope(bytes.toString('base64'));
     }
     if (target.includes('/ai/run/@cf/moondream/')) {
@@ -125,6 +138,11 @@ function dispatchFetch(state: MockState) {
       const answer = state.criticAnswers?.length
         ? state.criticAnswers.shift()
         : state.criticAnswer ?? PASSING_CRITIC_ANSWER;
+      if (state.criticReportedNeurons !== undefined) {
+        // Live-verified envelope shape: the model's own output object nested
+        // under result.result, with the usage block alongside it.
+        return envelope({ result: { answer }, usage: { neurons: state.criticReportedNeurons } });
+      }
       return envelope({ answer });
     }
     throw new Error(`unexpected fetch: ${target}`);
@@ -176,6 +194,10 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       retryBudgeted: true,
       observedDeltaNeurons: 140,
       usedAfterNeurons: 240,
+      reconciliationMethod: 'aggregate-delta',
+      // The mocks report no per-request usage; the aggregate delta alone
+      // carries this delivery, so the reported total stays null.
+      reportedNeurons: null,
     });
     expect(delivery.quality).toMatchObject({
       promptEnhancement: { applied: false, reason: 'PROMPT_ENHANCEMENT_NOT_CONFIGURED' },
@@ -274,6 +296,96 @@ describe('cloudflareRasterFreeGenerationV15', () => {
 
   it('withholds the image when the measured delta exceeds the reserved bound', async () => {
     const state = baseState({ generationDelta: 5_000 });
+    const fetchMock = dispatchFetch(state);
+    await expect(generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    expect(state.imageRuns).toBe(1);
+  });
+
+  it('delivers on per-request usage reports when the analytics aggregate lags behind the polling window', async () => {
+    // Production shape (2026-11-07): generation and critic complete, the
+    // daily aggregate does grow eventually, but never inside the window.
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    expect(state.imageRuns).toBe(1);
+    expect(state.criticRuns).toBe(1);
+    expect(delivery.result.costEvidence).toBe('per-request-usage-reported; aggregate-reconciliation-deferred');
+    expect(delivery.usage).toMatchObject({
+      usedBeforeNeurons: 100,
+      reservedNeurons: 576,
+      observedDeltaNeurons: 0,
+      usedAfterNeurons: 100,
+      reconciliationMethod: 'per-request-reported',
+      reportedNeurons: 175,
+    });
+  });
+
+  it('counts every candidate and the retry in the per-request fallback accounting', async () => {
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+      criticAnswers: [FAILING_CRITIC_ANSWER, PASSING_CRITIC_ANSWER],
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    expect(state.imageRuns).toBe(2); // failed candidate + budgeted retry
+    expect(state.criticRuns).toBe(2);
+    expect(delivery.quality.retryUsed).toBe(true);
+    // (140 generation + 35 critic) x 2 attempts, all inside the 576 reserve.
+    expect(delivery.usage.reportedNeurons).toBe(350);
+    expect(delivery.usage.reconciliationMethod).toBe('per-request-reported');
+  });
+
+  it('withholds the image under analytics lag when any single call reported no usage', async () => {
+    // Critic reported, generation did not.
+    const noGenerationReport = baseState({ lagUsage: true, criticReportedNeurons: 35 });
+    await expect(generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, dispatchFetch(noGenerationReport) as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+
+    // Generation reported, critic did not.
+    const noCriticReport = baseState({ lagUsage: true, generationReportedNeurons: 140 });
+    await expect(generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, dispatchFetch(noCriticReport) as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+  });
+
+  it('never lets per-request reports rescue an over-bound aggregate delta', async () => {
+    const state = baseState({
+      generationDelta: 5_000,
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+    });
+    const fetchMock = dispatchFetch(state);
+    await expect(generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    expect(state.imageRuns).toBe(1);
+  });
+
+  it('withholds the image when the per-request reported total exceeds the reserve', async () => {
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 400,
+      criticReportedNeurons: 300,
+    });
     const fetchMock = dispatchFetch(state);
     await expect(generateCloudflareRasterImageFreeProofV15(
       INPUT, ENV, fetchMock as unknown as typeof fetch,
