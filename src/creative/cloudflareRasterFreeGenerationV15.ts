@@ -36,7 +36,11 @@
  *      carries earlier requests' backlog and says nothing about this
  *      request (production batch 2026-11-07: the second half of 12
  *      consecutive generations all failed reconciliation on exactly this
- *      when the delta was still treated as a veto). Otherwise the
+ *      when the delta was still treated as a veto). When the reports are
+ *      already complete at generation end, the aggregate polling window
+ *      is skipped outright — it could only repeat what the reports prove,
+ *      at up to 40s of pure wait — and the aggregate is recorded as
+ *      unobserved. Otherwise the
  *      generated image is withheld — a generated-but-unproven image is
  *      never delivered — and the failure carries the observed usage
  *      snapshot so the block is diagnosable from the API response.
@@ -74,6 +78,7 @@ import {
   CLOUDFLARE_RASTER_PRICED_MODELS_V15,
   RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15,
   type CloudflareRasterPricedModelV15,
+  type CloudflareUsageReconciliationV15,
   type CloudflareUsageReconciliationDecisionV15,
   type CloudflareUsageReconciliationMethodV15,
   type CloudflareUsageReconciliationOptionsV15,
@@ -352,13 +357,6 @@ export async function generateCloudflareRasterImageFreeProofV15(
   // only carry the delivery secondarily, when the request's own reports
   // are incomplete — its size or absence alone never vetoes complete
   // in-bounds reports (see decideCloudflareUsageReconciliationV15).
-  const reconciliation = await reconcileCloudflareRasterUsageV15(
-    auth,
-    baseline.usedNeurons,
-    reservedNeurons,
-    fetchImpl,
-    options.usageVerification,
-  );
   // One entry per inference call this request actually made, across every
   // candidate and the retry: the generation call, plus the semantic-critic
   // call whenever one ran. A call whose usage is unknown is entered as
@@ -375,6 +373,28 @@ export async function generateCloudflareRasterImageFreeProofV15(
       reportedCallsNeurons.push(null);
     }
   }
+  // When every call already reported its own usage, the aggregate poll
+  // can add no evidence: decide judges the complete reports on its
+  // primary path, and the polling window (up to 40s) would be pure wait.
+  // Skip it and record the aggregate as unobserved (nulls), exactly as
+  // when every polling read fails. Only incomplete reports still run the
+  // window, where the aggregate delta remains the secondary evidence.
+  // The completeness predicate mirrors decide's own (non-empty, every
+  // entry a finite number >= 0); totals that are zero or over the
+  // reserve still fail closed inside decide, unchanged.
+  const reportsComplete = reportedCallsNeurons.length > 0
+    && reportedCallsNeurons.every(
+      (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0,
+    );
+  const reconciliation: CloudflareUsageReconciliationV15 = reportsComplete
+    ? { reconciled: false, observedDeltaNeurons: null, finalUsedNeurons: null, requests: 0 }
+    : await reconcileCloudflareRasterUsageV15(
+      auth,
+      baseline.usedNeurons,
+      reservedNeurons,
+      fetchImpl,
+      options.usageVerification,
+    );
   const decision = decideCloudflareUsageReconciliationV15(
     reconciliation,
     reservedNeurons,

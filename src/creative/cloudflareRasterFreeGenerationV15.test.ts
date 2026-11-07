@@ -315,6 +315,8 @@ describe('cloudflareRasterFreeGenerationV15', () => {
   it('delivers on per-request usage reports when the analytics aggregate lags behind the polling window', async () => {
     // Production shape (2026-11-07): generation and critic complete, the
     // daily aggregate does grow eventually, but never inside the window.
+    // Complete reports skip the polling window entirely, so the aggregate
+    // is recorded as unobserved (null) rather than as a lagged zero.
     const state = baseState({
       lagUsage: true,
       generationReportedNeurons: 140,
@@ -331,8 +333,8 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.usage).toMatchObject({
       usedBeforeNeurons: 100,
       reservedNeurons: 576,
-      observedDeltaNeurons: 0,
-      usedAfterNeurons: 100,
+      observedDeltaNeurons: null,
+      usedAfterNeurons: null,
       reconciliationMethod: 'per-request-reported',
       reportedNeurons: 175,
     });
@@ -379,7 +381,9 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     // delta that lands inside this request's polling window is the backlog
     // of earlier requests (here: a 5,000-Neuron jump against a 576
     // reserve). The aggregate cannot attribute it to this request, so the
-    // request's own complete, in-bounds reports carry the delivery.
+    // request's own complete, in-bounds reports carry the delivery. With
+    // complete reports the window is never even opened, so the backlog
+    // delta is recorded as unobserved (null) instead of 5,000.
     const state = baseState({
       generationDelta: 5_000,
       generationReportedNeurons: 140,
@@ -396,8 +400,8 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.usage).toMatchObject({
       usedBeforeNeurons: 100,
       reservedNeurons: 576,
-      observedDeltaNeurons: 5_000,
-      usedAfterNeurons: 5_100,
+      observedDeltaNeurons: null,
+      usedAfterNeurons: null,
       reconciliationMethod: 'per-request-reported',
       reportedNeurons: 175,
     });
@@ -424,6 +428,57 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       usedAfterNeurons: null,
       reconciliationMethod: 'per-request-reported',
       reportedNeurons: 175,
+    });
+  });
+
+  it('skips the aggregate polling window entirely when every call reported its usage', async () => {
+    // The aggregate WOULD move inside the window (generation moves it by
+    // 140), so a polling read would reconcile if one ran. With complete
+    // per-request reports the window is skipped: the only GraphQL call in
+    // the whole flow is the pre-generation baseline read.
+    const state = baseState({
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    const graphqlCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/graphql'),
+    );
+    expect(graphqlCalls).toHaveLength(1); // baseline read only; no polling
+    expect(state.imageRuns).toBe(1);
+    expect(state.criticRuns).toBe(1);
+    expect(delivery.usage).toMatchObject({
+      observedDeltaNeurons: null,
+      usedAfterNeurons: null,
+      reconciliationMethod: 'per-request-reported',
+      reportedNeurons: 175,
+    });
+  });
+
+  it('still polls the aggregate when any call reported no usage', async () => {
+    // Generation reported its Neurons but the critic did not: the
+    // per-request evidence is incomplete, so the polling window still
+    // runs and the aggregate delta (140, moved by the generation itself)
+    // carries the delivery on the first polling read.
+    const state = baseState({ generationReportedNeurons: 140 });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    const graphqlCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/graphql'),
+    );
+    expect(graphqlCalls).toHaveLength(2); // baseline read + one polling read
+    expect(delivery.usage).toMatchObject({
+      observedDeltaNeurons: 140,
+      usedAfterNeurons: 240,
+      reconciliationMethod: 'aggregate-delta',
+      reportedNeurons: null,
     });
   });
 
@@ -464,6 +519,13 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
     )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
     expect(state.imageRuns).toBe(1);
+    // The reports are complete (700 > the 576 reserve), so the polling
+    // window is skipped and decide fails closed on the primary evidence
+    // alone: only the baseline GraphQL read happened.
+    const graphqlCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/graphql'),
+    );
+    expect(graphqlCalls).toHaveLength(1);
   });
 
   it('delivers through the 9B model when it is explicitly selected, with its own pricing', async () => {
