@@ -8,7 +8,7 @@ export interface SplashScreenProps {
 }
 
 const SESSION_KEY = 'origin_personal_splash_seen_v1';
-const STARTUP_BRAND_MARK_SRC = '/brand/origin-sunrise-mark.svg?v=sunrise-20261004';
+const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261108';
 
 function shouldShowSplash(visible: boolean, oncePerSession: boolean): boolean {
   if (!visible) return false;
@@ -41,16 +41,16 @@ export default function SplashScreen({ durationMs = 600, visible = true, oncePer
     <div className="origin-ultra-splash" role="status" aria-label="ORIGIN を起動しています">
       <div className="origin-ultra-splash__aurora" aria-hidden="true" />
       <div className="origin-ultra-splash__content">
-        <div className="origin-sunrise-logo" aria-hidden="true">
-          <span className="origin-sunrise-logo__halo" />
+        <div className="origin-ribbon-logo" aria-hidden="true">
+          <span className="origin-ribbon-logo__halo" />
           <img
-            className="origin-sunrise-logo__mark"
+            className="origin-ribbon-logo__mark"
             src={STARTUP_BRAND_MARK_SRC}
             alt=""
             draggable={false}
           />
         </div>
-        <div className="origin-sunrise-wordmark">ORIGIN</div>
+        <div className="origin-ribbon-wordmark">ORIGIN</div>
       </div>
       <div className="origin-ultra-skeleton" aria-hidden="true">
         <span />

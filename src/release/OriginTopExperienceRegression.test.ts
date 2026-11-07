@@ -135,7 +135,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(ultraOptics).toContain('filter: blur(24px);');
     expect(ultraOptics).not.toContain('0 4px 14px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
     expect(splashBrand).toContain('filter: blur(14px);');
-    expect(splashBrand).toContain('filter: drop-shadow(0 12px 24px rgb(218 74 93 / 13%));');
+    expect(splashBrand).toContain('filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));');
     expect(ultraOptics).not.toContain('backdrop-filter: blur(16px);');
     expect(ultraOptics).not.toContain('filter: blur(34px);');
     expect(ultraOptics).not.toContain('0 10px 28px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
@@ -157,7 +157,8 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('width: 76px !important;');
     expect(topUi).toContain('width: 64px !important;');
     expect(topUi).toContain('width: 54px !important;');
-    expect(topUi).toContain("background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;");
+    expect(topUi).toContain("background: transparent url('/brand/origin-ribbon-o-light.webp') center / contain no-repeat !important;");
+    expect(topUi).toContain("background: url('/brand/origin-ribbon-o-small.webp') center / contain no-repeat !important;");
     expect(topUi).toContain('min-height: 56px !important;');
     expect(functionalUi).toContain('grid-column: 1 / -1;');
     expect(functionalUi).toContain('margin-top: 12px !important;');

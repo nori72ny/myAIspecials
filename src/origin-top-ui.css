@@ -28,8 +28,8 @@
   width: 22px !important;
   height: 22px !important;
   min-width: 22px !important;
-  border-radius: 0 !important;
-  background: url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;
+  border-radius: 6px !important;
+  background: url('/brand/origin-ribbon-o-small.webp') center / contain no-repeat !important;
   box-shadow: none !important;
 }
 .origin-header .origin-secondary-button {
@@ -111,17 +111,20 @@
   width: 64px !important;
   height: 64px !important;
   border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent url('/brand/origin-sunrise-mark.svg') center / contain no-repeat !important;
+  border-radius: 16px !important;
+  background: transparent url('/brand/origin-ribbon-o-light.webp') center / contain no-repeat !important;
   color: transparent !important;
   font-size: 0 !important;
   line-height: 0 !important;
   box-shadow: none !important;
 }
+:root[data-theme="dark"] [data-testid="origin-core-logo"] .origin-logo-core {
+  background-image: url('/brand/origin-ribbon-o.webp') !important;
+}
 [data-testid="origin-core-logo"] .origin-logo-glow {
   inset: -5px !important;
   border-radius: 999px !important;
-  background: radial-gradient(circle, rgb(255 156 74 / 26%) 0%, rgb(236 60 131 / 12%) 40%, transparent 72%) !important;
+  background: radial-gradient(circle, rgb(37 64 143 / 26%) 0%, rgb(96 131 214 / 12%) 40%, transparent 72%) !important;
   filter: blur(10px) !important;
   opacity: .72 !important;
 }

@@ -1,21 +1,17 @@
-import { deflateSync } from 'node:zlib';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { deflateSync, inflateSync } from 'node:zlib';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'public');
+const SOURCE_DIR = resolve(ROOT, 'scripts/brand');
 mkdirSync(OUT, { recursive: true });
 
-const BRAND = Object.freeze({
-  midnight: [11, 16, 39],
-  border: [188, 52, 124],
-  orange: [255, 170, 83],
-  coral: [255, 142, 73],
-  pink: [241, 75, 110],
-  magenta: [214, 56, 124],
-  white: [255, 253, 246],
-});
+// Platform icons are rasterized from the approved ribbon-O artwork stored in
+// scripts/brand/. The source PNGs are written with filter type 0 on every row
+// so this dependency-free decoder stays small and auditable; the decoder
+// refuses anything else instead of guessing.
 
 function crc32(buffer) {
   let crc = 0xffffffff;
@@ -60,106 +56,120 @@ function encodePng(width, height, rgb) {
   ]);
 }
 
-function insideRoundedRect(x, y, left, top, right, bottom, radius) {
-  if (x < left || x > right || y < top || y > bottom) return false;
-  const cx = Math.min(Math.max(x, left + radius), right - radius);
-  const cy = Math.min(Math.max(y, top + radius), bottom - radius);
-  const dx = x - cx;
-  const dy = y - cy;
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function insideCircle(x, y, cx, cy, radius) {
-  const dx = x - cx;
-  const dy = y - cy;
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function insideEllipse(x, y, cx, cy, rx, ry) {
-  const dx = (x - cx) / rx;
-  const dy = (y - cy) / ry;
-  return dx * dx + dy * dy <= 1;
-}
-
-function insidePolygon(x, y, points) {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
-    const [xi, yi] = points[i];
-    const [xj, yj] = points[j];
-    const intersect = ((yi > y) !== (yj > y))
-      && (x < ((xj - xi) * (y - yi)) / (yj - yi || Number.EPSILON) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-function sampleBrand(x, y, { maskable = false } = {}) {
-  let color = BRAND.midnight;
-
-  if (!maskable) {
-    const outer = insideRoundedRect(x, y, 22, 22, 490, 490, 112);
-    const inner = insideRoundedRect(x, y, 25, 25, 487, 487, 109);
-    if (outer && !inner) color = BRAND.border;
-  }
-
-  const cx = 256;
-  const cy = maskable ? 250 : 246;
-  const radius = maskable ? 112 : 124;
-  if (insideCircle(x, y, cx, cy, radius)) {
-    if (y < cy - 12) color = BRAND.orange;
-    else if (x < cx - 18) color = BRAND.magenta;
-    else if (x > cx + 18) color = BRAND.pink;
-    else color = BRAND.coral;
-
-    if (y >= cy + 12 && insideEllipse(x, y, cx, cy + 172, 118, 160)) {
-      color = BRAND.midnight;
+function decodeSourcePng(path) {
+  const png = readFileSync(path);
+  if (png.subarray(1, 4).toString('ascii') !== 'PNG') throw new Error(`BRAND_ICON_SOURCE_NOT_PNG: ${path}`);
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idat = [];
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.subarray(offset + 4, offset + 8).toString('ascii');
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      if (data[8] !== 8 || data[9] !== 2 || data[12] !== 0) {
+        throw new Error(`BRAND_ICON_SOURCE_UNSUPPORTED: ${path}`);
+      }
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    } else if (type === 'IEND') {
+      break;
     }
+    offset += 12 + length;
   }
-
-  const star = [
-    [cx, cy - 52], [cx + 15, cy - 15], [cx + 52, cy], [cx + 15, cy + 15],
-    [cx, cy + 52], [cx - 15, cy + 15], [cx - 52, cy], [cx - 15, cy - 15],
-  ];
-  if (insidePolygon(x, y, star)) color = BRAND.white;
-  return color;
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = 1 + width * 3;
+  if (raw.length !== stride * height) throw new Error(`BRAND_ICON_SOURCE_SIZE_MISMATCH: ${path}`);
+  const rgb = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    if (raw[y * stride] !== 0) throw new Error(`BRAND_ICON_SOURCE_FILTERED: ${path}`);
+    raw.copy(rgb, y * width * 3, y * stride + 1, (y + 1) * stride);
+  }
+  return { width, height, rgb };
 }
 
-function render(size, options = {}) {
-  const rgb = Buffer.alloc(size * size * 3);
-  const samples = 4;
-  const inv = 1 / (samples * samples);
-  for (let py = 0; py < size; py += 1) {
-    for (let px = 0; px < size; px += 1) {
-      const sum = [0, 0, 0];
-      for (let sy = 0; sy < samples; sy += 1) {
-        for (let sx = 0; sx < samples; sx += 1) {
-          const x = ((px + (sx + 0.5) / samples) / size) * 512;
-          const y = ((py + (sy + 0.5) / samples) / size) * 512;
-          const color = sampleBrand(x, y, options);
-          sum[0] += color[0];
-          sum[1] += color[1];
-          sum[2] += color[2];
+// Area-average downscale: each destination pixel averages the source box it
+// covers, which keeps the ribbon edges smooth at favicon sizes.
+function resizeArea(source, size) {
+  const { width, height, rgb } = source;
+  const out = Buffer.alloc(size * size * 3);
+  const scaleX = width / size;
+  const scaleY = height / size;
+  for (let y = 0; y < size; y += 1) {
+    const y0 = Math.floor(y * scaleY);
+    const y1 = Math.max(y0 + 1, Math.floor((y + 1) * scaleY));
+    for (let x = 0; x < size; x += 1) {
+      const x0 = Math.floor(x * scaleX);
+      const x1 = Math.max(x0 + 1, Math.floor((x + 1) * scaleX));
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let count = 0;
+      for (let sy = y0; sy < y1 && sy < height; sy += 1) {
+        for (let sx = x0; sx < x1 && sx < width; sx += 1) {
+          const at = (sy * width + sx) * 3;
+          r += rgb[at];
+          g += rgb[at + 1];
+          b += rgb[at + 2];
+          count += 1;
         }
       }
-      const offset = (py * size + px) * 3;
-      rgb[offset] = Math.round(sum[0] * inv);
-      rgb[offset + 1] = Math.round(sum[1] * inv);
-      rgb[offset + 2] = Math.round(sum[2] * inv);
+      const at = (y * size + x) * 3;
+      out[at] = Math.round(r / count);
+      out[at + 1] = Math.round(g / count);
+      out[at + 2] = Math.round(b / count);
     }
   }
-  return encodePng(size, size, rgb);
+  return { width: size, height: size, rgb: out };
 }
 
+// Maskable icons keep the artwork inside the safe zone (center 80%) over the
+// artwork's own midnight-blue background, sampled from its corner pixel.
+function renderMaskable(source, size) {
+  const bg = [source.rgb[0], source.rgb[1], source.rgb[2]];
+  const innerSize = Math.round(size * 0.8);
+  const inner = resizeArea(source, innerSize);
+  const offset = Math.floor((size - innerSize) / 2);
+  const rgb = Buffer.alloc(size * size * 3);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 3;
+      const ix = x - offset;
+      const iy = y - offset;
+      if (ix >= 0 && iy >= 0 && ix < innerSize && iy < innerSize) {
+        const from = (iy * innerSize + ix) * 3;
+        rgb[at] = inner.rgb[from];
+        rgb[at + 1] = inner.rgb[from + 1];
+        rgb[at + 2] = inner.rgb[from + 2];
+      } else {
+        rgb[at] = bg[0];
+        rgb[at + 1] = bg[1];
+        rgb[at + 2] = bg[2];
+      }
+    }
+  }
+  return { width: size, height: size, rgb };
+}
+
+const master = decodeSourcePng(resolve(SOURCE_DIR, 'origin-ribbon-o-source.png'));
+const small = decodeSourcePng(resolve(SOURCE_DIR, 'origin-ribbon-o-small-source.png'));
+const mono = decodeSourcePng(resolve(SOURCE_DIR, 'origin-ribbon-o-mono-source.png'));
+
 const targets = [
-  ['pwa-192.png', 192, false],
-  ['pwa-512.png', 512, false],
-  ['pwa-maskable-512.png', 512, true],
-  ['apple-touch-icon.png', 180, false],
+  ['pwa-192.png', resizeArea(master, 192)],
+  ['pwa-512.png', resizeArea(master, 512)],
+  ['pwa-maskable-512.png', renderMaskable(master, 512)],
+  ['apple-touch-icon.png', resizeArea(master, 180)],
+  ['favicon.png', resizeArea(small, 64)],
+  ['favicon-dark.png', resizeArea(mono, 64)],
 ];
 
-for (const [name, size, maskable] of targets) {
+for (const [name, image] of targets) {
   const path = resolve(OUT, name);
-  const png = render(size, { maskable });
+  const png = encodePng(image.width, image.height, image.rgb);
   writeFileSync(path, png, { mode: 0o644 });
-  process.stdout.write(`generated ${name} ${size}x${size} (${png.length} bytes)\n`);
+  process.stdout.write(`generated ${name} ${image.width}x${image.height} (${png.length} bytes)\n`);
 }

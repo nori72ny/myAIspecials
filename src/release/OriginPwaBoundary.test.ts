@@ -24,30 +24,39 @@ describe('ORIGIN PWA boundary', () => {
     expect(manifest.display).toBe('standalone');
     expect(manifest.orientation).toBeUndefined();
     expect(manifest.icons).toEqual(expect.arrayContaining([
-      expect.objectContaining({ src: '/pwa-192.png?v=sunrise-20261004', sizes: '192x192', type: 'image/png', purpose: 'any' }),
-      expect.objectContaining({ src: '/pwa-512.png?v=sunrise-20261004', sizes: '512x512', type: 'image/png', purpose: 'any' }),
-      expect.objectContaining({ src: '/pwa-maskable-512.png?v=sunrise-20261004', sizes: '512x512', type: 'image/png', purpose: 'maskable' }),
+      expect.objectContaining({ src: '/pwa-192.png?v=ribbon-20261108', sizes: '192x192', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ src: '/pwa-512.png?v=ribbon-20261108', sizes: '512x512', type: 'image/png', purpose: 'any' }),
+      expect.objectContaining({ src: '/pwa-maskable-512.png?v=ribbon-20261108', sizes: '512x512', type: 'image/png', purpose: 'maskable' }),
     ]));
   });
 
-  it('keeps the approved ORIGIN sunrise identity wired to browser, Apple, PWA, and in-app surfaces', () => {
+  it('keeps the approved ORIGIN ribbon identity wired to browser, Apple, PWA, and in-app surfaces', () => {
     const index = read('index.html');
     const worker = read('public/sw.js');
     const topUi = read('src/origin-top-ui.css');
-    const mark = read('public/brand/origin-sunrise-mark.svg');
+    const mark = readFileSync(resolve(process.cwd(), 'public/brand/origin-ribbon-o.webp'));
 
-    expect(index).toContain('href="/manifest.json?v=sunrise-20261004"');
-    expect(index).toContain('href="/favicon.svg?v=sunrise-20261004"');
-    expect(index).toContain('href="/apple-touch-icon.png?v=sunrise-20261004"');
+    expect(index).toContain('href="/manifest.json?v=ribbon-20261108"');
+    expect(index).toContain('href="/favicon.png?v=ribbon-20261108"');
+    expect(index).toContain('href="/favicon-dark.png?v=ribbon-20261108"');
+    expect(index).toContain('href="/apple-touch-icon.png?v=ribbon-20261108"');
     expect(index).toContain('content="#ffffff"');
-    expect(worker).toContain("'/favicon.svg'");
+    expect(worker).toContain("'/favicon.png'");
+    expect(worker).toContain("'/favicon-dark.png'");
     expect(worker).toContain("'/pwa-192.png'");
     expect(worker).toContain("'/pwa-512.png'");
     expect(worker).toContain("'/pwa-maskable-512.png'");
     expect(worker).toContain("'/apple-touch-icon.png'");
-    expect(worker).toContain("'/brand/origin-sunrise-mark.svg'");
-    expect(topUi).toContain("url('/brand/origin-sunrise-mark.svg')");
-    expect(mark).toContain('ORIGIN sunrise mark');
+    expect(worker).toContain("'/brand/origin-ribbon-o.webp'");
+    expect(worker).toContain("'/brand/origin-ribbon-o-small.webp'");
+    expect(worker).toContain("'/brand/origin-cat-thinking.webp'");
+    expect(worker).not.toContain('origin-sunrise-mark');
+    expect(worker).not.toContain("'/brand/origin-cat-working.mp4'");
+    expect(topUi).toContain("url('/brand/origin-ribbon-o-small.webp')");
+    expect(topUi).toContain("url('/brand/origin-ribbon-o-light.webp')");
+    expect(topUi).toContain("url('/brand/origin-ribbon-o.webp')");
+    expect(mark.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(mark.subarray(8, 12).toString('ascii')).toBe('WEBP');
   });
 
   it('registers only in a secure top-level browsing context', () => {

@@ -11,7 +11,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
   saveCheckpointToIndexedDB,
 }));
 
-import AgentWorkspaceView from './AgentWorkspaceView';
+import AgentWorkspaceView, { catStateForPhase } from './AgentWorkspaceView';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -237,5 +237,38 @@ describe('AgentWorkspaceView v3', () => {
       '/api/agent/v3/browser-approval',
       '/api/agent/v3/execute',
     ]);
+  });
+});
+
+describe('catStateForPhase', () => {
+  it('maps agent phases to cat character states', () => {
+    expect(catStateForPhase('idle', true, true)).toBe('thinking');
+    expect(catStateForPhase('idle', false, false)).toBe('sorry');
+    expect(catStateForPhase('idle', false, true)).toBe('sleep');
+    expect(catStateForPhase('planning', false, true)).toBe('thinking');
+    expect(catStateForPhase('awaiting_approval', false, true)).toBe('waiting');
+    expect(catStateForPhase('executing', false, true)).toBe('working');
+    expect(catStateForPhase('completed', false, true)).toBe('done');
+    expect(catStateForPhase('failed', false, true)).toBe('sorry');
+  });
+
+  it('shows the waiting cat while a plan awaits approval', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('自律エージェントを利用できます');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+
+    await screen.findByText('未実行 · 承認待ち');
+    const cat = screen.getByTestId('origin-cat-state');
+    expect(cat.getAttribute('data-state')).toBe('waiting');
+    expect(cat.tagName).toBe('IMG');
   });
 });
