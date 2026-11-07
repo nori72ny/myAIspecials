@@ -67,18 +67,22 @@ describe('rasterTechnicalCriticV15', () => {
       .toThrow('RASTER_TECHNICAL_CRITIC_INPUT_INVALID');
   });
 
-  it('recommends two candidates for quality-critical work but keeps Best-of-N execution disabled until live evidence exists', () => {
+  it('recommends two best-of-N candidates as the standard for every request', () => {
     const premium = candidatePolicyForRasterRequestV15('最高品質の高級腕時計広告を作って', 'advertisement');
     expect(premium).toMatchObject({
       version: 'raster-candidate-policy-v1',
       recommendedCandidates: 2,
-      activeCandidates: 1,
-      bestOfNEnabled: false,
+      activeCandidates: 2,
+      bestOfNEnabled: true,
     });
 
+    // Ordinary requests get the same two-candidate comparison; the
+    // generation flow shrinks the count only when the remaining free quota
+    // cannot cover the per-candidate reserve.
     const simple = candidatePolicyForRasterRequestV15('青い空の画像を作って', 'photograph');
-    expect(simple.recommendedCandidates).toBe(1);
-    expect(simple.activeCandidates).toBe(1);
+    expect(simple.recommendedCandidates).toBe(2);
+    expect(simple.activeCandidates).toBe(2);
+    expect(simple.bestOfNEnabled).toBe(true);
   });
 
   it('selects the highest-scoring passing candidate and never selects failed output', () => {

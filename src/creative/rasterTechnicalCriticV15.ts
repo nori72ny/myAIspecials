@@ -28,9 +28,9 @@ export type RasterQualityCandidateV15<T> = {
 export type RasterCandidatePolicyV15 = {
   version: 'raster-candidate-policy-v1';
   recommendedCandidates: 1 | 2;
-  activeCandidates: 1;
+  activeCandidates: 1 | 2;
   reason: string;
-  bestOfNEnabled: false;
+  bestOfNEnabled: boolean;
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -199,15 +199,24 @@ export function candidatePolicyForRasterRequestV15(input: string, purpose?: stri
   const normalized = input.normalize('NFKC');
   const qualityCriticalPurpose = new Set(['advertisement', 'product', 'poster', 'thumbnail', 'portrait']);
   const asksForQuality = /(?:最高|高品質|最高品質|premium|best|professional|広告品質|商用品質|プロ品質)/i.test(normalized);
-  const recommendedCandidates: 1 | 2 = asksForQuality || (purpose ? qualityCriticalPurpose.has(purpose) : false) ? 2 : 1;
+  const qualityCritical = asksForQuality || (purpose ? qualityCriticalPurpose.has(purpose) : false);
+  // Best-of-N execution is live and production-verified: the guarded
+  // generation flow generates the recommended candidates, delivers the
+  // highest-scoring passing one, and its quota pre-check shrinks the count
+  // automatically when the remaining free allocation cannot cover the
+  // per-candidate reserve (down to a single candidate, or fail-closed when
+  // even one does not fit). Two candidates are therefore the standard for
+  // every request, not only quality-critical ones; the flow, not this
+  // policy, owns the shrink decision because only it sees today's measured
+  // usage.
   return {
     version: 'raster-candidate-policy-v1',
-    recommendedCandidates,
-    activeCandidates: 1,
-    reason: recommendedCandidates === 2
-      ? 'Quality-critical requests benefit from comparison, but multi-candidate execution remains disabled until live zero-cost quota and latency are verified.'
-      : 'A single verified candidate is appropriate for the current request.',
-    bestOfNEnabled: false,
+    recommendedCandidates: 2,
+    activeCandidates: 2,
+    reason: qualityCritical
+      ? 'Quality-critical request: two candidates are generated and compared, and the highest-scoring passing candidate is delivered (best-of-N). The count shrinks automatically when the remaining free quota cannot cover both candidates.'
+      : 'Two candidates are generated and compared by default, and the highest-scoring passing candidate is delivered (best-of-N). The count shrinks automatically when the remaining free quota cannot cover both candidates.',
+    bestOfNEnabled: true,
   };
 }
 
