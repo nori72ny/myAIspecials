@@ -1,12 +1,18 @@
 import {
   buildOriginCloudflareRoutePlan,
+  buildOriginGroqRoutePlan,
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID,
+  ORIGIN_GROQ_FREE_PROVIDER_ID,
   ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
 } from "../lib/orchestration/OriginExecutionPolicy.js";
 import {
   ORIGIN_CLOUDFLARE_FREE_MODEL,
   type OriginCloudflareFreeModelEvidence,
 } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
+import {
+  ORIGIN_GROQ_FREE_MODEL_ID,
+  type OriginGroqFreeModelEvidence,
+} from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import {
   assertOriginZeroCostExecutionResult,
   executeOriginProvider,
@@ -23,6 +29,12 @@ import {
   isOriginCloudflareFailoverEnabled,
   OriginCloudflarePreflightError,
 } from "./originCloudflareProviderClient.js";
+import {
+  assertOriginGroqExecutionResult,
+  executeOriginGroqProvider,
+  isOriginGroqRouteConfigured,
+  OriginGroqPreflightError,
+} from "./originGroqProviderClient.js";
 import {
   executeOriginProviderStream,
   type OriginProviderStreamHandlers,
@@ -116,8 +128,10 @@ export const ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON = "primary-circuit-open";
 export interface OriginProviderFailoverOptions {
   nowMs?: number;
   cloudflareCatalog?: readonly OriginCloudflareFreeModelEvidence[];
+  groqCatalog?: readonly OriginGroqFreeModelEvidence[];
   primaryExecute?: typeof executeOriginProvider;
   cloudflareExecute?: typeof executeOriginCloudflareProvider;
+  groqExecute?: typeof executeOriginGroqProvider;
   streamExecute?: typeof executeOriginProviderStream;
   /** Overrides ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS (tests and tuning). */
   primaryAttemptBudgetMs?: number;
@@ -319,6 +333,18 @@ function cloudflareAttemptEvidence(
   };
 }
 
+function groqAttemptEvidence(
+  outcome: OriginProviderAttemptEvidence["outcome"],
+  extras: Partial<OriginProviderAttemptEvidence> = {},
+): OriginProviderAttemptEvidence {
+  return {
+    providerId: ORIGIN_GROQ_FREE_PROVIDER_ID,
+    modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+    outcome,
+    ...extras,
+  };
+}
+
 function withFailoverAttempts(error: OriginProviderError, attempts: readonly OriginProviderAttemptEvidence[]): OriginProviderError {
   return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
     ...error.diagnostic,
@@ -421,6 +447,133 @@ function composeFailoverResult(
   };
 }
 
+async function runGroqRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  // Mirrors the Cloudflare route: the route plan keeps the primary plan's semantics
+  // with the timeout raised to the Groq client's own maximum, so a long generation
+  // on the third route is bounded by the dispatch total budget, not the plan default.
+  const planResult = buildOriginGroqRoutePlan(
+    { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+    {
+      groqFreeModelCatalog: options.groqCatalog,
+      nowMs: options.nowMs,
+    },
+  );
+  if (planResult.ok === false) {
+    throw new OriginGroqPreflightError(
+      planResult.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale",
+    );
+  }
+  const execute = options.groqExecute ?? executeOriginGroqProvider;
+  return execute(
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+    env,
+    fetchImpl,
+    { catalog: options.groqCatalog, nowMs: options.nowMs },
+  );
+}
+
+/**
+ * Runs the Groq route inside the dispatch's total budget, with the same semantics as
+ * the bounded Cloudflare route: raced against the time remaining in the window and
+ * aborted when the total expires. Without a window (direct internal use only) the
+ * route runs exactly as the unbounded helper.
+ */
+async function runGroqRouteBounded(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  if (!options.totalBudgetWindow) return runGroqRoute(request, env, fetchImpl, options);
+  const remainingMs = totalBudgetRemainingMs(options);
+  if (remainingMs <= 0) throw totalBudgetTimeoutError();
+  const routeController = new AbortController();
+  const transport = { count: 0 };
+  const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
+  const routePromise = runGroqRoute(request, env, boundedFetch, options);
+  routePromise.catch(() => undefined);
+  const settled: Promise<
+    | { kind: "result"; result: OriginProviderExecutionResult }
+    | { kind: "error"; error: unknown }
+  > = routePromise.then(
+    (result) => ({ kind: "result" as const, result }),
+    (error) => ({ kind: "error" as const, error }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<"budget">((resolve) => {
+    timer = setTimeout(() => resolve("budget"), remainingMs);
+  });
+  const winner = await Promise.race([settled, budget]);
+  if (winner === "budget") {
+    routeController.abort();
+    throw totalBudgetTimeoutError();
+  }
+  if (timer) clearTimeout(timer);
+  if (winner.kind === "error") throw winner.error;
+  return winner.result;
+}
+
+function composeGroqResult(
+  groqResult: OriginProviderExecutionResult,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+): OriginProviderExecutionResult {
+  const groqAttempt = groqAttemptEvidence("succeeded", {
+    transportRequestCount: groqResult.transportRequestCount,
+  });
+  const priorTransport = priorAttempts.reduce((sum, attempt) => sum + (attempt.transportRequestCount ?? 0), 0);
+  return {
+    ...groqResult,
+    transportRequestCount: priorTransport + (groqResult.transportRequestCount ?? 0),
+    attempts: [...priorAttempts, groqAttempt],
+  };
+}
+
+/**
+ * Third-route attempt, entered only from availability failures or pre-execution
+ * skips of the earlier routes. When GROQ_API_KEY is not configured the route does
+ * not exist: the fallback error is thrown with the prior attempts unchanged, exactly
+ * as the two-route dispatcher behaved. When the route is skipped before execution,
+ * the earlier routes' error stays the surfaced one; when the route executed and
+ * failed, its own error is surfaced with the full attempt history.
+ */
+async function attemptGroqRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  fallbackError: OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  if (!isOriginGroqRouteConfigured(env)) {
+    throw withFailoverAttempts(fallbackError, priorAttempts);
+  }
+  try {
+    const groqResult = await runGroqRouteBounded(request, env, fetchImpl, options);
+    return composeGroqResult(groqResult, priorAttempts);
+  } catch (error) {
+    if (error instanceof OriginGroqPreflightError) {
+      const skipped = groqAttemptEvidence("skipped", {
+        skipReason: error.reason,
+        transportRequestCount: 0,
+      });
+      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+    }
+    if (error instanceof OriginProviderError) {
+      const failed = groqAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
+      );
+      throw withFailoverAttempts(error, [...priorAttempts, failed]);
+    }
+    throw error;
+  }
+}
+
 /**
  * Handles a primary availability failure. Returns the Cloudflare result on success;
  * otherwise throws the honest error: the primary error when the secondary route was
@@ -446,13 +599,16 @@ async function failOverFromPrimaryError(
           : error.reason,
         transportRequestCount: 0,
       });
-      throw withFailoverAttempts(primaryError, [primaryAttempt, skipped]);
+      return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], primaryError);
     }
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
       );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+        return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
+      }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
     }
     throw error;
@@ -469,6 +625,21 @@ async function failOverFromPrimaryError(
  * primary unavailability carrying the code that opened the breaker (with the
  * remaining cooldown as Retry-After for a rate limit), since no primary attempt ran
  * in this request.
+ *
+ * Third route (2026-11-08): Groq (openai/gpt-oss-120b) runs only after both earlier
+ * routes are unavailable, and only while GROQ_API_KEY is configured. The route was
+ * verified live in the owner's Groq Console before implementation (ZDR enabled
+ * globally on the free account; free limits 30 RPM / 1,000 requests per day / 8,000
+ * tokens per minute / 200,000 tokens per day; no payment method registered, so
+ * exceeding the free limits errors instead of charging). Without the key the route
+ * does not exist: the dispatcher never attempts it, records no attempt for it, and
+ * behavior is exactly the two-route behavior above — which is the production state
+ * until the owner registers the key. With the key, the route is raced against the
+ * same total budget as the second route, its executor enforces the 8,000
+ * tokens/minute ceiling before sending, and its evidence catalog entry expires on
+ * 2026-11-22, after which the route disables itself (fail closed). Integrity
+ * failures on any route still never switch routes: the third route is reached only
+ * from availability failures or pre-execution skips of the routes before it.
  */
 async function failOverFromOpenCircuit(
   request: OriginProviderExecutionRequest,
@@ -500,13 +671,16 @@ async function failOverFromOpenCircuit(
       const primaryError = circuit.errorCode === "PROVIDER_RATE_LIMITED"
         ? new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, remainingCooldownSeconds, { transportRequestCount: 0 })
         : new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout", transportRequestCount: 0 });
-      throw withFailoverAttempts(primaryError, [primaryAttempt, skipped]);
+      return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], primaryError);
     }
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
       );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+        return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
+      }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
     }
     throw error;
@@ -520,7 +694,7 @@ export async function executeOriginProviderWithFailover(
   options: OriginProviderFailoverOptions = {},
 ): Promise<OriginProviderExecutionResult> {
   const primary = options.primaryExecute ?? executeOriginProvider;
-  if (providerRequest.requiredTool || !isOriginCloudflareFailoverEnabled(env)) {
+  if (providerRequest.requiredTool || (!isOriginCloudflareFailoverEnabled(env) && !isOriginGroqRouteConfigured(env))) {
     return primary(providerRequest, env, fetchImpl);
   }
   const scopedOptions = withTotalBudgetWindow(options);
@@ -568,7 +742,7 @@ export async function executeOriginProviderStreamWithFailover(
   options: OriginProviderFailoverOptions = {},
 ): Promise<OriginProviderExecutionResult> {
   const stream = options.streamExecute ?? executeOriginProviderStream;
-  if (providerRequest.requiredTool || !isOriginCloudflareFailoverEnabled(env)) {
+  if (providerRequest.requiredTool || (!isOriginCloudflareFailoverEnabled(env) && !isOriginGroqRouteConfigured(env))) {
     return stream(providerRequest, handlers, env, fetchImpl);
   }
   const scopedOptions = withTotalBudgetWindow(options);
@@ -666,6 +840,9 @@ function routingFailure(message: string): never {
  * must prove that every executed attempt stayed on an approved free route, that the first
  * route stopped only for an availability reason, that the serving route passed its own
  * route-specific verification, and that the transport count equals the sum of attempts.
+ * A three-attempt result is a Groq-served result: the middle (Cloudflare) attempt must
+ * show the route did not serve — an availability failure or a pre-execution skip with
+ * zero transport — and the third attempt must be the Groq route's success.
  */
 export function assertOriginZeroCostExecutionResultWithFailover(
   result: OriginProviderExecutionResult,
@@ -678,7 +855,7 @@ export function assertOriginZeroCostExecutionResultWithFailover(
   const attempts = result.attempts;
   assertZeroCostField(result.actualCostUsd, "actualCostUsd");
   assertZeroCostField(result.usage?.costUsd, "usage.costUsd");
-  if (!Array.isArray(attempts) || attempts.length < 1 || attempts.length > 2) {
+  if (!Array.isArray(attempts) || attempts.length < 1 || attempts.length > 3) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
   let transportTotal = 0;
@@ -720,10 +897,34 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     || (expectedPrimaryModel !== undefined && first.modelId !== expectedPrimaryModel)) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
+  if (attempts.length === 2) {
+    if (second.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+      || second.outcome !== "succeeded"
+      || second.modelId !== ORIGIN_CLOUDFLARE_FREE_MODEL) {
+      routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
+    }
+    assertOriginCloudflareExecutionResult(result);
+    return;
+  }
+  // Three attempts: the Cloudflare route did not serve (it either failed with an
+  // availability error or was skipped before execution with zero transport), and the
+  // Groq route served. Any other shape — including a "succeeded" middle attempt,
+  // which would mean the third route ran after an answer already existed — is
+  // unverified.
+  const secondIsAvailabilityFailure = second.outcome === "availability-error"
+    && Boolean(second.errorCode)
+    && ORIGIN_FAILOVER_TRIGGER_CODES.has(second.errorCode as OriginProviderErrorCode);
+  const secondIsPreExecutionSkip = second.outcome === "skipped"
+    && typeof second.skipReason === "string"
+    && second.skipReason.length > 0
+    && second.transportRequestCount === 0;
+  const third = attempts[2];
   if (second.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
-    || second.outcome !== "succeeded"
-    || second.modelId !== ORIGIN_CLOUDFLARE_FREE_MODEL) {
+    || (!secondIsAvailabilityFailure && !secondIsPreExecutionSkip)
+    || third.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
+    || third.outcome !== "succeeded"
+    || third.modelId !== ORIGIN_GROQ_FREE_MODEL_ID) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
-  assertOriginCloudflareExecutionResult(result);
+  assertOriginGroqExecutionResult(result);
 }
