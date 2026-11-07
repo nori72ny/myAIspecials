@@ -1,19 +1,43 @@
 import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
-import { detectSensitiveConversation, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
+import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
+import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import {
+  buildGroundedResearchSynthesisInstruction,
+  buildGroundedResearchSynthesisPrompt,
+  validateGroundedResearchSynthesis,
+} from "../research/groundedResearchSynthesisV12.js";
+import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
 import {
   createDefaultOriginResearchExecutor,
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
 
+export type OriginResearchSynthesisExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
+
 export interface OriginResearchRouterOptions {
   env?: NodeJS.ProcessEnv;
   research?: (query: string) => Promise<OriginResearchResult>;
   searchGrounding?: OriginSearchGroundingDeps;
+  /**
+   * Bounded synthesis executor (same verified zero-cost failover executor the
+   * chat router uses). When wired, retrieved sources are first offered to the
+   * citation-validated synthesis stage; any failure degrades safely to the
+   * deterministic extractive report. Null/absent keeps the historical
+   * extractive-only behaviour (direct unit-test composition).
+   */
+  researchSynthesis?: OriginResearchSynthesisExecutor | null;
+  catalogNow?: () => number;
+  freeModelCatalog?: readonly OriginFreeModelEvidence[];
 }
+
+const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 
 function isFreshnessRequest(message: string): boolean {
   return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|料金|価格|株価|相場|結果)|現在の(?:ニュース|料金|価格|株価|相場|仕様|バージョン|状況)|リアルタイム/.test(message)
@@ -203,6 +227,9 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
 
 export function createOriginResearchRouter(options: OriginResearchRouterOptions = {}) {
   const router = Router();
+  const env = options.env ?? process.env;
+  const catalogNow = options.catalogNow ?? Date.now;
+  const researchSynthesis = options.researchSynthesis ?? null;
   // Source-layer wiring: when the app supplies env / search-grounding options
   // (production does, via createOriginApp), freshness questions are served by
   // the search-grounding pipeline (GDELT / Tavily / Wikipedia / Open-Meteo
@@ -250,13 +277,102 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     const comparison = buildEvidenceComparison(result.sources);
     const sourceAssessments = assessSources(result.sources);
     const report = buildResearchReport(result.sources, language);
+
+    // Bounded synthesis (the same citation-validated contract as the chat
+    // router's research stage): one verified zero-cost model call turns the
+    // retrieved packet into a direct answer with per-claim citations. Any
+    // failure — plan unavailable, provider error, or citation validation —
+    // degrades safely to the deterministic extractive report below; an
+    // answer is never invented and the request never becomes unanswerable.
+    let synthesisStatus: string = researchSynthesis ? "not-run" : "disabled";
+    let synthesisFailureCode: string | undefined;
+    const safeSources = result.sources.filter((source) => {
+      try {
+        const url = new URL(source.url);
+        return url.protocol === "https:" && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    }).slice(0, 8);
+    if (researchSynthesis && safeSources.length > 0) {
+      const synthesisPlan = buildOriginExecutionPlan(
+        { goal: query.trim(), requiresCodeChanges: false, requiresFreshResearch: true, containsSecrets: false },
+        { openRouterConfigured: Boolean(env.OPENROUTER_API_KEY) },
+        originClientPolicy(body),
+        { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() },
+      );
+      if (synthesisPlan.ok === true) {
+        try {
+          const synthesisResult = await researchSynthesis({
+            plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
+            messages: [{
+              role: "user",
+              content: buildGroundedResearchSynthesisPrompt(
+                query,
+                safeSources,
+                buildGroundedResearchReport(query, safeSources).conflicts,
+                language,
+              ),
+            }],
+            systemInstruction: buildGroundedResearchSynthesisInstruction(language),
+          });
+          assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
+          const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, safeSources);
+          if (citationValidation.ok === true) {
+            const synthesizedContent = synthesisResult.text;
+            const synthesizedReason = language === "ja"
+              ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの1回実行で統合しました。引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。"
+              : "Retrieved public evidence was synthesized with one verified zero-cost model execution. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified.";
+            return res.status(200).json({
+              status: 200,
+              content: synthesizedContent,
+              answer: envelope(synthesizedContent, language, "not-run", synthesizedReason, extractProvidedOriginEvidence(synthesizedContent)),
+              routing: {
+                model: synthesisPlan.plan.providerLabel,
+                provider: result.searchProvider ?? "DuckDuckGo",
+                cost: synthesisResult.actualCostUsd,
+                actualCostUsd: synthesisResult.actualCostUsd,
+                costEvidenceStatus: "NOT_MEASURED",
+                freeOnly: true,
+                verificationStatus: "not-run",
+                answerMode: "research",
+                synthesisStatus: "citation-validated",
+                synthesisSourceCount: citationValidation.usedSourceIds.length,
+                sourceCount: safeSources.length,
+              },
+              research: {
+                source: result.searchProvider ?? "DuckDuckGo",
+                sources: result.sources,
+                report,
+                sourceAssessments,
+                comparison,
+                fallback: result.fallback,
+                ...(result.grounding ? { grounding: result.grounding } : {}),
+                synthesis: { status: "citation-validated", sourceCount: citationValidation.usedSourceIds.length },
+              },
+            });
+          }
+          synthesisStatus = "citation-validation-failed";
+          synthesisFailureCode = citationValidation.code;
+          console.warn("[origin-research] research synthesis discarded", { code: citationValidation.code });
+        } catch (error) {
+          synthesisStatus = "provider-failed";
+          synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+          console.warn("[origin-research] research synthesis unavailable; extractive report retained", { code: synthesisFailureCode });
+        }
+      } else {
+        synthesisStatus = "plan-unavailable";
+        synthesisFailureCode = synthesisPlan.code;
+      }
+    }
+
     const sourceContent = language === "ja"
       ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${comparisonContent(comparison, "ja")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}\n${sourceNatureLabel(sourceAssessments[index], "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
       : `I ran a free public web search and retrieved multiple public web sources.\n\n${comparisonContent(comparison, "en")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}\nRetrieved at: ${source.retrievedAt}\nFreshness: ${freshnessLabel(source.freshness, "en")}\n${sourceNatureLabel(sourceAssessments[index], "en")}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
     const content = `${report.markdown}\n\n${sourceContent}`;
     const evidence = extractProvidedOriginEvidence(content);
     const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}) } });
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}) } } });
   });
   return router;
 }

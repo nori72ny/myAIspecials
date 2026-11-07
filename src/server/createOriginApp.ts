@@ -3,6 +3,7 @@ import { originChatBoundaryGuard } from "../legacy/originChatBoundaryGuard.js";
 import { createOriginChatRouter } from "../legacy/originChatRouter.js";
 import { createOriginStreamingChatRouter } from "../legacy/originStreamingChatRouter.js";
 import { createOriginResearchRouter } from "../legacy/originResearchRouter.js";
+import { executeOriginProviderWithFailover } from "../legacy/originProviderFailover.js";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard.js";
 import { applyOriginSecurityHeaders, createOriginChatRateLimiter, requireSafeOriginChatRequest } from "./originSecurity.js";
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
@@ -88,7 +89,11 @@ export function createOriginApp(
   app.use(createRasterImageV15Router(env));
   app.use(createWorldClassImageV16Router(env));
   app.use(createImageGatewayEvalPreflightRouter(env));
-  app.use(createOriginResearchRouter({ env }));
+  // The research router gets the same verified zero-cost failover executor as
+  // the chat router so freshness queries it intercepts are answered with the
+  // citation-validated synthesis instead of a raw extractive dump; synthesis
+  // failure degrades safely back to that extractive report inside the router.
+  app.use(createOriginResearchRouter({ env, researchSynthesis: (request) => executeOriginProviderWithFailover(request, env) }));
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
   // remains the fail-closed JSON/local-answer path and is never used to fake provider
