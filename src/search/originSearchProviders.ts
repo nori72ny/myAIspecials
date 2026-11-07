@@ -85,7 +85,17 @@ export function originDomainOf(url: string): string {
 export function isSafeHttpsUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && url.hostname !== "localhost";
+    if (url.protocol !== "https:" || url.username || url.password) return false;
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === "localhost" || hostname.endsWith(".localhost")) return false;
+    // IP literals are never legitimate citation/extract targets here, and
+    // they are the canonical way to aim a URL at loopback / link-local /
+    // private addresses (SSRF). The URL parser has already normalized
+    // integer and hex IPv4 spellings to dotted-quad form, so a digits-and-
+    // dots hostname is an IPv4 literal; a colon means an IPv6 literal.
+    // (Security audit 2026-11-08, defense-in-depth.)
+    if (/^[0-9.]+$/.test(hostname) || hostname.includes(":")) return false;
+    return true;
   } catch {
     return false;
   }
