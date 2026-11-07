@@ -379,3 +379,95 @@
     padding-block: 80px 0 !important;
   }
 }
+
+/* Single-viewport shell lock (owner report, 2026-11-07: the top screen
+   had to be shifted up/down before everything was visible).
+   The shell is exactly one dynamic viewport tall, and is additionally
+   capped by the html -> body -> #root height chain (index.css base), so
+   in-app browsers / WebViews whose dvh resolves against the window
+   rather than the visible frame cannot make the app taller than the
+   screen. The header also respects the top safe-area inset so it never
+   slides under a translucent status bar. The !important flags match this
+   file's existing shell-contract rules, which already pin the shell and
+   header geometry against the Tailwind utilities on the same elements. */
+.origin-personal-shell {
+  height: 100dvh !important;
+  max-height: 100% !important;
+}
+.origin-header {
+  padding-top: env(safe-area-inset-top, 0px) !important;
+}
+
+/* Home fit: the home layout is exactly the scroll viewport's height,
+   never a minimum that taller content can stretch. The intro is the only
+   flexible part (flex + min-height 0 above), so the suggestion chips and
+   the bottom-pinned composer always stay on the first screen and the
+   conversation region does not scroll on the home screen. */
+@media (max-width: 639px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  .origin-app main .origin-home-suggestions {
+    flex: 0 0 auto !important;
+  }
+  /* Bound the intro's text growth (system font scaling / text zoom):
+     at the default font size the heading is one line and the
+     description three lines, so these clamps change nothing visually;
+     under enlarged fonts they keep the intro shrinkable instead of
+     letting it stretch the home layout past the viewport. */
+  .origin-app main .origin-home-intro h1 {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+  }
+  .origin-app main .origin-home-intro > p {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 3 !important;
+    overflow: hidden !important;
+  }
+}
+
+/* Short-viewport home compaction: below 760px the 80px top breathing
+   room is traded for fit; below 640px the intro shrinks as well (smaller
+   logo, tighter heading, description clamped to two lines). Full-height
+   phones keep the roomier layout above unchanged. */
+@media (max-width: 639px) and (max-height: 760px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+    padding-block: 24px 0 !important;
+  }
+}
+
+@media (max-width: 639px) and (max-height: 640px) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+    padding-block: 12px 0 !important;
+  }
+  .origin-app main .origin-home-intro {
+    padding-block: 4px !important;
+  }
+  .origin-app main [data-testid="origin-core-logo"] {
+    width: 48px !important;
+    height: 48px !important;
+    margin-bottom: 8px !important;
+  }
+  .origin-app main [data-testid="origin-core-logo"] .origin-logo-core {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  .origin-app main .origin-home-intro h1 {
+    font-size: 20px !important;
+    line-height: 1.35 !important;
+  }
+  .origin-app main .origin-home-intro > p {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    line-height: 1.6 !important;
+  }
+}

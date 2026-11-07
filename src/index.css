@@ -142,9 +142,16 @@
 }
 
 @layer base {
-  html, body, #root { min-height: 100%; }
+  /* Single-viewport app lock: the document itself never scrolls or
+     rubber-bands; only the shell's inner conversation region scrolls.
+     height (not just min-height) makes the html -> body -> #root chain a
+     definite size the shell can be capped against. */
+  html, body, #root { height: 100%; min-height: 100%; }
+  html { overscroll-behavior: none; }
   body {
     margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-synthesis: none;
