@@ -396,11 +396,19 @@ const STOOQ_CSV_BODY = [
   "",
 ].join("\n");
 
+function isStooqUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).hostname === "stooq.com";
+  } catch {
+    return false;
+  }
+}
+
 function marketFetch(stooq: { body: string; status?: number }, tavilyResults: unknown[] = []) {
   const calls: RecordedCall[] = [];
   const fetchImpl: OriginSearchFetch = async (url, init) => {
     calls.push({ url, init });
-    if (url.includes("stooq.com")) {
+    if (isStooqUrl(url)) {
       const status = stooq.status ?? 200;
       return { ok: status >= 200 && status < 300, status, text: async () => stooq.body };
     }
@@ -426,7 +434,7 @@ describe("market grounding route", () => {
     expect(outcome.sources[0]?.excerpt).toContain("遅延");
     expect(outcome.sources[0]?.url).toBe("https://stooq.com/");
     // Only fixed symbols were sent to the provider — never the raw question.
-    const stooqCall = calls.find((call) => call.url.includes("stooq.com"));
+    const stooqCall = calls.find((call) => isStooqUrl(call.url));
     expect(stooqCall?.url).toContain("s=usdjpy,%5ENKX");
     expect(stooqCall?.url).not.toContain(encodeURIComponent("ドル円"));
     const research = originSearchGroundingToResearchResult(outcome);
