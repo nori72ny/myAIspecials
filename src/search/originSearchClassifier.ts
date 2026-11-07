@@ -62,6 +62,8 @@ freshness: OriginSearchFreshnessRequirement | null;
 query: string;
 /** Extracted place name for the weather type. */
 place?: string;
+/** Extracted market instruments for the market type (symbols only, no user text). */
+instruments?: OriginMarketInstrument[];
 /** Identifier of the rule that fired, for tests and diagnostics. */
 rule: string;
 }
@@ -132,7 +134,9 @@ const hasConceptMarker = CONCEPT_MARKER.test(text);
 if (WEATHER_SIGNAL.test(text) &&!hasConceptMarker) {
 return done("weather", "weather-signal", { place: extractOriginWeatherPlace(text)?? undefined});
 }
-if (MARKET_SIGNAL.test(text) &&!hasConceptMarker) return done("market", "market-signal");
+if (MARKET_SIGNAL.test(text) &&!hasConceptMarker) {
+return done("market", "market-signal", { instruments: extractOriginMarketInstruments(text) });
+}
 if (NEWS_SIGNAL.test(text) &&!hasConceptMarker) return done("news", "news-signal");
 if (POLICY_SIGNAL.test(text) &&!hasConceptMarker) return done("policy", "policy-signal");
 if (isStablePricingConcept(text)) return done("stable", "pricing-concept");
@@ -272,4 +276,110 @@ if (remainder.length >= 2 && remainder.length <= 12 &&!/@/.test(remainder) &&!/\
 return remainder;
 }
 return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Market instrument extraction (market route, 2026-11-08)             */
+/* ------------------------------------------------------------------ */
+
+export type OriginMarketInstrumentKind = "fx" | "index" | "stock" | "crypto" | "commodity";
+
+export interface OriginMarketInstrument {
+  /** Provider symbol (Stooq notation). Only this identifier leaves the device. */
+  symbol: string;
+  /** Japanese display label used in the composed answer. */
+  labelJa: string;
+  kind: OriginMarketInstrumentKind;
+  /** Display unit appended to the value ("" when the value is unitless points). */
+  unit: string;
+}
+
+interface MarketInstrumentRule {
+  pattern: RegExp;
+  instrument: OriginMarketInstrument;
+}
+
+const MARKET_INSTRUMENT_RULES: readonly MarketInstrumentRule[] = [
+  // FX pairs (specific pairs before the generic dollar-yen entries).
+  { pattern: /(?:ドル円|円ドル|USD\s*\/?\s*JPY|USDJPY)/i, instrument: { symbol: "usdjpy", labelJa: "ドル円（USD/JPY）", kind: "fx", unit: "円" } },
+  { pattern: /(?:ユーロ円|EUR\s*\/?\s*JPY|EURJPY)/i, instrument: { symbol: "eurjpy", labelJa: "ユーロ円（EUR/JPY）", kind: "fx", unit: "円" } },
+  { pattern: /(?:ポンド円|GBP\s*\/?\s*JPY|GBPJPY)/i, instrument: { symbol: "gbpjpy", labelJa: "ポンド円（GBP/JPY）", kind: "fx", unit: "円" } },
+  { pattern: /(?:豪ドル円|AUD\s*\/?\s*JPY|AUDJPY)/i, instrument: { symbol: "audjpy", labelJa: "豪ドル円（AUD/JPY）", kind: "fx", unit: "円" } },
+  { pattern: /(?:ユーロドル|EUR\s*\/?\s*USD|EURUSD)/i, instrument: { symbol: "eurusd", labelJa: "ユーロドル（EUR/USD）", kind: "fx", unit: "ドル" } },
+  // Indices.
+  { pattern: /(?:日経平均|日経225|日経株価|nikkei)/i, instrument: { symbol: "^NKX", labelJa: "日経平均株価", kind: "index", unit: "円" } },
+  { pattern: /(?:NYダウ|ニューヨークダウ|ダウ平均|ダウ工業|dow\s*jones)/i, instrument: { symbol: "^DJI", labelJa: "ダウ平均（NYダウ）", kind: "index", unit: "" } },
+  { pattern: /(?:S\s*&\s*P\s*500|S&P|エスアンドピー)/i, instrument: { symbol: "^SPX", labelJa: "S&P 500", kind: "index", unit: "" } },
+  { pattern: /(?:ナスダック|nasdaq)/i, instrument: { symbol: "^NDQ", labelJa: "ナスダック総合指数", kind: "index", unit: "" } },
+  // Crypto.
+  { pattern: /(?:ビットコイン|bitcoin|BTC)/i, instrument: { symbol: "btcusd", labelJa: "ビットコイン（BTC/USD）", kind: "crypto", unit: "ドル" } },
+  { pattern: /(?:イーサリアム|ethereum|ETH)/i, instrument: { symbol: "ethusd", labelJa: "イーサリアム（ETH/USD）", kind: "crypto", unit: "ドル" } },
+  // Commodities. Bare "金" is too ambiguous; a market-context qualifier is required.
+  { pattern: /(?:金価格|ゴールド|金の相場|gold\s+price|XAU)/i, instrument: { symbol: "xauusd", labelJa: "金（XAU/USD）", kind: "commodity", unit: "ドル" } },
+  { pattern: /(?:原油価格|原油先物|WTI)/i, instrument: { symbol: "cl.f", labelJa: "原油（WTI先物）", kind: "commodity", unit: "ドル" } },
+  // Well-known Japanese listings (name -> TSE code on Stooq, ".jp").
+  { pattern: /トヨタ/, instrument: { symbol: "7203.jp", labelJa: "トヨタ自動車（7203）", kind: "stock", unit: "円" } },
+  { pattern: /ソニー/, instrument: { symbol: "6758.jp", labelJa: "ソニーグループ（6758）", kind: "stock", unit: "円" } },
+  { pattern: /任天堂/, instrument: { symbol: "7974.jp", labelJa: "任天堂（7974）", kind: "stock", unit: "円" } },
+  { pattern: /ソフトバンク/, instrument: { symbol: "9984.jp", labelJa: "ソフトバンクグループ（9984）", kind: "stock", unit: "円" } },
+  { pattern: /(?:三菱UFJ|MUFG)/i, instrument: { symbol: "8306.jp", labelJa: "三菱UFJフィナンシャル・グループ（8306）", kind: "stock", unit: "円" } },
+  { pattern: /キーエンス/, instrument: { symbol: "6861.jp", labelJa: "キーエンス（6861）", kind: "stock", unit: "円" } },
+  { pattern: /(?:ファーストリテイリング|ユニクロ)/, instrument: { symbol: "9983.jp", labelJa: "ファーストリテイリング（9983）", kind: "stock", unit: "円" } },
+  { pattern: /東京エレクトロン/, instrument: { symbol: "8035.jp", labelJa: "東京エレクトロン（8035）", kind: "stock", unit: "円" } },
+  { pattern: /信越化学/, instrument: { symbol: "4063.jp", labelJa: "信越化学工業（4063）", kind: "stock", unit: "円" } },
+  { pattern: /日立/, instrument: { symbol: "6501.jp", labelJa: "日立製作所（6501）", kind: "stock", unit: "円" } },
+  // Well-known US listings (name -> Stooq ".us" symbol).
+  { pattern: /(?:アップル|apple|\bAAPL\b)/i, instrument: { symbol: "aapl.us", labelJa: "アップル（AAPL）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:テスラ|tesla|\bTSLA\b)/i, instrument: { symbol: "tsla.us", labelJa: "テスラ（TSLA）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:エヌビディア|nvidia|\bNVDA\b)/i, instrument: { symbol: "nvda.us", labelJa: "エヌビディア（NVDA）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:マイクロソフト|microsoft|\bMSFT\b)/i, instrument: { symbol: "msft.us", labelJa: "マイクロソフト（MSFT）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:アマゾン|amazon|\bAMZN\b)/i, instrument: { symbol: "amzn.us", labelJa: "アマゾン（AMZN）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:アルファベット|グーグル|google|\bGOOGL?\b)/i, instrument: { symbol: "googl.us", labelJa: "アルファベット（GOOGL）", kind: "stock", unit: "ドル" } },
+  { pattern: /(?:メタ|meta\s+platforms|\bMETA\b)/i, instrument: { symbol: "meta.us", labelJa: "メタ（META）", kind: "stock", unit: "ドル" } },
+];
+
+const MAX_MARKET_INSTRUMENTS = 5;
+
+/**
+ * Extracts the market instruments a question asks about. Only fixed provider
+ * symbols are produced — free-form user text is never turned into a symbol,
+ * with two bounded exceptions: a 4-digit Japanese listing code in a stock
+ * context ("7203の株価") and, as the generic fallback for an FX question
+ * that names no pair, USD/JPY (labelled explicitly in the answer, so the
+ * assumption is visible rather than hidden). Returns instruments in the
+ * order they are mentioned, deduplicated, capped at MAX_MARKET_INSTRUMENTS.
+ */
+export function extractOriginMarketInstruments(message: string): OriginMarketInstrument[] {
+  const text = (message ?? "").normalize("NFKC");
+  const found: Array<{ index: number; instrument: OriginMarketInstrument }> = [];
+  const seen = new Set<string>();
+  const push = (index: number, instrument: OriginMarketInstrument) => {
+    if (seen.has(instrument.symbol)) return;
+    seen.add(instrument.symbol);
+    found.push({ index, instrument });
+  };
+  for (const rule of MARKET_INSTRUMENT_RULES) {
+    const match = rule.pattern.exec(text);
+    if (match) push(match.index, rule.instrument);
+  }
+  // Bounded code form: exactly 4 digits tied to a stock context. Japanese
+  // listing codes are 4 characters; Stooq serves them with the ".jp" suffix.
+  const codeMatch = text.match(/(\d{4})(?=\s*(?:の|株|株価|の値動き|の現在値))/);
+  if (codeMatch && codeMatch.index !== undefined) {
+    push(codeMatch.index, {
+      symbol: `${codeMatch[1]}.jp`,
+      labelJa: `銘柄コード ${codeMatch[1]}（東証）`,
+      kind: "stock",
+      unit: "円",
+    });
+  }
+  if (found.length === 0 && /(?:為替|ドル|円相場|相場)/.test(text) && /(?:レート|いくら|現在|今|相場)/.test(text)) {
+    // An FX question naming no pair is, for a Japanese user, a USD/JPY
+    // question in practice; the answer labels the pair explicitly.
+    push(0, { symbol: "usdjpy", labelJa: "ドル円（USD/JPY）", kind: "fx", unit: "円" });
+  }
+  return found
+    .sort((a, b) => a.index - b.index)
+    .slice(0, MAX_MARKET_INSTRUMENTS)
+    .map((entry) => entry.instrument);
 }

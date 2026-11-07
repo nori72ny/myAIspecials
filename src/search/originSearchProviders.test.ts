@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyOriginDomainTier,
+  composeOriginMarketText,
   composeOriginWeatherText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
+  fetchStooqMarketQuotes,
   OriginSearchProviderError,
   parseGdeltSeenDate,
+  parseStooqQuotesCsv,
   searchGdeltHeadlines,
   searchTavilySources,
   searchWikipediaSources,
+  type OriginMarketQuoteRequest,
   type OriginSearchFetch,
 } from "./originSearchProviders";
 
@@ -428,5 +432,103 @@ describe("timeout handling", () => {
     }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(OriginSearchProviderError);
     expect((error as OriginSearchProviderError).code).toBe("timeout");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Stooq market quotes                                                 */
+/* ------------------------------------------------------------------ */
+
+const STOOQ_REQUESTS: OriginMarketQuoteRequest[] = [
+  { symbol: "usdjpy", labelJa: "ドル円（USD/JPY）", unit: "円" },
+  { symbol: "^NKX", labelJa: "日経平均株価", unit: "円" },
+];
+
+const STOOQ_CSV = [
+  "Symbol,Date,Time,Open,High,Low,Close,Volume",
+  "USDJPY,2026-11-06,22:59:55,157.80,158.10,157.55,157.94,0",
+  "^NKX,2026-11-06,15:30:00,58077.90,58200.00,57300.00,57434.77,0",
+  "",
+].join("\n");
+
+function textResponse(body: string, status = 200) {
+  return { ok: status >= 200 && status < 300, status, text: async () => body };
+}
+
+describe("parseStooqQuotesCsv", () => {
+  it("parses the documented CSV shape and preserves request order", () => {
+    const quotes = parseStooqQuotesCsv(STOOQ_CSV, STOOQ_REQUESTS);
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0]).toMatchObject({ symbol: "usdjpy", date: "2026-11-06", time: "22:59:55", close: 157.94 });
+    expect(quotes[1]).toMatchObject({ symbol: "^NKX", close: 57434.77 });
+  });
+
+  it("rejects an HTML response (key demand / proof-of-work / limit page)", () => {
+    expect(parseStooqQuotesCsv("<html><body>Access denied</body></html>", STOOQ_REQUESTS)).toEqual([]);
+  });
+
+  it("rejects a CSV whose header does not match the documented shape", () => {
+    expect(parseStooqQuotesCsv("foo,bar\n1,2", STOOQ_REQUESTS)).toEqual([]);
+  });
+
+  it("drops rows with N/A or non-numeric prices instead of guessing", () => {
+    const csv = [
+      "Symbol,Date,Time,Open,High,Low,Close,Volume",
+      "USDJPY,2026-11-06,22:59:55,N/A,N/A,N/A,N/A,N/A",
+      "^NKX,2026-11-06,15:30:00,58077.90,58200.00,57300.00,57434.77,0",
+    ].join("\n");
+    const quotes = parseStooqQuotesCsv(csv, STOOQ_REQUESTS);
+    expect(quotes.map((quote) => quote.symbol)).toEqual(["^NKX"]);
+  });
+
+  it("drops rows with malformed date/time stamps", () => {
+    const csv = [
+      "Symbol,Date,Time,Open,High,Low,Close,Volume",
+      "USDJPY,06/11/2026,10pm,157.80,158.10,157.55,157.94,0",
+    ].join("\n");
+    expect(parseStooqQuotesCsv(csv, STOOQ_REQUESTS)).toEqual([]);
+  });
+});
+
+describe("fetchStooqMarketQuotes", () => {
+  it("requests only the fixed symbols and returns parsed quotes", async () => {
+    const calls: RecordedCall[] = [];
+    const fetchImpl: OriginSearchFetch = async (url, init) => {
+      calls.push({ url, init });
+      return textResponse(STOOQ_CSV);
+    };
+    const quotes = await fetchStooqMarketQuotes(STOOQ_REQUESTS, { fetchImpl });
+    expect(quotes).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain("https://stooq.com/q/l/?s=usdjpy,%5ENKX");
+    expect(calls[0]?.url).toContain("f=sd2t2ohlcv");
+  });
+
+  it("fails closed (invalid-response) when the endpoint returns an HTML page", async () => {
+    const fetchImpl: OriginSearchFetch = async () => textResponse("<html>Please enter your API key</html>");
+    const error = await fetchStooqMarketQuotes(STOOQ_REQUESTS, { fetchImpl }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginSearchProviderError);
+    expect((error as OriginSearchProviderError).code).toBe("invalid-response");
+    expect((error as OriginSearchProviderError).providerId).toBe("stooq");
+  });
+
+  it("propagates HTTP failures as http errors", async () => {
+    const fetchImpl: OriginSearchFetch = async () => textResponse("nope", 503);
+    const error = await fetchStooqMarketQuotes(STOOQ_REQUESTS, { fetchImpl }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginSearchProviderError);
+    expect((error as OriginSearchProviderError).code).toBe("http");
+    expect((error as OriginSearchProviderError).status).toBe(503);
+  });
+});
+
+describe("composeOriginMarketText", () => {
+  it("includes values, quote timestamps, the delay note and the source", () => {
+    const quotes = parseStooqQuotesCsv(STOOQ_CSV, STOOQ_REQUESTS);
+    const text = composeOriginMarketText(quotes, "2026-11-08T03:00:00.000Z");
+    expect(text).toContain("ドル円（USD/JPY）: 157.94円");
+    expect(text).toContain("日経平均株価: 57,434.77円");
+    expect(text).toContain("2026-11-06 15:30:00 時点の値");
+    expect(text).toContain("遅延");
+    expect(text).toContain("出典: Stooq（https://stooq.com/）");
   });
 });

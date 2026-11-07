@@ -12,7 +12,7 @@
  * billing path does not exist even if free terms change.
  */
 
-export type OriginSearchProviderId = "open-meteo" | "gdelt" | "wikipedia" | "tavily";
+export type OriginSearchProviderId = "open-meteo" | "gdelt" | "wikipedia" | "tavily" | "stooq";
 
 export interface OriginSearchProviderEvidence {
   providerId: OriginSearchProviderId;
@@ -84,6 +84,17 @@ export const DEFAULT_ORIGIN_SEARCH_PROVIDER_CATALOG: readonly OriginSearchProvid
     monthlySelfCapUnits: 800,
     verifiedAt: SEARCH_EVIDENCE_VERIFIED_AT,
     reviewAfter: SEARCH_EVIDENCE_REVIEW_AFTER,
+  },
+  {
+    providerId: "stooq",
+    termsUrl: "https://stooq.com/",
+    freeCap: null,
+    freeCapNote: "Keyless CSV quote snapshots; no numeric cap is published (an unpublished per-IP daily limit is reported, after which the endpoint returns an HTML page instead of CSV). Terms as published on Stooq's site and reported by multiple October-2026 third-party reviews: data is for personal use only, commercial use is prohibited, and redistribution requires Stooq's consent — ORIGIN is a personal, non-commercial single-user app that shows values only to its owner with attribution. Quotes are delayed. IMPORTANT: direct measurement of stooq.com from the build environment was blocked (egress denied), and 2026 third-party reports conflict on whether the CSV endpoints still answer keyless requests or demand an API key. The client therefore accepts only a strict CSV shape and fails closed on any HTML/key-demand response, and reviewAfter is set short (14 days) so this route self-disables unless a production measurement confirms keyless CSV access before then. Only fixed instrument symbols are ever sent; no user data leaves the device.",
+    paymentMethodRequired: false,
+    requiresApiKey: false,
+    monthlySelfCapUnits: null,
+    verifiedAt: "2026-11-08T00:00:00.000Z",
+    reviewAfter: "2026-11-22T00:00:00.000Z",
   },
 ] as const;
 
