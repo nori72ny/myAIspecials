@@ -4,6 +4,7 @@ import {
   composeOriginWeatherText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
+  isSafeHttpsUrl,
   OriginSearchProviderError,
   parseGdeltSeenDate,
   searchGdeltHeadlines,
@@ -39,6 +40,31 @@ function routedFetch(routes: Array<{ match: string; respond: (call: RecordedCall
 }
 
 const NOW = Date.parse("2026-11-07T12:00:00.000Z");
+
+describe("isSafeHttpsUrl", () => {
+  it("accepts ordinary https URLs on named hosts", () => {
+    expect(isSafeHttpsUrl("https://www3.nhk.or.jp/news/html/20261107/example.html")).toBe(true);
+    expect(isSafeHttpsUrl("https://en.wikipedia.org/wiki/Fuji")).toBe(true);
+  });
+
+  it("rejects non-https schemes, credentials, and localhost", () => {
+    expect(isSafeHttpsUrl("http://example.com/page")).toBe(false);
+    expect(isSafeHttpsUrl("https://user:pass@example.com/page")).toBe(false);
+    expect(isSafeHttpsUrl("https://localhost/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://printer.localhost/admin")).toBe(false);
+  });
+
+  it("rejects IP-literal hosts, including normalized integer/hex IPv4 spellings", () => {
+    expect(isSafeHttpsUrl("https://127.0.0.1/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://169.254.169.254/latest/meta-data/")).toBe(false);
+    expect(isSafeHttpsUrl("https://192.168.1.1/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://10.0.0.5/internal")).toBe(false);
+    expect(isSafeHttpsUrl("https://[::1]/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://[fe80::1]/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://2130706433/admin")).toBe(false);
+    expect(isSafeHttpsUrl("https://0x7f.1/admin")).toBe(false);
+  });
+});
 
 describe("fetchOpenMeteoWeather", () => {
   const routes = [
