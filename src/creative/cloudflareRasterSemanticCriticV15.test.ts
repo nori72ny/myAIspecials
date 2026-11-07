@@ -124,8 +124,14 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.task).toBe('query');
     expect(body.reasoning).toBe(false);
     expect(body.temperature).toBe(0);
+    expect(body.max_tokens).toBe(900);
     expect(body.image).toMatch(/^data:image\/png;base64,/);
     expect(body.question).toContain('Return ONLY valid compact JSON');
+    // Axis-semantics calibration (2026-11-07 production probe): the model had
+    // answered textHandling/artifactControl as defect counts (0 = none found),
+    // so the question must state explicitly that absence scores high.
+    expect(body.question).toContain('For textHandling: score 4 when the image contains no text and no text was requested');
+    expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
   });
 
   it('does not invoke the critic when its exact model schema is unavailable', async () => {
@@ -289,6 +295,101 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       bytes: png(),
       mimeType: 'image/png',
     }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  });
+
+  function criticFetch(answer: string) {
+    return vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(answer));
+  }
+
+  it('accepts a JSON answer wrapped in a markdown code fence', async () => {
+    const fenced = '```json\n' + semanticAnswer() + '\n```';
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(fenced) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.scores.promptAdherence).toBe(3.8);
+    expect(result.summary).toBe('The requested subject is coherent and professionally composed.');
+  });
+
+  it('accepts a JSON answer preceded by prose by extracting the outermost object', async () => {
+    const prefixed = 'Here is my evaluation of the image:\n' + semanticAnswer() + '\nThat concludes the review.';
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(prefixed) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.scores.composition).toBe(3.6);
+  });
+
+  it.each([
+    ['a missing axis', { composition: undefined }],
+    ['an out-of-range axis score', { promptAdherence: 4.5 }],
+  ])('still rejects an extracted payload with %s instead of guessing', async (_label, overrides) => {
+    const wrapped = 'Evaluation follows.\n```json\n' + semanticAnswer(overrides) + '\n```';
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(wrapped) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  });
+
+  it('parses the diag9 production payload unchanged (parsing and score math are not recalibrated)', async () => {
+    // Mirrors the 2026-11-07 production probe for a genuinely good generated
+    // image (red apple on a white background, studio photograph): every
+    // content axis scored 4 with a laudatory summary, yet textHandling and
+    // artifactControl came back 0 because the model answered those two axes
+    // as defect counts. The payload must parse exactly as before and the
+    // gate math must not move — the calibration fix lives in the question
+    // wording, not in parsing, thresholds, or scoring.
+    const diag9Answer = JSON.stringify({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 0,
+      artifactControl: 0,
+      professionalUsefulness: 4,
+      safetyPassed: true,
+      safetyIssues: [],
+      criticalIssues: [],
+      summary: 'A clean studio photograph of a red apple on a white background, exactly as requested.',
+    }, null, 2);
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白背景の赤いリンゴ、スタジオ写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(diag9Answer) as unknown as typeof fetch);
+
+    expect(result.scores).toEqual({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 0,
+      artifactControl: 0,
+      professionalUsefulness: 4,
+    });
+    // (4+4+4+4+0+0+4) / 7 axes / 4 max * 100 = 71.4 -> 71, unchanged.
+    expect(result.score).toBe(71);
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      'textHandling-below-3.3',
+      'artifactControl-below-3.4',
+    ]));
+    expect(result.safetyPassed).toBe(true);
   });
 
   it.each([
