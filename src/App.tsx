@@ -1221,8 +1221,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     return () => { cancelled = true; };
   }, [messages]);
   useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
-  const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
-  const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
   const updateQueue = (updater: (current: QueuedChatRequest[]) => QueuedChatRequest[]) => { const next = updater(queuedRequestsRef.current); queuedRequestsRef.current = next; setQueuedRequests(next); return next; };
   // Message ids key the per-message updates (streamed content, verified
   // delivery state), so they must stay unique even when two sends land in
@@ -1259,12 +1257,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       if (send) void send(head.text, false, head.attachments);
     })();
   };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
   // A conversation reset also discards any queued sends and the loading
   // ref: a queued request belongs to the conversation it was queued in and
-  // must never drain into the fresh one.
+  // must never drain into the fresh one. resetConversation itself predates
+  // the queue, so the queue side of a reset lives in this wrapper (used by
+  // the new-conversation button) and in the resetSignal effect below.
   const resetConversationWithQueue = () => { resetConversation(); isLoadingRef.current = false; updateQueue(() => []); setQueueNotice(''); };
-  useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversationWithQueue(); }, [resetSignal]);
+  const queueResetSignalRef = useRef(resetSignal);
+  useEffect(() => {
+    if (queueResetSignalRef.current === resetSignal) return;
+    queueResetSignalRef.current = resetSignal;
+    isLoadingRef.current = false;
+    updateQueue(() => []);
+    setQueueNotice('');
+  }, [resetSignal]);
+  const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
+  const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
+  useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 160)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
     if (!fileList?.length) return;
