@@ -202,4 +202,41 @@ describe("createOriginChatRouter with search grounding (default research composi
     expect(response.body.answer.evidence).toHaveLength(2);
     expect(synthesis).toHaveBeenCalledTimes(1);
   });
+
+  // Regression (2026-11-07 production benchmark Q8): the minimum-wage
+  // question previously bypassed grounded research entirely — the chat
+  // gate required a 最新/今日/現在 prefix plus a listed target noun, and
+  // 最低賃金 matched neither — so the model asserted the 2024 values with
+  // no sources. It must now take the research path via the classifier.
+  it("grounds the minimum-wage policy question instead of answering from memory", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({
+          results: [
+            {
+              title: "地域別最低賃金の改定について - 厚生労働省",
+              url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/minimumichiran/",
+              content: "令和8年度の地域別最低賃金は、全国加重平均1,177円、東京都は1,280円となり、2026年10月1日から発効しました。",
+              score: 0.95,
+              published_date: "2026-10-01T00:00:00.000Z",
+            },
+          ],
+        }),
+      },
+      { match: "api.tavily.com/extract", respond: () => ({ results: [], failed_results: [] }) },
+    ]);
+    const response = await request(createSearchApp({ execute, fetchImpl }))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "現在の最低賃金（全国平均と東京都）と、いつの改定のものか教えてください" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.routing.searchGrounding).toEqual(expect.objectContaining({
+      questionType: "policy",
+    }));
+    expect(response.body.content).toContain("1,177円");
+    expect(response.body.content).toContain("mhlw.go.jp");
+    expect(response.body.answer.evidence).toHaveLength(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
 });

@@ -82,6 +82,35 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
 
+  // Regression (2026-11-07 production benchmark, SEARCH_BENCHMARK_2026-11-07):
+  // these freshness questions were answered from stale memorized knowledge
+  // with no sources because this gate returned false, while the search
+  // classifier already assigned them a search type (policy / fresh_general /
+  // news). They must reach grounded research; when no fresh source can be
+  // verified the grounded path fails closed instead of asserting old values.
+  it.each([
+    ["現在の最低賃金（全国平均と東京都）と、いつの改定のものか教えてください"],
+    ["児童手当の現在の支給額と対象年齢を教えてください"],
+    ["日本の消費者物価指数の直近公表分の前年比と、その公表日を教えてください"],
+    ["サッカー日本代表の直近の試合結果を教えてください"],
+    ["直近1週間で、日銀の金融政策に関して発表・報道されたことはありますか？"],
+  ])("routes benchmark freshness question to grounded research: %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+  });
+
+  // The classifier delegation must not pull non-factual requests into the
+  // research path: fresh_general alone (advice, personal scheduling) is not
+  // enough without a signal type or a published-fact recency marker.
+  it.each([
+    ["今年の目標の立て方を教えてください"],
+    ["直近の予定を整理してください"],
+    ["最近の疲れを取る方法を教えてください"],
+  ])("keeps non-factual request out of grounded research: %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(false);
+    expect(requiresOriginGroundedResearch(message)).toBe(false);
+  });
+
   it.each([
     ["今後登場するAIモデルを教えて", true],
     ["upcoming AI releases", true],
