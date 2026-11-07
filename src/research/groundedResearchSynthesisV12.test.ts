@@ -62,6 +62,92 @@ describe("groundedResearchSynthesisV12", () => {
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("一次情報へ格上げしない");
   });
 
+  it("puts packet publication and retrieval dates in both ISO and Japanese forms", () => {
+    const dated: OriginResearchSource[] = [
+      { ...sources[0], revisionTimestamp: "2026-09-20T00:00:00.000Z" },
+      sources[1],
+    ];
+    const prompt = buildGroundedResearchSynthesisPrompt("現在の料金を比較してください", dated, [], "ja");
+
+    expect(prompt).toContain('publishedDate_json: "2026-09-20"');
+    expect(prompt).toContain('publishedDateJa_json: "2026年9月20日"');
+    expect(prompt).toContain('retrievedDate_json: "2026-09-24"');
+    expect(prompt).toContain('retrievedDateJa_json: "2026年9月24日"');
+    // A source without a publication date must say so via null, not a guess.
+    expect(prompt).toContain('publishedDate_json: null');
+  });
+
+  it("instructs date/freshness disclosure, verbatim numbers, and both-sides conflicts", () => {
+    const ja = buildGroundedResearchSynthesisInstruction("ja");
+    expect(ja).toContain("情報の時点を明示");
+    expect(ja).toContain("公開日不明");
+    expect(ja).toContain("表記をそのまま写し");
+    expect(ja).toContain("決めつけず");
+    expect(ja).toContain("出典一覧");
+    expect(ja).toContain("少なくとも2件の異なる出典");
+
+    const en = buildGroundedResearchSynthesisInstruction("en");
+    expect(en).toContain("time basis of the information");
+    expect(en).toContain("present both sides side by side");
+    expect(en).toContain("End with a source list");
+    expect(en).toContain("cite at least two different sources");
+  });
+
+  it("accepts a synthesis that states the packet publication date verbatim", () => {
+    const dated: OriginResearchSource[] = [
+      { ...sources[0], revisionTimestamp: "2026-09-20T00:00:00.000Z" },
+      sources[1],
+    ];
+    const answer = [
+      "## 結論",
+      "",
+      "この情報は2026年9月20日公開の資料に基づきます。[S1](https://example.com/one)",
+      "料金は100円と120円で資料により異なります。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, dated)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("accepts a number supported by another source cited elsewhere in the answer", () => {
+    const answer = [
+      "別の資料の120円という記載もあります。[S1](https://example.com/one)",
+      "その資料では料金は120円と記載されています。[S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, sources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("still rejects a number that appears only in a source the answer never cites", () => {
+    const three: OriginResearchSource[] = [
+      ...sources,
+      {
+        title: "Source three",
+        url: "https://example.net/three",
+        excerpt: "参考価格は555円です。",
+        sourceType: "web-search",
+        domain: "example.net",
+        rank: 3,
+        evidenceLevel: "snippet",
+        retrievedAt: "2026-09-24T08:00:00.000Z",
+        freshness: "unknown",
+        sourceAuthority: "unclassified",
+      },
+    ];
+    const answer = [
+      "料金は555円です。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, three)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+  });
+
   it("preserves requested inline output shape without weakening citation rules", () => {
     const prompt = buildGroundedResearchSynthesisPrompt(
       "料金を調査して比較表と提案書にまとめてください",
@@ -202,6 +288,21 @@ describe("groundedResearchSynthesisV12", () => {
       "## 結論",
       "",
       "資料間では100円と120円の記載があります。[S1](https://example.com/one) [S2](https://example.org/two)",
+    ].join("\n");
+
+    expect(validateGroundedResearchSynthesis(answer, sources)).toEqual({
+      ok: true,
+      usedSourceIds: ["S1", "S2"],
+    });
+  });
+
+  it("accepts a bare source-list label line before cited source entries", () => {
+    const answer = [
+      "料金は100円と120円で資料により異なります。[S1](https://example.com/one) [S2](https://example.org/two)",
+      "",
+      "出典",
+      "- example.com（2026年9月24日取得）[S1](https://example.com/one)",
+      "- example.org（2026年9月24日取得）[S2](https://example.org/two)",
     ].join("\n");
 
     expect(validateGroundedResearchSynthesis(answer, sources)).toEqual({

@@ -5,7 +5,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { researchMock } = vi.hoisted(() => ({ researchMock: vi.fn() }));
 vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: researchMock }));
 
-import { createOriginResearchRouter } from "./originResearchRouter.js";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
+import { createOriginResearchRouter, type OriginResearchSynthesisExecutor } from "./originResearchRouter.js";
+
+const verifiedCatalogTime = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+
+const synthesisExecutionResult = {
+  transportRequestCount: 1,
+  actualCostUsd: 0 as const,
+  providerDataPolicy: { allowProviderFallbacks: false as const, dataCollection: "deny" as const, requireZeroDataRetention: true as const },
+  routingEvidence: { requestedModel: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", strategy: "adaptive-primary" as const, provider: "OpenRouter", attempt: 1 as const, fallbackUsed: false as const },
+  usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 as const },
+};
+
+const iphoneSources = [
+  { title: "iPhone 18 Pro 発表 - Apple Newsroom", url: "https://www.apple.com/jp/newsroom/iphone18", excerpt: "iPhone 18 Proは219,800円で、2026年9月18日に発売されます。", domain: "apple.com", rank: 1, sourceType: "web-search" as const, evidenceLevel: "page-verified" as const, retrievedAt: "2026-11-07T00:00:00.000Z", freshness: "recent" as const, revisionTimestamp: "2026-09-10T00:00:00.000Z" },
+  { title: "iPhone価格まとめ", url: "https://example.jp/iphone", excerpt: "iPhone 18 Proの価格は219,800円と報じられています。", domain: "example.jp", rank: 2, sourceType: "web-search" as const, evidenceLevel: "snippet" as const, retrievedAt: "2026-11-07T00:00:00.000Z", freshness: "unknown" as const },
+];
+
+const iphoneQuery = "iPhone の最新モデルの、日本での価格と発売日を教えてください";
 
 describe("originResearchRouter", () => {
   beforeEach(() => { researchMock.mockReset(); });
@@ -187,5 +205,88 @@ describe("originResearchRouter", () => {
     expect(response.status).toBe(422);
     expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED");
     expect(researchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the extractive report and marks synthesis disabled when no synthesis executor is wired", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({ env: { OPENROUTER_API_KEY: "synthetic-test-key" } }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.research.synthesis).toEqual({ status: "disabled" });
+    expect(response.body.routing.synthesisStatus).toBe("disabled");
+  });
+
+  it("answers a freshness query with the citation-validated synthesis instead of the extractive dump", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    const synthesis = vi.fn().mockResolvedValue({
+      ...synthesisExecutionResult,
+      text: [
+        "## 結論",
+        "",
+        "iPhone 18 Proは219,800円で、2026年9月18日に発売されます。[S1](https://www.apple.com/jp/newsroom/iphone18)",
+        "価格は別の資料でも219,800円とされています。[S2](https://example.jp/iphone)",
+        "",
+        "出典",
+        "- Apple Newsroom（apple.com、2026年9月10日公開）[S1](https://www.apple.com/jp/newsroom/iphone18)",
+        "- example.jp（example.jp、公開日不明）[S2](https://example.jp/iphone)",
+      ].join("\n"),
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      researchSynthesis: synthesis as unknown as OriginResearchSynthesisExecutor,
+      catalogNow: () => verifiedCatalogTime,
+    }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    expect(synthesis).toHaveBeenCalledTimes(1);
+    expect(response.body.content).toContain("## 結論");
+    expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.answerMode).toBe("research");
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2 });
+    // The extractive report stays available as metadata, not as the answer.
+    expect(response.body.research.report.mode).toBe("extractive");
+  });
+
+  it("degrades safely to the extractive report when synthesis fails citation validation", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    const synthesis = vi.fn().mockResolvedValue({
+      ...synthesisExecutionResult,
+      text: "iPhone 18 Proは99,800円です。[S9](https://fake.example/x)",
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      researchSynthesis: synthesis as unknown as OriginResearchSynthesisExecutor,
+      catalogNow: () => verifiedCatalogTime,
+    }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    expect(synthesis).toHaveBeenCalledTimes(1);
+    expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.content).not.toContain("99,800円です");
+    expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION" });
+  });
+
+  it("degrades safely to the extractive report when the synthesis provider fails", async () => {
+    researchMock.mockResolvedValue({ ok: true, searchProvider: "Tavily", sources: iphoneSources });
+    const synthesis = vi.fn().mockRejectedValue(new Error("provider down"));
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({
+      env: { OPENROUTER_API_KEY: "synthetic-test-key" },
+      researchSynthesis: synthesis as unknown as OriginResearchSynthesisExecutor,
+      catalogNow: () => verifiedCatalogTime,
+    }));
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.research.synthesis.status).toBe("provider-failed");
   });
 });
