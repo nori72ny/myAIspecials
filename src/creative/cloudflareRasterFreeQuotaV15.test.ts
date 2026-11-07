@@ -11,7 +11,7 @@ const NOW_IN_WINDOW = Date.parse('2026-11-06T12:00:00.000Z');
 
 function graphqlBody(groups: unknown, extra: Record<string, unknown> = {}) {
   return {
-    data: { viewer: { accounts: [{ workersAiRequestsAdaptiveGroups: groups }] } },
+    data: { viewer: { accounts: [{ aiInferenceAdaptiveGroups: groups }] } },
     ...extra,
   };
 }
@@ -72,8 +72,8 @@ describe('cloudflareRasterFreeQuotaV15 estimate', () => {
 describe('cloudflareRasterFreeQuotaV15 daily usage reader', () => {
   it('sums neuron usage across adaptive groups for today (UTC)', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(graphqlBody([
-      { sum: { totalNeurons: 120.5, requestCount: 3 } },
-      { sum: { totalNeurons: 30, requestCount: 1 } },
+      { count: 3, sum: { totalNeurons: 120.5 } },
+      { count: 1, sum: { totalNeurons: 30 } },
     ]))) as unknown as typeof fetch;
 
     await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
@@ -86,10 +86,43 @@ describe('cloudflareRasterFreeQuotaV15 daily usage reader', () => {
       .resolves.toEqual({ date: '2026-11-06', usedNeurons: 0, requests: 0 });
   });
 
+  it('queries the live-verified aiInferenceAdaptiveGroups dataset and aggregates the real response shape', async () => {
+    // Regression for the production 503 CLOUDFLARE_DAILY_USAGE_UNVERIFIED:
+    // the reader previously queried `workersAiRequestsAdaptiveGroups` with
+    // `sum { neurons requestCount }`, none of which exist in the live schema
+    // (confirmed by GraphQL introspection on 2026-11-07). The real shape is
+    // groups of { count, sum { totalNeurons } } under aiInferenceAdaptiveGroups.
+    let sentBody: { query?: string; variables?: Record<string, unknown> } = {};
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body ?? '{}')) as typeof sentBody;
+      return jsonResponse(graphqlBody([
+        { count: 2, sum: { totalNeurons: 220.25 } },
+        { count: 5, sum: { totalNeurons: 40 } },
+      ]));
+    }) as unknown as typeof fetch;
+
+    await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
+      .resolves.toEqual({ date: '2026-11-06', usedNeurons: 260.25, requests: 7 });
+    expect(sentBody.query).toContain('aiInferenceAdaptiveGroups');
+    expect(sentBody.query).toContain('date_geq: $date');
+    expect(sentBody.query).toContain('date_leq: $date');
+    expect(sentBody.query).not.toContain('workersAiRequestsAdaptiveGroups');
+    expect(sentBody.variables).toEqual({ accountTag: AUTH.accountId, date: '2026-11-06' });
+  });
+
   it.each([
     ['graphql errors', graphqlBody([], { errors: [{ message: 'bad field' }] })],
     ['missing accounts', { data: { viewer: { accounts: [] } } }],
     ['missing groups', { data: { viewer: { accounts: [{}] } } }],
+    ['legacy field name only', {
+      data: {
+        viewer: {
+          accounts: [{
+            workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: 10, requestCount: 1 } }],
+          }],
+        },
+      },
+    }],
     ['non-numeric neurons', graphqlBody([{ sum: { totalNeurons: 'many' } }])],
     ['negative neurons', graphqlBody([{ sum: { totalNeurons: -1 } }])],
     ['conflicting neuron fields', graphqlBody([{ sum: { totalNeurons: 10, neurons: 11 } }])],
@@ -116,7 +149,7 @@ describe('cloudflareRasterFreeQuotaV15 reconciliation', () => {
     return vi.fn(async () => {
       const used = values[Math.min(index, values.length - 1)];
       index += 1;
-      return jsonResponse(graphqlBody([{ sum: { totalNeurons: used, requestCount: 1 } }]));
+      return jsonResponse(graphqlBody([{ count: 1, sum: { totalNeurons: used } }]));
     }) as unknown as typeof fetch;
   }
 
