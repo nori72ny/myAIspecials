@@ -144,7 +144,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.task).toBe('query');
     expect(body.reasoning).toBe(false);
     expect(body.temperature).toBe(0);
-    expect(body.max_tokens).toBe(900);
+    expect(body.max_tokens).toBe(1100);
     expect(body.image).toMatch(/^data:image\/png;base64,/);
     expect(body.question).toContain('Return ONLY valid compact JSON');
     // Axis-semantics calibration (2026-11-07 production probe): the model had
@@ -478,6 +478,53 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       'artifactControl-below-3.4',
     ]));
     expect(result.safetyPassed).toBe(true);
+  });
+
+  it('instructs the critic to hunt for concrete defects before scoring', async () => {
+    // Discrimination fix (2026-11-07 quality-inspection batch 1): the critic
+    // saturated at 4/4 on every axis for all six delivered images while human
+    // review found real defects — malformed piano-playing fingers, a pagoda
+    // with four roof tiers instead of five, a slightly inconsistent mirror
+    // reflection, garbled book-spine text. The generic scoring instructions
+    // never made the model look for these, so the question must order an
+    // active defect hunt with concrete checks and a calibrated scale.
+    const fetchMock = criticFetch(semanticAnswer());
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: 'ピアノを弾く少女の手元と、五重塔のある風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    // The hunt itself, before any scoring.
+    expect(body.question).toContain('actively hunt for defects');
+    expect(body.question).toContain('score only what you actually observed');
+    // 1. Anatomy: count fingers and inspect joints, nails, faces.
+    expect(body.question).toContain('a natural hand has exactly five fingers');
+    expect(body.question).toContain('fused, missing, extra, duplicated, or unnaturally bent fingers');
+    expect(body.question).toContain('facial features symmetric and coherent');
+    // 2. Countable structures: actually count, compare against reality.
+    expect(body.question).toContain('actually count them');
+    expect(body.question).toContain('a five-story pagoda has exactly five roof tiers');
+    // 3. Reflections: compare against the source, left-right reversal.
+    expect(body.question).toContain('compare the reflection against its source');
+    expect(body.question).toContain('left-right reversal must hold');
+    // 4. Text: read it all, quote the garbled strings.
+    expect(body.question).toContain('read every piece of visible text in the image');
+    expect(body.question).toContain('Misspelled, garbled, or meaningless character strings are concrete defects');
+    // 5. Calibration: a found defect caps its axis at 3 and must be listed.
+    expect(body.question).toContain('score that axis 3 or lower and list the defect in criticalIssues');
+    expect(body.question).toContain('Score from observed facts, not from how good the image feels overall');
+    expect(body.question).toContain('criticalIssues must list every concrete visible defect found in the hunt above');
+    expect(body.question).toContain('maximum 8 entries');
+    // The pre-existing instructions stay in force.
+    expect(body.question).toContain('For textHandling: score 4 when the image contains no text and no text was requested');
+    expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
+    expect(body.question).toContain('Independently inspect visible output safety');
+    expect(body.question).toContain('Return ONLY valid compact JSON');
   });
 
   it.each([
