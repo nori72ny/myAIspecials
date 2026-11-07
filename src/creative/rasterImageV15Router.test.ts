@@ -534,6 +534,81 @@ describe('rasterImageV15Router', () => {
     expect(state.imageRuns).toBe(1);
   });
 
+  it('includes the observed usage snapshot when reconciliation fails', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    const criticAnswer = JSON.stringify({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+      safetyPassed: true,
+      safetyIssues: [],
+      criticalIssues: [],
+      summary: '依頼どおりの画像です。',
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+      if (target.includes('/subscriptions')) return cfEnvelope([]);
+      if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+      if (target.includes('/graphql')) {
+        return json({
+          data: {
+            viewer: {
+              accounts: [{
+                aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
+              }],
+            },
+          },
+        });
+      }
+      if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
+        state.imageRuns += 1;
+        // A backlog-sized jump lands inside this request's window, and no
+        // call of this request reported its own usage, so neither evidence
+        // can attribute the consumption and the image is withheld.
+        state.usedNeurons += 5_000;
+        return cfEnvelope(Buffer.from(pngBytes(768, 1024)).toString('base64'));
+      }
+      if (target.includes('/ai/run/@cf/moondream/')) return cfEnvelope({ answer: criticAnswer });
+      throw new Error(`unexpected fetch: ${target}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+
+    expect(response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'CLOUDFLARE_USAGE_RECONCILIATION_FAILED',
+      freeOnly: true,
+      paidFallbackUsed: false,
+      retryable: false,
+    });
+    // The failure is diagnosable from the response alone: what the request
+    // started from, what the aggregate showed, and that no per-request
+    // usage reports were available to attribute the consumption.
+    expect(response.body.usage).toMatchObject({
+      allocationNeurons: 10_000,
+      usedBeforeNeurons: 100,
+      reservedNeurons: 764,
+      candidatesPlanned: 1,
+      candidatesGenerated: 1,
+      observedDeltaNeurons: 5_000,
+      usedAfterNeurons: 5_100,
+      reconciliationMethod: null,
+      reportedNeurons: null,
+      reconciliationReason: 'per-request-usage-incomplete',
+    });
+    expect(state.imageRuns).toBe(1);
+  });
+
   it('runs best-of-2 candidate selection for quality-critical purposes within the quota reserve', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };

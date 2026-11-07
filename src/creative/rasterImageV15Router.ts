@@ -5,7 +5,10 @@ import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
 import { readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
-import { generateCloudflareRasterImageFreeProofV15 } from './cloudflareRasterFreeGenerationV15.js';
+import {
+  generateCloudflareRasterImageFreeProofV15,
+  CloudflareRasterUsageReconciliationErrorV15,
+} from './cloudflareRasterFreeGenerationV15.js';
 
 const BASE_BODY_KEYS = new Set(['prompt', 'negativePrompt', 'width', 'height', 'model']);
 const EDIT_BODY_KEYS = new Set([...BASE_BODY_KEYS, 'referenceImages']);
@@ -36,6 +39,7 @@ function fail(
   code: string,
   message?: string,
   retryable = status >= 500,
+  extra?: Record<string, unknown>,
 ) {
   return res.status(status).json({
     ok: false,
@@ -45,6 +49,7 @@ function fail(
     freeOnly: true,
     paidFallbackUsed: false,
     secretDelivery: 'server-only',
+    ...extra,
   });
 }
 
@@ -348,6 +353,15 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
         externalNetworkRequests: delivery.externalNetworkRequests,
       });
     } catch (error) {
+      if (error instanceof CloudflareRasterUsageReconciliationErrorV15) {
+        // Reconciliation blocks carry the observed usage snapshot so the
+        // failure is diagnosable from the response alone (which evidence
+        // was missing, what the aggregate showed, what the request's own
+        // calls reported).
+        return fail(res, 503, 'CLOUDFLARE_USAGE_RECONCILIATION_FAILED', undefined, false, {
+          usage: error.usage,
+        });
+      }
       const code = error instanceof Error ? error.message : 'RASTER_GENERATION_FAILED';
       if (code === 'RASTER_STRUCTURAL_CRITIC_REJECTED' || code === 'RASTER_SEMANTIC_CRITIC_REJECTED') {
         return fail(

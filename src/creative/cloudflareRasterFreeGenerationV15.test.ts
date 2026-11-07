@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { generateCloudflareRasterImageFreeProofV15 } from './cloudflareRasterFreeGenerationV15';
+import {
+  generateCloudflareRasterImageFreeProofV15,
+  CloudflareRasterUsageReconciliationErrorV15,
+} from './cloudflareRasterFreeGenerationV15';
 
 const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
@@ -72,6 +75,8 @@ type MockState = {
   imageRuns: number;
   criticRuns: number;
   graphqlBroken?: boolean;
+  /** GraphQL reads succeed this many times, then return an error payload. */
+  graphqlBrokenAfterCalls?: number;
   generationPrompts: string[];
   openRouterAnswer?: string;
   /** Analytics lag: the GraphQL total never reflects this request's runs. */
@@ -98,6 +103,7 @@ function dispatchFetch(state: MockState) {
   // What the analytics GraphQL read reports. Generation moves it unless the
   // lag scenario pins it to the pre-generation baseline for the whole test.
   let graphqlUsedNeurons = state.usedNeurons;
+  let graphqlCalls = 0;
   return vi.fn(async (url: string, init?: RequestInit) => {
     const target = String(url);
     if (target.includes('/workers/account-settings')) {
@@ -106,7 +112,9 @@ function dispatchFetch(state: MockState) {
     if (target.includes('/subscriptions')) return envelope(state.subscriptions ?? []);
     if (target.includes('/ai/models/schema')) return envelope({ input: {}, output: {} });
     if (target.includes('/graphql')) {
-      if (state.graphqlBroken) {
+      graphqlCalls += 1;
+      if (state.graphqlBroken
+        || (state.graphqlBrokenAfterCalls !== undefined && graphqlCalls > state.graphqlBrokenAfterCalls)) {
         return new Response(JSON.stringify({ errors: [{ message: 'bad field' }] }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -366,18 +374,82 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
   });
 
-  it('never lets per-request reports rescue an over-bound aggregate delta', async () => {
+  it('delivers on complete per-request reports when the aggregate delta lands far over the reserve', async () => {
+    // Production batch repro (2026-11-07): under consecutive requests, the
+    // delta that lands inside this request's polling window is the backlog
+    // of earlier requests (here: a 5,000-Neuron jump against a 576
+    // reserve). The aggregate cannot attribute it to this request, so the
+    // request's own complete, in-bounds reports carry the delivery.
     const state = baseState({
       generationDelta: 5_000,
       generationReportedNeurons: 140,
       criticReportedNeurons: 35,
     });
     const fetchMock = dispatchFetch(state);
-    await expect(generateCloudflareRasterImageFreeProofV15(
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
       INPUT, ENV, fetchMock as unknown as typeof fetch,
       { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
-    )).rejects.toThrow('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    );
     expect(state.imageRuns).toBe(1);
+    expect(state.criticRuns).toBe(1);
+    expect(delivery.result.costEvidence).toBe('per-request-usage-reported; aggregate-reconciliation-deferred');
+    expect(delivery.usage).toMatchObject({
+      usedBeforeNeurons: 100,
+      reservedNeurons: 576,
+      observedDeltaNeurons: 5_000,
+      usedAfterNeurons: 5_100,
+      reconciliationMethod: 'per-request-reported',
+      reportedNeurons: 175,
+    });
+  });
+
+  it('delivers on complete per-request reports when every aggregate read fails after the baseline', async () => {
+    const state = baseState({
+      // Baseline read (1st GraphQL call) succeeds; all polling reads fail,
+      // so the aggregate stays unobserved for the whole window.
+      graphqlBrokenAfterCalls: 1,
+      generationReportedNeurons: 140,
+      criticReportedNeurons: 35,
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    expect(state.imageRuns).toBe(1);
+    expect(delivery.result.costEvidence).toBe('per-request-usage-reported; aggregate-reconciliation-deferred');
+    expect(delivery.usage).toMatchObject({
+      usedBeforeNeurons: 100,
+      observedDeltaNeurons: null,
+      usedAfterNeurons: null,
+      reconciliationMethod: 'per-request-reported',
+      reportedNeurons: 175,
+    });
+  });
+
+  it('attaches the observed usage snapshot to a reconciliation failure', async () => {
+    const state = baseState({ generationDelta: 0 });
+    const fetchMock = dispatchFetch(state);
+    const error = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+    const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+    expect(failure.message).toBe('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    expect(failure.usage).toMatchObject({
+      date: '2026-11-06',
+      allocationNeurons: 10_000,
+      usedBeforeNeurons: 100,
+      reservedNeurons: 576,
+      candidatesPlanned: 1,
+      candidatesGenerated: 1,
+      observedDeltaNeurons: 0,
+      usedAfterNeurons: 100,
+      reconciliationMethod: null,
+      reportedNeurons: null,
+      reconciliationReason: 'per-request-usage-incomplete',
+    });
   });
 
   it('withholds the image when the per-request reported total exceeds the reserve', async () => {

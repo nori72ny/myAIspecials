@@ -25,16 +25,21 @@
  *      critic has no server-side decoder available and keeps running
  *      client-side through the existing inspectRasterBlobV15 path; it is not
  *      silently dropped, it is simply not a server gate (see PR notes).
- *   5. Post-generation reconciliation: the measured account-level Neuron
- *      delta must be positive and within the reserved bound. Cloudflare's
- *      analytics aggregation lags minutes behind inference, so when the
- *      delta has not appeared inside the polling window the delivery may
- *      instead rest on the usage every inference call of this request
- *      reported for itself — complete reports only, total within the same
- *      reserved bound, and no contrary aggregate evidence (an over-bound
- *      or backwards-moving delta, or a window with no successful aggregate
- *      read, never falls back). Otherwise the generated image is withheld
- *      — a generated-but-unproven image is never delivered.
+ *   5. Post-generation reconciliation: the request's consumption must be
+ *      attributable to the reserved bound. Primary evidence is the usage
+ *      every inference call of this request reported for itself — complete
+ *      reports only, total within the same reserved bound. The measured
+ *      account-level Neuron delta is secondary evidence, consulted only
+ *      when the request's own reports are incomplete: the analytics
+ *      aggregation lags minutes behind inference and aggregates the whole
+ *      account, so a delta landing inside one request's window routinely
+ *      carries earlier requests' backlog and says nothing about this
+ *      request (production batch 2026-11-07: the second half of 12
+ *      consecutive generations all failed reconciliation on exactly this
+ *      when the delta was still treated as a veto). Otherwise the
+ *      generated image is withheld — a generated-but-unproven image is
+ *      never delivered — and the failure carries the observed usage
+ *      snapshot so the block is diagnosable from the API response.
  *
  * Quality layer, all inside the same $0.00 proof:
  *   - Prompt enhancement (fail-soft): the user prompt is first rewritten by
@@ -69,6 +74,7 @@ import {
   CLOUDFLARE_RASTER_PRICED_MODELS_V15,
   RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15,
   type CloudflareRasterPricedModelV15,
+  type CloudflareUsageReconciliationDecisionV15,
   type CloudflareUsageReconciliationMethodV15,
   type CloudflareUsageReconciliationOptionsV15,
 } from './cloudflareRasterFreeQuotaV15.js';
@@ -87,17 +93,61 @@ export type CloudflareRasterFreeProofUsageV15 = {
   candidatesPlanned: number;
   candidatesGenerated: number;
   retryBudgeted: boolean;
-  observedDeltaNeurons: number;
-  usedAfterNeurons: number;
+  /**
+   * Account-level aggregate delta observed during the Stage 5 polling
+   * window, or null when no aggregate read succeeded. Informational on
+   * the per-request path (the aggregate cannot attribute consumption to
+   * this request); the delivery basis on the aggregate path.
+   */
+  observedDeltaNeurons: number | null;
+  /** Aggregate daily total at the last successful Stage 5 read, if any. */
+  usedAfterNeurons: number | null;
   /** Which evidence carried the delivery decision at Stage 5. */
   reconciliationMethod: CloudflareUsageReconciliationMethodV15;
   /**
    * Total Neurons the request's own inference calls reported for
    * themselves, or null when at least one call reported no usable number.
-   * Informational on the aggregate path; the delivery basis on the
-   * per-request path.
+   * The delivery basis on the per-request path; informational on the
+   * aggregate path.
    */
   reportedNeurons: number | null;
+};
+
+/**
+ * Usage snapshot attached to a Stage 5 reconciliation failure, in the same
+ * shape as the success usage (CloudflareRasterFreeProofUsageV15) as far as
+ * values were observed: reconciliationMethod stays null (no evidence
+ * carried the delivery), the observed aggregate values are included when
+ * a read succeeded, and reconciliationReason names the decision's failure
+ * mode. The router serializes this into the failure response so a
+ * reconciliation block is diagnosable from outside.
+ */
+export type CloudflareRasterReconciliationFailureUsageV15 = {
+  date: string;
+  allocationNeurons: number;
+  usedBeforeNeurons: number;
+  reservedNeurons: number;
+  estimatedGenerationNeurons: number;
+  semanticCriticReservedNeurons: number;
+  candidatesPlanned: number;
+  candidatesGenerated: number;
+  retryBudgeted: boolean;
+  observedDeltaNeurons: number | null;
+  usedAfterNeurons: number | null;
+  reconciliationMethod: null;
+  reportedNeurons: number | null;
+  reconciliationReason: CloudflareUsageReconciliationDecisionV15['reason'];
+};
+
+/** Stage 5 failure: the image exists but its consumption is unproven. */
+export class CloudflareRasterUsageReconciliationErrorV15 extends Error {
+  readonly usage: CloudflareRasterReconciliationFailureUsageV15;
+
+  constructor(usage: CloudflareRasterReconciliationFailureUsageV15) {
+    super('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    this.name = 'CloudflareRasterUsageReconciliationErrorV15';
+    this.usage = usage;
+  }
 };
 
 export type CloudflareRasterFreeProofQualityV15 = {
@@ -295,14 +345,13 @@ export async function generateCloudflareRasterImageFreeProofV15(
   }
 
   // Stage 5: post-generation usage reconciliation. Images exist at this
-  // point but are withheld unless their consumption is attributable to the
-  // reserved free allocation — primarily by the measured aggregate delta.
-  // Cloudflare's analytics aggregation lags minutes behind inference, so a
-  // delta that simply has not appeared yet may fall back to the usage each
-  // inference call reported for itself; the decision function in the quota
-  // module keeps every doubtful branch (over-bound or backwards delta, no
-  // successful aggregate read, any unreported call, reports over the
-  // reserve) fail-closed.
+  // point but are withheld unless their consumption is attributable to
+  // the reserved free allocation. Primary evidence is the usage each
+  // inference call of this request reported for itself; the aggregate
+  // delta polled here is account-level, backlog-inclusive data that can
+  // only carry the delivery secondarily, when the request's own reports
+  // are incomplete — its size or absence alone never vetoes complete
+  // in-bounds reports (see decideCloudflareUsageReconciliationV15).
   const reconciliation = await reconcileCloudflareRasterUsageV15(
     auth,
     baseline.usedNeurons,
@@ -334,10 +383,30 @@ export async function generateCloudflareRasterImageFreeProofV15(
   if (
     !decision.deliver
     || decision.method === null
-    || reconciliation.observedDeltaNeurons === null
-    || reconciliation.finalUsedNeurons === null
+    // The aggregate path is carried by the measured delta itself, so it
+    // still requires the observation to exist; the per-request path is
+    // carried by the request's own reports and may deliver with the
+    // aggregate unobserved (observed values then stay null in the usage).
+    || (decision.method === 'aggregate-delta'
+      && (reconciliation.observedDeltaNeurons === null
+        || reconciliation.finalUsedNeurons === null))
   ) {
-    throw new Error('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    throw new CloudflareRasterUsageReconciliationErrorV15({
+      date: baseline.date,
+      allocationNeurons: CLOUDFLARE_FREE_DAILY_NEURONS_V15,
+      usedBeforeNeurons: baseline.usedNeurons,
+      reservedNeurons,
+      estimatedGenerationNeurons,
+      semanticCriticReservedNeurons: RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15,
+      candidatesPlanned,
+      candidatesGenerated: attempts.filter(candidate => candidate.result).length,
+      retryBudgeted,
+      observedDeltaNeurons: reconciliation.observedDeltaNeurons,
+      usedAfterNeurons: reconciliation.finalUsedNeurons,
+      reconciliationMethod: null,
+      reportedNeurons: decision.totalReportedNeurons,
+      reconciliationReason: decision.reason,
+    });
   }
   const reconciliationMethod = decision.method;
   const deliveryCostEvidence: RasterImageResultV15['costEvidence'] = reconciliationMethod === 'aggregate-delta'
