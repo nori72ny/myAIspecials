@@ -85,7 +85,13 @@ export function createWebAppBuilderV13Router() {
       if (!project.verified) return safeFailure(res, 422, 'WEB_PROJECT_VERIFICATION_FAILED');
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Content-Type', project.mimeType);
-      res.setHeader('Content-Disposition', `attachment; filename="${project.filename.replace(/"/g, '')}"`);
+      // The generated filename may contain non-ASCII letters (safeFilename keeps
+      // Unicode letters), which Node's HTTP layer rejects in a raw header value.
+      // Send an ASCII fallback plus the RFC 5987 encoded form so the original
+      // filename survives the download, matching the artifact/creative routers.
+      const fallback = project.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const encoded = encodeURIComponent(project.filename).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+      res.setHeader('Content-Disposition', `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`);
       res.setHeader('X-Origin-Project-Sha256', project.sha256);
       res.setHeader('X-Origin-Project-Verified', 'true');
       res.setHeader('X-Origin-Free-Only', 'true');
