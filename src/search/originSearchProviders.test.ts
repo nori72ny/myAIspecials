@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyOriginDomainTier,
   composeOriginWeatherText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
@@ -156,6 +157,55 @@ describe("searchWikipediaSources", () => {
     expect(sources[0]?.publishedAt).toBe("2026-10-01T00:00:00Z");
     expect(sources[0]?.excerpt).toContain("植物が光エネルギーを使う反応");
     expect(calls[0]?.init?.headers?.["User-Agent"]).toContain("ORIGIN-Personal");
+  });
+
+  it("decodes HTML entities in a single pass without double-decoding", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [{
+            key: "Tom_and_Jerry",
+            title: "Tom &amp; Jerry &#39;Best&#39; &quot;Show&quot;",
+            excerpt: "A &amp; B &lt;x&gt; &amp;lt;",
+          }],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({
+          html_url: "https://en.wikipedia.org/wiki/Tom_and_Jerry",
+          latest: { timestamp: "2026-10-01T00:00:00Z" },
+        }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("Tom and Jerry", { fetchImpl });
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.title).toBe("Tom & Jerry 'Best' \"Show\"");
+    // "&amp;lt;" is doubly-encoded text: it must decode once to the literal
+    // string "&lt;", never collapse further into "<".
+    expect(sources[0]?.excerpt).toBe("A & B <x> &lt;");
+  });
+});
+
+describe("classifyOriginDomainTier", () => {
+  it("treats wikipedia.org / wikidata.org hosts and subdomains as specialist", () => {
+    expect(classifyOriginDomainTier("wikipedia.org")).toBe("specialist");
+    expect(classifyOriginDomainTier("wikidata.org")).toBe("specialist");
+    expect(classifyOriginDomainTier("ja.wikipedia.org")).toBe("specialist");
+    expect(classifyOriginDomainTier("www.wikidata.org")).toBe("specialist");
+    expect(classifyOriginDomainTier("en.m.wikipedia.org")).toBe("specialist");
+  });
+
+  it("does not match lookalike hosts that merely end with the domain string", () => {
+    expect(classifyOriginDomainTier("evilwikipedia.org")).toBe("general");
+    expect(classifyOriginDomainTier("notwikidata.org")).toBe("general");
+    expect(classifyOriginDomainTier("wikipedia.org.example.com")).toBe("general");
+  });
+
+  it("falls through to general for empty or unparseable input", () => {
+    expect(classifyOriginDomainTier("")).toBe("general");
+    expect(classifyOriginDomainTier("::not-a-domain::")).toBe("general");
   });
 });
 

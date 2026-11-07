@@ -20,9 +20,17 @@ function jsonResponse(payload: unknown, status = 200) {
   };
 }
 
+function isGdeltApiUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === "api.gdeltproject.org";
+  } catch {
+    return false;
+  }
+}
+
 function gdeltFetch(seendate: string | undefined) {
   const fetchImpl: OriginSearchFetch = async (url) => {
-    if (url.includes("api.gdeltproject.org")) {
+    if (isGdeltApiUrl(url)) {
       return jsonResponse({
         articles: [
           { url: "https://www3.nhk.or.jp/news/html/1.html", title: "本日の主要ニュース", domain: "nhk.or.jp", ...(seendate ? { seendate } : {}) },

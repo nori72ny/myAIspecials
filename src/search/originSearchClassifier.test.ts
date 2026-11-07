@@ -130,6 +130,16 @@ describe("minimizeOriginSearchQuery", () => {
     expect(query).toContain("東京");
     expect(query).toContain("天気");
   });
+
+  it("stays fast on adversarial long word-char runs", () => {
+    // A long run with an "@" but no dot in the domain part used to make the
+    // email pattern backtrack polynomially; bounded patterns keep this fast.
+    const adversarial = `価格を教えてください。連絡先 user@${"a".repeat(1500)} です`;
+    const startedAt = Date.now();
+    const query = minimizeOriginSearchQuery(adversarial);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(query).toContain("価格");
+  });
 });
 
 describe("extractOriginWeatherPlace", () => {

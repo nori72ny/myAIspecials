@@ -106,6 +106,7 @@ const SPECIALIST_DOMAINS: ReadonlySet<string> = new Set([
   "itmedia.co.jp", "impress.co.jp", "zdnet.com", "theverge.com", "wired.com",
   "arstechnica.com", "techcrunch.com", "nature.com", "science.org",
 ]);
+const ENCYCLOPEDIA_DOMAINS: ReadonlySet<string> = new Set(["wikipedia.org", "wikidata.org"]);
 
 function matchesDomainSet(domain: string, set: ReadonlySet<string>): boolean {
   for (const known of set) {
@@ -116,7 +117,10 @@ function matchesDomainSet(domain: string, set: ReadonlySet<string>): boolean {
 
 export function classifyOriginDomainTier(domain: string): OriginSourceAuthorityTier {
   const normalized = domain.toLowerCase().replace(/^www\./, "");
-  if (normalized.endsWith("wikipedia.org") || normalized.endsWith("wikidata.org")) return "specialist";
+  // Exact host or dot-boundary suffix only: "evilwikipedia.org" must not be
+  // treated as part of wikipedia.org (callers pass URL-parsed hostnames, and
+  // unparseable input arrives here as "" and falls through to "general").
+  if (matchesDomainSet(normalized, ENCYCLOPEDIA_DOMAINS)) return "specialist";
   if (matchesDomainSet(normalized, OFFICIAL_DOMAINS)) return "official";
   if (OFFICIAL_DOMAIN_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`))) return "official";
   if (matchesDomainSet(normalized, MAJOR_NEWS_DOMAINS)) return "major-news";
@@ -168,15 +172,23 @@ async function requestJson<T>(
   }
 }
 
+const HTML_ENTITY_DECODE_MAP: Readonly<Record<string, string>> = {
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&lt;": "<",
+  "&gt;": ">",
+};
+
 function stripHtml(value: unknown): string {
   if (typeof value !== "string") return "";
   return value
     .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
+    // Single-pass decoding: each entity token is replaced exactly once and its
+    // replacement is never rescanned, so doubly-encoded text such as
+    // "&amp;lt;" decodes to the literal text "&lt;" instead of "<".
+    .replace(/&(?:amp|quot|#39|apos|lt|gt);/g, (entity) => HTML_ENTITY_DECODE_MAP[entity] ?? entity)
     .replace(/\s+/g, " ")
     .trim();
 }

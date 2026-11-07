@@ -143,7 +143,12 @@ if (hasFreshnessMarker) return done("fresh_general", "freshness-marker");
 return done("no_search", "default");
 }
 
-const EMAIL_PATTERN = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const MAX_MINIMIZE_INPUT_CHARS = 2_000;
+// Bounded repetitions: an unbounded local/domain run makes this pattern
+// polynomial on adversarial input (long word-char runs with no dot after "@").
+// The bounds follow the RFC limits for addresses (64-char local part, 63-char
+// labels), so every realistic address is still matched exactly as before.
+const EMAIL_PATTERN = /[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,8}/g;
 const URL_PATTERN = /https?:\/\/\S+/g;
 const POSTAL_CODE_PATTERN = /〒?\s?\d{3}-\d{4}/g;
 const PHONE_LIKE_PATTERN = /(?:\+?\d[\s-]?){10,}/g;
@@ -179,7 +184,10 @@ const FRAMING_PHRASES: readonly RegExp[] = [
 * politeness wrappers are stripped deterministically.
 */
 export function minimizeOriginSearchQuery(message: string): string {
-let text = (message?? "").normalize("NFKC");
+// Cap the working text before the regex passes below: the shaped query is at
+// most 240 chars, and an unbounded input would let backtracking-prone
+// patterns (email / phone / digit runs) grow superlinearly on long messages.
+let text = (message?? "").normalize("NFKC").slice(0, MAX_MINIMIZE_INPUT_CHARS);
 text = text.replace(EMAIL_PATTERN, " ");
 text = text.replace(URL_PATTERN, " ");
 text = text.replace(POSTAL_CODE_PATTERN, " ");
