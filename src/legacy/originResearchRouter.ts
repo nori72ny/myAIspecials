@@ -3,7 +3,17 @@ import { createOriginAnswerEnvelope, type OriginAnswerEnvelope } from "../lib/or
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { detectSensitiveConversation, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
-import { researchCurrentInformation } from "./originResearchSource.js";
+import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import {
+  createDefaultOriginResearchExecutor,
+  type OriginSearchGroundingDeps,
+} from "../search/originSearchGrounding.js";
+
+export interface OriginResearchRouterOptions {
+  env?: NodeJS.ProcessEnv;
+  research?: (query: string) => Promise<OriginResearchResult>;
+  searchGrounding?: OriginSearchGroundingDeps;
+}
 
 function isFreshnessRequest(message: string): boolean {
   return /最新(?:の)?(?:情報|ニュース|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果)|今日の(?:ニュース|料金|価格|株価|相場|結果)|現在の(?:ニュース|料金|価格|株価|相場|仕様|バージョン|状況)|リアルタイム/.test(message)
@@ -191,8 +201,23 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
   return result.value;
 }
 
-export function createOriginResearchRouter() {
+export function createOriginResearchRouter(options: OriginResearchRouterOptions = {}) {
   const router = Router();
+  // Source-layer wiring: when the app supplies env / search-grounding options
+  // (production does, via createOriginApp), freshness questions are served by
+  // the search-grounding pipeline (GDELT / Tavily / Wikipedia / Open-Meteo
+  // under the $0 evidence catalog) in front of the legacy research function,
+  // which remains the fallback for questions with no enabled grounding route.
+  // With no options the router keeps its historical direct use of the legacy
+  // research function. Either way the fail-closed contract below is unchanged:
+  // no verified sources -> 503 RESEARCH_SOURCE_UNAVAILABLE, never a model
+  // completion.
+  const research = options.research ?? (options.env || options.searchGrounding
+    ? createDefaultOriginResearchExecutor(
+        { env: options.env ?? process.env, ...(options.searchGrounding ?? {}) },
+        researchCurrentInformation,
+      )
+    : researchCurrentInformation);
   router.post("/api/chat", async (req, res, next) => {
     const body = (req.body ?? {}) as OriginChatBody;
     const messages = validateOriginChatMessages(body.messages);
@@ -204,7 +229,7 @@ export function createOriginResearchRouter() {
     if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", message: "秘密情報の可能性がある内容を検出したため、外部情報源への送信を停止しました。", retryable: false, sensitiveKinds });
 
     const language = languageOf(query);
-    const result = await researchCurrentInformation(query);
+    const result = await research(query);
     if (!result.ok) {
       const message = language === "ja"
         ? "現在、無料の公開情報源から最新情報を取得できませんでした。未確認の内容を通常AIで補完せず、安全に停止しました。時間をおいて手動で再度お試しください。"
@@ -218,7 +243,7 @@ export function createOriginResearchRouter() {
         costUsd: 0,
         freeOnly: true,
         paidFallbackUsed: false,
-        research: { sources: [], status: "unavailable", failure: result.failure, fallback: result.fallback },
+        research: { sources: [], status: "unavailable", failure: result.failure, fallback: result.fallback, ...(result.groundingFailure ? { groundingFailure: result.groundingFailure } : {}) },
       });
     }
 
@@ -231,7 +256,7 @@ export function createOriginResearchRouter() {
     const content = `${report.markdown}\n\n${sourceContent}`;
     const evidence = extractProvidedOriginEvidence(content);
     const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
-    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback } });
+    return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run" }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}) } });
   });
   return router;
 }

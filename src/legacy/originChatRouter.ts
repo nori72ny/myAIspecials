@@ -15,6 +15,13 @@ import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } fro
 import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import {
+  createDefaultOriginResearchExecutor,
+  fetchOriginWeatherAnswer,
+  ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_EN,
+  ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA,
+  type OriginSearchGroundingDeps,
+} from "../search/originSearchGrounding.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
 import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
@@ -23,7 +30,7 @@ import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherR
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 /** Honest executed-route count: 1 unless the failover dispatcher actually executed a second verified free route. */
 function providerAttemptCount(result: OriginProviderExecutionResult): number { return result.attempts?.length ?? 1; }
@@ -44,18 +51,30 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     }
   }).slice(0, 8);
   if (!result.ok || safeSources.length === 0) {
-    const content = isEnglish
-      ? "ORIGIN could not retrieve usable public sources, so it will not guess current information."
-      : "確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。";
-    const reason = isEnglish
-      ? "Grounded Research could not retrieve usable public evidence."
-      : "Grounded Researchで確認可能な公開情報を取得できませんでした。";
+    const groundingFailure = result.groundingFailure;
+    const content = groundingFailure
+      ? (isEnglish ? ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_EN : ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA)
+      : isEnglish
+        ? "ORIGIN could not retrieve usable public sources, so it will not guess current information."
+        : "確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。";
+    const reason = groundingFailure
+      ? (isEnglish
+        ? `Search grounding could not verify reliable sources (${groundingFailure}).`
+        : `検索グラウンディングで信頼できる裏付けを確認できませんでした（${groundingFailure}）。`)
+      : isEnglish
+        ? "Grounded Research could not retrieve usable public evidence."
+        : "Grounded Researchで確認可能な公開情報を取得できませんでした。";
+    const groundingLimitation = groundingFailure === "no-fresh-sources"
+      ? (isEnglish ? "Sources were retrieved, but every one was older than the freshness limit for this question type." : "情報を取得できましたが、いずれもこの質問種別の鮮度条件より古く、裏付けとして使えませんでした。")
+      : groundingFailure === "monthly-cap-reached"
+        ? (isEnglish ? "The monthly free-search budget for this month has been reached, so no search was executed." : "今月の検索予算（無料枠に対する自前上限）に達したため、検索を実行しませんでした。")
+        : null;
     return {
       content,
       language: isEnglish ? "en" as const : "ja" as const,
       reason,
       evidence: [],
-      limitations: [isEnglish ? "No current public source was verified for this request." : "この依頼について、現在の公開情報源を確認できていません。"],
+      limitations: [groundingLimitation ?? (isEnglish ? "No current public source was verified for this request." : "この依頼について、現在の公開情報源を確認できていません。")],
       nextActions: [isEnglish ? "Try again later or provide a public source to analyze." : "時間をおいて再実行するか、確認したい公開情報源を提示してください。"],
       sourceCount: 0,
       provider: result.searchProvider,
@@ -116,7 +135,7 @@ function firstAnswerBlock(content: string): string { const firstBlock = content.
 function answerEnvelope(content: string, language: "ja" | "en", verificationStatus: OriginAnswerVerificationStatus, verificationSummary: string, evidence: readonly OriginAnswerEvidenceItem[] = [], limitations: readonly string[] = [], nextActions: readonly string[] = [], richOutputs: readonly OriginAnswerRichOutput[] = []): OriginAnswerEnvelope { const result = createOriginAnswerEnvelope({ language, conclusion: firstAnswerBlock(content), answer: content, evidence, verification: { status: verificationStatus, independentReviewPerformed: verificationStatus === "passed", summary: verificationSummary }, limitations, nextActions, richOutputs }); if (result.ok === false) throw new Error(result.code); return result.value; }
 
 export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
-  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProviderWithFailover(request, env)); const research = options.research ?? ((query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
+  const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProviderWithFailover(request, env)); const searchGroundingDeps: OriginSearchGroundingDeps = { env, ...(options.searchGrounding ?? {}) }; const research = options.research ?? createDefaultOriginResearchExecutor(searchGroundingDeps, (query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
     if (wantsStreaming) {
@@ -152,7 +171,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
     const lastUserMessage = messages[messages.length - 1].content; const groundedResearchRequired = requiresGroundedResearch(lastUserMessage);
-    if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const content = isEnglish ? "Currently, no service is connected to retrieve the latest weather information." : "現在、最新の天気情報を取得するサービスが接続されていません。"; const reason = "最新データ取得サービスが未接続のため推測を実行しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
+    if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const weather = await fetchOriginWeatherAnswer(lastUserMessage, body.userLocation, searchGroundingDeps); if (weather.ok) { const content = weather.text; const reason = isEnglish ? "Answered directly from the latest Open-Meteo forecast data without a model call." : "Open-Meteoの最新予報データから、モデルを使わずに回答しました。"; const weatherEvidence = [{ label: isEnglish ? `Open-Meteo weather forecast (${weather.forecast.place})` : `Open-Meteo 天気予報（${weather.forecast.place}）`, sourceUrl: weather.forecast.sourceUrl, evidenceLevel: "provided" as const, checks: { safeUrl: "passed" as const, content: "not-run" as const, freshness: "not-run" as const, claimSupport: "not-run" as const } }]; const weatherLimitations = [isEnglish ? "Forecast data by Open-Meteo (CC BY 4.0); conditions may change after retrieval." : "Open-Meteoの予報データ（CC BY 4.0）に基づきます。取得後に天気が変わる場合があります。"]; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason, weatherEvidence, weatherLimitations), routing: { ...applicationRouting(requestId, reason, "not-run"), answerMode: "weather", weatherProvider: "Open-Meteo" } }); } const content = isEnglish ? "I tried to retrieve the latest weather information, but could not obtain it." : "最新の天気情報を取得しようとしましたが、取得できませんでした。"; const reason = isEnglish ? "Weather retrieval failed, so no forecast was guessed." : "天気情報を取得できなかったため、推測で回答しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const sensitiveKinds = detectSensitiveConversation(messages); if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds });
     const contextResult = minimizeOriginContext(messages, contextPolicy); if (contextResult.ok === false) return res.status(contextResult.code === "LATEST_MESSAGE_TOO_LARGE" ? 413 : 500).json({ code: contextResult.code, message: contextResult.message, retryable: false, requestId });
     const intentInput = originIntentInputFromContext(contextResult.window.messages);
@@ -303,6 +322,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   sourceCount: grounded.sourceCount,
                   researchProvider: grounded.provider,
                   conflictCount: grounded.conflicts,
+                  ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
                   synthesisStatus: "citation-validated",
                   synthesisSourceCount: citationValidation.usedSourceIds.length,
                   providerDataPolicy: synthesisResult.providerDataPolicy,
@@ -385,6 +405,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           sourceCount: grounded.sourceCount,
           researchProvider: grounded.provider,
           conflictCount: grounded.conflicts,
+          ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
           synthesisStatus,
           ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
           requestedOutputs: researchRequestedOutputs,

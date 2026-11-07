@@ -78,7 +78,7 @@ export function createOriginApp(
   if (integrations.mcpSession) app.use(integrations.mcpSession);
   if (integrations.mcpAgent) app.use(integrations.mcpAgent);
   app.use(createMcpManagementRouter(integrations.mcp));
-  app.use(createGroundedResearchV11Router());
+  app.use(createGroundedResearchV11Router({ env }));
   app.use(createArtifactV12Router());
   app.use(createWebAppBuilderV13Router());
   app.use(createWebPublicationV131Router(env, webPublicationStore));
@@ -88,7 +88,7 @@ export function createOriginApp(
   app.use(createRasterImageV15Router(env));
   app.use(createWorldClassImageV16Router(env));
   app.use(createImageGatewayEvalPreflightRouter(env));
-  app.use(createOriginResearchRouter());
+  app.use(createOriginResearchRouter({ env }));
   // Browser clients request text/event-stream. Handle provider-eligible requests here
   // so deltas come directly from OpenRouter's upstream SSE stream. The legacy router
   // remains the fail-closed JSON/local-answer path and is never used to fake provider

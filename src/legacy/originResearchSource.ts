@@ -30,12 +30,26 @@ export type OriginResearchFailure = {
   code: OriginResearchFailureCode;
 };
 
+export interface OriginResearchGroundingMetadata {
+  questionType: string;
+  providersUsed: readonly string[];
+  freshnessVerified: boolean;
+  verifiedFreshSourceCount: number;
+  unknownDateSourceCount: number;
+  droppedStaleSourceCount: number;
+  droppedUndatedSourceCount: number;
+}
+
 export interface OriginResearchResult {
   ok: boolean;
   sources: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
-  searchProvider?: "DuckDuckGo" | "Bing" | "Wikipedia";
+  searchProvider?: "DuckDuckGo" | "Bing" | "Wikipedia" | "Tavily" | "GDELT" | "Open-Meteo" | "SearchGrounding";
+  /** Present when the result came from the search-grounding pipeline. */
+  grounding?: OriginResearchGroundingMetadata;
+  /** Present when search grounding ran but its verification gate failed. */
+  groundingFailure?: "no-sources" | "no-fresh-sources" | "provider-error" | "monthly-cap-reached";
 }
 
 type WikipediaSearchResponse = {
