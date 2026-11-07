@@ -668,3 +668,120 @@ export async function extractTavilyPages(
     creditsUsed: pages.size > 0 ? Math.ceil(pages.size / 5) : 0,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Stooq (market data: FX / indices / stocks / crypto / commodities)   */
+/*                                                                     */
+/* Keyless CSV snapshot endpoint. Only fixed provider symbols are ever */
+/* sent — never user text. Stooq describes its quotes as delayed, so   */
+/* every composed answer carries an explicit delay note plus the       */
+/* quote's own date/time exactly as reported. Since 2026, third-party  */
+/* reports conflict on whether Stooq's CSV endpoints still answer      */
+/* keyless requests (some report an API-key demand page instead of     */
+/* CSV). The parser therefore accepts only a strict CSV shape: an      */
+/* HTML or key-demand response is an invalid-response failure and the  */
+/* route fails closed (see originSearchProviderCatalog "stooq" note).  */
+/* ------------------------------------------------------------------ */
+
+export interface OriginMarketQuoteRequest {
+  symbol: string;
+  labelJa: string;
+  unit: string;
+}
+
+export interface OriginMarketQuote extends OriginMarketQuoteRequest {
+  /** Quote date exactly as reported by Stooq (YYYY-MM-DD). */
+  date: string;
+  /** Quote time exactly as reported by Stooq (HH:MM:SS, timezone not stated by the provider). */
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  /** Latest price: the current quote while the market is open, else the last close. */
+  close: number;
+}
+
+const STOOQ_QUOTE_FIELDS = "sd2t2ohlcv";
+const STOOQ_HEADER_PREFIX = "Symbol,Date,Time,Open,High,Low,Close";
+
+function parseStooqFiniteNumber(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toUpperCase() === "N/A") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Strict parser for the Stooq snapshot CSV. Anything that is not the
+ * documented shape — an HTML page (key demand / proof-of-work / rate-limit
+ * notice), a missing header, N/A values, non-numeric prices — yields no
+ * quote for that row, and a response with zero usable quotes is rejected
+ * by the caller as invalid. Values are never repaired or guessed.
+ */
+export function parseStooqQuotesCsv(
+  csvText: string,
+  requests: readonly OriginMarketQuoteRequest[],
+): OriginMarketQuote[] {
+  const text = (csvText ?? "").replace(/^\uFEFF/, "").trim();
+  if (!text || text.startsWith("<") || !text.startsWith(STOOQ_HEADER_PREFIX)) return [];
+  const bySymbol = new Map<string, OriginMarketQuoteRequest>();
+  for (const request of requests) bySymbol.set(request.symbol.toLowerCase(), request);
+  const quotes: OriginMarketQuote[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/).slice(1)) {
+    const columns = line.split(",");
+    if (columns.length < 7) continue;
+    const symbol = (columns[0] ?? "").trim().toLowerCase();
+    const request = bySymbol.get(symbol);
+    if (!request || seen.has(symbol)) continue;
+    const date = (columns[1] ?? "").trim();
+    const time = (columns[2] ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}(:\d{2})?$/.test(time)) continue;
+    const open = parseStooqFiniteNumber(columns[3]);
+    const high = parseStooqFiniteNumber(columns[4]);
+    const low = parseStooqFiniteNumber(columns[5]);
+    const close = parseStooqFiniteNumber(columns[6]);
+    if (open === null || high === null || low === null || close === null) continue;
+    seen.add(symbol);
+    quotes.push({ ...request, date, time, open, high, low, close });
+  }
+  // Preserve the caller's instrument order regardless of CSV row order.
+  return requests
+    .map((request) => quotes.find((quote) => quote.symbol === request.symbol))
+    .filter((quote): quote is OriginMarketQuote => quote !== undefined);
+}
+
+export async function fetchStooqMarketQuotes(
+  requests: readonly OriginMarketQuoteRequest[],
+  deps: OriginSearchProviderDeps = {},
+): Promise<OriginMarketQuote[]> {
+  if (requests.length === 0) throw new OriginSearchProviderError("stooq", "no-results");
+  const symbols = requests.map((request) => encodeURIComponent(request.symbol)).join(",");
+  const url = `https://stooq.com/q/l/?s=${symbols}&f=${STOOQ_QUOTE_FIELDS}&h&e=csv`;
+  const csv = await requestText("stooq", deps, url, { headers: { "User-Agent": USER_AGENT } });
+  const quotes = parseStooqQuotesCsv(csv, requests);
+  if (quotes.length === 0) throw new OriginSearchProviderError("stooq", "invalid-response");
+  return quotes;
+}
+
+export const STOOQ_SOURCE_URL = "https://stooq.com/";
+
+function formatMarketValue(value: number): string {
+  return value.toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function composeOriginMarketText(quotes: readonly OriginMarketQuote[], retrievedAtIso: string): string {
+  const lines = [
+    "市場データ（Stooq）",
+    ...quotes.map((quote) => {
+      const change = quote.close - quote.open;
+      const changePercent = quote.open !== 0 ? (change / quote.open) * 100 : 0;
+      const changeText = `${change >= 0 ? "+" : ""}${formatMarketValue(change)}（${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%、始値比）`;
+      return `${quote.labelJa}: ${formatMarketValue(quote.close)}${quote.unit}（${quote.date} ${quote.time} 時点の値、始値 ${formatMarketValue(quote.open)}${quote.unit} / 高値 ${formatMarketValue(quote.high)}${quote.unit} / 安値 ${formatMarketValue(quote.low)}${quote.unit}、始値比 ${changeText}）`;
+    }),
+    "注記: Stooq の相場データは遅延配信です。表示した日時は Stooq が返したデータ自体の日時（タイムゾーンは提供元表記のまま）で、リアルタイム値ではありません。市場が開いている時間帯は最新の遅延値、休場時は直近の終値です。",
+    `出典: Stooq（https://stooq.com/）の相場データ。取得日時: ${formatTokyoDateTime(retrievedAtIso)}`,
+  ];
+  return lines.join("\n");
+}
