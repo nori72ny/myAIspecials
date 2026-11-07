@@ -47,8 +47,7 @@ describe("Groq free model evidence catalog", () => {
       sourceUrl: "https://example.com/not-groq",
     }];
     const result = selectCurrentOriginGroqFreeModel(tampered, DURING_MS);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("FREE_MODEL_CATALOG_INVALID");
+    expect(result).toMatchObject({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" });
   });
 });
 
@@ -88,7 +87,6 @@ describe("buildOriginGroqRoutePlan", () => {
 
   it("refuses to build the route plan once the evidence is stale", () => {
     const result = buildOriginGroqRoutePlan(primaryPlan, { nowMs: AFTER_REVIEW_MS });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("FREE_MODEL_EVIDENCE_STALE");
+    expect(result).toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
   });
 });
