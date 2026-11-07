@@ -108,7 +108,9 @@ describe("ORIGIN Personal release 1 gate", () => {
     const providerClient = readRepositoryFile("src/legacy/originProviderClient.ts");
     const providerSecurityRegression = readRepositoryFile("src/legacy/originProviderClient.security-regression.test.ts");
 
-    expect(providerClient).toContain("const RETRY: readonly number[] = [700, 1_800]");
+    expect(providerClient).not.toContain("const RETRY: readonly number[]");
+    expect(providerClient).toContain("Never automatically");
+    expect(providerClient).toContain("replay an ambiguous or transient failure");
     expect(providerClient).toContain("const MAX_SEGMENTS = 1");
     expect(providerClient).toContain("attempt: 1");
     expect(providerClient).toContain("fallbackUsed: false");
