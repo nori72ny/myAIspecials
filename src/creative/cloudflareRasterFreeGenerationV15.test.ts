@@ -81,7 +81,7 @@ function usageResponse(usedNeurons: number): Response {
     data: {
       viewer: {
         accounts: [{
-          workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: usedNeurons, requestCount: 1 } }],
+          aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: usedNeurons } }],
         }],
       },
     },

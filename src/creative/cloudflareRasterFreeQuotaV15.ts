@@ -175,8 +175,9 @@ const DAILY_USAGE_QUERY = `
   query OriginWorkersAiDailyUsage($accountTag: string, $date: Date) {
     viewer {
       accounts(filter: { accountTag: $accountTag }) {
-        workersAiRequestsAdaptiveGroups(limit: 100, filter: { date: $date }) {
-          sum { totalNeurons neurons requestCount }
+        aiInferenceAdaptiveGroups(limit: 100, filter: { date_geq: $date, date_leq: $date }) {
+          count
+          sum { totalNeurons }
         }
       }
     }
@@ -184,14 +185,21 @@ const DAILY_USAGE_QUERY = `
 `;
 
 function neuronValue(sum: Record<string, unknown>): number {
+  // The live schema exposes exactly one Neuron total per group: the float64
+  // sum.totalNeurons (verified by introspection on 2026-11-07; there is no
+  // sum.neurons / sum.requestCount in the schema), and our query selects only
+  // that field. A finite, non-negative totalNeurons is therefore required.
+  // The retired `neurons` alias is still rejected when present with a
+  // conflicting value, so shape ambiguity keeps failing closed.
   const total = sum.totalNeurons;
-  const plain = sum.neurons;
-  const hasTotal = typeof total === 'number' && Number.isFinite(total) && total >= 0;
-  const hasPlain = typeof plain === 'number' && Number.isFinite(plain) && plain >= 0;
-  if (hasTotal && hasPlain && total !== plain) throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
-  if (hasTotal) return total as number;
-  if (hasPlain) return plain as number;
-  throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
+  if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) {
+    throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
+  }
+  const legacy = sum.neurons;
+  if (legacy !== undefined && legacy !== total) {
+    throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
+  }
+  return total;
 }
 
 /**
@@ -200,9 +208,13 @@ function neuronValue(sum: Record<string, unknown>): number {
  * shape ambiguity throws CLOUDFLARE_DAILY_USAGE_UNVERIFIED: unknown usage is
  * never treated as zero usage.
  *
- * Live-schema note: the exact adaptive-group dataset/field names must be
- * confirmed against a real account during live qualification; until then this
- * reader is exercised only against mocks and fails closed on any mismatch.
+ * Live-schema note: the dataset/field names used here were confirmed against
+ * the live Cloudflare GraphQL Analytics schema by introspection on
+ * 2026-11-07: the account-level dataset is `aiInferenceAdaptiveGroups` (the
+ * previously assumed `workersAiRequestsAdaptiveGroups` does not exist), each
+ * group carries a uint64 `count`, and `sum.totalNeurons` is the only Neuron
+ * total (there are no `sum.neurons` / `sum.requestCount` fields). The reader
+ * still fails closed on any shape mismatch.
  */
 export async function fetchCloudflareDailyNeuronsUsedV15(
   auth: { accountId: string; apiToken: string },
@@ -254,8 +266,8 @@ export async function fetchCloudflareDailyNeuronsUsedV15(
   const account = accounts[0] && typeof accounts[0] === 'object' && !Array.isArray(accounts[0])
     ? accounts[0] as Record<string, unknown>
     : null;
-  const groups = Array.isArray(account?.workersAiRequestsAdaptiveGroups)
-    ? account.workersAiRequestsAdaptiveGroups
+  const groups = Array.isArray(account?.aiInferenceAdaptiveGroups)
+    ? account.aiInferenceAdaptiveGroups
     : null;
   if (!groups) throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
 
@@ -270,7 +282,9 @@ export async function fetchCloudflareDailyNeuronsUsedV15(
       throw new Error('CLOUDFLARE_DAILY_USAGE_UNVERIFIED');
     }
     usedNeurons += neuronValue(sum as Record<string, unknown>);
-    const count = (sum as Record<string, unknown>).requestCount;
+    // The request count lives on the group itself (uint64 `count`); the live
+    // schema has no count field inside `sum`.
+    const count = (group as Record<string, unknown>).count;
     if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
       requests = (requests ?? 0) + count;
     } else {

@@ -481,7 +481,7 @@ describe('rasterImageV15Router', () => {
           data: {
             viewer: {
               accounts: [{
-                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: state.usedNeurons, requestCount: 1 } }],
+                aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
               }],
             },
           },
@@ -548,7 +548,7 @@ describe('rasterImageV15Router', () => {
           data: {
             viewer: {
               accounts: [{
-                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: state.usedNeurons, requestCount: 1 } }],
+                aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
               }],
             },
           },
@@ -595,7 +595,7 @@ describe('rasterImageV15Router', () => {
           data: {
             viewer: {
               accounts: [{
-                workersAiRequestsAdaptiveGroups: [{ sum: { totalNeurons: 9_900, requestCount: 40 } }],
+                aiInferenceAdaptiveGroups: [{ count: 40, sum: { totalNeurons: 9_900 } }],
               }],
             },
           },
