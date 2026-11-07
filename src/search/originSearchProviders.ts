@@ -267,16 +267,63 @@ interface OpenMeteoForecastResponse {
   };
 }
 
+/**
+ * Japanese administrative suffixes. With language=ja, the Open-Meteo
+ * geocoding index often only carries the fully suffixed form of a place
+ * (東京都, 大阪市, 札幌市, ...), so a bare name such as 東京 or 大阪 returns
+ * zero results even though the place exists. When the original name yields
+ * no result we retry with the most likely suffixes appended, in the order
+ * 市 → 都 → 府 → 県 (measured 2026-11-07: 東京→東京都, 大阪→大阪市,
+ * 京都→京都市, 札幌→札幌市 all resolve within one or two retries). Only
+ * an empty geocoding result triggers a retry: transport/HTTP failures
+ * propagate unchanged so a real outage is never masked by extra lookups.
+ * The total number of geocoding requests stays bounded (original + 4).
+ */
+const JAPANESE_ADMIN_SUFFIXES: readonly string[] = ["都", "府", "県", "市", "区", "町", "村"];
+const GEOCODING_SUFFIX_RETRY_ORDER: readonly string[] = ["市", "都", "府", "県"];
+const JAPANESE_TEXT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+
+function geocodingNameCandidates(place: string): string[] {
+  const candidates = [place];
+  const isJapanesePlace = JAPANESE_TEXT_PATTERN.test(place);
+  // A trailing suffix only counts as an administrative suffix when a real
+  // base name (2+ chars) precedes it: 京都 ends in the character 都 as part
+  // of the proper name itself, so it must still earn suffix retries
+  // (京都→京都市), while 東京都 / 大阪市 skip them as intended.
+  const alreadySuffixed = JAPANESE_ADMIN_SUFFIXES.some(
+    (suffix) => place.endsWith(suffix) && place.length - suffix.length >= 2,
+  );
+  if (isJapanesePlace && !alreadySuffixed) {
+    for (const suffix of GEOCODING_SUFFIX_RETRY_ORDER) candidates.push(place + suffix);
+  }
+  return candidates;
+}
+
+type OpenMeteoGeocodingResult = NonNullable<OpenMeteoGeocodingResponse["results"]>[number];
+
+async function geocodeOpenMeteoPlace(
+  place: string,
+  deps: OriginSearchProviderDeps,
+): Promise<OpenMeteoGeocodingResult | null> {
+  for (const name of geocodingNameCandidates(place)) {
+    const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=ja&format=json`;
+    const geo = await requestJson<OpenMeteoGeocodingResponse>("open-meteo", deps, geocodingUrl, {
+      headers: { "User-Agent": USER_AGENT },
+    });
+    const location = geo.results?.[0];
+    if (location && typeof location.latitude === "number" && typeof location.longitude === "number") {
+      return location;
+    }
+  }
+  return null;
+}
+
 export async function fetchOpenMeteoWeather(
   place: string,
   deps: OriginSearchProviderDeps & { nowMs?: number } = {},
 ): Promise<OriginWeatherForecast> {
-  const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=ja&format=json`;
-  const geo = await requestJson<OpenMeteoGeocodingResponse>("open-meteo", deps, geocodingUrl, {
-    headers: { "User-Agent": USER_AGENT },
-  });
-  const location = geo.results?.[0];
-  if (!location || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+  const location = await geocodeOpenMeteoPlace(place, deps);
+  if (!location) {
     throw new OriginSearchProviderError("open-meteo", "no-results");
   }
   const forecastUrl = "https://api.open-meteo.com/v1/forecast"

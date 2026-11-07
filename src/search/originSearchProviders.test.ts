@@ -102,6 +102,110 @@ describe("fetchOpenMeteoWeather", () => {
       code: "no-results",
     });
   });
+
+  const tokyoResult = {
+    results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }],
+  };
+
+  function isGeocodingApiUrl(rawUrl: string): boolean {
+    try {
+      return new URL(rawUrl).hostname === "geocoding-api.open-meteo.com";
+    } catch {
+      return false;
+    }
+  }
+
+  function geocodingByName(cities: Record<string, unknown>) {
+    return {
+      match: "geocoding-api.open-meteo.com",
+      respond: (call: RecordedCall) => {
+        const name = new URL(call.url).searchParams.get("name") ?? "";
+        return cities[name] ?? { results: [] };
+      },
+    };
+  }
+
+  function geocodingNamesOf(calls: RecordedCall[]): Array<string | null> {
+    return calls
+      .filter((call) => isGeocodingApiUrl(call.url))
+      .map((call) => new URL(call.url).searchParams.get("name"));
+  }
+
+  it("retries a bare Japanese name with administrative suffixes until one resolves", async () => {
+    // Mirrors the live behaviour (2026-11-07): name=東京 and name=東京市 return
+    // nothing, name=東京都 resolves.
+    const { fetchImpl, calls } = routedFetch([
+      geocodingByName({ "東京都": tokyoResult }),
+      routes[1] as (typeof routes)[number],
+    ]);
+    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
+    expect(forecast.current.temperatureC).toBe(18.5);
+    expect(geocodingNamesOf(calls)).toEqual(["東京", "東京市", "東京都"]);
+  });
+
+  it("still retries for 京都, whose trailing 都 is part of the proper name", async () => {
+    const kyotoResult = {
+      results: [{ name: "京都市", admin1: "京都府", country: "日本", latitude: 35.02107, longitude: 135.75385 }],
+    };
+    const { fetchImpl, calls } = routedFetch([
+      geocodingByName({ "京都市": kyotoResult }),
+      routes[1] as (typeof routes)[number],
+    ]);
+    const forecast = await fetchOpenMeteoWeather("京都", { fetchImpl, nowMs: NOW });
+    expect(forecast.current.temperatureC).toBe(18.5);
+    expect(geocodingNamesOf(calls)).toEqual(["京都", "京都市"]);
+  });
+
+  it("does not retry when the name already carries an administrative suffix", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      geocodingByName({ "東京都": tokyoResult }),
+      routes[1] as (typeof routes)[number],
+    ]);
+    const forecast = await fetchOpenMeteoWeather("東京都", { fetchImpl, nowMs: NOW });
+    expect(forecast.current.temperatureC).toBe(18.5);
+    expect(geocodingNamesOf(calls)).toEqual(["東京都"]);
+  });
+
+  it("tries every suffix candidate before failing with no-results", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      geocodingByName({}),
+      routes[1] as (typeof routes)[number],
+    ]);
+    await expect(fetchOpenMeteoWeather("札幌", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
+      name: "OriginSearchProviderError",
+      code: "no-results",
+    });
+    expect(geocodingNamesOf(calls)).toEqual(["札幌", "札幌市", "札幌都", "札幌府", "札幌県"]);
+  });
+
+  it("does not append suffixes for non-Japanese names", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      geocodingByName({}),
+      routes[1] as (typeof routes)[number],
+    ]);
+    await expect(fetchOpenMeteoWeather("Tokyo", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
+      name: "OriginSearchProviderError",
+      code: "no-results",
+    });
+    expect(geocodingNamesOf(calls)).toEqual(["Tokyo"]);
+  });
+
+  it("does not retry suffix candidates when geocoding itself fails", async () => {
+    let geocodingCalls = 0;
+    const fetchImpl: OriginSearchFetch = async (url) => {
+      if (isGeocodingApiUrl(url)) {
+        geocodingCalls += 1;
+        return jsonResponse({ reason: "upstream boom" }, 500);
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    };
+    await expect(fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW })).rejects.toMatchObject({
+      name: "OriginSearchProviderError",
+      code: "http",
+      status: 500,
+    });
+    expect(geocodingCalls).toBe(1);
+  });
 });
 
 describe("searchGdeltHeadlines", () => {
