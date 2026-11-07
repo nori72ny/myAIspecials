@@ -185,6 +185,12 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     'Every axis is a quality score, never a defect count: the absence of a problem is a high score, not a zero.',
     'For textHandling: score 4 when the image contains no text and no text was requested, and score high when every visible character is rendered correctly and legibly. Score low only when text is garbled, unwanted, or incorrect.',
     'For artifactControl: score 4 when no artifacts, distortions, warped geometry, or malformed details are visible anywhere in the image. Score low only for artifacts that are actually visible.',
+    'Before scoring, actively hunt for defects. Do not grade from a general impression: inspect the image region by region and score only what you actually observed.',
+    'Anatomy check: whenever hands or fingers are visible, count them — a natural hand has exactly five fingers — and inspect every joint, knuckle, and nail. Look for fused, missing, extra, duplicated, or unnaturally bent fingers, and for hands that merge into objects or other hands. Check faces the same way: both eyes present and aligned, facial features symmetric and coherent, no duplicated or melted features. Report every anomaly you find in criticalIssues with its location.',
+    'Counting check: whenever the image contains a structure with countable repeated elements — roof tiers, floors, windows, columns, stairs, wheels, people — actually count them and compare against what the request and the real-world object require (for example, a five-story pagoda has exactly five roof tiers). A wrong count is a concrete defect: name it in criticalIssues with the counted and expected numbers.',
+    'Reflection check: whenever a mirror, water surface, glass, or other reflective surface is visible, compare the reflection against its source: left-right reversal must hold, the same person or object must be present and corresponding, with consistent position and scale. Any contradiction is a concrete defect for criticalIssues.',
+    'Text check: read every piece of visible text in the image — signs, labels, book spines, screens, logos. Misspelled, garbled, or meaningless character strings are concrete defects: quote them in criticalIssues and score textHandling accordingly.',
+    'Calibration: a score of 4 on an axis is allowed only when your hunt found nothing wrong on that axis. If you found any concrete defect on an axis, score that axis 3 or lower and list the defect in criticalIssues — never mention a defect in the summary while still scoring its axis 4. Score from observed facts, not from how good the image feels overall.',
     'Independently inspect visible output safety. Set safetyPassed=false if the image visibly contains sexualized minors, explicit sexual content, graphic gore, hateful/extremist propaganda, actionable self-harm depiction, or clearly dangerous instructional imagery. Otherwise set safetyPassed=true.',
     'When safetyPassed=false, safetyIssues must list concise concrete visible safety reasons. When safetyPassed=true, safetyIssues must be an empty array.',
     exactText.length
@@ -193,7 +199,7 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
     'Return ONLY valid compact JSON with exactly these keys:',
     '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"safetyPassed":true,"safetyIssues":[],"criticalIssues":[],"summary":"..."}',
-    'criticalIssues must contain only concrete visible defects that make the image materially unfit for the request.',
+    'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
   ].join('\n');
 }
 
@@ -233,12 +239,17 @@ export async function critiqueCloudflareRasterSemanticV15(
         question: questionFor(input),
         reasoning: false,
         temperature: 0,
-        // 900 (raised from 700): a truncated mid-JSON answer was one source of
+        // 1100 (raised from 900): the defect-hunting instructions ask the
+        // model to enumerate every concrete defect it finds, which needs
+        // more output room; a truncated mid-JSON answer was one source of
         // intermittent RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID in production.
-        // At the published rate (90,909 Neurons per 1M output tokens) 900
-        // output tokens ~= 82 Neurons, still far inside the 256-Neuron
-        // per-call reserve (RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15).
-        max_tokens: 900,
+        // Reserve check against RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15
+        // (256): at the published output rate (90,909 Neurons per 1M output
+        // tokens) 1,100 output tokens ~= 100 Neurons, and production calls
+        // measured 836-887 input tokens (~24 Neurons at the implied input
+        // rate); even a 3,000-token input (~82 Neurons) keeps the worst-case
+        // total near 182 Neurons, inside the reserve.
+        max_tokens: 1100,
         stream: false,
       }),
     },
