@@ -56,9 +56,26 @@ import {
  * and the dispatcher proceeds to the second route regardless of the primary's internal
  * retry state. The Cloudflare route plan is given the Cloudflare client's own maximum
  * request timeout (52s) instead of the plan default, so its inference is no longer
- * clipped at 20s. Composed worst case stays inside the Vercel function limit of 120s:
- * 8s primary budget + up to 30s of plan-proof reads (3 x 10s, unchanged) + 52s
- * inference = 90s.
+ * clipped at 20s.
+ *
+ * Total time budget (2026-11-07 speed audit: general chat median 14.5s, grounded
+ * chat 27.9-106.7s against the 120s Vercel limit). The per-layer caps above composed
+ * additively — 8s primary + up to 30s of plan-proof reads (3 x 10s, unchanged) + 52s
+ * inference = 90s, plus up to ~8s of grounding in the router — so the sum of layer
+ * limits, not any single decision, decided how long a chat request could take. The
+ * dispatcher now owns one authoritative total budget for the whole dispatch,
+ * ORIGIN_CHAT_TOTAL_BUDGET_MS: the primary attempt budget runs inside it, and the
+ * Cloudflare route (plan proof + inference) is raced against the time remaining when
+ * it starts and aborted when the total expires. Worst-case dispatch is therefore the
+ * total budget itself (45s), and even a grounded chat request (grounding ~8s +
+ * dispatch 45s) stays far inside the 120s function limit. Composition at the total:
+ * a fast primary failure (~1s) leaves the proof (~1s typical, 10s worst for a single
+ * read) and inference the remaining ~34-44s, well above observed generation times;
+ * a hanging primary consumes its 8s first, still leaving ~27s+ for the second route.
+ * The one deliberate exception is the streaming variant after the first delivered
+ * byte: abandoning a stream mid-text would corrupt it, so an in-progress stream is
+ * allowed to finish under the primary client's own caps exactly as before; the total
+ * budget governs route selection and everything before delivery.
  *
  * Circuit breaker (best effort, in-process memory only): when the primary fails with
  * PROVIDER_RATE_LIMITED or a timeout (its own, or the dispatcher budget above), the
@@ -82,6 +99,13 @@ export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode>
 
 /** Dispatcher-enforced budget for one primary attempt, including its internal retries. */
 export const ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS = 8_000;
+/**
+ * The one authoritative total budget for a whole failover dispatch: primary attempt,
+ * second-route plan proof, and second-route inference together never wait longer
+ * than this. Enforced by the dispatcher with real elapsed time (the injectable
+ * nowMs clock exists for evidence freshness, not for timers).
+ */
+export const ORIGIN_CHAT_TOTAL_BUDGET_MS = 45_000;
 /** How long the primary is skipped after a rate-limit or timeout failure. */
 export const ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS = 300_000;
 /** Timeout given to the Cloudflare route plan; the Cloudflare client caps inference at its own 52s maximum. */
@@ -99,6 +123,20 @@ export interface OriginProviderFailoverOptions {
   primaryAttemptBudgetMs?: number;
   /** Overrides ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS (tests and tuning). */
   primaryCircuitCooldownMs?: number;
+  /** Overrides ORIGIN_CHAT_TOTAL_BUDGET_MS (tests and tuning). */
+  totalBudgetMs?: number;
+  /**
+   * Internal: the total-budget window opened by the public entry points and shared
+   * with every internal helper, so the primary phase and the second route draw from
+   * the same budget. Callers outside this module must not set it.
+   */
+  totalBudgetWindow?: OriginChatTotalBudgetWindow;
+}
+
+/** A running total-budget window, measured in real elapsed time. */
+export interface OriginChatTotalBudgetWindow {
+  startedAtMs: number;
+  totalBudgetMs: number;
 }
 
 interface OriginPrimaryCircuitState {
@@ -176,6 +214,34 @@ function createAttemptBoundedFetch(
   };
 }
 
+/** Milliseconds left in the dispatch's total budget; Infinity when no window is open. */
+function totalBudgetRemainingMs(options: OriginProviderFailoverOptions): number {
+  const window = options.totalBudgetWindow;
+  if (!window) return Number.POSITIVE_INFINITY;
+  return window.totalBudgetMs - (Date.now() - window.startedAtMs);
+}
+
+/**
+ * The primary attempt's effective budget: its own cap, clamped to what the total
+ * budget still has left, so the primary phase can never overrun the total either.
+ */
+function primaryBudgetMs(options: OriginProviderFailoverOptions): number {
+  const attempt = options.primaryAttemptBudgetMs ?? ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS;
+  return Math.max(1, Math.min(attempt, totalBudgetRemainingMs(options)));
+}
+
+/** Opens the total-budget window for one dispatch, unless a caller already opened one. */
+function withTotalBudgetWindow(options: OriginProviderFailoverOptions): OriginProviderFailoverOptions {
+  if (options.totalBudgetWindow) return options;
+  return {
+    ...options,
+    totalBudgetWindow: {
+      startedAtMs: Date.now(),
+      totalBudgetMs: options.totalBudgetMs ?? ORIGIN_CHAT_TOTAL_BUDGET_MS,
+    },
+  };
+}
+
 type PrimaryAttemptOutcome =
   | { kind: "result"; result: OriginProviderExecutionResult }
   | { kind: "error"; error: unknown }
@@ -209,7 +275,7 @@ async function runPrimaryAttempt(
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
-    timer = setTimeout(() => resolve("budget"), options.primaryAttemptBudgetMs ?? ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS);
+    timer = setTimeout(() => resolve("budget"), primaryBudgetMs(options));
   });
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget") {
@@ -291,6 +357,56 @@ async function runCloudflareRoute(
   );
 }
 
+function totalBudgetTimeoutError(): OriginProviderError {
+  return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, {
+    transportFailure: "timeout",
+  });
+}
+
+/**
+ * Runs the Cloudflare route inside the dispatch's total budget: the route (plan
+ * proof + inference) is raced against the time remaining in the window and its
+ * fetches are aborted when the total expires, so the second route can never wait
+ * past the one authoritative deadline either. Expiry surfaces as a PROVIDER_TIMEOUT
+ * availability error from the second route, which the callers record in the attempt
+ * evidence. The abandoned promise's late settlement is always handled. Without a
+ * window (direct internal use only) the route runs exactly as before.
+ */
+async function runCloudflareRouteBounded(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  if (!options.totalBudgetWindow) return runCloudflareRoute(request, env, fetchImpl, options);
+  const remainingMs = totalBudgetRemainingMs(options);
+  if (remainingMs <= 0) throw totalBudgetTimeoutError();
+  const routeController = new AbortController();
+  const transport = { count: 0 };
+  const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
+  const routePromise = runCloudflareRoute(request, env, boundedFetch, options);
+  routePromise.catch(() => undefined);
+  const settled: Promise<
+    | { kind: "result"; result: OriginProviderExecutionResult }
+    | { kind: "error"; error: unknown }
+  > = routePromise.then(
+    (result) => ({ kind: "result" as const, result }),
+    (error) => ({ kind: "error" as const, error }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<"budget">((resolve) => {
+    timer = setTimeout(() => resolve("budget"), remainingMs);
+  });
+  const winner = await Promise.race([settled, budget]);
+  if (winner === "budget") {
+    routeController.abort();
+    throw totalBudgetTimeoutError();
+  }
+  if (timer) clearTimeout(timer);
+  if (winner.kind === "error") throw winner.error;
+  return winner.result;
+}
+
 function composeFailoverResult(
   cloudflareResult: OriginProviderExecutionResult,
   primaryAttempt: OriginProviderAttemptEvidence,
@@ -320,7 +436,7 @@ async function failOverFromPrimaryError(
 ): Promise<OriginProviderExecutionResult> {
   const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError);
   try {
-    const cloudflareResult = await runCloudflareRoute(request, env, fetchImpl, options);
+    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
     return composeFailoverResult(cloudflareResult, primaryAttempt);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
@@ -370,7 +486,7 @@ async function failOverFromOpenCircuit(
     transportRequestCount: 0,
   };
   try {
-    const cloudflareResult = await runCloudflareRoute(request, env, fetchImpl, options);
+    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
     return composeFailoverResult(cloudflareResult, primaryAttempt);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
@@ -407,21 +523,22 @@ export async function executeOriginProviderWithFailover(
   if (providerRequest.requiredTool || !isOriginCloudflareFailoverEnabled(env)) {
     return primary(providerRequest, env, fetchImpl);
   }
-  const circuit = primaryCircuitOpen(options);
+  const scopedOptions = withTotalBudgetWindow(options);
+  const circuit = primaryCircuitOpen(scopedOptions);
   if (circuit) {
-    return failOverFromOpenCircuit(providerRequest, env, fetchImpl, options, circuit);
+    return failOverFromOpenCircuit(providerRequest, env, fetchImpl, scopedOptions, circuit);
   }
-  const outcome = await runPrimaryAttempt(primary, providerRequest, env, fetchImpl, options);
+  const outcome = await runPrimaryAttempt(primary, providerRequest, env, fetchImpl, scopedOptions);
   if (outcome.kind === "budget-timeout") {
-    openPrimaryCircuit(options, "PROVIDER_TIMEOUT");
-    return failOverFromPrimaryError(providerRequest, primaryBudgetTimeoutError(outcome.transportRequestCount), env, fetchImpl, options);
+    openPrimaryCircuit(scopedOptions, "PROVIDER_TIMEOUT");
+    return failOverFromPrimaryError(providerRequest, primaryBudgetTimeoutError(outcome.transportRequestCount), env, fetchImpl, scopedOptions);
   }
   if (outcome.kind === "error") {
     const error = outcome.error;
     if (error instanceof OriginProviderError && ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
       const openingCode = circuitOpeningCode(error);
-      if (openingCode) openPrimaryCircuit(options, openingCode);
-      return failOverFromPrimaryError(providerRequest, error, env, fetchImpl, options);
+      if (openingCode) openPrimaryCircuit(scopedOptions, openingCode);
+      return failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions);
     }
     throw error;
   }
@@ -454,9 +571,10 @@ export async function executeOriginProviderStreamWithFailover(
   if (providerRequest.requiredTool || !isOriginCloudflareFailoverEnabled(env)) {
     return stream(providerRequest, handlers, env, fetchImpl);
   }
-  const circuit = primaryCircuitOpen(options);
+  const scopedOptions = withTotalBudgetWindow(options);
+  const circuit = primaryCircuitOpen(scopedOptions);
   if (circuit) {
-    const composed = await failOverFromOpenCircuit(providerRequest, env, fetchImpl, options, circuit);
+    const composed = await failOverFromOpenCircuit(providerRequest, env, fetchImpl, scopedOptions, circuit);
     handlers.onDelta(composed.text);
     return composed;
   }
@@ -488,19 +606,19 @@ export async function executeOriginProviderStreamWithFailover(
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
-    timer = setTimeout(() => resolve("budget"), options.primaryAttemptBudgetMs ?? ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS);
+    timer = setTimeout(() => resolve("budget"), primaryBudgetMs(scopedOptions));
   });
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget" && !delivered) {
     abandoned = true;
     attemptController.abort();
-    openPrimaryCircuit(options, "PROVIDER_TIMEOUT");
+    openPrimaryCircuit(scopedOptions, "PROVIDER_TIMEOUT");
     const composed = await failOverFromPrimaryError(
       providerRequest,
       primaryBudgetTimeoutError(transport.count),
       env,
       fetchImpl,
-      options,
+      scopedOptions,
     );
     handlers.onDelta(composed.text);
     return composed;
@@ -511,8 +629,8 @@ export async function executeOriginProviderStreamWithFailover(
     const error = outcome.error;
     if (!delivered && error instanceof OriginProviderError && ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
       const openingCode = circuitOpeningCode(error);
-      if (openingCode) openPrimaryCircuit(options, openingCode);
-      const composed = await failOverFromPrimaryError(providerRequest, error, env, fetchImpl, options);
+      if (openingCode) openPrimaryCircuit(scopedOptions, openingCode);
+      const composed = await failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions);
       handlers.onDelta(composed.text);
       return composed;
     }

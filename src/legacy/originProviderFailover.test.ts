@@ -451,6 +451,96 @@ describe("primary attempt budget", () => {
   });
 });
 
+describe("chat total time budget", () => {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("reaches the second route inside the total budget when the primary fails slowly", async () => {
+    const primaryExecute = vi.fn(async () => { await delay(120); throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async () => { await delay(120); return cloudflareSuccessResult(); });
+    const startedAt = Date.now();
+    const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 2_000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(elapsedMs).toBeLessThan(2_000);
+    expect(result.attempts).toHaveLength(2);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("spends no extra attempt when the primary is healthy", async () => {
+    const primaryExecute = vi.fn(async () => primarySuccessResult());
+    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
+    const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 2_000,
+    });
+    expect(result.text).toBe("第1経路の回答です。");
+    expect(primaryExecute).toHaveBeenCalledTimes(1);
+    expect(cloudflareExecute).not.toHaveBeenCalled();
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts?.[0]?.outcome).toBe("succeeded");
+  });
+
+  it("stops waiting at the total budget when the second route hangs", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const startedAt = Date.now();
+    const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+    }).catch((caught: unknown) => caught);
+    const elapsedMs = Date.now() - startedAt;
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
+    expect(elapsedMs).toBeLessThan(1_500);
+    const attempts = (error as OriginProviderError).diagnostic?.failoverAttempts;
+    expect(attempts).toHaveLength(2);
+    expect(attempts?.[1]).toMatchObject({
+      providerId: "cloudflare-workers-ai-free",
+      outcome: "availability-error",
+      errorCode: "PROVIDER_TIMEOUT",
+    });
+  });
+
+  it("bounds the composed stack: a hanging primary plus a hanging second route still ends at the total budget", async () => {
+    const primaryExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const startedAt = Date.now();
+    const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, primaryAttemptBudgetMs: 100, totalBudgetMs: 400,
+    }).catch((caught: unknown) => caught);
+    const elapsedMs = Date.now() - startedAt;
+    expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
+    expect(elapsedMs).toBeLessThan(1_500);
+    expect(elapsedMs).toBeGreaterThanOrEqual(300);
+  });
+
+  it("aborts the second route's in-flight fetch when the total budget expires", async () => {
+    const signals: AbortSignal[] = [];
+    const hangingFetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      return new Promise<Response>(() => undefined);
+    }) as unknown as typeof fetch;
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async (
+      _injectedRequest: OriginProviderExecutionRequest,
+      _env: NodeJS.ProcessEnv,
+      fetchImpl: typeof fetch,
+    ) => {
+      await fetchImpl("https://api.cloudflare.com/client/v4/accounts/test/ai/run/model", { method: "POST" });
+      return cloudflareSuccessResult();
+    });
+    const startedAt = Date.now();
+    const error = await executeOriginProviderWithFailover(request, enabledEnv, hangingFetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+    }).catch((caught: unknown) => caught);
+    const elapsedMs = Date.now() - startedAt;
+    expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
+    expect(elapsedMs).toBeLessThan(1_500);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+});
+
 describe("primary circuit breaker", () => {
   const COOLDOWN_MS = 300_000;
 
