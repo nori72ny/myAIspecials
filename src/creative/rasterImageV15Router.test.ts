@@ -232,8 +232,8 @@ describe('rasterImageV15Router', () => {
     expect(response.body.candidatePolicy).toMatchObject({
       version: 'raster-candidate-policy-v1',
       recommendedCandidates: 2,
-      activeCandidates: 1,
-      bestOfNEnabled: false,
+      activeCandidates: 2,
+      bestOfNEnabled: true,
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -519,19 +519,21 @@ describe('rasterImageV15Router', () => {
     expect(response.body.usage).toMatchObject({
       allocationNeurons: 10_000,
       usedBeforeNeurons: 100,
-      // Single-candidate policy for this prompt: (126 generation + 256
-      // critic reserve) x (1 candidate + 1 budgeted retry).
-      reservedNeurons: 764,
-      candidatesPlanned: 1,
-      observedDeltaNeurons: 140,
-      usedAfterNeurons: 240,
+      // Two candidates are the standard policy for every prompt:
+      // (126 generation + 256 critic reserve) x (2 candidates + 1
+      // budgeted retry).
+      reservedNeurons: 1146,
+      candidatesPlanned: 2,
+      candidatesGenerated: 2,
+      observedDeltaNeurons: 280,
+      usedAfterNeurons: 380,
       // The usage object is serialized verbatim into the response, so the
       // reconciliation method and the per-request report total reach API
       // clients as delivery evidence.
       reconciliationMethod: 'aggregate-delta',
       reportedNeurons: null,
     });
-    expect(state.imageRuns).toBe(1);
+    expect(state.imageRuns).toBe(2);
   });
 
   it('includes the observed usage snapshot when reconciliation fails', async () => {
@@ -597,16 +599,16 @@ describe('rasterImageV15Router', () => {
     expect(response.body.usage).toMatchObject({
       allocationNeurons: 10_000,
       usedBeforeNeurons: 100,
-      reservedNeurons: 764,
-      candidatesPlanned: 1,
-      candidatesGenerated: 1,
-      observedDeltaNeurons: 5_000,
-      usedAfterNeurons: 5_100,
+      reservedNeurons: 1_146,
+      candidatesPlanned: 2,
+      candidatesGenerated: 2,
+      observedDeltaNeurons: 10_000,
+      usedAfterNeurons: 10_100,
       reconciliationMethod: null,
       reportedNeurons: null,
       reconciliationReason: 'per-request-usage-incomplete',
     });
-    expect(state.imageRuns).toBe(1);
+    expect(state.imageRuns).toBe(2);
   });
 
   it('runs best-of-2 candidate selection for quality-critical purposes within the quota reserve', async () => {

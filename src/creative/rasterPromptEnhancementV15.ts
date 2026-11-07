@@ -15,9 +15,20 @@
  * daily quota (the same pool as chat), so it is deliberately a single short
  * call, and it can be disabled with ORIGIN_RASTER_PROMPT_ENHANCEMENT=false.
  * It never touches the Cloudflare Neuron budget.
+ *
+ * Routing mirrors the chat path (originProviderClient): OpenRouter answers
+ * "no endpoint matches the routing policy" with 403/404, so the zero-cost
+ * provider policy stages are tried in order and only the ZDR filter relaxes
+ * between stages — cost, fallback, and data-collection restrictions never
+ * relax. Any other failure stops immediately. The failure reason names the
+ * actual failure mode so production telemetry stays diagnosable:
+ * PROMPT_ENHANCEMENT_NO_ENDPOINT (every stage 403/404),
+ * PROMPT_ENHANCEMENT_RATE_LIMITED (429), PROMPT_ENHANCEMENT_HTTP_ERROR
+ * (any other non-OK status), PROMPT_ENHANCEMENT_TIMEOUT (local abort), and
+ * PROMPT_ENHANCEMENT_UNAVAILABLE (transport-level failure).
  */
 import { selectCurrentOriginFreeModel } from '../lib/orchestration/OriginFreeModelCatalog.js';
-import { ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY } from '../legacy/zeroCostRoutingPolicy.js';
+import { ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES } from '../legacy/zeroCostRoutingPolicy.js';
 
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const ENHANCEMENT_TIMEOUT_MS = 10_000;
@@ -66,31 +77,50 @@ export async function enhanceRasterPromptV15(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ENHANCEMENT_TIMEOUT_MS);
+  let requests = 0;
   try {
-    const response = await fetchImpl(OPENROUTER_CHAT_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': 'ORIGIN-Personal/1.5',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: SYSTEM_INSTRUCTION },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 300,
-        provider: ORIGIN_ZERO_COST_OPENROUTER_PROVIDER_POLICY,
-      }),
-      signal: controller.signal,
-      redirect: 'error',
-      cache: 'no-store',
-    });
+    // One shared timeout budget covers every stage attempt: enhancement is
+    // an optional pre-step and must stay a short call even when the policy
+    // stages progress.
+    let response: Response | null = null;
+    for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
+      requests += 1;
+      response = await fetchImpl(OPENROUTER_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'ORIGIN-Personal/1.5',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: SYSTEM_INSTRUCTION },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 300,
+          provider: policy,
+        }),
+        signal: controller.signal,
+        redirect: 'error',
+        cache: 'no-store',
+      });
+      // Only "no endpoint matches this policy stage" (403/404) advances to
+      // the next stage, exactly as on the chat path. Rate limits and server
+      // errors are not endpoint-matching problems and stop here.
+      if (!response || ![403, 404].includes(response.status)) break;
+    }
     if (!response || !response.ok) {
-      return { prompt, applied: false, model, reason: 'PROMPT_ENHANCEMENT_UNAVAILABLE', externalNetworkRequests: 1 };
+      const reason = !response
+        ? 'PROMPT_ENHANCEMENT_UNAVAILABLE'
+        : response.status === 429
+          ? 'PROMPT_ENHANCEMENT_RATE_LIMITED'
+          : [403, 404].includes(response.status)
+            ? 'PROMPT_ENHANCEMENT_NO_ENDPOINT'
+            : 'PROMPT_ENHANCEMENT_HTTP_ERROR';
+      return { prompt, applied: false, model, reason, externalNetworkRequests: requests };
     }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     const choices = Array.isArray(body?.choices) ? body.choices : [];
@@ -102,11 +132,19 @@ export async function enhanceRasterPromptV15(
       : null;
     const enhanced = sanitizeEnhanced(message?.content);
     if (!enhanced) {
-      return { prompt, applied: false, model, reason: 'PROMPT_ENHANCEMENT_INVALID_OUTPUT', externalNetworkRequests: 1 };
+      return { prompt, applied: false, model, reason: 'PROMPT_ENHANCEMENT_INVALID_OUTPUT', externalNetworkRequests: requests };
     }
-    return { prompt: enhanced, applied: true, model, reason: null, externalNetworkRequests: 1 };
-  } catch {
-    return { prompt, applied: false, model, reason: 'PROMPT_ENHANCEMENT_UNAVAILABLE', externalNetworkRequests: 1 };
+    return { prompt: enhanced, applied: true, model, reason: null, externalNetworkRequests: requests };
+  } catch (error) {
+    const timedOut = controller.signal.aborted
+      || (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError');
+    return {
+      prompt,
+      applied: false,
+      model,
+      reason: timedOut ? 'PROMPT_ENHANCEMENT_TIMEOUT' : 'PROMPT_ENHANCEMENT_UNAVAILABLE',
+      externalNetworkRequests: requests,
+    };
   } finally {
     clearTimeout(timer);
   }
