@@ -36,7 +36,10 @@ export function createOriginApp(
   if (env.NODE_ENV === "production") app.set("trust proxy", 1);
   app.use(applyOriginSecurityHeaders(env));
   app.use("/api/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
-  app.use("/api/research/v1.1", createOriginChatRateLimiter());
+  // The research route consumes the same external search quota as chat, so it
+  // gets the same Origin gate as every other provider-consuming route
+  // (security audit 2026-11-08: it was the only one without it).
+  app.use("/api/research/v1.1", requireSafeOriginChatRequest(env), createOriginChatRateLimiter());
   app.use("/api/artifacts/v1.2", createOriginChatRateLimiter());
   app.use("/api/builder", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
   app.use("/api/coding/v1.4", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST", "DELETE"]));
