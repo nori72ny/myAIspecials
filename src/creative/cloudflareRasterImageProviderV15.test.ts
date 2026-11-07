@@ -371,6 +371,49 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(String(form.get('width'))).toBe('768');
     expect(String(form.get('height'))).toBe('1024');
     expect(new Headers(init.headers).get('content-type')).toBeNull();
+    // The plain base64-string result carries no usage report.
+    expect(result.reportedNeurons).toBeNull();
+  });
+
+  it('surfaces the Neurons the run response reports for the generation call', async () => {
+    const bytes = png(768, 1024);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(json({ image: bytes.toString('base64'), usage: { neurons: 110.5 } }));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'usage reporting check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(110.5);
+  });
+
+  it('reads a top-level usage block when the result itself is a base64 string', async () => {
+    const bytes = png(768, 1024);
+    const runResponse = new Response(JSON.stringify({
+      success: true,
+      result: bytes.toString('base64'),
+      usage: { neurons: 99 },
+      errors: [],
+      messages: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runResponse);
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'top-level usage check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(99);
   });
 
   it('rejects oversized Cloudflare JSON image responses before buffering the body', async () => {

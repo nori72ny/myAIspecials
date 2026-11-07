@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertCloudflareRasterPricingEvidenceCurrentV15,
+  decideCloudflareUsageReconciliationV15,
   estimateCloudflareRasterGenerationNeuronsV15,
   fetchCloudflareDailyNeuronsUsedV15,
   reconcileCloudflareRasterUsageV15,
+  type CloudflareUsageReconciliationV15,
 } from './cloudflareRasterFreeQuotaV15';
 
 const AUTH = { accountId: '0123456789abcdef0123456789abcdef', apiToken: `test-${'x'.repeat(40)}` };
@@ -181,5 +183,70 @@ describe('cloudflareRasterFreeQuotaV15 reconciliation', () => {
     const fetchMock = vi.fn(async () => { throw new Error('offline'); }) as unknown as typeof fetch;
     await expect(reconcileCloudflareRasterUsageV15(AUTH, 100, 382, fetchMock, { attempts: 2, delayMs: 0 }))
       .resolves.toMatchObject({ reconciled: false, observedDeltaNeurons: null, requests: 2 });
+  });
+});
+
+describe('cloudflareRasterFreeQuotaV15 reconciliation decision', () => {
+  const RESERVE = 576;
+  const reconciled = (delta: number): CloudflareUsageReconciliationV15 => ({
+    reconciled: true, observedDeltaNeurons: delta, finalUsedNeurons: 100 + delta, requests: 1,
+  });
+  const unreconciled = (delta: number | null): CloudflareUsageReconciliationV15 => ({
+    reconciled: false,
+    observedDeltaNeurons: delta,
+    finalUsedNeurons: delta === null ? null : 100 + delta,
+    requests: 2,
+  });
+
+  it('delivers on the aggregate path when the measured delta reconciled', () => {
+    expect(decideCloudflareUsageReconciliationV15(reconciled(140), RESERVE, [140, 35]))
+      .toMatchObject({ deliver: true, method: 'aggregate-delta', totalReportedNeurons: 175, reason: 'aggregate-reconciled' });
+  });
+
+  it('keeps the aggregate decision even when per-request reports are absent', () => {
+    expect(decideCloudflareUsageReconciliationV15(reconciled(140), RESERVE, [null, null]))
+      .toMatchObject({ deliver: true, method: 'aggregate-delta', totalReportedNeurons: null });
+  });
+
+  it('falls back to per-request reports when the aggregate delta has not appeared yet', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(0), RESERVE, [126.5, 34.34]))
+      .toMatchObject({ deliver: true, method: 'per-request-reported', totalReportedNeurons: 160.84, reason: 'per-request-reported-within-reserve' });
+  });
+
+  it('never falls back when the aggregate delta exceeds the reserve', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(5_000), RESERVE, [140, 35]))
+      .toMatchObject({ deliver: false, method: null, reason: 'aggregate-over-reserve' });
+  });
+
+  it('never falls back when the aggregate moved backwards', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(-100), RESERVE, [140, 35]))
+      .toMatchObject({ deliver: false, method: null, reason: 'aggregate-moved-backwards' });
+  });
+
+  it('never falls back when no aggregate read succeeded', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(null), RESERVE, [140, 35]))
+      .toMatchObject({ deliver: false, method: null, reason: 'aggregate-unobserved' });
+  });
+
+  it('fails closed when any call of the request did not report usage', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(0), RESERVE, [140, null]))
+      .toMatchObject({ deliver: false, method: null, totalReportedNeurons: null, reason: 'per-request-usage-incomplete' });
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(0), RESERVE, []))
+      .toMatchObject({ deliver: false, method: null, reason: 'per-request-usage-incomplete' });
+  });
+
+  it('fails closed when the reported total exceeds the reserve', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(0), RESERVE, [400, 300]))
+      .toMatchObject({ deliver: false, method: null, totalReportedNeurons: 700, reason: 'per-request-usage-over-reserve' });
+  });
+
+  it('fails closed when the reported total is implausibly zero', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(0), RESERVE, [0, 0]))
+      .toMatchObject({ deliver: false, method: null, reason: 'per-request-usage-implausible' });
+  });
+
+  it('fails closed on a positive unreconciled delta instead of guessing attribution', () => {
+    expect(decideCloudflareUsageReconciliationV15(unreconciled(50), RESERVE, [140, 35]))
+      .toMatchObject({ deliver: false, method: null, reason: 'aggregate-inconsistent' });
   });
 });

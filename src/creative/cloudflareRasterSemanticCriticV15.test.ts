@@ -112,6 +112,10 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       externalNetworkRequests: 4,
       safetyPassed: true,
       safetyIssues: [],
+      // The live-verified envelope carries result.usage.neurons (34.34 in the
+      // runEnvelope fixture); the critic surfaces it verbatim for the
+      // caller's post-generation reconciliation.
+      reportedNeurons: 34.34,
     });
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -132,6 +136,23 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     // so the question must state explicitly that absence scores high.
     expect(body.question).toContain('For textHandling: score 4 when the image contains no text and no text was requested');
     expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
+  });
+
+  it('reports null Neurons when the run response carries no usage block', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.reportedNeurons).toBeNull();
   });
 
   it('does not invoke the critic when its exact model schema is unavailable', async () => {
