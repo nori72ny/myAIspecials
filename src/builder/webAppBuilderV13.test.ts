@@ -99,4 +99,47 @@ describe('V1.3 web application builder', () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body.code).toBe('INVALID_WEB_BUILDER_SPEC');
   });
+
+  it('downloads a verified project for a Japanese project name with an RFC 5987 disposition', async () => {
+    const spec = { kind: 'landing', name: '私のプロジェクト', description: '日本語のプロジェクト名でもダウンロードできることを確認します。' };
+    const expectedFilename = generateWebProjectV13(spec).filename;
+    expect(expectedFilename).toContain('私のプロジェクト');
+
+    const generated = await request(app())
+      .post('/api/builder/v1.3/generate')
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      })
+      .send(spec);
+    expect(generated.status).toBe(200);
+    expect(generated.headers['content-type']).toContain('application/zip');
+    expect((generated.body as Buffer).readUInt32LE(0)).toBe(0x04034b50);
+    expect(generated.headers['x-origin-project-verified']).toBe('true');
+
+    const disposition = generated.headers['content-disposition'];
+    // The raw header value must stay header-safe ASCII (Node rejects non-ASCII),
+    // the ASCII fallback keeps [a-zA-Z0-9._-] only, and filename* preserves the name.
+    expect(/^[\x20-\x7E]*$/.test(disposition)).toBe(true);
+    const fallback = disposition.split(';')[1]?.match(/filename="([^"]*)"/)?.[1] ?? '';
+    expect(fallback).toMatch(/^[a-zA-Z0-9._-]+$/);
+    expect(fallback).toContain('-origin-v1.3.zip');
+    const encoded = disposition.split("filename*=UTF-8''")[1];
+    expect(encoded).toBeDefined();
+    expect(decodeURIComponent(encoded)).toBe(expectedFilename);
+  });
+
+  it('keeps the original filename in the disposition for an English project name', async () => {
+    const spec = { kind: 'webapp', name: 'Public Demo', description: 'Harmless public content.' };
+    const expectedFilename = generateWebProjectV13(spec).filename;
+    const generated = await request(app()).post('/api/builder/v1.3/generate').send(spec);
+    expect(generated.status).toBe(200);
+    const disposition = generated.headers['content-disposition'];
+    expect(disposition).toContain(`filename="${expectedFilename}"`);
+    const encoded = disposition.split("filename*=UTF-8''")[1];
+    expect(encoded).toBeDefined();
+    expect(decodeURIComponent(encoded)).toBe(expectedFilename);
+  });
 });
