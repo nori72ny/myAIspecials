@@ -11,6 +11,7 @@ import {
   saveCreativeHistoryV15,
   type CreativeHistoryEntryV15,
 } from '../creative/localVisualHistoryV15';
+import KenBurnsVideoDialog from '../creative/KenBurnsVideoDialog';
 
 type VisualKind = 'social-card' | 'poster' | 'info-card';
 type VisualPreset = VisualRasterPresetV15;
@@ -162,6 +163,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
   const [historyNotice, setHistoryNotice] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
   const [pngUrl, setPngUrl] = useState('');
+  const [motionOpen, setMotionOpen] = useState(false);
   const [artifact, setArtifact] = useState<VerifiedCreativeArtifact | null>(null);
   const [historyStatus, setHistoryStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [history, setHistory] = useState<CreativeHistoryEntryV15[]>([]);
@@ -477,6 +479,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
                   {pngBusy ? 'PNG変換中…' : pngUrl ? 'PNGを再作成' : 'PNGを作成'}
                 </button>
                 {pngUrl && <a href={pngUrl} download={pngDownloadName} className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">PNG保存</a>}
+                <button type="button" onClick={() => setMotionOpen(true)} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">▶ 動画化</button>
               </div>
             )}
           </div>
@@ -528,6 +531,14 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
           </div>
         )}
       </section>}
+      {motionOpen && artifact && previewUrl && (
+        <KenBurnsVideoDialog
+          imageUrl={pngUrl || previewUrl}
+          downloadName={pngUrl ? pngDownloadName : artifact.downloadName}
+          language="ja"
+          onClose={() => setMotionOpen(false)}
+        />
+      )}
     </main>
   );
 }
