@@ -201,7 +201,18 @@ export async function critiqueCloudflareRasterSemanticV15(
   if (!body || body.success !== true || !body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
     throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   }
-  const answer = (body.result as Record<string, unknown>).answer;
+  // Live-verified shape (2026-11-07, production probe): this vision model's
+  // run response nests the model's own output object one level deeper, i.e.
+  // { result: { result: { answer, caption, finish_reason, ... }, usage } }.
+  // The flat { result: { answer } } shape is accepted only as a fallback;
+  // either way the extracted string still faces the full strict validation
+  // in parseSemanticPayload, and anything else fails closed.
+  const resultObject = body.result as Record<string, unknown>;
+  const nested = resultObject.result;
+  const nestedAnswer = nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>).answer
+    : undefined;
+  const answer = typeof nestedAnswer === 'string' ? nestedAnswer : resultObject.answer;
   if (typeof answer !== 'string') throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
 
   const parsed = parseSemanticPayload(answer.trim());

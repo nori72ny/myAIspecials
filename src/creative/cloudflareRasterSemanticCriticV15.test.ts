@@ -43,6 +43,24 @@ function png() {
   return bytes;
 }
 
+// Live-verified run-response shape (production probe, 2026-11-07): the vision
+// model's own output object is nested one level deeper, alongside a usage
+// block — { result: { result: { answer, caption, ... }, usage } }.
+function runEnvelope(answer: string) {
+  return envelope({
+    result: {
+      answer,
+      caption: null,
+      finish_reason: 'stop',
+      metrics: { decode_time_ms: 1422.28, input_tokens: 836, output_tokens: 127, prefill_time_ms: 69.71, ttft_ms: 105.32 },
+      objects: null,
+      points: null,
+      reasoning: null,
+    },
+    usage: { prompt_tokens: 836, completion_tokens: 127, total_tokens: 963, neurons: 34.34 },
+  });
+}
+
 function semanticAnswer(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     promptAdherence: 3.8,
@@ -74,7 +92,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
@@ -131,13 +149,11 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(envelope({
-        answer: semanticAnswer({
-          subjectIntegrity: 2.2,
-          professionalUsefulness: 2.5,
-          criticalIssues: ['watch-face geometry is visibly distorted'],
-        }),
-      }));
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        subjectIntegrity: 2.2,
+        professionalUsefulness: 2.5,
+        criticalIssues: ['watch-face geometry is visibly distorted'],
+      })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '腕時計の商品広告',
@@ -158,12 +174,10 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(envelope({
-        answer: semanticAnswer({
-          safetyPassed: false,
-          safetyIssues: ['graphic gore is visibly present'],
-        }),
-      }));
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        safetyPassed: false,
+        safetyIssues: ['graphic gore is visibly present'],
+      })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '安全な架空の商品広告',
@@ -182,12 +196,10 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(envelope({
-        answer: semanticAnswer({
-          safetyPassed: true,
-          safetyIssues: ['unsafe visible content'],
-        }),
-      }));
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        safetyPassed: true,
+        safetyIssues: ['unsafe visible content'],
+      })));
 
     await expect(critiqueCloudflareRasterSemanticV15({
       originalRequest: '安全な架空の商品広告',
@@ -201,7 +213,76 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(envelope({ answer: 'Looks good to me.' }));
+      .mockResolvedValueOnce(runEnvelope('Looks good to me.'));
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  });
+
+  it('parses the live double-nested run response whose answer is pretty-printed JSON', async () => {
+    // Mirrors the production probe of 2026-11-07: the answer string carries
+    // newline/indentation-formatted JSON, not compact JSON.
+    const prettyAnswer = JSON.stringify(JSON.parse(semanticAnswer()), null, 2);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(prettyAnswer));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.scores.promptAdherence).toBe(3.8);
+    expect(result.summary).toBe('The requested subject is coherent and professionally composed.');
+  });
+
+  it('still accepts the flat result.answer shape as a fallback', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ answer: semanticAnswer() }));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.model).toBe(CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15);
+  });
+
+  it.each([
+    ['a missing axis', { composition: undefined }],
+    ['an out-of-range axis score', { promptAdherence: 4.5 }],
+  ])('rejects a nested answer with %s instead of guessing', async (_label, overrides) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer(overrides)));
+
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  });
+
+  it('fails closed when neither the nested nor the flat answer is a string', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ result: { caption: null, finish_reason: 'stop' }, usage: {} }));
 
     await expect(critiqueCloudflareRasterSemanticV15({
       originalRequest: '静かな湖の写真',
