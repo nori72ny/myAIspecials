@@ -59,8 +59,8 @@ export type CloudflareRasterPricedModelV15 = (typeof CLOUDFLARE_RASTER_PRICED_MO
 
 /**
  * Conservative Neuron reserve for one Moondream 3.1 semantic-critic call.
- * The critic caps output at 700 tokens (published rate 90,909 Neurons per 1M
- * output tokens ~= 64 Neurons) and its image+question input is bounded by the
+ * The critic caps output at 900 tokens (published rate 90,909 Neurons per 1M
+ * output tokens ~= 82 Neurons) and its image+question input is bounded by the
  * critic module's own size limits; 256 Neurons is a deliberate over-reserve.
  * The post-generation reconciliation enforces the *combined* reserved bound
  * against the measured delta, so an under-reserve is caught, never billed.

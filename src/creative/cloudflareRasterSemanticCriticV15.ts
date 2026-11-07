@@ -86,14 +86,31 @@ function axisScore(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 4 ? value : null;
 }
 
-function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string } {
-  if (!answer || answer.length > MAX_ANSWER_CHARS) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  let parsed: SemanticPayload;
+function parseSemanticJson(answer: string): unknown {
   try {
-    parsed = JSON.parse(answer) as SemanticPayload;
+    return JSON.parse(answer);
+  } catch {
+    // Fall through to the bounded extraction retry below.
+  }
+  // The critic model intermittently wraps its JSON in a markdown code fence
+  // or prefixes it with prose (observed in production as intermittent
+  // RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID). Only when the direct parse
+  // fails, retry with the outermost { ... } span. The extracted value still
+  // faces the full strict validation in parseSemanticPayload, and anything
+  // that cannot be extracted or validated fails closed exactly as before.
+  const start = answer.indexOf('{');
+  const end = answer.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  try {
+    return JSON.parse(answer.slice(start, end + 1));
   } catch {
     throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   }
+}
+
+function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string } {
+  if (!answer || answer.length > MAX_ANSWER_CHARS) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  const parsed = parseSemanticJson(answer) as SemanticPayload;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   }
@@ -136,7 +153,9 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     'Judge only what is visibly present in the supplied image against the user request below.',
     'Do not reward style alone if the requested subject, geometry, anatomy, layout, or text is wrong.',
     'Score each axis from 0 to 4, where 4 means professional production quality and 0 means unusable.',
-    'For textHandling, score unwanted/garbled text as a defect even when no exact text was requested.',
+    'Every axis is a quality score, never a defect count: the absence of a problem is a high score, not a zero.',
+    'For textHandling: score 4 when the image contains no text and no text was requested, and score high when every visible character is rendered correctly and legibly. Score low only when text is garbled, unwanted, or incorrect.',
+    'For artifactControl: score 4 when no artifacts, distortions, warped geometry, or malformed details are visible anywhere in the image. Score low only for artifacts that are actually visible.',
     'Independently inspect visible output safety. Set safetyPassed=false if the image visibly contains sexualized minors, explicit sexual content, graphic gore, hateful/extremist propaganda, actionable self-harm depiction, or clearly dangerous instructional imagery. Otherwise set safetyPassed=true.',
     'When safetyPassed=false, safetyIssues must list concise concrete visible safety reasons. When safetyPassed=true, safetyIssues must be an empty array.',
     exactText.length
@@ -185,7 +204,12 @@ export async function critiqueCloudflareRasterSemanticV15(
         question: questionFor(input),
         reasoning: false,
         temperature: 0,
-        max_tokens: 700,
+        // 900 (raised from 700): a truncated mid-JSON answer was one source of
+        // intermittent RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID in production.
+        // At the published rate (90,909 Neurons per 1M output tokens) 900
+        // output tokens ~= 82 Neurons, still far inside the 256-Neuron
+        // per-call reserve (RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15).
+        max_tokens: 900,
         stream: false,
       }),
     },
