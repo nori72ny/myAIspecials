@@ -1554,3 +1554,167 @@ describe('code examples remain in conversation context', () => {
     expect(namedCode.activeArtifact?.title).toBe('artifact-utils.ts');
   });
 });
+
+describe('chat send queue while a response is generating', () => {
+  afterEach(cleanup);
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const model = 'google/gemma-4-31b-it:free';
+  const jsonChatResponse = (content: string) => new Response(JSON.stringify({
+    content,
+    routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const createDeferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  };
+  const chatCalls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/chat');
+  const lastUserText = (call: unknown[]) => {
+    const body = JSON.parse((call[1] as RequestInit)?.body as string) as { messages: { role: string; content: string }[] };
+    return body.messages.at(-1)?.content ?? '';
+  };
+  const echoChat = (firstResponse: () => Promise<Response>) => {
+    let chatCount = 0;
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestPath(input) !== '/api/chat') return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      chatCount += 1;
+      if (chatCount === 1) return firstResponse();
+      const body = JSON.parse((init?.body as string) ?? '{}') as { messages: { content: string }[] };
+      return jsonChatResponse(`回答：${body.messages.at(-1)?.content ?? ''}`);
+    });
+  };
+
+  it('queues requests sent during generation and drains them in FIFO order after completion', async () => {
+    const gate = createDeferred<Response>();
+    const fetchMock = echoChat(() => gate.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最初の質問' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(1));
+
+    const composer = screen.getByTestId('origin-chat-request') as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(false);
+    fireEvent.change(composer, { target: { value: '二番目の依頼' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+    expect(within(screen.getByTestId('origin-send-queue')).getByText('二番目の依頼')).toBeTruthy();
+    expect(screen.getByText('受け付けました。送信待ちは1件です。現在の回答の完了後に送信します。')).toBeTruthy();
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+
+    fireEvent.change(composer, { target: { value: '三番目の依頼' } });
+    fireEvent.click(screen.getByTestId('queue-send-button'));
+    await waitFor(() => expect(screen.getAllByTestId('origin-send-queue-chip')).toHaveLength(2));
+    expect(screen.getByText('受け付けました。送信待ちは2件です。現在の回答の完了後に送信します。')).toBeTruthy();
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+
+    gate.resolve(jsonChatResponse('最初の回答'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(3), { timeout: 3000 });
+    expect(chatCalls(fetchMock).map((call) => lastUserText(call))).toEqual(['最初の質問', '二番目の依頼', '三番目の依頼']);
+    await waitFor(() => expect(screen.getByText('回答：三番目の依頼')).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByTestId('origin-send-queue')).toBeNull();
+  });
+
+  it('removes a queued request from its chip so it is never sent', async () => {
+    const gate = createDeferred<Response>();
+    const fetchMock = echoChat(() => gate.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最初の質問' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(1));
+
+    const composer = screen.getByTestId('origin-chat-request');
+    fireEvent.change(composer, { target: { value: '残す依頼' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    fireEvent.change(composer, { target: { value: '消す依頼' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(screen.getAllByTestId('origin-send-queue-chip')).toHaveLength(2));
+    const removedChip = screen.getAllByTestId('origin-send-queue-chip').find((chip) => chip.textContent?.includes('消す依頼'));
+    fireEvent.click(within(removedChip as HTMLElement).getByTestId('origin-send-queue-remove'));
+    await waitFor(() => expect(screen.getAllByTestId('origin-send-queue-chip')).toHaveLength(1));
+    expect(screen.queryByText('消す依頼')).toBeNull();
+
+    gate.resolve(jsonChatResponse('最初の回答'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(2), { timeout: 3000 });
+    expect(chatCalls(fetchMock).map((call) => lastUserText(call))).toEqual(['最初の質問', '残す依頼']);
+    await waitFor(() => expect(screen.getByText('回答：残す依頼')).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByText('消す依頼')).toBeNull();
+  });
+
+  it('does not auto-send after a manual stop, but keeps the chip for manual send', async () => {
+    let chatCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestPath(input) !== '/api/chat') return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      chatCount += 1;
+      if (chatCount === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) { reject(new DOMException('The operation was aborted.', 'AbortError')); return; }
+          signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+        });
+      }
+      const body = JSON.parse((init?.body as string) ?? '{}') as { messages: { content: string }[] };
+      return jsonChatResponse(`回答：${body.messages.at(-1)?.content ?? ''}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '止める質問' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(1));
+
+    const composer = screen.getByTestId('origin-chat-request');
+    fireEvent.change(composer, { target: { value: '保留中の依頼' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: '生成を停止' }));
+    await waitFor(() => expect(screen.getByTestId('send-request-button')).toBeTruthy());
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+    expect(within(screen.getByTestId('origin-send-queue')).getByText('保留中の依頼')).toBeTruthy();
+
+    fireEvent.click(within(screen.getByTestId('origin-send-queue-chip')).getByTestId('origin-send-queue-send-now'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(2), { timeout: 3000 });
+    expect(lastUserText(chatCalls(fetchMock)[1])).toBe('保留中の依頼');
+    await waitFor(() => expect(screen.getByText('回答：保留中の依頼')).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByTestId('origin-send-queue')).toBeNull();
+  });
+
+  it('keeps normal sending unchanged when nothing is generating', async () => {
+    const fetchMock = echoChat(async () => jsonChatResponse('即時回答'));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通常の質問' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('即時回答')).toBeTruthy(), { timeout: 5000 });
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+    expect(screen.queryByTestId('origin-send-queue')).toBeNull();
+    expect((screen.getByTestId('origin-chat-request') as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
+  it('carries the attachment snapshot taken at enqueue time', async () => {
+    const gate = createDeferred<Response>();
+    const fetchMock = echoChat(() => gate.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最初の質問' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(1));
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['週次レポートの下書きメモ'], 'memo.txt', { type: 'text/plain' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByText('添付: memo.txt')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('queue-send-button'));
+    await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+    expect(within(screen.getByTestId('origin-send-queue-chip')).getByText('memo.txt')).toBeTruthy();
+    expect(chatCalls(fetchMock)).toHaveLength(1);
+
+    gate.resolve(jsonChatResponse('最初の回答'));
+    await waitFor(() => expect(chatCalls(fetchMock)).toHaveLength(2), { timeout: 3000 });
+    expect(lastUserText(chatCalls(fetchMock)[1])).toContain('memo.txt');
+    expect(lastUserText(chatCalls(fetchMock)[1])).toContain('週次レポートの下書きメモ');
+  });
+});

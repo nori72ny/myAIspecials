@@ -51,6 +51,11 @@ type Translation = {
   sendRequest: string;
   stop: string;
   stopGeneration: string;
+  queueLabel: string;
+  queueSend: string;
+  queueAcceptedNotice: string;
+  queueSendNow: string;
+  queueRemove: string;
   attach: string;
   attachFile: string;
   attachedFiles: string;
@@ -161,6 +166,11 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     sendRequest: '依頼を送信',
     stop: '停止',
     stopGeneration: '生成を停止',
+    queueLabel: '送信待ち',
+    queueSend: '送信待ちに入れる',
+    queueAcceptedNotice: '受け付けました。送信待ちは{count}件です。現在の回答の完了後に送信します。',
+    queueSendNow: '今すぐ送信',
+    queueRemove: '送信待ちから削除',
     attach: '添付',
     attachFile: 'ファイルを添付',
     attachedFiles: '添付ファイル',
@@ -274,6 +284,11 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     sendRequest: 'Send request',
     stop: 'Stop',
     stopGeneration: 'Stop generating',
+    queueLabel: 'Queued',
+    queueSend: 'Queue this request',
+    queueAcceptedNotice: 'Queued. {count} request(s) waiting. It will be sent when the current response finishes.',
+    queueSendNow: 'Send now',
+    queueRemove: 'Remove from queue',
     attach: 'Attach',
     attachFile: 'Attach a file',
     attachedFiles: 'Attached files',
