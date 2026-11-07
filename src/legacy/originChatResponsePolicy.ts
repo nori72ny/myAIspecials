@@ -11,6 +11,7 @@ import {
   type OriginResolvedWorkPlan,
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
+import { classifyOriginSearchQuestion } from "../search/originSearchClassifier.js";
 
 export function requiresOriginFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
@@ -128,6 +129,36 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isDeterministicQuantitativeRequest(message)
     || isProvidedPriceDecisionRequest(message)
   ) return false;
+
+  // Search-grounding classification (SEARCH_GROUNDING_DESIGN_2026-11-07
+  // §2.2 step 1): the dedicated classifier assigns concrete signal types
+  // to time-dependent public facts — policy statistics and rates, match
+  // results, product prices and release dates. Those must reach grounded
+  // research even when the phrasing lacks the 最新/今日/現在 prefixes the
+  // patterns below historically required: 「現在の最低賃金…」 names no
+  // target noun from the list below (賃金 is neither 料金 nor 価格), and
+  // 「直近…」 phrasings were not recognized at all. In the 2026-11-07
+  // production benchmark (Q4/Q8/Q10/Q13) this gate returned false while
+  // the classifier already had the right type, so the chat answered
+  // stale memorized values with no sources. The classifier's own guards
+  // (transform-only, deterministic calculation, concept questions) run
+  // before its signal types, and this policy's exemptions above still
+  // take precedence.
+  const searchClassification = classifyOriginSearchQuestion(message);
+  if (
+    searchClassification.type === "news"
+    || searchClassification.type === "market"
+    || searchClassification.type === "price_spec"
+    || searchClassification.type === "policy"
+  ) return true;
+  // fresh_general is the classifier's ambiguity fallback — it also fires
+  // for advice such as 「今年の目標の立て方」 — so only an explicit
+  // recency marker tied to a published fact promotes it here.
+  if (
+    searchClassification.type === "fresh_general"
+    && /(?:直近)/.test(message)
+    && /(?:公表|発表|結果|指数|統計|数値|データ|実績|記録|動向)/.test(message)
+  ) return true;
 
   return requiresOriginFutureReleaseInformation(message)
     || hasRealtimeExternalDataIntent(message)
