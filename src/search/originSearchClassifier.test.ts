@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyOriginSearchQuestion,
+  extractOriginMarketInstruments,
   extractOriginWeatherPlace,
   minimizeOriginSearchQuery,
   ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS,
@@ -158,5 +159,39 @@ describe("extractOriginWeatherPlace", () => {
 
   it("returns null when no place can be determined", () => {
     expect(extractOriginWeatherPlace("今日はとても良い天気なので、近くの公園へ散歩に行きたいと思います")).toBeNull();
+  });
+});
+
+describe("extractOriginMarketInstruments", () => {
+  it("extracts USD/JPY and the Nikkei for the benchmark market question, in mention order", () => {
+    const result = classifyOriginSearchQuestion("現在のドル円レートと、日経平均株価の直近の終値を教えてください");
+    expect(result.type).toBe("market");
+    expect(result.instruments?.map((instrument) => instrument.symbol)).toEqual(["usdjpy", "^NKX"]);
+    expect(extractOriginMarketInstruments("現在のドル円レートと、日経平均株価の直近の終値を教えてください")
+      .map((instrument) => instrument.symbol)).toEqual(["usdjpy", "^NKX"]);
+  });
+
+  it("maps well-known Japanese and US company names to provider symbols", () => {
+    expect(extractOriginMarketInstruments("トヨタの株価を教えて").map((i) => i.symbol)).toEqual(["7203.jp"]);
+    expect(extractOriginMarketInstruments("アップルとテスラの株価は？").map((i) => i.symbol)).toEqual(["aapl.us", "tsla.us"]);
+  });
+
+  it("accepts a bounded 4-digit Japanese listing code in a stock context", () => {
+    expect(extractOriginMarketInstruments("7203の株価を教えて").map((i) => i.symbol)).toEqual(["7203.jp"]);
+  });
+
+  it("extracts crypto and commodity instruments", () => {
+    expect(extractOriginMarketInstruments("ビットコインの価格は？").map((i) => i.symbol)).toEqual(["btcusd"]);
+    expect(extractOriginMarketInstruments("金価格と原油価格を教えて").map((i) => i.symbol)).toEqual(["xauusd", "cl.f"]);
+  });
+
+  it("falls back to an explicitly labelled USD/JPY for a pair-less FX question", () => {
+    const instruments = extractOriginMarketInstruments("為替レートはいくらですか");
+    expect(instruments.map((i) => i.symbol)).toEqual(["usdjpy"]);
+    expect(instruments[0]?.labelJa).toContain("ドル円");
+  });
+
+  it("returns no instruments when no market subject is identifiable", () => {
+    expect(extractOriginMarketInstruments("今日の株価はどうですか")).toEqual([]);
   });
 });

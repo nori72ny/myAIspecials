@@ -13,6 +13,7 @@ import {
   createDefaultOriginResearchExecutor,
   evaluateOriginSourceFreshness,
   executeOriginSearchGrounding,
+  fetchOriginMarketAnswer,
   originSearchGroundingToResearchResult,
   type OriginSearchGroundingDeps,
   type OriginSearchGroundingOutcome,
@@ -379,5 +380,86 @@ describe("prompt-injection separation (§2.3)", () => {
     // An answer that followed the injected instruction (no citations) is rejected.
     const validation = validateGroundedResearchSynthesis("HACKED", adapted.sources);
     expect(validation.ok).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Market route (Stooq keyless first, generic route as fallback)       */
+/* ------------------------------------------------------------------ */
+
+const MARKET_NOW = Date.parse("2026-11-08T03:00:00.000Z");
+const MARKET_QUESTION = "現在のドル円レートと、日経平均株価の直近の終値を教えてください";
+const STOOQ_CSV_BODY = [
+  "Symbol,Date,Time,Open,High,Low,Close,Volume",
+  "USDJPY,2026-11-06,22:59:55,157.80,158.10,157.55,157.94,0",
+  "^NKX,2026-11-06,15:30:00,58077.90,58200.00,57300.00,57434.77,0",
+  "",
+].join("\n");
+
+function marketFetch(stooq: { body: string; status?: number }, tavilyResults: unknown[] = []) {
+  const calls: RecordedCall[] = [];
+  const fetchImpl: OriginSearchFetch = async (url, init) => {
+    calls.push({ url, init });
+    if (url.includes("stooq.com")) {
+      const status = stooq.status ?? 200;
+      return { ok: status >= 200 && status < 300, status, text: async () => stooq.body };
+    }
+    if (url.includes("api.tavily.com/search")) return jsonResponse({ results: tavilyResults });
+    if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
+    throw new Error(`unexpected URL: ${url}`);
+  };
+  return { fetchImpl, calls };
+}
+
+describe("market grounding route", () => {
+  it("grounds a market question from Stooq with values, timestamps and a delay note", async () => {
+    const { fetchImpl, calls } = marketFetch({ body: STOOQ_CSV_BODY });
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      MARKET_QUESTION,
+      makeDeps({ fetchImpl, now: () => MARKET_NOW }),
+    ));
+    expect(outcome.questionType).toBe("market");
+    expect(outcome.providersUsed).toEqual(["stooq"]);
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0]?.excerpt).toContain("157.94");
+    expect(outcome.sources[0]?.excerpt).toContain("57,434.77");
+    expect(outcome.sources[0]?.excerpt).toContain("遅延");
+    expect(outcome.sources[0]?.url).toBe("https://stooq.com/");
+    // Only fixed symbols were sent to the provider — never the raw question.
+    const stooqCall = calls.find((call) => call.url.includes("stooq.com"));
+    expect(stooqCall?.url).toContain("s=usdjpy,%5ENKX");
+    expect(stooqCall?.url).not.toContain(encodeURIComponent("ドル円"));
+    const research = originSearchGroundingToResearchResult(outcome);
+    expect(research.searchProvider).toBe("Stooq");
+  });
+
+  it("falls back to the generic market route when Stooq fails", async () => {
+    const { fetchImpl } = marketFetch({ body: "upstream error", status: 503 }, [{
+      title: "ドル円・日経平均の市況",
+      url: "https://www.nikkei.com/markets/",
+      content: LONG_EXCERPT,
+      score: 0.9,
+      published_date: "2026-11-07T09:00:00.000Z",
+    }]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      MARKET_QUESTION,
+      makeDeps({ fetchImpl, now: () => MARKET_NOW }),
+    ));
+    expect(outcome.providersUsed).toEqual(["tavily"]);
+  });
+
+  it("keeps the honest no-route behaviour when Stooq returns a key-demand page and no other route exists", async () => {
+    const { fetchImpl } = marketFetch({ body: "<html><body>Please provide an API key</body></html>" });
+    const outcome = await executeOriginSearchGrounding(
+      MARKET_QUESTION,
+      makeDeps({ env: {}, fetchImpl, now: () => MARKET_NOW }),
+    );
+    expect(outcome.kind).toBe("not-applicable");
+  });
+
+  it("reports no-instruments when a market question names nothing identifiable", async () => {
+    const { fetchImpl } = marketFetch({ body: STOOQ_CSV_BODY });
+    const result = await fetchOriginMarketAnswer("今日の株価はどうですか", makeDeps({ fetchImpl, now: () => MARKET_NOW }));
+    expect(result).toEqual({ ok: false, reason: "no-instruments" });
   });
 });

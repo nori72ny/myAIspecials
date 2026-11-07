@@ -16,6 +16,7 @@
 import type { OriginResearchResult } from "../legacy/originResearchSource.js";
 import {
   classifyOriginSearchQuestion,
+  extractOriginMarketInstruments,
   extractOriginWeatherPlace,
   ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS,
   type OriginSearchFreshnessRequirement,
@@ -34,13 +35,17 @@ import {
   type OriginSearchUsageCounter,
 } from "./originSearchProviderCatalog.js";
 import {
+  composeOriginMarketText,
   composeOriginWeatherText,
   extractTavilyPages,
   fetchOpenMeteoWeather,
+  fetchStooqMarketQuotes,
   ORIGIN_TIER_WEIGHT,
   searchGdeltHeadlines,
   searchTavilySources,
   searchWikipediaSources,
+  STOOQ_SOURCE_URL,
+  type OriginMarketQuote,
   type OriginSearchFetch,
   type OriginSearchSource,
   type OriginWeatherForecast,
@@ -335,6 +340,38 @@ export async function executeOriginSearchGrounding(
     };
   }
 
+  if (questionType === "market") {
+    // Dedicated keyless route first (Stooq), mirroring the weather branch:
+    // a composed, timestamped quote packet. When Stooq cannot serve (route
+    // disabled, no instrument identified, or the provider failed), the
+    // existing generic market route below runs unchanged — the honest
+    // fail-closed behaviour of the generic path is the fallback, never a
+    // guessed number.
+    const market = await fetchOriginMarketAnswer(message, depsInput);
+    if (market.ok) {
+      const newest = market.quotes.reduce((a, b) => (a.date + a.time >= b.date + b.time ? a : b));
+      return {
+        kind: "grounded",
+        questionType,
+        sources: [{
+          title: "市場データ（Stooq）",
+          url: STOOQ_SOURCE_URL,
+          excerpt: market.text,
+          publishedAt: `${newest.date}T${newest.time}Z`,
+          providerId: "stooq",
+          domain: "stooq.com",
+          authorityTier: "specialist",
+          evidenceLevel: "extracted",
+          dateVerified: true,
+        }],
+        providersUsed: ["stooq"],
+        retrievedAt,
+        freshness: { verifiedFreshCount: 1, unknownDateCount: 0, droppedStaleCount: 0, droppedUndatedCount: 0 },
+        freshnessVerified: true,
+      };
+    }
+  }
+
   if (!query) {
     return { kind: "unavailable", questionType, reason: "no-sources", freshness: emptyStats };
   }
@@ -491,6 +528,50 @@ export async function fetchOriginWeatherAnswer(
 }
 
 /* ------------------------------------------------------------------ */
+/* Market service for the grounding market branch (Stooq, keyless)     */
+/* ------------------------------------------------------------------ */
+
+export type OriginMarketAnswerResult =
+  | { ok: true; quotes: OriginMarketQuote[]; text: string }
+  | { ok: false; reason: "provider-not-enabled" | "no-instruments" | "provider-error" };
+
+export async function fetchOriginMarketAnswer(
+  message: string,
+  depsInput: OriginSearchGroundingDeps = {},
+): Promise<OriginMarketAnswerResult> {
+  const deps = resolveDeps(depsInput);
+  const access = evaluateOriginSearchProviderAccess("stooq", {
+    env: deps.env,
+    nowMs: deps.now(),
+    catalog: deps.catalog,
+    counter: deps.counter,
+    units: 0,
+  });
+  if (!access.enabled) return { ok: false, reason: "provider-not-enabled" };
+  const instruments = extractOriginMarketInstruments(message);
+  if (instruments.length === 0) return { ok: false, reason: "no-instruments" };
+  const requests = instruments.map((instrument) => ({
+    symbol: instrument.symbol,
+    labelJa: instrument.labelJa,
+    unit: instrument.unit,
+  }));
+  const cacheKey = `market:${requests.map((request) => request.symbol).join(",")}`;
+  const retrievedAt = new Date(deps.now()).toISOString();
+  const cached = deps.cache.get<OriginMarketQuote[]>(cacheKey, deps.now());
+  if (cached) return { ok: true, quotes: cached, text: composeOriginMarketText(cached, retrievedAt) };
+  try {
+    const quotes = await fetchStooqMarketQuotes(requests, {
+      fetchImpl: deps.fetchImpl,
+      timeoutMs: deps.searchMs,
+    });
+    deps.cache.set(cacheKey, quotes, ORIGIN_SEARCH_CACHE_TTL_MS.market, deps.now());
+    return { ok: true, quotes, text: composeOriginMarketText(quotes, retrievedAt) };
+  } catch {
+    return { ok: false, reason: "provider-error" };
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Adapter + default research executor composition                     */
 /* ------------------------------------------------------------------ */
 
@@ -499,6 +580,7 @@ const SEARCH_PROVIDER_LABELS: Readonly<Record<OriginSearchProviderId, string>> =
   gdelt: "GDELT",
   wikipedia: "Wikipedia",
   "open-meteo": "Open-Meteo",
+  stooq: "Stooq",
 };
 
 export function originSearchGroundingToResearchResult(
