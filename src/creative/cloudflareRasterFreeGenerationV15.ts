@@ -306,11 +306,22 @@ export async function generateCloudflareRasterImageFreeProofV15(
     }
   };
 
-  // Stage 3+4: generate candidates and apply the delivery gates.
-  const attempts: CandidateAttemptV15[] = [];
-  for (let index = 0; index < candidatesPlanned; index += 1) {
-    attempts.push(await attempt(effectiveInput, index, false));
-  }
+  // Stage 3+4: generate candidates and apply the delivery gates. The
+  // candidates are independent of one another — each attempt runs its own
+  // generation -> structural critic -> semantic critic chain and captures
+  // its own failures into its result object instead of throwing — so they
+  // run concurrently rather than waiting on one another. This changes
+  // only the execution order: the Stage 2 reserve already covers every
+  // planned candidate up front and concurrency adds no inference calls.
+  // Promise.all preserves the planned index order in the results array
+  // regardless of completion order, so winner selection, the retry
+  // reference, and the per-call usage report list built below observe
+  // exactly the same attempts in exactly the same order as the previous
+  // serial loop (the reconciliation decision only tests completeness and
+  // sums the reports, so it is order-independent regardless).
+  const attempts: CandidateAttemptV15[] = await Promise.all(
+    Array.from({ length: candidatesPlanned }, (_, index) => attempt(effectiveInput, index, false)),
+  );
 
   const passing = attempts.filter(candidate => candidate.semantic?.passed);
   let winner: CandidateAttemptV15 | null = passing.length

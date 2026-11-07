@@ -179,7 +179,9 @@ describe("createOriginApp provider isolation", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["x-frame-options"]).toBeUndefined();
     expect(response.headers["referrer-policy"]).toBe("no-referrer");
-    expect(response.headers["strict-transport-security"]).toContain("max-age=31536000");
+    expect(response.headers["strict-transport-security"]).toBe(
+      "max-age=63072000; includeSubDomains; preload",
+    );
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["content-security-policy"]).toContain(
       "frame-ancestors 'none'",
@@ -226,6 +228,32 @@ describe("createOriginApp provider isolation", () => {
 
     expect(response.status).toBe(403);
     expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks cross-origin research queries before any provider execution", async () => {
+    const response = await request(createOriginApp())
+      .post("/api/research/v1.1/query")
+      .set("Origin", "https://attacker.example")
+      .send({ query: "東京の天気を調べてください" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("CROSS_ORIGIN_REQUEST_BLOCKED");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rate limits repeated legacy agent requests before the approval handler", async () => {
+    const app = createOriginApp();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const response = await request(app).post("/api/agent/approval").send({});
+      expect(response.status).toBe(503);
+      expect(response.body.code).toBe("AGENT_APPROVAL_NOT_CONFIGURED");
+    }
+
+    const limited = await request(app).post("/api/agent/approval").send({});
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe("CHAT_RATE_LIMITED");
+    expect(limited.headers["retry-after"]).toBeDefined();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

@@ -566,6 +566,70 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.quality.retryUsed).toBe(false);
   });
 
+  it('runs the planned candidates concurrently and delivers the same winner and reconciliation as serial execution', async () => {
+    const score90 = JSON.stringify({
+      promptAdherence: 3.6, composition: 3.6, subjectIntegrity: 3.6, styleExecution: 3.6,
+      textHandling: 3.6, artifactControl: 3.6, professionalUsefulness: 3.6,
+      safetyPassed: true, safetyIssues: [], criticalIssues: [], summary: '良好です。',
+    });
+    const state = baseState({
+      criticAnswers: [score90, PASSING_CRITIC_ANSWER],
+      generationReportedNeurons: 104.2,
+      criticReportedNeurons: 41.3,
+    });
+    const baseFetch = dispatchFetch(state);
+    // Hold every FLUX run open briefly so concurrent candidate chains
+    // observably overlap; a serial loop could never have two generation
+    // calls in flight at once.
+    let generationsInFlight = 0;
+    let maxGenerationsInFlight = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).includes('/ai/run/@cf/black-forest-labs/flux-2-klein-')) {
+        return baseFetch(url, init);
+      }
+      generationsInFlight += 1;
+      maxGenerationsInFlight = Math.max(maxGenerationsInFlight, generationsInFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return await baseFetch(url, init);
+      } finally {
+        generationsInFlight -= 1;
+      }
+    });
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
+    );
+    // Both candidate generations were in flight at the same time.
+    expect(maxGenerationsInFlight).toBe(2);
+    expect(state.imageRuns).toBe(2);
+    expect(state.criticRuns).toBe(2);
+    // Same outcome the serial loop produced for these candidates: the
+    // higher-scoring second candidate wins, the reserve was computed for
+    // 2 candidates + the retry up front (3 x (32 + 256)), and
+    // reconciliation is carried by the complete per-request reports
+    // (104.2 generation + 41.3 critic, per candidate).
+    expect(delivery.usage).toMatchObject({
+      candidatesPlanned: 2,
+      candidatesGenerated: 2,
+      reservedNeurons: 864,
+      reconciliationMethod: 'per-request-reported',
+      reportedNeurons: 291,
+    });
+    expect(delivery.quality.selectedCandidateIndex).toBe(1);
+    expect(delivery.quality.candidates).toEqual([
+      { index: 0, retried: false, semanticScore: 90, passed: true, selected: false },
+      { index: 1, retried: false, semanticScore: 100, passed: true, selected: true },
+    ]);
+    expect(delivery.quality.retryUsed).toBe(false);
+    // Complete reports skip the aggregate polling window, exactly as in
+    // serial execution: only the quota baseline GraphQL read happened.
+    const graphqlCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes('/graphql'),
+    );
+    expect(graphqlCalls).toHaveLength(1);
+  });
+
   it('retries once with critic findings folded into the prompt when every candidate fails', async () => {
     const state = baseState({ criticAnswers: [FAILING_CRITIC_ANSWER, PASSING_CRITIC_ANSWER] });
     const fetchMock = dispatchFetch(state);

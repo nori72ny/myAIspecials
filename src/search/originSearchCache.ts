@@ -12,6 +12,10 @@ export const ORIGIN_SEARCH_CACHE_TTL_MS = {
   weather: 45 * 60 * 1000,
   news: 15 * 60 * 1000,
   search: 15 * 60 * 1000,
+  // Market quotes are delayed data to begin with; 5 minutes keeps repeated
+  // questions inside the freshness window without hammering a keyless
+  // endpoint that reportedly enforces an unpublished per-IP daily limit.
+  market: 5 * 60 * 1000,
 } as const;
 
 interface CacheEntry<T> {

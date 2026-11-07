@@ -77,7 +77,10 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("X-Content-Type-Options", "nosniff");
     if (isProduction) {
-      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+      // Match the platform-served static value (Vercel default) so API
+      // responses enforce the same two-year, preload-ready policy instead of
+      // a weaker one-year variant (security audit 2026-11-08, P2-3 carry-over).
+      res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
     }
     if (req.path.startsWith("/api/")) {
       res.setHeader("Cache-Control", "no-store");
