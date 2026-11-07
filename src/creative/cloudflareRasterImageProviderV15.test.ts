@@ -10,7 +10,7 @@ const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_API_TOKEN: TEST_TOKEN,
 };
 
-function json(result: unknown, status = 200) {
+function json(result: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify({
     success: status >= 200 && status < 300,
     result,
@@ -21,7 +21,7 @@ function json(result: unknown, status = 200) {
     messages: [],
   }), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extraHeaders },
   });
 }
 
@@ -390,6 +390,87 @@ describe('cloudflareRasterImageProviderV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.reportedNeurons).toBe(110.5);
+  });
+
+  it('reads reported Neurons from the cf-ai-neurons header (the live generation shape carries no body usage)', async () => {
+    const bytes = png(1024, 1024);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      // Live-measured 2026-11-07: the flux-2-klein-4b run response body is
+      // only { result: { image }, success, errors, messages }; the call's
+      // 104.20 Neurons appear solely in the cf-ai-neurons header.
+      .mockResolvedValueOnce(json({ image: bytes.toString('base64') }, 200, { 'cf-ai-neurons': '104.20' }));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'header usage check',
+      width: 1024,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(104.2);
+  });
+
+  it('prefers the cf-ai-neurons header over a usage block in the body', async () => {
+    const bytes = png(768, 1024);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(json(
+        { image: bytes.toString('base64'), usage: { neurons: 110.5 } },
+        200,
+        { 'cf-ai-neurons': '104.20' },
+      ));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'header precedence check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(104.2);
+  });
+
+  it('ignores a malformed cf-ai-neurons header and falls back to the body usage', async () => {
+    const bytes = png(768, 1024);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      .mockResolvedValueOnce(json(
+        { image: bytes.toString('base64'), usage: { neurons: 110.5 } },
+        200,
+        { 'cf-ai-neurons': 'not-a-number' },
+      ));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'malformed header fallback check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(110.5);
+  });
+
+  it('reports null Neurons when the header is non-positive and the body carries no usage', async () => {
+    const bytes = png(768, 1024);
+    for (const headerValue of ['0', '-5']) {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(json([]))
+        .mockResolvedValueOnce(json({ input: {}, output: {} }))
+        .mockResolvedValueOnce(json({ image: bytes.toString('base64') }, 200, { 'cf-ai-neurons': headerValue }));
+
+      const result = await generateCloudflareRasterImageV15({
+        prompt: 'non-positive header check',
+        width: 768,
+        height: 1024,
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.reportedNeurons).toBeNull();
+    }
   });
 
   it('reads a top-level usage block when the result itself is a base64 string', async () => {

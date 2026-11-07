@@ -9,7 +9,7 @@ const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
 };
 
-function envelope(result: unknown, status = 200) {
+function envelope(result: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify({
     success: status >= 200 && status < 300,
     result,
@@ -21,7 +21,7 @@ function envelope(result: unknown, status = 200) {
     messages: [],
   }), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extraHeaders },
   });
 }
 
@@ -46,7 +46,7 @@ function png() {
 // Live-verified run-response shape (production probe, 2026-11-07): the vision
 // model's own output object is nested one level deeper, alongside a usage
 // block — { result: { result: { answer, caption, ... }, usage } }.
-function runEnvelope(answer: string) {
+function runEnvelope(answer: string, extraHeaders: Record<string, string> = {}) {
   return envelope({
     result: {
       answer,
@@ -58,7 +58,23 @@ function runEnvelope(answer: string) {
       reasoning: null,
     },
     usage: { prompt_tokens: 836, completion_tokens: 127, total_tokens: 963, neurons: 34.34 },
-  });
+  }, 200, extraHeaders);
+}
+
+// Same nested run shape as runEnvelope but without any usage block, for
+// exercising the cf-ai-neurons header fallback.
+function runEnvelopeWithoutUsage(answer: string, extraHeaders: Record<string, string> = {}) {
+  return envelope({
+    result: {
+      answer,
+      caption: null,
+      finish_reason: 'stop',
+      metrics: { decode_time_ms: 1422.28, input_tokens: 836, output_tokens: 127, prefill_time_ms: 69.71, ttft_ms: 105.32 },
+      objects: null,
+      points: null,
+      reasoning: null,
+    },
+  }, 200, extraHeaders);
 }
 
 function semanticAnswer(overrides: Record<string, unknown> = {}) {
@@ -153,6 +169,57 @@ describe('cloudflareRasterSemanticCriticV15', () => {
 
     expect(result.passed).toBe(true);
     expect(result.reportedNeurons).toBeNull();
+  });
+
+  it('keeps the envelope usage as the primary report even when a cf-ai-neurons header is present', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer(), { 'cf-ai-neurons': '99.9' }));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBe(34.34);
+  });
+
+  it('falls back to the cf-ai-neurons header when the run envelope carries no usage block', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelopeWithoutUsage(semanticAnswer(), { 'cf-ai-neurons': '36.50' }));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.reportedNeurons).toBe(36.5);
+  });
+
+  it('reports null Neurons when the header is malformed or non-positive and the envelope has no usage', async () => {
+    for (const headerValue of ['not-a-number', '0', '-1']) {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        .mockResolvedValueOnce(runEnvelopeWithoutUsage(semanticAnswer(), { 'cf-ai-neurons': headerValue }));
+
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '白い背景に高級腕時計の商品広告。文字は不要。',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.reportedNeurons).toBeNull();
+    }
   });
 
   it('does not invoke the critic when its exact model schema is unavailable', async () => {

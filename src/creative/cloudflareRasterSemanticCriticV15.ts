@@ -46,8 +46,9 @@ export type RasterSemanticCriticResultV15 = {
   externalNetworkRequests: number;
   /**
    * Neurons this call's own run response reported for itself
-   * (result.usage.neurons in the live-verified envelope), or null when the
-   * response carried no numeric usage. Evidence for the caller's
+   * (result.usage.neurons in the live-verified envelope; the
+   * cf-ai-neurons response header when the envelope has no usage block),
+   * or null when neither carried a usable value. Evidence for the caller's
    * post-generation reconciliation fallback only; never a gate by itself
    * and never a substitute for the plan proof or the quota pre-check.
    */
@@ -98,6 +99,20 @@ function usageNeurons(value: unknown): number | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const neurons = (value as Record<string, unknown>).neurons;
   return typeof neurons === 'number' && Number.isFinite(neurons) && neurons >= 0 ? neurons : null;
+}
+
+/**
+ * Fallback usage source, used only when the run response's envelope
+ * carries no usage block: the API also reports the call's Neurons in the
+ * cf-ai-neurons response header as a decimal string (live-measured
+ * 2026-11-07 on the generation model). Adopt it only when it parses to a
+ * finite, positive number — anything else stays null, never invented.
+ */
+function neuronsFromResponseHeader(headers: Headers): number | null {
+  const raw = headers.get('cf-ai-neurons');
+  if (raw === null) return null;
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function parseSemanticJson(answer: string): unknown {
@@ -256,11 +271,14 @@ export async function critiqueCloudflareRasterSemanticV15(
   // The same live-verified envelope carries the call's own usage report at
   // result.usage.neurons (measured 34-36 Neurons per critic call on
   // 2026-11-07). It is surfaced verbatim for the caller's reconciliation;
-  // a missing or malformed usage block is reported as null, never invented.
+  // only when the envelope carries no usage block at all, the cf-ai-neurons
+  // response header is consulted as a fallback. A missing or malformed
+  // report in both places is surfaced as null, never invented.
   const reportedNeurons = usageNeurons(resultObject.usage)
     ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
       ? usageNeurons((nested as Record<string, unknown>).usage)
-      : null);
+      : null)
+    ?? neuronsFromResponseHeader(response.headers);
 
   const parsed = parseSemanticPayload(answer.trim());
   const checks: string[] = [];

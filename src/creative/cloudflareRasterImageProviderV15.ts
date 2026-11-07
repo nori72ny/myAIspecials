@@ -32,9 +32,10 @@ type CloudflareEnvelope = {
 
 /**
  * A Cloudflare generation result plus the Neurons the inference response
- * itself reported for this call (usage.neurons, wherever the model's
- * envelope carries it), or null when the response reported no numeric
- * usage — including raw-image responses, which carry no envelope at all.
+ * itself reported for this call — primarily the cf-ai-neurons response
+ * header (the generation model's JSON body carries no usage at all;
+ * live-measured 2026-11-07), with a usage.neurons block in the envelope
+ * as fallback — or null when the response reported no usable value.
  * The report is evidence for post-generation reconciliation only; it never
  * substitutes for the plan proof or the quota pre-check.
  */
@@ -57,6 +58,21 @@ function extractReportedNeurons(body: unknown): number | null {
     if (fromResult !== null) return fromResult;
   }
   return reportedNeuronsValue(envelope.usage);
+}
+
+/**
+ * The generation model reports its call's Neurons only in the
+ * cf-ai-neurons response header (live-measured 2026-11-07: "104.20" for
+ * one 1024x1024 image; the JSON body holds no usage anywhere). The header
+ * value is a decimal string; adopt it only when it parses to a finite,
+ * positive number — a missing or malformed header is not evidence and
+ * falls through to the envelope search, never an invented value.
+ */
+function neuronsFromResponseHeader(headers: Headers): number | null {
+  const raw = headers.get('cf-ai-neurons');
+  if (raw === null) return null;
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 type Subscription = {
@@ -561,7 +577,10 @@ export async function generateCloudflareRasterImageV15(
   }
 
   let bytes: Buffer;
-  let reportedNeurons: number | null = null;
+  // Primary usage source is the cf-ai-neurons header (see
+  // neuronsFromResponseHeader); the envelope search below is only a
+  // fallback for shapes whose body does carry a usage block.
+  let reportedNeurons: number | null = neuronsFromResponseHeader(response.headers);
   const responseType = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (responseType.startsWith('image/')) {
     const raw = await readBoundedProviderBodyV15(response, MAX_IMAGE_BYTES);
@@ -573,7 +592,7 @@ export async function generateCloudflareRasterImageV15(
     try { parsed = JSON.parse(body.toString('utf8')) as unknown; }
     catch { throw new Error('CLOUDFLARE_IMAGE_RESPONSE_INVALID_JSON'); }
     bytes = decodeCloudflareResult(parsed);
-    reportedNeurons = extractReportedNeurons(parsed);
+    reportedNeurons = reportedNeurons ?? extractReportedNeurons(parsed);
   }
 
   const mimeType = imageMime(bytes);
