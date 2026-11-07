@@ -318,6 +318,23 @@ async function geocodeOpenMeteoPlace(
   return null;
 }
 
+/**
+ * Open-Meteo returns `current.time` as a wall-clock string in the requested
+ * timezone (this client always requests Asia/Tokyo) with NO UTC offset,
+ * e.g. "2026-11-07T14:15". Kept verbatim, `new Date(...)` parses it in the
+ * server process timezone (UTC on Vercel) and the later Asia/Tokyo
+ * formatting shifts the displayed label by +9h (measured 2026-11-07 in
+ * production: a 14:15 JST observation was labelled 23:15). Anchor the wall
+ * clock to Tokyo explicitly — Japan is always UTC+9, no DST — so
+ * `observedAt` denotes the true instant. Strings that already carry an
+ * offset or have an unexpected shape are returned unchanged.
+ */
+function openMeteoTokyoWallClockToIso(time: string): string {
+  const match = time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return time;
+  return `${match[1]}T${match[2]}:${match[3]}:${match[4] ?? "00"}+09:00`;
+}
+
 export async function fetchOpenMeteoWeather(
   place: string,
   deps: OriginSearchProviderDeps & { nowMs?: number } = {},
@@ -361,7 +378,7 @@ export async function fetchOpenMeteoWeather(
       humidityPercent: typeof current.relative_humidity_2m === "number" ? current.relative_humidity_2m : 0,
       weatherCode: current.weather_code,
       weatherLabel: openMeteoWeatherLabelJa(current.weather_code),
-      observedAt: typeof current.time === "string" ? current.time : new Date(nowMs).toISOString(),
+      observedAt: typeof current.time === "string" ? openMeteoTokyoWallClockToIso(current.time) : new Date(nowMs).toISOString(),
     },
     days,
     retrievedAt: new Date(nowMs).toISOString(),

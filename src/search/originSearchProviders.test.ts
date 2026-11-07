@@ -93,6 +93,40 @@ describe("fetchOpenMeteoWeather", () => {
     expect(text).toContain("CC BY 4.0");
   });
 
+  it("anchors the offset-less current.time wall clock to Asia/Tokyo", async () => {
+    // Regression (production, 2026-11-07): the API returns current.time in
+    // the requested timezone with no offset ("2026-11-07T14:15"). Stored
+    // verbatim it was parsed as UTC on the server and the label rendered
+    // 9 hours late ("23:15時点"). These assertions hold under any process
+    // timezone (TZ=UTC included): the anchored offset makes observedAt an
+    // absolute instant and the formatter is pinned to Asia/Tokyo.
+    const { fetchImpl } = routedFetch([
+      routes[0] as (typeof routes)[number],
+      {
+        match: "api.open-meteo.com/v1/forecast",
+        respond: () => ({
+          current: {
+            time: "2026-11-07T14:15",
+            temperature_2m: 18.4,
+            relative_humidity_2m: 41,
+            apparent_temperature: 15.8,
+            weather_code: 0,
+          },
+          daily: {
+            time: ["2026-11-07", "2026-11-08"],
+            weather_code: [0, 1],
+            temperature_2m_max: [19.1, 16.9],
+            temperature_2m_min: [10.1, 9.1],
+            precipitation_probability_max: [45, 0],
+          },
+        }),
+      },
+    ]);
+    const forecast = await fetchOpenMeteoWeather("東京", { fetchImpl, nowMs: NOW });
+    expect(forecast.current.observedAt).toBe("2026-11-07T14:15:00+09:00");
+    expect(composeOriginWeatherText(forecast)).toContain("現在（11/7 14:15時点）");
+  });
+
   it("fails with no-results when the place cannot be geocoded", async () => {
     const { fetchImpl } = routedFetch([
       { match: "geocoding-api.open-meteo.com", respond: () => ({ results: [] }) },
