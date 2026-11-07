@@ -107,6 +107,14 @@ describe("fetchOpenMeteoWeather", () => {
     results: [{ name: "東京", admin1: "東京都", country: "日本", latitude: 35.6895, longitude: 139.6917 }],
   };
 
+  function isGeocodingApiUrl(rawUrl: string): boolean {
+    try {
+      return new URL(rawUrl).hostname === "geocoding-api.open-meteo.com";
+    } catch {
+      return false;
+    }
+  }
+
   function geocodingByName(cities: Record<string, unknown>) {
     return {
       match: "geocoding-api.open-meteo.com",
@@ -119,7 +127,7 @@ describe("fetchOpenMeteoWeather", () => {
 
   function geocodingNamesOf(calls: RecordedCall[]): Array<string | null> {
     return calls
-      .filter((call) => call.url.includes("geocoding-api.open-meteo.com"))
+      .filter((call) => isGeocodingApiUrl(call.url))
       .map((call) => new URL(call.url).searchParams.get("name"));
   }
 
@@ -185,7 +193,7 @@ describe("fetchOpenMeteoWeather", () => {
   it("does not retry suffix candidates when geocoding itself fails", async () => {
     let geocodingCalls = 0;
     const fetchImpl: OriginSearchFetch = async (url) => {
-      if (url.includes("geocoding-api.open-meteo.com")) {
+      if (isGeocodingApiUrl(url)) {
         geocodingCalls += 1;
         return jsonResponse({ reason: "upstream boom" }, 500);
       }
