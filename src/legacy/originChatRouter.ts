@@ -14,7 +14,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
-import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import {
   createDefaultOriginResearchExecutor,
   fetchOriginWeatherAnswer,
@@ -40,9 +40,9 @@ function systemInstruction(intent?: OriginRequestIntent, workPlan?: OriginAgentW
 function applicationRouting(requestId: string, reason: string, verificationStatus: OriginAnswerVerificationStatus = "not-required") { return { model: "ORIGIN アプリ内処理", reason, score: null, timeMs: 0, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, traceId: requestId, verificationStatus }; }
 function requiresGroundedResearch(message: string): boolean { return requiresOriginGroundedResearch(message); }
 
-function groundedResearchAnswer(query: string, result: OriginResearchResult) {
-  const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(query);
-  const safeSources = result.sources.filter((source) => {
+/** The only sources an answer may cite: HTTPS, no URL credentials, bounded count. */
+function safeOriginResearchSources(sources: readonly OriginResearchSource[]): OriginResearchSource[] {
+  return sources.filter((source) => {
     try {
       const url = new URL(source.url);
       return url.protocol === "https:" && !url.username && !url.password;
@@ -50,6 +50,11 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
       return false;
     }
   }).slice(0, 8);
+}
+
+function groundedResearchAnswer(query: string, result: OriginResearchResult) {
+  const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(query);
+  const safeSources = safeOriginResearchSources(result.sources);
   if (!result.ok || safeSources.length === 0) {
     const groundingFailure = result.groundingFailure;
     const content = groundingFailure
@@ -138,9 +143,80 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
   const router = Router(); const env = options.env ?? process.env; const now = options.now ?? Date.now; const catalogNow = options.catalogNow ?? Date.now; const contextPolicy = options.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY; const createRequestId = options.createRequestId ?? (() => `origin-${now()}-${randomUUID()}`); const execute = options.execute ?? ((request: OriginProviderExecutionRequest) => executeOriginProviderWithFailover(request, env)); const searchGroundingDeps: OriginSearchGroundingDeps = { env, ...(options.searchGrounding ?? {}) }; const research = options.research ?? createDefaultOriginResearchExecutor(searchGroundingDeps, (query: string) => researchCurrentInformation(query)); const researchSynthesis = options.researchSynthesis === null ? null : options.researchSynthesis ?? execute;
   router.post("/api/chat", async (req, res) => {
     const wantsStreaming = String(req.headers.accept ?? "").toLowerCase().includes("text/event-stream");
+    // Phased streaming (origin-phased-sse-v1): when the client asked for an
+    // event stream, the grounded-research branch below reports its progress
+    // as small SSE events so the long search wait is not silent. The stream
+    // is committed only when the first phase is emitted; every response that
+    // finishes before that (validation, weather, capability questions, and
+    // all errors) keeps the exact legacy behavior. Phases and source
+    // titles/domains are metadata only — answer text is written solely from
+    // the finished, verified payload in the res.json interception below,
+    // never as unverified fragments.
+    let phaseStreamStarted = false;
+    const writePhasedEvent = (event: Record<string, unknown>) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    const startPhaseStream = () => {
+      if (phaseStreamStarted) return;
+      phaseStreamStarted = true;
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.setHeader("X-Origin-Free-Only", "true");
+      res.setHeader("X-Origin-Cost-Evidence", "NOT_MEASURED");
+      res.setHeader("X-Origin-Stream-Source", "phased");
+      res.setHeader("X-Origin-Stream-Protocol", "origin-phased-sse-v1");
+      res.flushHeaders?.();
+    };
+    const emitResearchPhase = (phase: "searching" | "composing") => {
+      if (!wantsStreaming) return;
+      startPhaseStream();
+      writePhasedEvent({ type: "phase", phase });
+    };
+    const emitResearchSources = (sources: readonly OriginResearchSource[]) => {
+      if (!wantsStreaming || sources.length === 0) return;
+      startPhaseStream();
+      writePhasedEvent({
+        type: "sources",
+        sources: sources.map((source) => {
+          let domain = source.domain ?? "";
+          if (!domain) {
+            try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+          }
+          return { title: source.title, domain };
+        }),
+      });
+    };
     if (wantsStreaming) {
       const originalJson = res.json.bind(res);
       res.json = ((payload: unknown) => {
+        if (phaseStreamStarted) {
+          const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+          const phaseAnswerEnvelope = record && record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;
+          const phaseContent = record && typeof record.content === "string" ? record.content : phaseAnswerEnvelope && typeof phaseAnswerEnvelope.answer === "string" ? phaseAnswerEnvelope.answer : "";
+          if (res.statusCode >= 200 && res.statusCode < 400 && phaseContent) {
+            const chunks = phaseContent.match(/.{1,48}(?:\s|$)|.{1,48}/gs) ?? [phaseContent];
+            let index = 0;
+            const writeNext = () => {
+              if (index >= chunks.length) {
+                writePhasedEvent({ type: "complete" });
+                res.end("data: [DONE]\n\n");
+                return;
+              }
+              writePhasedEvent({ type: "delta", text: chunks[index++] });
+              setTimeout(writeNext, 15);
+            };
+            writeNext();
+            return res;
+          }
+          // Defensive: no current research-branch exit produces an error
+          // payload after phases started, but if one ever does, fail the
+          // stream explicitly instead of corrupting it with raw JSON.
+          writePhasedEvent({ type: "error", code: typeof record?.code === "string" ? record.code : "STREAM_ANSWER_UNAVAILABLE" });
+          res.end("data: [DONE]\n\n");
+          return res;
+        }
         if (res.statusCode >= 200 && res.statusCode < 400 && payload && typeof payload === "object") {
           const record = payload as Record<string, unknown>;
           const answerEnvelope = record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;
@@ -179,12 +255,17 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const researchRequestedOutputs = researchIntent?.requestedOutputs ?? [];
     const researchNeedsDownstreamDeliverable = researchRequestedOutputs.some((output) => ["presentation", "document", "spreadsheet", "chart", "image", "application", "website", "dashboard"].includes(output));
     if (groundedResearchRequired) {
+      emitResearchPhase("searching");
       let researchResult: OriginResearchResult;
       try {
         researchResult = await research(lastUserMessage.trim());
       } catch {
         researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
       }
+      // The sources event carries exactly the citable set the answer will
+      // use (same safe filter as groundedResearchAnswer), titles/domains only.
+      emitResearchSources(safeOriginResearchSources(researchResult.sources));
+      emitResearchPhase("composing");
       const grounded = groundedResearchAnswer(lastUserMessage, researchResult);
       let synthesisStatus = "not-run";
       let synthesisFailureCode: string | undefined;

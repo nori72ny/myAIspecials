@@ -1121,6 +1121,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [uncontrolledMessages, setUncontrolledMessages] = useState<ConversationMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Progress phases for search-grounded requests (origin-phased-sse-v1):
+  // which stage the server is in, plus the already-gathered source cards
+  // shown ahead of the verified answer. Display-only; reset on every send.
+  const [streamPhase, setStreamPhase] = useState<'searching' | 'composing' | null>(null);
+  const [streamSources, setStreamSources] = useState<readonly { title: string; domain: string }[]>([]);
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
   const [activeArtifact, setActiveArtifact] = useState<ArtifactBlock | null>(null);
   const [uncontrolledArtifacts, setUncontrolledArtifacts] = useState<ArtifactBlock[]>([]);
@@ -1400,6 +1405,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     setAttachmentError('');
     setIsSafeWaiting(false);
     setFailedChatRequest(null);
+    setStreamPhase(null);
+    setStreamSources([]);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
@@ -1873,7 +1880,49 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         const protocol = response.headers.get('x-origin-stream-protocol');
         const source = response.headers.get('x-origin-stream-source');
         if (source === 'upstream' && protocol !== 'origin-verified-sse-v1') throw new Error('unverified-upstream-stream');
-        if (protocol === 'origin-verified-sse-v1') {
+        if (protocol === 'origin-phased-sse-v1') {
+          // Search-grounded progress stream: phase/sources events are
+          // metadata for the waiting display; answer text still arrives
+          // only as deltas from the finished, verified server payload and
+          // is admitted solely on a complete + [DONE] ending, exactly like
+          // the verified upstream protocol.
+          let buffer = ''; let complete = false; let doneSeen = false; let streamFailed = false;
+          const consumeLine = (line: string) => {
+            if (!line.startsWith('data:')) return;
+            const raw = line.slice(5).trim();
+            if (doneSeen) throw new Error('event-after-done');
+            if (raw === '[DONE]') { doneSeen = true; return; }
+            const event = JSON.parse(raw) as { type?: unknown; phase?: unknown; sources?: unknown; text?: unknown };
+            if (event.type === 'phase' && (event.phase === 'searching' || event.phase === 'composing')) { setStreamPhase(event.phase); return; }
+            if (event.type === 'sources' && Array.isArray(event.sources)) {
+              const safeSources: { title: string; domain: string }[] = [];
+              for (const item of event.sources) {
+                if (!item || typeof item !== 'object') continue;
+                const candidate = item as { title?: unknown; domain?: unknown };
+                if (typeof candidate.title === 'string' && candidate.title.trim() && typeof candidate.domain === 'string' && candidate.domain.trim()) {
+                  safeSources.push({ title: candidate.title, domain: candidate.domain });
+                }
+              }
+              if (safeSources.length > 0) setStreamSources(safeSources.slice(0, 8));
+              return;
+            }
+            if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
+            if (event.type === 'complete' && !complete) { complete = true; return; }
+            if (event.type === 'error') { streamFailed = true; return; }
+            throw new Error('invalid-stream-event');
+          };
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            let newline: number;
+            while ((newline = buffer.indexOf('\n')) >= 0) { consumeLine(buffer.slice(0, newline).replace(/\r$/, '')); buffer = buffer.slice(newline + 1); }
+          }
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeLine(buffer.trim());
+          streamRenderBatcher.flush();
+          if (streamFailed || !complete || !doneSeen || !fullText.trim()) throw new Error('incomplete-stream');
+        } else if (protocol === 'origin-verified-sse-v1') {
           let buffer = ''; let complete = false; let doneSeen = false;
           const consumeLine = (line: string) => {
             if (!line.startsWith('data:')) return;
@@ -1917,11 +1966,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     }
     finally {
       streamRenderBatcher?.cancel();
+      setStreamPhase(null);
+      setStreamSources([]);
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
       if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); isLoadingRef.current = false; if (!controller.signal.aborted) scheduleQueueDrain(); }
     }
   };
   handleSendRef.current = handleSend;
+  const waitingText = streamPhase === 'searching' ? t.searchingLatest : streamPhase === 'composing' ? t.composingAnswer : t.thinking;
   const removeQueuedRequest = (id: string) => { updateQueue((current) => current.filter((item) => item.id !== id)); };
   const sendQueuedRequestNow = (item: QueuedChatRequest) => {
     if (isLoading || isOffline) return;
@@ -2053,7 +2105,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   </div>
 
   </div>
-</HeaderV12><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:justify-center sm:py-4"><section className="origin-home-intro flex w-full flex-col items-center justify-center"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p></section><div className="origin-home-suggestions mt-1 grid w-full max-w-2xl grid-cols-2 gap-1 sm:mt-3 sm:flex sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2">{[t.homeSuggestion1, t.homeSuggestion2, t.homeSuggestion3, t.homeSuggestion4].map((suggestion, index) => <button key={index} type="button" data-testid={`home-suggestion-${index + 1}`} disabled={isLoading || isOffline} onClick={() => void handleSend(suggestion)} className="origin-secondary-button min-h-11 rounded-full border px-2.5 py-1 text-center text-xs font-semibold leading-[15px] transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:py-2.5 sm:text-sm sm:leading-5">{suggestion}</button>)}</div><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? t.thinking : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span><details className="w-full"><summary className="min-h-6 cursor-pointer font-semibold">{language === 'ja' ? '画像の詳細' : 'Image details'}</summary><span className="mt-1 block">{message.image.model} · {message.image.purpose} · Technical {message.image.technicalQualityScore}/100 · SHA-256 {message.image.sha256.slice(0, 12)}… {language === 'ja' ? '· 費用未検証' : '· Cost unverified'}</span></details></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" /><OriginCatState state="thinking" size={32} />{t.thinking}</div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
+</HeaderV12><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:justify-center sm:py-4"><section className="origin-home-intro flex w-full flex-col items-center justify-center"><div data-testid="origin-core-logo" className="relative mb-4 flex h-16 w-16 items-center justify-center"><div className="origin-logo-glow absolute inset-0 rounded-2xl blur-md" /><div className="origin-logo-core relative flex h-14 w-14 items-center justify-center rounded-2xl shadow-xl">◈</div></div><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p></section><div className="origin-home-suggestions mt-1 grid w-full max-w-2xl grid-cols-2 gap-1 sm:mt-3 sm:flex sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2">{[t.homeSuggestion1, t.homeSuggestion2, t.homeSuggestion3, t.homeSuggestion4].map((suggestion, index) => <button key={index} type="button" data-testid={`home-suggestion-${index + 1}`} disabled={isLoading || isOffline} onClick={() => void handleSend(suggestion)} className="origin-secondary-button min-h-11 rounded-full border px-2.5 py-1 text-center text-xs font-semibold leading-[15px] transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:py-2.5 sm:text-sm sm:leading-5">{suggestion}</button>)}</div><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? waitingText : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span><details className="w-full"><summary className="min-h-6 cursor-pointer font-semibold">{language === 'ja' ? '画像の詳細' : 'Image details'}</summary><span className="mt-1 block">{message.image.model} · {message.image.purpose} · Technical {message.image.technicalQualityScore}/100 · SHA-256 {message.image.sha256.slice(0, 12)}… {language === 'ja' ? '· 費用未検証' : '· Cost unverified'}</span></details></figcaption></figure>}</>}</div>{message.role === 'assistant' && message.deliveryState !== 'error' && Boolean(message.content) && !isStreamingAssistant && <ResponseVerificationBadge language={language} />}</article>; })}{isLoading && <div data-testid="origin-thinking" role="status" aria-live="polite" className="origin-surface-muted flex w-fit items-center gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold text-[var(--accent-primary)] shadow-sm"><span aria-hidden="true" className="inline-flex h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)] animate-ping" /><OriginCatState state="thinking" size={32} />{waitingText}</div>}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-[13px] font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
   language={language}
   onClose={() => setIsImageGenerationPanelOpen(false)}
   onGenerate={(prompt, width, height) => {

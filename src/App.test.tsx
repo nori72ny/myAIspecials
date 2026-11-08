@@ -1512,6 +1512,78 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows search phases and gathered sources while a phased stream is in flight, then the verified answer', async () => {
+    const encoder = new TextEncoder();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start: (controller) => { streamController = controller; } });
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最新の料金を調べて' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    const push = (event: unknown) => streamController.enqueue(encoder.encode(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`));
+    push({ type: 'phase', phase: 'searching' });
+    await waitFor(() => expect(screen.getByTestId('origin-thinking').textContent).toContain('最新の情報を調べています'));
+    push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
+    await waitFor(() => expect(screen.getByTestId('origin-stream-sources')).toBeTruthy());
+    expect(screen.getByTestId('origin-stream-sources').textContent).toContain('集まった出典');
+    expect(screen.getByTestId('origin-stream-sources').textContent).toContain('料金の公式ページ');
+    expect(screen.getByTestId('origin-stream-sources').textContent).toContain('example.org');
+    push({ type: 'phase', phase: 'composing' });
+    await waitFor(() => expect(screen.getByTestId('origin-thinking').textContent).toContain('回答をまとめています'));
+    push({ type: 'delta', text: '検証済みの調査回答です。' });
+    push({ type: 'complete' });
+    push('[DONE]');
+    streamController.close();
+    await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByTestId('origin-stream-sources')).toBeNull());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('discards a truncated phased stream without completion proof', async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'delta', text: '保存してはいけない途中回答' })}`,
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断された調査' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
+    expect(screen.queryByTestId('origin-stream-sources')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('treats a phased stream error event as a failed response', async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'error', code: 'PROVIDER_RATE_LIMITED' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '失敗する調査' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it('blocks personal data and image attachments locally before production chat fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
