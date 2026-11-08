@@ -27,6 +27,11 @@ import {
 } from '../../lib/orchestration/OriginAnswerEnvelope';
 import { detectSensitiveInput } from '../../lib/orchestration/SensitiveInputDetector';
 import { cn } from '../../utils';
+import {
+  RECOVERY_ESTIMATE_CLOCK_THRESHOLD_SECONDS,
+  recoveryEstimateSentence,
+  retryAfterSecondsOrNull,
+} from '../../utils/recoveryEstimate';
 
 type RoutingMetadata = {
   model: string;
@@ -812,12 +817,26 @@ export default function UnifiedChat({
       } else if (error.code === 'PROVIDER_RATE_LIMITED') {
         aiCoreState = 'RATE_LIMITED';
         title = isEn ? 'Free AI usage limit reached' : '無料AIの利用上限に達しました';
-        const retryAfterSeconds = Number(error.retryAfterSeconds);
-        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        const retryAfterSeconds = retryAfterSecondsOrNull(error.retryAfterSeconds);
+        if (retryAfterSeconds !== null && retryAfterSeconds < RECOVERY_ESTIMATE_CLOCK_THRESHOLD_SECONDS) {
           setRetrySecondsRemaining(Math.ceil(retryAfterSeconds));
           description = isEn
             ? `The free AI is temporarily rate-limited. Retry will be available in about ${Math.ceil(retryAfterSeconds)} seconds.`
             : `無料AIが一時的に混み合っています。約${Math.ceil(retryAfterSeconds)}秒後に再試行できます。`;
+        } else if (retryAfterSeconds !== null) {
+          // A long wait (e.g. a daily cap) is shown as the clock time at
+          // which recovery is expected, not as a raw second count, and it
+          // does not start the per-second retry countdown: counting down
+          // for hours would lock sending in this screen for that whole
+          // time. Manual retry stays available, as on the home chat.
+          const recoveryEstimate = recoveryEstimateSentence(retryAfterSeconds, Date.now(), isEn ? 'en' : 'ja');
+          description = recoveryEstimate
+            ? (isEn
+              ? `The free AI is temporarily rate-limited. ${recoveryEstimate}`
+              : `無料AIが一時的に混み合っています。${recoveryEstimate}`)
+            : (isEn
+              ? 'The free daily or provider limit may have been reached. Please try again later.'
+              : '無料AIの日次上限または提供元の混雑上限に達した可能性があります。時間をおいて再試行してください。');
         } else {
           description = isEn
             ? 'The free daily or provider limit may have been reached. Please try again later.'

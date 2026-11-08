@@ -17,6 +17,7 @@ import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEdit
 import KenBurnsVideoDialog from './creative/KenBurnsVideoDialog';
 import OriginCatState from './components/OriginCatState';
 import { recoverWithAutonomousCascade } from './services/zeroFailureCascade';
+import { recoveryEstimateSentence } from './utils/recoveryEstimate';
 
 export interface ArtifactBlock {
   id: string;
@@ -533,6 +534,7 @@ type OriginChatFailurePayload = {
   code?: unknown;
   retryable?: unknown;
   retryAttempted?: unknown;
+  retryAfterSeconds?: unknown;
 };
 
 export const buildRasterVariationPrompt = (sourcePrompt: string): string => {
@@ -1823,8 +1825,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
         if (failure?.code === 'PROVIDER_RATE_LIMITED') {
           // A non-retryable rate limit (e.g. the free daily cap) is not
           // "busy" and must not collapse into the generic error: name the
-          // cause and offer a manual retry instead.
-          appendFailure(language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE);
+          // cause and offer a manual retry instead. When the API reported
+          // how long the provider asked us to wait, append the recovery
+          // estimate so the user knows when it is worth trying again; with
+          // no reported wait the wording stays exactly as before.
+          const rateLimitBase = language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE;
+          const recoveryEstimate = recoveryEstimateSentence(failure?.retryAfterSeconds, Date.now(), language === 'en' ? 'en' : 'ja');
+          appendFailure(recoveryEstimate ? `${rateLimitBase}${language === 'en' ? ' ' : ''}${recoveryEstimate}` : rateLimitBase);
           if (sendAttachments.length === 0) setFailedChatRequest({ text });
           return;
         }
