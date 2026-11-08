@@ -120,6 +120,13 @@ function safeExternalUrl(value: string): string | null {
   }
 }
 
+function conflictTopicLabel(topic: string): string {
+  if (topic === 'price') return '価格';
+  if (topic === 'version') return 'バージョン';
+  if (topic === 'percentage') return '割合';
+  return topic;
+}
+
 function confidenceLabel(value: ResearchSuccess['confidence']) {
   if (value === 'strong') return '高';
   if (value === 'moderate') return '中';
@@ -205,7 +212,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
     }
   }
 
-  return <section aria-label="Research Workspace" className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
+  return <section aria-label="詳しく調べる" className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="origin-workspace rounded-2xl p-4 md:p-5">
         <h1 className="text-xl font-black">詳しく調べる</h1>
@@ -221,7 +228,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="text-[10px] text-slate-500">{query.length}/1200</span>
+          <span className="text-xs text-slate-500">{query.length}/1200</span>
           <button type="button" onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '調査中…' : '調査する'}</button>
         </div>
 
@@ -242,18 +249,18 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
           <ResearchReport report={result.report} sources={result.sources} />
         </section>
 
-        <section aria-label="Research summary" className="origin-workspace rounded-2xl px-4">
+        <section aria-label="出典と確認の概要" className="origin-workspace rounded-2xl px-4">
           <details>
             <summary className="min-h-11 cursor-pointer py-3 font-semibold">出典を見る</summary>
 
             <div className="pb-4">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">取得証拠: {confidenceLabel(result.confidence)}</span>
+                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">出典の確かさ: {confidenceLabel(result.confidence)}</span>
                 <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.sourceCount}件</span>
                 <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.distinctDomainCount}サイト</span>
                 <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">本文確認済み {result.sources.filter(source => source.evidenceLevel === 'page-verified').length}件</span>
               </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">「本文確認済み」は取得時に原文本文を読めた出典です。「検索結果の要約」は検索スニペットのみで、本文確認済みとは扱いません。取得証拠の強さは、回答全体の正しさを保証する評価ではありません。</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">「本文確認済み」は、調べたときに元のページ本文を読めた出典です。「検索結果の要約」は検索結果の短い抜粋のみで、本文確認済みとは扱いません。出典の確かさは、回答全体の正しさを保証するものではありません。</p>
 
               <div className="mt-4 space-y-3">{result.sources.map(source => {
                 const href = safeExternalUrl(source.url);
@@ -262,7 +269,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
                     <div className="min-w-0">
                       <p className="m-0 text-xs font-black text-indigo-500">{source.id}</p>
                       <h3 className="mt-1 break-words text-sm font-bold">{source.title}</h3>
-                      <p className="mt-1 text-xs text-slate-500">{source.domain} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'}</p>
+                      <p className="mt-1 text-xs text-slate-500">{source.domain} · {source.freshness === 'recent' ? '最近の情報' : source.freshness === 'older' ? '古い情報の可能性があります' : '日付不明'} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'}</p>
                     </div>
                     
                   </div>
@@ -276,7 +283,7 @@ export default function ResearchWorkspaceV31({ onSourcesChange }: ResearchWorksp
                 <strong>出典同士の違い</strong>
                 {result.conflicts.length === 0
                   ? <p className="mt-2 text-slate-500">価格・バージョン・割合など、比較できる数値の食い違いは見つかりませんでした。</p>
-                  : <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflict.topic}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
+                  : <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflictTopicLabel(conflict.topic)}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
               </div>
             </div>
           </details>

@@ -36,10 +36,10 @@ describe('ResearchWorkspaceV31', () => {
     fireEvent.change(screen.getByLabelText('調べたいこと'), { target: { value: '現在の公開情報を調査' } });
     fireEvent.click(screen.getByRole('button', { name: '調査する' }));
 
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Research summary' })).not.toBeNull());
+    await waitFor(() => expect(screen.queryByRole('region', { name: '出典と確認の概要' })).not.toBeNull());
     expect(screen.getByText('Primary source')).not.toBeNull();
     expect(screen.getByText('Second source')).not.toBeNull();
-    expect(screen.getByText('取得証拠: 中')).not.toBeNull();
+    expect(screen.getByText('出典の確かさ: 中')).not.toBeNull();
     expect(screen.getByRole('heading', { name: '確認できた内容' })).not.toBeNull();
     expect(screen.getByRole('link', { name: 'S1' })).not.toBeNull();
     expect(screen.getByText('本文確認済み 1件')).not.toBeNull();
@@ -83,7 +83,7 @@ describe('ResearchWorkspaceV31', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('応答を検証できなかったため、安全に停止');
-    expect(screen.queryByRole('region', { name: 'Research summary' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '出典と確認の概要' })).toBeNull();
     expect(screen.queryByText('Unexpected')).toBeNull();
   });
 
@@ -118,7 +118,7 @@ describe('ResearchWorkspaceV31', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('指定された公式情報源またはドメイン');
     expect(alert.textContent).toContain('無関係な出典では補完していません');
-    expect(screen.queryByRole('region', { name: 'Research summary' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '出典と確認の概要' })).toBeNull();
   });
 
 });
