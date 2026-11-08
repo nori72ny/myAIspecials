@@ -9,6 +9,7 @@ import { applyOriginSecurityHeaders, createOriginChatRateLimiter, requireSafeOri
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
+import { createAgentRunStoreFromEnv } from "../agent/supabaseAgentRunStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createAgentCodingDelegationV14 } from "../agent/agentCodingDelegationV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
@@ -63,10 +64,12 @@ export function createOriginApp(
 
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
+  const agentRunStore = createAgentRunStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, {
     codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
+    runStore: agentRunStore,
   }));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
