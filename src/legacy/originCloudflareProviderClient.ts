@@ -50,7 +50,9 @@ export type OriginCloudflarePreflightReason =
   | "not-configured"
   | "catalog-invalid"
   | "evidence-stale"
-  | "plan-proof-failed";
+  | "plan-proof-failed"
+  | "pool-exhausted"
+  | "capacity-cooldown";
 
 /**
  * The route was skipped before any inference was sent. This is deliberately not an
@@ -68,6 +70,86 @@ export class OriginCloudflarePreflightError extends Error {
 }
 
 export interface OriginCloudflareCredentials { accountId: string; proofToken: string; aiToken: string; }
+
+/**
+ * Error-code branching for Workers AI 429s (design: QUOTA_EXPANSION_RETHINK
+ * 2026-11-08, item 2). Cloudflare's official error table defines two different
+ * 429s whose correct responses are opposites:
+ * - 3036 "Account limited" — the account's daily free allocation of 10,000
+ *   Neurons is used up. The pool is account-wide, not per-model, so no model
+ *   switch can dodge it. The live API is reported (multiple independent field
+ *   reports, and ORIGIN's own production diagnostic on 2026-11-08) to return
+ *   the undocumented code 4006 with 3036's wording, so both codes classify as
+ *   pool exhaustion. Once observed, this route is treated as stopped for the
+ *   rest of the UTC day: later executions skip it before any network call and
+ *   the dispatcher falls through to the next route immediately, instead of
+ *   paying the plan-proof reads plus a doomed inference on every request.
+ * - 3040 "Out of capacity" — capacity is temporarily exceeded. The pool is not
+ *   exhausted, so the route must NOT be stopped for the day; it only backs off
+ *   briefly (ORIGIN_CF_CAPACITY_COOLDOWN_MS) and is then tried as before.
+ * Classification is by the provider's raw numeric error code only (normalized
+ * through safeOriginUpstreamErrorCode, then exact-matched). Message text is
+ * never used for branching: wording can change or be localized, and a broad
+ * text match could misclassify an unrelated failure as a day-long stop.
+ */
+export type OriginCloudflareUpstreamFailureKind = "pool-exhausted" | "temporary-capacity";
+
+/** How long the route backs off after a 3040 temporary-capacity failure. */
+export const ORIGIN_CF_CAPACITY_COOLDOWN_MS = 60_000;
+
+export function classifyOriginCloudflareUpstreamErrorCode(code: unknown): OriginCloudflareUpstreamFailureKind | null {
+  const normalized = safeOriginUpstreamErrorCode(code);
+  if (normalized === "3036" || normalized === "4006") return "pool-exhausted";
+  if (normalized === "3040") return "temporary-capacity";
+  return null;
+}
+
+function upstreamFailureKind(body: CloudflareEnvelope | null): OriginCloudflareUpstreamFailureKind | null {
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  let capacity = false;
+  for (const error of errors) {
+    const kind = classifyOriginCloudflareUpstreamErrorCode(error?.code);
+    if (kind === "pool-exhausted") return "pool-exhausted";
+    if (kind === "temporary-capacity") capacity = true;
+  }
+  return capacity ? "temporary-capacity" : null;
+}
+
+/**
+ * In-process route stop state, mirroring the dispatcher's primary circuit
+ * breaker: best-effort latency/waste optimization only, never a correctness or
+ * policy mechanism. Losing it (cold start, scale-out, instance recycling)
+ * simply reverts to attempting the route, whose own failure re-establishes the
+ * state. The exhaustion deadline is the next UTC midnight (the pool resets at
+ * 00:00 UTC), so the stop releases itself at the day boundary with no timer.
+ */
+let cloudflarePoolExhaustedUntilMs = 0;
+let cloudflareCapacityCooldownUntilMs = 0;
+
+export function resetOriginCloudflareRouteStateForTests(): void {
+  cloudflarePoolExhaustedUntilMs = 0;
+  cloudflareCapacityCooldownUntilMs = 0;
+}
+
+function nextUtcMidnightMs(nowMs: number): number {
+  const date = new Date(nowMs);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+}
+
+function cloudflareRouteBlock(nowMs: number): "pool-exhausted" | "capacity-cooldown" | null {
+  if (nowMs < cloudflarePoolExhaustedUntilMs) return "pool-exhausted";
+  if (nowMs < cloudflareCapacityCooldownUntilMs) return "capacity-cooldown";
+  return null;
+}
+
+function noteCloudflareUpstreamFailure(body: CloudflareEnvelope | null, nowMs: number): void {
+  const kind = upstreamFailureKind(body);
+  if (kind === "pool-exhausted") {
+    cloudflarePoolExhaustedUntilMs = nextUtcMidnightMs(nowMs);
+  } else if (kind === "temporary-capacity") {
+    cloudflareCapacityCooldownUntilMs = nowMs + ORIGIN_CF_CAPACITY_COOLDOWN_MS;
+  }
+}
 
 export function isOriginCloudflareFailoverEnabled(env: NodeJS.ProcessEnv): boolean {
   return env[ORIGIN_CF_FAILOVER_ENABLED_ENV] === "true";
@@ -412,6 +494,11 @@ export async function executeOriginCloudflareProvider(
   if (!isOriginCloudflareFailoverEnabled(env)) throw new OriginCloudflarePreflightError("not-enabled");
   const credentials = resolveOriginCloudflareCredentials(env);
   if (!credentials) throw new OriginCloudflarePreflightError("not-configured");
+  // Error-code branching state: a pool-exhausted day or a temporary-capacity
+  // cooldown skips the route before any network call (not even the plan-proof
+  // reads), so the dispatcher falls through to the next route immediately.
+  const routeBlock = cloudflareRouteBlock(options.nowMs ?? Date.now());
+  if (routeBlock) throw new OriginCloudflarePreflightError(routeBlock);
 
   const transport = { count: 0 };
   try {
@@ -469,7 +556,14 @@ export async function executeOriginCloudflareProvider(
     }
 
     const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
-    if (!response.ok || !body || body.success !== true) throw inferenceFailure(response.status, body);
+    if (!response.ok || !body || body.success !== true) {
+      // Record the classified failure before surfacing it: a pool-exhaustion
+      // code stops this route for the rest of the UTC day and a temporary-
+      // capacity code starts its short cooldown, so later requests in this
+      // process skip the route instead of repeating a doomed attempt.
+      noteCloudflareUpstreamFailure(body, options.nowMs ?? Date.now());
+      throw inferenceFailure(response.status, body);
+    }
     const text = extractInferenceText(body.result);
     if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
     const usage = extractUsage(body);

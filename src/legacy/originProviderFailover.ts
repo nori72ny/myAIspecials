@@ -91,6 +91,15 @@ import {
  * allowed to finish under the primary client's own caps exactly as before; the total
  * budget governs route selection and everything before delivery.
  *
+ * Cloudflare error-code branching (2026-11-08 rethink, item 2; state lives in the
+ * Cloudflare client): when the second route's inference fails with the raw code
+ * 3036 or 4006, the account's daily Neuron pool is exhausted, so the client stops
+ * the route for the rest of the UTC day and later dispatches record it as skipped
+ * (skipReason "pool-exhausted") and fall through to the third route without paying
+ * the plan-proof reads or a doomed inference. Code 3040 is temporary capacity
+ * instead: the route only backs off briefly (skipReason "capacity-cooldown") and
+ * is never mistaken for a day-long stop.
+ *
  * Circuit breaker (best effort, in-process memory only): when the primary fails with
  * PROVIDER_RATE_LIMITED or a timeout (its own, or the dispatcher budget above), the
  * breaker opens for ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS and later requests skip the

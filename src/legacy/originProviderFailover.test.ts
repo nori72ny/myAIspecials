@@ -176,6 +176,34 @@ describe("executeOriginProviderWithFailover", () => {
     ]);
   });
 
+  it("records a pool-exhausted Cloudflare skip and surfaces the primary error", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async () => {
+      throw new OriginCloudflarePreflightError("pool-exhausted");
+    });
+    const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.diagnostic?.failoverAttempts).toEqual([
+      {
+        providerId: "openrouter-free",
+        modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+        outcome: "availability-error",
+        errorCode: "PROVIDER_RATE_LIMITED",
+        transportRequestCount: 1,
+      },
+      {
+        providerId: "cloudflare-workers-ai-free",
+        modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
+        outcome: "skipped",
+        skipReason: "pool-exhausted",
+        transportRequestCount: 0,
+      },
+    ]);
+  });
+
   it("surfaces the Cloudflare error when both routes fail with availability errors", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => {
