@@ -91,10 +91,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         boxShadow: style.boxShadow,
       };
     });
-    expect(headerMarkStyle.backgroundImage).toContain('origin-sunrise-mark.svg');
+    expect(headerMarkStyle.backgroundImage).toContain('origin-ribbon-o-small.webp');
     expect(headerMarkStyle.width).toBe('20px');
     expect(headerMarkStyle.height).toBe('20px');
-    expect(headerMarkStyle.borderRadius).toBe('0px');
+    expect(headerMarkStyle.borderRadius).toBe('6px');
     expect(headerMarkStyle.boxShadow).toBe('none');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
