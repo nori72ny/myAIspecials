@@ -11,12 +11,22 @@ import { executeNextTask } from './taskGraphExecutor.js';
 import { AgentRunSession } from './agentRunContract.js';
 import { approvalDigest, type AgentApprovalOperation } from './agentApproval.js';
 import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPlan, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability, type AgentApprovalAuthModeV3 } from './agentV3Capability.js';
-import { planAgentToolsV3 } from './agentToolPlannerV3.js';
+import { planAgentToolsV3, type AgentToolStepV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRunAdvancer.js';
+import { diffAgentRunPlans } from './agentRunPlanDiff.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
-import { isAgentRunRecordStatus, MAX_AGENT_RUN_TTL_MS, type AgentRunRecordStatus } from './agentRunRecord.js';
+import {
+  isAgentRunRecordStatus,
+  MAX_AGENT_RUN_TTL_MS,
+  normalizeAgentRunHold,
+  type AgentRunHold,
+  type AgentRunHoldReason,
+  type AgentRunPlanStep,
+  type AgentRunRecordStatus,
+  type AgentRunResumeCondition,
+} from './agentRunRecord.js';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
@@ -72,6 +82,38 @@ function parseStepInputs(body: unknown): AgentStepInputV3[] | null {
     steps.push({ toolName: candidate.toolName, params: params as ToolParams });
   }
   return steps;
+}
+
+/**
+ * Builds the executable step inputs for a goal from the planner's tool
+ * choices. Shared by the legacy /plan endpoint and the resume re-plan so
+ * both produce byte-identical steps (and therefore identical digests) for
+ * the same goal.
+ */
+function plannedStepsForGoal(goal: string, plannedSteps: readonly AgentToolStepV3[]): AgentStepInputV3[] {
+  return plannedSteps.map((step, index) => ({
+    toolName: step.toolName,
+    params: generatedParams(step.toolName, goal, {
+      contentFromPreviousArtifact: step.toolName === 'file_writer'
+        && index > 0
+        && plannedSteps[index - 1].toolName === 'document_generator',
+    }),
+  }));
+}
+
+/** The durable plan snapshot stored on a run record for a step list. */
+function planSnapshotFromSteps(steps: readonly AgentStepInputV3[]): AgentRunPlanStep[] {
+  return steps.map((step, index) => ({
+    toolName: step.toolName,
+    params: step.params,
+    dependsOn: index === 0 ? [] : [index - 1],
+    ...(step.params.contentFromPreviousArtifact === true && index > 0 ? { inputFrom: index - 1 } : {}),
+  }));
+}
+
+/** Rebuilds executable step inputs from a stored plan snapshot. */
+function stepInputsFromPlanSnapshot(plan: readonly AgentRunPlanStep[]): AgentStepInputV3[] {
+  return plan.map((step) => ({ toolName: step.toolName, params: step.params }));
 }
 
 /**
@@ -289,14 +331,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const run = new AgentRunSession();
     run.transition('planning');
     run.transition('awaiting_approval');
-    const steps: AgentStepInputV3[] = planned.steps.map((step, index) => ({
-      toolName: step.toolName,
-      params: generatedParams(step.toolName, goal.trim(), {
-        contentFromPreviousArtifact: step.toolName === 'file_writer'
-          && index > 0
-          && planned.steps[index - 1].toolName === 'document_generator',
-      }),
-    }));
+    const steps: AgentStepInputV3[] = plannedStepsForGoal(goal.trim(), planned.steps);
     const capability = issuePlanCapability(
       run.runId,
       digestGoal(goal.trim()),
@@ -637,12 +672,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         ownerBinding,
         goal,
         status: 'queued',
-        plan: steps.map((step, index) => ({
-          toolName: step.toolName,
-          params: step.params,
-          dependsOn: index === 0 ? [] : [index - 1],
-          ...(step.params.contentFromPreviousArtifact === true && index > 0 ? { inputFrom: index - 1 } : {}),
-        })),
+        plan: planSnapshotFromSteps(steps),
         planDigest,
         stepsState: steps.map((_, index) => ({ id: `task-${index + 1}`, status: 'queued' as const, attempts: 0 })),
         priority: typeof body.priority === 'number' ? body.priority : undefined,
@@ -741,8 +771,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         return res.status(503).json({ ok: false, code: outcome.errorCode, runId });
       case 'not_runnable':
         // A held run must re-plan and be re-approved before it can move
-        // again (design §8); that resume flow is a later phase, so the run
-        // is reported, never advanced, from here.
+        // again (design §8): see the resume endpoints below. It is
+        // reported, never advanced, from here.
         if (record.status === 'held') return res.status(409).json({ ok: false, code: 'AGENT_RUN_HELD', runId, run: view, ...runEnvelope });
         if (record.status === 'planning' || record.status === 'awaiting_approval') {
           return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_APPROVED', runId, run: view, ...runEnvelope });
@@ -807,6 +837,303 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       run: publicAgentRunView(cancelled),
       ...runEnvelope,
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // Hold and resume (multitask Phase 1, PR 1-C; design §8).
+  //
+  // Hold is a first-class state of a run, not an error: a run that cannot
+  // proceed right now (quota exhausted, approval lapsed, the user paused
+  // it, ...) is kept as a durable record with a reason and a structured
+  // resume condition instead of vanishing. The hold endpoint below is the
+  // single mechanism behind design §8.3 entries 1-3 (explicit user pause,
+  // quota-exhaustion hold, approval-timeout conversion); what differs is
+  // only the reason/condition pair. Automatic triggering (converting an
+  // awaiting_approval run when its approval lapses without anyone asking)
+  // is the piggyback evaluator's job (PR 1-G), because the record
+  // deliberately stores no capability expiry to trigger on.
+  //
+  // Resume is two steps, mirroring the normal plan/approval flow:
+  //   1. POST /runs/:id/resume re-plans the goal with the current
+  //      planner, stores the new plan snapshot on the record
+  //      (held -> awaiting_approval), returns the plan diff against the
+  //      stored snapshot plus a freshly minted plan capability.
+  //   2. The human approves that exact plan through the existing
+  //      /approval or /browser-approval endpoints, then
+  //      POST /runs/:id/resume/confirm binds the approval capability to
+  //      the stored plan (awaiting_approval -> queued), after which the
+  //      existing advance endpoint drives the run as usual.
+  // The state machine has no held -> queued edge, and no approval token
+  // is ever stored on the record, so the system itself cannot carry an
+  // approval across a hold; confirm additionally rejects approval
+  // capabilities minted before the resume instant (beyond a small
+  // clock-skew tolerance), which closes the residual bearer-token window
+  // for holds that begin and end inside one approval TTL.
+  const AGENT_RUN_APPROVAL_FRESHNESS_TOLERANCE_MS = 5_000;
+  const AGENT_RUN_HOLD_REASONS: ReadonlySet<string> = new Set([
+    'quota_exhausted',
+    'awaiting_approval',
+    'scheduled_time',
+    'condition_wait',
+    'dependency_wait',
+    'user_paused',
+    'driver_unavailable',
+  ]);
+  /** Reasons whose resume condition may default to a plain manual resume
+   * when the caller does not supply one. condition_wait and
+   * dependency_wait are meaningless without their condition payload. */
+  const AGENT_RUN_HOLD_MANUAL_DEFAULT_REASONS: ReadonlySet<string> = new Set([
+    'quota_exhausted',
+    'awaiting_approval',
+    'scheduled_time',
+    'user_paused',
+    'driver_unavailable',
+  ]);
+
+  router.post('/api/agent/v3/runs/:runId/hold', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const body = (req.body ?? {}) as { planToken?: unknown; reason?: unknown; resumeCondition?: unknown };
+    const resolved = authenticateRunsRequest(req, typeof body.planToken === 'string' ? body.planToken : undefined, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    let record: AgentRunRecord | null;
+    try {
+      record = await runStore.get(runId, resolved.auth.ownerBinding);
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+    if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+    if (record.status === 'held') {
+      // Idempotent: the first hold stands. Changing a hold's reason or
+      // resume condition is a resume/cancel decision, not a re-hold.
+      return res.json({ ok: true, protocolVersion: 3, runId, status: 'held', held: 'already', run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (record.status === 'completed' || record.status === 'failed' || record.status === 'cancelled' || record.status === 'expired') {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_HOLDABLE', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    const reason = typeof body.reason === 'string' ? body.reason : '';
+    if (!AGENT_RUN_HOLD_REASONS.has(reason)) {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_HOLD_INVALID', runId });
+    }
+    let resumeCondition: AgentRunResumeCondition | undefined;
+    if (body.resumeCondition !== undefined) {
+      if (!body.resumeCondition || typeof body.resumeCondition !== 'object' || Array.isArray(body.resumeCondition)) {
+        return res.status(400).json({ ok: false, code: 'AGENT_RUN_HOLD_INVALID', runId });
+      }
+      resumeCondition = body.resumeCondition as AgentRunResumeCondition;
+    } else if (AGENT_RUN_HOLD_MANUAL_DEFAULT_REASONS.has(reason)) {
+      resumeCondition = { kind: 'manual' };
+    } else {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_HOLD_INVALID', runId });
+    }
+    let hold: AgentRunHold;
+    try {
+      const normalized = normalizeAgentRunHold({
+        reason: reason as AgentRunHoldReason,
+        resumeCondition,
+        heldSince: Date.now(),
+        resumeAttempts: 0,
+      });
+      if (!normalized) throw new Error('AGENT_RUN_HOLD_INVALID');
+      hold = normalized;
+    } catch {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_HOLD_INVALID', runId });
+    }
+    // planning / awaiting_approval / queued runs hold directly. A running
+    // run holds through the same conditional transition: the store
+    // detaches the driver lease as it leaves `running`, so the active
+    // driver can no longer persist progress or finish the run (its
+    // in-flight tool call, if any, is the one effect that cannot be
+    // recalled). A version conflict means the driver moved first and is
+    // reported as a conflict, per the transition table's terms.
+    const held = await runStore.transition({
+      runId,
+      ownerBinding: resolved.auth.ownerBinding,
+      expectedStatus: record.status,
+      expectedVersion: record.version,
+      nextStatus: 'held',
+      hold,
+    }).catch(() => null);
+    if (!held) {
+      const current = await runStore.get(runId, resolved.auth.ownerBinding).catch(() => null);
+      if (current?.status === 'held') {
+        return res.json({ ok: true, protocolVersion: 3, runId, status: 'held', held: 'already', run: publicAgentRunView(current), ...runEnvelope });
+      }
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
+    }
+    return res.json({ ok: true, protocolVersion: 3, runId, status: 'held', held: true, run: publicAgentRunView(held), ...runEnvelope });
+  });
+
+  router.post('/api/agent/v3/runs/:runId/resume', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
+    const body = (req.body ?? {}) as { planToken?: unknown };
+    const resolved = authenticateRunsRequest(req, typeof body.planToken === 'string' ? body.planToken : undefined, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    let record: AgentRunRecord | null;
+    try {
+      record = await runStore.get(runId, resolved.auth.ownerBinding);
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+    if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+
+    const resumeResponse = (
+      current: AgentRunRecord,
+      steps: AgentStepInputV3[],
+      plannedSteps: readonly AgentToolStepV3[],
+      alreadyResumed: boolean,
+    ) => {
+      const planDigest = canonicalParamsDigest(steps);
+      const capability = issuePlanCapability(
+        runId,
+        digestGoal(current.goal.trim()),
+        env,
+        Date.now(),
+        steps[0].toolName,
+        planDigest,
+        steps.map((step) => step.toolName),
+      );
+      const planDiff = diffAgentRunPlans(alreadyResumed ? current.plan : record?.plan ?? null, steps);
+      return res.status(200).json({
+        ok: true,
+        protocolVersion: 3,
+        runId,
+        status: 'awaiting_approval',
+        resumed: alreadyResumed ? 'already' : true,
+        planToken: capability.token,
+        planExpiresAt: new Date(capability.expiresAt).toISOString(),
+        planChanged: planDiff.changed,
+        planDiff,
+        previousPlan: alreadyResumed ? current.plan : record?.plan ?? null,
+        steps: plannedSteps.map((step, index) => ({
+          toolName: step.toolName,
+          reasonCode: step.reasonCode,
+          params: steps[index].params,
+        })),
+        plan: steps.map((step, index) => ({ id: `task-${index + 1}`, title: STEP_TITLES[step.toolName] })),
+        run: publicAgentRunView(current),
+        ...runEnvelope,
+      });
+    };
+
+    if (record.status === 'awaiting_approval' && record.plan) {
+      // Idempotent re-issue: a client that lost the resume response gets
+      // a fresh plan capability for the stored (already re-planned) plan.
+      // The record is not touched, so the approval-freshness anchor
+      // (updatedAt of the resume transition) does not move. The stored
+      // snapshot is authoritative here — even if the planner would now
+      // produce something else, what gets approved is the stored plan.
+      const storedSteps = stepInputsFromPlanSnapshot(record.plan);
+      const planned = planAgentToolsV3(record.goal.trim());
+      const plannerAgrees = !('code' in planned)
+        && canonicalParamsDigest(plannedStepsForGoal(record.goal.trim(), planned.steps)) === record.planDigest;
+      const steps = plannerAgrees ? plannedStepsForGoal(record.goal.trim(), planned.steps) : storedSteps;
+      const plannedSteps: readonly AgentToolStepV3[] = plannerAgrees
+        ? planned.steps
+        : storedSteps.map((step) => ({ toolName: step.toolName, reasonCode: 'resumed-plan' }));
+      return resumeResponse(record, steps, plannedSteps, true);
+    }
+    if (record.status !== 'held') {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_HELD', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+
+    const planned = planAgentToolsV3(record.goal.trim());
+    if ('code' in planned) {
+      // The goal can no longer be planned (planner rules changed, or the
+      // goal was always ambiguous): the run stays held, honestly.
+      return res.status(422).json({ ok: false, code: planned.code, protocolVersion: 3, runId, candidates: planned.candidates, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    const steps = plannedStepsForGoal(record.goal.trim(), planned.steps);
+    const planDiff = diffAgentRunPlans(record.plan, steps);
+    const newPlanDigest = canonicalParamsDigest(steps);
+    // Step progress only carries over when the re-plan is exactly the
+    // stored plan (same tools and params, proven by the diff and the
+    // digest). Approving a different plan restarts its steps from zero:
+    // partial progress under another plan is not evidence about this one.
+    const planUnchanged = !planDiff.changed && newPlanDigest === record.planDigest;
+    const transitioned = await runStore.transition({
+      runId,
+      ownerBinding: resolved.auth.ownerBinding,
+      expectedStatus: 'held',
+      expectedVersion: record.version,
+      nextStatus: 'awaiting_approval',
+      plan: planSnapshotFromSteps(steps),
+      planDigest: newPlanDigest,
+      stepsState: planUnchanged
+        ? record.stepsState
+        : steps.map((_, index) => ({ id: `task-${index + 1}`, status: 'queued' as const, attempts: 0 })),
+    }).catch(() => null);
+    if (!transitioned) {
+      // A concurrent resume (or another transition) won the version
+      // race; nothing about this request's re-plan was stored.
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
+    }
+    return resumeResponse(transitioned, steps, planned.steps, false);
+  });
+
+  router.post('/api/agent/v3/runs/:runId/resume/confirm', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const body = (req.body ?? {}) as { planToken?: unknown; approvalToken?: unknown };
+    const resolved = authenticateRunsRequest(req, typeof body.planToken === 'string' ? body.planToken : undefined, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    let record: AgentRunRecord | null;
+    try {
+      record = await runStore.get(runId, resolved.auth.ownerBinding);
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+    if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+    if (record.status === 'queued') {
+      return res.json({ ok: true, protocolVersion: 3, runId, status: 'queued', confirmed: 'already', run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (record.status === 'held') {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_RESUMED', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (record.status !== 'awaiting_approval') {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_AWAITING_APPROVAL', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (!record.plan || record.plan.length === 0) {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_PLAN_MISSING', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    const steps = stepInputsFromPlanSnapshot(record.plan);
+    if (canonicalParamsDigest(steps) !== record.planDigest) {
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_PLAN_DIGEST_MISMATCH', runId });
+    }
+    const approval = verifyApprovalCapability(typeof body.approvalToken === 'string' ? body.approvalToken : undefined, env, Date.now());
+    if (!approval || approval.runId !== runId || approval.digest !== approvalDigest(canonicalOperation(runId, steps))) {
+      return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_INVALID' });
+    }
+    if (resolved.auth.mode === 'operator' ? (approval.authMode !== undefined && approval.authMode !== 'operator') : approval.authMode !== 'browser') {
+      return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_AUTH_MODE_MISMATCH' });
+    }
+    // Freshness (§8.4): the approval must have been minted after the
+    // resume transition moved the run into awaiting_approval (the
+    // record's updatedAt), not before the hold. The tolerance only
+    // absorbs clock skew between the app server and the database.
+    if (typeof approval.iat !== 'number' || approval.iat < record.updatedAt - AGENT_RUN_APPROVAL_FRESHNESS_TOLERANCE_MS) {
+      return res.status(403).json({ ok: false, code: 'AGENT_RUN_STALE_APPROVAL' });
+    }
+    const queued = await runStore.transition({
+      runId,
+      ownerBinding: resolved.auth.ownerBinding,
+      expectedStatus: 'awaiting_approval',
+      expectedVersion: record.version,
+      nextStatus: 'queued',
+    }).catch(() => null);
+    if (!queued) {
+      const current = await runStore.get(runId, resolved.auth.ownerBinding).catch(() => null);
+      if (current?.status === 'queued') {
+        return res.json({ ok: true, protocolVersion: 3, runId, status: 'queued', confirmed: 'already', run: publicAgentRunView(current), ...runEnvelope });
+      }
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
+    }
+    return res.json({ ok: true, protocolVersion: 3, runId, status: 'queued', confirmed: true, run: publicAgentRunView(queued), ...runEnvelope });
   });
 
   return router;
