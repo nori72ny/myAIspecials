@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { advanceAgentRun } from './agentRunAdvancer.js';
 import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
+import { InMemoryAgentRunWriteLockStore } from './agentRunWriteLockStoreMemory.fixture.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
 import type { ToolName, ToolParams, ToolResult } from './toolRegistry.js';
 
@@ -277,6 +278,7 @@ describe('advanceAgentRun', () => {
       {
         runStore: store,
         consumptionStore,
+        writeLockStore: new InMemoryAgentRunWriteLockStore(),
         runTool: makeRunTool(),
         verifyArtifact: okVerifier,
         verifyCompletion: async () => ({ ok: false }),

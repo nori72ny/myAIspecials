@@ -10,6 +10,7 @@ import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createAgentRunStoreFromEnv } from "../agent/supabaseAgentRunStore.js";
+import { createAgentRunWriteLockStoreFromEnv } from "../agent/supabaseAgentRunWriteLockStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createAgentCodingDelegationV14 } from "../agent/agentCodingDelegationV14.js";
 import { createCodingJobV14Router } from "../agent/codingJobRouterV14.js";
@@ -65,11 +66,13 @@ export function createOriginApp(
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const agentRunStore = createAgentRunStoreFromEnv(env);
+  const agentWriteLockStore = createAgentRunWriteLockStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, {
     codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
     runStore: agentRunStore,
+    writeLockStore: agentWriteLockStore,
   }));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
