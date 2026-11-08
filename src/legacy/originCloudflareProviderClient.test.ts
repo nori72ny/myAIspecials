@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  classifyOriginCloudflareUpstreamErrorCode,
   executeOriginCloudflareProvider,
+  ORIGIN_CF_CAPACITY_COOLDOWN_MS,
   OriginCloudflarePreflightError,
+  resetOriginCloudflareRouteStateForTests,
   verifyOriginCloudflareWorkersFreePlan,
   type OriginCloudflareCredentials,
 } from "./originCloudflareProviderClient";
@@ -319,7 +322,31 @@ describe("verifyOriginCloudflareWorkersFreePlan", () => {
   });
 });
 
+describe("classifyOriginCloudflareUpstreamErrorCode", () => {
+  it("classifies only the exact pool-exhaustion and temporary-capacity codes", () => {
+    expect(classifyOriginCloudflareUpstreamErrorCode(3036)).toBe("pool-exhausted");
+    expect(classifyOriginCloudflareUpstreamErrorCode(4006)).toBe("pool-exhausted");
+    expect(classifyOriginCloudflareUpstreamErrorCode("4006")).toBe("pool-exhausted");
+    expect(classifyOriginCloudflareUpstreamErrorCode(3040)).toBe("temporary-capacity");
+    expect(classifyOriginCloudflareUpstreamErrorCode("3040")).toBe("temporary-capacity");
+  });
+
+  it("never classifies lookalike, textual, or missing codes", () => {
+    expect(classifyOriginCloudflareUpstreamErrorCode(40060)).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode("04006")).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode(10023)).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode("rate_limit_exceeded")).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode("daily allocation used up")).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode(undefined)).toBeNull();
+    expect(classifyOriginCloudflareUpstreamErrorCode(null)).toBeNull();
+  });
+});
+
 describe("executeOriginCloudflareProvider", () => {
+  beforeEach(() => {
+    resetOriginCloudflareRouteStateForTests();
+  });
+
   function fullFetch(inference: () => Promise<Response>, subscriptions: unknown[] = []) {
     const proof = proofFetch(subscriptions);
     return vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
@@ -453,5 +480,94 @@ describe("executeOriginCloudflareProvider", () => {
     expect(String(error)).not.toContain(AI_TOKEN);
     expect(JSON.stringify(error.diagnostic ?? {})).not.toContain(PROOF_TOKEN);
     expect(JSON.stringify(error.diagnostic ?? {})).not.toContain(AI_TOKEN);
+  });
+
+  it("stops the route for the rest of the UTC day after a 4006 pool-exhaustion failure", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson(null, 429, [{ code: 4006, message: "Account limited" }]));
+    const first = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(first).toBeInstanceOf(OriginProviderError);
+    expect(first.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(first.diagnostic?.upstreamErrorCode).toBe("4006");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    // Same UTC day, one minute before midnight: skipped before any network
+    // call — not even the plan-proof reads are paid again.
+    const lateSameDay = Date.parse("2026-11-06T23:59:00.000Z");
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: lateSameDay }))
+      .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "pool-exhausted" });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("releases the pool-exhaustion stop at the UTC day boundary", async () => {
+    let inferenceCalls = 0;
+    const fetchMock = fullFetch(async () => {
+      inferenceCalls += 1;
+      if (inferenceCalls === 1) return cloudflareJson(null, 429, [{ code: 3036, message: "Account limited" }]);
+      return cloudflareJson({
+        response: "回復後の確認結果です。",
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      });
+    });
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
+    const nextUtcDay = Date.parse("2026-11-07T00:00:00.000Z");
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: nextUtcDay });
+    expect(result.text).toBe("回復後の確認結果です。");
+    expect(inferenceCalls).toBe(2);
+  });
+
+  it("backs off only briefly after a 3040 temporary-capacity failure, never for the day", async () => {
+    let inferenceCalls = 0;
+    const fetchMock = fullFetch(async () => {
+      inferenceCalls += 1;
+      if (inferenceCalls === 1) return cloudflareJson(null, 429, [{ code: 3040, message: "Out of capacity" }]);
+      return cloudflareJson({
+        response: "容量回復後の結果です。",
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      });
+    });
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", diagnostic: { upstreamErrorCode: "3040" } });
+    const callsAfterFailure = fetchMock.mock.calls.length;
+
+    // Inside the short cooldown the route is skipped before any network call.
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + ORIGIN_CF_CAPACITY_COOLDOWN_MS - 1 }))
+      .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "capacity-cooldown" });
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFailure);
+
+    // After the cooldown the route runs again on the same UTC day — a 3040 is
+    // never mistaken for the day-long pool stop.
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + ORIGIN_CF_CAPACITY_COOLDOWN_MS });
+    expect(result.text).toBe("容量回復後の結果です。");
+    expect(inferenceCalls).toBe(2);
+  });
+
+  it("does not stop the route after a 429 whose code is not a classified one", async () => {
+    let inferenceCalls = 0;
+    const fetchMock = fullFetch(async () => {
+      inferenceCalls += 1;
+      if (inferenceCalls === 1) return cloudflareJson(null, 429, [{ code: 10023, message: "unrelated failure" }]);
+      return cloudflareJson({
+        response: "再試行後の結果です。",
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      });
+    });
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.text).toBe("再試行後の結果です。");
+    expect(inferenceCalls).toBe(2);
+  });
+
+  it("prefers the pool-exhaustion stop when an envelope carries both classified codes", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson(null, 429, [
+      { code: 3040, message: "Out of capacity" },
+      { code: 4006, message: "Account limited" },
+    ]));
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + ORIGIN_CF_CAPACITY_COOLDOWN_MS + 1 }))
+      .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "pool-exhausted" });
   });
 });
