@@ -10,7 +10,11 @@ const EXPECTED_REPOSITORY = 'nori72ny/myAIspecials';
 const EXPECTED_REPOSITORY_ID = '1282163675';
 const EXPECTED_REPOSITORY_OWNER = 'nori72ny';
 const EXPECTED_REF = 'refs/heads/main';
-const EXPECTED_EVENTS = new Set(['push', 'schedule']);
+// The workflow runs on push and schedule, and manual workflow_dispatch runs
+// are the post-deploy production verification path (see the workflow file),
+// so all three trigger types present acceptable tokens. Every other claim
+// pin below (workflow, workflow_ref, ref, repository, sha) still applies.
+const EXPECTED_EVENTS = new Set(['push', 'schedule', 'workflow_dispatch']);
 const EXPECTED_RUNNER = 'github-hosted';
 const MAX_TOKEN_BYTES = 16 * 1024;
 const MAX_JSON_BYTES = 8 * 1024;

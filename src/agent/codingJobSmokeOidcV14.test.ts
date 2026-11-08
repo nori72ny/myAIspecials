@@ -67,8 +67,15 @@ describe('V1.4 GitHub OIDC production smoke verifier', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects other trigger types before any JWKS request', async () => {
+  it('accepts the same bounded workflow when GitHub triggers it by manual dispatch', async () => {
     const { token, fetchImpl } = tokenFixture({ event_name: 'workflow_dispatch' });
+    const verified = await verifyCodingJobSmokeOidcV14(token, { fetchImpl, nowMs });
+    expect(verified).toEqual({ sha, runId: '34699999999' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects other trigger types before any JWKS request', async () => {
+    const { token, fetchImpl } = tokenFixture({ event_name: 'pull_request' });
     await expect(verifyCodingJobSmokeOidcV14(token, { fetchImpl, nowMs })).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
