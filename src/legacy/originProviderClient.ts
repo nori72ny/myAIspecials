@@ -16,6 +16,16 @@ export interface OriginProviderExecutionRequest {
   plan: OriginExecutionPlan;
   messages: OriginChatMessage[];
   systemInstruction: string;
+  /**
+   * Optional route-3-only substitute system instruction. The Groq executor sends this
+   * instead of `systemInstruction` so its payload can pass the free plan's
+   * tokens/minute gate (the assembled standard instruction estimates to nearly the
+   * whole 8,000-token ceiling by itself). Routes 1 and 2 never read this field and
+   * always receive `systemInstruction` unchanged, and callers that do not set it —
+   * for example the grounded-research synthesis — keep the previous route-3 behavior
+   * exactly.
+   */
+  groqSystemInstruction?: string;
   /** Optional single required function contract. The provider must return exactly one matching tool call. */
   requiredTool?: OriginProviderRequiredTool;
 }

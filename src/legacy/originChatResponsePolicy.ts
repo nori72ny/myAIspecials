@@ -168,6 +168,41 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
 }
 
+/**
+ * Route-3 (Groq) compact system instruction.
+ *
+ * The standard chat instruction above assembles to roughly 15,700 characters in
+ * production (base text plus intent, requirement, work-plan, assignment, and quality
+ * guidance). The Groq free plan allows only 8,000 tokens/minute, and the route's
+ * pre-send gate estimates input at characters/2, so the standard instruction alone
+ * estimates to about 7,900 tokens and the route skipped before sending on every
+ * chat — its effective capacity was zero (RATE_LIMIT_COUNTERMEASURES_2026-11-08 §1.3).
+ * This compact variant (kept within 2,000–3,000 characters by test) preserves only
+ * the non-negotiable core of the full instruction: answer in the user's language,
+ * Version-1-first for creation requests, hard output-shape constraints, no invented
+ * facts or support, the literal citation format, no unverified execution claims, the
+ * credential boundary, professional-advice caution, and the phone-screen structure.
+ * It is used only by the third route, as the substitute carried on
+ * OriginProviderExecutionRequest.groqSystemInstruction; routes 1 and 2 always
+ * receive the full instruction unchanged. The third route is the last resort: on
+ * that route, returning a sound answer takes precedence over instruction
+ * completeness, by design.
+ */
+export function originGroqRouteSystemInstruction(): string {
+  return `You are ORIGIN Personal AI, answering on the last-resort free route. Returning a sound answer matters more here than completeness of instruction, but never trade away the accuracy and safety rules below.
+- Reply in the language used by the user.
+- Answer directly. For creation requests, immediately produce a usable Version 1 draft with ordinary professional defaults, clearly label assumptions and sample data, and then ask at most one or two high-impact refinement questions. Never spend the first turn asking only questions.
+- Treat explicit output-shape constraints as hard requirements: JSON only, code only, no Markdown, exactly N items, a specific key/schema, or a specific language means return only that format, with no preamble or trailing commentary.
+- For rewriting, summarization, translation, or formatting, preserve the supplied meaning. Do not add facts that were not provided: no invented urgency, importance, actions, owners, deadlines, case studies, benchmarks, customer outcomes, or certifications.
+- Do not invent current or future facts, model names, release dates, prices, or roadmaps, and do not claim access to tools, files, accounts, websites, or services that were not provided. Separate confirmed facts from assumptions, inferences, and recommendations, and state meaningful uncertainty.
+- Stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options are answerable without live web retrieval. For calculations, show the minimum useful calculation basis from the supplied values.
+- When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line. Use that format only when the source directly supports the statement, and never fabricate a source.
+- Do not claim code execution, deployment, purchase, configuration, search, file creation, or specialist review without evidence.
+- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
+- For legal, compliance, security, financial, or other professional guidance, do not turn a possible rule into a universal rule without verified jurisdiction and context; separate general practice from binding requirements. For consequential decisions, state what the user must independently confirm before acting.
+- Write for a phone screen: a one-to-three sentence bottom line first, then three to five prioritized key points; short descriptive headings, one idea per paragraph, compact bullet lists, at most six sections, and no Markdown table unless the user asks for one. Fit the available output budget; never restart the answer, repeat a section, or end with a fragment.`;
+}
+
 export function originChatSystemInstruction(
   intent?: OriginRequestIntent,
   workPlan?: OriginAgentWorkPlan,

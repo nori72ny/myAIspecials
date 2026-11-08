@@ -162,6 +162,40 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
+  it("forwards the route-3 compact instruction to the Groq executor only", async () => {
+    const compactInstruction = "経路3専用の短縮指示です。";
+    const activatedRequest: OriginProviderExecutionRequest = { ...request, groqSystemInstruction: compactInstruction };
+    let primarySeen: OriginProviderExecutionRequest | undefined;
+    let cloudflareSeen: OriginProviderExecutionRequest | undefined;
+    let groqSeen: OriginProviderExecutionRequest | undefined;
+    const primaryExecute = vi.fn(async (seen: OriginProviderExecutionRequest) => {
+      primarySeen = seen;
+      throw rateLimitedError(1);
+    });
+    const cloudflareExecute = vi.fn(async (seen: OriginProviderExecutionRequest) => {
+      cloudflareSeen = seen;
+      throw new OriginCloudflarePreflightError("not-configured");
+    });
+    const groqExecute = vi.fn(async (seen: OriginProviderExecutionRequest) => {
+      groqSeen = seen;
+      return groqSuccessResult();
+    });
+    const result = await executeOriginProviderWithFailover(activatedRequest, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    });
+    expect(result.text).toBe("第3経路の回答です。");
+    // The Groq executor receives both the original instruction (untouched) and the
+    // route-3 substitute. The primary executor shares the request object but never
+    // reads the substitute (its payload is built from systemInstruction alone), and
+    // the Cloudflare route's constructed request does not carry the field at all.
+    expect(groqSeen?.groqSystemInstruction).toBe(compactInstruction);
+    expect(groqSeen?.systemInstruction).toBe(request.systemInstruction);
+    expect(primarySeen?.groqSystemInstruction).toBe(compactInstruction);
+    expect(primarySeen?.systemInstruction).toBe(request.systemInstruction);
+    expect(cloudflareSeen?.groqSystemInstruction).toBeUndefined();
+    expect(cloudflareSeen?.systemInstruction).toBe(request.systemInstruction);
+  });
+
   it("engages the dispatch on the Groq key alone when the Cloudflare flag is off", async () => {
     const primaryExecute = primaryRateLimited();
     const cloudflareExecute = cloudflareSkipped("not-enabled");

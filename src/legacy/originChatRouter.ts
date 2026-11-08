@@ -24,7 +24,7 @@ import {
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
-import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
@@ -440,7 +440,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const startedAt = now();
     try {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) };
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)), groqSystemInstruction: originGroqRouteSystemInstruction() };
       const result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       const evidence = extractProvidedOriginEvidence(result.text); const sourceEvidenceExpected = planningResult.plan.taskType === "research";

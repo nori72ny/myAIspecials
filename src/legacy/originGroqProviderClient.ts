@@ -11,6 +11,7 @@ import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
   originCompletionTokenBudget,
   OriginProviderError,
+  type OriginChatMessage,
   type OriginFetch,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
@@ -40,12 +41,33 @@ import {
  * catalog entry is deliberately short-lived (reviewAfter 2026-11-22) and the route
  * fails closed when it expires, exactly like the other routes. The API key is used
  * only in the Authorization header; it never appears in results, errors, or logs.
+ *
+ * Route activation (2026-11-08): as first shipped, this gate made the route
+ * structurally inert — the assembled standard chat instruction is about 15,700
+ * characters, which the conservative estimator reads as about 7,900 tokens, leaving
+ * less than the minimal completion under the 8,000 tokens/minute ceiling, so every
+ * standard chat skipped before sending. The chat dispatchers now carry a compact
+ * route-specific system instruction on the request (groqSystemInstruction, built by
+ * originGroqRouteSystemInstruction in originChatResponsePolicy.ts), and this executor
+ * sends that substitute — plus a history trimmed oldest-first to a route input
+ * budget — instead of the full-size payload. Routes 1 and 2 are untouched: they
+ * never read the substitute field, and requests that do not carry it (such as the
+ * grounded-research synthesis) keep the previous behavior on this route exactly.
  */
 
 export const ORIGIN_GROQ_API_KEY_ENV = "GROQ_API_KEY" as const;
 
 /** Free-plan tokens/minute ceiling for openai/gpt-oss-120b, verified 2026-11-08. */
 export const ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT = 8_000;
+/**
+ * Route-3 payload discipline: after trimming, the estimated input (system instruction
+ * plus kept history) must fit this budget, so at least 2,000 tokens of completion
+ * headroom remain under the tokens/minute ceiling before the plan's own completion
+ * budget is even considered. Trimming drops the oldest messages first and always
+ * keeps the final message (the current user turn); when that message alone exceeds
+ * the budget nothing is trimmed away and the TPM gate below decides honestly.
+ */
+export const ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET = 6_000;
 export const ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS = 52_000;
 /** Below this completion headroom the answer would be uselessly truncated; skip instead. */
 const MIN_GROQ_COMPLETION_TOKENS = 256;
@@ -97,6 +119,29 @@ export function estimateOriginGroqInputTokens(payloadTexts: readonly string[]): 
     tokens += Math.ceil(text.length / 2) + 4;
   }
   return tokens;
+}
+
+/**
+ * Trims conversation history for the third route only: drops the oldest messages
+ * until the estimated input (system instruction plus kept messages) fits
+ * ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET. The final message is always kept, even when
+ * it alone exceeds the budget — dropping the user's current turn would be worse than
+ * an honest gate decision. Routes 1 and 2 never see the trimmed window; the caller's
+ * message list is not mutated.
+ */
+export function trimOriginGroqRouteHistory(
+  messages: readonly OriginChatMessage[],
+  systemInstruction: string,
+): OriginChatMessage[] {
+  let kept = [...messages];
+  while (
+    kept.length > 1
+    && estimateOriginGroqInputTokens([systemInstruction, ...kept.map((message) => message.content)])
+      > ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET
+  ) {
+    kept = kept.slice(1);
+  }
+  return kept;
 }
 
 function validateGroqPlan(plan: OriginExecutionPlan): void {
@@ -217,11 +262,24 @@ export async function executeOriginGroqProvider(
       throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
     }
 
+    // Route-3 payload: the compact substitute instruction when the dispatcher
+    // provided one, and a history trimmed to the route's input budget. Both are
+    // local to this executor — the request object (and therefore routes 1 and 2)
+    // keeps the full instruction and the full history window. Trimming estimates
+    // from the sanitized texts, so the gate below still measures the exact payload.
+    const effectiveSystemInstruction = sanitizePreEgress(
+      providerRequest.groqSystemInstruction ?? providerRequest.systemInstruction,
+    );
+    const sanitizedHistory = providerRequest.messages.map((message) => ({
+      ...message,
+      content: sanitizePreEgress(message.content),
+    }));
+    const routeMessages = trimOriginGroqRouteHistory(sanitizedHistory, effectiveSystemInstruction);
     const messages = [
-      { role: "system", content: sanitizePreEgress(providerRequest.systemInstruction) },
-      ...providerRequest.messages.map((message) => ({
+      { role: "system", content: effectiveSystemInstruction },
+      ...routeMessages.map((message) => ({
         role: message.role === "user" ? "user" : "assistant",
-        content: sanitizePreEgress(message.content),
+        content: message.content,
       })),
     ];
     // TPM gate, enforced before anything is sent: estimate the input from the exact
