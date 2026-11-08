@@ -106,36 +106,6 @@
   }
 
 
-  /* Keep the ULTRA entry point accessible without inserting a 52px spacer
-     between the home description and composer on short mobile viewports. */
-  .origin-app main [data-testid="origin-ultra-v16-anchor"] {
-    height: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
-  }
-  .origin-app main [data-testid="origin-ultra-v16-anchor"] > div {
-    position: fixed !important;
-    top: calc(58px + env(safe-area-inset-top)) !important;
-    right: 8px !important;
-    z-index: 40 !important;
-    margin: 0 !important;
-    padding-bottom: 0 !important;
-  }
-
-  /* In an active conversation, return the research action to normal flow
-     above the composer so it cannot cover the first or later chat messages. */
-  .origin-app main:has([role="log"]) [data-testid="origin-ultra-v16-anchor"] {
-    height: auto !important;
-    margin: 0 0 4px !important;
-  }
-  .origin-app main:has([role="log"]) [data-testid="origin-ultra-v16-anchor"] > div {
-    position: static !important;
-    top: auto !important;
-    right: auto !important;
-    margin: 0 !important;
-    padding-bottom: 0 !important;
-  }
-
   .origin-add-menu[open]::before {
     content: "";
     position: fixed;

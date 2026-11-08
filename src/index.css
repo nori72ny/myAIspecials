@@ -548,8 +548,6 @@ button:first-child:has(svg):not(.origin-primary-button) * {
   stroke: var(--text-secondary) !important;
   color: var(--text-secondary) !important;
 }
-:root[data-theme="dark"] .origin-ultra-v16,
-:root[data-theme="dark"] [data-testid*="origin-ultra"],
 :root[data-theme="dark"] [role="dialog"] {
   color: var(--text-primary);
 }
