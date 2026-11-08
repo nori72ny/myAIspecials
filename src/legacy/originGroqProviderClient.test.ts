@@ -23,7 +23,12 @@ import {
   ORIGIN_OPENROUTER_FREE_MODEL,
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
-import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog";
+import {
+  DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG,
+  ORIGIN_GROQ_FREE_MODEL_ID,
+  ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+  type OriginGroqFreeModelEvidence,
+} from "../lib/orchestration/OriginGroqFreeModelCatalog";
 
 // Synthetic test fixture only; not a real credential (kept clearly fake on purpose).
 const SYNTHETIC_KEY = "synthetic-groq-api-key-for-tests-only";
@@ -156,13 +161,16 @@ describe("executeOriginGroqProvider", () => {
     expect(body.max_tokens).toBeGreaterThanOrEqual(256);
   });
 
-  it("maps HTTP 429 to PROVIDER_RATE_LIMITED with the transport count attached", async () => {
+  it("maps HTTP 429 to PROVIDER_RATE_LIMITED with the transport count attached (both models rate-limited: the rotation was sent too)", async () => {
     const fetchMock = vi.fn(async () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429)) as unknown as OriginFetch;
     const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(OriginProviderError);
     expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
-    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(1);
+    // The primary model was sent once, then the in-route rotation sent the
+    // rotation model once; the honest transport count covers both sends.
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(2);
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 
   it("keeps the raw Groq error code in the diagnostic without the upstream message text", async () => {
@@ -317,6 +325,97 @@ describe("executeOriginGroqProvider route activation (compact instruction)", () 
     expect(error).toBeInstanceOf(OriginGroqPreflightError);
     expect((error as OriginGroqPreflightError).reason).toBe("token-budget-exceeded");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("executeOriginGroqProvider in-route model rotation", () => {
+  const rotationSuccessBody = (content = "第3経路（持ち回り先）の回答です。"): Record<string, unknown> => ({
+    model: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+    choices: [{ message: { content } }],
+    usage: { prompt_tokens: 110, completion_tokens: 30, total_tokens: 140 },
+  });
+  const rateLimitResponse = () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429);
+  function sequencedFetch(steps: Array<() => Response>): OriginFetch {
+    let index = 0;
+    return vi.fn(async () => {
+      const step = steps[Math.min(index, steps.length - 1)];
+      index += 1;
+      return step();
+    }) as unknown as OriginFetch;
+  }
+
+  it("rotates to gpt-oss-20b after the primary model is rate-limited and serves its answer", async () => {
+    const fetchMock = sequencedFetch([rateLimitResponse, () => groqJson(rotationSuccessBody())]);
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.text).toBe("第3経路（持ち回り先）の回答です。");
+    expect(result.transportRequestCount).toBe(2);
+    expect(result.actualCostUsd).toBe(0);
+    expect(result.routingEvidence).toEqual({
+      requestedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+      servedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+      strategy: "verified-free-failover",
+      provider: "Groq",
+      attempt: 3,
+      fallbackUsed: true,
+    });
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    const firstBody = JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as { model: string };
+    const secondBody = JSON.parse(String((calls[1] as [string, RequestInit])[1].body)) as { model: string };
+    expect(firstBody.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(secondBody.model).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+  });
+
+  it("rotates after an upstream 503 overload response", async () => {
+    const fetchMock = sequencedFetch([
+      () => groqJson({ error: { code: "service_unavailable", message: "Service unavailable" } }, 503),
+      () => groqJson(rotationSuccessBody()),
+    ]);
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.text).toBe("第3経路（持ち回り先）の回答です。");
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(result.transportRequestCount).toBe(2);
+  });
+
+  it("does not rotate on an auth failure", async () => {
+    const fetchMock = vi.fn(async () => groqJson({ error: { code: "invalid_api_key", message: "Invalid API key" } }, 401)) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it("does not rotate when the primary response fails served-model verification", async () => {
+    const fetchMock = vi.fn(async () => groqJson({ ...successBody(), model: "openai/gpt-oss-safeguard-20b" })) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_ROUTING_UNVERIFIED");
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+
+  it("holds the rotation model to the same served-model identity standard", async () => {
+    const fetchMock = sequencedFetch([
+      rateLimitResponse,
+      // Answers as the primary model although the rotation model was requested.
+      () => groqJson(successBody()),
+    ]);
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_ROUTING_UNVERIFIED");
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(2);
+  });
+
+  it("does not rotate when the rotation model's evidence is stale, surfacing the primary failure after one send", async () => {
+    const staleRotationCatalog: OriginGroqFreeModelEvidence[] = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG.map((entry) =>
+      entry.modelId === ORIGIN_GROQ_FREE_ROTATION_MODEL_ID
+        ? { ...entry, verifiedAt: "2026-10-25T00:00:00.000Z", reviewAfter: "2026-11-05T00:00:00.000Z" }
+        : entry);
+    const fetchMock = vi.fn(async () => rateLimitResponse()) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS, catalog: staleRotationCatalog })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(1);
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 });
 

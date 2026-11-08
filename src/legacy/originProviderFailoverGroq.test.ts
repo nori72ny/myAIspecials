@@ -23,7 +23,10 @@ import {
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog";
-import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog";
+import {
+  ORIGIN_GROQ_FREE_MODEL_ID,
+  ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+} from "../lib/orchestration/OriginGroqFreeModelCatalog";
 
 // Synthetic test fixture only; not a real credential (kept clearly fake on purpose).
 const SYNTHETIC_KEY = "synthetic-groq-api-key-for-tests-only";
@@ -306,6 +309,36 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
+  it("names the rotation model on the Groq attempt when the route served via gpt-oss-20b", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = cloudflareSkipped();
+    // The executor rotated inside the route: two Groq sends, served by 20b.
+    const groqExecute = vi.fn(async () => ({
+      ...groqSuccessResult(),
+      transportRequestCount: 2,
+      routingEvidence: {
+        requestedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+        servedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+        strategy: "verified-free-failover" as const,
+        provider: "Groq" as const,
+        attempt: 3 as const,
+        fallbackUsed: true as const,
+      },
+    }));
+    const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    });
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(result.attempts?.[2]).toEqual({
+      providerId: "groq-free",
+      modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+      outcome: "succeeded",
+      transportRequestCount: 2,
+    });
+    expect(result.transportRequestCount).toBe(1 + 0 + 2);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
   it("delivers the Groq answer through the streaming variant when the primary stream fails before any byte", async () => {
     const deltas: string[] = [];
     const streamExecute = vi.fn(async () => { throw rateLimitedError(1); });
@@ -350,6 +383,33 @@ describe("assertOriginZeroCostExecutionResultWithFailover with three attempts", 
   it("rejects a three-attempt result served by an unapproved Groq model", () => {
     const wrongModel = { ...groqServed, modelId: "llama-3.3-70b-versatile" };
     const result = groqServedResult([primaryFailed, cfSkipped, wrongModel], 2);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
+      .toThrowError(expect.objectContaining({ code: "PROVIDER_ROUTING_UNVERIFIED" }));
+  });
+
+  it("accepts a three-attempt result served by the rotation model gpt-oss-20b", () => {
+    const rotationServed = { ...groqServed, modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, transportRequestCount: 2 };
+    const result: OriginProviderExecutionResult = {
+      ...groqSuccessResult(),
+      transportRequestCount: 3,
+      routingEvidence: {
+        requestedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+        servedModel: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+        strategy: "verified-free-failover",
+        provider: "Groq",
+        attempt: 3,
+        fallbackUsed: true,
+      },
+      attempts: [primaryFailed, cfSkipped, rotationServed],
+    };
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("rejects a rotation attempt whose routing evidence names the other Groq model", () => {
+    const rotationAttempt = { ...groqServed, modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, transportRequestCount: 2 };
+    // Attempt evidence claims 20b served, but the result's routing evidence
+    // still names the primary model: the pair does not agree, so unverified.
+    const result = groqServedResult([primaryFailed, cfSkipped, rotationAttempt], 3);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
       .toThrowError(expect.objectContaining({ code: "PROVIDER_ROUTING_UNVERIFIED" }));
   });

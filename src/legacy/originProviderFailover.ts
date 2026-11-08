@@ -10,8 +10,10 @@ import {
   type OriginCloudflareFreeModelEvidence,
 } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import {
+  isOriginGroqFreeModelId,
   ORIGIN_GROQ_FREE_MODEL_ID,
   type OriginGroqFreeModelEvidence,
+  type OriginGroqFreeModelId,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import {
   assertOriginZeroCostExecutionResult,
@@ -540,7 +542,11 @@ function composeGroqResult(
   groqResult: OriginProviderExecutionResult,
   priorAttempts: readonly OriginProviderAttemptEvidence[],
 ): OriginProviderExecutionResult {
+  // The Groq route may have rotated inside itself (120b rate-limited, then 20b
+  // served): the attempt evidence names the model that actually served, taken
+  // from the result's verified routing evidence.
   const groqAttempt = groqAttemptEvidence("succeeded", {
+    modelId: groqResult.routingEvidence?.servedModel ?? ORIGIN_GROQ_FREE_MODEL_ID,
     transportRequestCount: groqResult.transportRequestCount,
   });
   const priorTransport = priorAttempts.reduce((sum, attempt) => sum + (attempt.transportRequestCount ?? 0), 0);
@@ -655,7 +661,12 @@ async function failOverFromPrimaryError(
  * until the owner registers the key. With the key, the route is raced against the
  * same total budget as the second route, its executor enforces the 8,000
  * tokens/minute ceiling before sending, and its evidence catalog entry expires on
- * 2026-11-22, after which the route disables itself (fail closed). Integrity
+ * 2026-11-22, after which the route disables itself (fail closed). Inside the
+ * route, the executor may rotate once from openai/gpt-oss-120b to
+ * openai/gpt-oss-20b (a separate per-model quota bucket with its own catalog
+ * evidence) when the primary model fails with a rate-limit or overload error;
+ * the route still counts as the single third attempt, and the attempt evidence
+ * names the model that actually served. Integrity
  * failures on any route still never switch routes: the third route is reached only
  * from availability failures or pre-execution skips of the routes before it.
  */
@@ -926,9 +937,12 @@ export function assertOriginZeroCostExecutionResultWithFailover(
   }
   // Three attempts: the Cloudflare route did not serve (it either failed with an
   // availability error or was skipped before execution with zero transport), and the
-  // Groq route served. Any other shape — including a "succeeded" middle attempt,
-  // which would mean the third route ran after an answer already existed — is
-  // unverified.
+  // Groq route served. The Groq attempt may name either catalog model: the primary
+  // openai/gpt-oss-120b, or openai/gpt-oss-20b when the route rotated inside itself
+  // after the primary model's rate-limit/overload failure; the result's own routing
+  // evidence must match the attempt's model exactly. Any other shape — including a
+  // "succeeded" middle attempt, which would mean the third route ran after an
+  // answer already existed — is unverified.
   const secondIsAvailabilityFailure = second.outcome === "availability-error"
     && Boolean(second.errorCode)
     && ORIGIN_FAILOVER_TRIGGER_CODES.has(second.errorCode as OriginProviderErrorCode);
@@ -941,8 +955,8 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     || (!secondIsAvailabilityFailure && !secondIsPreExecutionSkip)
     || third.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
     || third.outcome !== "succeeded"
-    || third.modelId !== ORIGIN_GROQ_FREE_MODEL_ID) {
+    || !isOriginGroqFreeModelId(third.modelId)) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
-  assertOriginGroqExecutionResult(result);
+  assertOriginGroqExecutionResult(result, third.modelId as OriginGroqFreeModelId);
 }
