@@ -256,6 +256,27 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(attempts?.[2].outcome).toBe("availability-error");
   });
 
+  it("records each route's upstream status and raw error code on its failed attempt evidence", async () => {
+    const primaryExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, { transportRequestCount: 1, upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded" });
+    });
+    const cloudflareExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, { transportRequestCount: 4, upstreamStatus: 429, upstreamErrorCode: "10023" });
+    });
+    const groqExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, { transportRequestCount: 1, upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded" });
+    });
+    const error = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.diagnostic?.failoverAttempts).toEqual([
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1 },
+      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1 },
+    ]);
+  });
+
   it("chains through a circuit-open primary skip to Groq on the next request", async () => {
     const first = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS,

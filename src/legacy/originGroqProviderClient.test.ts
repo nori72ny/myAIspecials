@@ -165,6 +165,17 @@ describe("executeOriginGroqProvider", () => {
     expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(1);
   });
 
+  it("keeps the raw Groq error code in the diagnostic without the upstream message text", async () => {
+    const fetchMock = vi.fn(async () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached; key gsk_syntheticsecretmaterial" } }, 429)) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.diagnostic?.upstreamStatus).toBe(429);
+    expect(error.diagnostic?.upstreamErrorCode).toBe("rate_limit_exceeded");
+    expect(JSON.stringify(error.diagnostic)).not.toContain("gsk_syntheticsecretmaterial");
+  });
+
   it("fails closed when the served model identity differs from the fixed free model", async () => {
     const fetchMock = vi.fn(async () => groqJson({ ...successBody(), model: "openai/gpt-oss-20b" })) as unknown as OriginFetch;
     const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })

@@ -316,7 +316,7 @@ function primaryAttemptEvidence(
     providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
     modelId: request.plan.modelId,
     outcome,
-    ...(error ? { errorCode: error.code } : {}),
+    ...(error ? { errorCode: error.code, ...upstreamAttemptFields(error) } : {}),
     transportRequestCount: error ? error.diagnostic?.transportRequestCount : undefined,
   };
 }
@@ -350,6 +350,24 @@ function withFailoverAttempts(error: OriginProviderError, attempts: readonly Ori
     ...error.diagnostic,
     failoverAttempts: attempts,
   });
+}
+
+/**
+ * Copies the failed route's upstream metadata (HTTP status and the provider's
+ * raw error code/type, as captured by that route's client) onto its attempt
+ * evidence, so the diagnostic of the error that is finally surfaced shows why
+ * each route actually failed instead of only the classified code. The values
+ * stay internal here; the chat routers pass attempts through the whitelisting
+ * failure-diagnostic summary before anything reaches a response or a log line.
+ */
+function upstreamAttemptFields(error: OriginProviderError): Partial<OriginProviderAttemptEvidence> {
+  const diagnostic = error.diagnostic;
+  if (!diagnostic) return {};
+  return {
+    ...(diagnostic.upstreamStatus !== undefined ? { upstreamStatus: diagnostic.upstreamStatus } : {}),
+    ...(diagnostic.upstreamErrorType !== undefined ? { upstreamErrorType: diagnostic.upstreamErrorType } : {}),
+    ...(diagnostic.upstreamErrorCode !== undefined ? { upstreamErrorCode: diagnostic.upstreamErrorCode } : {}),
+  };
 }
 
 async function runCloudflareRoute(
@@ -566,7 +584,7 @@ async function attemptGroqRoute(
     if (error instanceof OriginProviderError) {
       const failed = groqAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
       );
       throw withFailoverAttempts(error, [...priorAttempts, failed]);
     }
@@ -604,7 +622,7 @@ async function failOverFromPrimaryError(
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
       );
       if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
         return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
@@ -676,7 +694,7 @@ async function failOverFromOpenCircuit(
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
       );
       if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
         return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);

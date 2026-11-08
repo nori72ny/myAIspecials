@@ -12,7 +12,7 @@ import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
-import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import {
@@ -449,7 +449,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
-        console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: error.diagnostic });
+        const failureDiagnostic = buildOriginProviderFailureDiagnostic(error);
+        // The diagnostic is serialized to a flat JSON string: platform log viewers
+        // collapse nested objects ("[Object]"), which previously made the per-route
+        // failover breakdown unrecoverable from production logs.
+        console.warn("[origin-chat] provider request failed", { requestId, durationMs: Math.max(0, now() - startedAt), code: error.code, status: error.status, retryable: error.retryable, diagnostic: JSON.stringify(failureDiagnostic) });
         res.setHeader("Cache-Control", "no-store");
         return res.status(error.status).json({
           code: error.code,
@@ -459,6 +463,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           providerTransportRequests: error.diagnostic?.transportRequestCount,
           requestId,
           retryAttempted: false,
+          diagnostic: failureDiagnostic,
         });
       }
       console.error("[origin-chat] unexpected provider failure", { requestId, durationMs: Math.max(0, now() - startedAt), errorName: "unexpected" });

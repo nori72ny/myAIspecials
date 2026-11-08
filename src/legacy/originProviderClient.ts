@@ -35,10 +35,10 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
  * attempts that were actually executed; routes that were skipped before execution (for
  * example a missing token or stale evidence) are recorded on the error diagnostic instead.
  */
-export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; transportRequestCount?: number; }
+export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; }
 export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; }
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -66,6 +66,143 @@ export class OriginProviderError extends Error {
     super(safeProviderMessage(code));
     this.name = "OriginProviderError";
   }
+}
+
+/**
+ * Failure diagnostics that are safe to surface: the chat failure response body and
+ * the server log line both carry exactly this shape. The internal
+ * OriginProviderDiagnostic is metadata-only by convention, but its string fields
+ * are populated from upstream payloads and multiple construction sites, so
+ * anything client- or log-visible is rebuilt here from a whitelist — numbers,
+ * this module's own error-code enum, route identifiers in their known shapes,
+ * skip reasons in their known shapes, and upstream error codes/types reduced to
+ * the providers' public vocabularies. Free-form upstream text (messages, bodies)
+ * and anything shaped like a credential can never pass; the tests pin that down
+ * with deliberately poisoned diagnostic values.
+ */
+export interface OriginProviderAttemptDiagnostic {
+  providerId: string;
+  modelId: string;
+  outcome: OriginProviderAttemptEvidence["outcome"];
+  errorCode?: OriginProviderErrorCode;
+  skipReason?: string;
+  upstreamStatus?: number;
+  upstreamErrorType?: string;
+  upstreamErrorCode?: string;
+  transportRequestCount?: number;
+}
+
+export interface OriginProviderFailureDiagnostic {
+  upstreamStatus?: number;
+  upstreamErrorType?: string;
+  upstreamErrorCode?: string;
+  transportFailure?: "timeout" | "network";
+  transportRequestCount?: number;
+  failoverAttempts: OriginProviderAttemptDiagnostic[];
+}
+
+const ORIGIN_PROVIDER_ERROR_CODE_SET: ReadonlySet<string> = new Set([
+  "PROVIDER_NOT_CONFIGURED", "PROVIDER_POLICY_VIOLATION", "PROVIDER_COST_UNVERIFIED",
+  "PROVIDER_ROUTING_UNVERIFIED", "PROVIDER_RATE_LIMITED", "PROVIDER_UNAVAILABLE",
+  "PROVIDER_TIMEOUT", "PROVIDER_INVALID_RESPONSE", "PROVIDER_REQUIRED_TOOL_MISSING",
+  "PROVIDER_REQUIRED_TOOL_AMBIGUOUS", "PROVIDER_REQUIRED_TOOL_INVALID",
+  "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID", "PROVIDER_REQUIRED_TOOL_TRUNCATED",
+  "PROVIDER_TRANSPORT_UNVERIFIED", "PROVIDER_INTERNAL_ERROR",
+]);
+
+function safeUpstreamStatusValue(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) >= 100 && Number(value) <= 599 ? Number(value) : undefined;
+}
+
+/**
+ * The upstream error types that may be surfaced verbatim. Mirrors the allowlist
+ * the trusted-answer proxy applies to the same field: OpenRouter's embedded
+ * error vocabulary is small and public, everything else stays internal.
+ */
+export function safeOriginUpstreamErrorType(value: unknown): string | undefined {
+  return typeof value === "string" && /^(?:rate_limit_exceeded|timeout|provider_overloaded|provider_unavailable)$/.test(value)
+    ? value
+    : undefined;
+}
+
+/**
+ * A raw provider-issued error code that may be kept in diagnostics: Workers AI
+ * numeric codes and OpenAI-style snake_case code tokens (Groq). Anything with
+ * spaces, punctuation beyond "_", or free-form length is rejected, so an
+ * upstream message sentence or an injected secret can never ride this field.
+ * Used both when clients capture a code from an upstream payload and when the
+ * failure summary below re-validates what it surfaces.
+ */
+export function safeOriginUpstreamErrorCode(value: unknown): string | undefined {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 && value <= 9_999_999_999 ? String(value) : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  if (/^\d{1,10}$/.test(value)) return value;
+  return /^[a-z][a-z0-9_]{0,63}$/.test(value) ? value : undefined;
+}
+
+function safeRouteIdentifier(value: unknown): string | undefined {
+  return typeof value === "string" && /^[A-Za-z0-9@][A-Za-z0-9@/_:.+-]{0,127}$/.test(value) ? value : undefined;
+}
+
+function safeSkipReason(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= 128 && /^[a-z][a-z0-9-]*(?::[A-Za-z0-9_]+)?$/.test(value) ? value : undefined;
+}
+
+function safeTransportRequestCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 100_000 ? Number(value) : undefined;
+}
+
+function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence): OriginProviderAttemptDiagnostic | null {
+  if (!attempt || typeof attempt !== "object") return null;
+  const providerId = safeRouteIdentifier(attempt.providerId);
+  const modelId = safeRouteIdentifier(attempt.modelId);
+  if (!providerId || !modelId) return null;
+  if (!["succeeded", "availability-error", "failed", "skipped"].includes(attempt.outcome)) return null;
+  const summary: OriginProviderAttemptDiagnostic = { providerId, modelId, outcome: attempt.outcome };
+  if (attempt.errorCode && ORIGIN_PROVIDER_ERROR_CODE_SET.has(attempt.errorCode)) summary.errorCode = attempt.errorCode;
+  const skipReason = safeSkipReason(attempt.skipReason);
+  if (skipReason) summary.skipReason = skipReason;
+  const upstreamStatus = safeUpstreamStatusValue(attempt.upstreamStatus);
+  if (upstreamStatus !== undefined) summary.upstreamStatus = upstreamStatus;
+  const upstreamErrorType = safeOriginUpstreamErrorType(attempt.upstreamErrorType);
+  if (upstreamErrorType) summary.upstreamErrorType = upstreamErrorType;
+  const upstreamErrorCode = safeOriginUpstreamErrorCode(attempt.upstreamErrorCode);
+  if (upstreamErrorCode) summary.upstreamErrorCode = upstreamErrorCode;
+  const transportRequestCount = safeTransportRequestCount(attempt.transportRequestCount);
+  if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
+  return summary;
+}
+
+/**
+ * Builds the surfaced failure diagnostic for one provider error: the surfaced
+ * error's own upstream metadata plus every recorded failover attempt, each
+ * reduced to the whitelist above. The result is plain JSON-safe data, so the
+ * chat routers can embed it in the failure response and serialize it into the
+ * log line (where nested objects previously collapsed to "[Object]").
+ */
+export function buildOriginProviderFailureDiagnostic(error: OriginProviderError): OriginProviderFailureDiagnostic {
+  const diagnostic = error.diagnostic;
+  const summary: OriginProviderFailureDiagnostic = { failoverAttempts: [] };
+  const upstreamStatus = safeUpstreamStatusValue(diagnostic?.upstreamStatus);
+  if (upstreamStatus !== undefined) summary.upstreamStatus = upstreamStatus;
+  const upstreamErrorType = safeOriginUpstreamErrorType(diagnostic?.upstreamErrorType);
+  if (upstreamErrorType) summary.upstreamErrorType = upstreamErrorType;
+  const upstreamErrorCode = safeOriginUpstreamErrorCode(diagnostic?.upstreamErrorCode);
+  if (upstreamErrorCode) summary.upstreamErrorCode = upstreamErrorCode;
+  if (diagnostic?.transportFailure === "timeout" || diagnostic?.transportFailure === "network") {
+    summary.transportFailure = diagnostic.transportFailure;
+  }
+  const transportRequestCount = safeTransportRequestCount(diagnostic?.transportRequestCount);
+  if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
+  if (Array.isArray(diagnostic?.failoverAttempts)) {
+    for (const attempt of diagnostic.failoverAttempts) {
+      const summarized = summarizeOriginProviderAttempt(attempt);
+      if (summarized) summary.failoverAttempts.push(summarized);
+    }
+  }
+  return summary;
 }
 
 export type OriginFetch = typeof fetch;
@@ -156,6 +293,17 @@ const retryAfter = (value: string | null): number | undefined => {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? Math.max(1, Math.ceil((timestamp - Date.now()) / 1000)) : undefined;
 };
+/**
+ * Rebuilds an http()-classified error keeping its status/transport diagnostic
+ * while also recording the upstream's embedded error type, so a 429 caused by
+ * rate_limit_exceeded stays distinguishable in failure diagnostics from a bare
+ * HTTP 429.
+ */
+function withUpstreamErrorType(error: OriginProviderError, errorType: unknown): OriginProviderError {
+  if (typeof errorType !== "string" || errorType.length === 0) return error;
+  return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, { ...error.diagnostic, upstreamErrorType: errorType });
+}
+
 function http(status: number, retryAfterSeconds?: number): OriginProviderError {
   const diagnostic = { upstreamStatus: status };
   if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
@@ -253,8 +401,8 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
     };
     const choice = data.choices?.[0];
     const errorType = choice?.error?.metadata?.error_type ?? data.error?.metadata?.error_type;
-    if (errorType === "rate_limit_exceeded") throw http(429);
-    if (errorType === "timeout") throw http(504);
+    if (errorType === "rate_limit_exceeded") throw withUpstreamErrorType(http(429), errorType);
+    if (errorType === "timeout") throw withUpstreamErrorType(http(504), errorType);
     if (errorType === "provider_overloaded" || errorType === "provider_unavailable") throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { upstreamErrorType: String(errorType) });
     // Never substitute the requested model when the provider omits its served-model identity.
     // Missing identity is unverified routing and must fail closed before any result is returned.

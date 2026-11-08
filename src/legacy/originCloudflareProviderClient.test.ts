@@ -419,6 +419,18 @@ describe("executeOriginCloudflareProvider", () => {
       .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", status: 429, retryable: false, diagnostic: { transportRequestCount: 4 } });
   });
 
+  it("keeps the raw Workers AI error code in the diagnostic without the upstream message text", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson(null, 429, [{ code: 10023, message: "upstream sentence mentioning synthetic-secret-material" }]));
+    const error = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.diagnostic?.upstreamStatus).toBe(429);
+    expect(error.diagnostic?.upstreamErrorCode).toBe("10023");
+    expect(JSON.stringify(error.diagnostic)).not.toContain("synthetic-secret-material");
+    expect(JSON.stringify(error.diagnostic)).not.toContain("upstream sentence");
+  });
+
   it("maps a free-allocation exhaustion envelope to PROVIDER_RATE_LIMITED", async () => {
     const fetchMock = fullFetch(async () => cloudflareJson(null, 200, [{ code: 4006, message: "Free plan daily Neurons allocation exceeded" }]));
     await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
