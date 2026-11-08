@@ -65,7 +65,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
       await expect(page).toHaveURL(/workspace=creative/);
       const handoff = page.getByTestId('creative-handoff-request');
       await expect(handoff).toContainText(request);
-      await expect(handoff).toContainText('生成はまだ開始していません');
+      await expect(handoff).toContainText('作成はまだ開始していません');
       await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue(/新商品のSNSカード/);
       await expect(page.getByRole('textbox', { name: '内容', exact: true })).toHaveValue(request);
       expect(providerRequests).toEqual([]);
@@ -87,7 +87,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
       expect(await titleInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('16px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       const request = page.waitForRequest('**/api/creative/v1.5/generate');
-      await page.getByRole('button', { name: 'Visualを生成', exact: true }).click();
+      await page.getByRole('button', { name: '画像を作成', exact: true }).click();
       expect((await request).postDataJSON().title).toBe(title);
       await expect(page.getByRole('link', { name: 'SVG保存', exact: true })).toBeVisible();
     });
@@ -104,20 +104,21 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
     await expect(page).toHaveURL(/workspace=creative/);
-    await expect(page.getByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0')).toBeVisible();
+    await expect(page.getByText('利用できます · 無料 · 外部に送信しません')).toBeVisible();
     await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
     await expect(page.getByLabel('用途', { exact: true })).not.toBeVisible();
-    await expect(page.getByRole('region', { name: 'Creative local history' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: '作成履歴' })).toHaveCount(0);
 
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('モバイルCreative');
-    await page.getByRole('button', { name: 'Visualを生成' }).click();
+    await page.getByRole('button', { name: '画像を作成' }).click();
 
-    await expect(page.getByRole('img', { name: '生成済みVisual: モバイルCreative' })).toBeVisible();
+    await expect(page.getByRole('img', { name: '作成した画像: モバイルCreative' })).toBeVisible();
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
+    await page.getByText('検証の詳細', { exact: true }).click();
     await expect(page.getByText(new RegExp(`SHA-256 ${svgSha256.slice(0, 12)}…`))).toBeVisible();
     await expect(page.getByText(/visual-brain-v1/)).toBeVisible();
-    await expect(page.getByText(/文字・安全性の自動検査済み（広告効果は未評価）/)).toBeVisible();
+    await expect(page.getByText(/文字と安全性を自動で確かめました（広告としての効果は未評価です）/)).toBeVisible();
     await expect(page.getByText(/Critic 100/)).toHaveCount(0);
     await expect(page.getByText(/実バイト照合済み/)).toBeVisible();
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
@@ -150,7 +151,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('履歴Creative');
-    await page.getByRole('button', { name: 'Visualを生成' }).click();
+    await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
     expect(generateRequests).toHaveLength(1);
 
@@ -158,8 +159,8 @@ test.describe('V1.5 Creative workspace production surface', () => {
     const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });
     await expect(openHistory).toBeVisible();
     await openHistory.click();
-    await expect(page.getByRole('img', { name: '生成済みVisual: 履歴Creative' })).toBeVisible();
-    await expect(page.getByText('端末内履歴から検証済みSVGを開きました。')).toBeVisible();
+    await expect(page.getByRole('img', { name: '作成した画像: 履歴Creative' })).toBeVisible();
+    await expect(page.getByText('端末内履歴から確認済みの画像を開きました。')).toBeVisible();
     expect(generateRequests).toHaveLength(1);
 
     const requestsBeforePng = generateRequests.length;
@@ -171,13 +172,13 @@ test.describe('V1.5 Creative workspace production surface', () => {
   test('supports a direct Create URL and browser history without losing the chat mount', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
-    await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
+    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Workspace tool header' })).toContainText('作る');
 
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page).not.toHaveURL(/workspace=creative/);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await page.goBack();
-    await expect(page.getByRole('main', { name: 'Creative workspace' })).toBeVisible();
+    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toBeVisible();
   });
 });

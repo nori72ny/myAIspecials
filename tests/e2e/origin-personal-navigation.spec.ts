@@ -193,7 +193,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: '作る', exact: true }).click();
       await expect(page).toHaveURL(/workspace=creative/);
-      await expect(page.getByRole('heading', { name: '作りたいものを入力' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'カード・ポスターを作る' })).toBeVisible();
       await expect(page.getByLabel('タイトル', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
