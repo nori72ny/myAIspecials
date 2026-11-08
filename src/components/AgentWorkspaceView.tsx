@@ -106,6 +106,13 @@ export function catStateForPhase(phase: Phase, checkingCapability: boolean, read
   return 'sleep';
 }
 
+function checkpointStatusLabel(status: string): string {
+  if (status === 'completed') return '完了';
+  if (status === 'self_fixed') return '修正済み';
+  if (status === 'rolled_back') return '巻き戻し済み';
+  return '保存済み';
+}
+
 function phaseLabel(phase: Phase): string {
   if (phase === 'planning') return '計画を準備中';
   if (phase === 'awaiting_approval') return '承認待ち';
@@ -122,7 +129,7 @@ export default function AgentWorkspaceView() {
   const [plan, setPlan] = useState<AgentPlan | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
-  const [artifact, setArtifact] = useState('// 自律エージェント の検証済み出力がここに表示されます。');
+  const [artifact, setArtifact] = useState('実行が完了すると、確認済みの結果がここに表示されます。');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -167,7 +174,7 @@ export default function AgentWorkspaceView() {
   const persistCheckpoint = useCallback(async (checkpoint: CheckpointState) => {
     setCheckpoints((current) => [...current.filter((item) => item.checkpointId !== checkpoint.checkpointId), checkpoint].sort((a, b) => a.createdAt - b.createdAt));
     try { await saveCheckpointToIndexedDB(checkpoint); }
-    catch { setLog((current) => [...current, 'チェックポイントはこのセッションでは利用できますが、端末保存を確認できませんでした。']); }
+    catch { setLog((current) => [...current, '結果はこの画面では利用できますが、端末への保存を確認できませんでした。']); }
   }, []);
 
   const requestPlan = useCallback(async () => {
@@ -179,8 +186,8 @@ export default function AgentWorkspaceView() {
     abortRef.current = controller;
     setPlan(null);
     setPhase('planning');
-    setLog(['自律エージェント: 実行計画を準備しています。']);
-    setArtifact('// Plan preparing…');
+    setLog(['エージェント: 実行計画を準備しています。']);
+    setArtifact('計画を作成しています…');
     try {
       const response = await fetch('/api/agent/v3/plan', {
         method: 'POST',
@@ -211,9 +218,9 @@ export default function AgentWorkspaceView() {
       setPlan(next);
       setPhase('awaiting_approval');
       setArtifact([
-        '# 自律エージェント 実行計画',
+        '# 実行計画',
         '',
-        `Goal: ${next.goal}`,
+        `依頼: ${next.goal}`,
         `機能: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
@@ -248,7 +255,7 @@ export default function AgentWorkspaceView() {
 
     if (!hasExecutableSteps(plan)) {
       setPhase('failed');
-      setLog((current) => [...current, '計画のステップに必要な明示パラメータが不足しているため、承認前に停止しました。']);
+      setLog((current) => [...current, '計画のステップに必要な指定が不足しているため、承認前に停止しました。']);
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
@@ -298,7 +305,7 @@ export default function AgentWorkspaceView() {
       setArtifact(result.artifact);
       if (result.checkpoint) await persistCheckpoint(result.checkpoint);
       setPhase('completed');
-      setLog((current) => [...current, '機能の実行と確認が完了しました。', result.checkpoint ? `保存記録: ${result.checkpoint.checkpointId}` : '']);
+      setLog((current) => [...current, '機能の実行と確認が完了しました。', result.checkpoint ? '結果を端末内に保存しました。' : '']);
       setPlan(null);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -322,7 +329,7 @@ export default function AgentWorkspaceView() {
 
   const restoreLocalCheckpoint = (checkpoint: CheckpointState) => {
     setArtifact(checkpoint.artifact);
-    setLog((current) => [...current, `端末内のチェックポイント ${checkpoint.checkpointId} を表示しました。サーバー側の変更を巻き戻したとは主張しません。`]);
+    setLog((current) => [...current, '端末内に保存した結果を表示しました（サーバーの状態は変わりません）。']);
   };
 
   const ready = (capability?.ready === true || capability?.browserApprovalEnabled === true)
@@ -331,10 +338,10 @@ export default function AgentWorkspaceView() {
     && capability.paidFallbackEnabled === false;
   const plannedParamsReady = plan ? hasExecutableSteps(plan) : false;
 
-  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="自律エージェント">
+  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">自律エージェント</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
         <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
 
@@ -345,7 +352,7 @@ export default function AgentWorkspaceView() {
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェントを利用できます' : '自律エージェントは現在利用できません'}</span>
+          <span className="text-slate-500">{checkingCapability ? 'エージェント機能を確認中…' : ready ? 'エージェントを利用できます' : 'エージェントは現在利用できません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
             <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
@@ -371,7 +378,7 @@ export default function AgentWorkspaceView() {
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
-          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には明示パス・内容・検証種別などの安全な実行パラメータが不足しています。依頼文を具体化して計画を作り直してください。</p>}
+          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には、対象の場所や内容などの具体的な指定が不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
@@ -394,31 +401,31 @@ export default function AgentWorkspaceView() {
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
           <p className="leading-5 text-slate-500">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
           {capability && <div className="mt-2 space-y-1 text-slate-500">
-            <p>Approval signing: {capability.approvalSigningConfigured ? 'ready' : 'unavailable'}</p>
-            <p>Replay protection: {capability.replayProtectionConfigured ? capability.replayProtection : 'unavailable'}</p>
+            <p>承認の確認方法: {capability.approvalSigningConfigured ? '準備できています' : '利用できません'}</p>
+            <p>同じ操作の繰り返し防止: {capability.replayProtectionConfigured ? '有効です' : '利用できません'}</p>
           </div>}
         </details>
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-xs text-slate-300" aria-label="実行履歴">
-          {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行ログはここに表示されます。'}
+        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300" aria-label="実行履歴">
+          {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行の経過はここに表示されます。'}
         </div>
       </aside>
 
       <main className="origin-workspace min-h-[28rem] overflow-hidden rounded-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
           <div><p className="text-xs font-bold uppercase tracking-widest text-indigo-500">Verified output</p><h2 className="font-bold">作業結果</h2></div>
-          <span className="rounded-full border border-slate-200 px-3 py-1 text-xs dark:border-slate-700">$0 · permission gated</span>
+          <span className="rounded-full border border-slate-200 px-3 py-1 text-xs dark:border-slate-700">無料 · 承認制</span>
         </div>
         <pre className="max-h-[60dvh] overflow-auto whitespace-pre-wrap p-5 font-mono text-sm leading-6">{artifact}</pre>
 
         <section className="border-t border-slate-200 p-4 dark:border-slate-800">
-          <h3 className="text-sm font-black">端末内チェックポイント</h3>
+          <h3 className="text-sm font-black">端末内に保存した結果</h3>
           {restoring ? <p className="mt-2 text-xs text-slate-500">読み込み中…</p> : checkpoints.length === 0
-            ? <p className="mt-2 text-xs text-slate-500">検証済み実行が完了するとここに保存されます。</p>
+            ? <p className="mt-2 text-xs text-slate-500">確認済みの実行が完了するとここに保存されます。</p>
             : <div className="mt-2 flex flex-wrap gap-2">{checkpoints.slice().reverse().slice(0, 8).map((item) =>
               <button type="button" key={item.checkpointId} onClick={() => restoreLocalCheckpoint(item)}
                 className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">
-                v{item.version} · {item.status}
+                v{item.version} · {checkpointStatusLabel(item.status)}
               </button>)}</div>}
         </section>
       </main>
