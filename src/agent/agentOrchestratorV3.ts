@@ -763,6 +763,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         return res.json({ ok: true, protocolVersion: 3, runId, status: 'completed', run: view, ...runEnvelope });
       case 'failed':
         return res.status(422).json({ ok: false, protocolVersion: 3, runId, code: outcome.errorCode, status: 'failed', run: view, ...runEnvelope, error: 'The run failed verification or execution.' });
+      case 'held':
+        // Quota gate (PR 1-D): the advance parked the run instead of
+        // executing a step whose provider quota is exhausted. Held is a
+        // first-class state, not a failure: the record's hold carries
+        // the quota_reset resume condition for the blocking provider.
+        return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'held', advanced: false, code: 'AGENT_RUN_QUOTA_EXHAUSTED', quota: { provider: outcome.provider, resetAt: new Date(outcome.resetAt).toISOString() }, run: view, ...runEnvelope });
       case 'progress':
         return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'running', advanced: true, run: view, ...runEnvelope });
       case 'busy':

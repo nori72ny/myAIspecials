@@ -7,6 +7,16 @@ import { assertCanReportCompleted } from './taskExecutionGate.js';
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask } from './taskGraphExecutor.js';
 import type { AgentRunQuotaLedger, AgentRunRecord, AgentRunStepState, AgentRunStore } from './agentRunRecord.js';
+import {
+  AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE,
+  addAgentRunQuotaCharge,
+  agentRunQuotaHold,
+  agentRunStepCostClass,
+  agentRunStepQuotaCharge,
+  evaluateAgentRunQuotaCharge,
+  snapshotAgentRunQuotaUsage,
+  type AgentRunQuotaUsageSnapshot,
+} from './agentRunQuotaGate.js';
 import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 
 /**
@@ -35,6 +45,13 @@ import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
  *   run can never execute twice across both paths. The reservation is
  *   journaled into the record's quota ledger so resumed advances do not
  *   consume again.
+ * - The quota gate (agentRunQuotaGate.ts, PR 1-D) runs before every step
+ *   that declares a scarce-quota charge: the charge is checked against
+ *   the provider's confirmed free limit using usage aggregated from the
+ *   owner's run ledgers, executed steps journal their charge into the
+ *   ledger with their progress write, and a step that no longer fits
+ *   parks the run as `held` (quota_exhausted / quota_reset) instead of
+ *   executing. Local steps are never gated.
  * - A held record is never advanced: resuming always re-enters
  *   `awaiting_approval` first (design §8), which is a later phase's flow.
  * - Chunk boundaries fall between steps, never inside one, and never
@@ -94,6 +111,7 @@ export interface AgentRunAdvancerDeps {
 export type AdvanceAgentRunOutcome =
   | { kind: 'completed'; record: AgentRunRecord }
   | { kind: 'failed'; record: AgentRunRecord; errorCode: string }
+  | { kind: 'held'; record: AgentRunRecord; provider: string; resetAt: number }
   | { kind: 'progress'; record: AgentRunRecord }
   | { kind: 'busy'; record: AgentRunRecord }
   | { kind: 'not_runnable'; record: AgentRunRecord }
@@ -173,6 +191,11 @@ export async function advanceAgentRun(
   // the legacy execute path. The ledger journal lets a resumed advance tell
   // "already reserved by an earlier advance" apart from "reserved by the
   // legacy path or a cancellation tombstone", which must never re-execute.
+  // The working copy of the run's quota ledger for this advance: the
+  // reservation journal below and every executed step's quota charge are
+  // written through it, so the persisted ledger always reflects what this
+  // run has actually spent.
+  let currentLedger: AgentRunQuotaLedger = record.quotaLedger;
   const alreadyReserved = record.quotaLedger[EXECUTION_RESERVED_PROVIDER]?.[EXECUTION_RESERVED_COUNTER] === 1;
   const anyProgress = stepsState.some((step) => step.attempts > 0 || step.status === 'completed');
   if (!alreadyReserved && !anyProgress) {
@@ -193,12 +216,39 @@ export async function advanceAgentRun(
     if (!await runStore.updateProgress(record.runId, driverId, { quotaLedger })) {
       return { kind: 'busy', record: { ...record, stepsState } };
     }
+    currentLedger = quotaLedger;
   }
 
   let graph = graphForRecord(record, stepsState);
   const executionId = createExecutionId();
   let previousText: string | undefined;
   const startIndex = stepsState.findIndex((step) => step.status !== 'completed');
+
+  // Quota gate preparation (PR 1-D): only advances whose remaining steps
+  // declare a scarce-quota charge or a delegated job need usage data, so
+  // local-only runs keep the exact pre-gate behavior (and store traffic).
+  // Usage is aggregated from the owner's run ledgers once per advance;
+  // charges journaled during this advance are tracked separately and the
+  // gate adds both. If usage cannot be read, consuming steps must not
+  // run on a guess: the advance reports unavailable and the claim lapses
+  // back to the queue like other transient driver failures.
+  const remainingSteps = startIndex >= 0 ? plan.slice(startIndex) : [];
+  const gateEngaged = remainingSteps.some(
+    (step) => agentRunStepQuotaCharge(step.toolName) !== null
+      || agentRunStepCostClass(step.toolName) === 'delegated-job',
+  );
+  let quotaSnapshot: AgentRunQuotaUsageSnapshot | null = null;
+  if (gateEngaged) {
+    let ownerRuns: AgentRunRecord[];
+    try {
+      ownerRuns = await runStore.listByOwner(record.ownerBinding, { limit: 100 });
+    } catch {
+      return { kind: 'unavailable', record, errorCode: 'AGENT_RUN_QUOTA_USAGE_UNAVAILABLE' };
+    }
+    quotaSnapshot = snapshotAgentRunQuotaUsage(ownerRuns, now());
+  }
+  let sessionCharges: AgentRunQuotaLedger = {};
+  let delegatedThisAdvance = 0;
 
   try {
     for (let index = startIndex; index >= 0 && index < plan.length; index += 1) {
@@ -215,6 +265,35 @@ export async function advanceAgentRun(
           if (!await runStore.renewLease(record.runId, driverId, leaseSeconds)) {
             return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
           }
+        }
+      }
+      // Quota gate (PR 1-D): a step that declares a charge may only run
+      // while the charge fits the provider's confirmed window limit;
+      // delegated jobs are serialized to one per advance (their internal
+      // consumption is unmeasured — see agentRunQuotaGate.ts). A blocked
+      // step is never executed: the run is parked as held at this step
+      // boundary with its progress intact (design §8.3 entry 4, §9.4).
+      const stepCharge = agentRunStepQuotaCharge(step.toolName);
+      if (agentRunStepCostClass(step.toolName) === 'delegated-job'
+        && delegatedThisAdvance >= AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE) {
+        return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
+      }
+      if (stepCharge && quotaSnapshot) {
+        const decision = evaluateAgentRunQuotaCharge({
+          charge: stepCharge,
+          snapshot: quotaSnapshot,
+          sessionCharges,
+          now: now(),
+        });
+        if (decision.allowed === false) {
+          const hold = agentRunQuotaHold(decision, now());
+          const finished = await runStore.finish(record.runId, driverId, 'held', hold);
+          return {
+            kind: 'held',
+            record: finished ?? { ...record, stepsState, status: 'held', hold },
+            provider: decision.provider,
+            resetAt: decision.resetAt,
+          };
         }
       }
       const resolved = resolveStepParams(step, previousText);
@@ -241,7 +320,23 @@ export async function advanceAgentRun(
           ? { artifactRef: `task-${index + 1}`, summary: `completed:${step.toolName}` }
           : { errorCode: failureCode }),
       };
-      if (!await runStore.updateProgress(record.runId, driverId, { stepsState })) {
+      // Quota journaling (PR 1-D): a step that actually executed spent
+      // its declared charge even when verification later fails (providers
+      // count attempts), so the charge is written with the same progress
+      // update as the step state — one write, never one without the
+      // other. A step that never executed declares nothing.
+      const executedCharge = stepCharge && executionRecord?.toolExecuted ? stepCharge : null;
+      if (executionRecord?.toolExecuted && agentRunStepCostClass(step.toolName) === 'delegated-job') {
+        delegatedThisAdvance += 1;
+      }
+      if (executedCharge) {
+        currentLedger = addAgentRunQuotaCharge(currentLedger, executedCharge);
+        sessionCharges = addAgentRunQuotaCharge(sessionCharges, executedCharge);
+      }
+      if (!await runStore.updateProgress(record.runId, driverId, {
+        stepsState,
+        ...(executedCharge ? { quotaLedger: currentLedger } : {}),
+      })) {
         return { kind: 'busy', record: { ...record, stepsState, status: 'running' } };
       }
       if (!executionRecord?.toolExecuted || !executionRecord.verified || executionRecord.status !== 'completed' || finalTask.status !== 'completed') {
