@@ -11,6 +11,7 @@ import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
   originCompletionTokenBudget,
   OriginProviderError,
+  safeOriginUpstreamErrorCode,
   type OriginFetch,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
@@ -361,7 +362,10 @@ export function assertOriginCloudflareExecutionResult(result: OriginProviderExec
 function inferenceFailure(status: number, body: CloudflareEnvelope | null): OriginProviderError {
   const errors = Array.isArray(body?.errors) ? body.errors : [];
   const errorText = errors.map((error) => `${String(error?.code ?? "")} ${String(error?.message ?? "")}`).join(" ").toLowerCase();
-  const diagnostic = { upstreamStatus: status };
+  // Keep the provider's raw numeric error code (never the message text) so a
+  // classified failure can later be told apart from, e.g., a daily-quota stop.
+  const rawErrorCode = errors.find((error) => safeOriginUpstreamErrorCode(error?.code) !== undefined)?.code;
+  const diagnostic = { upstreamStatus: status, ...(rawErrorCode !== undefined ? { upstreamErrorCode: String(rawErrorCode) } : {}) };
   if (status === 429 || /neuron|rate.?limit|quota|too many requests/.test(errorText)) {
     return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }

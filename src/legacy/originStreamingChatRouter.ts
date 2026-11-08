@@ -9,7 +9,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
-import { OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
 import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
@@ -57,6 +57,7 @@ function sendSafeProviderFailure(res: Response, error: OriginProviderError, requ
     retryAfterSeconds: error.retryAfterSeconds,
     requestId,
     retryAttempted: false,
+    diagnostic: buildOriginProviderFailureDiagnostic(error),
   });
 }
 
@@ -181,7 +182,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         code: safeError.code,
         status: safeError.status,
         retryable: safeError.retryable,
-        diagnostic: safeError.diagnostic,
+        diagnostic: JSON.stringify(buildOriginProviderFailureDiagnostic(safeError)),
         downstreamStarted,
         providerDeltaCount,
       });

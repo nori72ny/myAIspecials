@@ -11,6 +11,7 @@ import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
   originCompletionTokenBudget,
   OriginProviderError,
+  safeOriginUpstreamErrorCode,
   type OriginChatMessage,
   type OriginFetch,
   type OriginProviderExecutionRequest,
@@ -202,12 +203,15 @@ interface GroqChatCompletionEnvelope {
   model?: unknown;
   choices?: Array<{ message?: { content?: unknown } }>;
   usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
-  error?: { code?: unknown; message?: unknown };
+  error?: { code?: unknown; type?: unknown; message?: unknown };
 }
 
 function inferenceFailure(status: number, body: GroqChatCompletionEnvelope | null): OriginProviderError {
   const errorText = `${String(body?.error?.code ?? "")} ${String(body?.error?.message ?? "")}`.toLowerCase();
-  const diagnostic = { upstreamStatus: status };
+  // Keep the provider's raw error code (never the message text) so a classified
+  // failure stays identifiable in diagnostics.
+  const upstreamErrorCode = safeOriginUpstreamErrorCode(body?.error?.code) ?? safeOriginUpstreamErrorCode(body?.error?.type);
+  const diagnostic = { upstreamStatus: status, ...(upstreamErrorCode ? { upstreamErrorCode } : {}) };
   if (status === 429 || /rate.?limit|too many requests|tokens per minute|requests per/.test(errorText)) {
     return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
   }

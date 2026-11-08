@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, type OriginFetch } from "./originProviderClient";
+import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginUpstreamErrorCode, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -165,4 +165,80 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+});
+
+describe("buildOriginProviderFailureDiagnostic", () => {
+  it("surfaces the per-route attempts with upstream status and raw error codes", () => {
+    const error = new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, {
+      upstreamStatus: 429,
+      upstreamErrorCode: "10023",
+      transportRequestCount: 4,
+      failoverAttempts: [
+        { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1 },
+        { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "skipped", skipReason: "token-budget-exceeded", transportRequestCount: 0 },
+      ],
+    });
+    expect(buildOriginProviderFailureDiagnostic(error)).toEqual({
+      upstreamStatus: 429,
+      upstreamErrorCode: "10023",
+      transportRequestCount: 4,
+      failoverAttempts: [
+        { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1 },
+        { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "skipped", skipReason: "token-budget-exceeded", transportRequestCount: 0 },
+      ],
+    });
+  });
+
+  it("drops free-form values, unknown fields and secret-shaped data instead of passing them through", () => {
+    const poisoned = {
+      upstreamStatus: 429,
+      upstreamErrorType: "secret-diagnostic-value",
+      upstreamErrorCode: "sk-live-supersecretvalue1234567890",
+      transportRequestCount: 2,
+      apiKey: "sk-live-supersecretvalue1234567890",
+      failoverAttempts: [
+        {
+          providerId: "openrouter-free",
+          modelId: "google/gemma-4-31b-it:free",
+          outcome: "failed",
+          errorCode: "PROVIDER_UNAVAILABLE",
+          skipReason: "Authorization: Bearer supersecretvalue",
+          upstreamStatus: 503,
+          upstreamErrorType: "private upstream sentence with spaces",
+          upstreamErrorCode: "Error: quota for project supersecretvalue exhausted",
+          transportRequestCount: 1,
+          requestBody: "{\"messages\":[{\"content\":\"private user text\"}]}",
+        },
+      ],
+    } as unknown as ConstructorParameters<typeof OriginProviderError>[5];
+    const error = new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, poisoned);
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary.upstreamStatus).toBe(429);
+    expect(summary.upstreamErrorType).toBeUndefined();
+    expect(summary.upstreamErrorCode).toBeUndefined();
+    expect(summary.failoverAttempts).toEqual([
+      { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "failed", errorCode: "PROVIDER_UNAVAILABLE", upstreamStatus: 503, transportRequestCount: 1 },
+    ]);
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain("secret");
+    expect(serialized).not.toContain("Bearer");
+    expect(serialized).not.toContain("private");
+    expect(serialized).not.toContain("apiKey");
+    expect(serialized).not.toContain("requestBody");
+  });
+
+  it("keeps only allowlisted upstream error types and provider-vocabulary error codes", () => {
+    expect(safeOriginUpstreamErrorCode(10023)).toBe("10023");
+    expect(safeOriginUpstreamErrorCode("4006")).toBe("4006");
+    expect(safeOriginUpstreamErrorCode("rate_limit_exceeded")).toBe("rate_limit_exceeded");
+    expect(safeOriginUpstreamErrorCode("Rate limit reached for model")).toBeUndefined();
+    expect(safeOriginUpstreamErrorCode("sk-live-supersecretvalue1234567890")).toBeUndefined();
+    expect(safeOriginUpstreamErrorCode(0)).toBeUndefined();
+    expect(safeOriginUpstreamErrorCode(-1)).toBeUndefined();
+    expect(safeOriginUpstreamErrorCode(undefined)).toBeUndefined();
+    const typed = new OriginProviderError("PROVIDER_TIMEOUT", "無料AIの応答が時間内に返りませんでした。", 504, true, undefined, { upstreamErrorType: "timeout", transportFailure: "timeout" });
+    expect(buildOriginProviderFailureDiagnostic(typed)).toEqual({ upstreamErrorType: "timeout", transportFailure: "timeout", failoverAttempts: [] });
+  });
 });

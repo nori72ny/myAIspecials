@@ -106,6 +106,31 @@ describe("createOriginChatRouter", () => {
     expect(call?.systemInstruction).toContain("Never ask the same requirement twice");
   });
   it("sanitizes non-retryable authentication failures", async () => { executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_NOT_CONFIGURED", "内部詳細", 401, false, undefined, { upstreamStatus: 401 })); const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] }); expect(response.status).toBe(401); expect(JSON.stringify(response.body)).not.toContain("内部詳細"); expect(executeMock).toHaveBeenCalledTimes(1); });
+  it("surfaces a sanitized per-route failure diagnostic in the response body and as a flat JSON log string", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const attempts = [
+        { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error" as const, errorCode: "PROVIDER_RATE_LIMITED" as const, upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1 },
+        { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error" as const, errorCode: "PROVIDER_RATE_LIMITED" as const, upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "skipped" as const, skipReason: "token-budget-exceeded", transportRequestCount: 0 },
+      ];
+      executeMock.mockRejectedValueOnce(new OriginProviderError("PROVIDER_RATE_LIMITED", "内部詳細", 429, false, 120, { upstreamStatus: 429, transportRequestCount: 4, failoverAttempts: attempts }));
+      const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "文章を作ってください" }] });
+      expect(response.status).toBe(429);
+      expect(response.body).toMatchObject({ code: "PROVIDER_RATE_LIMITED", retryAttempted: false, providerTransportRequests: 4 });
+      expect(response.body.diagnostic).toEqual({ upstreamStatus: 429, transportRequestCount: 4, failoverAttempts: attempts });
+      expect(JSON.stringify(response.body)).not.toContain("内部詳細");
+      const failureLog = warn.mock.calls.find((call) => String(call[0]).includes("provider request failed"));
+      expect(failureLog).toBeDefined();
+      const loggedDiagnostic = (failureLog?.[1] as { diagnostic?: unknown } | undefined)?.diagnostic;
+      expect(typeof loggedDiagnostic).toBe("string");
+      const parsed = JSON.parse(String(loggedDiagnostic)) as { failoverAttempts: unknown[] };
+      expect(parsed.failoverAttempts).toHaveLength(3);
+      expect(String(loggedDiagnostic)).not.toContain("[Object]");
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it.each([
     ["PROVIDER_RATE_LIMITED", 429], ["PROVIDER_TIMEOUT", 504],
     ["PROVIDER_INVALID_RESPONSE", 502], ["PROVIDER_UNAVAILABLE", 503],

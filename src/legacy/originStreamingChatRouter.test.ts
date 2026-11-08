@@ -173,6 +173,36 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("includes the sanitized per-route failure diagnostic in the pre-stream JSON failure", async () => {
+    const streamExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "private upstream body", 429, false, 120, {
+        upstreamStatus: 429,
+        upstreamErrorCode: "10023",
+        transportRequestCount: 4,
+        failoverAttempts: [
+          { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, transportRequestCount: 1 },
+          { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+        ],
+      });
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "文章を作ってください" }] });
+    expect(response.status).toBe(429);
+    expect(response.body.diagnostic).toEqual({
+      upstreamStatus: 429,
+      upstreamErrorCode: "10023",
+      transportRequestCount: 4,
+      failoverAttempts: [
+        { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, transportRequestCount: 1 },
+        { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain("private");
+  });
+
   it.each([
     ["capability question", "あなたは何ができるのですか？"],
     ["current information with a modifier", "今日のAIニュースを教えてください"],
