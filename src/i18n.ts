@@ -76,6 +76,9 @@ type Translation = {
   assistantResponse: string;
   conversationLog: string;
   thinking: string;
+  searchingLatest: string;
+  composingAnswer: string;
+  streamSourcesHeading: string;
   responseReady: string;
   error: string;
   keyboardGuidance: string;
@@ -193,6 +196,9 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     assistantResponse: 'ORIGINの回答',
     conversationLog: '会話履歴',
     thinking: 'ORIGIN が思考・生成中…',
+    searchingLatest: '最新の情報を調べています…',
+    composingAnswer: '回答をまとめています…',
+    streamSourcesHeading: '集まった出典',
     responseReady: 'ORIGINの回答が届きました',
     error: 'エラーが発生しました。再度お試しください。',
     keyboardGuidance: 'Enterで送信、Shift+Enterで改行できます。',
@@ -313,6 +319,9 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     assistantResponse: 'ORIGIN response',
     conversationLog: 'Conversation history',
     thinking: 'ORIGIN is thinking…',
+    searchingLatest: 'Searching for the latest information…',
+    composingAnswer: 'Composing the answer…',
+    streamSourcesHeading: 'Sources gathered',
     responseReady: 'ORIGIN response is ready',
     error: 'Something went wrong. Please try again.',
     keyboardGuidance: 'Press Enter to send, Shift+Enter for a new line.',
