@@ -1,0 +1,204 @@
+// @vitest-environment node
+import { describe, expect, it } from 'vitest';
+import {
+  AGENT_RUN_RECORD_STATUSES,
+  assertAgentRunStatusTransition,
+  canTransitionAgentRunStatus,
+  isAgentRunTerminalStatus,
+  normalizeAgentRunGoal,
+  normalizeAgentRunHold,
+  normalizeAgentRunPlan,
+  normalizeAgentRunPriority,
+  normalizeAgentRunQuotaLedger,
+  normalizeAgentRunStepsState,
+  validateCreateAgentRunInput,
+  type AgentRunPlanStep,
+  type CreateAgentRunInput,
+} from './agentRunRecord.js';
+
+const now = 1_700_000_000_000;
+const ownerBinding = 'a'.repeat(64);
+const digest = 'b'.repeat(64);
+const runId = 'run-12345678-abcd';
+
+const plan: AgentRunPlanStep[] = [
+  { toolName: 'repository_explorer', params: {}, dependsOn: [] },
+  { toolName: 'file_writer', params: { path: 'docs/out.md' }, dependsOn: [0], inputFrom: 0 },
+];
+
+function createInput(overrides: Partial<CreateAgentRunInput> = {}): CreateAgentRunInput {
+  return {
+    runId,
+    ownerBinding,
+    goal: 'Survey the repository and write a summary',
+    expiresAt: now + 60 * 60 * 1000,
+    ...overrides,
+  };
+}
+
+describe('agent run status machine', () => {
+  it('allows the designed lifecycle including hold and resume', () => {
+    expect(canTransitionAgentRunStatus('planning', 'awaiting_approval')).toBe(true);
+    expect(canTransitionAgentRunStatus('awaiting_approval', 'queued')).toBe(true);
+    expect(canTransitionAgentRunStatus('queued', 'running')).toBe(true);
+    expect(canTransitionAgentRunStatus('running', 'held')).toBe(true);
+    expect(canTransitionAgentRunStatus('running', 'completed')).toBe(true);
+    expect(canTransitionAgentRunStatus('held', 'awaiting_approval')).toBe(true);
+    expect(canTransitionAgentRunStatus('awaiting_approval', 'held')).toBe(true);
+    expect(canTransitionAgentRunStatus('running', 'queued')).toBe(true);
+  });
+
+  it('never carries approval across a hold: held cannot jump straight to queued or running', () => {
+    expect(canTransitionAgentRunStatus('held', 'queued')).toBe(false);
+    expect(canTransitionAgentRunStatus('held', 'running')).toBe(false);
+    expect(() => assertAgentRunStatusTransition('held', 'queued')).toThrow('AGENT_RUN_TRANSITION_DENIED');
+  });
+
+  it('denies skipping approval and escaping terminal states', () => {
+    expect(canTransitionAgentRunStatus('planning', 'running')).toBe(false);
+    expect(canTransitionAgentRunStatus('planning', 'queued')).toBe(false);
+    expect(canTransitionAgentRunStatus('awaiting_approval', 'completed')).toBe(false);
+    for (const terminal of ['completed', 'failed', 'cancelled', 'expired'] as const) {
+      expect(isAgentRunTerminalStatus(terminal)).toBe(true);
+      for (const next of AGENT_RUN_RECORD_STATUSES) {
+        expect(canTransitionAgentRunStatus(terminal, next)).toBe(false);
+      }
+    }
+  });
+
+  it('lets every non-terminal status expire, and expiry never returns', () => {
+    for (const status of AGENT_RUN_RECORD_STATUSES) {
+      if (isAgentRunTerminalStatus(status)) continue;
+      expect(canTransitionAgentRunStatus(status, 'expired')).toBe(true);
+    }
+    expect(canTransitionAgentRunStatus('expired', 'planning')).toBe(false);
+  });
+});
+
+describe('agent run plan validation', () => {
+  it('accepts a plan whose steps depend only on earlier steps', () => {
+    expect(normalizeAgentRunPlan(plan)).toEqual(plan);
+    expect(normalizeAgentRunPlan(null)).toBeNull();
+  });
+
+  it('rejects forward, self, duplicate and out-of-range dependencies', () => {
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'file_writer', params: {}, dependsOn: [1] },
+      { toolName: 'repository_explorer', params: {}, dependsOn: [] },
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'file_writer', params: {}, dependsOn: [0] },
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'repository_explorer', params: {}, dependsOn: [] },
+      { toolName: 'file_writer', params: {}, dependsOn: [0, 0] },
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'repository_explorer', params: {}, dependsOn: [] },
+      { toolName: 'file_writer', params: {}, dependsOn: [], inputFrom: 5 },
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+  });
+
+  it('rejects malformed steps and empty plans', () => {
+    expect(() => normalizeAgentRunPlan([])).toThrow('AGENT_RUN_PLAN_INVALID');
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'Not A Tool', params: {}, dependsOn: [] } as unknown as AgentRunPlanStep,
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'file_writer', params: [] as unknown as Record<string, unknown>, dependsOn: [] },
+    ])).toThrow('AGENT_RUN_PLAN_INVALID');
+  });
+
+  it('blocks likely secrets inside plan parameters', () => {
+    expect(() => normalizeAgentRunPlan([
+      { toolName: 'file_writer', params: { content: "const api_key = 'sk-live-123'" }, dependsOn: [] },
+    ])).toThrow('AGENT_RUN_SECRET_CONTENT_BLOCKED');
+  });
+});
+
+describe('agent run component validation', () => {
+  it('validates step state entries and rejects duplicates', () => {
+    expect(normalizeAgentRunStepsState([
+      { id: 'step-1', status: 'completed', attempts: 1, summary: 'done' },
+      { id: 'step-2', status: 'queued', attempts: 0 },
+    ])).toHaveLength(2);
+    expect(() => normalizeAgentRunStepsState([
+      { id: 'step-1', status: 'queued', attempts: 0 },
+      { id: 'step-1', status: 'queued', attempts: 0 },
+    ])).toThrow('AGENT_RUN_STEPS_STATE_INVALID');
+    expect(() => normalizeAgentRunStepsState([
+      { id: 'step-1', status: 'queued', attempts: 99 },
+    ])).toThrow('AGENT_RUN_STEPS_STATE_INVALID');
+  });
+
+  it('accepts coherent hold records and rejects mismatched resume conditions', () => {
+    const hold = {
+      reason: 'quota_exhausted' as const,
+      resumeCondition: { kind: 'quota_reset' as const, provider: 'openrouter', resetAt: now + 3_600_000 },
+      heldSince: now,
+      resumeAttempts: 0,
+    };
+    expect(normalizeAgentRunHold(hold, now)).toEqual(hold);
+    expect(() => normalizeAgentRunHold({ ...hold, resumeCondition: { kind: 'at_time', at: now + 1000 } }, now))
+      .toThrow('AGENT_RUN_HOLD_INVALID');
+    expect(() => normalizeAgentRunHold({
+      reason: 'awaiting_approval',
+      resumeCondition: { kind: 'quota_reset', provider: 'openrouter' },
+      heldSince: now,
+      resumeAttempts: 0,
+    }, now)).toThrow('AGENT_RUN_HOLD_INVALID');
+    expect(() => normalizeAgentRunHold({
+      reason: 'dependency_wait',
+      resumeCondition: { kind: 'dependency', targetKind: 'run', targetId: 'not-a-run' },
+      heldSince: now,
+      resumeAttempts: 0,
+    }, now)).toThrow('AGENT_RUN_HOLD_INVALID');
+  });
+
+  it('validates quota ledger counters', () => {
+    expect(normalizeAgentRunQuotaLedger({ openrouter: { requests: 3 }, tavily: { credits: 1 } }))
+      .toEqual({ openrouter: { requests: 3 }, tavily: { credits: 1 } });
+    expect(() => normalizeAgentRunQuotaLedger({ openrouter: { requests: -1 } })).toThrow('AGENT_RUN_QUOTA_LEDGER_INVALID');
+    expect(() => normalizeAgentRunQuotaLedger({ openrouter: { requests: 1.5 } })).toThrow('AGENT_RUN_QUOTA_LEDGER_INVALID');
+  });
+
+  it('validates goal and priority bounds', () => {
+    expect(normalizeAgentRunGoal('  investigate  ')).toBe('  investigate  ');
+    expect(() => normalizeAgentRunGoal('   ')).toThrow('AGENT_RUN_GOAL_INVALID');
+    expect(() => normalizeAgentRunGoal('x'.repeat(4001))).toThrow('AGENT_RUN_GOAL_INVALID');
+    expect(() => normalizeAgentRunGoal("password = 'hunter2' please")).toThrow('AGENT_RUN_SECRET_CONTENT_BLOCKED');
+    expect(normalizeAgentRunPriority(undefined)).toBe(0);
+    expect(() => normalizeAgentRunPriority(101)).toThrow('AGENT_RUN_PRIORITY_INVALID');
+  });
+});
+
+describe('create agent run input validation', () => {
+  it('accepts a goal-only planning run and a goal-only held run', () => {
+    const planning = validateCreateAgentRunInput(createInput(), now);
+    expect(planning).toMatchObject({ status: 'planning', plan: null, planDigest: null, hold: null, priority: 0 });
+    const held = validateCreateAgentRunInput(createInput({
+      status: 'held',
+      hold: { reason: 'user_paused', resumeCondition: { kind: 'manual' }, heldSince: now, resumeAttempts: 0 },
+    }), now);
+    expect(held.status).toBe('held');
+    expect(held.plan).toBeNull();
+  });
+
+  it('requires plan and digest as a pair for approval-bound statuses', () => {
+    expect(validateCreateAgentRunInput(createInput({ status: 'queued', plan, planDigest: digest }), now).status).toBe('queued');
+    expect(() => validateCreateAgentRunInput(createInput({ status: 'queued' }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ plan }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ plan, planDigest: 'not-hex' }), now)).toThrow('AGENT_RUN_PLAN_DIGEST_INVALID');
+  });
+
+  it('rejects hold data on non-held runs and impossible births', () => {
+    expect(() => validateCreateAgentRunInput(createInput({
+      hold: { reason: 'user_paused', resumeCondition: { kind: 'manual' }, heldSince: now, resumeAttempts: 0 },
+    }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ status: 'running' as never }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ parentRunId: runId }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ expiresAt: now + 1000 }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ runId: 'bogus' }), now)).toThrow('AGENT_RUN_ID_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({ ownerBinding: 'raw-owner-name' }), now)).toThrow('AGENT_RUN_OWNER_BINDING_INVALID');
+  });
+});

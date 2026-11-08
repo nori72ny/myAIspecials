@@ -94,7 +94,7 @@ before(async () => {
   await admin.query(`create database ${databaseName}`);
   createdDatabase = true;
   for (let pass = 0; pass < 2; pass++) {
-    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql', '20260920113517_origin_mcp_oauth_pending.sql', '20260920115046_origin_mcp_oauth_grants.sql']) {
+    for (const migration of ['20260911_origin_coding_jobs_v14.sql', '20260912_origin_coding_job_results_v14.sql', '20260920100327_origin_mcp_connections.sql', '20260920113517_origin_mcp_oauth_pending.sql', '20260920115046_origin_mcp_oauth_grants.sql', '20261108090000_origin_agent_runs.sql']) {
       await db.query(await readFile(new URL(`../supabase/migrations/${migration}`, import.meta.url), 'utf8'));
     }
   }
