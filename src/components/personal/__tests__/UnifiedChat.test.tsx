@@ -1020,6 +1020,33 @@ describe('UnifiedChat', () => {
     });
   });
 
+  it('shows a clock-time recovery estimate for a long rate-limit wait without locking retry', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        code: 'PROVIDER_RATE_LIMITED',
+        message: '無料AIの利用上限に達しました。時間をおいて再試行してください。',
+        retryable: true,
+        retryAfterSeconds: 3600,
+        requestId: 'req-long-wait',
+      }),
+    });
+
+    render(<UnifiedChat />);
+    sendJapaneseMessage('日次上限時の表示を確認');
+
+    await waitFor(() => {
+      expect(screen.getByText('無料AIの利用上限に達しました')).toBeTruthy();
+      expect(screen.getByText((content) => content.startsWith('無料AIが一時的に混み合っています。回復の目安は')
+        && /回復の目安は(明日)?\d+時\d+分頃です。$/.test(content))).toBeTruthy();
+    });
+    // A multi-hour wait must not start the per-second countdown: the retry
+    // button keeps its plain label and stays enabled for a manual retry.
+    const retryButton = screen.getByRole('button', { name: '再試行' });
+    expect((retryButton as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: /秒後に再試行/ })).toBeNull();
+  });
+
   it('handles an initial prompt exactly once', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,

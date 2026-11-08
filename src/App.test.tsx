@@ -1247,6 +1247,25 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('adds the recovery estimate when a non-retryable 429 reports how long to wait', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      code: 'PROVIDER_RATE_LIMITED',
+      message: '無料AIの利用上限に達しました。',
+      retryable: false,
+      retryAttempted: false,
+      retryAfterSeconds: 3600,
+    }), { status: 429, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '上限時の回復見込みを確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+
+    await waitFor(() => expect(screen.getByText((content) => content.startsWith(
+      '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。回復の目安は',
+    ) && /回復の目安は(明日)?\d+時\d+分頃です。$/.test(content))).toBeTruthy());
+    vi.unstubAllGlobals();
+  });
+
   it('names the rate-limit cause for a non-retryable 429 and offers a manual retry that does not duplicate the user turn', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const valid = {

@@ -242,14 +242,29 @@ interface GroqChatCompletionEnvelope {
   error?: { code?: unknown; type?: unknown; message?: unknown };
 }
 
-function inferenceFailure(status: number, body: GroqChatCompletionEnvelope | null): OriginProviderError {
+/**
+ * Parses the provider's Retry-After response header (delta-seconds or an
+ * HTTP-date) with the same semantics as the primary provider client, so a
+ * rate-limit failure can carry the provider's own stated wait to the chat
+ * API response. Returns undefined when the header is absent or unparsable:
+ * no wait is ever invented here.
+ */
+const retryAfterSecondsFromHeader = (value: string | null): number | undefined => {
+  if (!value) return undefined;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.ceil(numeric);
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(1, Math.ceil((timestamp - Date.now()) / 1000)) : undefined;
+};
+
+function inferenceFailure(status: number, body: GroqChatCompletionEnvelope | null, retryAfterSeconds?: number): OriginProviderError {
   const errorText = `${String(body?.error?.code ?? "")} ${String(body?.error?.message ?? "")}`.toLowerCase();
   // Keep the provider's raw error code (never the message text) so a classified
   // failure stays identifiable in diagnostics.
   const upstreamErrorCode = safeOriginUpstreamErrorCode(body?.error?.code) ?? safeOriginUpstreamErrorCode(body?.error?.type);
   const diagnostic = { upstreamStatus: status, ...(upstreamErrorCode ? { upstreamErrorCode } : {}) };
   if (status === 429 || /rate.?limit|too many requests|tokens per minute|requests per/.test(errorText)) {
-    return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, undefined, diagnostic);
+    return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
   }
   if (status === 401 || status === 403) {
     return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
@@ -367,7 +382,7 @@ async function executeGroqModelAttempt(
   }
 
   const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
-  if (!response.ok || !body) throw inferenceFailure(response.status, body);
+  if (!response.ok || !body) throw inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After")));
   // Served-model identity: the response must name the exact model this attempt
   // requested — the same standard the primary model has always been held to.
   if (body.model !== modelId) {

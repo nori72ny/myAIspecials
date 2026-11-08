@@ -173,6 +173,41 @@ describe("executeOriginGroqProvider", () => {
     expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 
+  it("carries the provider's Retry-After wait on the rate-limit error", async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "1800" } },
+    )) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    // The surfaced error is the rotation model's failure; its own stated
+    // wait is what reaches the chat API as retryAfterSeconds.
+    expect(error.retryAfterSeconds).toBe(1800);
+  });
+
+  it("accepts an HTTP-date Retry-After header", async () => {
+    const retryAt = new Date(Date.now() + 30 * 60 * 1000).toUTCString();
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": retryAt } },
+    )) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.retryAfterSeconds).toBeGreaterThan(29 * 60);
+    expect(error.retryAfterSeconds).toBeLessThanOrEqual(30 * 60);
+  });
+
+  it("leaves retryAfterSeconds unset when the provider sends no Retry-After header", async () => {
+    const fetchMock = vi.fn(async () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429)) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.retryAfterSeconds).toBeUndefined();
+  });
+
   it("keeps the raw Groq error code in the diagnostic without the upstream message text", async () => {
     const fetchMock = vi.fn(async () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached; key gsk_syntheticsecretmaterial" } }, 429)) as unknown as OriginFetch;
     const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
