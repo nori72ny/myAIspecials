@@ -106,7 +106,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         { url: '/?workspace=research', heading: '詳しく調べる' },
         { url: '/?workspace=agent', heading: 'エージェントに任せる' },
         { url: '/?workspace=coding', heading: 'コードの変更を依頼' },
-        { url: '/?workspace=creative', heading: '作りたいものを入力' },
+        { url: '/?workspace=creative', heading: 'カード・ポスターを作る' },
       ];
 
       for (const surface of surfaces) {
