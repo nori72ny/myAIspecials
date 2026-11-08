@@ -59,7 +59,7 @@ const INITIAL_DRAFT: CreativeDraft = {
   layout: 'editorial',
   title: '伝わるクリエイティブを、すぐ形に。',
   subtitle: '',
-  body: '1080×1350を含む実ファイルを、外部画像モデルなし・通信なしで生成します。',
+  body: 'ここに伝えたい内容を書きます。',
   footer: '',
   background: '#F7F7F4',
   foreground: '#151515',
@@ -96,7 +96,7 @@ function draftFromInitialRequest(initialRequest: string): CreativeDraft {
     .replace(/^(?:please\s+)?(?:make|create|design|prepare)\s+/i, '')
     .replace(/(?:を)?(?:作って|作成して|デザインして|準備して)(?:ください)?[。.!！]?$/i, '')
     .trim();
-  const inferredTitle = explicitTitle || (cleaned.length >= 2 && cleaned.length <= 120 ? cleaned : 'チャットから引き継いだVisual');
+  const inferredTitle = explicitTitle || (cleaned.length >= 2 && cleaned.length <= 120 ? cleaned : 'チャットから引き継いだ内容');
 
   return {
     ...INITIAL_DRAFT,
@@ -210,8 +210,8 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
   const canGenerate = status === 'ready' && !busy && !pngBusy && !historyBusyId && draft.title.trim().length > 0;
   const canPreparePng = artifact !== null && !busy && !pngBusy && !historyBusyId;
   const verificationText = useMemo(() => status === 'ready'
-    ? '検証済みローカル生成 · 外部通信 0 · Provider 0 · $0'
-    : status === 'loading' ? 'Creative engine を確認中…' : 'Creative engine は現在利用できません', [status]);
+    ? '利用できます · 無料 · 外部に送信しません'
+    : status === 'loading' ? '準備を確認中…' : '現在利用できません', [status]);
 
   const update = <K extends keyof CreativeDraft>(key: K, value: CreativeDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -360,7 +360,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
         providerId: entry.providerId,
         planSha256: entry.planSha256,
       });
-      setHistoryNotice('端末内履歴から検証済みSVGを開きました。');
+      setHistoryNotice('端末内履歴から確認済みの画像を開きました。');
     } catch {
       setHistoryNotice('履歴の整合性を確認できなかったため、この作成物は開きませんでした。');
     } finally {
@@ -389,12 +389,12 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
   const pngDownloadName = artifact ? pngFilenameFromSvg(artifact.downloadName) : 'origin-creative.png';
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 lg:px-8" aria-label="Creative workspace">
+    <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 lg:px-8" aria-label="作る（カード・ポスターの作成）">
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3 px-1">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Create</p>
-          <h1 className="mt-1 text-xl font-black text-slate-950 dark:text-white">作りたいものを入力</h1>
-          <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが生成・検証し、保存できる作成物として仕上げます。</p>
+          <h1 className="mt-1 text-xl font-black text-slate-950 dark:text-white">カード・ポスターを作る</h1>
+          <p className="mt-1 text-sm leading-6 text-slate-500">タイトルと内容から、SNSカード・ポスター・情報カードの画像を作ります。</p>
         </div>
         <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
       </header>
@@ -402,11 +402,11 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
       {preservedRequest && <section data-testid="creative-handoff-request" className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-100" aria-label="チャットから引き継いだ依頼">
         <p className="font-bold">チャットから引き継いだ依頼</p>
         <p className="mt-1 whitespace-pre-wrap break-words leading-6">{preservedRequest}</p>
-        <p className="mt-2 text-xs font-medium opacity-75">内容欄に反映済みです。生成はまだ開始していません。</p>
+        <p className="mt-2 text-xs font-medium opacity-75">内容欄に反映済みです。作成はまだ開始していません。</p>
       </section>}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative controls">
+        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="作成の設定">
           <div className="grid gap-4">
             <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">タイトル
               <textarea aria-label="タイトル" value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
@@ -432,7 +432,7 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
                   </label>
                   <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">レイアウト
                     <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
-                      <option value="editorial">Editorial</option><option value="minimal">Minimal</option><option value="split">Split</option>
+                      <option value="editorial">見出し型</option><option value="minimal">シンプル</option><option value="split">左右分割</option>
                     </select>
                   </label>
                 </div>
@@ -462,14 +462,14 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
 
             {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{error}</div>}
             <button type="button" disabled={!canGenerate} onClick={() => void generate()} className="min-h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
-              {busy ? '生成・検証中…' : 'Visualを生成'}
+              {busy ? '作成・確認中…' : '画像を作成'}
             </button>
           </div>
         </section>
-        <section className="flex min-h-[320px] flex-col rounded-3xl sm:min-h-[420px] lg:min-h-[520px] border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900" aria-label="Creative preview">
+        <section className="flex min-h-[320px] flex-col rounded-3xl sm:min-h-[420px] lg:min-h-[520px] border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900" aria-label="プレビュー">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-black text-slate-950 dark:text-white">Preview</h2>
+              <h2 className="text-sm font-black text-slate-950 dark:text-white">プレビュー</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
             </div>
             {artifact && previewUrl && (
@@ -485,22 +485,26 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
           </div>
           <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-[linear-gradient(45deg,#eef2f7_25%,transparent_25%),linear-gradient(-45deg,#eef2f7_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eef2f7_75%),linear-gradient(-45deg,transparent_75%,#eef2f7_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-4 dark:border-slate-800 dark:bg-slate-950">
             {previewUrl && artifact ? (
-              <img src={previewUrl} alt={`生成済みVisual: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
+              <img src={previewUrl} alt={`作成した画像: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
             ) : (
               <div className="max-w-sm text-center text-slate-500 dark:text-slate-400">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300 bg-white text-2xl shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">✦</div>
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">まだ生成されていません</p>
-                <p className="mt-1 text-xs leading-5">左の内容を整えて「Visualを生成」を押すと、検証済み作成物だけをここに表示します。</p>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">まだ作成されていません</p>
+                <p className="mt-1 text-xs leading-5">内容を整えて「画像を作成」を押すと、確認済みの画像だけをここに表示します。</p>
               </div>
             )}
           </div>
           {artifact && previewUrl && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-            <strong>Verified</strong> · SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · 文字・安全性の自動検査済み（広告効果は未評価） · 実バイト照合済み · 外部通信なし · PNGは端末内変換
+            <p><strong>確認済み</strong> · 文字と安全性を自動で確かめました（広告としての効果は未評価です） · 外部に送信していません · PNGはこの端末で変換します</p>
+            <details className="mt-1">
+              <summary className="min-h-6 cursor-pointer font-semibold">検証の詳細</summary>
+              <p className="mt-1">SHA-256 {artifact.sha256.slice(0, 12)}… · {artifact.visualBrainVersion ?? 'visual-brain'} · {artifact.providerId ?? 'local'} · 実バイト照合済み · 外部通信なし</p>
+            </details>
           </div>}
         </section>
       </div>
 
-      {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="Creative local history">
+      {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="作成履歴">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-black text-slate-950 dark:text-white">履歴</h2>
           <span className="text-xs text-slate-500">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>

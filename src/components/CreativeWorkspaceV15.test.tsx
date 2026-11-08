@@ -144,7 +144,7 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
     expect(screen.getByLabelText('タイトル')).toBeTruthy();
     expect(screen.getByLabelText('内容')).toBeTruthy();
@@ -158,7 +158,7 @@ describe('CreativeWorkspaceV15', () => {
     const request = 'Creativeワークスペースで新商品のSNSカードを作って';
 
     render(<CreativeWorkspaceV15 initialRequest={request} />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
     expect(screen.getByTestId('creative-handoff-request').textContent).toContain(request);
     expect((screen.getByLabelText('タイトル') as HTMLInputElement).value).toContain('新商品のSNSカード');
@@ -174,19 +174,19 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
-    const preview = await screen.findByAltText('生成済みVisual: 日本語') as HTMLImageElement;
+    const preview = await screen.findByAltText('作成した画像: 日本語') as HTMLImageElement;
     expect(preview.src).toContain('blob:origin-1');
     const download = screen.getByRole('link', { name: 'SVG保存' }) as HTMLAnchorElement;
     expect(download.getAttribute('download')).toBe('日本語-portrait.svg');
     expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
     expect(screen.getByText(/visual-brain-v1/)).toBeTruthy();
     expect(screen.getByText(/origin-local-svg/)).toBeTruthy();
-    expect(screen.getByText(/文字・安全性の自動検査済み/)).toBeTruthy();
+    expect(screen.getByText(/文字と安全性を自動で確かめました/)).toBeTruthy();
     expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
     await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 
@@ -213,8 +213,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.mocked(verifyVisualBlobSha256V15).mockResolvedValueOnce(false);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByText('作成物の実バイトとSHA-256証拠が一致しませんでした。');
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
@@ -228,14 +228,14 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
-    await screen.findByAltText('生成済みVisual: 日本語');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
+    await screen.findByAltText('作成した画像: 日本語');
 
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '次の下書き' } });
     fireEvent.change(screen.getByLabelText('サイズ'), { target: { value: 'story' } });
-    expect(screen.getByAltText('生成済みVisual: 日本語')).toBeTruthy();
+    expect(screen.getByAltText('作成した画像: 日本語')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'PNGを作成' }));
     const pngDownload = await screen.findByRole('link', { name: 'PNG保存' }) as HTMLAnchorElement;
@@ -256,7 +256,7 @@ describe('CreativeWorkspaceV15', () => {
     const open = await screen.findByRole('button', { name: '履歴を開く: 履歴Visual' });
     fireEvent.click(open);
 
-    await screen.findByAltText('生成済みVisual: 履歴Visual');
+    await screen.findByAltText('作成した画像: 履歴Visual');
     expect(verifyVisualBlobSha256V15).toHaveBeenCalledWith(entry.svgBlob, entry.sha256);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -274,7 +274,7 @@ describe('CreativeWorkspaceV15', () => {
 
     expect(deleteCreativeHistoryV15).toHaveBeenCalledWith(entry.id);
     expect(screen.queryByRole('button', { name: '履歴を開く: 履歴Visual' })).toBeNull();
-    expect((screen.getByRole('button', { name: 'Visualを生成' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: '画像を作成' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('keeps verified SVG available if local PNG conversion fails', async () => {
@@ -285,8 +285,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.mocked(rasterizeVerifiedSvgToPng).mockRejectedValueOnce(new Error('decode'));
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
     await screen.findByRole('link', { name: 'SVG保存' });
     fireEvent.click(screen.getByRole('button', { name: 'PNGを作成' }));
 
@@ -300,8 +300,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('Creative engine は現在利用できません');
-    expect((screen.getByRole('button', { name: 'Visualを生成' }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByText('現在利用できません');
+    expect((screen.getByRole('button', { name: '画像を作成' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -312,8 +312,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
     expect(screen.getByText('作成物の検証証拠を確認できませんでした。')).toBeTruthy();
@@ -327,8 +327,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
     expect(screen.getByText('作成物のゼロコスト境界を確認できませんでした。')).toBeTruthy();
@@ -342,8 +342,8 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
     expect(screen.getByText('作成物のSHA-256証拠を確認できませんでした。')).toBeTruthy();
@@ -357,9 +357,9 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativeWorkspaceV15 />);
-    await screen.findByText('検証済みローカル生成 · 外部通信 0 · Provider 0 · $0');
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
     fireEvent.change(screen.getByLabelText('サイズ'), { target: { value: 'story' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Visualを生成' }));
+    fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const request = fetchMock.mock.calls[1][1] as RequestInit;
