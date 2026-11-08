@@ -256,7 +256,11 @@ describe('V1.2 real artifacts', () => {
     const encoded = response.headers['content-disposition'].split("filename*=UTF-8''")[1];
     expect(decodeURIComponent(encoded)).toBe('日本語.pdf');
     expect(response.body.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-  }, 20_000);
+  // One CJK subset render costs ~4s solo (pdf-lib subsets the 6,887-glyph
+  // Noto Sans JP font at save time); this test renders twice (direct +
+  // API route), ~8s solo, so the budget must survive parallel-load
+  // contention on CI runners. 60s is headroom, not a retry.
+  }, 60_000);
 
   it('fails closed when a glyph is outside the bundled Japanese/Latin font coverage', async () => {
     await expect(generateArtifactV12Async({
@@ -319,7 +323,9 @@ describe('V1.2 real artifacts', () => {
     expect(response.headers['x-origin-artifact-verified']).toBe('true');
     expect(response.headers['x-origin-free-only']).toBe('true');
     expect(response.headers['x-origin-cost-usd']).toBe('0');
-  }, 20_000);
+  // The status self-test performs one CJK subset render (~4s solo); keep
+  // the same parallel-load headroom as the direct PDF test above.
+  }, 60_000);
 
   it('fails closed for invalid and sensitive requests', async () => {
     expect((await request(app()).post('/api/artifacts/v1.2/generate').send({ type: 'exe' })).status).toBe(400);
