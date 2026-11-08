@@ -3,9 +3,12 @@ import {
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy.js";
 import {
+  isOriginGroqFreeModelId,
   ORIGIN_GROQ_FREE_MODEL_ID,
-  selectCurrentOriginGroqFreeModel,
+  ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+  selectCurrentOriginGroqFreeModelById,
   type OriginGroqFreeModelEvidence,
+  type OriginGroqFreeModelId,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
 import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
@@ -54,12 +57,44 @@ import {
  * budget — instead of the full-size payload. Routes 1 and 2 are untouched: they
  * never read the substitute field, and requests that do not carry it (such as the
  * grounded-research synthesis) keep the previous behavior on this route exactly.
+ *
+ * In-route model rotation (2026-11-08): Groq measures the free-plan limits per
+ * model, so openai/gpt-oss-20b is a separate quota bucket from the primary
+ * openai/gpt-oss-120b. When — and only when — the primary model was actually sent
+ * and failed with a rate-limit error or an upstream 5xx overload error, the
+ * executor retries once on openai/gpt-oss-20b inside this same route call, under
+ * a plan re-derived from that model's own current catalog evidence and with the
+ * same per-model pre-send TPM gate and served-model identity check. The dispatch
+ * total budget still bounds the route as a whole (the failover dispatcher's
+ * bounded fetch aborts in-flight requests when the window expires), so the
+ * rotation spends only the budget that remains. Preflight skips, policy or
+ * routing-integrity failures, auth failures, and timeouts never rotate: their
+ * outcome is surfaced exactly as before. Rotation is invisible outside the
+ * route except through the result's routing evidence (requested/served model)
+ * and the shared transport count, which honestly counts both sends.
  */
 
 export const ORIGIN_GROQ_API_KEY_ENV = "GROQ_API_KEY" as const;
 
 /** Free-plan tokens/minute ceiling for openai/gpt-oss-120b, verified 2026-11-08. */
 export const ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT = 8_000;
+/**
+ * Free-plan tokens/minute ceiling for the rotation model openai/gpt-oss-20b,
+ * taken from Groq's official rate-limits table (checked 2026-11-08), which lists
+ * the same 8,000 tokens/minute as the primary model. The organization's own
+ * effective value has not been re-verified in the console yet (see the catalog
+ * evidence), so this figure only feeds the pre-send estimate: if the real
+ * ceiling is lower, the request errors (HTTP 429) instead of charging and no
+ * answer is produced from an unverified condition.
+ */
+export const ORIGIN_GROQ_ROTATION_TOKENS_PER_MINUTE_LIMIT = 8_000;
+
+/** Per-model pre-send tokens/minute ceiling used by the TPM gate below. */
+export function originGroqTokensPerMinuteLimit(modelId: OriginGroqFreeModelId): number {
+  return modelId === ORIGIN_GROQ_FREE_ROTATION_MODEL_ID
+    ? ORIGIN_GROQ_ROTATION_TOKENS_PER_MINUTE_LIMIT
+    : ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT;
+}
 /**
  * Route-3 payload discipline: after trimming, the estimated input (system instruction
  * plus kept history) must fit this budget, so at least 2,000 tokens of completion
@@ -149,7 +184,7 @@ function validateGroqPlan(plan: OriginExecutionPlan): void {
   if (!plan.freeOnly
     || plan.estimatedCostUsd !== 0
     || plan.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
-    || plan.modelId !== ORIGIN_GROQ_FREE_MODEL_ID
+    || !isOriginGroqFreeModelId(plan.modelId)
     || plan.providerDataPolicy.allowProviderFallbacks !== false
     || plan.providerDataPolicy.dataCollection !== "deny"
     || plan.providerDataPolicy.requireZeroDataRetention !== true) {
@@ -170,7 +205,7 @@ function planEvidenceIsCurrent(plan: OriginExecutionPlan, selected: OriginGroqFr
     && nowMs <= planReviewAfter;
 }
 
-export function assertOriginGroqExecutionResult(result: OriginProviderExecutionResult): void {
+export function assertOriginGroqExecutionResult(result: OriginProviderExecutionResult, expectedModelId?: OriginGroqFreeModelId): void {
   const fail = (code: "PROVIDER_COST_UNVERIFIED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_TRANSPORT_UNVERIFIED", message: string): never => {
     throw new OriginProviderError(code, message, 502, false);
   };
@@ -185,8 +220,9 @@ export function assertOriginGroqExecutionResult(result: OriginProviderExecutionR
   const evidence = result.routingEvidence;
   if (!evidence
     || evidence.provider !== "Groq"
-    || evidence.requestedModel !== ORIGIN_GROQ_FREE_MODEL_ID
-    || evidence.servedModel !== ORIGIN_GROQ_FREE_MODEL_ID
+    || !isOriginGroqFreeModelId(evidence.requestedModel)
+    || evidence.servedModel !== evidence.requestedModel
+    || (expectedModelId !== undefined && evidence.servedModel !== expectedModelId)
     || evidence.strategy !== "verified-free-failover"
     || evidence.fallbackUsed !== true
     || evidence.attempt !== 3) {
@@ -240,6 +276,176 @@ export interface OriginGroqExecutionOptions {
   nowMs?: number;
 }
 
+/**
+ * One send against one catalog model, with every route invariant enforced for
+ * that model: plan/policy validation, current per-model evidence, the pre-send
+ * TPM gate against that model's ceiling, and served-model identity. The shared
+ * transport counter honestly accumulates sends across a rotation.
+ */
+async function executeGroqModelAttempt(
+  providerRequest: OriginProviderExecutionRequest,
+  plan: OriginExecutionPlan,
+  apiKey: string,
+  fetchImpl: OriginFetch,
+  options: OriginGroqExecutionOptions,
+  transport: { count: number },
+): Promise<OriginProviderExecutionResult> {
+  validateGroqPlan(plan);
+  if (providerRequest.requiredTool) {
+    // Required-tool contracts stay on the primary route: the strict single-call tool
+    // contract has not been verified against this route's model.
+    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "必須ツール付きリクエストはフェイルオーバー対象外です。", 400, false);
+  }
+  const modelId = plan.modelId as OriginGroqFreeModelId;
+  const nowMs = options.nowMs ?? Date.now();
+  const selection = selectCurrentOriginGroqFreeModelById(options.catalog, modelId, nowMs);
+  if (selection.ok === false) {
+    throw new OriginGroqPreflightError(selection.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale");
+  }
+  if (!planEvidenceIsCurrent(plan, selection.model, nowMs)) {
+    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
+  }
+
+  // Route-3 payload: the compact substitute instruction when the dispatcher
+  // provided one, and a history trimmed to the route's input budget. Both are
+  // local to this executor — the request object (and therefore routes 1 and 2)
+  // keeps the full instruction and the full history window. Trimming estimates
+  // from the sanitized texts, so the gate below still measures the exact payload.
+  const effectiveSystemInstruction = sanitizePreEgress(
+    providerRequest.groqSystemInstruction ?? providerRequest.systemInstruction,
+  );
+  const sanitizedHistory = providerRequest.messages.map((message) => ({
+    ...message,
+    content: sanitizePreEgress(message.content),
+  }));
+  const routeMessages = trimOriginGroqRouteHistory(sanitizedHistory, effectiveSystemInstruction);
+  const messages = [
+    { role: "system", content: effectiveSystemInstruction },
+    ...routeMessages.map((message) => ({
+      role: message.role === "user" ? "user" : "assistant",
+      content: message.content,
+    })),
+  ];
+  // TPM gate, enforced before anything is sent: estimate the input from the exact
+  // payload above and cap the completion at whatever headroom remains under the
+  // model's free-plan tokens/minute ceiling. When even a minimal completion no
+  // longer fits, the request would predictably hit the rate limit, so the route
+  // is skipped.
+  const estimatedInputTokens = estimateOriginGroqInputTokens(messages.map((message) => message.content));
+  const completionBudget = Math.min(
+    originCompletionTokenBudget(plan.taskType),
+    originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
+  );
+  if (completionBudget < MIN_GROQ_COMPLETION_TOKENS) {
+    throw new OriginGroqPreflightError("token-budget-exceeded");
+  }
+
+  const timeoutMs = Math.min(ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(plan.timeoutMs) || ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    transport.count += 1;
+    response = await fetchImpl(`${GROQ_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: modelId,
+        messages,
+        max_tokens: completionBudget,
+        temperature: 0.2,
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
+    }
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
+  if (!response.ok || !body) throw inferenceFailure(response.status, body);
+  // Served-model identity: the response must name the exact model this attempt
+  // requested — the same standard the primary model has always been held to.
+  if (body.model !== modelId) {
+    throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status });
+  }
+  const content = body.choices?.[0]?.message?.content;
+  const text = typeof content === "string" ? content.trim() : "";
+  if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+  const usage = extractUsage(body);
+  const result: OriginProviderExecutionResult = {
+    text,
+    transportRequestCount: transport.count,
+    actualCostUsd: 0,
+    providerDataPolicy: plan.providerDataPolicy,
+    routingEvidence: {
+      requestedModel: modelId,
+      servedModel: modelId,
+      strategy: "verified-free-failover",
+      provider: "Groq",
+      attempt: 3,
+      fallbackUsed: true,
+    },
+    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
+  };
+  assertOriginGroqExecutionResult(result, modelId);
+  return result;
+}
+
+/**
+ * Rotation is reserved for failures that say "this model's bucket is full or
+ * the model is overloaded": a classified rate limit, or an upstream 5xx
+ * overload response. Network failures carry no upstream status (the other
+ * model sits behind the same API host, so rotating would not help), and
+ * timeouts, auth failures, and integrity failures never rotate.
+ */
+function isGroqRotationTrigger(error: OriginProviderError): boolean {
+  if (error.code === "PROVIDER_RATE_LIMITED") return true;
+  if (error.code !== "PROVIDER_UNAVAILABLE") return false;
+  const upstreamStatus = error.diagnostic?.upstreamStatus;
+  return typeof upstreamStatus === "number" && upstreamStatus >= 500;
+}
+
+/**
+ * Derives the rotation plan from the rotation model's own current catalog
+ * evidence. Returns null when that evidence is not current, in which case the
+ * primary model's failure is surfaced unchanged (fail closed).
+ */
+function buildGroqRotationPlan(
+  providerRequest: OriginProviderExecutionRequest,
+  options: OriginGroqExecutionOptions,
+): OriginExecutionPlan | null {
+  const nowMs = options.nowMs ?? Date.now();
+  const selection = selectCurrentOriginGroqFreeModelById(options.catalog, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, nowMs);
+  if (selection.ok === false) return null;
+  const entry = selection.model;
+  return {
+    ...providerRequest.plan,
+    modelId: entry.modelId,
+    modelEvidence: {
+      providerId: entry.providerId,
+      verifiedAt: entry.verifiedAt,
+      reviewAfter: entry.reviewAfter,
+      sourceUrl: entry.sourceUrl,
+    },
+  };
+}
+
+function withTransportCount(error: unknown, transport: { count: number }): unknown {
+  if (error instanceof OriginGroqPreflightError) return error;
+  if (error instanceof OriginProviderError) {
+    return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      ...error.diagnostic,
+      transportRequestCount: transport.count,
+    });
+  }
+  return error;
+}
+
 export async function executeOriginGroqProvider(
   providerRequest: OriginProviderExecutionRequest,
   env: NodeJS.ProcessEnv = process.env,
@@ -251,115 +457,20 @@ export async function executeOriginGroqProvider(
 
   const transport = { count: 0 };
   try {
-    validateGroqPlan(providerRequest.plan);
-    if (providerRequest.requiredTool) {
-      // Required-tool contracts stay on the primary route: the strict single-call tool
-      // contract has not been verified against this route's model.
-      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "必須ツール付きリクエストはフェイルオーバー対象外です。", 400, false);
-    }
-    const nowMs = options.nowMs ?? Date.now();
-    const selection = selectCurrentOriginGroqFreeModel(options.catalog, nowMs);
-    if (selection.ok === false) {
-      throw new OriginGroqPreflightError(selection.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale");
-    }
-    if (!planEvidenceIsCurrent(providerRequest.plan, selection.model, nowMs)) {
-      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
-    }
-
-    // Route-3 payload: the compact substitute instruction when the dispatcher
-    // provided one, and a history trimmed to the route's input budget. Both are
-    // local to this executor — the request object (and therefore routes 1 and 2)
-    // keeps the full instruction and the full history window. Trimming estimates
-    // from the sanitized texts, so the gate below still measures the exact payload.
-    const effectiveSystemInstruction = sanitizePreEgress(
-      providerRequest.groqSystemInstruction ?? providerRequest.systemInstruction,
-    );
-    const sanitizedHistory = providerRequest.messages.map((message) => ({
-      ...message,
-      content: sanitizePreEgress(message.content),
-    }));
-    const routeMessages = trimOriginGroqRouteHistory(sanitizedHistory, effectiveSystemInstruction);
-    const messages = [
-      { role: "system", content: effectiveSystemInstruction },
-      ...routeMessages.map((message) => ({
-        role: message.role === "user" ? "user" : "assistant",
-        content: message.content,
-      })),
-    ];
-    // TPM gate, enforced before anything is sent: estimate the input from the exact
-    // payload above and cap the completion at whatever headroom remains under the
-    // free plan's 8,000 tokens/minute. When even a minimal completion no longer fits,
-    // the request would predictably hit the rate limit, so the route is skipped.
-    const estimatedInputTokens = estimateOriginGroqInputTokens(messages.map((message) => message.content));
-    const completionBudget = Math.min(
-      originCompletionTokenBudget(providerRequest.plan.taskType),
-      ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT - estimatedInputTokens,
-    );
-    if (completionBudget < MIN_GROQ_COMPLETION_TOKENS) {
-      throw new OriginGroqPreflightError("token-budget-exceeded");
-    }
-
-    const timeoutMs = Math.min(ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(providerRequest.plan.timeoutMs) || ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS));
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      transport.count += 1;
-      response = await fetchImpl(`${GROQ_API_BASE}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: ORIGIN_GROQ_FREE_MODEL_ID,
-          messages,
-          max_tokens: completionBudget,
-          temperature: 0.2,
-        }),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
-        throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
-      }
-      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
-    if (!response.ok || !body) throw inferenceFailure(response.status, body);
-    // Served-model identity: the response must name the exact fixed free model.
-    if (body.model !== ORIGIN_GROQ_FREE_MODEL_ID) {
-      throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status });
-    }
-    const content = body.choices?.[0]?.message?.content;
-    const text = typeof content === "string" ? content.trim() : "";
-    if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
-    const usage = extractUsage(body);
-    const result: OriginProviderExecutionResult = {
-      text,
-      transportRequestCount: transport.count,
-      actualCostUsd: 0,
-      providerDataPolicy: providerRequest.plan.providerDataPolicy,
-      routingEvidence: {
-        requestedModel: ORIGIN_GROQ_FREE_MODEL_ID,
-        servedModel: ORIGIN_GROQ_FREE_MODEL_ID,
-        strategy: "verified-free-failover",
-        provider: "Groq",
-        attempt: 3,
-        fallbackUsed: true,
-      },
-      usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
-    };
-    assertOriginGroqExecutionResult(result);
-    return result;
+    return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport);
   } catch (error) {
-    if (error instanceof OriginGroqPreflightError) throw error;
-    if (error instanceof OriginProviderError) {
-      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
-        ...error.diagnostic,
-        transportRequestCount: transport.count,
-      });
+    if (error instanceof OriginProviderError
+      && providerRequest.plan.modelId === ORIGIN_GROQ_FREE_MODEL_ID
+      && isGroqRotationTrigger(error)) {
+      const rotationPlan = buildGroqRotationPlan(providerRequest, options);
+      if (rotationPlan) {
+        try {
+          return await executeGroqModelAttempt(providerRequest, rotationPlan, apiKey, fetchImpl, options, transport);
+        } catch (rotationError) {
+          throw withTransportCount(rotationError, transport);
+        }
+      }
     }
-    throw error;
+    throw withTransportCount(error, transport);
   }
 }
