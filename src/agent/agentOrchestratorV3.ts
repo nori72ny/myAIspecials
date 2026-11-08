@@ -15,6 +15,7 @@ import { planAgentToolsV3, type AgentToolStepV3 } from './agentToolPlannerV3.js'
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRunAdvancer.js';
+import type { AgentRunWriteLockStore } from './agentRunWriteLock.js';
 import { diffAgentRunPlans } from './agentRunPlanDiff.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
 import {
@@ -255,7 +256,7 @@ export interface AgentRunConsumptionStore {
   consume(runId: string, expiresAt: number): Promise<boolean>;
 }
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore }): Router {
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore; writeLockStore?: AgentRunWriteLockStore }): Router {
   const router = express.Router();
   // Outer guard: express-rate-limit, the standard library that static
   // analysis (CodeQL js/missing-rate-limiting) recognizes as rate limiting.
@@ -292,6 +293,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
   const runStore = deps?.runStore;
+  const writeLockStore = deps?.writeLockStore;
 
   router.get('/api/agent/v3/status', (_req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -751,7 +753,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       ? Math.min(110_000, Math.max(1_000, Math.floor(body.budgetMs)))
       : undefined;
     const outcome = await advanceAgentRun(
-      { runStore, consumptionStore, toolContext },
+      { runStore, consumptionStore, toolContext, writeLockStore },
       record,
       `driver-${resolved.auth.mode}-${randomUUID()}`,
       { budgetMs },
@@ -769,6 +771,13 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         // first-class state, not a failure: the record's hold carries
         // the quota_reset resume condition for the blocking provider.
         return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'held', advanced: false, code: 'AGENT_RUN_QUOTA_EXHAUSTED', quota: { provider: outcome.provider, resetAt: new Date(outcome.resetAt).toISOString() }, run: view, ...runEnvelope });
+      case 'write_lock_busy':
+        // Writer lock (PR 1-E): another run currently holds the
+        // repository write lock. The write step waits in the queue —
+        // contention made explicit, never a failure and never a hold
+        // (design §2.5). The holder is a run id (not a secret), so it
+        // is safe to name.
+        return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'running', advanced: false, code: 'AGENT_RUN_WRITE_LOCK_BUSY', writeLock: { holderRunId: outcome.holderRunId, expiresAt: outcome.lockExpiresAt ? new Date(outcome.lockExpiresAt).toISOString() : null }, run: view, ...runEnvelope });
       case 'progress':
         return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'running', advanced: true, run: view, ...runEnvelope });
       case 'busy':

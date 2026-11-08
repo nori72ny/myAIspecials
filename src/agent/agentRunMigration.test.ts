@@ -31,3 +31,21 @@ describe('agent runs migration contract', () => {
     expect(sql).toContain("expires_at <= created_at + interval '7 days 1 minute'");
   });
 });
+
+describe('agent write locks migration contract', () => {
+  it('keeps writer locks service-role-only with holder and lease constraints mirroring the store', async () => {
+    const sql = await readFile(new URL('../../supabase/migrations/20261108100000_origin_agent_write_locks.sql', import.meta.url), 'utf8');
+    expect(sql).toContain('create table if not exists public.origin_agent_write_locks');
+    expect(sql).toContain('enable row level security');
+    expect(sql).toContain('revoke all on table public.origin_agent_write_locks from anon');
+    expect(sql).toContain('revoke all on table public.origin_agent_write_locks from authenticated');
+    expect(sql).toContain('grant select, insert, update, delete on table public.origin_agent_write_locks to service_role');
+    // One row per lock target.
+    expect(sql).toContain('lock_key text primary key');
+    // Holders are run/driver identifiers in the established formats.
+    expect(sql).toContain("holder_run_id ~ '^run-[A-Za-z0-9-]{8,100}$'");
+    expect(sql).toContain("holder_driver_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$'");
+    // A lease always outlives its acquisition instant.
+    expect(sql).toContain('lease_expires_at > acquired_at');
+  });
+});

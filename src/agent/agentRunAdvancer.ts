@@ -17,6 +17,12 @@ import {
   snapshotAgentRunQuotaUsage,
   type AgentRunQuotaUsageSnapshot,
 } from './agentRunQuotaGate.js';
+import {
+  AGENT_RUN_REPOSITORY_WRITE_LOCK_KEY,
+  agentRunStepRequiresWriteLock,
+  type AgentRunWriteLockRecord,
+  type AgentRunWriteLockStore,
+} from './agentRunWriteLock.js';
 import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 
 /**
@@ -52,6 +58,15 @@ import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
  *   ledger with their progress write, and a step that no longer fits
  *   parks the run as `held` (quota_exhausted / quota_reset) instead of
  *   executing. Local steps are never gated.
+ * - The writer lock (agentRunWriteLock.ts, PR 1-E) serializes repository
+ *   writes across runs: a write step (the tool registry's `sideEffects:
+ *   'write'` class) and the repository-wide completion verification run
+ *   only while this advance holds the repository write lock, acquired
+ *   after the quota gate has had its say for the step (gate → lock,
+ *   design §2.4/§2.5). Contention never fails and never holds the run:
+ *   the step simply does not execute and the advance reports the wait,
+ *   leaving the record to return to the queue when its claim lapses.
+ *   Without a lock store a write step must not run (fail closed).
  * - A held record is never advanced: resuming always re-enters
  *   `awaiting_approval` first (design §8), which is a later phase's flow.
  * - Chunk boundaries fall between steps, never inside one, and never
@@ -101,6 +116,10 @@ export interface AgentRunAdvancerDeps {
    * advance: without it the core refuses (fail closed), like the legacy
    * handler's 503 stance. */
   consumptionStore?: AgentRunConsumptionStore;
+  /** Repository writer lock (PR 1-E). Required before any write step or
+   * the completion verification may run; without it those steps refuse
+   * (fail closed) while read-only steps advance as before. */
+  writeLockStore?: AgentRunWriteLockStore;
   toolContext?: ToolExecutionContext;
   runTool?: AgentRunToolRunner;
   verifyArtifact?: AgentRunArtifactVerifier;
@@ -112,6 +131,7 @@ export type AdvanceAgentRunOutcome =
   | { kind: 'completed'; record: AgentRunRecord }
   | { kind: 'failed'; record: AgentRunRecord; errorCode: string }
   | { kind: 'held'; record: AgentRunRecord; provider: string; resetAt: number }
+  | { kind: 'write_lock_busy'; record: AgentRunRecord; holderRunId: string | null; lockExpiresAt: number | null }
   | { kind: 'progress'; record: AgentRunRecord }
   | { kind: 'busy'; record: AgentRunRecord }
   | { kind: 'not_runnable'; record: AgentRunRecord }
@@ -182,7 +202,49 @@ export async function advanceAgentRun(
     ?? ((artifact, toolName, runner, params) => verifyAndSelfFixArtifact(artifact, toolName, runner, params));
   const verifyCompletion = deps.verifyCompletion ?? (() => verifyBeforeReportingCompletion(process.cwd()));
 
+  // Writer lock (PR 1-E): acquired lazily at the first write step of
+  // this advance and held until the advance ends, so a write step and
+  // the completion verification that follows it in the same advance are
+  // atomic with respect to other runs. Release is best-effort: a lost
+  // release only means the lock frees itself at its lease expiry.
+  let writeLock: AgentRunWriteLockRecord | null = null;
+  const releaseWriteLock = async (): Promise<void> => {
+    if (!writeLock || !deps.writeLockStore) {
+      writeLock = null;
+      return;
+    }
+    const held = writeLock;
+    writeLock = null;
+    await deps.writeLockStore.release(held.lockKey, held.holderRunId, held.holderDriverId).catch(() => false);
+  };
+  const ensureWriteLock = async (): Promise<'acquired' | 'busy' | 'unavailable'> => {
+    if (writeLock) return 'acquired';
+    if (!deps.writeLockStore) return 'unavailable';
+    let acquired: AgentRunWriteLockRecord | null;
+    try {
+      acquired = await deps.writeLockStore.acquire(AGENT_RUN_REPOSITORY_WRITE_LOCK_KEY, record.runId, driverId, leaseSeconds);
+    } catch {
+      return 'unavailable';
+    }
+    if (!acquired) return 'busy';
+    writeLock = acquired;
+    return 'acquired';
+  };
+  const writeLockBusyOutcome = async (): Promise<AdvanceAgentRunOutcome> => {
+    let holder: AgentRunWriteLockRecord | null = null;
+    if (deps.writeLockStore) {
+      holder = await deps.writeLockStore.inspect(AGENT_RUN_REPOSITORY_WRITE_LOCK_KEY).catch(() => null);
+    }
+    return {
+      kind: 'write_lock_busy',
+      record: { ...record, stepsState, status: 'running' },
+      holderRunId: holder?.holderRunId ?? null,
+      lockExpiresAt: holder?.leaseExpiresAt ?? null,
+    };
+  };
+
   const failRun = async (errorCode: string): Promise<AdvanceAgentRunOutcome> => {
+    await releaseWriteLock();
     const finished = await runStore.finish(record.runId, driverId, 'failed');
     return { kind: 'failed', record: finished ?? { ...record, stepsState, status: 'failed' }, errorCode };
   };
@@ -259,11 +321,23 @@ export async function advanceAgentRun(
         // never between a step and the step consuming its artifact.
         const consumesPreviousArtifact = step.params.contentFromPreviousArtifact === true && previousText !== undefined;
         if (elapsed > budgetMs && !consumesPreviousArtifact) {
+          await releaseWriteLock();
           return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
         }
         if (elapsed > leaseSeconds * 750) {
           if (!await runStore.renewLease(record.runId, driverId, leaseSeconds)) {
+            await releaseWriteLock();
             return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
+          }
+          if (writeLock && deps.writeLockStore) {
+            // The write lock rides the same renewal cadence as the claim:
+            // losing it mid-advance (lapsed and taken over) stops the
+            // advance here rather than writing unprotected.
+            const renewed = await deps.writeLockStore.renew(writeLock.lockKey, writeLock.holderRunId, writeLock.holderDriverId, leaseSeconds).catch(() => false);
+            if (!renewed) {
+              await releaseWriteLock();
+              return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
+            }
           }
         }
       }
@@ -276,6 +350,7 @@ export async function advanceAgentRun(
       const stepCharge = agentRunStepQuotaCharge(step.toolName);
       if (agentRunStepCostClass(step.toolName) === 'delegated-job'
         && delegatedThisAdvance >= AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE) {
+        await releaseWriteLock();
         return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
       }
       if (stepCharge && quotaSnapshot) {
@@ -287,6 +362,7 @@ export async function advanceAgentRun(
         });
         if (decision.allowed === false) {
           const hold = agentRunQuotaHold(decision, now());
+          await releaseWriteLock();
           const finished = await runStore.finish(record.runId, driverId, 'held', hold);
           return {
             kind: 'held',
@@ -294,6 +370,21 @@ export async function advanceAgentRun(
             provider: decision.provider,
             resetAt: decision.resetAt,
           };
+        }
+      }
+      // Writer lock (PR 1-E): after the quota gate has had its say for
+      // this step (gate → lock), a write step runs only while this
+      // advance holds the repository write lock. Contention is a step
+      // wait, never a failure and never a hold (design §2.5): the step
+      // does not execute, earlier progress stays persisted, and the
+      // record returns to the queue when its claim lapses.
+      if (agentRunStepRequiresWriteLock(step.toolName)) {
+        const lockAttempt = await ensureWriteLock();
+        if (lockAttempt === 'unavailable') {
+          return { kind: 'unavailable', record, errorCode: 'AGENT_WRITE_LOCK_UNAVAILABLE' };
+        }
+        if (lockAttempt === 'busy') {
+          return writeLockBusyOutcome();
         }
       }
       const resolved = resolveStepParams(step, previousText);
@@ -337,6 +428,7 @@ export async function advanceAgentRun(
         stepsState,
         ...(executedCharge ? { quotaLedger: currentLedger } : {}),
       })) {
+        await releaseWriteLock();
         return { kind: 'busy', record: { ...record, stepsState, status: 'running' } };
       }
       if (!executionRecord?.toolExecuted || !executionRecord.verified || executionRecord.status !== 'completed' || finalTask.status !== 'completed') {
@@ -361,10 +453,22 @@ export async function advanceAgentRun(
     return failRun('TOOL_EXECUTION_BLOCKED');
   }
 
-  if (plan.some((step) => step.toolName === 'file_writer')) {
+  if (plan.some((step) => agentRunStepRequiresWriteLock(step.toolName))) {
+    // The completion verification reads the whole repository, so it runs
+    // under the same writer lock as the writes it verifies (design
+    // §2.5) — including when the write steps themselves completed in an
+    // earlier advance and only the verification remains.
+    const lockAttempt = await ensureWriteLock();
+    if (lockAttempt === 'unavailable') {
+      return { kind: 'unavailable', record, errorCode: 'AGENT_WRITE_LOCK_UNAVAILABLE' };
+    }
+    if (lockAttempt === 'busy') {
+      return writeLockBusyOutcome();
+    }
     const completionVerification = await verifyCompletion();
     if (!completionVerification.ok) return failRun('COMPLETION_VERIFICATION_FAILED');
   }
+  await releaseWriteLock();
   const finished = await runStore.finish(record.runId, driverId, 'completed');
   if (!finished) return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
   return { kind: 'completed', record: finished };
