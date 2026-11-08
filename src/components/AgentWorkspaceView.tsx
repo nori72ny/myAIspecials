@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
+import AgentTaskBoard from './AgentTaskBoard';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 import type { CheckpointState } from '../agent/checkpointManager';
 
@@ -421,6 +422,10 @@ export default function AgentWorkspaceView() {
               </button>)}</div>}
         </section>
       </main>
+    </div>
+
+    <div className="mx-auto mt-4 max-w-6xl">
+      <AgentTaskBoard browserPlanToken={plan?.planToken ?? null} />
     </div>
   </section>;
 }
