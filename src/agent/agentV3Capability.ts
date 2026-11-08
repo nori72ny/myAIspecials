@@ -1,8 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const SECRET_MIN_LENGTH = 32;
-const PLAN_TTL_MS = 10 * 60 * 1000;
-const APPROVAL_TTL_MS = 2 * 60 * 1000;
+// Exported so the durable run record (agentRunRecord.ts) and the piggyback
+// evaluator can derive approval deadlines from the same numbers the
+// capabilities themselves use: a plan may be approved until the last
+// instant of its TTL, and that approval stays usable for its own TTL.
+export const PLAN_TTL_MS = 10 * 60 * 1000;
+export const APPROVAL_TTL_MS = 2 * 60 * 1000;
 const MAX_TOKEN_LENGTH = 2048;
 
 type CapabilityKind = 'plan' | 'approval';

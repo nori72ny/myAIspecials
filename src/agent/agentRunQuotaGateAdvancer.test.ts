@@ -5,6 +5,7 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { advanceAgentRun } from './agentRunAdvancer.js';
 import { agentRunQuotaWindow } from './agentRunQuotaGate.js';
+import { evaluateAgentRunPiggyback, type AgentRunReplanPort } from './agentRunPiggybackEvaluation.js';
 import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
 import type { AgentRunQuotaLedger, AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
@@ -232,6 +233,76 @@ describe('advanceAgentRun quota gate', () => {
     const second = await advanceAgentRun(deps, recovered!, 'driver-beta-02', { leaseSeconds: 30 });
     expect(second.kind).toBe('completed');
     expect(runTool).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('quota hold resume-attempt chain (design §8.6, PR 1-G)', () => {
+  it('counts each fall back to a quota hold after a resume, until the piggyback cap stops automation', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = makeRunTool();
+    await seedRun(store, 'run-quota-chain-prior', [{ toolName: 'repository_explorer' }], {
+      quotaLedger: { tavily: { credits: 800 } },
+    });
+    const seeded = await seedRun(store, 'run-quota-chain-01', [
+      { toolName: 'web_search_grounding', params: { query: 'blocked' } },
+    ]);
+    const deps = { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier };
+    // Resume + confirm at the store level: the approval binding itself
+    // is the API layer's business (covered by the 1-C tests); here the
+    // transitions stand in for a completed resume/confirm cycle.
+    const resumeAndConfirm = async (): Promise<AgentRunRecord> => {
+      const held = await store.get('run-quota-chain-01', OWNER);
+      const awaiting = await store.transition({
+        runId: 'run-quota-chain-01',
+        ownerBinding: OWNER,
+        expectedStatus: 'held',
+        expectedVersion: held!.version,
+        nextStatus: 'awaiting_approval',
+        approvalDeadlineAt: Date.now() + 720_000,
+      });
+      const queued = await store.transition({
+        runId: 'run-quota-chain-01',
+        ownerBinding: OWNER,
+        expectedStatus: 'awaiting_approval',
+        expectedVersion: awaiting!.version,
+        nextStatus: 'queued',
+      });
+      return queued!;
+    };
+
+    // First quota hold: not a failed resume yet.
+    const first = await advanceAgentRun(deps, seeded, 'driver-alpha-01');
+    expect(first.kind).toBe('held');
+    let record = await store.get('run-quota-chain-01', OWNER);
+    expect(record?.hold?.resumeAttempts).toBe(0);
+    expect(record?.priorResumeAttempts).toBe(0);
+
+    // Each resume that falls back to the same quota hold counts one
+    // more failed attempt, carried across the hold episodes.
+    for (const expected of [1, 2, 3]) {
+      const queued = await resumeAndConfirm();
+      const outcome = await advanceAgentRun(deps, queued, 'driver-alpha-01');
+      expect(outcome.kind).toBe('held');
+      record = await store.get('run-quota-chain-01', OWNER);
+      expect(record?.hold?.resumeAttempts).toBe(expected);
+      expect(record?.priorResumeAttempts).toBe(expected);
+    }
+    expect(runTool).not.toHaveBeenCalled();
+
+    // At the cap the piggyback evaluator leaves the run to a human,
+    // even though its condition kind (quota_reset) is evaluable.
+    const replan: AgentRunReplanPort = {
+      replan: () => ({
+        steps: [{ toolName: 'web_search_grounding', params: { query: 'blocked' } }],
+        plan: [{ toolName: 'web_search_grounding', params: { query: 'blocked' }, dependsOn: [] }],
+        planDigest: seeded.planDigest!,
+      }),
+    };
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan }, OWNER, Date.now());
+    expect(summary.capped).toEqual(['run-quota-chain-01']);
+    expect(summary.advanced).toEqual([]);
+    expect((await store.get('run-quota-chain-01', OWNER))?.status).toBe('held');
   });
 });
 

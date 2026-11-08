@@ -361,7 +361,7 @@ export async function advanceAgentRun(
           now: now(),
         });
         if (decision.allowed === false) {
-          const hold = agentRunQuotaHold(decision, now());
+          const hold = agentRunQuotaHold(decision, now(), record.priorResumeAttempts);
           await releaseWriteLock();
           const finished = await runStore.finish(record.runId, driverId, 'held', hold);
           return {

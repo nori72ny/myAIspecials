@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_RUN_APPROVAL_LAPSE_MS,
   AGENT_RUN_RECORD_STATUSES,
   assertAgentRunStatusTransition,
   canTransitionAgentRunStatus,
@@ -200,5 +201,28 @@ describe('create agent run input validation', () => {
     expect(() => validateCreateAgentRunInput(createInput({ expiresAt: now + 1000 }), now)).toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
     expect(() => validateCreateAgentRunInput(createInput({ runId: 'bogus' }), now)).toThrow('AGENT_RUN_ID_INVALID');
     expect(() => validateCreateAgentRunInput(createInput({ ownerBinding: 'raw-owner-name' }), now)).toThrow('AGENT_RUN_OWNER_BINDING_INVALID');
+  });
+
+  it('gives an awaiting_approval birth an approval lapse deadline and derives the carried attempt count (PR 1-G)', () => {
+    const born = validateCreateAgentRunInput(createInput({ status: 'awaiting_approval', plan, planDigest: digest }), now);
+    expect(born.approvalDeadlineAt).toBe(now + AGENT_RUN_APPROVAL_LAPSE_MS);
+    expect(born.priorResumeAttempts).toBeNull();
+    const explicit = validateCreateAgentRunInput(createInput({
+      status: 'awaiting_approval', plan, planDigest: digest, approvalDeadlineAt: now + 60_000,
+    }), now);
+    expect(explicit.approvalDeadlineAt).toBe(now + 60_000);
+    // A deadline is meaningless (and refused) on any other birth status.
+    expect(() => validateCreateAgentRunInput(createInput({ approvalDeadlineAt: now + 60_000 }), now))
+      .toThrow('AGENT_RUN_CREATE_INPUT_INVALID');
+    expect(() => validateCreateAgentRunInput(createInput({
+      status: 'awaiting_approval', plan, planDigest: digest, approvalDeadlineAt: -1,
+    }), now)).toThrow('AGENT_RUN_APPROVAL_DEADLINE_INVALID');
+    // A born-held run carries its birth hold's attempt count across episodes.
+    const held = validateCreateAgentRunInput(createInput({
+      status: 'held',
+      hold: { reason: 'quota_exhausted', resumeCondition: { kind: 'quota_reset', provider: 'tavily' }, heldSince: now, resumeAttempts: 2 },
+    }), now);
+    expect(held.priorResumeAttempts).toBe(2);
+    expect(held.approvalDeadlineAt).toBeNull();
   });
 });
