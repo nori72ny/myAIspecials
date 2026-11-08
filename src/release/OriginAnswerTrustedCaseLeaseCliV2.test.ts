@@ -62,7 +62,24 @@ describe("AQ V2 trusted case CLI bridge", () => {
     );
 
     expect(run.status).toBe(0);
-    expect(run.stderr).toBe("");
+    // The child must print nothing of its own to stderr — but the Node
+    // runtime itself may (e.g. undici's experimental EnvHttpProxyAgent
+    // warning on Node 22 when proxy env vars are set). Those runtime lines
+    // are noise, not application output: strip them, require the remainder
+    // to be empty, and separately require that no sealed material leaked
+    // to stderr either.
+    const isRuntimeWarningLine = (line: string) =>
+      line.startsWith('(node:') || line.startsWith('(Use `node --trace-warnings');
+    const stderrWithoutRuntimeWarnings = run.stderr
+      .split('\n')
+      .filter((line) => !isRuntimeWarningLine(line))
+      .join('\n')
+      .trim();
+    expect(stderrWithoutRuntimeWarnings).toBe('');
+    expect(run.stderr).not.toContain('SEALED NOTES');
+    expect(run.stderr).not.toContain(prepared.corpusDigest);
+    expect(run.stderr).not.toContain('round-2026-09-23-a');
+    expect(run.stderr).not.toContain('a'.repeat(40));
 
     const candidate = JSON.parse(run.stdout);
     expect(Object.keys(candidate).sort()).toEqual(["leaseId", "prompt", "schemaVersion"]);
