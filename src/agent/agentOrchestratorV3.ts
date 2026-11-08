@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import express, { type Router } from 'express';
+import express, { type Request, type Router } from 'express';
 import { rateLimit, type AugmentedRequest } from 'express-rate-limit';
 import { executeToolWithPermission, type ToolName, type ToolParams, type ToolExecutionContext } from './toolRegistry.js';
 import { verifyAndSelfFixArtifact } from './autoVerificationEngine.js';
@@ -14,6 +14,9 @@ import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPl
 import { planAgentToolsV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
+import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRunAdvancer.js';
+import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
+import { isAgentRunRecordStatus, MAX_AGENT_RUN_TTL_MS, type AgentRunRecordStatus } from './agentRunRecord.js';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
@@ -201,27 +204,6 @@ function generatedParams(toolName: ToolName, goal: string, options?: { contentFr
   return kinds.length === 1 ? { kind: kinds[0][0] } : {};
 }
 
-/** Resolves the cross-step dataflow marker at execution time. The approval
- * binding covers the planned params (marker included); resolution is a
- * deterministic local substitution of the previous step's textual artifact. */
-function resolveStepParams(step: AgentStepInputV3, previousText: string | undefined): { params: ToolParams } | { error: string } {
-  if (step.params.contentFromPreviousArtifact !== true) return { params: step.params };
-  if (previousText === undefined) return { error: 'AGENT_STEP_INPUT_UNAVAILABLE' };
-  const { contentFromPreviousArtifact: _marker, ...rest } = step.params;
-  return { params: { ...rest, content: previousText } };
-}
-
-function textualArtifactOf(toolName: ToolName, artifact: string): string | undefined {
-  if (toolName === 'file_reader') return artifact;
-  if (toolName === 'document_generator') {
-    try {
-      const parsed = JSON.parse(artifact) as { content?: unknown };
-      return typeof parsed.content === 'string' ? parsed.content : undefined;
-    } catch { return undefined; }
-  }
-  return undefined;
-}
-
 
 /** Must atomically reserve a run across all server instances until expiresAt.
  * Return false for a previously reserved run. Never release after a tool failure.
@@ -231,7 +213,7 @@ export interface AgentRunConsumptionStore {
   consume(runId: string, expiresAt: number): Promise<boolean>;
 }
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort }): Router {
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore }): Router {
   const router = express.Router();
   // Outer guard: express-rate-limit, the standard library that static
   // analysis (CodeQL js/missing-rate-limiting) recognizes as rate limiting.
@@ -267,6 +249,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   // Retry-After contract. GET /status is read-only and stays unmetered.
   const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
+  const runStore = deps?.runStore;
 
   router.get('/api/agent/v3/status', (_req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -560,6 +543,270 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       }
     })();
     return undefined;
+  });
+
+  // ---------------------------------------------------------------------
+  // Durable run records (multitask Phase 1, PR 1-B): the owner-scoped
+  // /runs API over the persisted run store, driven by the separated
+  // execution core in agentRunAdvancer.ts. Purely additive — the legacy
+  // single-request flow above is unchanged.
+  //
+  // Owner binding: records bind to a SHA-256 digest, never to a raw
+  // credential. Operator mode uses one fixed namespace digest (the operator
+  // credential itself is the capability, exactly as on /execute). Browser
+  // mode binds to the run's own plan capability token digest: the token is
+  // per-run and already the browser-side capability for the run, so holding
+  // it proves browser-side ownership of that run (design §11 U5 remains
+  // open; the design names this plan-token binding as the fallback until a
+  // path-scoped owner binding is decided). Bindings and tokens are never
+  // returned or logged.
+  const OPERATOR_RUN_OWNER_BINDING = createHash('sha256').update('origin.agent.runs.owner.operator.v1').digest('hex');
+  const browserRunOwnerBinding = (planToken: string) => createHash('sha256').update(`origin.agent.runs.owner.browser.v1:${planToken}`).digest('hex');
+  const runEnvelope = { freeOnly: true, costUsd: 0, paidFallbackUsed: false } as const;
+  const publicAgentRunView = (record: AgentRunRecord) => ({
+    runId: record.runId,
+    status: record.status,
+    goal: record.goal,
+    plan: record.plan,
+    planDigest: record.planDigest,
+    stepsState: record.stepsState,
+    parentRunId: record.parentRunId,
+    priority: record.priority,
+    hold: record.hold,
+    quotaLedger: record.quotaLedger,
+    createdAt: new Date(record.createdAt).toISOString(),
+    updatedAt: new Date(record.updatedAt).toISOString(),
+    expiresAt: new Date(record.expiresAt).toISOString(),
+  });
+  type RunsAuth = { mode: AgentApprovalAuthModeV3; ownerBinding: string };
+  const authenticateRunsRequest = (req: Request, planToken: string | undefined, runId?: string): { auth: RunsAuth } | { status: number; code: string } => {
+    if (agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env)) {
+      return { auth: { mode: 'operator', ownerBinding: OPERATOR_RUN_OWNER_BINDING } };
+    }
+    if (v3CapabilityConfigured(env) && isSameOriginBrowserRequest(req, env)) {
+      if (typeof planToken !== 'string' || !planToken) return { status: 403, code: 'AGENT_PLAN_CAPABILITY_INVALID' };
+      const plan = verifyPlanCapability(planToken, env, Date.now());
+      if (!plan || (runId !== undefined && plan.runId !== runId)) return { status: 403, code: 'AGENT_PLAN_CAPABILITY_INVALID' };
+      return { auth: { mode: 'browser', ownerBinding: browserRunOwnerBinding(planToken) } };
+    }
+    if (!agentOperatorConfiguredV3(env) && !v3CapabilityConfigured(env)) return { status: 503, code: 'AGENT_APPROVAL_NOT_CONFIGURED' };
+    if (agentOperatorConfiguredV3(env)) return { status: 401, code: 'AGENT_AUTHENTICATION_REQUIRED' };
+    return { status: 403, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' };
+  };
+  const runsStoreUnavailable = (res: express.Response) => res.status(503).json({ ok: false, code: 'AGENT_RUN_STORE_UNAVAILABLE' });
+
+  router.post('/api/agent/v3/runs', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const body = (req.body ?? {}) as { runId?: unknown; goal?: unknown; planToken?: unknown; approvalToken?: unknown; priority?: unknown };
+    const runId = typeof body.runId === 'string' ? body.runId : '';
+    const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
+    if (!runId.startsWith('run-') || !goal) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_REQUEST' });
+    const steps = parseStepInputs((req.body ?? {}) as Record<string, unknown>);
+    if (!steps) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_EXECUTION_STEPS' });
+    const operatorAuthenticated = agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env);
+    const browserEligible = !operatorAuthenticated && v3CapabilityConfigured(env) && isSameOriginBrowserRequest(req, env);
+    if (!operatorAuthenticated && !browserEligible) {
+      if (!agentOperatorConfiguredV3(env)) return res.status(503).json({ ok: false, code: 'AGENT_OPERATOR_AUTH_NOT_CONFIGURED' });
+      return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+    }
+    const mode: AgentApprovalAuthModeV3 = operatorAuthenticated ? 'operator' : 'browser';
+    // The browser binding input is only used after the token verifies below.
+    const ownerBinding = operatorAuthenticated
+      ? OPERATOR_RUN_OWNER_BINDING
+      : browserRunOwnerBinding(typeof body.planToken === 'string' ? body.planToken : '');
+    if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
+    const plan = verifyPlanCapability(typeof body.planToken === 'string' ? body.planToken : undefined, env, Date.now());
+    if (!plan || plan.runId !== runId) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_CAPABILITY_INVALID' });
+    const plannedTools = plan.plannedTools ?? (plan.plannedTool ? [plan.plannedTool] : []);
+    if (plannedTools.length !== steps.length || plannedTools.some((tool, index) => tool !== steps[index].toolName)) {
+      return res.status(403).json({ ok: false, code: 'AGENT_PLAN_TOOLS_MISMATCH' });
+    }
+    const planDigest = canonicalParamsDigest(steps);
+    if (plan.paramsDigest !== planDigest) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_PARAMS_MISMATCH' });
+    if (plan.digest !== digestGoal(goal)) return res.status(403).json({ ok: false, code: 'AGENT_PLAN_GOAL_MISMATCH' });
+    const approval = verifyApprovalCapability(typeof body.approvalToken === 'string' ? body.approvalToken : undefined, env, Date.now());
+    if (!approval || approval.runId !== runId || approval.digest !== approvalDigest(canonicalOperation(runId, steps))) {
+      return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_INVALID' });
+    }
+    if (mode === 'operator' ? (approval.authMode !== undefined && approval.authMode !== 'operator') : approval.authMode !== 'browser') {
+      return res.status(403).json({ ok: false, code: 'AGENT_APPROVAL_AUTH_MODE_MISMATCH' });
+    }
+    try {
+      const created = await runStore.create({
+        runId,
+        ownerBinding,
+        goal,
+        status: 'queued',
+        plan: steps.map((step, index) => ({
+          toolName: step.toolName,
+          params: step.params,
+          dependsOn: index === 0 ? [] : [index - 1],
+          ...(step.params.contentFromPreviousArtifact === true && index > 0 ? { inputFrom: index - 1 } : {}),
+        })),
+        planDigest,
+        stepsState: steps.map((_, index) => ({ id: `task-${index + 1}`, status: 'queued' as const, attempts: 0 })),
+        priority: typeof body.priority === 'number' ? body.priority : undefined,
+        expiresAt: Date.now() + MAX_AGENT_RUN_TTL_MS,
+      });
+      if (!created) {
+        // Idempotent create: the same owner re-submitting the same approved
+        // plan gets the existing record back instead of an error.
+        const existing = await runStore.get(runId, ownerBinding);
+        if (existing && existing.planDigest === planDigest) {
+          return res.status(200).json({ ok: true, protocolVersion: 3, persistence: 'durable-run-record', run: publicAgentRunView(existing), ...runEnvelope });
+        }
+        return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_EXISTS', runId });
+      }
+      return res.status(201).json({ ok: true, protocolVersion: 3, persistence: 'durable-run-record', run: publicAgentRunView(created), ...runEnvelope });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.startsWith('AGENT_RUN_')) return res.status(400).json({ ok: false, code: message });
+      return runsStoreUnavailable(res);
+    }
+  });
+
+  router.get('/api/agent/v3/runs', agentV3RateLimitGuard, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const planToken = typeof req.headers['x-agent-plan-token'] === 'string' ? req.headers['x-agent-plan-token'] : undefined;
+    const resolved = authenticateRunsRequest(req, planToken);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    const statusQuery = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const statuses = statusQuery === undefined ? undefined : statusQuery.split(',').map((value) => value.trim()).filter(Boolean);
+    if (statuses !== undefined && (statuses.length === 0 || statuses.some((status) => !isAgentRunRecordStatus(status)))) {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_LIST_INPUT_INVALID' });
+    }
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_LIST_INPUT_INVALID' });
+    }
+    try {
+      const runs = await runStore.listByOwner(resolved.auth.ownerBinding, { statuses: statuses as AgentRunRecordStatus[] | undefined, limit });
+      return res.json({ ok: true, protocolVersion: 3, runs: runs.map(publicAgentRunView), ...runEnvelope });
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+  });
+
+  router.get('/api/agent/v3/runs/:runId', agentV3RateLimitGuard, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const planToken = typeof req.headers['x-agent-plan-token'] === 'string' ? req.headers['x-agent-plan-token'] : undefined;
+    const resolved = authenticateRunsRequest(req, planToken, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    try {
+      const record = await runStore.get(runId, resolved.auth.ownerBinding);
+      if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+      return res.json({ ok: true, protocolVersion: 3, run: publicAgentRunView(record), ...runEnvelope });
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+  });
+
+  router.post('/api/agent/v3/runs/:runId/advance', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const body = (req.body ?? {}) as { planToken?: unknown; budgetMs?: unknown };
+    const resolved = authenticateRunsRequest(req, typeof body.planToken === 'string' ? body.planToken : undefined, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    let record: AgentRunRecord | null;
+    try {
+      record = await runStore.get(runId, resolved.auth.ownerBinding);
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+    if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+    const budgetMs = typeof body.budgetMs === 'number' && Number.isFinite(body.budgetMs)
+      ? Math.min(110_000, Math.max(1_000, Math.floor(body.budgetMs)))
+      : undefined;
+    const outcome = await advanceAgentRun(
+      { runStore, consumptionStore, toolContext },
+      record,
+      `driver-${resolved.auth.mode}-${randomUUID()}`,
+      { budgetMs },
+    );
+    const refreshed = await runStore.get(runId, resolved.auth.ownerBinding).catch(() => null);
+    const view = publicAgentRunView(refreshed ?? outcome.record);
+    switch (outcome.kind) {
+      case 'completed':
+        return res.json({ ok: true, protocolVersion: 3, runId, status: 'completed', run: view, ...runEnvelope });
+      case 'failed':
+        return res.status(422).json({ ok: false, protocolVersion: 3, runId, code: outcome.errorCode, status: 'failed', run: view, ...runEnvelope, error: 'The run failed verification or execution.' });
+      case 'progress':
+        return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'running', advanced: true, run: view, ...runEnvelope });
+      case 'busy':
+        return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: view.status, advanced: false, code: 'AGENT_RUN_DRIVER_BUSY', run: view, ...runEnvelope });
+      case 'unavailable':
+        return res.status(503).json({ ok: false, code: outcome.errorCode, runId });
+      case 'not_runnable':
+        // A held run must re-plan and be re-approved before it can move
+        // again (design §8); that resume flow is a later phase, so the run
+        // is reported, never advanced, from here.
+        if (record.status === 'held') return res.status(409).json({ ok: false, code: 'AGENT_RUN_HELD', runId, run: view, ...runEnvelope });
+        if (record.status === 'planning' || record.status === 'awaiting_approval') {
+          return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_APPROVED', runId, run: view, ...runEnvelope });
+        }
+        return res.json({ ok: true, protocolVersion: 3, runId, status: record.status, advanced: false, run: view, ...runEnvelope });
+    }
+  });
+
+  router.post('/api/agent/v3/runs/:runId/cancel', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const body = (req.body ?? {}) as { planToken?: unknown };
+    const resolved = authenticateRunsRequest(req, typeof body.planToken === 'string' ? body.planToken : undefined, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    let record: AgentRunRecord | null;
+    try {
+      record = await runStore.get(runId, resolved.auth.ownerBinding);
+    } catch {
+      return runsStoreUnavailable(res);
+    }
+    if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+    if (record.status === 'completed' || record.status === 'failed' || record.status === 'cancelled' || record.status === 'expired') {
+      return res.json({ ok: true, protocolVersion: 3, runId, cancellation: 'already-terminal', run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (record.status === 'running') {
+      // The transition table has no running→cancelled edge: the active
+      // driver owns the run until its lease ends. Cancelling a running run
+      // is reported honestly instead of racing the driver.
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_IN_PROGRESS', runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    const cancelled = await runStore.transition({
+      runId,
+      ownerBinding: resolved.auth.ownerBinding,
+      expectedStatus: record.status,
+      expectedVersion: record.version,
+      nextStatus: 'cancelled',
+    }).catch(() => null);
+    if (!cancelled) {
+      const current = await runStore.get(runId, resolved.auth.ownerBinding).catch(() => null);
+      if (current?.status === 'cancelled') {
+        return res.json({ ok: true, protocolVersion: 3, runId, cancellation: 'run-record', run: publicAgentRunView(current), ...runEnvelope });
+      }
+      return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
+    }
+    // Best-effort shared tombstone, mirroring the legacy cancel, so the
+    // legacy execute path cannot run this approval afterwards either. The
+    // record transition above is the authoritative cancellation for the
+    // runs path, so a tombstone failure degrades the label, not the result.
+    let tombstoned = false;
+    if (consumptionStore) {
+      try {
+        await consumptionStore.consume(runId, record.expiresAt);
+        tombstoned = true;
+      } catch { tombstoned = false; }
+    }
+    return res.json({
+      ok: true,
+      protocolVersion: 3,
+      runId,
+      cancellation: tombstoned ? 'run-record-and-shared-reservation' : 'run-record',
+      run: publicAgentRunView(cancelled),
+      ...runEnvelope,
+    });
   });
 
   return router;
