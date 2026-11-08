@@ -12,6 +12,15 @@ type Props = {
 
 const RATIOS: readonly ImageRatio[] = ['1:1', '16:9', '9:16', '4:5', '3:2', '2:3'];
 
+const RATIO_LABELS_JA: Record<ImageRatio, string> = {
+  '1:1': '1:1（正方形）',
+  '16:9': '16:9（横長）',
+  '9:16': '9:16（縦長）',
+  '4:5': '4:5（やや縦長）',
+  '3:2': '3:2（やや横長）',
+  '2:3': '2:3（縦長）',
+};
+
 async function readVerifiedProviderAvailability(signal: AbortSignal): Promise<boolean> {
   try {
     const response = await fetch('/api/creative/v1.5/raster/status', {
@@ -118,12 +127,12 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
 
   const ja = language === 'ja';
   const availabilityMessage = providerAvailability === 'checking'
-    ? (ja ? '無料の実画像生成経路を確認しています…' : 'Checking verified zero-cost image generation…')
+    ? (ja ? '画像生成の準備を確認しています…' : 'Checking that image generation is ready…')
     : providerAvailability === 'ready'
-      ? (ja ? '検証済みの無料生成経路が利用可能です。' : 'A verified zero-cost generation route is available.')
+      ? (ja ? '無料で画像を生成できます。' : 'You can generate images for free.')
       : (ja
-        ? '実画像生成は現在停止中です。リクエスト単位で費用 $0.00 を確認できる無料プロバイダーがないため、送信は行いません。'
-        : 'Image generation is currently unavailable. No provider has verified $0.00 cost for this request, so nothing will be submitted.');
+        ? '画像生成は現在利用できません。費用 $0.00（無料）で使えることが確認できたときだけ生成するため、いまは送信しません。'
+        : 'Image generation is currently unavailable. Nothing is submitted unless $0.00 cost is confirmed.');
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -145,7 +154,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
             <label className="grid gap-2 text-sm font-medium">
               {ja ? '縦横比' : 'Aspect ratio'}
               <select data-testid="origin-image-ratio" value={ratio} onChange={(event) => setRatio(event.target.value as ImageRatio)} className="origin-input min-h-11 rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base">
-                {RATIOS.map((value) => <option key={value} value={value}>{value}</option>)}
+                {RATIOS.map((value) => <option key={value} value={value}>{ja ? RATIO_LABELS_JA[value] : value}</option>)}
               </select>
             </label>
             <label className="grid gap-2 text-sm font-medium">
