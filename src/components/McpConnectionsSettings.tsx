@@ -9,7 +9,7 @@ const copy = {
   ja: {
     title: '外部サービス接続', help: '許可されたサービスを登録し、接続を確認できます。', loading: '確認しています…',
     setup: '外部サービス接続は準備中です。認証と保存先の設定が完了すると利用できます。',
-    login: '接続を管理するには、オーナー認証が必要です。', loginHelp: 'Supabaseのオーナーアカウントでログインします。パスワードは保存されません。',
+    login: '接続を管理するには、オーナー認証が必要です。', loginHelp: 'オーナーアカウントでログインします。パスワードは保存されません。',
     email: 'メールアドレス', password: 'パスワード', signIn: 'ログイン', restore: 'セッションを復元', logout: 'ログアウト',
     signedIn: 'ログインしました。', restored: 'セッションを復元しました。', signedOut: 'ログアウトしました。',
     loginFailed: 'ログインできませんでした。認証情報を確認してください。', sessionExpired: 'セッションを復元できませんでした。再度ログインしてください。',
@@ -27,7 +27,7 @@ const copy = {
   en: {
     title: 'External services', help: 'Register an approved service and check its connection.', loading: 'Checking…',
     setup: 'External connections are being prepared. Authentication and storage must be configured first.',
-    login: 'Owner authentication is required to manage connections.', loginHelp: 'Sign in with the approved Supabase owner account. Your password is never stored.',
+    login: 'Owner authentication is required to manage connections.', loginHelp: 'Sign in with the approved owner account. Your password is never stored.',
     email: 'Email address', password: 'Password', signIn: 'Sign in', restore: 'Restore session', logout: 'Sign out',
     signedIn: 'Signed in.', restored: 'Session restored.', signedOut: 'Signed out.',
     loginFailed: 'Sign-in failed. Check your credentials.', sessionExpired: 'The session could not be restored. Sign in again.',
