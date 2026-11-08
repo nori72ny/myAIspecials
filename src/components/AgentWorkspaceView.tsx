@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 import type { CheckpointState } from '../agent/checkpointManager';
 
@@ -91,6 +92,17 @@ function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): 
 
 function hasExecutableSteps(plan: AgentPlan): boolean {
   return plan.steps.length > 0 && plan.steps.every((step) => hasExecutableParams(step.toolName, step.params));
+}
+
+export function catStateForPhase(phase: Phase, checkingCapability: boolean, ready: boolean): OriginCatStateKind {
+  if (checkingCapability) return 'thinking';
+  if (!ready) return 'sorry';
+  if (phase === 'planning') return 'thinking';
+  if (phase === 'awaiting_approval') return 'waiting';
+  if (phase === 'executing') return 'working';
+  if (phase === 'completed') return 'done';
+  if (phase === 'failed') return 'sorry';
+  return 'sleep';
 }
 
 function phaseLabel(phase: Phase): string {
@@ -333,8 +345,11 @@ export default function AgentWorkspaceView() {
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-slate-500">{checkingCapability ? '自律エージェント機能を確認中…' : ready ? '自律エージェントを利用できます' : '自律エージェントは現在利用できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
-            {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
+          <span className="flex items-center gap-2">
+            <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
+            <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
+              {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
+            </span>
           </span>
         </div>
 

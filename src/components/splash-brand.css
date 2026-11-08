@@ -1,12 +1,12 @@
 .origin-ultra-splash .origin-ultra-splash__aurora {
   inset: -28%;
   background:
-    radial-gradient(circle at 50% 43%, rgb(255 179 91 / 18%), transparent 20%),
-    radial-gradient(circle at 47% 48%, rgb(238 60 131 / 9%), transparent 34%);
+    radial-gradient(circle at 50% 43%, rgb(96 131 214 / 16%), transparent 20%),
+    radial-gradient(circle at 47% 48%, rgb(37 64 143 / 10%), transparent 34%);
   filter: blur(30px);
 }
 
-.origin-sunrise-logo {
+.origin-ribbon-logo {
   position: relative;
   width: 112px;
   height: 112px;
@@ -14,18 +14,18 @@
   place-items: center;
 }
 
-.origin-sunrise-logo__halo {
+.origin-ribbon-logo__halo {
   position: absolute;
   inset: -24px;
   border-radius: 999px;
-  background: radial-gradient(circle, rgb(255 156 74 / 24%) 0%, rgb(236 60 131 / 10%) 36%, transparent 70%);
+  background: radial-gradient(circle, rgb(37 64 143 / 26%) 0%, rgb(96 131 214 / 12%) 36%, transparent 70%);
   filter: blur(14px);
   transform: scale(.92);
   opacity: .72;
-  animation: origin-sunrise-breathe 2.2s ease-in-out infinite alternate;
+  animation: origin-ribbon-breathe 2.2s ease-in-out infinite alternate;
 }
 
-.origin-sunrise-logo__mark {
+.origin-ribbon-logo__mark {
   position: relative;
   z-index: 1;
   display: block;
@@ -33,10 +33,11 @@
   height: 100%;
   user-select: none;
   -webkit-user-drag: none;
-  filter: drop-shadow(0 12px 24px rgb(218 74 93 / 13%));
+  border-radius: 24%;
+  filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));
 }
 
-.origin-sunrise-wordmark {
+.origin-ribbon-wordmark {
   margin-top: 20px;
   color: var(--text-primary);
   font-family: "Geist", "Noto Sans JP", system-ui, sans-serif;
@@ -48,22 +49,22 @@
   text-rendering: geometricPrecision;
 }
 
-@keyframes origin-sunrise-breathe {
+@keyframes origin-ribbon-breathe {
   from { opacity: .52; transform: scale(.9); }
   to { opacity: .82; transform: scale(1.04); }
 }
 
 @media (max-width: 640px) {
-  .origin-sunrise-logo {
+  .origin-ribbon-logo {
     width: 94px;
     height: 94px;
   }
 
-  .origin-sunrise-logo__halo {
+  .origin-ribbon-logo__halo {
     inset: -20px;
   }
 
-  .origin-sunrise-wordmark {
+  .origin-ribbon-wordmark {
     margin-top: 17px;
     font-size: 19px;
     letter-spacing: .3em;
@@ -72,7 +73,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .origin-sunrise-logo__halo {
+  .origin-ribbon-logo__halo {
     animation: none;
   }
 }
