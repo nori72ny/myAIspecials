@@ -38,11 +38,51 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Wait for exact main SHA in Production
+        id: production-sha-gate
         shell: bash
         env:
           RELEASE_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # Light one-shot pre-check before the convergence wait below.
+          # Production deploys are manual and approval-gated, so after a push
+          # to main (or on the daily schedule) Production normally still
+          # serves an older release and the exact-SHA wait can never succeed
+          # within its window. When Production is positively known to serve
+          # a different release, push/schedule runs therefore end here as
+          # skipped (not verified) instead of failing after the full wait.
+          # workflow_dispatch runs keep the strict wait and hard failure
+          # below, because they are the post-deploy production verification.
+          production_sha=''
+          set +e
+          curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+            https://origin-personal.vercel.app/api/health -o health-precheck.json
+          precheck_status=$?
+          if [ "$precheck_status" -eq 0 ]; then
+            node <<'NODE'
+          const fs = require('fs');
+          let sha = '';
+          try {
+            const value = JSON.parse(fs.readFileSync('health-precheck.json', 'utf8'));
+            if (typeof value?.releaseSha === 'string') sha = value.releaseSha;
+          } catch { sha = ''; }
+          fs.writeFileSync('production-sha.txt', sha);
+          NODE
+            production_sha="$(cat production-sha.txt)"
+          fi
+          set -e
+          if [ -n "$production_sha" ] && [ "$production_sha" != "$RELEASE_SHA" ]; then
+            case "$EVENT_NAME" in
+              push|schedule)
+                echo "Production is serving release $production_sha instead of $RELEASE_SHA; the production smoke is skipped for this $EVENT_NAME run (not verified)."
+                printf '### ORIGIN Coding V1.4 production smoke\n\n- Result: skipped (not verified)：本番は別リリースのため未検証\n- Run release: `%s`\n- Production release: `%s`\n- Event: `%s`\n- Paid fallback: disabled\n' "$RELEASE_SHA" "$production_sha" "$EVENT_NAME" >> "$GITHUB_STEP_SUMMARY"
+                echo 'proceed=false' >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          fi
+          echo 'proceed=true' >> "$GITHUB_OUTPUT"
           for attempt in $(seq 1 90); do
             set +e
             curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
@@ -65,6 +105,7 @@ jobs:
           exit 1
 
       - name: Run authenticated end-to-end Coding smoke
+        if: steps.production-sha-gate.outputs.proceed == 'true'
         shell: bash
         env:
           RELEASE_SHA: ${{ github.sha }}
