@@ -3,6 +3,7 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginStreamingChatRouter } from "./originStreamingChatRouter";
+import { originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
 import { OriginProviderError, type OriginProviderExecutionResult } from "./originProviderClient";
 import type { OriginProviderStreamExecutor } from "./originProviderStreamClient";
 
@@ -71,6 +72,11 @@ describe("createOriginStreamingChatRouter", () => {
         { role: "assistant", content: "覚えました。" },
         { role: "user", content: "さきほどの合言葉を答えてください。" },
       ]);
+      // Route-3 activation wiring: the compact Groq substitute rides along on the
+      // request while the standard instruction stays full-size for routes 1 and 2.
+      expect(providerRequest.groqSystemInstruction).toBe(originGroqRouteSystemInstruction());
+      expect(providerRequest.groqSystemInstruction?.length).toBeLessThanOrEqual(3_000);
+      expect(providerRequest.systemInstruction.length).toBeGreaterThan(9_000);
       handlers.onDelta("ORIGIN-CONTEXT-42");
       return result("ORIGIN-CONTEXT-42");
     }) as unknown as OriginProviderStreamExecutor;

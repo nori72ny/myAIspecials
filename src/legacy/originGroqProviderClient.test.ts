@@ -4,8 +4,15 @@ import {
   executeOriginGroqProvider,
   isOriginGroqRouteConfigured,
   OriginGroqPreflightError,
+  ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET,
   ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT,
+  trimOriginGroqRouteHistory,
 } from "./originGroqProviderClient";
+import {
+  originChatSystemInstruction,
+  originGroqRouteSystemInstruction,
+} from "./originChatResponsePolicy";
+import { sanitizePreEgress } from "../services/securitySanitizer";
 import {
   OriginProviderError,
   type OriginFetch,
@@ -190,5 +197,153 @@ describe("executeOriginGroqProvider", () => {
     expect(error).toBeInstanceOf(OriginProviderError);
     expect((error as OriginProviderError).code).toBe("PROVIDER_POLICY_VIOLATION");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// The production-assembled standard instruction measured on the production code
+// path (RATE_LIMIT_COUNTERMEASURES_2026-11-08 §1.3): the base instruction plus the
+// intent / requirement / work-plan / assignment / quality guidance blocks.
+function productionAssembledInstruction(): string {
+  const base = originChatSystemInstruction();
+  const padding = "x".repeat(Math.max(0, 15_713 - base.length));
+  return `${base}\n\n${padding}`;
+}
+
+describe("executeOriginGroqProvider route activation (compact instruction)", () => {
+  it("regression: the production-assembled standard instruction alone still skips before sending", async () => {
+    const fetchMock = vi.fn() as unknown as OriginFetch;
+    const standardRequest: OriginProviderExecutionRequest = {
+      ...request,
+      systemInstruction: productionAssembledInstruction(),
+      messages: [{ role: "user", content: "日本の首都はどこですか？" }],
+    };
+    const error = await executeOriginGroqProvider(standardRequest, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginGroqPreflightError);
+    expect((error as OriginGroqPreflightError).reason).toBe("token-budget-exceeded");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the shortest question when the compact route instruction is carried, using it as the system message", async () => {
+    const fetchMock = vi.fn(async () => groqJson(successBody("東京です。"))) as unknown as OriginFetch;
+    const activatedRequest: OriginProviderExecutionRequest = {
+      ...request,
+      systemInstruction: productionAssembledInstruction(),
+      groqSystemInstruction: originGroqRouteSystemInstruction(),
+      messages: [{ role: "user", content: "日本の首都はどこですか？" }],
+    };
+    const result = await executeOriginGroqProvider(activatedRequest, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.text).toBe("東京です。");
+    expect(result.routingEvidence.provider).toBe("Groq");
+
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as {
+      max_tokens: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+    // The payload carries the compact substitute, not the 15,713-character original.
+    expect(body.messages[0].role).toBe("system");
+    expect(body.messages[0].content).toBe(sanitizePreEgress(originGroqRouteSystemInstruction()));
+    expect(body.messages[0].content.length).toBeLessThanOrEqual(3_000);
+    expect(body.messages[1]).toEqual({ role: "user", content: "日本の首都はどこですか？" });
+    // The gate math on the sent payload: estimated input plus the granted completion
+    // stays under the tokens/minute ceiling, with real headroom (not the old 129).
+    const estimatedInput = estimateOriginGroqInputTokens(body.messages.map((message) => message.content));
+    expect(estimatedInput + body.max_tokens).toBeLessThanOrEqual(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
+    expect(body.max_tokens).toBeGreaterThanOrEqual(1_024);
+  });
+
+  it("trims long history oldest-first so a standard long conversation still sends", async () => {
+    const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
+    const history = Array.from({ length: 11 }, (_, index) => ({
+      role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `履歴${index} ` + "あ".repeat(2_000),
+    }));
+    const longHistoryRequest: OriginProviderExecutionRequest = {
+      ...request,
+      groqSystemInstruction: originGroqRouteSystemInstruction(),
+      messages: [...history, { role: "user", content: "では、その続きを教えてください。" }],
+    };
+    // Without trimming this payload estimates far above the ceiling and would skip.
+    expect(
+      estimateOriginGroqInputTokens([
+        originGroqRouteSystemInstruction(),
+        ...longHistoryRequest.messages.map((message) => message.content),
+      ]),
+    ).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
+
+    const result = await executeOriginGroqProvider(longHistoryRequest, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result.text).toBe("第3経路の回答です。");
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse(String((calls[0] as [string, RequestInit])[1].body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const sentContents = body.messages.map((message) => message.content);
+    // The current user turn always survives; the oldest history is what was dropped.
+    expect(sentContents[sentContents.length - 1]).toBe("では、その続きを教えてください。");
+    expect(sentContents.some((content) => content.startsWith("履歴0 "))).toBe(false);
+    expect(sentContents.some((content) => content.startsWith("履歴10 "))).toBe(true);
+    expect(body.messages.length).toBeLessThan(1 + longHistoryRequest.messages.length);
+    expect(estimateOriginGroqInputTokens(sentContents)).toBeLessThanOrEqual(ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET);
+    // The caller's window is not mutated by route-3 trimming.
+    expect(longHistoryRequest.messages).toHaveLength(12);
+  });
+
+  it("still skips when the final user message alone exceeds the ceiling, compact instruction notwithstanding", async () => {
+    const fetchMock = vi.fn() as unknown as OriginFetch;
+    const hugeTurnRequest: OriginProviderExecutionRequest = {
+      ...request,
+      groqSystemInstruction: originGroqRouteSystemInstruction(),
+      messages: [
+        { role: "assistant", content: "承知しました。" },
+        { role: "user", content: "あ".repeat(20_000) },
+      ],
+    };
+    const error = await executeOriginGroqProvider(hugeTurnRequest, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginGroqPreflightError);
+    expect((error as OriginGroqPreflightError).reason).toBe("token-budget-exceeded");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("trimOriginGroqRouteHistory", () => {
+  const system = "s".repeat(1_000);
+
+  it("returns the history unchanged when it already fits the route budget", () => {
+    const messages = [
+      { role: "user" as const, content: "質問です" },
+      { role: "assistant" as const, content: "回答です" },
+      { role: "user" as const, content: "次の質問です" },
+    ];
+    expect(trimOriginGroqRouteHistory(messages, system)).toEqual(messages);
+  });
+
+  it("drops oldest messages first and keeps the most recent ones", () => {
+    const messages = Array.from({ length: 6 }, (_, index) => ({
+      role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `m${index}-` + "a".repeat(2_000),
+    }));
+    const trimmed = trimOriginGroqRouteHistory(messages, system);
+    expect(trimmed.length).toBeLessThan(messages.length);
+    expect(trimmed[trimmed.length - 1]).toEqual(messages[messages.length - 1]);
+    expect(trimmed[0]).not.toEqual(messages[0]);
+    expect(
+      estimateOriginGroqInputTokens([system, ...trimmed.map((message) => message.content)]),
+    ).toBeLessThanOrEqual(ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET);
+  });
+
+  it("always keeps the final message even when it alone exceeds the budget", () => {
+    const messages = [
+      { role: "assistant" as const, content: "前の回答" },
+      { role: "user" as const, content: "あ".repeat(20_000) },
+    ];
+    expect(trimOriginGroqRouteHistory(messages, system)).toEqual([messages[1]]);
+  });
+
+  it("handles an empty history", () => {
+    expect(trimOriginGroqRouteHistory([], system)).toEqual([]);
   });
 });

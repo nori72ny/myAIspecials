@@ -12,7 +12,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
-import { originChatSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
   detectSensitiveConversation,
   isOriginWeatherRequest,
@@ -128,6 +128,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           resolvedPlan,
           originAnswerQualityInstruction(answerQualityPolicy),
         ),
+        groqSystemInstruction: originGroqRouteSystemInstruction(),
       };
 
       const result = await streamExecute(providerRequest, {

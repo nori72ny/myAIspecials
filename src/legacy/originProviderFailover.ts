@@ -470,7 +470,7 @@ async function runGroqRoute(
   }
   const execute = options.groqExecute ?? executeOriginGroqProvider;
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction },
     env,
     fetchImpl,
     { catalog: options.groqCatalog, nowMs: options.nowMs },

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   originChatSystemInstruction,
+  originGroqRouteSystemInstruction,
   requiresOriginGroundedResearch,
   requiresOriginCurrentInformation,
   requiresOriginFutureReleaseInformation,
 } from "./originChatResponsePolicy";
+import {
+  estimateOriginGroqInputTokens,
+  ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT,
+} from "./originGroqProviderClient";
 
 describe("originChatResponsePolicy", () => {
   it.each([
@@ -147,5 +152,50 @@ describe("originChatResponsePolicy", () => {
       "real image request is complete only when the image-generation runtime actually returns verified image bytes",
       "Name created items descriptively",
     ]) expect(instruction).toContain(phrase);
+  });
+});
+
+describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () => {
+  const compact = originGroqRouteSystemInstruction();
+
+  it("stays within the 2,000-3,000 character budget the Groq TPM gate can carry", () => {
+    expect(compact.length).toBeGreaterThanOrEqual(2_000);
+    expect(compact.length).toBeLessThanOrEqual(3_000);
+    // The full standard instruction is several times larger; the compact variant
+    // must remain a small fraction of it.
+    expect(compact.length * 3).toBeLessThan(originChatSystemInstruction().length);
+  });
+
+  it("preserves the non-negotiable core of the full instruction", () => {
+    for (const phrase of [
+      "Reply in the language used by the user",
+      "Version 1",
+      "at most one or two high-impact refinement questions",
+      "Treat explicit output-shape constraints as hard requirements",
+      "Do not invent current or future facts",
+      "Separate confirmed facts from assumptions, inferences, and recommendations",
+      "〔出典: [",
+      "never fabricate a source",
+      "without evidence",
+      "Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys",
+      "do not turn a possible rule into a universal rule",
+      "what the user must independently confirm before acting",
+      "bottom line first",
+      "no Markdown table unless the user asks for one",
+    ]) {
+      expect(compact).toContain(phrase);
+    }
+  });
+
+  it("leaves comfortable completion headroom for the shortest question under the TPM gate estimate", () => {
+    // The regression this locks: with the production-assembled standard instruction
+    // (15,713 characters measured on the production code path), the estimator reads
+    // about 7,871 tokens and even a minimal 256-token completion no longer fits
+    // under the 8,000 tokens/minute ceiling, so route 3 skipped before sending.
+    const productionAssembledEstimate = estimateOriginGroqInputTokens(["x".repeat(15_713), "日本の首都はどこですか？"]);
+    expect(productionAssembledEstimate + 256).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
+    const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
+    expect(compactEstimate).toBeLessThanOrEqual(1_600);
+    expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
   });
 });
