@@ -7,6 +7,7 @@ import ComposerV12 from './components/ComposerV12';
 import ImageGenerationPanel from './components/ImageGenerationPanel';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
+import { clearOriginOutbox, loadOriginOutbox, removeOriginOutboxEntry, saveOriginOutboxEntry, type OriginOutboxEntry } from './lib/local/OriginOutbox';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
@@ -1120,6 +1121,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
+  // Ref twin of isOffline for the send pipeline: handleSend can be invoked
+  // from the queue drain in the same tick as an online/offline transition,
+  // before the render that carries the new state has committed, so the
+  // gate that decides "start a send vs. hold it in the outbox" reads this
+  // ref (kept in sync by the listener effect below) instead of the state.
+  const isOfflineRef = useRef(typeof navigator !== 'undefined' && !navigator.onLine);
   const [activeArtifact, setActiveArtifact] = useState<ArtifactBlock | null>(null);
   const [uncontrolledArtifacts, setUncontrolledArtifacts] = useState<ArtifactBlock[]>([]);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -1134,6 +1141,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   const [queuedRequests, setQueuedRequests] = useState<QueuedChatRequest[]>([]);
   const [queueNotice, setQueueNotice] = useState('');
   const queuedRequestsRef = useRef<QueuedChatRequest[]>([]);
+  // Ids of queue entries that are also persisted in the durable outbox
+  // (saved while offline, not yet handed to the send pipeline). Membership
+  // is what makes every queue-removal path also remove the stored copy, so
+  // an entry can never be sent twice or resurrect after deletion.
+  const outboxEntryIdsRef = useRef<Set<string>>(new Set());
   const queueSequenceRef = useRef(0);
   const messageSequenceRef = useRef(0);
   const isLoadingRef = useRef(isLoading);
@@ -1220,8 +1232,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     }
     return () => { cancelled = true; };
   }, [messages]);
-  useEffect(() => { const update = () => setIsOffline(!navigator.onLine); window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
+  useEffect(() => { const update = () => { const offline = !navigator.onLine; isOfflineRef.current = offline; setIsOffline(offline); }; window.addEventListener('online', update); window.addEventListener('offline', update); return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); }; }, []);
   const updateQueue = (updater: (current: QueuedChatRequest[]) => QueuedChatRequest[]) => { const next = updater(queuedRequestsRef.current); queuedRequestsRef.current = next; setQueuedRequests(next); return next; };
+  // Removes the durable outbox copy of a queue entry, if it has one. Called
+  // from every path that takes an entry out of the queue (drain, send-now,
+  // chip removal) so the stored copy and the visible chip never diverge.
+  const forgetOutboxEntry = (id: string) => { if (outboxEntryIdsRef.current.delete(id)) void removeOriginOutboxEntry(id); };
+  const discardOutbox = () => { outboxEntryIdsRef.current.clear(); void clearOriginOutbox(); };
   // Message ids key the per-message updates (streamed content, verified
   // delivery state), so they must stay unique even when two sends land in
   // the same millisecond — e.g. queued requests drained back to back. A bare
@@ -1253,6 +1270,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       const head = queuedRequestsRef.current[0];
       if (!head) return;
       updateQueue((current) => current.filter((item) => item.id !== head.id));
+      // The send pipeline owns the request from here: drop its outbox copy
+      // before sending so a later restore can never send it a second time.
+      forgetOutboxEntry(head.id);
       const send = handleSendRef.current;
       if (send) void send(head.text, false, head.attachments);
     })();
@@ -1262,7 +1282,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
   // must never drain into the fresh one. resetConversation itself predates
   // the queue, so the queue side of a reset lives in this wrapper (used by
   // the new-conversation button) and in the resetSignal effect below.
-  const resetConversationWithQueue = () => { resetConversation(); isLoadingRef.current = false; updateQueue(() => []); setQueueNotice(''); };
+  const resetConversationWithQueue = () => { resetConversation(); isLoadingRef.current = false; updateQueue(() => []); setQueueNotice(''); discardOutbox(); };
   const queueResetSignalRef = useRef(resetSignal);
   useEffect(() => {
     if (queueResetSignalRef.current === resetSignal) return;
@@ -1270,7 +1290,39 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     isLoadingRef.current = false;
     updateQueue(() => []);
     setQueueNotice('');
+    discardOutbox();
   }, [resetSignal]);
+  // Restore requests that were saved to the durable outbox while offline in
+  // a previous session (or before an app restart). They rejoin the visible
+  // send queue under their original ids, and the normal drain sends them
+  // once the chat is idle and the connection is back. Restoration is
+  // idempotent, so a remount never duplicates an entry.
+  useEffect(() => {
+    let active = true;
+    void loadOriginOutbox().then((entries) => {
+      if (!active || !entries.length) return;
+      const known = new Set(queuedRequestsRef.current.map((item) => item.id));
+      const fresh = entries.filter((entry) => !known.has(entry.id));
+      if (!fresh.length) return;
+      fresh.forEach((entry) => outboxEntryIdsRef.current.add(entry.id));
+      updateQueue((current) => [...current, ...fresh.map((entry) => ({ id: entry.id, text: entry.text, attachments: [] as Attachment[] }))]);
+      if (typeof navigator !== 'undefined' && navigator.onLine) scheduleQueueDrain();
+    }).catch(() => { /* The outbox is a safety net; failing to read it must not block chat. */ });
+    return () => { active = false; };
+    // Mount-only restore; queue helpers are stable component-scope closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Returning online (or bringing the tab back to the foreground) is the
+  // outbox's flush trigger. The drain itself decides whether a send can
+  // start right now and stops on its own when it cannot.
+  useEffect(() => {
+    const flush = () => { if (typeof navigator !== 'undefined' && navigator.onLine) scheduleQueueDrain(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') flush(); };
+    window.addEventListener('online', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.removeEventListener('online', flush); document.removeEventListener('visibilitychange', onVisibility); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
   const resetConversation = () => { onArchiveSession?.(messagesRef.current); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); updateMessages(() => []); };
@@ -1318,8 +1370,26 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       setQueueNotice(t.queueAcceptedNotice.replace('{count}', String(nextQueue.length)));
       return;
     }
-    if (isOffline) {
+    if (isOfflineRef.current) {
       pendingImageRequestRef.current = null;
+      if (!interruptCurrent && sendAttachments.length === 0) {
+        // An offline send never reaches the send pipeline, so without a
+        // durable record the request would vanish with the composer on app
+        // restart. Hold it in the persisted outbox instead: it joins the
+        // visible send queue now (same chips as an in-session queue entry)
+        // and the existing drain sends it once the connection is back and
+        // the chat is idle. Sends with attachments keep the previous
+        // behaviour — the same text-only boundary the manual chat retry
+        // already uses, since attachments cannot be reconstructed
+        // faithfully from a stored copy.
+        const entry: OriginOutboxEntry = { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, createdAt: Date.now() };
+        outboxEntryIdsRef.current.add(entry.id);
+        void saveOriginOutboxEntry(entry);
+        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [] }]);
+        if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
+        setQueueNotice(t.queueOfflineNotice.replace('{count}', String(nextQueue.length)));
+        return;
+      }
       setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。');
       return;
     }
@@ -1915,7 +1985,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
     }
   };
   handleSendRef.current = handleSend;
-  const removeQueuedRequest = (id: string) => { updateQueue((current) => current.filter((item) => item.id !== id)); };
+  const removeQueuedRequest = (id: string) => { forgetOutboxEntry(id); updateQueue((current) => current.filter((item) => item.id !== id)); };
   const sendQueuedRequestNow = (item: QueuedChatRequest) => {
     if (isLoading || isOffline) return;
     removeQueuedRequest(item.id);
@@ -2026,7 +2096,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, []);
-  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '画像編集モード · 変えたいところを入力してください' : 'Image edit mode · describe what to change'}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<p className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.keyboardGuidance}</p><p role="status" aria-live="polite" className="sr-only">{queueNotice}</p>{queuedRequests.length > 0 && <div data-testid="origin-send-queue" aria-label={t.queueLabel} className="mb-2 flex flex-wrap items-center gap-2 text-[13px]"><span className="font-semibold text-[var(--accent-primary)]">{t.queueLabel}</span>{queuedRequests.map((item) => { const summary = queuedRequestSummary(item); return <span key={item.id} data-testid="origin-send-queue-chip" className="origin-surface-muted flex max-w-full items-center gap-1.5 rounded-[10px] py-1 pl-2.5 pr-1"><span className="min-w-0 truncate">{summary}</span>{item.attachments.length > 0 && <span aria-label={t.attachedFiles} className="shrink-0">📎{item.attachments.length}</span>}<button type="button" data-testid="origin-send-queue-send-now" aria-label={`${t.queueSendNow}: ${summary}`} title={t.queueSendNow} disabled={isLoading || isOffline} onClick={() => sendQueuedRequestNow(item)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">▶</button><button type="button" data-testid="origin-send-queue-remove" aria-label={`${t.queueRemove}: ${summary}`} title={t.queueRemove} onClick={() => removeQueuedRequest(item.id)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold">✕</button></span>; })}</div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
+  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '画像編集モード · 変えたいところを入力してください' : 'Image edit mode · describe what to change'}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}<p className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.keyboardGuidance}</p>{isOffline && <p data-testid="origin-offline-status" role="status" className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.offlineNotice}</p>}<p role="status" aria-live="polite" className="sr-only">{queueNotice}</p>{queuedRequests.length > 0 && <div data-testid="origin-send-queue" aria-label={t.queueLabel} className="mb-2 flex flex-wrap items-center gap-2 text-[13px]"><span className="font-semibold text-[var(--accent-primary)]">{t.queueLabel}</span>{queuedRequests.map((item) => { const summary = queuedRequestSummary(item); return <span key={item.id} data-testid="origin-send-queue-chip" className="origin-surface-muted flex max-w-full items-center gap-1.5 rounded-[10px] py-1 pl-2.5 pr-1"><span className="min-w-0 truncate">{summary}</span>{item.attachments.length > 0 && <span aria-label={t.attachedFiles} className="shrink-0">📎{item.attachments.length}</span>}<button type="button" data-testid="origin-send-queue-send-now" aria-label={`${t.queueSendNow}: ${summary}`} title={t.queueSendNow} disabled={isLoading || isOffline} onClick={() => sendQueuedRequestNow(item)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">▶</button><button type="button" data-testid="origin-send-queue-remove" aria-label={`${t.queueRemove}: ${summary}`} title={t.queueRemove} onClick={() => removeQueuedRequest(item.id)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold">✕</button></span>; })}</div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} className="origin-input max-h-52 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" onClick={(event) => { event.preventDefault(); const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = !details.open; }} aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel origin-surface absolute bottom-14 right-0 z-50 grid min-w-40 gap-0.5 rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">
     <button type="button" role="menuitem" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); setIsImageGenerationPanelOpen(true); }} className="min-h-11 rounded-lg px-3 text-left text-sm font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10"><span aria-hidden="true">🎨</span> {language === 'ja' ? '画像生成' : 'Generate image'}</button>
