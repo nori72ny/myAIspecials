@@ -256,13 +256,23 @@ export function evaluateAgentRunQuotaCharge(input: {
   };
 }
 
-/** The 1-C hold a quota-blocked run is parked with (design §8.3 entry 4). */
-export function agentRunQuotaHold(decision: Extract<AgentRunQuotaGateDecision, { allowed: false }>, now: number): AgentRunHold {
+/**
+ * The 1-C hold a quota-blocked run is parked with (design §8.3 entry 4).
+ * `priorResumeAttempts` is the count the record carries from its most
+ * recent hold episode (design §8.6, PR 1-G): a run that was resumed and
+ * fell back to a quota hold counts that as one more failed resume
+ * attempt, while a run held for the first time starts at 0.
+ */
+export function agentRunQuotaHold(
+  decision: Extract<AgentRunQuotaGateDecision, { allowed: false }>,
+  now: number,
+  priorResumeAttempts?: number | null,
+): AgentRunHold {
   return {
     reason: 'quota_exhausted',
     resumeCondition: { kind: 'quota_reset', provider: decision.provider, resetAt: decision.resetAt },
     heldSince: now,
-    resumeAttempts: 0,
+    resumeAttempts: priorResumeAttempts === null || priorResumeAttempts === undefined ? 0 : priorResumeAttempts + 1,
   };
 }
 

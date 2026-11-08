@@ -3,6 +3,7 @@ import {
   AGENT_RUN_OWNER_BINDING_PATTERN,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
+  normalizeAgentRunApprovalDeadlineAt,
   normalizeAgentRunHold,
   normalizeAgentRunPlan,
   normalizeAgentRunPlanDigest,
@@ -132,6 +133,15 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       if (input.hold !== undefined && input.hold !== null) throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
       hold = undefined;
     }
+    let approvalDeadlineAt: number | null = null;
+    if (input.nextStatus === 'awaiting_approval') {
+      if (input.approvalDeadlineAt === undefined || input.approvalDeadlineAt === null) {
+        throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
+      }
+      approvalDeadlineAt = normalizeAgentRunApprovalDeadlineAt(input.approvalDeadlineAt, this.now());
+    } else if (input.approvalDeadlineAt !== undefined && input.approvalDeadlineAt !== null) {
+      throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
+    }
     const stored = this.live(input.runId);
     if (!stored || stored.ownerBinding !== input.ownerBinding) return null;
     if (stored.status !== input.expectedStatus || stored.version !== input.expectedVersion) return null;
@@ -143,12 +153,27 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       ...(input.quotaLedger !== undefined ? { quotaLedger: normalizeAgentRunQuotaLedger(input.quotaLedger) } : {}),
       ...(input.priority !== undefined ? { priority: normalizeAgentRunPriority(input.priority) } : {}),
       hold: input.nextStatus === 'held' ? hold : stored.status === 'held' ? null : stored.hold,
+      priorResumeAttempts: input.nextStatus === 'held' ? (hold as NonNullable<AgentRunRecord['hold']>).resumeAttempts : stored.priorResumeAttempts,
+      approvalDeadlineAt: input.nextStatus === 'awaiting_approval'
+        ? approvalDeadlineAt
+        : stored.status === 'awaiting_approval' ? null : stored.approvalDeadlineAt,
       version: stored.version + 1,
       updatedAt: this.now(),
       ...(stored.status === 'running' ? { driverId: undefined, leaseExpiresAt: undefined } : {}),
     };
     this.runs.set(input.runId, next);
     return this.toRecord(next);
+  }
+
+  async refreshApprovalDeadline(runId: string, ownerBinding: string, approvalDeadlineAt: number): Promise<boolean> {
+    if (!AGENT_RUN_ID_PATTERN.test(runId) || !AGENT_RUN_OWNER_BINDING_PATTERN.test(ownerBinding)) return false;
+    const deadline = normalizeAgentRunApprovalDeadlineAt(approvalDeadlineAt, this.now());
+    const stored = this.live(runId);
+    if (!stored || stored.ownerBinding !== ownerBinding || stored.status !== 'awaiting_approval') return false;
+    // Deadline-only maintenance: version and updatedAt deliberately stay
+    // put (updatedAt is the resume confirm's approval-freshness anchor).
+    this.runs.set(runId, { ...stored, approvalDeadlineAt: deadline });
+    return true;
   }
 
   async claim(runId: string, driverId: string, leaseSeconds: number): Promise<AgentRunLeaseRecord | null> {
@@ -212,6 +237,7 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       ...stored,
       status: nextStatus,
       hold: nextHold,
+      priorResumeAttempts: nextStatus === 'held' ? (nextHold as NonNullable<AgentRunRecord['hold']>).resumeAttempts : stored.priorResumeAttempts,
       driverId: undefined,
       leaseExpiresAt: undefined,
       version: stored.version + 1,
@@ -237,7 +263,7 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       if (count >= limit) break;
       if (stored.expiresAt > this.now()) continue;
       if (stored.status === 'completed' || stored.status === 'failed' || stored.status === 'cancelled' || stored.status === 'expired') continue;
-      this.runs.set(stored.runId, { ...stored, status: 'expired', hold: null, driverId: undefined, leaseExpiresAt: undefined, version: stored.version + 1, updatedAt: this.now() });
+      this.runs.set(stored.runId, { ...stored, status: 'expired', hold: null, approvalDeadlineAt: null, driverId: undefined, leaseExpiresAt: undefined, version: stored.version + 1, updatedAt: this.now() });
       count += 1;
     }
     return count;

@@ -1,6 +1,7 @@
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { AgentTaskStatus } from './agentTaskGraph.js';
 import type { ToolName, ToolParams } from './toolRegistry.js';
+import { APPROVAL_TTL_MS, PLAN_TTL_MS } from './agentV3Capability.js';
 
 /**
  * Persistent agent run records (multitask Phase 1 foundation).
@@ -45,6 +46,15 @@ export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
 export const MAX_AGENT_RUN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How long a run may sit in `awaiting_approval` before the approval is
+ * considered lapsed (design §8.3 entry 3): a plan capability issued when
+ * the run entered the state can be approved until the end of the plan
+ * TTL, and that approval remains usable for the approval TTL. Derived
+ * from the capability TTLs so the record's deadline never disagrees with
+ * the tokens themselves.
+ */
+export const AGENT_RUN_APPROVAL_LAPSE_MS = PLAN_TTL_MS + APPROVAL_TTL_MS;
 
 export const AGENT_RUN_RECORD_STATUSES = [
   'planning',
@@ -161,6 +171,27 @@ export type AgentRunRecord = {
   priority: number;
   hold: AgentRunHold | null;
   quotaLedger: AgentRunQuotaLedger;
+  /**
+   * The instant after which an `awaiting_approval` run is approval-lapsed
+   * (design §8.3 entry 3, PR 1-G). Non-null exactly while the run is in
+   * `awaiting_approval`, mirroring the hold lifecycle: entering the state
+   * sets it (entry instant + AGENT_RUN_APPROVAL_LAPSE_MS, or the stored
+   * value of the plan capability actually issued), leaving clears it.
+   * The piggyback evaluator converts lapsed runs to `held`; nothing else
+   * reads this for authorization — approvals are still verified from the
+   * capability tokens themselves.
+   */
+  approvalDeadlineAt: number | null;
+  /**
+   * The resume-attempt count of the most recent hold episode, carried
+   * across episodes (design §8.6, PR 1-G). `hold.resumeAttempts` is
+   * cleared with the hold when a run leaves `held`, so this field is
+   * rewritten with the same value whenever a hold is written; a run that
+   * falls back to `held` after a resume seeds its new hold with this
+   * count + 1. Null when the run has never been held. Store-maintained:
+   * callers never set it directly.
+   */
+  priorResumeAttempts: number | null;
   version: number;
   createdAt: number;
   updatedAt: number;
@@ -184,6 +215,12 @@ export type CreateAgentRunInput = {
   priority?: number;
   hold?: AgentRunHold | null;
   quotaLedger?: AgentRunQuotaLedger;
+  /**
+   * Approval lapse deadline for a run born `awaiting_approval`. Defaults
+   * to creation + AGENT_RUN_APPROVAL_LAPSE_MS when omitted. Must be
+   * absent (or null) for every other birth status.
+   */
+  approvalDeadlineAt?: number | null;
   expiresAt: number;
 };
 
@@ -204,6 +241,12 @@ export type TransitionAgentRunInput = {
   quotaLedger?: AgentRunQuotaLedger;
   priority?: number;
   hold?: AgentRunHold | null;
+  /**
+   * Required when `nextStatus` is `awaiting_approval` (the approval lapse
+   * deadline for the state being entered); must be absent otherwise.
+   * Leaving `awaiting_approval` clears the stored deadline.
+   */
+  approvalDeadlineAt?: number | null;
 };
 
 export type AgentRunProgressPatch = {
@@ -224,6 +267,15 @@ export interface AgentRunStore {
   get(runId: string, ownerBinding: string): Promise<AgentRunRecord | null>;
   listByOwner(ownerBinding: string, options?: ListAgentRunsByOwnerOptions): Promise<AgentRunRecord[]>;
   transition(input: TransitionAgentRunInput): Promise<AgentRunRecord | null>;
+  /**
+   * Extends the approval lapse deadline of a run that is still in
+   * `awaiting_approval` (a fresh plan capability was re-issued for the
+   * stored plan). Deadline-only maintenance: it deliberately does not
+   * touch `version` or `updatedAt`, because `updatedAt` is the
+   * approval-freshness anchor the resume confirm verifies against.
+   * Returns false when the run is not in `awaiting_approval` (anymore).
+   */
+  refreshApprovalDeadline(runId: string, ownerBinding: string, approvalDeadlineAt: number): Promise<boolean>;
   claim(runId: string, driverId: string, leaseSeconds: number): Promise<AgentRunLeaseRecord | null>;
   renewLease(runId: string, driverId: string, leaseSeconds: number): Promise<boolean>;
   updateProgress(runId: string, driverId: string, patch: AgentRunProgressPatch): Promise<boolean>;
@@ -482,6 +534,29 @@ export function normalizeAgentRunPriority(priority: number | undefined): number 
   return priority;
 }
 
+/**
+ * Validates an approval lapse deadline (epoch ms). A deadline must be a
+ * real instant and never beyond the record's own retention horizon. A
+ * deadline in the past is valid data: it simply means the approval has
+ * already lapsed and the piggyback evaluator will convert the run.
+ */
+export function normalizeAgentRunApprovalDeadlineAt(value: unknown, now: number, expiresAt?: number): number {
+  if (!Number.isFinite(value) || Number(value) <= 0) throw new Error('AGENT_RUN_APPROVAL_DEADLINE_INVALID');
+  const deadline = Number(value);
+  if (deadline > now + MAX_AGENT_RUN_TTL_MS + 60_000) throw new Error('AGENT_RUN_APPROVAL_DEADLINE_INVALID');
+  if (expiresAt !== undefined && deadline > expiresAt + 60_000) throw new Error('AGENT_RUN_APPROVAL_DEADLINE_INVALID');
+  return deadline;
+}
+
+/** Validates a carried resume-attempt count (see AgentRunRecord). */
+export function normalizeAgentRunPriorResumeAttempts(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100_000) {
+    throw new Error('AGENT_RUN_PRIOR_RESUME_ATTEMPTS_INVALID');
+  }
+  return Number(value);
+}
+
 export type NormalizedCreateAgentRunInput = {
   runId: string;
   ownerBinding: string;
@@ -494,6 +569,8 @@ export type NormalizedCreateAgentRunInput = {
   priority: number;
   hold: AgentRunHold | null;
   quotaLedger: AgentRunQuotaLedger;
+  approvalDeadlineAt: number | null;
+  priorResumeAttempts: number | null;
   expiresAt: number;
 };
 
@@ -501,7 +578,9 @@ export type NormalizedCreateAgentRunInput = {
  * Validates and normalizes a create request. A run may be born `held`
  * (goal-only requests included), but approval-bound statuses require the
  * plan snapshot and its digest as a pair, and only `held` records may
- * carry hold information.
+ * carry hold information. A run born `awaiting_approval` always carries
+ * an approval lapse deadline; the carried resume-attempt count starts
+ * from the birth hold (null when the run was never held).
  */
 export function validateCreateAgentRunInput(input: CreateAgentRunInput, now = Date.now()): NormalizedCreateAgentRunInput {
   if (!isPlainObject(input)) throw new Error('AGENT_RUN_CREATE_INPUT_INVALID');
@@ -528,6 +607,14 @@ export function validateCreateAgentRunInput(input: CreateAgentRunInput, now = Da
   if (!Number.isFinite(input.expiresAt) || input.expiresAt < now + MIN_AGENT_RUN_TTL_MS || input.expiresAt > now + MAX_AGENT_RUN_TTL_MS + 10_000) {
     throw new Error('AGENT_RUN_CREATE_INPUT_INVALID');
   }
+  let approvalDeadlineAt: number | null = null;
+  if (status === 'awaiting_approval') {
+    approvalDeadlineAt = input.approvalDeadlineAt === undefined || input.approvalDeadlineAt === null
+      ? now + AGENT_RUN_APPROVAL_LAPSE_MS
+      : normalizeAgentRunApprovalDeadlineAt(input.approvalDeadlineAt, now, input.expiresAt);
+  } else if (input.approvalDeadlineAt !== undefined && input.approvalDeadlineAt !== null) {
+    throw new Error('AGENT_RUN_CREATE_INPUT_INVALID');
+  }
   return {
     runId: input.runId,
     ownerBinding: input.ownerBinding,
@@ -540,6 +627,8 @@ export function validateCreateAgentRunInput(input: CreateAgentRunInput, now = Da
     priority: normalizeAgentRunPriority(input.priority),
     hold,
     quotaLedger: normalizeAgentRunQuotaLedger(input.quotaLedger),
+    approvalDeadlineAt,
+    priorResumeAttempts: hold ? hold.resumeAttempts : null,
     expiresAt: input.expiresAt,
   };
 }

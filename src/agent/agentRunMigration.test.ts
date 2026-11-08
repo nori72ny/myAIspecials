@@ -32,6 +32,27 @@ describe('agent runs migration contract', () => {
   });
 });
 
+describe('agent run resume evaluation migration contract', () => {
+  it('adds the approval deadline and carried resume-attempt count with lifecycle constraints mirroring the store', async () => {
+    const sql = await readFile(new URL('../../supabase/migrations/20261108110000_origin_agent_run_resume_evaluation.sql', import.meta.url), 'utf8');
+    // Both additions are idempotent so the concurrency suite can re-apply.
+    expect(sql).toContain('add column if not exists approval_deadline_at timestamptz');
+    expect(sql).toContain('add column if not exists prior_resume_attempts integer');
+    // The approval deadline exists exactly while a run awaits approval.
+    expect(sql).toContain('origin_agent_run_approval_deadline_lifecycle');
+    expect(sql).toContain("(status = 'awaiting_approval' and approval_deadline_at is not null)");
+    expect(sql).toContain("(status <> 'awaiting_approval' and approval_deadline_at is null)");
+    // The carried count is bounded like the record contract.
+    expect(sql).toContain('origin_agent_run_prior_resume_attempts_range');
+    expect(sql).toContain('prior_resume_attempts between 0 and 100000');
+    // Pre-existing rows are backfilled before the constraint is added:
+    // lapsed-approval material from the last update (plan 10m + approval 2m),
+    // and the carried count from the current hold.
+    expect(sql).toContain("approval_deadline_at = updated_at + interval '12 minutes'");
+    expect(sql).toContain("prior_resume_attempts = (hold ->> 'resumeAttempts')::integer");
+  });
+});
+
 describe('agent write locks migration contract', () => {
   it('keeps writer locks service-role-only with holder and lease constraints mirroring the store', async () => {
     const sql = await readFile(new URL('../../supabase/migrations/20261108100000_origin_agent_write_locks.sql', import.meta.url), 'utf8');

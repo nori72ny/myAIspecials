@@ -49,6 +49,8 @@ function dbRow(overrides: Row = {}): Row {
     priority: 0,
     hold: null,
     quota_ledger: {},
+    prior_resume_attempts: null,
+    approval_deadline_ms: null,
     version: 1,
     created_ms: String(now),
     updated_ms: String(now),
@@ -89,7 +91,7 @@ describe('PostgresAgentRunStore create and read', () => {
 
   it('creates a held run with its hold record and no plan', async () => {
     const database = new Recorder();
-    database.responses.push([dbRow({ status: 'held', hold })]);
+    database.responses.push([dbRow({ status: 'held', hold, prior_resume_attempts: hold.resumeAttempts })]);
     const store = new PostgresAgentRunStore(database);
     const created = await store.create(createInput({ status: 'held', hold }), now);
     expect(created?.status).toBe('held');
@@ -127,15 +129,21 @@ describe('PostgresAgentRunStore create and read', () => {
 describe('PostgresAgentRunStore transitions', () => {
   it('moves planning to awaiting_approval with the plan snapshot bound to its digest', async () => {
     const database = new Recorder();
-    database.responses.push([dbRow({ status: 'awaiting_approval', plan, plan_digest: digest, version: 2 })]);
+    database.responses.push([dbRow({ status: 'awaiting_approval', plan, plan_digest: digest, version: 2, approval_deadline_ms: String(now + 720_000) })]);
     const store = new PostgresAgentRunStore(database);
     const moved = await store.transition({
       runId, ownerBinding, expectedStatus: 'planning', expectedVersion: 1,
       nextStatus: 'awaiting_approval', plan, planDigest: digest,
+      approvalDeadlineAt: now + 720_000,
     });
-    expect(moved).toMatchObject({ status: 'awaiting_approval', version: 2 });
+    expect(moved).toMatchObject({ status: 'awaiting_approval', version: 2, approvalDeadlineAt: now + 720_000 });
     expect(database.calls[0].text).toContain('status = $14 and version = $15');
     expect(JSON.parse(String(database.calls[0].values[4]))).toEqual(plan);
+    // Entering awaiting_approval without a deadline is refused up front.
+    await expect(store.transition({
+      runId, ownerBinding, expectedStatus: 'planning', expectedVersion: 1,
+      nextStatus: 'awaiting_approval', plan, planDigest: digest,
+    })).rejects.toThrow('AGENT_RUN_TRANSITION_INPUT_INVALID');
   });
 
   it('returns null when the expected status or version no longer matches', async () => {
@@ -164,19 +172,23 @@ describe('PostgresAgentRunStore transitions', () => {
 
   it('requires hold data when entering held and clears it when leaving held', async () => {
     const database = new Recorder();
-    database.responses.push([dbRow({ status: 'held', plan, plan_digest: digest, hold, version: 4 })]);
+    database.responses.push([dbRow({ status: 'held', plan, plan_digest: digest, hold, version: 4, prior_resume_attempts: hold.resumeAttempts })]);
     const store = new PostgresAgentRunStore(database);
     const heldRun = await store.transition({
       runId, ownerBinding, expectedStatus: 'awaiting_approval', expectedVersion: 3,
       nextStatus: 'held', hold,
     });
     expect(heldRun?.hold).toEqual(hold);
+    expect(heldRun?.approvalDeadlineAt).toBeNull();
+    expect(heldRun?.priorResumeAttempts).toBe(hold.resumeAttempts);
     expect(JSON.parse(String(database.calls[0].values[12]))).toEqual(hold);
-    database.responses.push([dbRow({ status: 'awaiting_approval', plan, plan_digest: digest, version: 5 })]);
+    database.responses.push([dbRow({ status: 'awaiting_approval', plan, plan_digest: digest, version: 5, approval_deadline_ms: String(now + 720_000) })]);
     const resumed = await store.transition({
       runId, ownerBinding, expectedStatus: 'held', expectedVersion: 4, nextStatus: 'awaiting_approval',
+      approvalDeadlineAt: now + 720_000,
     });
     expect(resumed?.hold).toBeNull();
+    expect(resumed?.approvalDeadlineAt).toBe(now + 720_000);
     expect(database.calls[1].text).toContain("when $14 = 'held' then null");
   });
 });
@@ -236,8 +248,11 @@ describe('PostgresAgentRunStore driver lease lifecycle', () => {
     expect(finished).toMatchObject({ status: 'completed' });
     expect(database.calls[0].text).toContain('driver_id = null, lease_expires_at = null');
     await expect(store.finish(runId, driverId, 'held')).rejects.toThrow('AGENT_RUN_FINISH_INPUT_INVALID');
-    database.responses.push([dbRow({ status: 'held', plan, plan_digest: digest, hold, version: 7 })]);
-    await expect(store.finish(runId, driverId, 'held', hold)).resolves.toMatchObject({ status: 'held' });
+    database.responses.push([dbRow({ status: 'held', plan, plan_digest: digest, hold, version: 7, prior_resume_attempts: hold.resumeAttempts })]);
+    const heldFinish = await store.finish(runId, driverId, 'held', hold);
+    expect(heldFinish).toMatchObject({ status: 'held', priorResumeAttempts: hold.resumeAttempts });
+    // The finish into held carries the hold's attempt count as a parameter.
+    expect(database.calls[1].values[4]).toBe(hold.resumeAttempts);
   });
 
   it('recovers a stale running run back to queued', async () => {
@@ -259,6 +274,22 @@ describe('PostgresAgentRunStore driver lease lifecycle', () => {
     expect(database.calls[0].text).toContain("status not in ('completed', 'failed', 'cancelled', 'expired')");
     expect(database.calls[0].text).toContain("set status = 'expired'");
     await expect(store.markExpired(0)).rejects.toThrow('AGENT_RUN_CLEANUP_LIMIT_INVALID');
+  });
+});
+
+describe('PostgresAgentRunStore approval deadline refresh (PR 1-G)', () => {
+  it('extends the deadline only while the run awaits approval, without touching version or updated_at', async () => {
+    const database = new Recorder();
+    database.responses.push([{ run_id: runId }]);
+    const store = new PostgresAgentRunStore(database);
+    await expect(store.refreshApprovalDeadline(runId, ownerBinding, now + 720_000)).resolves.toBe(true);
+    expect(database.calls[0].text).toContain("status = 'awaiting_approval'");
+    expect(database.calls[0].text).not.toContain('version = version + 1');
+    expect(database.calls[0].text).not.toContain('updated_at = clock_timestamp()');
+    expect(database.calls[0].values).toEqual([runId, ownerBinding, now + 720_000]);
+    database.responses.push([]);
+    await expect(store.refreshApprovalDeadline(runId, ownerBinding, now + 720_000)).resolves.toBe(false);
+    await expect(store.refreshApprovalDeadline(runId, 'not-a-hash', now + 720_000)).resolves.toBe(false);
   });
 });
 
@@ -284,6 +315,7 @@ describe('PostgresAgentRunStore row integrity', () => {
       plan_digest: digest,
       steps_state: JSON.stringify([{ id: 'step-1', status: 'queued', attempts: 0 }]),
       quota_ledger: JSON.stringify({ openrouter: { requests: 2 } }),
+      approval_deadline_ms: String(now + 720_000),
     })]);
     const store = new PostgresAgentRunStore(database);
     const record = await store.get(runId, ownerBinding);

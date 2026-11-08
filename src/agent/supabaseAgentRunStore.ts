@@ -4,10 +4,12 @@ import {
   AGENT_RUN_OWNER_BINDING_PATTERN,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
+  normalizeAgentRunApprovalDeadlineAt,
   normalizeAgentRunGoal,
   normalizeAgentRunHold,
   normalizeAgentRunPlan,
   normalizeAgentRunPlanDigest,
+  normalizeAgentRunPriorResumeAttempts,
   normalizeAgentRunPriority,
   normalizeAgentRunQuotaLedger,
   normalizeAgentRunStepsState,
@@ -37,7 +39,9 @@ export interface AgentRunSqlExecutor {
 }
 
 const RECORD_RETURNING = `run_id, owner_binding, goal, status, plan, plan_digest,
-  steps_state, parent_run_id, priority, hold, quota_ledger, version,
+  steps_state, parent_run_id, priority, hold, quota_ledger, prior_resume_attempts,
+  floor(extract(epoch from approval_deadline_at) * 1000)::text as approval_deadline_ms,
+  version,
   floor(extract(epoch from created_at) * 1000)::text as created_ms,
   floor(extract(epoch from updated_at) * 1000)::text as updated_ms,
   floor(extract(epoch from expires_at) * 1000)::text as expires_ms`;
@@ -62,6 +66,11 @@ function milliseconds(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error('AGENT_RUN_DB_ROW_INVALID');
   return parsed;
+}
+
+function nullableMilliseconds(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  return milliseconds(value);
 }
 
 function parseJsonb<T>(value: unknown, normalize: (raw: never) => T): T {
@@ -104,6 +113,18 @@ function parseRecord(row: DbRow): AgentRunRecord {
   const stepsState = parseJsonb(row.steps_state, (raw) => normalizeAgentRunStepsState(raw));
   const hold = parseJsonb(row.hold, (raw) => normalizeAgentRunHold(raw));
   if ((status === 'held') !== (hold !== null)) throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  // The approval deadline exists exactly while awaiting approval (the
+  // lifecycle the migration's check constraint enforces), and the
+  // carried resume-attempt count mirrors the current hold while held.
+  const approvalDeadlineAt = nullableMilliseconds(row.approval_deadline_ms);
+  if ((status === 'awaiting_approval') !== (approvalDeadlineAt !== null)) throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  let priorResumeAttempts: number | null;
+  try {
+    priorResumeAttempts = normalizeAgentRunPriorResumeAttempts(row.prior_resume_attempts);
+  } catch {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  if (status === 'held' && priorResumeAttempts !== hold?.resumeAttempts) throw new Error('AGENT_RUN_DB_ROW_INVALID');
   const quotaLedger = parseJsonb(row.quota_ledger, (raw) => normalizeAgentRunQuotaLedger(raw));
   let parentRunId: string | null = null;
   if (row.parent_run_id !== null) {
@@ -132,6 +153,8 @@ function parseRecord(row: DbRow): AgentRunRecord {
     priority,
     hold,
     quotaLedger,
+    approvalDeadlineAt,
+    priorResumeAttempts,
     version,
     createdAt: milliseconds(row.created_ms),
     updatedAt: milliseconds(row.updated_ms),
@@ -164,8 +187,11 @@ export class PostgresAgentRunStore implements AgentRunStore {
     const result = await this.database.query(
       `insert into public.origin_agent_runs
         (run_id, owner_binding, goal, status, plan, plan_digest, steps_state,
-         parent_run_id, priority, hold, quota_ledger, expires_at)
-       values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, to_timestamp($12 / 1000.0))
+         parent_run_id, priority, hold, quota_ledger, approval_deadline_at,
+         prior_resume_attempts, expires_at)
+       values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb,
+         case when $12 is null then null else to_timestamp($12 / 1000.0) end, $13,
+         to_timestamp($14 / 1000.0))
        on conflict (run_id) do nothing
        returning ${RECORD_RETURNING}`,
       [
@@ -180,6 +206,8 @@ export class PostgresAgentRunStore implements AgentRunStore {
         normalized.priority,
         jsonParam(normalized.hold),
         JSON.stringify(normalized.quotaLedger),
+        normalized.approvalDeadlineAt,
+        normalized.priorResumeAttempts,
         normalized.expiresAt,
       ],
     );
@@ -256,12 +284,31 @@ export class PostgresAgentRunStore implements AgentRunStore {
     const hasPriority = input.priority !== undefined;
     const priority = hasPriority ? normalizeAgentRunPriority(input.priority) : null;
     let holdJson: string | null = null;
+    let holdResumeAttempts: number | null = null;
     if (input.nextStatus === 'held') {
       const hold = normalizeAgentRunHold(input.hold);
       if (hold === null) throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
       holdJson = JSON.stringify(hold);
+      // The carried count follows the hold being written, so a later
+      // re-hold can seed from it (design §8.6).
+      holdResumeAttempts = hold.resumeAttempts;
     } else if (input.hold !== undefined && input.hold !== null) {
       // Hold information may only exist on held records.
+      throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
+    }
+    // The approval deadline is set exactly when entering
+    // `awaiting_approval` and cleared when leaving it, mirroring hold.
+    let approvalDeadlineMs: number | null = null;
+    if (input.nextStatus === 'awaiting_approval') {
+      if (input.approvalDeadlineAt === undefined || input.approvalDeadlineAt === null) {
+        throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
+      }
+      try {
+        approvalDeadlineMs = normalizeAgentRunApprovalDeadlineAt(input.approvalDeadlineAt, Date.now());
+      } catch {
+        throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
+      }
+    } else if (input.approvalDeadlineAt !== undefined && input.approvalDeadlineAt !== null) {
       throw new Error('AGENT_RUN_TRANSITION_INPUT_INVALID');
     }
     const result = await this.database.query(
@@ -276,6 +323,15 @@ export class PostgresAgentRunStore implements AgentRunStore {
              when $3 = 'held' then $13::jsonb
              when $14 = 'held' then null
              else hold
+           end,
+           prior_resume_attempts = case
+             when $3 = 'held' then $16
+             else prior_resume_attempts
+           end,
+           approval_deadline_at = case
+             when $3 = 'awaiting_approval' then to_timestamp($17 / 1000.0)
+             when $14 = 'awaiting_approval' then null
+             else approval_deadline_at
            end,
            driver_id = case when status = 'running' then null else driver_id end,
            lease_expires_at = case when status = 'running' then null else lease_expires_at end,
@@ -299,9 +355,25 @@ export class PostgresAgentRunStore implements AgentRunStore {
         holdJson,
         input.expectedStatus,
         input.expectedVersion,
+        holdResumeAttempts,
+        approvalDeadlineMs,
       ],
     );
     return result.rows[0] ? parseRecord(result.rows[0]) : null;
+  }
+
+  async refreshApprovalDeadline(runId: string, ownerBinding: string, approvalDeadlineAt: number): Promise<boolean> {
+    if (!AGENT_RUN_ID_PATTERN.test(runId) || !AGENT_RUN_OWNER_BINDING_PATTERN.test(ownerBinding)) return false;
+    const deadline = normalizeAgentRunApprovalDeadlineAt(approvalDeadlineAt, Date.now());
+    const result = await this.database.query(
+      `update public.origin_agent_runs
+       set approval_deadline_at = to_timestamp($3 / 1000.0)
+       where run_id = $1 and owner_binding = $2 and status = 'awaiting_approval'
+         and expires_at > clock_timestamp()
+       returning run_id`,
+      [runId, ownerBinding, deadline],
+    );
+    return result.rowCount === 1;
   }
 
   async claim(runId: string, driverId: string, leaseSeconds: number): Promise<AgentRunLeaseRecord | null> {
@@ -369,21 +441,25 @@ export class PostgresAgentRunStore implements AgentRunStore {
     if (!AGENT_RUN_ID_PATTERN.test(runId) || !validDriverId(driverId)) throw new Error('AGENT_RUN_FINISH_INPUT_INVALID');
     assertAgentRunStatusTransition('running', nextStatus);
     let holdJson: string | null = null;
+    let holdResumeAttempts: number | null = null;
     if (nextStatus === 'held') {
       const normalizedHold = normalizeAgentRunHold(hold);
       if (normalizedHold === null) throw new Error('AGENT_RUN_FINISH_INPUT_INVALID');
       holdJson = JSON.stringify(normalizedHold);
+      holdResumeAttempts = normalizedHold.resumeAttempts;
     } else if (hold !== undefined && hold !== null) {
       throw new Error('AGENT_RUN_FINISH_INPUT_INVALID');
     }
     const result = await this.database.query(
       `update public.origin_agent_runs
-       set status = $3, hold = $4::jsonb, driver_id = null, lease_expires_at = null,
+       set status = $3, hold = $4::jsonb,
+           prior_resume_attempts = case when $3 = 'held' then $5 else prior_resume_attempts end,
+           driver_id = null, lease_expires_at = null,
            updated_at = clock_timestamp(), version = version + 1
        where run_id = $1 and driver_id = $2 and status = 'running'
          and lease_expires_at > clock_timestamp() and expires_at > clock_timestamp()
        returning ${RECORD_RETURNING}`,
-      [runId, driverId, nextStatus, holdJson],
+      [runId, driverId, nextStatus, holdJson, holdResumeAttempts],
     );
     return result.rows[0] ? parseRecord(result.rows[0]) : null;
   }
@@ -412,7 +488,8 @@ export class PostgresAgentRunStore implements AgentRunStore {
          order by expires_at asc limit $1
        )
        update public.origin_agent_runs r
-       set status = 'expired', hold = null, driver_id = null, lease_expires_at = null,
+       set status = 'expired', hold = null, approval_deadline_at = null,
+           driver_id = null, lease_expires_at = null,
            updated_at = clock_timestamp(), version = r.version + 1
        from due
        where r.ctid = due.ctid

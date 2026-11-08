@@ -29,6 +29,8 @@ function recordWith(quotaLedger: AgentRunQuotaLedger, updatedAt: number): AgentR
     priority: 0,
     hold: null,
     quotaLedger,
+    approvalDeadlineAt: null,
+    priorResumeAttempts: null,
     version: 1,
     createdAt: updatedAt,
     updatedAt,
@@ -183,6 +185,16 @@ describe('agentRunQuotaHold and addAgentRunQuotaCharge', () => {
       resumeAttempts: 0,
     });
     expect(normalizeAgentRunHold(hold, NOW)).toEqual(hold);
+  });
+
+  it('carries the resume-attempt count across hold episodes (§8.6)', () => {
+    const decision = { allowed: false, provider: 'tavily', counter: 'credits', limit: 800, projected: 801, resetAt: Date.UTC(2026, 11, 1) } as const;
+    // A run held for the first time (no prior episode) starts at 0; a
+    // resumed run that falls back counts the failed resume.
+    expect(agentRunQuotaHold(decision, NOW, null).resumeAttempts).toBe(0);
+    expect(agentRunQuotaHold(decision, NOW, undefined).resumeAttempts).toBe(0);
+    expect(agentRunQuotaHold(decision, NOW, 0).resumeAttempts).toBe(1);
+    expect(agentRunQuotaHold(decision, NOW, 2).resumeAttempts).toBe(3);
   });
 
   it('accumulates charges without mutating the input ledger', () => {

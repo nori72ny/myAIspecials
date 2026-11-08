@@ -10,11 +10,12 @@ import { createAgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask } from './taskGraphExecutor.js';
 import { AgentRunSession } from './agentRunContract.js';
 import { approvalDigest, type AgentApprovalOperation } from './agentApproval.js';
-import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPlan, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability, type AgentApprovalAuthModeV3 } from './agentV3Capability.js';
+import { issueApprovalCapability, issuePlanCapability, latestApprovalExpiryForPlan, PLAN_TTL_MS, v3CapabilityConfigured, verifyApprovalCapability, verifyPlanCapability, type AgentApprovalAuthModeV3 } from './agentV3Capability.js';
 import { planAgentToolsV3, type AgentToolStepV3 } from './agentToolPlannerV3.js';
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRunAdvancer.js';
+import { evaluateAgentRunPiggyback, type AgentRunPiggybackSummary, type AgentRunReplanPort } from './agentRunPiggybackEvaluation.js';
 import type { AgentRunWriteLockStore } from './agentRunWriteLock.js';
 import { diffAgentRunPlans } from './agentRunPlanDiff.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
@@ -611,6 +612,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     priority: record.priority,
     hold: record.hold,
     quotaLedger: record.quotaLedger,
+    approvalDeadlineAt: record.approvalDeadlineAt ? new Date(record.approvalDeadlineAt).toISOString() : null,
     createdAt: new Date(record.createdAt).toISOString(),
     updatedAt: new Date(record.updatedAt).toISOString(),
     expiresAt: new Date(record.expiresAt).toISOString(),
@@ -631,6 +633,34 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return { status: 403, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' };
   };
   const runsStoreUnavailable = (res: express.Response) => res.status(503).json({ ok: false, code: 'AGENT_RUN_STORE_UNAVAILABLE' });
+
+  // Piggyback evaluation (multitask Phase 1, PR 1-G; design §2.3, §8.5):
+  // the owner-scoped run reads below first re-examine the owner's held
+  // and approval-lapsed runs, so the response reflects the freshest
+  // state. The re-plan port reuses the resume endpoint's planner helpers
+  // verbatim — automatic and manual resumes produce byte-identical
+  // steps and digests for the same goal. Best-effort by construction:
+  // any failure collapses to "no evaluation happened" and the read
+  // proceeds exactly as before. The evaluator itself never executes
+  // anything (design §8): its strongest move is held ->
+  // awaiting_approval, after which a human still has to approve.
+  const runReplanPort: AgentRunReplanPort = {
+    replan(goal: string) {
+      const planned = planAgentToolsV3(goal);
+      if ('code' in planned) return null;
+      const steps = plannedStepsForGoal(goal, planned.steps);
+      return { steps, plan: planSnapshotFromSteps(steps), planDigest: canonicalParamsDigest(steps) };
+    },
+  };
+  const runPiggybackEvaluation = async (ownerBinding: string): Promise<AgentRunPiggybackSummary | null> => {
+    if (!runStore) return null;
+    return evaluateAgentRunPiggyback({ runStore, replan: runReplanPort }, ownerBinding, Date.now()).catch(() => null);
+  };
+  const piggybackSummaryView = (summary: AgentRunPiggybackSummary | null) => summary === null ? undefined : {
+    advanced: summary.advanced.length,
+    approvalTimeouts: summary.approvalTimeouts.length,
+    capped: summary.capped.length,
+  };
 
   router.post('/api/agent/v3/runs', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
     if (!runStore) return runsStoreUnavailable(res);
@@ -711,9 +741,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       return res.status(400).json({ ok: false, code: 'AGENT_RUN_LIST_INPUT_INVALID' });
     }
+    const evaluation = piggybackSummaryView(await runPiggybackEvaluation(resolved.auth.ownerBinding));
     try {
       const runs = await runStore.listByOwner(resolved.auth.ownerBinding, { statuses: statuses as AgentRunRecordStatus[] | undefined, limit });
-      return res.json({ ok: true, protocolVersion: 3, runs: runs.map(publicAgentRunView), ...runEnvelope });
+      return res.json({ ok: true, protocolVersion: 3, runs: runs.map(publicAgentRunView), ...(evaluation ? { piggybackEvaluation: evaluation } : {}), ...runEnvelope });
     } catch {
       return runsStoreUnavailable(res);
     }
@@ -726,10 +757,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const planToken = typeof req.headers['x-agent-plan-token'] === 'string' ? req.headers['x-agent-plan-token'] : undefined;
     const resolved = authenticateRunsRequest(req, planToken, runId);
     if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    const evaluation = piggybackSummaryView(await runPiggybackEvaluation(resolved.auth.ownerBinding));
     try {
       const record = await runStore.get(runId, resolved.auth.ownerBinding);
       if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
-      return res.json({ ok: true, protocolVersion: 3, run: publicAgentRunView(record), ...runEnvelope });
+      return res.json({ ok: true, protocolVersion: 3, run: publicAgentRunView(record), ...(evaluation ? { piggybackEvaluation: evaluation } : {}), ...runEnvelope });
     } catch {
       return runsStoreUnavailable(res);
     }
@@ -864,9 +896,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   // single mechanism behind design §8.3 entries 1-3 (explicit user pause,
   // quota-exhaustion hold, approval-timeout conversion); what differs is
   // only the reason/condition pair. Automatic triggering (converting an
-  // awaiting_approval run when its approval lapses without anyone asking)
-  // is the piggyback evaluator's job (PR 1-G), because the record
-  // deliberately stores no capability expiry to trigger on.
+  // awaiting_approval run when its approval lapses without anyone
+  // asking) is the piggyback evaluator's job (PR 1-G): the record now
+  // stores the approval lapse deadline set here at resume time, and the
+  // evaluator converts lapsed runs on ordinary run reads.
   //
   // Resume is two steps, mirroring the normal plan/approval flow:
   //   1. POST /runs/:id/resume re-plans the goal with the current
@@ -1001,13 +1034,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       steps: AgentStepInputV3[],
       plannedSteps: readonly AgentToolStepV3[],
       alreadyResumed: boolean,
+      nowMs: number,
     ) => {
       const planDigest = canonicalParamsDigest(steps);
       const capability = issuePlanCapability(
         runId,
         digestGoal(current.goal.trim()),
         env,
-        Date.now(),
+        nowMs,
         steps[0].toolName,
         planDigest,
         steps.map((step) => step.toolName),
@@ -1050,7 +1084,18 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       const plannedSteps: readonly AgentToolStepV3[] = plannerAgrees
         ? planned.steps
         : storedSteps.map((step) => ({ toolName: step.toolName, reasonCode: 'resumed-plan' }));
-      return resumeResponse(record, steps, plannedSteps, true);
+      // The re-issued capability restarts the approval window, so the
+      // stored lapse deadline (PR 1-G) moves with it; otherwise the
+      // piggyback evaluator could convert the run while this fresh
+      // capability is still usable. Best-effort: a failed refresh only
+      // means the older deadline stands.
+      const resumeNowMs = Date.now();
+      await runStore.refreshApprovalDeadline(
+        runId,
+        resolved.auth.ownerBinding,
+        latestApprovalExpiryForPlan(resumeNowMs + PLAN_TTL_MS),
+      ).catch(() => false);
+      return resumeResponse(record, steps, plannedSteps, true, resumeNowMs);
     }
     if (record.status !== 'held') {
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_HELD', runId, run: publicAgentRunView(record), ...runEnvelope });
@@ -1070,6 +1115,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     // digest). Approving a different plan restarts its steps from zero:
     // partial progress under another plan is not evidence about this one.
     const planUnchanged = !planDiff.changed && newPlanDigest === record.planDigest;
+    // One instant anchors both the stored approval lapse deadline and
+    // the plan capability issued in the response, so the deadline is
+    // exactly the last moment an approval for this resume can complete
+    // (plan TTL + approval TTL, PR 1-G).
+    const resumeNowMs = Date.now();
     const transitioned = await runStore.transition({
       runId,
       ownerBinding: resolved.auth.ownerBinding,
@@ -1078,6 +1128,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       nextStatus: 'awaiting_approval',
       plan: planSnapshotFromSteps(steps),
       planDigest: newPlanDigest,
+      approvalDeadlineAt: latestApprovalExpiryForPlan(resumeNowMs + PLAN_TTL_MS),
       stepsState: planUnchanged
         ? record.stepsState
         : steps.map((_, index) => ({ id: `task-${index + 1}`, status: 'queued' as const, attempts: 0 })),
@@ -1087,7 +1138,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       // race; nothing about this request's re-plan was stored.
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
     }
-    return resumeResponse(transitioned, steps, planned.steps, false);
+    return resumeResponse(transitioned, steps, planned.steps, false, resumeNowMs);
   });
 
   router.post('/api/agent/v3/runs/:runId/resume/confirm', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
