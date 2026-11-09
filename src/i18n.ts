@@ -60,6 +60,13 @@ type Translation = {
   offlineNotice: string;
   attach: string;
   attachFile: string;
+  addMenuImageDescription: string;
+  addMenuAttachDescription: string;
+  addMenuResearchDescription: string;
+  addMenuAgentDescription: string;
+  addMenuCodeDescription: string;
+  addMenuCreateDescription: string;
+  addMenuDetailsDescription: string;
   attachedFiles: string;
   dropFiles: string;
   removeAttachment: string;
@@ -180,6 +187,13 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     offlineNotice: 'オフライン中です。送信した依頼は送信待ちに保存され、接続が戻ると自動で送られます。',
     attach: '添付',
     attachFile: 'ファイルを添付',
+    addMenuImageDescription: '言葉から画像を作ります',
+    addMenuAttachDescription: '写真や文書を追加します',
+    addMenuResearchDescription: '出典つきで深く調べます',
+    addMenuAgentDescription: '計画を立てて自動で進めます',
+    addMenuCodeDescription: 'プログラムを書いて実行します',
+    addMenuCreateDescription: '文章や資料などの成果物を作ります',
+    addMenuDetailsDescription: '進み具合と詳細を確認します',
     attachedFiles: '添付ファイル',
     dropFiles: '画像またはテキストファイルをここにドロップ',
     removeAttachment: '添付を削除',
@@ -303,6 +317,13 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     offlineNotice: 'You are offline. Requests you send are kept in the send queue and sent automatically when the connection returns.',
     attach: 'Attach',
     attachFile: 'Attach a file',
+    addMenuImageDescription: 'Create an image from words',
+    addMenuAttachDescription: 'Add a photo or document',
+    addMenuResearchDescription: 'Research in depth, with sources',
+    addMenuAgentDescription: 'Plan it and proceed automatically',
+    addMenuCodeDescription: 'Write and run code',
+    addMenuCreateDescription: 'Create documents and other deliverables',
+    addMenuDetailsDescription: 'Check progress and details',
     attachedFiles: 'Attached files',
     dropFiles: 'Drop image or text files here',
     removeAttachment: 'Remove attachment',

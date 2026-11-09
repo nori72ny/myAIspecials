@@ -36,15 +36,15 @@ describe('ORIGIN top experience regression boundary', () => {
   it('keeps mobile add-menu geometry functional and its appearance visual', () => {
     expect(functionalUi).toContain('left: 0 !important;');
     expect(functionalUi).toContain('bottom: calc(100% + 8px) !important;');
-    expect(functionalUi).toContain('max-height: min(46dvh, 320px) !important;');
+    expect(functionalUi).toContain('max-height: min(46dvh, 400px) !important;');
     expect(functionalUi).toContain('min-height: 44px !important;');
     expect(functionalUi).not.toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 82px) !important;');
     expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
     expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
-    expect(topUi).toContain('background: rgba(15, 23, 42, 0.08) !important;');
-    expect(topUi).toContain('box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;');
+    expect(topUi).toContain('background: var(--scrim);');
+    expect(topUi).toContain('box-shadow: 0 16px 40px color-mix(in oklch, var(--shadow-color) 48%, transparent) !important;');
     expect(topUi).not.toContain('left: 0 !important;');
-    expect(topUi).not.toContain('max-height: min(46dvh, 320px) !important;');
+    expect(topUi).not.toContain('max-height: min(46dvh, 400px) !important;');
   });
 
   it('keeps mobile history containment functional and its appearance visual', () => {

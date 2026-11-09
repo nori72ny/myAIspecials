@@ -44,6 +44,20 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* The open add menu dims the rest of the app through a scrim hung on the
+   app root. A menu-local fixed overlay cannot be used: the composer's own
+   backdrop-filter makes it a containing block, which would trap the
+   overlay inside the composer band. The composer (z-index 20) stays above
+   this scrim (z-index 15), so the panel and its toggle remain lit and
+   tappable, and a tap anywhere else lands on the scrim (the app root is
+   outside the menu, so the App-level outside-pointer handler closes it). */
+.origin-app:has(.origin-add-menu[open])::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: auto;
+}
 .artifact-workspace__header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -102,13 +116,6 @@
   }
 
 
-  .origin-add-menu[open]::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    pointer-events: none;
-  }
   /* Anchor above the full composer, including an expanded multiline input. */
   .origin-app main .origin-composer .origin-add-menu__panel {
     position: absolute !important;
@@ -117,7 +124,7 @@
     bottom: calc(100% + 8px) !important;
     width: auto !important;
     min-width: 0 !important;
-    max-height: min(46dvh, 320px) !important;
+    max-height: min(46dvh, 400px) !important;
   }
   .origin-add-menu__panel > button {
     width: 100%;
