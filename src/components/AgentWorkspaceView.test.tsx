@@ -105,6 +105,7 @@ describe('AgentWorkspaceView v3', () => {
       const url = String(input);
       if (url === '/api/agent/v3/status') return json(readyStatus());
       if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
       if (url === '/api/agent/v3/approval') {
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         const body = JSON.parse(String(init?.body));
@@ -132,12 +133,13 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して実行' })); });
 
-    await waitFor(() => expect(screen.getByText('# 完成した文書')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { name: '完成した文書' })).toBeTruthy());
     expect(saveCheckpointToIndexedDB).toHaveBeenCalledWith(checkpoint);
     expect(screen.queryByLabelText('実行認証キー')).toBeNull();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
+      '/api/agent/v3/runs?limit=50',
       '/api/agent/v3/approval',
       '/api/agent/v3/execute',
     ]);
@@ -205,6 +207,7 @@ describe('AgentWorkspaceView v3', () => {
       const url = String(input);
       if (url === '/api/agent/v3/status') return json({ ...readyStatus(), browserApprovalEnabled: true });
       if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
       if (url === '/api/agent/v3/browser-approval') {
         expect(new Headers(init?.headers).get('authorization')).toBeNull();
         const body = JSON.parse(String(init?.body));
@@ -230,10 +233,11 @@ describe('AgentWorkspaceView v3', () => {
     // No credential is typed anywhere: the browser approval path must be used.
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('# ブラウザ承認で完成した文書');
+    await screen.findByRole('heading', { name: 'ブラウザ承認で完成した文書' });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
+      '/api/agent/v3/runs?limit=50',
       '/api/agent/v3/browser-approval',
       '/api/agent/v3/execute',
     ]);

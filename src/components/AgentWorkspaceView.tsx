@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
 import AgentTaskBoard from './AgentTaskBoard';
+import FormattedMarkdown from './FormattedMarkdown';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 import type { CheckpointState } from '../agent/checkpointManager';
 
@@ -127,6 +128,10 @@ export default function AgentWorkspaceView() {
   const [capability, setCapability] = useState<AgentCapability | null>(null);
   const [checkingCapability, setCheckingCapability] = useState(true);
   const [plan, setPlan] = useState<AgentPlan | null>(null);
+  // The task board keeps the most recent plan's binding even after the
+  // plan itself is approved or discarded, so delegated work stays
+  // visible on the agent screen (the board is the screen's showcase).
+  const [boardPlanToken, setBoardPlanToken] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
   const [artifact, setArtifact] = useState('実行が完了すると、確認済みの結果がここに表示されます。');
@@ -216,6 +221,7 @@ export default function AgentWorkspaceView() {
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
       };
       setPlan(next);
+      setBoardPlanToken(next.planToken);
       setPhase('awaiting_approval');
       setArtifact([
         '# 実行計画',
@@ -371,7 +377,10 @@ export default function AgentWorkspaceView() {
             <h2 className="text-sm font-black">実行の流れ</h2>
             <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
           </div>
-          <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
+          <ol className="mt-2 space-y-2 text-sm">{plan.plan.map((step, index) => <li key={step.id} className="flex gap-2">
+            <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[11px] font-black text-origin-brand">{index + 1}</span>
+            <span>{step.title}</span>
+          </li>)}</ol>
 
           <p className="mt-4 block text-xs font-bold text-origin-muted">実行する機能</p>
           <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
@@ -390,7 +399,7 @@ export default function AgentWorkspaceView() {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => void approveAndExecute()} disabled={phase !== 'awaiting_approval' || !plannedParamsReady}
-              className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
+              className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
               承認して実行
             </button>
             <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画を破棄</button>
@@ -416,7 +425,7 @@ export default function AgentWorkspaceView() {
           <div><p className="text-xs font-bold uppercase tracking-widest text-origin-brand">Verified output</p><h2 className="font-bold">作業結果</h2></div>
           <span className="rounded-full border border-origin-border px-3 py-1 text-xs">無料 · 承認制</span>
         </div>
-        <pre className="max-h-[60dvh] overflow-auto whitespace-pre-wrap p-5 font-mono text-sm leading-6">{artifact}</pre>
+        <div className="max-h-[60dvh] overflow-auto p-5"><FormattedMarkdown text={artifact} /></div>
 
         <section className="border-t border-origin-border p-4">
           <h3 className="text-sm font-black">端末内に保存した結果</h3>
@@ -432,7 +441,7 @@ export default function AgentWorkspaceView() {
     </div>
 
     <div className="mx-auto mt-4 max-w-6xl">
-      <AgentTaskBoard browserPlanToken={plan?.planToken ?? null} />
+      <AgentTaskBoard browserPlanToken={boardPlanToken} />
     </div>
   </section>;
 }
