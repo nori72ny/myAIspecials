@@ -204,6 +204,25 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(send.textContent).not.toContain('送信');
   });
 
+  it('grows the composer input with content from a compact floor to the six-line cap', () => {
+    render(<App language="ja" />);
+
+    const input = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
+    let measuredScrollHeight = 30;
+    Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => measuredScrollHeight });
+
+    fireEvent.change(input, { target: { value: '短い依頼' } });
+    expect(input.style.height).toBe('44px');
+
+    measuredScrollHeight = 120;
+    fireEvent.change(input, { target: { value: '複数行の\n依頼です' } });
+    expect(input.style.height).toBe('120px');
+
+    measuredScrollHeight = 400;
+    fireEvent.change(input, { target: { value: 'とても長い\n依頼です' } });
+    expect(input.style.height).toBe('176px');
+  });
+
   it('shows tappable home suggestions on the empty state', () => {
     render(<App language="ja" onOpenResearch={() => undefined} />);
 

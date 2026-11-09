@@ -26,6 +26,19 @@
   align-items: center;
   justify-content: center;
 }
+/* Single-row composer contract (owner-approved compact redesign,
+   2026-11-09): the add menu leads the row, the input flexes in the
+   middle, and the send/stop actions trail — the familiar chat composer
+   shape at every width. The menu panel anchors to the menu's new left
+   position instead of the composer's right edge. */
+.origin-composer > .origin-add-menu {
+  order: -1;
+  flex: 0 0 auto;
+}
+.origin-composer > .origin-add-menu .origin-add-menu__panel {
+  left: 0;
+  right: auto;
+}
 .origin-add-menu__panel {
   max-height: min(420px, calc(100dvh - 120px));
   overflow-y: auto;
@@ -52,44 +65,27 @@
 .artifact-workspace__actions [role="group"] { max-width: 100%; }
 
 @media (max-width: 639px) {
-  /* Mobile follows the familiar AI-composer pattern: full-width text first,
-     then a dedicated control rail. This preserves typing width without shrinking
-     the 44px touch targets for add/send. */
+  /* Mobile uses the same single-row composer as desktop (owner-approved
+     compact redesign, 2026-11-09): add menu, flexible input, and actions
+     share one row and stay bottom-aligned while the input grows. The
+     previous two-row grid — full-width text over a dedicated control
+     rail — is retired; the 44px touch targets are unchanged. */
   .origin-app main .origin-composer {
     bottom: max(8px, env(safe-area-inset-bottom));
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 44px;
-    grid-template-rows: auto 44px;
-    align-items: center !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-end !important;
     column-gap: 4px !important;
-    row-gap: 4px !important;
   }
   .origin-app main .origin-composer > textarea,
   .origin-app main .origin-composer > .origin-composer__input {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    width: 100%;
+    flex: 1 1 auto;
     min-width: 0;
     overflow-y: auto !important;
     overscroll-behavior: contain;
   }
   .origin-app main .origin-composer > .origin-add-menu {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
     position: static !important;
-  }
-  .origin-app main .origin-composer > textarea + button:not(:last-child),
-  .origin-app main .origin-composer > .origin-composer__input + button:not(:last-child) {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-  }
-  .origin-app main .origin-composer > button:last-child,
-  .origin-app main .origin-composer > .origin-add-menu + button:last-child {
-    grid-column: 2;
-    grid-row: 2;
-    justify-self: end;
   }
 
   /* On the first screen, keep the brand/introduction calm near the upper area

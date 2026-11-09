@@ -91,31 +91,39 @@ describe('ORIGIN top experience regression boundary', () => {
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('.origin-composer {');
-    expect(topUi).toContain('min-height: 60px !important;');
-    expect(topUi).toContain('min-height: 56px !important;');
+    expect(topUi).toContain('min-height: 64px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('max-height: 176px !important;');
+    expect(topUi).not.toContain('min-height: 96px !important;');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
     expect(topUi).toContain('background: var(--accent-primary);');
     expect(topUi).toContain('color: var(--text-on-accent);');
     expect(topUi).toContain('font-size: 16px !important;');
-    expect(functionalUi).toContain('grid-template-rows: auto 44px;');
-    expect(functionalUi).toContain('grid-column: 1 / -1;');
-    expect(functionalUi).toContain('grid-column: 2;');
+    expect(functionalUi).toContain('order: -1;');
+    expect(functionalUi).not.toContain('grid-template-rows: auto 44px;');
+    expect(functionalUi).not.toContain('grid-column: 1 / -1;');
+    expect(functionalUi).not.toContain('grid-column: 2;');
     expect(topUi).not.toContain('background: rgba(24, 24, 27, 0.85)');
     expect(topUi).not.toContain('color: #f4f4f5');
     expect(topUi).not.toContain('border-radius: 28px !important;');
     expect(topUi).not.toContain('box-shadow: 0 18px 50px color-mix');
   });
 
-  it('keeps the mobile composer spacious while preserving 44px touch targets and keyboard-safe type', () => {
+  it('keeps the mobile composer compact and single-row while preserving 44px touch targets and keyboard-safe type', () => {
     expect(topUi).toContain('@media (max-width: 639px)');
-    expect(topUi).toContain('min-height: 116px !important;');
-    expect(topUi).toContain('min-height: 56px !important;');
-    expect(topUi).toContain('max-height: min(176px, 28dvh) !important;');
+    expect(topUi).toContain('min-height: 60px !important;');
+    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('max-height: min(158px, 30dvh) !important;');
     expect(topUi).toContain('font-size: 16px !important;');
-    expect(functionalUi).toContain('grid-template-columns: minmax(0, 1fr) 44px;');
-    expect(functionalUi).toContain('grid-template-rows: auto 44px;');
+    expect(topUi).not.toContain('min-height: 116px !important;');
+    expect(topUi).not.toContain('max-height: min(176px, 28dvh) !important;');
+    expect(functionalUi).toContain('display: flex !important;');
+    expect(functionalUi).toContain('flex-direction: row !important;');
+    expect(functionalUi).toContain('align-items: flex-end !important;');
+    expect(functionalUi).not.toContain('grid-template-columns: minmax(0, 1fr) 44px;');
+    expect(functionalUi).not.toContain('grid-template-rows: auto 44px;');
     expect(functionalUi).toContain('width: 44px;');
     expect(functionalUi).toContain('height: 44px;');
     expect(topUi).not.toContain('max-height: 144px !important;');
@@ -153,15 +161,20 @@ describe('ORIGIN top experience regression boundary', () => {
 
   it('locks the current input-first visual hierarchy instead of the superseded oversized mark', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
-    expect(topUi).toContain('min-height: 60px !important;');
-    // ヒーローは猫＋明るい台座（オーナー指示 2026-11-09）。大きさは台座
+    // コンポーザー新契約（自動伸縮）：入力欄のフロア44pxとモバイル上限。
+    expect(topUi).toContain('min-height: 44px !important;');
+    expect(topUi).toContain('max-height: min(158px, 30dvh) !important;');
+    // ヒーローは猫＋明るい台座（#1170、オーナー指示 2026-11-09）。大きさは台座
     // コンポーネント側で持ち、CSS 側では短い画面向けの台座圧縮だけを固定
     // する（旧リボンOマークの固定サイズは廃止）。
     expect(topUi).toContain('.origin-cat-pedestal {');
     expect(topUi).toContain('width: 62px !important;');
     expect(topUi).not.toContain('origin-ribbon-o-light.webp');
+    expect(topUi).not.toContain('origin-ribbon-o-small.webp');
+    expect(topUi).toContain('min-height: 60px !important;');
     expect(topUi).toContain('min-height: 56px !important;');
-    expect(functionalUi).toContain('grid-column: 1 / -1;');
+    // 単一行フレックス化で旧2段グリッドの全幅スパン（grid-column: 1 / -1）は廃止。
+    expect(functionalUi).not.toContain('grid-column: 1 / -1;');
     expect(functionalUi).toContain('margin-top: 12px !important;');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(topUi).not.toContain('ORIGIN Top Experience — 2026 flagship surface');
