@@ -115,6 +115,19 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     }, firstPrompt, { timeout: 10_000 });
 
     await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    // Fresh loads always land on the top screen (owner instruction,
+    // 2026-11-09): the in-progress conversation is archived into a history
+    // session instead of being reopened, so restore it explicitly through
+    // the history drawer, exactly as a user would.
+    await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByTestId("history-drawer-toggle").click();
+    await page.getByText("その他の表示").click();
+    await page.getByTestId("knowledge-map-toggle").click();
+    await page.waitForFunction(() => {
+      const raw = document.querySelector('[data-testid="knowledge-map-node-count"]')?.textContent ?? "0";
+      return Number(raw) >= 1;
+    }, undefined, { timeout: 10_000 });
+    await page.getByTestId("knowledge-map-session-0").click();
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
