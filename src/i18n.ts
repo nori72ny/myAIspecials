@@ -66,7 +66,6 @@ type Translation = {
   addMenuAgentDescription: string;
   addMenuCodeDescription: string;
   addMenuCreateDescription: string;
-  addMenuDetailsDescription: string;
   attachedFiles: string;
   dropFiles: string;
   removeAttachment: string;
@@ -193,7 +192,6 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     addMenuAgentDescription: '計画を立てて自動で進めます',
     addMenuCodeDescription: 'プログラムを書いて実行します',
     addMenuCreateDescription: '文章や資料などの成果物を作ります',
-    addMenuDetailsDescription: '進み具合と詳細を確認します',
     attachedFiles: '添付ファイル',
     dropFiles: '画像またはテキストファイルをここにドロップ',
     removeAttachment: '添付を削除',
@@ -323,7 +321,6 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     addMenuAgentDescription: 'Plan it and proceed automatically',
     addMenuCodeDescription: 'Write and run code',
     addMenuCreateDescription: 'Create documents and other deliverables',
-    addMenuDetailsDescription: 'Check progress and details',
     attachedFiles: 'Attached files',
     dropFiles: 'Drop image or text files here',
     removeAttachment: 'Remove attachment',

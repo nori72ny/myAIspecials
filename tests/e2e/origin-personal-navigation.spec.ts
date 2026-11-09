@@ -86,6 +86,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
+    // 「詳細・作業状況」パネルは 2026-11-09 の画面構成再編で廃止したため、
+    // メニュー項目自体が存在しない（SCREEN_NECESSITY_REVIEW_2026-11-09.md）。
+    await expect(page.getByRole('menuitem', { name: '詳細・作業状況', exact: true })).toHaveCount(0);
     await page.getByTestId('origin-add-menu-toggle').click();
     await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
     await expect(page.getByLabel('Model ORIGIN Auto')).toHaveCount(0);

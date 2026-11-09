@@ -8,7 +8,6 @@ type MockAppProps = Record<string, unknown> & {
   onOpenAgent?: () => void;
   onOpenCoding?: (goal?: string) => void;
   onOpenCreative?: (request?: string) => void;
-  onOpenDetails?: () => void;
 };
 
 const appProps = vi.fn();
@@ -29,7 +28,7 @@ function latestAppProps(): MockAppProps {
   return appProps.mock.calls.at(-1)?.[0] as MockAppProps;
 }
 
-function runAppAction(name: 'onOpenResearch' | 'onOpenAgent' | 'onOpenCoding' | 'onOpenCreative' | 'onOpenDetails') {
+function runAppAction(name: 'onOpenResearch' | 'onOpenAgent' | 'onOpenCoding' | 'onOpenCreative') {
   act(() => latestAppProps()[name]?.());
 }
 
@@ -49,7 +48,8 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
-    expect(props.onOpenDetails).toBeUndefined();
+    // 「詳細・作業状況」パネルは廃止したため、開くためのコールバックは渡らない。
+    expect('onOpenDetails' in props).toBe(false);
   });
 
   it('opens Research from the chat action and preserves the chat mount', async () => {
@@ -191,7 +191,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
-    expect(props.onOpenDetails).toBeUndefined();
+    expect('onOpenDetails' in props).toBe(false);
   });
 
   it('restores parent-controlled messages and sessions into the shared production shell', () => {
@@ -259,35 +259,44 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
   });
 
-  it('keeps Project details hidden until explicitly requested and shows only grounded views', async () => {
+  it('never renders the abolished Project details panel and keeps artifacts reachable from the chat surface', async () => {
+    // 「詳細・作業状況」パネルは 2026-11-09 の画面構成再編で廃止した
+    // （SCREEN_NECESSITY_REVIEW_2026-11-09.md：中身は全て他画面の複写で、
+    // 出典はリサーチ結果、変更ファイルと作業状況はコード画面、
+    // 作成物はチャットの成果物表示が発生元）。パネル経由で作成物を開く
+    // 導線も廃止され、作成物はチャット側の表示（モバイルタブ等）から開く。
     const artifacts = [{ id: 'a-project', type: 'markdown' as const, title: 'Project artifact', language: 'markdown', content: '# Project', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
 
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
-    runAppAction('onOpenDetails');
-    expect(screen.getByRole('region', { name: 'Project Workspace' })).toBeTruthy();
+    expect('onOpenDetails' in latestAppProps()).toBe(false);
 
     runAppAction('onOpenResearch');
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: '詳細を開く' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Project 作成物' }));
     expect(window.location.search).toBe('?workspace=research');
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
+    // ワークスペース側のヘッダーにも詳細トグルは存在しない。
+    expect(screen.queryByRole('button', { name: '詳細を開く' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '詳細を閉じる' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    fireEvent.click(screen.getByRole('tab', { name: '作成物' }));
     expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('Project artifact');
   });
 
-  it('does not expose Details on a pristine home and still hides empty project views after conversation evidence exists', () => {
+  it('never passes a Details opener to the chat, even after conversation evidence exists', () => {
+    // 旧仕様では会話や作成物などの証拠ができると onOpenDetails が有効化
+    // された。パネル廃止に伴い、証拠の有無にかかわらず渡らないことと、
+    // パネルのビュー（Files／Tasks／Sources 等）が一切現れないことを固定する。
     const { rerender } = render(<PersonalEditionApp />);
-    expect(latestAppProps().onOpenDetails).toBeUndefined();
+    expect('onOpenDetails' in latestAppProps()).toBe(false);
 
     rerender(<PersonalEditionApp messages={[{ id: 'u-1', role: 'user', content: '確認済みの会話' }]} />);
-    expect(typeof latestAppProps().onOpenDetails).toBe('function');
-    runAppAction('onOpenDetails');
-
+    expect('onOpenDetails' in latestAppProps()).toBe(false);
+    expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Files' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Tasks' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Project Sources' })).toBeNull();
-    expect(screen.getByText(/必要な証拠や作成物ができた時だけ/)).toBeTruthy();
+    expect(screen.queryByText(/必要な証拠や作成物ができた時だけ/)).toBeNull();
   });
 });

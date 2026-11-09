@@ -297,7 +297,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const onOpenAgent = vi.fn();
     const onOpenCoding = vi.fn();
     const onOpenCreative = vi.fn();
-    const onOpenDetails = vi.fn();
 
     render(<App
       language="ja"
@@ -305,7 +304,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       onOpenAgent={onOpenAgent}
       onOpenCoding={onOpenCoding}
       onOpenCreative={onOpenCreative}
-      onOpenDetails={onOpenDetails}
     />);
 
     const menu = screen.getByTestId('origin-add-menu');
@@ -341,9 +339,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
     expect(onOpenCreative).toHaveBeenCalledOnce();
 
+    // 「詳細・作業状況」は 2026-11-09 の画面構成再編で廃止したため、
+    // メニューには現れない（SCREEN_NECESSITY_REVIEW_2026-11-09.md）。
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: '詳細・作業状況' }));
-    expect(onOpenDetails).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('menuitem', { name: '詳細・作業状況' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Details & status' })).toBeNull();
   });
 
   it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
