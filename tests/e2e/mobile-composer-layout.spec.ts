@@ -55,12 +55,17 @@ test.describe('mobile composer layout', () => {
     expect(sendBox).not.toBeNull();
 
     expect(composerBox!.width).toBeGreaterThanOrEqual(360);
-    expect(inputBox!.width).toBeGreaterThanOrEqual(composerBox!.width - 24);
+    expect(inputBox!.width).toBeGreaterThanOrEqual(composerBox!.width - 140);
+    expect(composerBox!.height).toBeLessThanOrEqual(84);
     expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);
     expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - bottomOffset + 1);
-    expect(inputBox!.y).toBeLessThan(addBox!.y);
-    expect(inputBox!.y).toBeLessThan(sendBox!.y);
-    expect(Math.abs(addBox!.y - sendBox!.y)).toBeLessThanOrEqual(2);
+    // Single-row contract: the add menu leads, the input sits between the
+    // two controls, and all three share one bottom-aligned row.
+    expect(addBox!.x).toBeLessThan(inputBox!.x);
+    expect(inputBox!.x).toBeLessThan(sendBox!.x);
+    const inputBottom = inputBox!.y + inputBox!.height;
+    expect(Math.abs(inputBottom - (addBox!.y + addBox!.height))).toBeLessThanOrEqual(2);
+    expect(Math.abs(inputBottom - (sendBox!.y + sendBox!.height))).toBeLessThanOrEqual(2);
     expect(addBox!.width).toBeGreaterThanOrEqual(44);
     expect(addBox!.height).toBeGreaterThanOrEqual(44);
     expect(sendBox!.width).toBeGreaterThanOrEqual(44);
@@ -101,7 +106,7 @@ test.describe('mobile composer layout', () => {
     const sendBox = await send.boundingBox();
 
     expect(composerBox?.width).toBeGreaterThanOrEqual(290);
-    expect(inputBox && composerBox ? inputBox.width >= composerBox.width - 24 : false).toBe(true);
+    expect(inputBox && composerBox ? inputBox.width >= composerBox.width - 140 : false).toBe(true);
     expect(addBox?.width).toBeGreaterThanOrEqual(44);
     expect(sendBox?.width).toBeGreaterThanOrEqual(44);
     expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);

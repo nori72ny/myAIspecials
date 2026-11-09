@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 test.describe('ORIGIN Personal 2.0 critical journey', () => {
-  test('renders a focused core identity and a spacious command bar without starter-card noise', async ({ page }) => {
+  test('renders a focused core identity and a compact single-row command bar without starter-card noise', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
@@ -10,11 +10,10 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
     await expect(commandBar).toBeVisible();
-    expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(60);
+    expect(Number.parseFloat(await commandBar.evaluate((element) => getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(44);
     const initialComposerHeight = await commandBar.evaluate((element) => element.closest('.origin-composer')!.getBoundingClientRect().height);
-    expect(initialComposerHeight).toBeGreaterThanOrEqual(76);
-    expect(initialComposerHeight).toBeGreaterThanOrEqual(92);
-    expect(initialComposerHeight).toBeLessThanOrEqual(112);
+    expect(initialComposerHeight).toBeGreaterThanOrEqual(60);
+    expect(initialComposerHeight).toBeLessThanOrEqual(80);
     await expect(page.locator('[data-testid^="starter-"]')).toHaveCount(0);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
     expect(accessibility.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact ?? ''))).toEqual([]);
