@@ -4,6 +4,20 @@ async function seedGeneratedImageHistory(page: Page) {
   await page.goto('/');
   await expect(page.getByTestId('origin-home-request')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
+  // Let the app's initial empty-state save complete before installing the
+  // fixture, so a pending debounced save cannot overwrite it afterwards
+  // (the same guard storage-reload.spec.ts uses for its durable fixture).
+  await expect.poll(() => page.evaluate(async () => new Promise<unknown>((resolve) => {
+    const open = indexedDB.open('origin-personal-local', 1);
+    open.onsuccess = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains('snapshots')) { db.close(); resolve(null); return; }
+      const read = db.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
+      read.onsuccess = () => { resolve(read.result ?? null); db.close(); };
+      read.onerror = () => { db.close(); resolve(null); };
+    };
+    open.onerror = () => resolve(null);
+  }))).toMatchObject({ version: 1, messages: [] });
 
   await page.evaluate(async () => {
     const canvas = document.createElement('canvas');
@@ -106,6 +120,14 @@ test('restores locally generated image bytes and save link after a full page rel
   await page.reload();
 
   await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
+  // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）。保存済みの
+  // 会話は自動では開かず履歴セッションへ退避されるため、履歴から明示的に
+  // 復元してから画像と保存リンクを確認する。
+  await expect(page.getByTestId('origin-home-request')).toBeVisible();
+  await page.getByTestId('history-drawer-toggle').click();
+  await page.getByTestId('history-search-input').fill('保存済み画像');
+  await expect(page.getByTestId('history-search-results')).toContainText('保存済み画像の復元テストです。');
+  await page.getByTestId('history-search-result-0').click();
   const image = page.getByAltText('ORIGINが生成した画像');
   await expect(image).toHaveCount(1);
   await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth === 256)).toBe(true);

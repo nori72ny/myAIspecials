@@ -76,7 +76,12 @@ test.describe('V1.5 Creative workspace production surface', () => {
   for (const width of [390, 1440]) {
     test(`preserves multiline headlines and keeps expanded controls within ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-      await page.goto('/?workspace=creative');
+      // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
+      // ワークスペースへはURL直指定ではなくアプリ内メニューから入る。
+      await page.goto('/');
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+      await expect(page).toHaveURL(/workspace=creative/);
       const title = '予約手数料を\n見直しませんか？';
       const titleInput = page.getByRole('textbox', { name: 'タイトル', exact: true });
       await titleInput.fill(title);
@@ -149,13 +154,24 @@ test.describe('V1.5 Creative workspace production surface', () => {
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/?workspace=creative');
+    // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
+    // ワークスペースへはアプリ内メニューから入る。
+    await page.goto('/');
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=creative/);
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('履歴Creative');
     await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
     expect(generateRequests).toHaveLength(1);
 
     await page.reload();
+    // リロード後も必ずトップ画面から始まる。作る画面へ入り直すと、
+    // 端末内履歴から検証済みの作成物が再生成なしで復元できる。
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=creative/);
     const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });
     await expect(openHistory).toBeVisible();
     await openHistory.click();
@@ -169,9 +185,19 @@ test.describe('V1.5 Creative workspace production surface', () => {
     expect(generateRequests.length).toBe(requestsBeforePng);
   });
 
-  test('supports a direct Create URL and browser history without losing the chat mount', async ({ page }) => {
+  // 旧仕様「?workspace= の直指定URLでワークスペースが開く」は、起動時は
+  // 必ずトップ画面というオーナー指示（2026-11-09）で廃止された。代わりに
+  // 直指定でもトップ画面に着地することと、セッション内の移動・ブラウザ
+  // 履歴の同期が保たれることを固定する。
+  test('lands on the top screen for a direct Create URL and keeps in-session navigation and browser history', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toHaveCount(0);
+
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=creative/);
     await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Workspace tool header' })).toContainText('作る');
 

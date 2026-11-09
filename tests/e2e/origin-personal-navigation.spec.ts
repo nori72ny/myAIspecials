@@ -58,6 +58,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await page.reload();
+    // リロード（新規ロード）では必ずトップ画面から始まる（オーナー指示
+    // 2026-11-09）ため、Codeへはアプリ内メニューから入り直して確認する。
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=coding/);
     await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
     await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();

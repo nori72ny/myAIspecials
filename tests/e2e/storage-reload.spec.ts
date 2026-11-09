@@ -51,18 +51,33 @@ test('preserves durable sessions across two reloads without legacy storage or em
       return original.call(this, value, key);
     };
   });
+  // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）。保存されて
+  // いた進行中会話は、空の状態で上書きされて消えるのではなく、履歴
+  // セッションへ退避された形で保持されることが保証対象になる。
+  const preserved = {
+    messages: [],
+    sessions: [
+      { title: '保存済みの会話を保持', messages: [{ id: 'durable-message', content: '保存済みの会話を保持' }] },
+      { id: 'durable-session', messages: [{ id: 'session-message', content: '保存セッション本文' }] },
+    ],
+  };
   for (let reload = 0; reload < 2; reload++) {
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
-    await expect(page.getByText('保存済みの会話を保持', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window as any).__storageWrites.length)).toBeGreaterThan(0);
     const writes = await page.evaluate(() => (window as any).__storageWrites);
-    for (const write of writes) expect(write).toMatchObject({ messages: saved.messages, sessions: saved.sessions });
-    await expect.poll(() => readSnapshot(page)).toMatchObject({ messages: saved.messages, sessions: saved.sessions });
+    for (const write of writes) expect(write).toMatchObject(preserved);
+    await expect.poll(() => readSnapshot(page)).toMatchObject(preserved);
     await page.getByTestId('history-drawer-toggle').click();
     await page.getByTestId('history-search-input').fill('保持対象');
     await expect(page.getByTestId('history-search-results')).toContainText('保持対象セッション');
   }
+  // 退避された進行中会話は、履歴から明示的に選んで復元できる。
+  await page.getByTestId('history-search-input').fill('保存済みの会話を保持');
+  await expect(page.getByTestId('history-search-results')).toContainText('保存済みの会話を保持');
+  await page.getByTestId('history-search-result-0').click();
+  await expect(page.getByText('保存済みの会話を保持', { exact: true })).toBeVisible();
 });
 
 test('continues in memory after a read failure without overwriting durable history', async ({ page }) => {
