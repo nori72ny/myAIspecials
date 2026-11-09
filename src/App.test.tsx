@@ -1601,15 +1601,21 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
-  it('stops new AI requests while offline and preserves local-only operations', async () => {
+  it('saves new AI requests to the send outbox while offline instead of dropping them', async () => {
     const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
-    render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'オフライン要求' } });
-    fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeTruthy());
-    if (online) Object.defineProperty(window.navigator, 'onLine', online);
-    else delete (window.navigator as { onLine?: boolean }).onLine;
+    try {
+      render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'オフライン要求' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+      expect(within(screen.getByTestId('origin-send-queue')).getByText('オフライン要求')).toBeTruthy();
+      expect(screen.getByText('オフラインのため送信待ちに保存しました。送信待ちは1件です。接続が戻ると自動で送信します。')).toBeTruthy();
+      expect(screen.queryByText('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeNull();
+    } finally {
+      if (online) Object.defineProperty(window.navigator, 'onLine', online);
+      else delete (window.navigator as { onLine?: boolean }).onLine;
+    }
   });
 });
 
