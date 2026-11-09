@@ -4,9 +4,6 @@ import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
 import OriginArtifactContextV31 from './OriginArtifactContextV31';
-import OriginProjectWorkspaceV31, { type OriginProjectViewV31 } from './OriginProjectWorkspaceV31';
-import type { ResearchSource } from './ResearchWorkspaceV31';
-import type { CodingProjectEvidence } from '../CodingJobWorkspaceV14';
 import type { OriginWorkspaceModeV31 } from './OriginWorkspaceModeV31';
 
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspaceV31'));
@@ -54,10 +51,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   // （オーナー指示 2026-11-09）。セッション内の移動と popstate の
   // 同期では従来どおり workspaceLocation を使う。
   const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>('chat');
-  const [projectOpen, setProjectOpen] = useState(false);
-  const [projectView, setProjectView] = useState<OriginProjectViewV31>('overview');
-  const [projectSources, setProjectSources] = useState<readonly ResearchSource[]>([]);
-  const [codingEvidence, setCodingEvidence] = useState<CodingProjectEvidence>({ jobId: null, status: null, changedPaths: [], verificationChecks: [] });
   const [codingInitialGoal, setCodingInitialGoal] = useState('');
   const [creativeInitialRequest, setCreativeInitialRequest] = useState('');
   const [mobileSurface, setMobileSurface] = useState<MobileChatSurface>('conversation');
@@ -68,8 +61,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       setWorkspace(workspaceLocation());
       setCodingInitialGoal('');
       setCreativeInitialRequest('');
-      setProjectOpen(false);
-      setProjectView('overview');
       setMobileSurface('conversation');
     };
     window.addEventListener('popstate', sync);
@@ -83,8 +74,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     window.history.pushState(null, '', url);
     if (next !== 'coding') setCodingInitialGoal('');
     if (next !== 'creative') setCreativeInitialRequest('');
-    setProjectOpen(false);
-    setProjectView('overview');
     setMobileSurface('conversation');
     setWorkspace(next);
   };
@@ -105,12 +94,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
   const effectiveSessions = parentSessions ?? [];
   const latestArtifact = artifacts.at(-1) ?? null;
-  const hasProjectEvidence = messages.length > 0
-    || artifacts.length > 0
-    || projectSources.length > 0
-    || Boolean(codingEvidence.jobId)
-    || codingEvidence.changedPaths.length > 0
-    || codingEvidence.verificationChecks.length > 0;
   const handleMessagesChange = useCallback((nextMessages: ConversationMessage[]) => { setMessages(nextMessages); parentOnMessagesChange?.(nextMessages); }, [parentOnMessagesChange]);
   const handleArtifactsChange = useCallback((nextArtifacts: ArtifactBlock[]) => { setArtifacts(nextArtifacts); parentOnArtifactsChange?.(nextArtifacts); }, [parentOnArtifactsChange]);
   const handleArtifactRevision = useCallback((next: ArtifactBlock) => {
@@ -128,46 +111,15 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     parentOnMessagesChange?.(restored);
   }, [parentOnMessagesChange, parentOnRestoreSession]);
 
-  const handleProjectViewChange = useCallback((next: OriginProjectViewV31) => {
-    setProjectView(next);
-    if (next === 'artifacts' && latestArtifact) setMobileSurface('artifact');
-    else if (next === 'chat' || next === 'overview') setMobileSurface('conversation');
-  }, [latestArtifact]);
-
-  const toggleProject = () => {
-    setProjectOpen((current) => {
-      if (current) {
-        setProjectView('overview');
-        setMobileSurface('conversation');
-      }
-      return !current;
-    });
-  };
-
   return <div className="origin-personal-shell flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
     {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
         <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
         <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'agent' ? (isEn ? 'Agent' : 'エージェント') : workspace === 'research' ? (isEn ? 'Research' : '詳しく調べる') : workspace === 'coding' ? (isEn ? 'Code' : 'コード') : (isEn ? 'Create' : '作る')}</span>
-        {hasProjectEvidence
-          ? <button type="button" aria-label={projectOpen ? (isEn ? 'Close details' : '詳細を閉じる') : (isEn ? 'Open details' : '詳細を開く')} aria-pressed={projectOpen} onClick={toggleProject} className={`min-h-11 rounded-xl border px-3 text-sm font-semibold ${projectOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>{isEn ? 'Details' : '詳細'}</button>
-          : <span aria-hidden="true" className="min-w-11 sm:min-w-[72px]" />}
+        <span aria-hidden="true" className="min-w-11 sm:min-w-[72px]" />
       </div>
     </section>}
-
-    {projectOpen && <div className="max-h-[42dvh] shrink-0 overflow-y-auto border-b border-origin-border">
-      <OriginProjectWorkspaceV31
-        mode={workspace}
-        messages={messages}
-        sessions={effectiveSessions}
-        artifacts={artifacts}
-        sources={projectSources}
-        codingEvidence={codingEvidence}
-        activeView={projectView}
-        onViewChange={handleProjectViewChange}
-      />
-    </div>}
 
     {workspace === 'chat' && <OriginArtifactContextV31 artifacts={artifacts} />}
 
@@ -177,7 +129,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     </div>}
 
     <div className="min-h-0 flex-1 overflow-hidden">
-      <div className="h-full min-h-0" hidden={workspace !== 'chat' || projectView === 'artifacts'}>
+      <div className="h-full min-h-0" hidden={workspace !== 'chat'}>
         <App
           embedded
           onOpenSettings={onOpenSettings}
@@ -185,7 +137,6 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           onOpenAgent={() => switchWorkspace('agent')}
           onOpenCoding={openCodingWorkspace}
           onOpenCreative={openCreativeWorkspace}
-          onOpenDetails={hasProjectEvidence ? toggleProject : undefined}
           messages={messages}
           sessions={effectiveSessions}
           artifacts={artifacts}
@@ -202,19 +153,19 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       {latestArtifact && <ArtifactWorkspace
         artifact={latestArtifact}
         artifacts={artifacts}
-        isOpen={projectView === 'artifacts' || mobileSurface === 'artifact'}
+        isOpen={mobileSurface === 'artifact'}
         language={settings?.language ?? 'ja'}
         designTheme={settings?.designTheme ?? 'minimal'}
         isStreaming={false}
         onSteer={() => undefined}
         onOpenSettings={onOpenSettings}
-        onClose={() => { setProjectView('overview'); setMobileSurface('conversation'); }}
+        onClose={() => setMobileSurface('conversation')}
         onArtifactRevision={handleArtifactRevision}
       />}
 
       {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
-      {workspace === 'research' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">詳しく調べる画面を読み込んでいます…</p>}><ResearchWorkspace onSourcesChange={setProjectSources} /></Suspense></div>}
-      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onProjectEvidenceChange={setCodingEvidence} /></Suspense></div>}
+      {workspace === 'research' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">詳しく調べる画面を読み込んでいます…</p>}><ResearchWorkspace /></Suspense></div>}
+      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} /></Suspense></div>}
       {workspace === 'creative' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">作る画面を読み込んでいます…</p>}><CreativeWorkspace initialRequest={creativeInitialRequest} /></Suspense></div>}
     </div>
   </div>;

@@ -167,16 +167,9 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
   </span>;
 }
 
-export type CodingProjectEvidence = {
-  jobId: string | null;
-  status: CodingJobStatus | null;
-  changedPaths: readonly string[];
-  verificationChecks: readonly { kind: 'typecheck' | 'lint' | 'test' | 'build'; ok: boolean; exitCode: number | null; timedOut: boolean; attempt: number }[];
-};
+type CodingJobWorkspaceV14Props = { initialGoal?: string };
 
-type CodingJobWorkspaceV14Props = { initialGoal?: string; onProjectEvidenceChange?: (evidence: CodingProjectEvidence) => void };
-
-export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceChange }: CodingJobWorkspaceV14Props) {
+export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
   const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
@@ -320,15 +313,6 @@ export default function CodingJobWorkspaceV14({ initialGoal, onProjectEvidenceCh
     } catch { if (epoch === requestEpochRef.current) setError('CODING_UI_CANCEL_UNAVAILABLE'); }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [applyResponse, busy, job]);
-
-  useEffect(() => {
-    onProjectEvidenceChange?.({
-      jobId: job?.jobId ?? null,
-      status: job?.status ?? null,
-      changedPaths: job?.changedPaths ?? [],
-      verificationChecks: result?.verificationChecks ?? [],
-    });
-  }, [job?.jobId, job?.status, job?.changedPaths, result?.verificationChecks, onProjectEvidenceChange]);
 
   const ready = capability?.ready === true;
   const dedicatedAuthorizationReady = capability?.authorizationReady === true && capability.authorizationMode === 'coding-operator';
