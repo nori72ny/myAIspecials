@@ -50,7 +50,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, currentConversationSession, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, withCurrentConversationSession, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1235,6 +1235,63 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(searchOriginLocalSnapshot('IndexedDB', [session], [indexedArtifact]).map((result) => result.kind)).toContain('session');
     expect(searchOriginLocalSnapshot('quota safe', [session], [indexedArtifact])).toEqual([expect.objectContaining({ kind: 'artifact', id: 'artifact-search' })]);
     expect(searchOriginLocalSnapshot('network request', [session], [indexedArtifact])).toEqual([]);
+  });
+
+  it('builds a display-only current-conversation session without duplicating an identical stored session', () => {
+    const current: ConversationMessage[] = [
+      { id: 'live-1', role: 'user', content: '今まさに話している会話' },
+      { id: 'live-2', role: 'assistant', content: '応答本文です' },
+    ];
+    expect(currentConversationSession([], 10)).toBeNull();
+    const built = currentConversationSession(current, 10);
+    expect(built).toMatchObject({ id: 'session-current-live-1', title: '今まさに話している会話', createdAt: 10 });
+    expect(built?.messages.map((message) => message.id)).toEqual(['live-1', 'live-2']);
+
+    const past: ConversationSession = { id: 'session-past', title: 'Past session', createdAt: 1, messages: [{ id: 'past-1', role: 'user', content: 'Past question' }] };
+    const merged = withCurrentConversationSession([past], current, 10);
+    expect(merged.currentSessionId).toBe('session-current-live-1');
+    expect(merged.sessions.map((session) => session.id)).toEqual(['session-current-live-1', 'session-past']);
+
+    // 起動時の退避と同じ物差し（先頭メッセージID＋件数）が一致する場合は二重に出さない。
+    const storedSame: ConversationSession = { id: 'session-startup-live-1', title: '今まさに話している会話', createdAt: 2, messages: current };
+    const deduped = withCurrentConversationSession([storedSame], current, 10);
+    expect(deduped.sessions.map((session) => session.id)).toEqual(['session-startup-live-1']);
+    expect(deduped.currentSessionId).toBe('session-startup-live-1');
+
+    expect(withCurrentConversationSession([past], [], 10)).toEqual({ sessions: [past], currentSessionId: null });
+  });
+
+  it('lists the current conversation beside past sessions in the history drawer and finds it by search', async () => {
+    const restore = vi.fn();
+    // schedule は「ハンドルを保持→後でコールバックが解除」の順序を前提にするため、
+    // 同期実行モックではなくタイマー経由の非同期モックで実ブラウザに寄せる。
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => window.setTimeout(() => callback(0), 0));
+    const past: ConversationSession = { id: 'session-past', title: '先週の旅行計画', createdAt: 1, messages: [{ id: 'past-1', role: 'user', content: '先週の旅行計画' }] };
+    const current: ConversationMessage[] = [
+      { id: 'live-1', role: 'user', content: '柚子胡椒の使い方を教えて' },
+      { id: 'live-2', role: 'assistant', content: '柚子胡椒は鍋にも合います。' },
+    ];
+    render(<App messages={current} sessions={[past]} onRestoreSession={restore} language="ja" />);
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    // 初期表示の一覧に、現在の会話と過去セッションの両方が畳み込まれずに出る。
+    const list = screen.getByTestId('history-session-list');
+    expect(within(list).getByTestId('history-session-item-0').textContent).toContain('現在の会話');
+    expect(within(list).getByTestId('history-session-item-0').textContent).toContain('柚子胡椒の使い方を教えて');
+    expect(within(list).getByTestId('history-session-item-1').textContent).toContain('先週の旅行計画');
+    // 過去セッションは従来どおり復元される。
+    fireEvent.click(screen.getByTestId('history-session-item-1'));
+    await waitFor(() => expect(restore).toHaveBeenCalledWith(past));
+    await waitFor(() => expect(screen.queryByTestId('history-drawer')).toBeNull());
+    // 送信直後の会話本文が履歴検索に一致する。
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    fireEvent.change(screen.getByTestId('history-search-input'), { target: { value: '柚子胡椒' } });
+    await waitFor(() => expect(screen.getByTestId('history-search-results').textContent).toContain('現在の会話'));
+    expect(screen.getByTestId('history-search-results').textContent).toContain('柚子胡椒の使い方を教えて');
+    // 現在の会話を選んでも復元は走らず、ドロワーが閉じるだけ。
+    fireEvent.click(screen.getByTestId('history-search-result-0'));
+    await waitFor(() => expect(screen.queryByTestId('history-drawer')).toBeNull());
+    expect(restore).toHaveBeenCalledTimes(1);
+    frame.mockRestore();
   });
 
   it('discards a paid or unverifiable API result and shows the safe-waiting UI instead of a response', async () => {
