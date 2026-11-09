@@ -338,21 +338,21 @@ export default function AgentWorkspaceView() {
     && capability.paidFallbackEnabled === false;
   const plannedParamsReady = plan ? hasExecutableSteps(plan) : false;
 
-  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="エージェント">
+  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">エージェント</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-slate-500">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
+        <p className="mt-1 text-sm leading-6 text-origin-muted">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
           disabled={phase === 'planning' || Boolean(plan) || phase === 'executing'}
           placeholder="例: この要件を整理して、実行可能な文書案を作ってください。"
-          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950" />
+          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand disabled:cursor-not-allowed disabled:opacity-70" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? 'エージェント機能を確認中…' : ready ? 'エージェントを利用できます' : 'エージェントは現在利用できません'}</span>
+          <span className="text-origin-muted">{checkingCapability ? 'エージェント機能を確認中…' : ready ? 'エージェントを利用できます' : 'エージェントは現在利用できません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
             <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
@@ -366,26 +366,26 @@ export default function AgentWorkspaceView() {
           {phase === 'planning' ? '計画中…' : '実行計画を作る'}
         </button>
 
-        {plan && <section className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="実行計画">
+        {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-black">実行の流れ</h2>
             <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 pl-5 text-sm">{plan.plan.map((step) => <li key={step.id}>{step.title}</li>)}</ol>
 
-          <p className="mt-4 block text-xs font-bold text-slate-500">実行する機能</p>
-          <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
+          <p className="mt-4 block text-xs font-bold text-origin-muted">実行する機能</p>
+          <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
+          <p className="mt-1 text-xs leading-5 text-origin-muted">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には、対象の場所や内容などの具体的な指定が不足しています。依頼文を具体化して計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
-            <p className="mb-2 text-xs leading-5 text-slate-500">通常は空欄のままで問題ありません。「承認して実行」を押すと、このブラウザ上で計画を確認したものとして承認されます。管理者キーを入力した場合は管理者用の承認経路を使います。キーはブラウザーに保存しません。</p>
+            <p className="mb-2 text-xs leading-5 text-origin-muted">通常は空欄のままで問題ありません。「承認して実行」を押すと、このブラウザ上で計画を確認したものとして承認されます。管理者キーを入力した場合は管理者用の承認経路を使います。キーはブラウザーに保存しません。</p>
             <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
               placeholder="実行認証キー（任意）"
-              className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
           </details>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -397,31 +397,31 @@ export default function AgentWorkspaceView() {
           </div>
         </section>}
 
-        <details className="mt-4 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+        <details className="mt-4 border-t border-origin-border pt-2 text-xs">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
-          <p className="leading-5 text-slate-500">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
-          {capability && <div className="mt-2 space-y-1 text-slate-500">
+          <p className="leading-5 text-origin-muted">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
+          {capability && <div className="mt-2 space-y-1 text-origin-muted">
             <p>承認の確認方法: {capability.approvalSigningConfigured ? '準備できています' : '利用できません'}</p>
             <p>同じ操作の繰り返し防止: {capability.replayProtectionConfigured ? '有効です' : '利用できません'}</p>
           </div>}
         </details>
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300" aria-label="実行履歴">
+        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-xs leading-5 text-origin-muted" aria-label="実行履歴">
           {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行の経過はここに表示されます。'}
         </div>
       </aside>
 
       <main className="origin-workspace min-h-[28rem] overflow-hidden rounded-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <div><p className="text-xs font-bold uppercase tracking-widest text-indigo-500">Verified output</p><h2 className="font-bold">作業結果</h2></div>
-          <span className="rounded-full border border-slate-200 px-3 py-1 text-xs dark:border-slate-700">無料 · 承認制</span>
+        <div className="flex items-center justify-between gap-3 border-b border-origin-border px-4 py-3">
+          <div><p className="text-xs font-bold uppercase tracking-widest text-origin-brand">Verified output</p><h2 className="font-bold">作業結果</h2></div>
+          <span className="rounded-full border border-origin-border px-3 py-1 text-xs">無料 · 承認制</span>
         </div>
         <pre className="max-h-[60dvh] overflow-auto whitespace-pre-wrap p-5 font-mono text-sm leading-6">{artifact}</pre>
 
-        <section className="border-t border-slate-200 p-4 dark:border-slate-800">
+        <section className="border-t border-origin-border p-4">
           <h3 className="text-sm font-black">端末内に保存した結果</h3>
-          {restoring ? <p className="mt-2 text-xs text-slate-500">読み込み中…</p> : checkpoints.length === 0
-            ? <p className="mt-2 text-xs text-slate-500">確認済みの実行が完了するとここに保存されます。</p>
+          {restoring ? <p className="mt-2 text-xs text-origin-muted">読み込み中…</p> : checkpoints.length === 0
+            ? <p className="mt-2 text-xs text-origin-muted">確認済みの実行が完了するとここに保存されます。</p>
             : <div className="mt-2 flex flex-wrap gap-2">{checkpoints.slice().reverse().slice(0, 8).map((item) =>
               <button type="button" key={item.checkpointId} onClick={() => restoreLocalCheckpoint(item)}
                 className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">

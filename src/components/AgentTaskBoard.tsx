@@ -214,10 +214,10 @@ function resumeConditionText(condition: ResumeConditionView): string {
 
 function statusChipClass(status: string): string {
   if (status === 'awaiting_approval') return 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300';
-  if (status === 'running' || status === 'queued' || status === 'planning') return 'border-indigo-300 text-indigo-700 dark:border-indigo-800 dark:text-indigo-300';
+  if (status === 'running' || status === 'queued' || status === 'planning') return 'border-origin-brand-border text-origin-brand';
   if (status === 'completed') return 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300';
   if (status === 'failed') return 'border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-300';
-  return 'border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400';
+  return 'border-origin-border text-origin-muted';
 }
 
 function diffLines(diffSteps: PlanDiffStepView[]): string[] {
@@ -456,29 +456,29 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     const planSteps = run.plan ?? [];
     const hasWriteStep = planSteps.some((step) => step.toolName === 'file_writer');
     const stepRows = Math.max(planSteps.length, run.stepsState.length);
-    return <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+    return <div className="mt-3 border-t border-origin-border pt-3">
       {stepRows > 0 ? <ol className="space-y-1 text-sm">
         {Array.from({ length: stepRows }, (_, index) => {
           const planStep = planSteps[index];
           const state = run.stepsState[index];
           return <li key={planStep ? `${index}-${planStep.toolName}` : state?.id ?? index} className="flex items-center justify-between gap-3">
             <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業ステップ'}</span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-origin-muted">
               {state ? STEP_STATUS_LABELS[state.status] ?? '未実行' : '未実行'}
               {state && state.attempts > 1 ? ` · ${state.attempts}回試行` : ''}
             </span>
           </li>;
         })}
-      </ol> : <p className="text-sm text-slate-500">計画はまだありません。</p>}
+      </ol> : <p className="text-sm text-origin-muted">計画はまだありません。</p>}
       {hasWriteStep && (run.status === 'queued' || run.status === 'running') && (
-        <p className="mt-2 text-xs leading-5 text-slate-500">ファイルの作成・編集は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
+        <p className="mt-2 text-xs leading-5 text-origin-muted">ファイルの作成・編集は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
       )}
-      {run.hold && <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
+      {run.hold && <div className="mt-2 space-y-1 text-xs leading-5 text-origin-muted">
         <p>保留の理由: {HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'}</p>
         <p>再開の条件: {resumeConditionText(run.hold.resumeCondition)}</p>
         <p>保留した日時: {formatDateTime(run.hold.heldSince)}</p>
       </div>}
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 text-xs text-origin-muted">
         作成: {formatDateTime(run.createdAt)} · 更新: {formatDateTime(run.updatedAt)} · 記録の期限: {formatDateTime(run.expiresAt)}
       </p>
     </div>;
@@ -499,7 +499,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
           <li key={`${index}-${title}`}>{title}</li>
         ))}
       </ol>
-      <p className="mt-2 text-xs leading-5 text-slate-500">再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。</p>
+      <p className="mt-2 text-xs leading-5 text-origin-muted">再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。</p>
       {session.message && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">{session.message}</p>}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={() => void approveResume(session)} disabled={session.busy}
@@ -518,14 +518,14 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     const session = resumeSession?.runId === run.runId ? resumeSession : null;
     const expanded = expandedRunId === run.runId;
     const expiry = !TERMINAL_STATUSES.has(run.status) ? expiryNote(run) : null;
-    return <article key={run.runId} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+    return <article key={run.runId} className="rounded-xl border border-origin-border p-3">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-sm font-bold leading-6">{goalSummary(run.goal)}</p>
         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold ${statusChipClass(run.status)}`}>
           {RUN_STATUS_LABELS[run.status]}
         </span>
       </div>
-      <p className="mt-1 text-xs leading-5 text-slate-500">
+      <p className="mt-1 text-xs leading-5 text-origin-muted">
         {total > 0 ? `ステップ ${done}/${total}` : ''}
         {run.status === 'held' && run.hold ? `${total > 0 ? ' · ' : ''}${HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'} · ${resumeConditionText(run.hold.resumeCondition)}` : ''}
         {expiry ? ` · ${expiry}` : ''}
@@ -540,7 +540,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         </button>
         {(run.status === 'held' || run.status === 'awaiting_approval') && !session && (
           <button type="button" onClick={() => void startResume(run)} disabled={busyRunId === run.runId}
-            className="min-h-11 rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-xs font-bold text-indigo-900 disabled:opacity-50 dark:bg-indigo-950/30 dark:text-indigo-200">
+            className="min-h-11 rounded-xl border border-origin-brand-border bg-origin-brand-soft px-3 text-xs font-bold text-origin-brand disabled:opacity-50">
             {busyRunId === run.runId ? '準備中…' : '再開する'}
           </button>
         )}
@@ -571,7 +571,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   return <section className="origin-workspace rounded-2xl p-4" aria-label="タスク">
     <div className="flex items-center justify-between gap-3">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Task board</p>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">Task board</p>
         <h2 className="mt-1 text-base font-black">タスク</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
@@ -579,26 +579,26 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         {loadState === 'loading' ? '読み込み中…' : runs ? '更新' : 'タスクを表示'}
       </button>
     </div>
-    <p className="mt-1 text-sm leading-6 text-slate-500">保留中の仕事や、これまでの仕事の進み具合を確認できます。再開するときは、新しい計画を確認して承認します。</p>
+    <p className="mt-1 text-sm leading-6 text-origin-muted">保留中の仕事や、これまでの仕事の進み具合を確認できます。再開するときは、新しい計画を確認して承認します。</p>
 
     <details className="mt-2">
       <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
-      <p className="mb-2 text-xs leading-5 text-slate-500">管理者キーを入力すると、管理者として作成されたタスクを表示・操作できます。キーはブラウザーに保存しません。空欄の場合は、この画面で作成した計画に紐づくタスクが対象になります。</p>
+      <p className="mb-2 text-xs leading-5 text-origin-muted">管理者キーを入力すると、管理者として作成されたタスクを表示・操作できます。キーはブラウザーに保存しません。空欄の場合は、この画面で作成した計画に紐づくタスクが対象になります。</p>
       <input ref={credentialInputRef} aria-label="タスク用の実行認証キー" type="password" autoComplete="off" spellCheck={false}
         placeholder="実行認証キー（任意）"
-        className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
+        className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
     </details>
 
-    {notice && <p role="status" className="mt-2 text-xs leading-5 text-slate-500">{notice}</p>}
-    {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-slate-500">タスクの記録は現在利用できません。</p>}
+    {notice && <p role="status" className="mt-2 text-xs leading-5 text-origin-muted">{notice}</p>}
+    {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">タスクの記録は現在利用できません。</p>}
     {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">認証できませんでした。キーを確認してください。</p>}
     {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">タスクを読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
-      <p className="mt-2 text-sm text-slate-500">表示できるタスクはありません。</p>
+      <p className="mt-2 text-sm text-origin-muted">表示できるタスクはありません。</p>
     )}
     {grouped.map((group) => (
       <div key={group.key} className="mt-4">
-        <h3 className="text-sm font-black">{group.title} <span className="text-xs font-semibold text-slate-500">{group.items.length}件</span></h3>
+        <h3 className="text-sm font-black">{group.title} <span className="text-xs font-semibold text-origin-muted">{group.items.length}件</span></h3>
         <div className="mt-2 space-y-2">{group.items.map(renderRun)}</div>
       </div>
     ))}

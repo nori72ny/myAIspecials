@@ -145,7 +145,7 @@ function renderInlineResearchMarkdown(text: string, sources: readonly ResearchSo
       const expected = source ? safeExternalUrl(source.url) : null;
       const actual = safeExternalUrl(citation[2]);
       if (expected && actual && expected === actual) {
-        return <a key={`citation-${index}`} href={actual} target="_blank" rel="noreferrer" className="font-semibold text-indigo-600 underline dark:text-indigo-300">{citation[1]}</a>;
+        return <a key={`citation-${index}`} href={actual} target="_blank" rel="noreferrer" className="font-semibold text-origin-brand underline">{citation[1]}</a>;
       }
     }
     return <React.Fragment key={`text-${index}`}>{part}</React.Fragment>;
@@ -208,11 +208,11 @@ export default function ResearchWorkspaceV31() {
     }
   }
 
-  return <section aria-label="詳しく調べる" className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5">
+  return <section aria-label="詳しく調べる" className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5">
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="origin-workspace rounded-2xl p-4 md:p-5">
         <h1 className="text-xl font-black">詳しく調べる</h1>
-        <p className="mt-1 text-sm leading-6 text-slate-500">ORIGINが公開情報を確認し、出典付きでまとめます。</p>
+        <p className="mt-1 text-sm leading-6 text-origin-muted">ORIGINが公開情報を確認し、出典付きでまとめます。</p>
 
         <label htmlFor="research-query" className="mt-4 block text-sm font-bold">調べたいこと</label>
         <textarea
@@ -221,16 +221,16 @@ export default function ResearchWorkspaceV31() {
           onChange={event => setQuery(event.target.value)}
           maxLength={1200}
           placeholder="例: 生成AIの店舗集客への活用について、最近の公開情報を比較してください。"
-          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
+          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
         />
         <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="text-xs text-slate-500">{query.length}/1200</span>
+          <span className="text-xs text-origin-muted">{query.length}/1200</span>
           <button type="button" onClick={() => void runResearch()} disabled={busy || !query.trim()} className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? '調査中…' : '調査する'}</button>
         </div>
 
-        <details className="mt-3 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+        <details className="mt-3 border-t border-origin-border pt-2 text-xs">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">調査の安全条件</summary>
-          <p className="leading-5 text-slate-500">公開情報を使って調査します。有料AIへの自動切り替えは行いません。機密性の高い情報は外部へ送る前に停止します。</p>
+          <p className="leading-5 text-origin-muted">公開情報を使って調査します。有料AIへの自動切り替えは行いません。機密性の高い情報は外部へ送る前に停止します。</p>
         </details>
 
         {error && <div role="alert" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{error}</div>}
@@ -240,7 +240,7 @@ export default function ResearchWorkspaceV31() {
         <section aria-labelledby="research-report-title" className="origin-workspace rounded-2xl p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 id="research-report-title" className="font-black">調査結果</h2>
-            <span className="text-xs text-slate-500">{result.sourceCount}件の出典</span>
+            <span className="text-xs text-origin-muted">{result.sourceCount}件の出典</span>
           </div>
           <ResearchReport report={result.report} sources={result.sources} />
         </section>
@@ -251,34 +251,34 @@ export default function ResearchWorkspaceV31() {
 
             <div className="pb-4">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full border border-slate-200 px-3 py-1 font-bold dark:border-slate-700">出典の確かさ: {confidenceLabel(result.confidence)}</span>
-                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.sourceCount}件</span>
-                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">{result.distinctDomainCount}サイト</span>
-                <span className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">本文確認済み {result.sources.filter(source => source.evidenceLevel === 'page-verified').length}件</span>
+                <span className="rounded-full border border-origin-border px-3 py-1 font-bold">出典の確かさ: {confidenceLabel(result.confidence)}</span>
+                <span className="rounded-full border border-origin-border px-3 py-1">{result.sourceCount}件</span>
+                <span className="rounded-full border border-origin-border px-3 py-1">{result.distinctDomainCount}サイト</span>
+                <span className="rounded-full border border-origin-border px-3 py-1">本文確認済み {result.sources.filter(source => source.evidenceLevel === 'page-verified').length}件</span>
               </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">「本文確認済み」は、調べたときに元のページ本文を読めた出典です。「検索結果の要約」は検索結果の短い抜粋のみで、本文確認済みとは扱いません。出典の確かさは、回答全体の正しさを保証するものではありません。</p>
+              <p className="mt-2 text-xs leading-5 text-origin-muted">「本文確認済み」は、調べたときに元のページ本文を読めた出典です。「検索結果の要約」は検索結果の短い抜粋のみで、本文確認済みとは扱いません。出典の確かさは、回答全体の正しさを保証するものではありません。</p>
 
               <div className="mt-4 space-y-3">{result.sources.map(source => {
                 const href = safeExternalUrl(source.url);
-                return <article key={source.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+                return <article key={source.id} className="rounded-xl border border-origin-border p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="m-0 text-xs font-black text-indigo-500">{source.id}</p>
+                      <p className="m-0 text-xs font-black text-origin-brand">{source.id}</p>
                       <h3 className="mt-1 break-words text-sm font-bold">{source.title}</h3>
-                      <p className="mt-1 text-xs text-slate-500">{source.domain} · {source.freshness === 'recent' ? '最近の情報' : source.freshness === 'older' ? '古い情報の可能性があります' : '日付不明'} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'}</p>
+                      <p className="mt-1 text-xs text-origin-muted">{source.domain} · {source.freshness === 'recent' ? '最近の情報' : source.freshness === 'older' ? '古い情報の可能性があります' : '日付不明'} · {source.evidenceLevel === 'page-verified' ? '本文確認済み' : '検索結果の要約'}</p>
                     </div>
                     
                   </div>
                   {href
-                    ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-3 inline-flex min-h-11 items-center break-all text-sm font-semibold text-indigo-600 underline dark:text-indigo-300">原文を開く</a>
+                    ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-3 inline-flex min-h-11 items-center break-all text-sm font-semibold text-origin-brand underline">原文を開く</a>
                     : <p className="mt-3 text-xs font-semibold text-amber-700 dark:text-amber-300">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
                 </article>;
               })}</div>
 
-              <div className="mt-4 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800">
+              <div className="mt-4 rounded-xl border border-origin-border p-3 text-sm">
                 <strong>出典同士の違い</strong>
                 {result.conflicts.length === 0
-                  ? <p className="mt-2 text-slate-500">価格・バージョン・割合など、比較できる数値の食い違いは見つかりませんでした。</p>
+                  ? <p className="mt-2 text-origin-muted">価格・バージョン・割合など、比較できる数値の食い違いは見つかりませんでした。</p>
                   : <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{conflictTopicLabel(conflict.topic)}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
               </div>
             </div>
