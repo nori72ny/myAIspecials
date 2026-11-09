@@ -49,7 +49,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   resetSignal = 0,
 }: PersonalEditionAppProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>(() => parentMessages ?? []);
-  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>(workspaceLocation);
+  // 新規ロードでは URL に前回のワークスペース（?workspace=…）が残って
+  // いても復元せず、必ずチャットのトップ画面から始める
+  // （オーナー指示 2026-11-09）。セッション内の移動と popstate の
+  // 同期では従来どおり workspaceLocation を使う。
+  const [workspace, setWorkspace] = useState<OriginWorkspaceModeV31>('chat');
   const [projectOpen, setProjectOpen] = useState(false);
   const [projectView, setProjectView] = useState<OriginProjectViewV31>('overview');
   const [projectSources, setProjectSources] = useState<readonly ResearchSource[]>([]);

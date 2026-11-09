@@ -156,6 +156,37 @@ function loadLegacySnapshot(): OriginPersistedSnapshot | null {
   return { version: 1, messages, sessions, artifacts: [], updatedAt: Math.max(historyUpdatedAt, sessionUpdatedAt) };
 }
 
+/**
+ * 起動時に保存されていた「前回の進行中会話」を、履歴セッションとして
+ * 退避するための変換。アプリは必ずトップ画面から始めるため
+ * （オーナー指示 2026-11-09）、前回の会話をそのまま開くことはせず、
+ * 履歴ドロワーから明示的に選んだときだけ復元できる形で残す。
+ */
+export function startupArchivedSession(source: readonly ConversationMessage[], createdAt: number): ConversationSession | null {
+  if (!source.length) return null;
+  const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション';
+  const firstId = typeof source[0]?.id === 'string' && source[0].id ? source[0].id : String(createdAt);
+  return {
+    id: `session-startup-${firstId}`.slice(0, 128),
+    title: firstUser.replace(/\s+/g, ' ').slice(0, 72),
+    createdAt,
+    messages: persistableConversationMessages(source),
+  };
+}
+
+/**
+ * 起動時の退避をセッション一覧へ統合する。同じ会話（先頭メッセージIDと
+ * 件数が一致）が既に履歴にある場合は二重登録しない。
+ */
+export function withStartupArchivedSession(sessions: readonly ConversationSession[], source: readonly ConversationMessage[], createdAt: number): ConversationSession[] {
+  const archived = startupArchivedSession(source, createdAt);
+  if (!archived) return [...sessions];
+  const firstId = source[0]?.id;
+  const alreadyArchived = sessions.some((session) => session.messages[0]?.id === firstId && session.messages.length === source.length);
+  if (alreadyArchived) return [...sessions];
+  return [archived, ...sessions].slice(0, 24);
+}
+
 function journalMessages(messages: ConversationMessage[]): void {
   try {
     window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({
@@ -170,7 +201,10 @@ function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [messages, setMessages] = useState<ConversationMessage[]>(loadStoredHistory);
+  // 起動時は保存済みの進行中会話をそのまま開かず、必ずトップ画面
+  // （空の会話）から始める。前回の会話は hydration の完了時に履歴
+  // セッションへ退避され、失われない（オーナー指示 2026-11-09）。
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [sessions, setSessions] = useState<ConversationSession[]>(loadStoredSessions);
   const [artifacts, setArtifacts] = useState<PersistedArtifact[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -187,7 +221,12 @@ function PersonalReleaseRoot() {
   useEffect(() => { const announceUpdate = () => setUpdateReady(true); window.addEventListener('origin:pwa-update-ready', announceUpdate); return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate); }, []);
   useEffect(() => { const root = document.documentElement; const isDark = resolvedTheme === 'dark'; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('dark', isDark); root.classList.toggle('light', !isDark); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#0b1024' : '#ffffff'); }, [resolvedTheme, settings.language, settings.designTheme]);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
-  useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { if (!dirtyDuringHydration.current.messages) { try { setMessages(parseImportedHistory({ messages: result.snapshot.messages })); } catch { setMessages([]); } } if (!dirtyDuringHydration.current.sessions) setSessions(loadSessionsFromSnapshot(result.snapshot.sessions)); if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
+  useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { // 保存されていた進行中会話は開かず、履歴セッションへ退避する（起動時は必ずトップ画面）。
+        let storedMessages: ConversationMessage[] = []; try { storedMessages = parseImportedHistory({ messages: result.snapshot.messages }); } catch { storedMessages = []; }
+        const archivedAt = typeof result.snapshot.updatedAt === 'number' && Number.isFinite(result.snapshot.updatedAt) && result.snapshot.updatedAt > 0 ? result.snapshot.updatedAt : Date.now();
+        if (!dirtyDuringHydration.current.sessions) { setSessions(withStartupArchivedSession(loadSessionsFromSnapshot(result.snapshot.sessions), storedMessages, archivedAt)); }
+        else if (storedMessages.length) { setSessions((current) => withStartupArchivedSession(current, storedMessages, archivedAt)); }
+        if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
   const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };

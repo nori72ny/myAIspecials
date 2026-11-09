@@ -154,11 +154,12 @@ describe('ORIGIN top experience regression boundary', () => {
   it('locks the current input-first visual hierarchy instead of the superseded oversized mark', () => {
     expect(topUi).toContain('ORIGIN canonical shell — Release 2');
     expect(topUi).toContain('min-height: 60px !important;');
-    expect(topUi).toContain('width: 76px !important;');
-    expect(topUi).toContain('width: 64px !important;');
-    expect(topUi).toContain('width: 54px !important;');
-    expect(topUi).toContain("background: transparent url('/brand/origin-ribbon-o-light.webp') center / contain no-repeat !important;");
-    expect(topUi).toContain("background: url('/brand/origin-ribbon-o-small.webp') center / contain no-repeat !important;");
+    // ヒーローは猫＋明るい台座（オーナー指示 2026-11-09）。大きさは台座
+    // コンポーネント側で持ち、CSS 側では短い画面向けの台座圧縮だけを固定
+    // する（旧リボンOマークの固定サイズは廃止）。
+    expect(topUi).toContain('.origin-cat-pedestal {');
+    expect(topUi).toContain('width: 62px !important;');
+    expect(topUi).not.toContain('origin-ribbon-o-light.webp');
     expect(topUi).toContain('min-height: 56px !important;');
     expect(functionalUi).toContain('grid-column: 1 / -1;');
     expect(functionalUi).toContain('margin-top: 12px !important;');

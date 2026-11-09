@@ -133,9 +133,22 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(window.location.search).toBe('?workspace=creative');
   });
 
-  it('supports direct workspace links and browser history without restoring a permanent mode bar', async () => {
+  it('does not reopen the previous workspace on a fresh load, even when the URL still carries it', () => {
+    window.history.replaceState(null, '', '/?workspace=creative');
+    render(<PersonalEditionApp />);
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+  });
+
+  it('starts on chat at load and follows browser history without restoring a permanent mode bar', async () => {
     window.history.replaceState(null, '', '/?workspace=research');
     render(<PersonalEditionApp />);
+    // 新規ロードでは URL の ?workspace= を復元せず、必ずチャットから始める。
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
+
+    fireEvent(window, new PopStateEvent('popstate'));
     expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
 

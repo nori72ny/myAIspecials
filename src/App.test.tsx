@@ -1959,3 +1959,39 @@ describe('chat send queue while a response is generating', () => {
     expect(lastUserText(chatCalls(fetchMock)[1])).toContain('週次レポートの下書きメモ');
   });
 });
+
+describe('cat visibility on the top screen and while generating (owner request 2026-11-09)', () => {
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it('shows the cat on a bright pedestal in the home hero and in the header', () => {
+    render(<App language="ja" />);
+    const hero = screen.getByTestId('origin-core-logo');
+    const heroCat = within(hero).getByTestId('origin-cat-state');
+    expect(heroCat.tagName).toBe('IMG');
+    expect(heroCat.getAttribute('src')).toBe('/brand/origin-cat.webp');
+    expect(within(hero).getByTestId('origin-cat-pedestal')).toBeTruthy();
+    expect(hero.textContent).not.toContain('◈');
+    // ヒーローとヘッダーの2か所に、台座付きの猫が常時表示される。
+    const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
+    expect(brandCats).toHaveLength(2);
+    for (const cat of brandCats) {
+      expect(cat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    }
+  });
+
+  it('animates a large pedestal cat while a response is generating', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、生成中表示を維持する */ }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '生成中の猫を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    const thinking = await screen.findByTestId('origin-thinking');
+    const cat = within(thinking).getByTestId('origin-cat-state');
+    expect(cat.tagName).toBe('VIDEO');
+    expect(cat.getAttribute('src')).toBe('/brand/origin-cat-working.mp4');
+    expect(cat.getAttribute('poster')).toBe('/brand/origin-cat-working.webp');
+    const pedestal = within(thinking).getByTestId('origin-cat-pedestal');
+    // 台座の外径はメディア 72px + 両側パッドで 72px を超える（大きく表示される）。
+    expect(parseInt(pedestal.style.width, 10)).toBeGreaterThan(72);
+  });
+});
