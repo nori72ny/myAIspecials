@@ -65,6 +65,34 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("requests incremental release for ordinary chat and hold-until-verified when review is required", async () => {
+    const seenReleases: unknown[] = [];
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenReleases.push((providerRequest as { streamRelease?: unknown }).streamRelease);
+      handlers.onDelta("回答");
+      return result("回答");
+    }) as unknown as OriginProviderStreamExecutor;
+    const app = appWith(streamExecute);
+
+    const ordinary = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "短い案内文を作ってください" }] });
+    expect(ordinary.status).toBe(200);
+
+    const reviewRequired = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "契約書のチェックポイントを教えてください" }] });
+    expect(reviewRequired.status).toBe(200);
+
+    // Ordinary responses render progressively; a response the review policy
+    // flags (here: a consequential contract question) keeps the original
+    // release-after-verification behavior.
+    expect(seenReleases).toEqual(["incremental", "hold-until-verified"]);
+    expect(streamExecute).toHaveBeenCalledTimes(2);
+  });
+
   it("passes the coherent multi-turn context window to the streaming provider", async () => {
     const streamExecute = vi.fn(async (providerRequest, handlers) => {
       expect(providerRequest.messages).toEqual([

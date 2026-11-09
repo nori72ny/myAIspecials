@@ -157,6 +157,7 @@ async function streamOpenRouter(
   transport: { count: number },
 ): Promise<OriginProviderExecutionResult> {
   const controller = new AbortController();
+  const incrementalRelease = providerRequest.streamRelease === "incremental";
   const timeoutMs = Math.min(
     MAX_STREAM_TIMEOUT_MS,
     Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS),
@@ -252,7 +253,14 @@ async function streamOpenRouter(
         throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);
       }
       // Hold all text privately until terminal billing and routing evidence passes.
+      // In incremental release mode the chunk's own checks above (embedded error
+      // type, billing metadata, served-model identity) have already passed for
+      // this fragment, so it is forwarded now for progressive display; the
+      // terminal checks still gate the result, and downstream admission still
+      // requires the verified completion event, so a terminal failure discards
+      // the provisionally displayed text exactly as a failed stream does today.
       output += delta;
+      if (incrementalRelease) handlers.onDelta(delta);
     }
     if (typeof chunk.choices?.[0]?.finish_reason === "string") finishReason = chunk.choices[0].finish_reason;
     if (chunk.usage) {
@@ -313,8 +321,10 @@ async function streamOpenRouter(
     usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
   };
   assertOriginZeroCostExecutionResult(result, providerRequest.plan.modelId, providerRequest.plan.providerId);
-  // Release the complete response only after stream termination and all billing checks pass.
-  handlers.onDelta(output);
+  // Release the complete response only after stream termination and all billing
+  // checks pass. In incremental release mode every fragment was already forwarded
+  // chunk by chunk above, so there is nothing left to release here.
+  if (!incrementalRelease) handlers.onDelta(output);
   return result;
 }
 
@@ -343,6 +353,18 @@ export async function executeOriginProviderStream(
     ...providerRequest,
     plan: { ...providerRequest.plan, timeoutMs: Math.min(MAX_STREAM_TIMEOUT_MS, Number(providerRequest.plan.timeoutMs) || MAX_STREAM_TIMEOUT_MS) },
   };
+  // In incremental release mode, fragments reach the user as they are generated.
+  // Once any fragment has been forwarded, a retry would re-send the answer from
+  // the top and duplicate the displayed text, so — exactly like the failover
+  // dispatcher's no-switch-after-first-byte rule — a failure after release is
+  // surfaced instead of retried.
+  let releasedFragments = 0;
+  const trackingHandlers: OriginProviderStreamHandlers = {
+    onDelta: (text: string) => {
+      if (text) releasedFragments += 1;
+      handlers.onDelta(text);
+    },
+  };
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
@@ -353,7 +375,7 @@ export async function executeOriginProviderStream(
     if (Date.now() >= deadline) break;
     try {
       try {
-        return await streamOpenRouter(boundedRequest, key, handlers, fetchImpl, transport);
+        return await streamOpenRouter(boundedRequest, key, trackingHandlers, fetchImpl, transport);
       } catch (error) {
         if (error instanceof OriginProviderError) {
           throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
@@ -378,10 +400,10 @@ export async function executeOriginProviderStream(
           && (error.code === "PROVIDER_TIMEOUT"
             || transientUpstreamStatus
             || transientTransportFailure);
-        if (!retryableTransientFailure || attempt === 2 || Date.now() >= deadline) throw error;
+        if (!retryableTransientFailure || releasedFragments > 0 || attempt === 2 || Date.now() >= deadline) throw error;
       } else {
         lastError = error;
-        if (attempt === 2 || Date.now() >= deadline) break;
+        if (releasedFragments > 0 || attempt === 2 || Date.now() >= deadline) break;
       }
     }
   }

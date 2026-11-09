@@ -26,6 +26,21 @@ export interface OriginProviderExecutionRequest {
    * exactly.
    */
   groqSystemInstruction?: string;
+  /**
+   * Optional text-release policy for the upstream streaming executor; every other
+   * executor ignores this field. "hold-until-verified" (also the behavior when the
+   * field is absent) releases the answer text only after the stream has terminated
+   * and every billing/routing check has passed — the original behavior. "incremental"
+   * forwards each chunk's text as it arrives, but only after that chunk itself has
+   * passed the served-model identity and billing-metadata checks; the terminal
+   * checks (final usage cost, stream completion, finish reason) still run before
+   * the result is returned, so downstream admission — the client's verified-stream
+   * completion contract — is unchanged, and a terminal failure still discards the
+   * provisionally displayed text. The streaming chat router sets "incremental" only
+   * for requests whose review decision does not require verification; every other
+   * caller keeps the hold behavior.
+   */
+  streamRelease?: "hold-until-verified" | "incremental";
   /** Optional single required function contract. The provider must return exactly one matching tool call. */
   requiredTool?: OriginProviderRequiredTool;
 }

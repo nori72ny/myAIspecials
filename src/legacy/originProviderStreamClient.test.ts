@@ -215,6 +215,140 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("stops the policy-stage progression at a rate limit after a 403, without a third send", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "Retry-After": "120" } }))
+      .mockResolvedValue(new Response("must not be sent", { status: 200 }));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_RATE_LIMITED",
+      status: 429,
+      retryable: false,
+      diagnostic: { transportRequestCount: 2 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards each fragment as it arrives in incremental release mode, without a final full-text release", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "OR" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "IG" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "IN" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStream(
+      { ...providerRequest, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+    // Progressive display: the handler receives the genuine fragments in order,
+    // never one held-back full-text release at the end.
+    expect(deltas).toEqual(["OR", "IG", "IN"]);
+    expect(result.text).toBe("ORIGIN");
+    expect(result.transportRequestCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the first fragment before the stream completes in incremental release mode", async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { streamController = controller; },
+    });
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    }));
+    const deltas: string[] = [];
+    const pending = executeOriginProviderStream(
+      { ...providerRequest, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+    streamController!.enqueue(encoder.encode(event({
+      model: ORIGIN_OPENROUTER_FREE_MODEL,
+      choices: [{ delta: { content: "first" }, finish_reason: null }],
+    })));
+    // The stream is still open (generation in progress), yet the first fragment
+    // has already been released for display: time-to-first-character no longer
+    // waits for the full generation.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(deltas).toEqual(["first"]);
+    streamController!.enqueue(encoder.encode(event({
+      model: ORIGIN_OPENROUTER_FREE_MODEL,
+      choices: [{ delta: { content: "" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5, cost: 0, is_byok: false },
+    })));
+    streamController!.enqueue(encoder.encode("data: [DONE]\n\n"));
+    streamController!.close();
+    const result = await pending;
+    expect(result.text).toBe("first");
+    expect(deltas).toEqual(["first"]);
+  });
+
+  it("still fails closed on a non-zero terminal usage cost in incremental release mode", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { cost: 0.000001, is_byok: false } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      { ...providerRequest, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({ code: "PROVIDER_POLICY_VIOLATION", retryable: false });
+    // The fragment was shown provisionally, but the execution still fails
+    // closed: no result is returned, so downstream admission (which requires
+    // the verified completion event) discards the provisional text.
+    expect(deltas).toEqual(["partial"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry after a fragment was released in incremental release mode", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Deliver the first fragment first and let the reader forward it;
+        // only then sever the connection mid-stream.
+        setTimeout(() => {
+          controller.enqueue(encoder.encode(event({
+            model: ORIGIN_OPENROUTER_FREE_MODEL,
+            choices: [{ delta: { content: "partial" }, finish_reason: null }],
+          })));
+          setTimeout(() => controller.error(new Error("connection reset")), 10);
+        }, 0);
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    }));
+    const deltas: string[] = [];
+    await expect(executeOriginProviderStream(
+      { ...providerRequest, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      diagnostic: { transportFailure: "network", transportRequestCount: 1 },
+    });
+    // A retry would duplicate the already-displayed fragment; the transient
+    // network failure is surfaced instead (same rule as the failover
+    // dispatcher's no-switch-after-first-byte).
+    expect(deltas).toEqual(["partial"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not issue continuation calls when a streamed answer hits the output limit", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "length" }], usage: { cost: 0, is_byok: false } }),

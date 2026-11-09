@@ -83,6 +83,39 @@ describe("executeOriginProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.transportRequestCount).toBe(2);
   });
+  it("stops at the rate limit after a 404 policy-stage progression, without a third send", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("no matching endpoint", { status: 404 }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "Retry-After": "120" } }))
+      .mockResolvedValue(new Response("must not be sent", { status: 200 }));
+    await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch))
+      .rejects.toMatchObject({
+        code: "PROVIDER_RATE_LIMITED",
+        status: 429,
+        retryable: false,
+        diagnostic: { transportRequestCount: 2, upstreamStatus: 429 },
+      });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("stops at the rate limit after one transient-failure retry, without further sends", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
+        .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+        .mockResolvedValue(new Response("must not be sent", { status: 200 }));
+      const pending = executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+      const rejection = expect(pending).rejects.toMatchObject({
+        code: "PROVIDER_RATE_LIMITED",
+        diagnostic: { transportRequestCount: 2 },
+      });
+      await vi.advanceTimersByTimeAsync(700);
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("counts retry sends separately from a single logical provider execution", async () => {
     vi.useFakeTimers();
     try {
