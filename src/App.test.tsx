@@ -50,7 +50,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, currentConversationSession, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, withCurrentConversationSession, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, currentConversationSession, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, withCurrentConversationSession, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -347,33 +347,26 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
-    const verifiedFreeRasterStatus = {
-      ok: true,
-      configured: true,
-      ready: true,
-      zeroCostVerified: true,
-      paymentMethodRequired: false,
-      paidFallbackEnabled: false,
-      secretDelivery: 'server-only',
-      providerId: 'test-free-provider',
-      model: 'test-free-model',
-    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestPath(input);
-      if (url === '/api/creative/v1.5/raster/status') {
-        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url === '/api/generate-image') {
+        return new Response(JSON.stringify({
+          code: 'PROVIDER_UNAVAILABLE',
+          message: '画像生成Providerが未構成です。',
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
       }
-      return new Response(JSON.stringify({
-        code: 'PROVIDER_UNAVAILABLE',
-        message: '画像生成Providerが未構成です。',
-      }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ code: 'UNEXPECTED_REQUEST' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
     });
     vi.stubGlobal('fetch', fetchMock);
     try {
       render(<App language="ja" />);
       fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
-      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
+      // Plan B: the panel does not pre-check the raster status endpoint
+      // (which never reports ready), so the submit button is enabled by
+      // the form alone and no status request is ever issued.
+      expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false);
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/creative/v1.5/raster/status')).toBe(false);
       fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
       fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
       fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
@@ -395,22 +388,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('does not carry a rejected image-panel request into the next ordinary chat message', async () => {
-    const verifiedFreeRasterStatus = {
-      ok: true,
-      configured: true,
-      ready: true,
-      zeroCostVerified: true,
-      paymentMethodRequired: false,
-      paidFallbackEnabled: false,
-      secretDelivery: 'server-only',
-      providerId: 'test-free-provider',
-      model: 'test-free-model',
-    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestPath(input);
-      if (url === '/api/creative/v1.5/raster/status') {
-        return new Response(JSON.stringify(verifiedFreeRasterStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
       if (url === '/api/generate-image') {
         return new Response(JSON.stringify({
           code: 'PROVIDER_UNAVAILABLE',
@@ -424,14 +403,17 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       render(<App language="ja" />);
       fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
-      await waitFor(() => expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false));
+      expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false);
       fireEvent.change(screen.getByTestId('origin-image-prompt'), {
         target: { value: 'test@example.com のプロフィール画像を作って' },
       });
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
       expect(await screen.findByRole('alert')).toBeTruthy();
-      expect(fetchMock.mock.calls.every(([input]) => requestPath(input) === '/api/creative/v1.5/raster/status')).toBe(true);
+      // The rejected panel request is stopped before any generation call,
+      // and the panel never consults the raster status endpoint.
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/generate-image')).toBe(false);
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/creative/v1.5/raster/status')).toBe(false);
 
       fireEvent.change(screen.getByTestId('origin-home-request'), {
         target: { value: '今日は天気について教えてください' },
@@ -445,6 +427,72 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('shows a translated reason instead of the raw code when the free-proof pipeline fails closed', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/generate-image') {
+        // The real server echoes the machine code as the message when it
+        // has no human message for a proof-stage failure.
+        return new Response(JSON.stringify({
+          ok: false,
+          code: 'CLOUDFLARE_USAGE_RECONCILIATION_FAILED',
+          message: 'CLOUDFLARE_USAGE_RECONCILIATION_FAILED',
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ code: 'CHAT_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain('利用量の照合で無料であることを確認できなかったため');
+      expect(alert.textContent).not.toContain('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the server human message for generation failures without a mapped code', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/generate-image') {
+        return new Response(JSON.stringify({
+          ok: false,
+          code: 'SENSITIVE_INPUT_BLOCKED',
+          message: '機密・個人情報の可能性があるため、外部画像プロバイダへ送信しませんでした。',
+        }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ code: 'CHAT_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain('外部画像プロバイダへ送信しませんでした');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('maps free-proof failure codes to user-facing reasons and leaves unknown codes unmapped', () => {
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT', 'ja')).toContain('無料枠の残量が足りないため');
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_DAILY_USAGE_UNVERIFIED', 'ja')).toContain('利用量を確認できないため');
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_USAGE_RECONCILIATION_FAILED', 'en')).toContain('could not confirm $0.00 cost');
+    expect(rasterGenerationFailureMessage('RASTER_PRICING_EVIDENCE_STALE', 'ja')).toContain('確認情報が古くなっているため');
+    expect(rasterGenerationFailureMessage('PROVIDER_UNAVAILABLE', 'ja')).toBeNull();
+    expect(rasterGenerationFailureMessage(undefined, 'ja')).toBeNull();
   });
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
