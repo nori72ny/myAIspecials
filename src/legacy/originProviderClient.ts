@@ -206,8 +206,6 @@ export function buildOriginProviderFailureDiagnostic(error: OriginProviderError)
 }
 
 export type OriginFetch = typeof fetch;
-const RETRY: readonly number[] = [700, 1_800];
-const MAX_PROVIDER_TOTAL_BUDGET_MS = 60_000;
 const MAX_PROVIDER_REQUEST_TIMEOUT_MS = 52_000;
 const MAX_SEGMENTS = 1;
 const MAX_TOOL_SCHEMA_BYTES = 32 * 1024;
@@ -309,7 +307,7 @@ function http(status: number, retryAfterSeconds?: number): OriginProviderError {
   if (status === 401) return new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, diagnostic);
   if (status === 402) return new OriginProviderError("PROVIDER_POLICY_VIOLATION", "無料実行として確認できない課金状態です。", 502, false, undefined, diagnostic);
   if (status === 429) return new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, retryAfterSeconds, diagnostic);
-  if (status === 400 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
+  if (status === 400 || status === 403 || status === 404 || status === 422) return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, diagnostic);
   if (status === 408 || status === 504) return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, diagnostic);
   return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, diagnostic);
 }
@@ -318,41 +316,41 @@ async function json(response: Response): Promise<unknown> {
   catch { throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true); }
 }
 async function request(fetchImpl: OriginFetch, input: RequestInfo | URL, init: RequestInit, timeoutMs: number, transport: { count: number }): Promise<Response> {
-  const deadline = Date.now() + MAX_PROVIDER_TOTAL_BUDGET_MS;
-  let last: unknown;
-  for (let index = 0; index < 3; index += 1) {
-    if (index) {
-      const delay = RETRY[index - 1];
-      if (Date.now() + delay >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+  // OpenRouter free-tier failed attempts consume daily quota. Never automatically
+  // replay an ambiguous or transient failure: the provider may have processed it.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(timeoutMs, 18_000)));
+  try {
+    transport.count += 1;
+    const response = await fetchImpl(input, { ...init, signal: controller.signal });
+    if ([401, 402, 403, 429].includes(response.status)) {
+      if (response.status === 403) return response;
+      throw http(response.status, retryAfter(response.headers.get("Retry-After")));
     }
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    const controller = new AbortController();
-    const attemptTimeout = Math.max(1, Math.min(timeoutMs, remaining, 18_000));
-    const timer = setTimeout(() => controller.abort(), attemptTimeout);
-    try {
-      transport.count += 1;
-      const response = await fetchImpl(input, { ...init, signal: controller.signal });
-      if ([401, 402, 403, 429].includes(response.status)) {
-        if (response.status === 403) return response;
-        throw http(response.status, retryAfter(response.headers.get("Retry-After")));
-      }
-      if (response.status === 404) return response;
-      if (![408, 500, 502, 503, 504].includes(response.status)) return response;
-      last = http(response.status, retryAfter(response.headers.get("Retry-After")));
-    } catch (error) {
-      if (error instanceof OriginProviderError) {
-        if (!error.retryable || index === 2 || Date.now() >= deadline) throw error;
-        last = error;
-      } else {
-        last = error;
-      }
-      if (index === 2 || Date.now() >= deadline) break;
-    } finally { clearTimeout(timer); }
+    if (response.status === 404) return response;
+    if ([408, 500, 502, 503, 504].includes(response.status)) {
+      throw http(response.status, retryAfter(response.headers.get("Retry-After")));
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof OriginProviderError) {
+      throw new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, {
+        ...error.diagnostic,
+        transportRequestCount: transport.count,
+      });
+    }
+    const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
+    throw new OriginProviderError(
+      timedOut ? "PROVIDER_TIMEOUT" : "PROVIDER_UNAVAILABLE",
+      timedOut ? "無料AIがタイムアウトしました。" : "無料AIを現在利用できません。",
+      timedOut ? 504 : 503,
+      false,
+      undefined,
+      { transportFailure: timedOut ? "timeout" : "network", transportRequestCount: transport.count },
+    );
+  } finally {
+    clearTimeout(timer);
   }
-  if (last instanceof OriginProviderError) throw last;
-  throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIとの通信に失敗しました。", 504, true);
 }
 function validate(plan: OriginExecutionPlan): void {
   const provider = pid(plan.providerId);
@@ -454,26 +452,23 @@ async function requestFetch(fetchImpl: OriginFetch, requestData: OriginProviderE
     MAX_PROVIDER_REQUEST_TIMEOUT_MS,
     Math.max(5_000, Number(requestData.plan.timeoutMs) || MAX_PROVIDER_REQUEST_TIMEOUT_MS),
   );
-  for (const policy of ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES) {
-    const body = {
-      model: requestData.plan.modelId,
-      messages,
-      max_tokens: originCompletionTokenBudget(requestData.plan.taskType, Boolean(requestData.requiredTool)),
-      temperature: 0.2,
-      top_p: 0.9,
-      usage: { include: true },
-      provider: policy,
-      ...(requestData.requiredTool ? { reasoning: REQUIRED_TOOL_REASONING } : {}),
-      ...structured,
-    };
-    const response = await request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
-      body: JSON.stringify(sanitizePreEgressPayload(body)),
-    }, timeoutMs, transport);
-    if (![403, 404].includes(response.status)) return response;
-  }
-  throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, false, undefined, { upstreamStatus: 404 });
+  const policy = ORIGIN_ZERO_COST_OPENROUTER_POLICY_STAGES[0];
+  const body = {
+    model: requestData.plan.modelId,
+    messages,
+    max_tokens: originCompletionTokenBudget(requestData.plan.taskType, Boolean(requestData.requiredTool)),
+    temperature: 0.2,
+    top_p: 0.9,
+    usage: { include: true },
+    provider: policy,
+    ...(requestData.requiredTool ? { reasoning: REQUIRED_TOOL_REASONING } : {}),
+    ...structured,
+  };
+  return request(fetchImpl, "https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "HTTP-Referer": "https://myaispecials.ai.studio/", "X-OpenRouter-Title": "ORIGIN Personal" },
+    body: JSON.stringify(sanitizePreEgressPayload(body)),
+  }, timeoutMs, transport);
 }
 export async function executeOriginProvider(providerRequest: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv = process.env, fetchImpl: OriginFetch = fetch): Promise<OriginProviderExecutionResult> {
   const transport = { count: 0 };
@@ -487,7 +482,7 @@ export async function executeOriginProvider(providerRequest: OriginProviderExecu
     return await openrouter(providerRequest, openRouterKey, fetchImpl, primary, transport);
   } catch (error) {
     if (error instanceof OriginProviderError) {
-      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      throw new OriginProviderError(error.code, error.message, error.status, false, error.retryAfterSeconds, {
         ...error.diagnostic,
         transportRequestCount: transport.count,
       });

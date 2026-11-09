@@ -118,37 +118,43 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("counts every streamed HTTP send across a 403 policy-stage fallback", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("policy unavailable", { status: 403 }))
-      .mockResolvedValueOnce(streamingResponse([
-        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
-        event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
-        "data: [DONE]\n\n",
-      ]));
-    const result = await executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.transportRequestCount).toBe(2);
+  it.each([403, 404])("does not relax strict ZDR or retry streamed requests after HTTP %s", async (status) => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.provider).toEqual({
+        allow_fallbacks: false,
+        data_collection: "deny",
+        zdr: true,
+        max_price: { prompt: 0, completion: 0, request: 0 },
+      });
+      return new Response("strict privacy policy unavailable", { status });
+    });
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      status: 503,
+      retryable: false,
+      diagnostic: { upstreamStatus: status, transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
-
-  it("accumulates streamed HTTP sends across a retry of one logical execution", async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchMock = vi.fn()
-        .mockResolvedValueOnce(new Response("temporary failure", { status: 503 }))
-        .mockResolvedValueOnce(streamingResponse([
-          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "ORIGIN" }, finish_reason: null }] }),
-          event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, cost: 0, is_byok: false } }),
-          "data: [DONE]\n\n",
-        ]));
-      const pending = executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
-      await vi.advanceTimersByTimeAsync(700);
-      const result = await pending;
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result.transportRequestCount).toBe(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("does not retry transient HTTP failures because failed free-tier attempts consume quota", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("temporary failure", { status: 503 }));
+    await expect(executeOriginProviderStream(
+      providerRequest,
+      { onDelta: () => undefined },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    )).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      retryable: false,
+      diagnostic: { upstreamStatus: 503, transportRequestCount: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when the terminal usage cost is non-zero, after never retrying", async () => {
@@ -211,7 +217,7 @@ describe("executeOriginProviderStream", () => {
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "stop" }], usage: { cost: 0, is_byok: false } }),
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
+      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -221,7 +227,7 @@ describe("executeOriginProviderStream", () => {
       "data: [DONE]\n\n",
     ]));
     await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
+      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: false });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
