@@ -49,7 +49,7 @@ function runView(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AgentTaskBoard', () => {
-  it('does not fetch on mount and asks for a credential or plan when neither exists', async () => {
+  it('does not fetch on mount when neither a credential nor a plan exists', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('must not be called'); });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -110,12 +110,25 @@ describe('AgentTaskBoard', () => {
     expect(runningRow?.textContent).toContain('ステップ 1/2');
   });
 
+  it('auto-loads runs once when a browser plan token is available', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input).startsWith('/api/agent/v3/runs?')).toBe(true);
+      expect(new Headers(init?.headers).get('x-agent-plan-token')).toBe('plan-token-1');
+      return json({ ok: true, runs: [runView({})] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
+
+    expect(await screen.findByText('調査レポートを作ってください')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reports honestly when the run store is unavailable', async () => {
     const fetchMock = vi.fn(async () => json({ ok: false, code: 'AGENT_RUN_STORE_UNAVAILABLE' }, 503));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
 
     expect(await screen.findByText('タスクの記録は現在利用できません。')).toBeTruthy();
   });
@@ -133,7 +146,6 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
     await screen.findByText('調査レポートを作ってください');
     fireEvent.click(screen.getByRole('button', { name: '詳細' }));
 
@@ -233,7 +245,6 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard browserPlanToken="original-token" />);
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
     await screen.findByText('調査レポートを作ってください');
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '再開する' })); });

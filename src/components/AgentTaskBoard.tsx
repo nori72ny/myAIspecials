@@ -15,9 +15,14 @@ import React, { useEffect, useRef, useState } from 'react';
  * to it. Nothing is persisted — the credential and plan tokens live in
  * memory only, exactly like the workspace's own approval flow.
  *
- * The board never fetches on its own: loading is an explicit action, so
- * opening the workspace costs no request and cannot surprise the shared
- * rate limiter. Row actions are limited to what the API already offers:
+ * Loading policy (revised 2026-11-09, owner direction: delegated work
+ * must be visible as the agent screen's showcase): when the workspace
+ * holds a browser plan binding, the board loads automatically once per
+ * plan, so the work the user just delegated appears without another
+ * action. Without a plan binding nothing is fetched until the user asks
+ * (operator-credential listing stays an explicit action), so opening the
+ * workspace still costs no request in the common case and cannot
+ * surprise the shared rate limiter. Row actions are limited to what the API already offers:
  * starting a resume (PR 1-C, which re-plans and requires a fresh
  * approval before anything runs again) and cancelling a run. Driving a
  * queued run forward (advance) and changing priority have no board
@@ -246,6 +251,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const [resumeSession, setResumeSession] = useState<ResumeSession | null>(null);
   const credentialInputRef = useRef<HTMLInputElement>(null);
   const previousTokenRef = useRef<string | null>(browserPlanToken ?? null);
+  const autoLoadedTokenRef = useRef<string | null>(null);
 
   // If the workspace moves to a different plan, browser-bound results of
   // the previous plan no longer belong on screen.
@@ -318,6 +324,16 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
       setLoadState('error');
     }
   };
+
+  // Auto-display: once per browser plan binding, load the runs bound to
+  // it so delegated work is visible without pressing "タスクを表示".
+  useEffect(() => {
+    const token = browserPlanToken ?? null;
+    if (!token || autoLoadedTokenRef.current === token) return;
+    autoLoadedTokenRef.current = token;
+    void load({ kind: 'browser', planToken: token });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserPlanToken]);
 
   const startResume = async (run: RunView) => {
     const resolved = auth ?? resolveAuth();
@@ -503,7 +519,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
       {session.message && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">{session.message}</p>}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={() => void approveResume(session)} disabled={session.busy}
-          className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-200">
+          className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
           {session.busy ? '承認中…' : '承認して再開する'}
         </button>
         <button type="button" onClick={() => setResumeSession(null)} disabled={session.busy}
@@ -540,7 +556,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         </button>
         {(run.status === 'held' || run.status === 'awaiting_approval') && !session && (
           <button type="button" onClick={() => void startResume(run)} disabled={busyRunId === run.runId}
-            className="min-h-11 rounded-xl border border-origin-brand-border bg-origin-brand-soft px-3 text-xs font-bold text-origin-brand disabled:opacity-50">
+            className="origin-primary-button min-h-11 rounded-xl px-3 text-xs font-bold disabled:opacity-50">
             {busyRunId === run.runId ? '準備中…' : '再開する'}
           </button>
         )}
