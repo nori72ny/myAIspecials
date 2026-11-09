@@ -392,65 +392,65 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
     <main className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 lg:px-8" aria-label="作る（カード・ポスターの作成）">
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3 px-1">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Create</p>
-          <h1 className="mt-1 text-xl font-black text-slate-950 dark:text-white">カード・ポスターを作る</h1>
-          <p className="mt-1 text-sm leading-6 text-slate-500">タイトルと内容から、SNSカード・ポスター・情報カードの画像を作ります。</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">Create</p>
+          <h1 className="mt-1 text-xl font-black text-origin-ink dark:text-white">カード・ポスターを作る</h1>
+          <p className="mt-1 text-sm leading-6 text-origin-muted">タイトルと内容から、SNSカード・ポスター・情報カードの画像を作ります。</p>
         </div>
-        <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
+        <span className={`shrink-0 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? 'text-origin-muted' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</span>
       </header>
 
-      {preservedRequest && <section data-testid="creative-handoff-request" className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-100" aria-label="チャットから引き継いだ依頼">
+      {preservedRequest && <section data-testid="creative-handoff-request" className="mb-4 rounded-2xl border border-origin-brand-border bg-origin-brand-soft px-4 py-3 text-sm text-origin-ink" aria-label="チャットから引き継いだ依頼">
         <p className="font-bold">チャットから引き継いだ依頼</p>
         <p className="mt-1 whitespace-pre-wrap break-words leading-6">{preservedRequest}</p>
         <p className="mt-2 text-xs font-medium opacity-75">内容欄に反映済みです。作成はまだ開始していません。</p>
       </section>}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="作成の設定">
+        <section className="rounded-3xl border border-origin-border bg-origin-surface p-4 shadow-sm sm:p-5" aria-label="作成の設定">
           <div className="grid gap-4">
-            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">タイトル
-              <textarea aria-label="タイトル" value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 font-semibold text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+            <label className="grid gap-1.5 text-sm font-bold text-origin-ink">タイトル
+              <textarea aria-label="タイトル" value={draft.title} maxLength={240} rows={2} onChange={(event) => update('title', event.target.value)} className="min-h-12 min-w-0 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-base leading-6 font-semibold text-origin-ink dark:text-white" />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">内容
-              <textarea value={draft.body} maxLength={2200} rows={6} onChange={(event) => update('body', event.target.value)} className="min-w-0 w-full rounded-xl border border-slate-300 bg-white p-3 text-base leading-6 text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+            <label className="grid gap-1.5 text-sm font-bold text-origin-ink">内容
+              <textarea value={draft.body} maxLength={2200} rows={6} onChange={(event) => update('body', event.target.value)} className="min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface p-3 text-base leading-6 text-origin-ink dark:text-white" />
             </label>
 
-            <details className="rounded-2xl border border-slate-200 px-3 dark:border-slate-800">
+            <details className="rounded-2xl border border-origin-border px-3">
               <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">詳細設定</summary>
               <div className="grid gap-4 pb-4">
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">用途
-                    <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  <label className="grid gap-1.5 text-xs font-bold text-origin-muted">用途
+                    <select value={draft.kind} onChange={(event) => update('kind', event.target.value as VisualKind)} className="min-h-11 min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-base text-origin-ink dark:text-white">
                       <option value="social-card">SNSカード</option><option value="poster">ポスター</option><option value="info-card">情報カード</option>
                     </select>
                   </label>
-                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サイズ
-                    <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  <label className="grid gap-1.5 text-xs font-bold text-origin-muted">サイズ
+                    <select value={draft.preset} onChange={(event) => update('preset', event.target.value as VisualPreset)} className="min-h-11 min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-base text-origin-ink dark:text-white">
                       {(Object.keys(PRESET_LABELS) as VisualPreset[]).map((preset) => <option key={preset} value={preset}>{PRESET_LABELS[preset]}</option>)}
                     </select>
                   </label>
-                  <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">レイアウト
-                    <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                  <label className="grid gap-1.5 text-xs font-bold text-origin-muted">レイアウト
+                    <select value={draft.layout} onChange={(event) => update('layout', event.target.value as VisualLayout)} className="min-h-11 min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-base text-origin-ink dark:text-white">
                       <option value="editorial">見出し型</option><option value="minimal">シンプル</option><option value="split">左右分割</option>
                     </select>
                   </label>
                 </div>
 
-                <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">サブタイトル
-                  <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                <label className="grid gap-1.5 text-xs font-bold text-origin-muted">サブタイトル
+                  <input value={draft.subtitle} maxLength={320} onChange={(event) => update('subtitle', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-base text-origin-ink dark:text-white" />
                 </label>
-                <label className="grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300">フッター
-                  <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+                <label className="grid gap-1.5 text-xs font-bold text-origin-muted">フッター
+                  <input value={draft.footer} maxLength={240} onChange={(event) => update('footer', event.target.value)} className="min-h-11 min-w-0 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-base text-origin-ink dark:text-white" />
                 </label>
 
-                <fieldset className="rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
-                  <legend className="px-1 text-xs font-bold text-slate-600 dark:text-slate-300">カラー</legend>
+                <fieldset className="rounded-2xl border border-origin-border p-3">
+                  <legend className="px-1 text-xs font-bold text-origin-muted">カラー</legend>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {([
                       ['background', '背景'], ['foreground', '文字'], ['accent', 'アクセント'], ['muted', '補助'],
                     ] as const).map(([key, label]) => (
-                      <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-2 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                      <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-origin-border px-2 text-xs font-semibold text-origin-ink">
                         <input type="color" value={draft[key]} onChange={(event) => update(key, event.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0" aria-label={`${label}色`} />
                         {label}
                       </label>
@@ -461,35 +461,35 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
             </details>
 
             {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{error}</div>}
-            <button type="button" disabled={!canGenerate} onClick={() => void generate()} className="min-h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <button type="button" disabled={!canGenerate} onClick={() => void generate()} className="min-h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-origin-surface">
               {busy ? '作成・確認中…' : '画像を作成'}
             </button>
           </div>
         </section>
-        <section className="flex min-h-[320px] flex-col rounded-3xl sm:min-h-[420px] lg:min-h-[520px] border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900" aria-label="プレビュー">
+        <section className="flex min-h-[320px] flex-col rounded-3xl sm:min-h-[420px] lg:min-h-[520px] border border-origin-border bg-origin-surface-muted p-3 shadow-sm sm:p-5" aria-label="プレビュー">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-black text-slate-950 dark:text-white">プレビュー</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
+              <h2 className="text-sm font-black text-origin-ink dark:text-white">プレビュー</h2>
+              <p className="text-xs text-origin-muted">{PRESET_LABELS[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
             </div>
             {artifact && previewUrl && (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <a href={previewUrl} download={artifact.downloadName} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">SVG保存</a>
-                <button type="button" disabled={!canPreparePng} onClick={() => void preparePng()} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">
+                <a href={previewUrl} download={artifact.downloadName} className="inline-flex min-h-11 items-center rounded-xl border border-origin-border bg-origin-surface px-4 text-sm font-bold text-origin-ink shadow-sm hover:bg-origin-surface-muted dark:text-white">SVG保存</a>
+                <button type="button" disabled={!canPreparePng} onClick={() => void preparePng()} className="inline-flex min-h-11 items-center rounded-xl border border-origin-border bg-origin-surface px-4 text-sm font-bold text-origin-ink shadow-sm hover:bg-origin-surface-muted disabled:cursor-not-allowed disabled:opacity-40 dark:text-white">
                   {pngBusy ? 'PNG変換中…' : pngUrl ? 'PNGを再作成' : 'PNGを作成'}
                 </button>
-                {pngUrl && <a href={pngUrl} download={pngDownloadName} className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">PNG保存</a>}
-                <button type="button" onClick={() => setMotionOpen(true)} className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800">▶ 動画化</button>
+                {pngUrl && <a href={pngUrl} download={pngDownloadName} className="inline-flex min-h-11 items-center rounded-xl bg-slate-950 px-4 text-sm font-black text-white shadow-sm hover:bg-slate-800 dark:bg-origin-surface">PNG保存</a>}
+                <button type="button" onClick={() => setMotionOpen(true)} className="inline-flex min-h-11 items-center rounded-xl border border-origin-border bg-origin-surface px-4 text-sm font-bold text-origin-ink shadow-sm hover:bg-origin-surface-muted dark:text-white">▶ 動画化</button>
               </div>
             )}
           </div>
-          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-[linear-gradient(45deg,#eef2f7_25%,transparent_25%),linear-gradient(-45deg,#eef2f7_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eef2f7_75%),linear-gradient(-45deg,transparent_75%,#eef2f7_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-4 dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-origin-border bg-[linear-gradient(45deg,#eef2f7_25%,transparent_25%),linear-gradient(-45deg,#eef2f7_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#eef2f7_75%),linear-gradient(-45deg,transparent_75%,#eef2f7_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-4">
             {previewUrl && artifact ? (
-              <img src={previewUrl} alt={`作成した画像: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
+              <img src={previewUrl} alt={`作成した画像: ${artifact.title}`} className="max-h-[72vh] max-w-full rounded-lg bg-origin-surface object-contain shadow-xl" style={{ aspectRatio: PRESET_ASPECT[artifact.preset] }} />
             ) : (
-              <div className="max-w-sm text-center text-slate-500 dark:text-slate-400">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300 bg-white text-2xl shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">✦</div>
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">まだ作成されていません</p>
+              <div className="max-w-sm text-center text-origin-muted">
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-origin-border bg-origin-surface text-2xl shadow-sm" aria-hidden="true">✦</div>
+                <p className="text-sm font-bold text-origin-ink">まだ作成されていません</p>
                 <p className="mt-1 text-xs leading-5">内容を整えて「画像を作成」を押すと、確認済みの画像だけをここに表示します。</p>
               </div>
             )}
@@ -504,13 +504,13 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
         </section>
       </div>
 
-      {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-950" aria-label="作成履歴">
+      {(history.length > 0 || historyNotice) && <section className="mt-4 rounded-3xl border border-origin-border bg-origin-surface p-4 shadow-sm sm:p-5" aria-label="作成履歴">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-black text-slate-950 dark:text-white">履歴</h2>
-          <span className="text-xs text-slate-500">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>
+          <h2 className="text-sm font-black text-origin-ink dark:text-white">履歴</h2>
+          <span className="text-xs text-origin-muted">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>
         </div>
 
-        {historyNotice && <div role="status" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">{historyNotice}</div>}
+        {historyNotice && <div role="status" className="mt-3 rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-2 text-xs font-medium text-origin-ink">{historyNotice}</div>}
 
         {history.length > 0 && (
           <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -518,16 +518,16 @@ export default function CreativeWorkspaceV15({ initialRequest = '' }: CreativeWo
               const active = artifact?.sha256 === entry.sha256;
               const waiting = historyBusyId === entry.id;
               return (
-                <article key={entry.id} className={`rounded-2xl border p-3 ${active ? 'border-indigo-300 bg-indigo-50/70 dark:border-indigo-800 dark:bg-indigo-950/20' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900'}`}>
+                <article key={entry.id} className={`rounded-2xl border p-3 ${active ? 'border-origin-brand-border bg-origin-brand-soft' : 'border-origin-border bg-origin-surface-muted'}`}>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-slate-950 dark:text-white" title={entry.title}>{entry.title}</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PRESET_LABELS[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
+                    <p className="truncate text-sm font-bold text-origin-ink dark:text-white" title={entry.title}>{entry.title}</p>
+                    <p className="mt-1 text-xs text-origin-muted">{PRESET_LABELS[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
                   </div>
                   <div className="mt-3 flex gap-2">
-                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-900 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="min-h-11 flex-1 rounded-xl border border-origin-border bg-origin-surface px-3 text-xs font-bold text-origin-ink disabled:opacity-40 dark:text-white">
                       {waiting ? '確認中…' : active ? '表示中' : '開く'}
                     </button>
-                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-600 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">削除</button>
+                    <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="min-h-11 rounded-xl border border-origin-border bg-origin-surface px-3 text-xs font-bold text-origin-muted disabled:opacity-40">削除</button>
                   </div>
                 </article>
               );

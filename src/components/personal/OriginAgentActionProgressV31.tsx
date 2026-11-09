@@ -61,9 +61,9 @@ function stateLabel(state: StepState): string {
 
 function stateClass(state: StepState): string {
   if (state === 'done') return 'text-emerald-700 dark:text-emerald-300';
-  if (state === 'current') return 'text-indigo-700 dark:text-indigo-300';
+  if (state === 'current') return 'text-origin-brand';
   if (state === 'unknown') return 'text-amber-700 dark:text-amber-300';
-  return 'text-slate-400';
+  return 'text-origin-placeholder';
 }
 
 export function projectAgentActionStateV31(status: OriginAgentJobStatusV31 | null) {
@@ -73,20 +73,20 @@ export function projectAgentActionStateV31(status: OriginAgentJobStatusV31 | nul
 export default function OriginAgentActionProgressV31({ status }: OriginAgentActionProgressV31Props) {
   if (!status) return null;
 
-  return <details className="rounded-2xl border border-slate-200 bg-white/70 px-4 dark:border-slate-800 dark:bg-slate-900/50">
+  return <details className="rounded-2xl border border-origin-border bg-origin-surface/70 px-4">
     <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">実行詳細</summary>
     <ol className="grid gap-2 pb-3 sm:grid-cols-5" aria-label="Agent action steps">
       {STEPS.map(step => {
         const state = stepState(status, step.id);
-        return <li key={step.id} aria-current={state === 'current' ? 'step' : undefined} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+        return <li key={step.id} aria-current={state === 'current' ? 'step' : undefined} className="rounded-xl border border-origin-border p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-black uppercase tracking-wide">{step.label}</span>
             <span className={`text-[10px] font-bold ${stateClass(state)}`}>{stateLabel(state)}</span>
           </div>
-          <p className="mt-2 text-[11px] leading-4 text-slate-500">{step.detail}</p>
+          <p className="mt-2 text-[11px] leading-4 text-origin-muted">{step.detail}</p>
         </li>;
       })}
     </ol>
-    <p className="pb-4 text-[11px] leading-5 text-slate-500">進捗率・残り時間・内部思考は推測しません。取得済みの実行状態だけを表示します。</p>
+    <p className="pb-4 text-[11px] leading-5 text-origin-muted">進捗率・残り時間・内部思考は推測しません。取得済みの実行状態だけを表示します。</p>
   </details>;
 }

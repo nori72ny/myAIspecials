@@ -160,7 +160,7 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
       ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
       : status === 'cancelled' || cancelRequested
         ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
-        : 'border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200';
+        : 'border-origin-brand-border bg-origin-brand-soft text-origin-brand';
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${tone}`}>
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
     {cancelRequested && ACTIVE.has(status) ? '取り消しを確認中' : STATUS_LABELS[status]}
@@ -327,13 +327,13 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
     ['Worker opt-in', capability?.workerEnabled],
   ] as const;
 
-  return <section className="min-h-full bg-slate-50 p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:p-5" aria-label="Coding Job Workspace">
+  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="Coding Job Workspace">
     <div className="mx-auto max-w-4xl space-y-4">
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Code</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">Code</p>
           <h1 className="mt-1 text-xl font-black">コードの変更を依頼</h1>
-          <p className="mt-1 text-sm leading-6 text-slate-500">変更したいことを伝えると、確認・編集・検証まで進めます。</p>
+          <p className="mt-1 text-sm leading-6 text-origin-muted">変更したいことを伝えると、確認・編集・検証まで進めます。</p>
         </div>
         
       </header>
@@ -346,11 +346,11 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           onChange={event => setGoal(event.target.value)}
           maxLength={4000}
           placeholder="例: ログイン画面の入力チェックを修正し、関連テストも追加してください。"
-          className="mt-2 min-h-32 w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
+          className="mt-2 min-h-32 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
         />
-        <div className="mt-1 text-right text-[10px] text-slate-500">{goal.length}/4000</div>
+        <div className="mt-1 text-right text-[10px] text-origin-muted">{goal.length}/4000</div>
 
-        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">実行に必要な認証</summary><p className="mb-2 text-xs leading-5 text-slate-500">コード変更を実行するときだけ必要です。入力内容は端末へ保存しません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
+        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-origin-muted">実行に必要な認証</summary><p className="mb-2 text-xs leading-5 text-origin-muted">コード変更を実行するときだけ必要です。入力内容は端末へ保存しません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
         <input
           ref={credentialInputRef}
           id="coding-operator-key"
@@ -359,7 +359,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           autoComplete="off"
           spellCheck={false}
           placeholder="Coding operator key"
-          className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
+          className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm outline-none focus:ring-2 focus:ring-origin-brand"
         /></details>
 
         <button
@@ -374,34 +374,34 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
         </button>
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-slate-500">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
+          <span className="text-origin-muted">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
           <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
         </div>
 
-        <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+        <details className="mt-2 border-t border-origin-border pt-2 text-xs">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">詳しい実行情報</summary>
-          <p className="leading-5 text-slate-500">認証情報は端末へ保存せず、実行中に必要な範囲だけで利用します。</p>
+          <p className="leading-5 text-origin-muted">認証情報は端末へ保存せず、実行中に必要な範囲だけで利用します。</p>
 
-          <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+          <div className="mt-3 rounded-xl border border-origin-border p-3">
             <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
             <details className="mt-2">
               <summary className="min-h-11 cursor-pointer py-3 font-semibold">接続・認証の詳細</summary>
-              <div className="mt-2 flex items-center justify-between gap-2"><span className="text-slate-500">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Git publish</span><span>not authorized</span></div>
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-slate-500">Deploy</span><span>not authorized</span></div>
+              <div className="mt-2 flex items-center justify-between gap-2"><span className="text-origin-muted">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
+              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
+              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Git publish</span><span>not authorized</span></div>
+              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Deploy</span><span>not authorized</span></div>
             </details>
           </div>
 
-          {!checkingCapability && <details className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800" aria-label="Coding production readiness">
+          {!checkingCapability && <details className="mt-3 rounded-xl border border-origin-border p-3" aria-label="Coding production readiness">
             <summary className="min-h-11 cursor-pointer py-3 font-bold">設定の診断結果</summary>
-            <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-slate-500">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
+            <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-origin-muted">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
           </details>}
 
-          <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-            <label htmlFor="coding-existing-job" className="block text-xs font-bold text-slate-600 dark:text-slate-300">既存のジョブID</label>
-            <input id="coding-existing-job" value={existingJobId} onChange={event => setExistingJobId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="coding-…" className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 font-mono text-xs outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950" />
-            <button type="button" onClick={() => void openExistingJob()} disabled={busy || !JOB_ID.test(existingJobId.trim())} className="mt-2 min-h-11 w-full rounded-xl border border-indigo-300 bg-indigo-50 px-3 text-sm font-bold text-indigo-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-200">{busy ? '処理中…' : '結果を開く'}</button>
+          <div className="mt-3 rounded-xl border border-origin-border p-3">
+            <label htmlFor="coding-existing-job" className="block text-xs font-bold text-origin-muted">既存のジョブID</label>
+            <input id="coding-existing-job" value={existingJobId} onChange={event => setExistingJobId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="coding-…" className="mt-2 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 font-mono text-xs outline-none focus:ring-2 focus:ring-origin-brand" />
+            <button type="button" onClick={() => void openExistingJob()} disabled={busy || !JOB_ID.test(existingJobId.trim())} className="mt-2 min-h-11 w-full rounded-xl border border-origin-brand-border bg-origin-brand-soft px-3 text-sm font-bold text-origin-brand disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : '結果を開く'}</button>
           </div>
         </details>
 
@@ -410,15 +410,15 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
         {error && <ErrorNotice code={error} />}
       </section>
 
-      {job && <section className="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-900/50" aria-live="polite">
+      {job && <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-live="polite">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <StatusBadge status={job.status} cancelRequested={job.cancelRequested} />
           {ACTIVE.has(job.status) && <button type="button" onClick={() => void cancelJob()} disabled={job.cancelRequested || busy} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{job.cancelRequested ? '取り消しを確認中…' : '依頼を取り消す'}</button>}
         </div>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを要求しました。停止の確認を待っています。' : STATUS_DETAILS[job.status]}</p>
-        <details className="mt-2 border-t border-slate-200 pt-2 text-xs dark:border-slate-800">
+        <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを要求しました。停止の確認を待っています。' : STATUS_DETAILS[job.status]}</p>
+        <details className="mt-2 border-t border-origin-border pt-2 text-xs">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">ジョブ情報</summary>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-slate-500">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-slate-500">Updated</dt><dd>{formatTime(job.updatedAt)}</dd><dt className="text-slate-500">Result</dt><dd className="break-all font-mono">{job.resultCode ?? 'pending'}</dd><dt className="text-slate-500">Attempt</dt><dd>{job.attempt}</dd></dl>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">Updated</dt><dd>{formatTime(job.updatedAt)}</dd><dt className="text-origin-muted">Result</dt><dd className="break-all font-mono">{job.resultCode ?? 'pending'}</dd><dt className="text-origin-muted">Attempt</dt><dd>{job.attempt}</dd></dl>
         </details>
       </section>}
 
@@ -426,8 +426,8 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
       <OriginCodingWorkspaceV31 result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
 
-      <details className="rounded-2xl border border-slate-200 bg-white/70 px-4 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-        <summary className="min-h-11 cursor-pointer py-3 font-semibold text-slate-700 dark:text-slate-200">安全・公開権限</summary>
+      <details className="rounded-2xl border border-origin-border bg-origin-surface/70 px-4 text-xs leading-5 text-origin-muted">
+        <summary className="min-h-11 cursor-pointer py-3 font-semibold text-origin-ink">安全・公開権限</summary>
         <p className="pb-4">UIからrepository/ref/pathは指定できません。targetはserver-ownedの <code>origin:self</code> に固定され、Git公開・デプロイはこのV1.4経路では実行されません。</p>
       </details>
     </div>
