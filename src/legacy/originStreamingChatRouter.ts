@@ -130,6 +130,15 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           originAnswerQualityInstruction(answerQualityPolicy),
         ),
         groqSystemInstruction: originGroqRouteSystemInstruction(),
+        // Progressive display for responses that need no verification: the
+        // upstream executor forwards each fragment as it is generated (after
+        // that fragment's own routing/billing checks), so the first characters
+        // appear within seconds instead of after the full generation. Requests
+        // the review policy flags keep the original behavior — no text is
+        // released until the stream terminates and every check has passed.
+        // Admission is unchanged either way: the client still accepts the
+        // answer only on the verified completion event below.
+        streamRelease: reviewDecision.required ? "hold-until-verified" : "incremental",
       };
 
       const result = await streamExecute(providerRequest, {

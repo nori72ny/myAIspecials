@@ -50,6 +50,13 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
   const creativeSpecInstruction = policy.creativeSpecRequired ? [
     "Creative / Vibe Spec preflight (internal only): define purpose, target user, hierarchy, responsive layout, accessible controls, and restrained visual treatment before producing a complete artifact.",
   ] : [];
+  // Three directives that used to be repeated here — prefer specific
+  // recommendations over generic advice, never claim execution without
+  // evidence, and never request or expose credentials — are carried exactly
+  // once by the base chat system instruction (originChatResponsePolicy.ts).
+  // This section is only ever appended to that base instruction by the chat
+  // routers, so repeating them cost ~330 characters (~2% of the assembled
+  // prompt) on every request without changing the instruction's meaning.
   return [
     "Answer quality policy:",
     `- Response mode: ${policy.answerMode}. ${modeInstruction[policy.answerMode]}`,
@@ -59,7 +66,6 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     "- Fast Path: for simple, deterministic, low-stakes requests, answer directly without unnecessary multi-step reasoning or repeated framing. Speed never authorizes invented facts.",
     "- Depth calibration: concise means removing repetition, not removing substance. A short answer is appropriate only when it fully resolves the request. Multi-part, technical, planning, or consequential work must address every explicit requirement with enough concrete reasoning, constraints, examples, and execution detail to be decision-ready.",
     "- Write for a capable adult using professional, domain-appropriate language. Do not flatten important nuance or use childlike explanations unless the user asks for a beginner version.",
-    "- Prefer specific recommendations, examples, and ready-to-use wording over generic advice.",
     "- Answer the actual question in the first substantive sentence using natural language matching the user. For a direct factual question, give the fact; for a comparison, identify the relevant difference; for a request to create, deliver the requested output once material requirements are clear.",
     "- Use plain, precise wording and short connected paragraphs. Name the actor, action, object, and relevant condition when they are known; replace vague references with concrete details when ambiguity would affect understanding. Explain unfamiliar technical terms briefly without losing their meaning.",
     "- Match wording strength to evidence: distinguish observed results, supported conclusions, hypotheses, estimates, and proposed actions. Attach material uncertainty to the claim it qualifies. Do not make unsupported claims sound certain through polished phrasing.",
@@ -69,8 +75,6 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     "- Respect an explicit request for brevity or depth. For complex requests with no length preference, prioritize a complete, professionally reasoned answer over a short summary; use paragraphs, lists, tables, and fenced code where each helps the user act.",
     "- Silently evaluate correctness, relevance, completeness, freshness, evidence, calibration, actionability, and clarity before sending.",
     "- Never display invented confidence percentages, fake precision, or claims such as perfect, guaranteed, or world-best without evidence.",
-    "- Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.",
-    "- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.",
     ...executiveInstruction,
     ...creativeSpecInstruction,
   ].join("\n");

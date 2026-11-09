@@ -10,6 +10,17 @@ import {
   estimateOriginGroqInputTokens,
   ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT,
 } from "./originGroqProviderClient";
+import {
+  classifyOriginRequestIntent,
+  originIntentInputFromContext,
+} from "../lib/orchestration/OriginRequestIntent";
+import { buildOriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan";
+import { resolveOriginAgentWorkPlan } from "../lib/orchestration/OriginServiceRegistry";
+import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy";
+import {
+  originAnswerQualityInstruction,
+  resolveOriginAnswerQualityPolicy,
+} from "../lib/orchestration/OriginAnswerQualityPolicy";
 
 describe("originChatResponsePolicy", () => {
   it.each([
@@ -197,5 +208,41 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
     const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
     expect(compactEstimate).toBeLessThanOrEqual(1_600);
     expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
+  });
+});
+
+describe("assembled chat instruction (router composition)", () => {
+  // Mirrors how both chat routers assemble the provider system instruction:
+  // base instruction + intent, requirement, work-plan, assignment, and
+  // quality sections. Three directives used to appear twice in that
+  // composition (once in the base, once in the quality section); the
+  // deduplication keeps each of them exactly once, so the instruction's
+  // meaning is unchanged while every request carries ~325 fewer characters.
+  const assemble = (message: string, taskType: "review" | "documentation") => {
+    const intentInput = originIntentInputFromContext([{ role: "user", content: message }]);
+    const intent = classifyOriginRequestIntent(intentInput, taskType);
+    const workPlan = buildOriginAgentWorkPlan(intent);
+    const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
+    const review = decideOriginReviewForMessage(taskType, message);
+    const quality = resolveOriginAnswerQualityPolicy({
+      intent,
+      taskType,
+      independentReviewRequired: review.required,
+    });
+    return originChatSystemInstruction(intent, workPlan, resolvedPlan, originAnswerQualityInstruction(quality));
+  };
+
+  it.each([
+    ["こんにちは", "review"],
+    ["企画書の草案を作って", "documentation"],
+  ] as const)("carries each deduplicated directive exactly once for %s", (message, taskType) => {
+    const assembled = assemble(message, taskType);
+    for (const line of [
+      "- Prefer specific recommendations, examples, and ready-to-use wording over generic advice.",
+      "- Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.",
+      "- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.",
+    ]) {
+      expect(assembled.split(line).length - 1).toBe(1);
+    }
   });
 });
