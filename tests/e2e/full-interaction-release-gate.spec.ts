@@ -166,7 +166,9 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       expect(menuBox).not.toBeNull();
       expect(menuBox!.x).toBeGreaterThanOrEqual(-1);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(viewport.width + 1);
-      if (viewport.width <= 390) expect(menuBox!.height).toBeLessThanOrEqual(322);
+      // Add-menu panel height follows the approved design cap for two-line
+      // items: max-height min(46dvh, 400px), plus border tolerance.
+      if (viewport.width <= 390) expect(menuBox!.height).toBeLessThanOrEqual(Math.min(viewport.height * 0.46, 400) + 2);
       for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await expect(item).toBeVisible();

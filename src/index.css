@@ -59,6 +59,7 @@
   --success: oklch(0.48 0.12 155);
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
+  --scrim: oklch(0.23 0.02 250 / 0.36);
 }
 
 :root[data-theme="light"][data-design-theme="luxury"] {
@@ -79,6 +80,7 @@
   --success: oklch(0.48 0.115 152);
   --danger: oklch(0.52 0.17 25);
   --shadow-color: oklch(0.29 0.035 45 / 0.14);
+  --scrim: oklch(0.25 0.03 45 / 0.36);
 }
 
 :root[data-theme="dark"][data-design-theme="luxury"] {
@@ -99,6 +101,7 @@
   --success: oklch(0.76 0.115 155);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.08 0.025 35 / 0.5);
+  --scrim: oklch(0.06 0.02 35 / 0.56);
 }
 
 :root[data-theme="light"][data-design-theme="glass"] {
@@ -119,6 +122,7 @@
   --success: oklch(0.48 0.12 155);
   --danger: oklch(0.53 0.17 25);
   --shadow-color: oklch(0.28 0.045 240 / 0.13);
+  --scrim: oklch(0.24 0.03 240 / 0.36);
 }
 
 :root[data-theme="dark"][data-design-theme="glass"] {
@@ -139,6 +143,7 @@
   --success: oklch(0.76 0.12 155);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.09 0.035 245 / 0.45);
+  --scrim: oklch(0.05 0.02 245 / 0.56);
 }
 
 @layer base {
@@ -493,6 +498,7 @@ button:first-child:has(svg):not(.origin-primary-button) * {
   --success: #86efac;
   --danger: #fca5a5;
   --shadow-color: rgb(0 0 0 / 40%);
+  --scrim: rgb(0 0 0 / 0.55);
 }
 :root[data-theme="dark"] body,
 :root[data-theme="dark"] #root,

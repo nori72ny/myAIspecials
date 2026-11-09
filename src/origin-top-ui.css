@@ -126,7 +126,41 @@
   opacity: .72 !important;
 }
 .origin-add-menu__panel {
-  width: min(20rem, calc(100vw - 2rem));
+  width: min(21rem, calc(100vw - 2rem));
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: color-mix(in oklch, var(--bg-elevated) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow: 0 18px 44px color-mix(in oklch, var(--shadow-color) 55%, transparent), 0 2px 8px color-mix(in oklch, var(--shadow-color) 30%, transparent);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .origin-add-menu__panel {
+    background: var(--bg-elevated);
+  }
+}
+.origin-app:has(.origin-add-menu[open])::before {
+  background: var(--scrim);
+}
+.origin-add-menu__icon {
+  flex-shrink: 0;
+  color: var(--accent-primary);
+}
+.origin-add-menu__text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.origin-add-menu__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+.origin-add-menu__description {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
 }
 [data-testid="settings-modal"],
 [data-testid="history-drawer"] {
@@ -206,18 +240,14 @@
   .origin-app main .origin-composer > button {
     margin: 0 !important;
   }
-  .origin-add-menu[open]::before {
-    background: rgba(15, 23, 42, 0.08) !important;
-    backdrop-filter: blur(1px) !important;
-  }
   .origin-add-menu__panel {
     padding: 6px !important;
-    border-radius: 16px !important;
+    border-radius: 18px !important;
     gap: 2px !important;
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11) !important;
+    box-shadow: 0 16px 40px color-mix(in oklch, var(--shadow-color) 48%, transparent) !important;
   }
   .origin-add-menu__panel > button {
-    border-radius: 10px !important;
+    border-radius: 12px !important;
     padding: 9px 12px !important;
     font-size: 14px !important;
   }
