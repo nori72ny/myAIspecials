@@ -30,7 +30,7 @@ import {
 
 // Synthetic test fixture only; not a real credential (kept clearly fake on purpose).
 const SYNTHETIC_KEY = "synthetic-groq-api-key-for-tests-only";
-const NOW_MS = Date.parse("2026-11-08T12:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-10T12:00:00.000Z");
 
 const cfEnabledEnv = { ORIGIN_CF_FAILOVER_ENABLED: "true" } as NodeJS.ProcessEnv;
 const groqOnlyEnv = { GROQ_API_KEY: SYNTHETIC_KEY } as NodeJS.ProcessEnv;
