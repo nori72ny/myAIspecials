@@ -1474,6 +1474,150 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('verifies and keeps a completed upstream SSE response served by the Cloudflare fallback route', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: 'フォールバック経由の検証済みSSE回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: '@cf/google/gemma-4-26b-a4b-it', costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: true })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'フォールバックSSEを検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('フォールバック経由の検証済みSSE回答')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    expect(screen.queryByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('verifies and keeps a completed upstream SSE response served by the Groq rotation model', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: 'Groq経由の検証済みSSE回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: 'openai/gpt-oss-20b', costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: true })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'GroqフォールバックSSEを検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('Groq経由の検証済みSSE回答')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects an SSE completion that claims fallback serving by an unverified model', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '表示してはいけない未検証フォールバック回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: 'paid-model', costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: true })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '未検証フォールバックを拒否' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない未検証フォールバック回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects an SSE completion whose fallback flag contradicts the served model', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const contradictory = [
+      { servedModel: '@cf/google/gemma-4-26b-a4b-it', fallbackUsed: false },
+      { servedModel: model, fallbackUsed: true },
+    ];
+    for (const evidence of contradictory) {
+      const body = [
+        `data: ${JSON.stringify({ type: 'delta', text: '表示してはいけない矛盾した証拠の回答' })}`,
+        `data: ${JSON.stringify({ type: 'complete', modelId: model, costEvidenceStatus: 'NOT_MEASURED', ...evidence })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n');
+      const fetchMock = vi.fn(async () => new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+      const view = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '矛盾した証拠を拒否' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+      expect(screen.queryByText('表示してはいけない矛盾した証拠の回答')).toBeNull();
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('rejects a fallback SSE completion without NOT_MEASURED cost evidence', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '表示してはいけない費用証拠不備の回答' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: '@cf/google/gemma-4-26b-a4b-it', costEvidenceStatus: 'MEASURED', fallbackUsed: true })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '費用証拠不備を拒否' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('表示してはいけない費用証拠不備の回答')).toBeNull();
+    expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('admits only exactly-shaped verified fallback routing in JSON responses', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const cf = '@cf/google/gemma-4-26b-a4b-it';
+    const fallbackPayload = (providerRouting: { requestedModel: string; servedModel: string; fallbackUsed: boolean }) => ({
+      content: 'フォールバック経由の検証済み無料回答',
+      routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting },
+    });
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: cf, servedModel: cf, fallbackUsed: true }))).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: 'openai/gpt-oss-120b', servedModel: 'openai/gpt-oss-120b', fallbackUsed: true }))).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: 'openai/gpt-oss-20b', servedModel: 'openai/gpt-oss-20b', fallbackUsed: true }))).toBe(true);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: 'paid-model', servedModel: 'paid-model', fallbackUsed: true }))).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: cf, servedModel: 'openai/gpt-oss-120b', fallbackUsed: true }))).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: cf, servedModel: cf, fallbackUsed: false }))).toBe(false);
+    expect(isFreeOnlyPolicyCompliantChatPayload(fallbackPayload({ requestedModel: model, servedModel: model, fallbackUsed: true }))).toBe(false);
+    const paidFallback = fallbackPayload({ requestedModel: cf, servedModel: cf, fallbackUsed: true });
+    expect(isFreeOnlyPolicyCompliantChatPayload({ ...paidFallback, routing: { ...paidFallback.routing, usage: { costUsd: 0.01 } } })).toBe(false);
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(fallbackPayload({ requestedModel: cf, servedModel: cf, fallbackUsed: true })), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'フォールバックJSONを検証' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('フォールバック経由の検証済み無料回答')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it('rejects legacy numeric-zero SSE completion without explicit NOT_MEASURED evidence', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const body = [

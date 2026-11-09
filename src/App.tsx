@@ -8,6 +8,8 @@ import ImageGenerationPanel from './components/ImageGenerationPanel';
 import { getTranslations, type OriginLanguage } from './i18n';
 import { originIndexedDbAdapter } from './lib/local/OriginIndexedDb';
 import { detectSensitiveInput } from './lib/orchestration/SensitiveInputDetector';
+import { ORIGIN_CLOUDFLARE_FREE_MODEL } from './lib/orchestration/OriginCloudflareFreeModelCatalog';
+import { ORIGIN_GROQ_FREE_MODEL_IDS } from './lib/orchestration/OriginGroqFreeModelCatalog';
 import { loadRasterAssetV15, saveRasterAssetV15 } from './creative/localRasterHistoryV15';
 import { composeRasterTypographyOverlayV15 } from './creative/localRasterTypographyV15';
 import { generateLocalCanvasRasterV15 } from './creative/localRasterCanvasV15';
@@ -521,6 +523,29 @@ const copyText = async (value: string) => {
 
 const isTextLike = (file: File) => file.type.startsWith('text/') || /\.(md|txt|json|csv|ts|tsx|js|jsx|css|html|svg|xml|yml|yaml)$/i.test(file.name);
 const ORIGIN_FIXED_FREE_MODEL = 'google/gemma-4-31b-it:free';
+/**
+ * Free models the server-side failover routes may serve (routes 2 and 3 in
+ * the server free-model catalogs). The server releases fallback text only
+ * after the same checks as the primary route — exact served-model identity
+ * asserted against the provider response and zero reported cost — and the
+ * streaming executor switches routes strictly before the first byte, so a
+ * completion whose routing evidence names one of these models with
+ * fallbackUsed=true carries the same assurance as a primary completion.
+ * Admission trusts the server's verified routing evidence, never a
+ * provider claim; anything outside these exact shapes stays rejected.
+ */
+const ORIGIN_VERIFIED_FALLBACK_FREE_MODELS: readonly string[] = [
+  ORIGIN_CLOUDFLARE_FREE_MODEL,
+  ...ORIGIN_GROQ_FREE_MODEL_IDS,
+];
+const isVerifiedPrimaryServing = (servedModel: unknown, fallbackUsed: unknown, admitBarePrimaryId: boolean): boolean =>
+  fallbackUsed === false
+  && (servedModel === ORIGIN_FIXED_FREE_MODEL
+    || (admitBarePrimaryId && servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, '')));
+const isVerifiedFallbackServing = (servedModel: unknown, fallbackUsed: unknown): boolean =>
+  fallbackUsed === true
+  && typeof servedModel === 'string'
+  && ORIGIN_VERIFIED_FALLBACK_FREE_MODELS.includes(servedModel);
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
 const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
@@ -692,11 +717,17 @@ export const isFreeOnlyPolicyCompliantChatPayload = (payload: OriginVerifiedChat
   if (routing.billingTier !== undefined && routing.billingTier !== 'free') return false;
   if (routing.modelId === undefined) return routing.model === 'ORIGIN アプリ内処理' && payload.model === undefined;
   const route = routing.providerRouting;
+  // Primary serving keeps the exact historical shape; fallback serving is
+  // admitted only when the evidence names one of the verified failover
+  // models as both the requested and the served model for that route.
+  const primaryServing = route?.requestedModel === ORIGIN_FIXED_FREE_MODEL
+    && isVerifiedPrimaryServing(route.servedModel, route.fallbackUsed, false);
+  const fallbackServing = route !== undefined
+    && route.requestedModel === route.servedModel
+    && isVerifiedFallbackServing(route.servedModel, route.fallbackUsed);
   return routing.modelId === ORIGIN_FIXED_FREE_MODEL
     && (payload.model === undefined || payload.model === ORIGIN_FIXED_FREE_MODEL)
-    && route?.requestedModel === ORIGIN_FIXED_FREE_MODEL
-    && route.servedModel === ORIGIN_FIXED_FREE_MODEL
-    && route.fallbackUsed === false
+    && (primaryServing || fallbackServing)
     && routing.usage?.costUsd === 0;
 };
 const readAttachment = async (file: File): Promise<Attachment> => {
@@ -1932,8 +1963,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
             const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costEvidenceStatus?: unknown; fallbackUsed?: unknown };
             if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
             if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
-              && (event.servedModel === ORIGIN_FIXED_FREE_MODEL || event.servedModel === ORIGIN_FIXED_FREE_MODEL.replace(/:free$/, ''))
-              && event.costEvidenceStatus === 'NOT_MEASURED' && event.fallbackUsed === false) { complete = true; return; }
+              && event.costEvidenceStatus === 'NOT_MEASURED'
+              && (isVerifiedPrimaryServing(event.servedModel, event.fallbackUsed, true)
+                || isVerifiedFallbackServing(event.servedModel, event.fallbackUsed))) { complete = true; return; }
             throw new Error('invalid-stream-event');
           };
           while (true) {

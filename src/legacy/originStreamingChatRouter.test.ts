@@ -139,6 +139,43 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["cloudflare", "@cf/google/gemma-4-26b-a4b-it", "Cloudflare", 2],
+    ["groq", "openai/gpt-oss-120b", "Groq", 3],
+  ])("carries verified %s fallback evidence verbatim into the complete event", async (_route, servedModel, provider, attempt) => {
+    // Mirrors the failover executor: the fallback route's fully verified
+    // text is delivered as a single delta and the result carries that
+    // route's own routing evidence (fallbackUsed: true).
+    const fallbackResult: OriginProviderExecutionResult = {
+      text: "フォールバック経由の検証済み回答",
+      actualCostUsd: 0,
+      providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true },
+      routingEvidence: {
+        requestedModel: servedModel,
+        servedModel,
+        strategy: "verified-free-failover",
+        provider,
+        attempt,
+        fallbackUsed: true,
+      },
+      usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6, costUsd: 0 },
+    };
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta(fallbackResult.text);
+      return fallbackResult;
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "短い案内文を作ってください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["x-origin-stream-protocol"]).toBe("origin-verified-sse-v1");
+    expect(response.text).toContain(`data: {"type":"delta","text":"フォールバック経由の検証済み回答"}`);
+    expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${servedModel}","costEvidenceStatus":"NOT_MEASURED","fallbackUsed":true}`);
+    expect(response.text).toMatch(/data: \[DONE\]\s*$/);
+  });
+
   it("ends a failed partial stream without a completion proof or DONE", async () => {
     const streamExecute = vi.fn(async (_providerRequest, handlers) => {
       handlers.onDelta("unverified partial");
