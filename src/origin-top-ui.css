@@ -197,7 +197,10 @@
   .origin-header > div > div {
     gap: 4px !important;
   }
-  .origin-header .origin-secondary-button {
+  /* ヘッダー直下の操作ボタンだけを44px四方にする。履歴ドロワーのパネルも
+     ヘッダー内に描画されるため、子孫セレクタだとドロワー内のボタン
+     （検索結果・セッション一覧）まで潰れてしまう。 */
+  .origin-header > div > .origin-secondary-button {
     width: 44px !important;
     min-width: 44px !important;
     height: 44px !important;
