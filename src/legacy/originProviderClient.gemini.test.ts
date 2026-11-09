@@ -34,9 +34,9 @@ describe("provider privacy isolation", () => {
       fetchImpl as typeof fetch,
     )).rejects.toMatchObject({ code: expect.stringMatching(/^PROVIDER_/) });
 
-    // HTTP 429 consumes the provider's free daily allowance even when rejected.
-    // Never retry it; transient 408/5xx cases retain the bounded transport retry.
-    expect(calls).toHaveLength(status === 429 ? 1 : 3);
+    // Every failed attempt may consume free-tier quota, and ambiguous outcomes
+    // cannot prove that the provider did not process the request. Never replay.
+    expect(calls).toHaveLength(1);
     expect(calls[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls.some((url) => url.includes("generativelanguage.googleapis.com"))).toBe(false);
   });
