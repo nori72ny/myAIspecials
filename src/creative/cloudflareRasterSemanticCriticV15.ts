@@ -38,6 +38,16 @@ export type RasterSemanticCriticResultV15 = {
   scores: RasterSemanticScoresV15;
   checks: readonly string[];
   issues: readonly string[];
+  /**
+   * Non-semantic repairs applied while accepting the model's answer:
+   * over-limit issue lists and an over-limit summary are truncated to the
+   * parser's bounds instead of rejecting the whole verdict (the enumerated
+   * text is evidence, not the verdict). The verdict itself — axis scores
+   * and the safety judgment — is never altered by these repairs, and each
+   * one is recorded here rather than silently dropped. An empty array
+   * means the answer was accepted exactly as returned.
+   */
+  adjustments: readonly string[];
   summary: string;
   freeOnly: true;
   costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified' | 'post-generation-usage-zero-confirmed';
@@ -59,6 +69,28 @@ type CloudflareEnvelope = {
   success?: unknown;
   result?: unknown;
 };
+
+/**
+ * A response-format validation failure. The message stays exactly the
+ * public error code (callers surface it verbatim); `detail` names the one
+ * validation condition that was hit and `answerChars` the answer length
+ * when known. Both exist only for server-side diagnostics — the raw answer
+ * body is never logged or returned.
+ */
+export class RasterSemanticCriticResponseInvalidError extends Error {
+  readonly detail: string;
+  readonly answerChars: number | null;
+  constructor(detail: string, answerChars: number | null = null) {
+    super('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    this.name = 'RasterSemanticCriticResponseInvalidError';
+    this.detail = detail;
+    this.answerChars = answerChars;
+  }
+}
+
+function responseInvalid(detail: string, answerChars: number | null = null): RasterSemanticCriticResponseInvalidError {
+  return new RasterSemanticCriticResponseInvalidError(detail, answerChars);
+}
 
 type SemanticPayload = {
   promptAdherence?: unknown;
@@ -129,53 +161,83 @@ function parseSemanticJson(answer: string): unknown {
   // that cannot be extracted or validated fails closed exactly as before.
   const start = answer.indexOf('{');
   const end = answer.lastIndexOf('}');
-  if (start === -1 || end <= start) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  if (start === -1 || end <= start) throw responseInvalid('json-no-object-span', answer.length);
   try {
     return JSON.parse(answer.slice(start, end + 1));
   } catch {
-    throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    throw responseInvalid('json-unparseable', answer.length);
   }
 }
 
-function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string } {
-  if (!answer || answer.length > MAX_ANSWER_CHARS) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+const MAX_ISSUE_ENTRIES = 8;
+const MAX_SUMMARY_CHARS = 600;
+
+/**
+ * Clean one issue list. Malformed elements (non-strings, blanks) still
+ * reject the whole payload — the list's contents cannot be trusted as
+ * evidence if its shape is broken. A pure overflow of well-formed entries,
+ * however, is truncated to the bound and recorded in `adjustments` instead
+ * of rejecting: the entries are evidence text, and dropping the tail does
+ * not change the verdict the model returned.
+ */
+function cleanIssueList(
+  raw: unknown,
+  field: 'safetyIssues' | 'criticalIssues',
+  adjustments: string[],
+  answerChars: number,
+): string[] {
+  const rawList = Array.isArray(raw) ? raw : [];
+  const valid = rawList
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (valid.length !== rawList.length) throw responseInvalid(`${field}-malformed-element`, answerChars);
+  if (valid.length > MAX_ISSUE_ENTRIES) {
+    adjustments.push(`${field}-truncated-from-${valid.length}-to-${MAX_ISSUE_ENTRIES}`);
+    return valid.slice(0, MAX_ISSUE_ENTRIES);
+  }
+  return valid;
+}
+
+function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
+  if (!answer || answer.length > MAX_ANSWER_CHARS) throw responseInvalid('answer-empty-or-over-limit', answer.length);
   const parsed = parseSemanticJson(answer) as SemanticPayload;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    throw responseInvalid('payload-not-a-plain-object', answer.length);
   }
 
   const scores = {} as RasterSemanticScoresV15;
   for (const axis of RASTER_SEMANTIC_AXES_V15) {
     const score = axisScore(parsed[axis]);
-    if (score === null) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+    if (score === null) throw responseInvalid(`axis-score-invalid:${axis}`, answer.length);
     scores[axis] = score;
   }
 
-  if (typeof parsed.safetyPassed !== 'boolean') throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  const rawSafetyIssues = Array.isArray(parsed.safetyIssues) ? parsed.safetyIssues : [];
-  const safetyIssues = rawSafetyIssues
-    .filter((value): value is string => typeof value === 'string')
-    .map(value => value.trim())
-    .filter(Boolean)
-    .slice(0, 8);
-  if (rawSafetyIssues.length !== safetyIssues.length) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  if (parsed.safetyPassed && safetyIssues.length > 0) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  if (!parsed.safetyPassed && safetyIssues.length === 0) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  if (typeof parsed.safetyPassed !== 'boolean') throw responseInvalid('safety-flag-not-boolean', answer.length);
+  const adjustments: string[] = [];
+  const safetyIssues = cleanIssueList(parsed.safetyIssues, 'safetyIssues', adjustments, answer.length);
+  // Safety consistency stays fail-closed exactly as before, evaluated on
+  // the (possibly truncated) lists: a passing flag with any listed reason,
+  // or a failing flag with no reason at all, is a contradiction the parser
+  // must not guess its way past.
+  if (parsed.safetyPassed && safetyIssues.length > 0) throw responseInvalid('safety-inconsistent:passed-with-issues', answer.length);
+  if (!parsed.safetyPassed && safetyIssues.length === 0) throw responseInvalid('safety-inconsistent:failed-without-issues', answer.length);
 
-  const rawIssues = Array.isArray(parsed.criticalIssues) ? parsed.criticalIssues : [];
-  const issues = rawIssues
-    .filter((value): value is string => typeof value === 'string')
-    .map(value => value.trim())
-    .filter(Boolean)
-    .slice(0, 8);
-  if (rawIssues.length !== issues.length) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  const issues = cleanIssueList(parsed.criticalIssues, 'criticalIssues', adjustments, answer.length);
 
-  const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
-  if (!summary || summary.length > 600) throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary };
+  const rawSummary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+  if (!rawSummary) throw responseInvalid('summary-missing-or-empty', answer.length);
+  // The summary is display text the verdict never consumes; an over-limit
+  // summary is truncated to the bound and recorded, not rejected.
+  let summary = rawSummary;
+  if (summary.length > MAX_SUMMARY_CHARS) {
+    adjustments.push(`summary-truncated-from-${summary.length}-to-${MAX_SUMMARY_CHARS}`);
+    summary = summary.slice(0, MAX_SUMMARY_CHARS);
+  }
+  return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
 }
 
-function questionFor(input: RasterSemanticCriticInputV15): string {
+function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false): string {
   const exactText = (input.exactText ?? []).map(value => value.trim()).filter(Boolean).slice(0, 8);
   return [
     'Act as a strict production image QA critic.',
@@ -185,6 +247,10 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
     'Every axis is a quality score, never a defect count: the absence of a problem is a high score, not a zero.',
     'For textHandling: score 4 when the image contains no text and no text was requested, and score high when every visible character is rendered correctly and legibly. Score low only when text is garbled, unwanted, or incorrect.',
     'For artifactControl: score 4 when no artifacts, distortions, warped geometry, or malformed details are visible anywhere in the image. Score low only for artifacts that are actually visible.',
+    // The output contract is stated up front as well as at the end: the
+    // defect-hunting instructions push the model toward long enumerations,
+    // and answers that overflow these bounds cannot be accepted verbatim.
+    'Output limits that bind your answer: the summary must be at most 400 characters (one or two sentences); criticalIssues must contain at most 8 entries — if you find more defects, list only the 8 most severe; whenever safetyPassed is true, safetyIssues must be exactly an empty array.',
     'Before scoring, actively hunt for defects. Do not grade from a general impression: inspect the image region by region and score only what you actually observed.',
     'Anatomy check: whenever hands or fingers are visible, count them — a natural hand has exactly five fingers — and inspect every joint, knuckle, and nail. Look for fused, missing, extra, duplicated, or unnaturally bent fingers, and for hands that merge into objects or other hands. Check faces the same way: both eyes present and aligned, facial features symmetric and coherent, no duplicated or melted features. Report every anomaly you find in criticalIssues with its location.',
     'Counting check: whenever the image contains a structure with countable repeated elements — roof tiers, floors, windows, columns, stairs, wheels, people — actually count them and compare against what the request and the real-world object require (for example, a five-story pagoda has exactly five roof tiers). A wrong count is a concrete defect: name it in criticalIssues with the counted and expected numbers.',
@@ -197,9 +263,17 @@ function questionFor(input: RasterSemanticCriticInputV15): string {
       ? `Exact requested text, if visibly rendered, must be correct: ${JSON.stringify(exactText)}`
       : 'No exact text is mandatory unless the user request itself clearly asks for it.',
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
+    'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
+    'The summary must be at most 400 characters — one or two sentences that state the verdict.',
     'Return ONLY valid compact JSON with exactly these keys:',
     '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"safetyPassed":true,"safetyIssues":[],"criticalIssues":[],"summary":"..."}',
-    'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
+    // Restated as the very last instruction: the answer must be the JSON
+    // object and nothing else, so no inspection narrative may precede or
+    // follow it.
+    'Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.',
+    ...(formatReminder
+      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true.']
+      : []),
   ].join('\n');
 }
 
@@ -223,75 +297,110 @@ export async function critiqueCloudflareRasterSemanticV15(
     throw new Error(status.reason ?? 'CLOUDFLARE_WORKERS_PLAN_UNVERIFIED');
   }
 
-  const response = await timedFetch(
-    `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${auth.apiToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': 'ORIGIN-Personal/1.5',
+  const runCriticOnce = async (question: string) => {
+    const response = await timedFetch(
+      `${API_ORIGIN}/client/v4/accounts/${auth.accountId}/ai/run/${CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${auth.apiToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'ORIGIN-Personal/1.5',
+        },
+        body: JSON.stringify({
+          task: 'query',
+          image: `data:${input.mimeType};base64,${input.bytes.toString('base64')}`,
+          question,
+          reasoning: false,
+          temperature: 0,
+          // 1100 (raised from 900): the defect-hunting instructions ask the
+          // model to enumerate every concrete defect it finds, which needs
+          // more output room; a truncated mid-JSON answer was one source of
+          // intermittent RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID in production.
+          // Reserve check against RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15
+          // (256): at the published output rate (90,909 Neurons per 1M output
+          // tokens) 1,100 output tokens ~= 100 Neurons, and production calls
+          // measured 836-887 input tokens (~24 Neurons at the implied input
+          // rate); even a 3,000-token input (~82 Neurons) keeps the worst-case
+          // total near 182 Neurons, inside the reserve.
+          max_tokens: 1100,
+          stream: false,
+        }),
       },
-      body: JSON.stringify({
-        task: 'query',
-        image: `data:${input.mimeType};base64,${input.bytes.toString('base64')}`,
-        question: questionFor(input),
-        reasoning: false,
-        temperature: 0,
-        // 1100 (raised from 900): the defect-hunting instructions ask the
-        // model to enumerate every concrete defect it finds, which needs
-        // more output room; a truncated mid-JSON answer was one source of
-        // intermittent RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID in production.
-        // Reserve check against RASTER_SEMANTIC_CRITIC_RESERVED_NEURONS_V15
-        // (256): at the published output rate (90,909 Neurons per 1M output
-        // tokens) 1,100 output tokens ~= 100 Neurons, and production calls
-        // measured 836-887 input tokens (~24 Neurons at the implied input
-        // rate); even a 3,000-token input (~82 Neurons) keeps the worst-case
-        // total near 182 Neurons, inside the reserve.
-        max_tokens: 1100,
-        stream: false,
-      }),
-    },
-    fetchImpl,
-  );
+      fetchImpl,
+    );
 
-  if (!response.ok) {
-    const failure = await classifyCloudflareWorkersAiFailureV15(response, 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP');
-    throw new Error(failure.code);
+    if (!response.ok) {
+      const failure = await classifyCloudflareWorkersAiFailureV15(response, 'CLOUDFLARE_SEMANTIC_CRITIC_HTTP');
+      throw new Error(failure.code);
+    }
+
+    const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
+    if (!body) throw responseInvalid('envelope-body-not-json');
+    if (body.success !== true) throw responseInvalid('envelope-success-not-true');
+    if (!body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
+      throw responseInvalid('envelope-result-missing-or-not-object');
+    }
+    // Live-verified shape (2026-11-07, production probe): this vision model's
+    // run response nests the model's own output object one level deeper, i.e.
+    // { result: { result: { answer, caption, finish_reason, ... }, usage } }.
+    // The flat { result: { answer } } shape is accepted only as a fallback;
+    // either way the extracted string still faces the full strict validation
+    // in parseSemanticPayload, and anything else fails closed.
+    const resultObject = body.result as Record<string, unknown>;
+    const nested = resultObject.result;
+    const nestedAnswer = nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? (nested as Record<string, unknown>).answer
+      : undefined;
+    const answer = typeof nestedAnswer === 'string' ? nestedAnswer : resultObject.answer;
+    if (typeof answer !== 'string') throw responseInvalid('answer-not-a-string');
+
+    // The same live-verified envelope carries the call's own usage report at
+    // result.usage.neurons (measured 34-36 Neurons per critic call on
+    // 2026-11-07). It is surfaced verbatim for the caller's reconciliation;
+    // only when the envelope carries no usage block at all, the cf-ai-neurons
+    // response header is consulted as a fallback. A missing or malformed
+    // report in both places is surfaced as null, never invented.
+    const reportedNeurons = usageNeurons(resultObject.usage)
+      ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
+        ? usageNeurons((nested as Record<string, unknown>).usage)
+        : null)
+      ?? neuronsFromResponseHeader(response.headers);
+
+    return { parsed: parseSemanticPayload(answer.trim()), reportedNeurons };
+  };
+
+  // One bounded retry, only for response-format failures: when the model's
+  // answer cannot be validated as the contracted JSON, the critic call alone
+  // is repeated once with a format reminder appended (measured ~40 Neurons
+  // per call, far cheaper than regenerating the image). Provider/HTTP
+  // failures carry different codes and are never retried here; a second
+  // format failure fails closed exactly as a single failure did before.
+  let attemptsUsed = 0;
+  let outcome: Awaited<ReturnType<typeof runCriticOnce>> | null = null;
+  for (;;) {
+    attemptsUsed += 1;
+    try {
+      outcome = await runCriticOnce(questionFor(input, attemptsUsed > 1));
+      break;
+    } catch (error) {
+      if (error instanceof RasterSemanticCriticResponseInvalidError) {
+        // Server-side diagnostics only: which validation condition was hit,
+        // the answer length, and the extraction outcome are recorded so a
+        // production failure can be triaged without a probe. The raw answer
+        // body is never logged, and nothing here reaches the client.
+        console.error('[raster-semantic-critic] response failed validation', {
+          detail: error.detail,
+          answerChars: error.answerChars,
+          attempt: attemptsUsed,
+        });
+        if (attemptsUsed === 1) continue;
+      }
+      throw error;
+    }
   }
-
-  const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
-  if (!body || body.success !== true || !body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
-    throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-  }
-  // Live-verified shape (2026-11-07, production probe): this vision model's
-  // run response nests the model's own output object one level deeper, i.e.
-  // { result: { result: { answer, caption, finish_reason, ... }, usage } }.
-  // The flat { result: { answer } } shape is accepted only as a fallback;
-  // either way the extracted string still faces the full strict validation
-  // in parseSemanticPayload, and anything else fails closed.
-  const resultObject = body.result as Record<string, unknown>;
-  const nested = resultObject.result;
-  const nestedAnswer = nested && typeof nested === 'object' && !Array.isArray(nested)
-    ? (nested as Record<string, unknown>).answer
-    : undefined;
-  const answer = typeof nestedAnswer === 'string' ? nestedAnswer : resultObject.answer;
-  if (typeof answer !== 'string') throw new Error('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-
-  // The same live-verified envelope carries the call's own usage report at
-  // result.usage.neurons (measured 34-36 Neurons per critic call on
-  // 2026-11-07). It is surfaced verbatim for the caller's reconciliation;
-  // only when the envelope carries no usage block at all, the cf-ai-neurons
-  // response header is consulted as a fallback. A missing or malformed
-  // report in both places is surfaced as null, never invented.
-  const reportedNeurons = usageNeurons(resultObject.usage)
-    ?? (nested && typeof nested === 'object' && !Array.isArray(nested)
-      ? usageNeurons((nested as Record<string, unknown>).usage)
-      : null)
-    ?? neuronsFromResponseHeader(response.headers);
-
-  const parsed = parseSemanticPayload(answer.trim());
+  const { parsed, reportedNeurons } = outcome;
   const checks: string[] = [];
   const thresholdAxes: RasterSemanticAxisV15[] = [
     'promptAdherence',
@@ -326,12 +435,14 @@ export async function critiqueCloudflareRasterSemanticV15(
     scores: parsed.scores,
     checks,
     issues: uniqueIssues,
+    adjustments: parsed.adjustments,
     summary: parsed.summary,
     freeOnly: true,
     costEvidence: 'free-allocation-preflight-only; per-request-usage-unverified',
     paidFallbackEnabled: false,
     secretDelivery: 'server-only',
-    externalNetworkRequests: 4,
+    // 3 free-plan proof reads plus one run call per attempt actually made.
+    externalNetworkRequests: 3 + attemptsUsed,
     reportedNeurons,
   };
 }
