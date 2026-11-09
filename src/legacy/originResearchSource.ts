@@ -1,4 +1,5 @@
 import { secureFetch } from "../../services/mission-engine/src/application/agent/ToolExecutor.js";
+import type { ResearchProviderName } from "../research/researchProviderVocabulary.js";
 
 export interface OriginResearchSource {
   title: string;
@@ -45,7 +46,7 @@ export interface OriginResearchResult {
   sources: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
-  searchProvider?: "DuckDuckGo" | "Bing" | "Wikipedia" | "Tavily" | "GDELT" | "Open-Meteo" | "SearchGrounding";
+  searchProvider?: ResearchProviderName;
   /** Present when the result came from the search-grounding pipeline. */
   grounding?: OriginResearchGroundingMetadata;
   /** Present when search grounding ran but its verification gate failed. */

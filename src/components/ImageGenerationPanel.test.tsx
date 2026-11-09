@@ -4,23 +4,16 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ImageGenerationPanel from './ImageGenerationPanel';
 
-const verifiedStatus = {
-  ok: true,
-  configured: true,
-  ready: true,
-  zeroCostVerified: true,
-  paymentMethodRequired: false,
-  paidFallbackEnabled: false,
-  secretDelivery: 'server-only',
-  providerId: 'test-free-provider',
-  model: 'test-free-model',
-};
+// Plan B contract: the panel never consults the raster status endpoint.
+// Whether a generation may proceed is decided per request by the
+// server-side free-proof pipeline, which fails closed and returns a
+// reason code. These tests pin that the panel is usable on its own form
+// conditions and states the per-request $0.00 verification honestly.
+let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => verifiedStatus,
-  }));
+  fetchMock = vi.fn().mockRejectedValue(new Error('network unavailable'));
+  vi.stubGlobal('fetch', fetchMock);
 });
 
 afterEach(() => {
@@ -29,69 +22,38 @@ afterEach(() => {
 });
 
 describe('ImageGenerationPanel', () => {
-  it('submits the normalized prompt with the selected ratio and resolution after a verified free route is confirmed', async () => {
+  it('submits the normalized prompt with the selected ratio and resolution without any status pre-check', () => {
     const onGenerate = vi.fn();
     const onClose = vi.fn();
     render(<ImageGenerationPanel language="ja" onClose={onClose} onGenerate={onGenerate} />);
-    await screen.findByTestId('origin-image-provider-status');
+
+    const note = screen.getByTestId('origin-image-free-proof-note');
+    expect(note.textContent).toContain('$0.00');
+    expect(screen.queryByTestId('origin-image-provider-unavailable')).toBeNull();
+    const submit = screen.getByTestId('origin-image-generate-submit');
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.change(screen.getByTestId('origin-image-prompt'), {
       target: { value: '  夕焼けの海辺  ' },
     });
     fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
     fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
-    fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+    fireEvent.click(submit);
 
     expect(onGenerate).toHaveBeenCalledOnce();
     expect(onGenerate).toHaveBeenCalledWith('夕焼けの海辺', 864, 1536);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not submit when the status endpoint reports no verified zero-cost provider', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({
-        ok: false,
-        ready: false,
-        zeroCostVerified: false,
-        paidFallbackEnabled: false,
-        reason: 'STATUS_NOT_LIVE_VERIFIED',
-      }),
-    }));
+  it('states the per-request free-proof contract in English', () => {
+    render(<ImageGenerationPanel language="en" onClose={() => undefined} onGenerate={() => undefined} />);
+    expect(screen.getByTestId('origin-image-free-proof-note').textContent).toContain('$0.00');
+    expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('does not submit an empty prompt and exposes an accessible validation error', () => {
     const onGenerate = vi.fn();
     render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);
-
-    const unavailable = await screen.findByTestId('origin-image-provider-unavailable');
-    expect(unavailable.textContent).toContain('費用 $0.00');
-    const submit = screen.getByTestId('origin-image-generate-submit');
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(submit);
-    expect(onGenerate).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when the endpoint is successful but request-level zero-cost proof is absent', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ ...verifiedStatus, zeroCostVerified: false }),
-    }));
-    const onGenerate = vi.fn();
-    render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);
-
-    await screen.findByTestId('origin-image-provider-unavailable');
-    expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(true);
-    expect(onGenerate).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when the status endpoint cannot be reached', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
-    render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={() => undefined} />);
-    await screen.findByTestId('origin-image-provider-unavailable');
-    expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('does not submit an empty prompt and exposes an accessible validation error', async () => {
-    const onGenerate = vi.fn();
-    render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);
-    await screen.findByTestId('origin-image-provider-status');
     fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
     expect(onGenerate).not.toHaveBeenCalled();
@@ -105,14 +67,13 @@ describe('ImageGenerationPanel', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('traps keyboard focus inside the dialog and restores focus to its opener', async () => {
+  it('traps keyboard focus inside the dialog and restores focus to its opener', () => {
     const opener = document.createElement('button');
     opener.textContent = 'Open image studio';
     document.body.appendChild(opener);
     opener.focus();
 
     const view = render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={() => undefined} />);
-    await screen.findByTestId('origin-image-provider-status');
     const prompt = screen.getByTestId('origin-image-prompt');
     const close = screen.getByRole('button', { name: '閉じる' });
     const submit = screen.getByTestId('origin-image-generate-submit');

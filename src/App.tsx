@@ -683,6 +683,85 @@ async function fetchOriginRasterImage(
   });
 }
 
+/**
+ * User-facing reasons for raster generation failures. The server pipeline
+ * proves $0.00 cost per request before inference and fails closed with a
+ * machine code when it cannot; its error body echoes the raw code as the
+ * message in that case, so known codes are translated here into a reason
+ * the user can understand. Codes outside this map keep the server's own
+ * human message when one was provided.
+ */
+const RASTER_GENERATION_FAILURE_MESSAGES: Record<string, { ja: string; en: string }> = {
+  RASTER_GENERATION_DISABLED_ZERO_COST_POLICY: {
+    ja: 'リクエスト単位で費用0円を事前保証できないため、AI画像生成は停止しています。',
+    en: 'AI image generation is stopped because $0.00 cost cannot be guaranteed per request in advance.',
+  },
+  CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED: {
+    ja: '無料の画像生成経路がまだ構成されていないため、生成できませんでした。',
+    en: 'The free image generation route is not configured yet, so nothing was generated.',
+  },
+  CLOUDFLARE_MODEL_NOT_PRICED_FOR_FREE_PROOF: {
+    ja: '画像モデルの無料条件を確認できないため、生成しませんでした。',
+    en: 'The image model’s free terms could not be verified, so nothing was generated.',
+  },
+  CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED: {
+    ja: '画像モデルの無料条件を確認できないため、生成しませんでした。',
+    en: 'The image model’s free terms could not be verified, so nothing was generated.',
+  },
+  CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED: {
+    ja: '有料プランが必要な構成が検出されたため、生成しませんでした。',
+    en: 'A configuration that requires a paid plan was detected, so nothing was generated.',
+  },
+  CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN: {
+    ja: '有料プランが必要な構成が検出されたため、生成しませんでした。',
+    en: 'A configuration that requires a paid plan was detected, so nothing was generated.',
+  },
+  CLOUDFLARE_WORKERS_PLAN_UNVERIFIED: {
+    ja: '無料プランであることを確認できないため、生成しませんでした。',
+    en: 'The free plan could not be confirmed, so nothing was generated.',
+  },
+  CLOUDFLARE_BILLING_READ_REQUIRED: {
+    ja: '無料プランであることを確認できないため、生成しませんでした。',
+    en: 'The free plan could not be confirmed, so nothing was generated.',
+  },
+  CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED: {
+    ja: '画像生成に必要な権限を確認できないため、生成しませんでした。',
+    en: 'The permissions required for image generation could not be confirmed, so nothing was generated.',
+  },
+  RASTER_PRICING_EVIDENCE_STALE: {
+    ja: '無料条件の確認情報が古くなっているため、生成しませんでした。',
+    en: 'The evidence for the free terms is out of date, so nothing was generated.',
+  },
+  RASTER_PRICING_EVIDENCE_INVALID: {
+    ja: '無料条件の確認情報が正しくないため、生成しませんでした。',
+    en: 'The evidence for the free terms is invalid, so nothing was generated.',
+  },
+  CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT: {
+    ja: '本日の無料枠の残量が足りないため、生成しませんでした。',
+    en: 'Today’s remaining free allocation is not enough for this request, so nothing was generated.',
+  },
+  CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED: {
+    ja: '本日の無料枠を使い切っているため、生成しませんでした。',
+    en: 'Today’s free allocation has been used up, so nothing was generated.',
+  },
+  CLOUDFLARE_DAILY_USAGE_UNVERIFIED: {
+    ja: '本日の利用量を確認できないため、無料であることを証明できず生成しませんでした。',
+    en: 'Today’s usage could not be checked, so $0.00 cost could not be proven and nothing was generated.',
+  },
+  CLOUDFLARE_USAGE_RECONCILIATION_FAILED: {
+    ja: '生成後の利用量の照合で無料であることを確認できなかったため、画像を配信しませんでした。',
+    en: 'Post-generation usage reconciliation could not confirm $0.00 cost, so the image was not delivered.',
+  },
+};
+
+export const rasterGenerationFailureMessage = (
+  code: string | undefined,
+  language: 'ja' | 'en',
+): string | null => {
+  if (!code) return null;
+  return RASTER_GENERATION_FAILURE_MESSAGES[code]?.[language] ?? null;
+};
+
 async function fetchOriginChat(body: string, signal: AbortSignal): Promise<Response> {
   return fetch('/api/chat', {
     method: 'POST',
@@ -1664,7 +1743,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
           const unavailable = language === 'en'
             ? 'Verified $0 image generation is currently unavailable. ORIGIN did not substitute a prompt or use a paid provider.'
             : '検証済みの0円画像生成を現在実行できません。プロンプトへの置き換えや有料プロバイダへの切り替えは行っていません。';
-          appendFailure(failure?.message || unavailable);
+          // Known free-proof codes get a translated reason. Otherwise keep
+          // the server's human message when it sent one (the error body
+          // echoes the raw code as the message when it has none, and a raw
+          // code is never shown to the user).
+          const mappedFailure = rasterGenerationFailureMessage(failure?.code, language);
+          const serverMessage = failure?.message && failure.message !== failure?.code ? failure.message : null;
+          appendFailure(mappedFailure ?? serverMessage ?? unavailable);
           return;
         }
 
