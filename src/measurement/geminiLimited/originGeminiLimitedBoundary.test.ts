@@ -96,12 +96,12 @@ describe("Gemini limited gate import boundary", () => {
 
   it("contains the Gemini egress in exactly one module", () => {
     const gateSources = listSourceFiles(GATE_DIR).filter((file) => !file.endsWith(".test.ts"));
-    // Compare whole hostname tokens rather than a substring, so a lookalike
-    // host (e.g. "generativelanguage.googleapis.com.evil.example") never
-    // counts as the egress endpoint.
+    // Compare whole hostname tokens by strict equality, so a lookalike host
+    // (e.g. "generativelanguage.googleapis.com.evil.example") never counts
+    // as the egress endpoint.
     const egressHost = "generativelanguage.googleapis.com";
     const mentionsEgressHost = (source: string) =>
-      source.split(/[^a-zA-Z0-9.-]+/).includes(egressHost);
+      source.split(/[^a-zA-Z0-9.-]+/).some((token) => token === egressHost);
     const withEndpoint = gateSources.filter((file) => mentionsEgressHost(readFileSync(file, "utf8")));
     expect(withEndpoint.map((file) => file.split("/").pop())).toEqual(["originGeminiLimitedGate.ts"]);
   });
