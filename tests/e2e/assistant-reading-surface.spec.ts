@@ -65,23 +65,25 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
     await waitForVisualSurface(page);
 
-    const headerMark = page.locator('.origin-header > div > div:first-child > div:first-child > span[aria-hidden="true"]:first-child');
-    await expect(headerMark).toBeVisible();
-    const headerMarkStyle = await headerMark.evaluate((element) => {
+    // ヘッダーの印はリボンのOの小画像から、明るい円形台座付きの猫に
+    // 置き換わった（オーナー指示 2026-11-09：猫を見えやすく・大きく）。
+    const headerCat = page.locator('.origin-header [data-testid="origin-cat-pedestal"]');
+    await expect(headerCat).toBeVisible();
+    const headerCatImage = headerCat.locator('img[data-testid="origin-cat-state"]');
+    await expect(headerCatImage).toBeVisible();
+    expect(await headerCatImage.getAttribute('src')).toContain('origin-cat.webp');
+    const headerCatStyle = await headerCat.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
-        backgroundImage: style.backgroundImage,
         width: style.width,
         height: style.height,
         borderRadius: style.borderRadius,
-        boxShadow: style.boxShadow,
       };
     });
-    expect(headerMarkStyle.backgroundImage).toContain('origin-ribbon-o-small.webp');
-    expect(headerMarkStyle.width).toBe('20px');
-    expect(headerMarkStyle.height).toBe('20px');
-    expect(headerMarkStyle.borderRadius).toBe('6px');
-    expect(headerMarkStyle.boxShadow).toBe('none');
+    // 猫28px＋台座の余白3px×2＋枠線で、台座の外径は34pxになる。
+    expect(headerCatStyle.width).toBe('34px');
+    expect(headerCatStyle.height).toBe('34px');
+    expect(headerCatStyle.borderRadius).toBe('999px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 

@@ -358,7 +358,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     });
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '成果物を保存します。\n```html:persisted.html\n<main>Persisted artifact</main>\n```' }));
     await page.goto('/');
-    await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
+    // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）。移行した
+    // 前回の会話は自動では開かず、履歴セッションとして退避される。
+    await expect(page.getByTestId('origin-home-request')).toBeVisible();
     // Opening version 1 before the app's idle migration creates a schema-less
     // database. Wait for successful storage initialization before inspecting it.
     await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
@@ -369,7 +371,13 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
         const read = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('primary');
         read.onsuccess = () => { resolve({ legacy: localStorage.getItem('origin_personal_history'), snapshot: read.result }); database.close(); };
       };
-    }))).toMatchObject({ legacy: null, snapshot: { messages: [{ content: 'IndexedDBへ移行する履歴' }] } });
+    }))).toMatchObject({ legacy: null, snapshot: { messages: [], sessions: [{ id: 'legacy-session', messages: [{ content: 'IndexedDBへ移行する履歴' }] }] } });
+    // 退避された会話は履歴ドロワーから明示的に選んで復元する。
+    await page.getByTestId('history-drawer-toggle').click();
+    await page.getByTestId('history-search-input').fill('IndexedDB');
+    await expect(page.getByTestId('history-search-results')).toContainText('旧セッション');
+    await page.getByTestId('history-search-result-0').click();
+    await expect(page.getByText('IndexedDBへ移行する履歴')).toBeVisible();
     await page.getByTestId('origin-chat-request').fill('成果物を生成');
     await page.getByTestId('origin-chat-request').press('Control+Enter');
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
@@ -390,8 +398,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     });
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '```html:searchable.html\n<main>Artifact Search Needle</main>\n```' }));
     await page.goto('/');
-    await page.getByTestId('origin-chat-request').fill('成果物を追加');
-    await page.getByTestId('origin-chat-request').press('Control+Enter');
+    // 起動時は必ずトップ画面から始めるため、新規の依頼はホームの入力欄から送る。
+    await page.getByTestId('origin-home-request').fill('成果物を追加');
+    await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('artifact-workspace')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '作成物を閉じる' }).click();
     await page.waitForTimeout(250);

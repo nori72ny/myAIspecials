@@ -30,7 +30,7 @@ describe('ORIGIN PWA boundary', () => {
     ]));
   });
 
-  it('keeps the approved ORIGIN ribbon identity wired to browser, Apple, PWA, and in-app surfaces', () => {
+  it('keeps the approved ORIGIN ribbon identity wired to browser, Apple, and PWA surfaces, with the cat as the in-app mark', () => {
     const index = read('index.html');
     const worker = read('public/sw.js');
     const topUi = read('src/origin-top-ui.css');
@@ -52,9 +52,14 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("'/brand/origin-cat-thinking.webp'");
     expect(worker).not.toContain('origin-sunrise-mark');
     expect(worker).not.toContain("'/brand/origin-cat-working.mp4'");
-    expect(topUi).toContain("url('/brand/origin-ribbon-o-small.webp')");
-    expect(topUi).toContain("url('/brand/origin-ribbon-o-light.webp')");
-    expect(topUi).toContain("url('/brand/origin-ribbon-o.webp')");
+    // アプリ内（ヒーロー／ヘッダー）の顔は猫（オーナー指示 2026-11-09 で
+    // リボンOマークから変更）。台座スタイルが配線されていることと、猫の
+    // 素材が実在の WEBP であることを固定する。ブラウザ／PWA 側のリボン
+    // 同一性は、上の index.html と sw.js の表明で引き続き固定される。
+    expect(topUi).toContain('.origin-cat-pedestal');
+    const cat = readFileSync(resolve(process.cwd(), 'public/brand/origin-cat.webp'));
+    expect(cat.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(cat.subarray(8, 12).toString('ascii')).toBe('WEBP');
     expect(mark.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(mark.subarray(8, 12).toString('ascii')).toBe('WEBP');
   });

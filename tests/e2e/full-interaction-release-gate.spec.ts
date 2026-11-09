@@ -101,16 +101,22 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await installStableWorkspaceRoutes(page);
 
+      // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
+      // 各ワークスペースへはURL直指定ではなくアプリ内メニューから入る。
       const surfaces = [
-        { url: '/', heading: '今日は何をしますか？' },
-        { url: '/?workspace=research', heading: '詳しく調べる' },
-        { url: '/?workspace=agent', heading: 'エージェントに任せる' },
-        { url: '/?workspace=coding', heading: 'コードの変更を依頼' },
-        { url: '/?workspace=creative', heading: 'カード・ポスターを作る' },
+        { menuLabel: null, heading: '今日は何をしますか？' },
+        { menuLabel: '詳しく調べる', heading: '詳しく調べる' },
+        { menuLabel: 'エージェントに任せる', heading: 'エージェントに任せる' },
+        { menuLabel: 'コード', heading: 'コードの変更を依頼' },
+        { menuLabel: '作る', heading: 'カード・ポスターを作る' },
       ];
 
+      await page.goto('/');
       for (const surface of surfaces) {
-        await page.goto(surface.url);
+        if (surface.menuLabel) {
+          await page.getByTestId('origin-add-menu-toggle').click();
+          await page.getByRole('menuitem', { name: surface.menuLabel, exact: true }).click();
+        }
         await expect(page.getByRole('heading', { name: surface.heading })).toBeVisible({ timeout: 15_000 });
         await assertSurfaceContract(page, viewport.width);
 
@@ -132,7 +138,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
           expect(typography.color).not.toBe('');
         }
 
-        if (surface.url !== '/') {
+        if (surface.menuLabel) {
           await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
           await expect(page).not.toHaveURL(/workspace=/);
           await expect(page.getByTestId('origin-home-request')).toBeVisible();
@@ -234,7 +240,12 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         }],
       }),
     }));
-    await page.goto('/?workspace=research');
+    // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
+    // 調べる画面へはアプリ内メニューから入る。
+    await page.goto('/');
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
+    await expect(page).toHaveURL(/workspace=research/);
     await page.getByLabel('調べたいこと', { exact: true }).fill('検証用クエリ');
     await page.getByRole('button', { name: '調査する', exact: true }).click();
     await page.getByText('調査結果', { exact: true }).waitFor();

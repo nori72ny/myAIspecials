@@ -272,7 +272,6 @@
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; }
 .origin-workspace:fullscreen .origin-code-panel { padding: 0; }
 .origin-code-panel { background: var(--bg-primary); color: var(--text-primary); }
-.origin-logo-core { background: var(--bg-elevated); border-color: var(--border-strong); color: var(--accent-primary); }
 .origin-logo-glow { background: radial-gradient(circle, var(--accent-glow), transparent 68%); }
 .origin-safe-note { color: var(--text-secondary); }
 .origin-composer { min-height: 76px; border-radius: var(--radius-composer); }

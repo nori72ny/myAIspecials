@@ -1,15 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement } from 'react';
 
 /**
  * ORIGIN のキャラクター「猫」の状態表示。
  *
- * 静止画を基本とし、動画は最も効果が大きい「作業中（エージェント実行中）」の
- * 場面だけに使う。動画はこの状態が表示されるまで読み込まれず（遅延読み込み）、
- * prefers-reduced-motion では動画を再生せず静止画に切り替える。
+ * 静止画を基本とし、動画は「作業中」が伝わると効果が大きい場面
+ * （エージェント実行中とチャットの生成中）に使う。動画はこの状態が
+ * 表示されるまで読み込まれず（遅延読み込み）、prefers-reduced-motion
+ * では動画を再生せず静止画に切り替える。
+ *
+ * 猫の絵柄は濃紺〜黒系で背景が焼き込まれているため、そのままでは
+ * 画面の背景に沈んで見えにくい。`pedestal` を付けると明るい円形の
+ * 台座（ディスク＋リング＋影）の上に載せ、ライト／ダーク両テーマで
+ * 輪郭がはっきり視認できるようにする（オーナー指示 2026-11-09）。
  */
-export type OriginCatStateKind = 'thinking' | 'working' | 'waiting' | 'done' | 'sorry' | 'sleep';
+export type OriginCatStateKind = 'idle' | 'thinking' | 'working' | 'waiting' | 'done' | 'sorry' | 'sleep';
 
 export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
+  idle: '/brand/origin-cat.webp',
   thinking: '/brand/origin-cat-thinking.webp',
   working: '/brand/origin-cat-working.webp',
   waiting: '/brand/origin-cat-waiting.webp',
@@ -43,16 +50,21 @@ function usePrefersReducedMotion(): boolean {
 
 export interface OriginCatStateProps {
   state: OriginCatStateKind;
-  /** 表示サイズ（px）。既定は 36。 */
+  /** 表示サイズ（px）。既定は 36。台座を付けた場合は台座の内側の絵のサイズ。 */
   size?: number;
+  /** 明るい円形の台座を付けて、暗い絵柄を両テーマで視認しやすくする。 */
+  pedestal?: boolean;
 }
 
-export default function OriginCatState({ state, size = 36 }: OriginCatStateProps) {
+export default function OriginCatState({ state, size = 36, pedestal = false }: OriginCatStateProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const style = { width: size, height: size };
+  // 台座がある場合は台座の内寸いっぱいに広げ、台座ごと CSS で
+  // 拡縮できるようにする（短い画面でのホーム圧縮など）。
+  const style: CSSProperties = pedestal ? { width: '100%', height: '100%' } : { width: size, height: size };
 
+  let media: ReactElement;
   if (state === 'working' && !prefersReducedMotion) {
-    return (
+    media = (
       <video
         data-testid="origin-cat-state"
         data-state={state}
@@ -67,18 +79,32 @@ export default function OriginCatState({ state, size = 36 }: OriginCatStateProps
         aria-hidden="true"
       />
     );
+  } else {
+    media = (
+      <img
+        data-testid="origin-cat-state"
+        data-state={state}
+        className="shrink-0 rounded-full object-cover"
+        style={style}
+        src={ORIGIN_CAT_STILL_SRC[state]}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+      />
+    );
   }
 
+  if (!pedestal) return media;
+
+  const pad = Math.max(3, Math.round(size * 0.09));
+  const total = size + pad * 2;
   return (
-    <img
-      data-testid="origin-cat-state"
-      data-state={state}
-      className="shrink-0 rounded-full object-cover"
-      style={style}
-      src={ORIGIN_CAT_STILL_SRC[state]}
-      alt=""
-      aria-hidden="true"
-      draggable={false}
-    />
+    <span
+      data-testid="origin-cat-pedestal"
+      className="origin-cat-pedestal"
+      style={{ width: total, height: total, padding: pad }}
+    >
+      {media}
+    </span>
   );
 }

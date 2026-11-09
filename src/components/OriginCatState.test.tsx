@@ -47,6 +47,39 @@ describe('OriginCatState', () => {
     }
   });
 
+  it('renders the idle still used for the brand mark', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="idle" />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('IMG');
+    expect(visual.getAttribute('src')).toBe('/brand/origin-cat.webp');
+    expect(visual.getAttribute('data-state')).toBe('idle');
+  });
+
+  it('wraps the visual on a pedestal when requested, sized by the pad ratio', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="idle" size={80} pedestal />);
+    const pedestal = screen.getByTestId('origin-cat-pedestal');
+    expect(pedestal).toBeTruthy();
+    // pad = round(80 * 0.09) = 7, so the disc is 94px across.
+    expect(pedestal.style.width).toBe('94px');
+    expect(pedestal.style.height).toBe('94px');
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(pedestal.contains(visual)).toBe(true);
+    expect(visual.style.width).toBe('100%');
+    expect(visual.style.height).toBe('100%');
+  });
+
+  it('keeps the working video (with its poster) on a pedestal', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="working" size={64} pedestal />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('VIDEO');
+    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_WORKING_VIDEO_SRC);
+    expect(visual.getAttribute('poster')).toBe(ORIGIN_CAT_STILL_SRC.working);
+    expect(screen.getByTestId('origin-cat-pedestal').contains(visual)).toBe(true);
+  });
+
   it('falls back to the still image for the working state under prefers-reduced-motion', () => {
     stubReducedMotion(true);
     render(<OriginCatState state="working" />);
