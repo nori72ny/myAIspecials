@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ResearchWorkspaceV31 from '../ResearchWorkspaceV31';
+import { RESEARCH_PROVIDER_NAMES } from '../../../research/researchProviderVocabulary';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -119,6 +120,54 @@ describe('ResearchWorkspaceV31', () => {
     expect(alert.textContent).toContain('指定された公式情報源またはドメイン');
     expect(alert.textContent).toContain('無関係な出典では補完していません');
     expect(screen.queryByRole('region', { name: '出典と確認の概要' })).toBeNull();
+  });
+
+  // Contract: every provider name the research API can return (legacy
+  // DuckDuckGo/Bing/Wikipedia plus the search-grounding vocabulary added
+  // by #1130) must be accepted; anything else must stay fail-closed.
+  describe('research provider vocabulary contract', () => {
+    const successPayload = (provider: unknown) => ({
+      ok: true,
+      version: '1.1',
+      status: 'grounded',
+      provider,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      sourceCount: 1,
+      distinctDomainCount: 1,
+      confidence: 'moderate',
+      confidenceScope: 'retrieval-evidence-only',
+      semanticConflictDetection: 'conservative-structured-only',
+      sources: [
+        { id: 'S1', title: 'Contract source', url: 'https://example.com/a', domain: 'example.com', evidenceLevel: 'page-verified', freshness: 'recent', score: 85, scoreScope: 'retrieval-evidence-only', citation: '[S1](https://example.com/a)' },
+      ],
+      conflicts: [],
+      report: '## 確認できた内容\n- 契約テスト用の出典です [S1](https://example.com/a)',
+    });
+
+    it.each(RESEARCH_PROVIDER_NAMES)('accepts a grounded success response with provider %s', async provider => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload(provider) }));
+      render(<ResearchWorkspaceV31 />);
+      fireEvent.change(screen.getByLabelText('調べたいこと'), { target: { value: '現在の公開情報を調査' } });
+      fireEvent.click(screen.getByRole('button', { name: '調査する' }));
+
+      await waitFor(() => expect(screen.queryByRole('region', { name: '出典と確認の概要' })).not.toBeNull());
+      expect(screen.getByText('Contract source')).not.toBeNull();
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('fails closed when the provider name is outside the server vocabulary', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => successPayload('NotARealProvider') }));
+      render(<ResearchWorkspaceV31 />);
+      fireEvent.change(screen.getByLabelText('調べたいこと'), { target: { value: '現在の公開情報を調査' } });
+      fireEvent.click(screen.getByRole('button', { name: '調査する' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain('応答を検証できなかったため、安全に停止');
+      expect(screen.queryByRole('region', { name: '出典と確認の概要' })).toBeNull();
+      expect(screen.queryByText('Contract source')).toBeNull();
+    });
   });
 
 });
