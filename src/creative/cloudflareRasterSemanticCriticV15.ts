@@ -401,33 +401,43 @@ export async function critiqueCloudflareRasterSemanticV15(
     }
   }
   const { parsed, reportedNeurons } = outcome;
+  // Quality gate, realigned with the question's scoring scale (diag16,
+  // 2026-11-10, §7 A+D). The verdict is decided by substance only:
+  //   passed = safetyPassed && average >= 3.5 && every axis >= 3.
+  // The axis floor is 3 — the same boundary the question's calibration
+  // rule uses ("a found defect caps its axis at 3"). The previous gate
+  // additionally required the model's criticalIssues list to be empty and
+  // used per-axis thresholds of 3.4 / 3.3; combined with the defect-hunting
+  // question (enumerate every defect found), any candidate whose critic
+  // did its job was structurally unpassable, and with the integer scores
+  // the model actually returns, 3.4 / 3.3 meant "every axis must be 4".
+  // criticalIssues are still returned in `issues` as diagnostic evidence
+  // and as the retry feedback source — they no longer veto the verdict by
+  // their mere presence. Severity reaches the gate through the scores
+  // themselves: under the (unchanged) calibration rule a defect pulls its
+  // axis to 3 or lower, so a serious defect drops the axis below the floor
+  // or the mean below 3.5, and any safety failure still fails closed via
+  // safetyPassed. The question's calibration rule is deliberately NOT
+  // relaxed (diag16 §7: option B rejected) so the critic keeps
+  // discriminating.
+  const AXIS_FLOOR = 3;
   const checks: string[] = [];
-  const thresholdAxes: RasterSemanticAxisV15[] = [
-    'promptAdherence',
-    'composition',
-    'subjectIntegrity',
-    'artifactControl',
-    'professionalUsefulness',
-  ];
-  for (const axis of thresholdAxes) {
-    if (parsed.scores[axis] >= 3.4) checks.push(`${axis}-gte-3.4`);
+  for (const axis of RASTER_SEMANTIC_AXES_V15) {
+    if (parsed.scores[axis] >= AXIS_FLOOR) checks.push(`${axis}-gte-3`);
   }
-  if (parsed.scores.styleExecution >= 3.3) checks.push('styleExecution-gte-3.3');
-  if (parsed.scores.textHandling >= 3.3) checks.push('textHandling-gte-3.3');
 
   const average = RASTER_SEMANTIC_AXES_V15.reduce((sum, axis) => sum + parsed.scores[axis], 0) / RASTER_SEMANTIC_AXES_V15.length;
   const issues = [...parsed.issues];
-  for (const axis of thresholdAxes) {
-    if (parsed.scores[axis] < 3.4) issues.push(`${axis}-below-3.4`);
+  for (const axis of RASTER_SEMANTIC_AXES_V15) {
+    if (parsed.scores[axis] < AXIS_FLOOR) issues.push(`${axis}-below-3`);
   }
-  if (parsed.scores.styleExecution < 3.3) issues.push('styleExecution-below-3.3');
-  if (parsed.scores.textHandling < 3.3) issues.push('textHandling-below-3.3');
 
   if (!parsed.safetyPassed) issues.push('visible-output-safety-failed');
   const uniqueIssues = [...new Set(issues)];
+  const everyAxisAtOrAboveFloor = RASTER_SEMANTIC_AXES_V15.every(axis => parsed.scores[axis] >= AXIS_FLOOR);
   return {
     version: 'raster-semantic-critic-v1',
-    passed: parsed.safetyPassed && uniqueIssues.length === 0 && average >= 3.5,
+    passed: parsed.safetyPassed && everyAxisAtOrAboveFloor && average >= 3.5,
     safetyPassed: parsed.safetyPassed,
     safetyIssues: parsed.safetyIssues,
     score: Math.round((average / 4) * 100),

@@ -258,8 +258,167 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.passed).toBe(false);
     expect(result.issues).toEqual(expect.arrayContaining([
       'watch-face geometry is visibly distorted',
-      'subjectIntegrity-below-3.4',
-      'professionalUsefulness-below-3.4',
+      'subjectIntegrity-below-3',
+      'professionalUsefulness-below-3',
+    ]));
+  });
+
+  it('passes a verdict that lists minor defects when every axis scores 4', async () => {
+    // diag16 §7 A: criticalIssues are diagnostic evidence, not a veto. A
+    // critic that ran its defect hunt, listed what it found, and still
+    // scored every axis 4 has judged those defects minor; the previous
+    // gate failed this exact verdict structurally because the issues list
+    // was non-empty.
+    const defects = [
+      'left hand pinky joint bends at a slightly unnatural angle',
+      'pagoda reflection in the pond is offset by a few pixels',
+    ];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        promptAdherence: 4,
+        composition: 4,
+        subjectIntegrity: 4,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        criticalIssues: defects,
+      })));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '五重塔と池のある風景、手前に人物',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.safetyPassed).toBe(true);
+    // The listed defects are retained verbatim as diagnostics.
+    expect(result.issues).toEqual(defects);
+    expect(result.checks).toHaveLength(7);
+  });
+
+  it('passes a verdict whose defect-bearing axis sits exactly at the floor of 3', async () => {
+    // diag16 §7 D: the question's calibration rule caps a defect-bearing
+    // axis at 3, so the gate floor is 3. One axis at exactly 3 with the
+    // rest at 4 (mean 27/7 ≈ 3.86) is a deliverable verdict; the previous
+    // 3.4/3.3 thresholds rejected it because an integer 3 is below both.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        promptAdherence: 4,
+        composition: 3,
+        subjectIntegrity: 4,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        criticalIssues: ['horizon line tilts slightly to the right'],
+      })));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '夕日の海辺の風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual(['horizon line tilts slightly to the right']);
+  });
+
+  it('fails on safety alone even with perfect scores and no listed defects', async () => {
+    // The safety judgment is never relaxed by the gate realignment: a
+    // safety failure fails closed no matter how high the quality scores
+    // are and even when the critic lists no quality defects at all.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        promptAdherence: 4,
+        composition: 4,
+        subjectIntegrity: 4,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        safetyPassed: false,
+        safetyIssues: ['graphic gore is visibly present'],
+        criticalIssues: [],
+      })));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '安全な架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(false);
+    expect(result.issues).toContain('visible-output-safety-failed');
+  });
+
+  it('fails when the mean is below 3.5 even with no defects and every axis at or above the floor', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        promptAdherence: 3.2,
+        composition: 3.2,
+        subjectIntegrity: 3.2,
+        styleExecution: 3.2,
+        textHandling: 3.2,
+        artifactControl: 3.2,
+        professionalUsefulness: 3.2,
+        criticalIssues: [],
+      })));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual([]);
+    expect(result.safetyPassed).toBe(true);
+  });
+
+  it('fails when a serious defect pulls one axis below the floor, even with a passing mean', async () => {
+    // Severity reaches the gate through the scores: under the calibration
+    // rule a serious defect scores its axis low. Mean here is
+    // (4*6 + 1) / 7 ≈ 3.57 ≥ 3.5, so only the axis floor rejects it.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(envelope([]))
+      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+        promptAdherence: 4,
+        composition: 4,
+        subjectIntegrity: 1,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        criticalIssues: ['the watch face is melted and its hands are unreadable'],
+      })));
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '腕時計の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      'the watch face is melted and its hands are unreadable',
+      'subjectIntegrity-below-3',
     ]));
   });
 
@@ -450,8 +609,9 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     // content axis scored 4 with a laudatory summary, yet textHandling and
     // artifactControl came back 0 because the model answered those two axes
     // as defect counts. The payload must parse exactly as before and the
-    // gate math must not move — the calibration fix lives in the question
-    // wording, not in parsing, thresholds, or scoring.
+    // score math must not move. (The gate's axis floor was later realigned
+    // from 3.4/3.3 to 3 by diag16 §7 D; this payload still fails either way
+    // — two axes at 0 are below any floor and the mean is 20/7 < 3.5.)
     const diag9Answer = JSON.stringify({
       promptAdherence: 4,
       composition: 4,
@@ -485,8 +645,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.score).toBe(71);
     expect(result.passed).toBe(false);
     expect(result.issues).toEqual(expect.arrayContaining([
-      'textHandling-below-3.3',
-      'artifactControl-below-3.4',
+      'textHandling-below-3',
+      'artifactControl-below-3',
     ]));
     expect(result.safetyPassed).toBe(true);
   });
@@ -588,8 +748,12 @@ describe('cloudflareRasterSemanticCriticV15', () => {
 
     expect(result.issues).toEqual(nine.slice(0, 8));
     expect(result.adjustments).toEqual(['criticalIssues-truncated-from-9-to-8']);
-    // The verdict still reflects the reported defects.
-    expect(result.passed).toBe(false);
+    // The truncated list is preserved verbatim as diagnostic evidence. The
+    // verdict itself follows the scores (diag16 §7 A): listed defects alone
+    // no longer veto, and this fixture's scores clear the floor and the
+    // mean, so the verdict passes. (Before the realignment this same
+    // payload failed solely because the issues list was non-empty.)
+    expect(result.passed).toBe(true);
   });
 
   it('truncates over-limit safety issues while keeping the safety judgment itself', async () => {
