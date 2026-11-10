@@ -2116,7 +2116,7 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(cat.getAttribute('src')).toBe('/brand/origin-cat-working.mp4');
     expect(cat.getAttribute('poster')).toBe('/brand/origin-cat-working.webp');
     const pedestal = within(thinking).getByTestId('origin-cat-pedestal');
-    // 台座の外径はメディア 72px + 両側パッドで 72px を超える（大きく表示される）。
-    expect(parseInt(pedestal.style.width, 10)).toBeGreaterThan(72);
+    // 台座の外径はメディア内寸 84px + 両側パッド 8px で 100px（ヒーローと同じ大きさ）。
+    expect(parseInt(pedestal.style.width, 10)).toBe(100);
   });
 });

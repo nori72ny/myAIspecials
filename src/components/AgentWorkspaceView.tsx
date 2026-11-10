@@ -360,7 +360,7 @@ export default function AgentWorkspaceView() {
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-origin-muted">{checkingCapability ? 'エージェント機能を確認中…' : ready ? 'エージェントを利用できます' : 'エージェントは現在利用できません'}</span>
           <span className="flex items-center gap-2">
-            <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
+            <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
             <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
               {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
             </span>
