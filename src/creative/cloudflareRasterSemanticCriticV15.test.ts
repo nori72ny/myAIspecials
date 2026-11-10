@@ -286,14 +286,18 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   });
 
   it('rejects contradictory safety payloads rather than guessing', async () => {
+    const contradictory = semanticAnswer({
+      safetyPassed: true,
+      safetyIssues: ['unsafe visible content'],
+    });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        safetyPassed: true,
-        safetyIssues: ['unsafe visible content'],
-      })));
+      .mockResolvedValueOnce(runEnvelope(contradictory))
+      // The format retry replays the same contradictory payload and the
+      // safety-consistency check still rejects it.
+      .mockResolvedValueOnce(runEnvelope(contradictory));
 
     await expect(critiqueCloudflareRasterSemanticV15({
       originalRequest: '安全な架空の商品広告',
@@ -307,6 +311,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope('Looks good to me.'))
       .mockResolvedValueOnce(runEnvelope('Looks good to me.'));
 
     await expect(critiqueCloudflareRasterSemanticV15({
@@ -362,6 +367,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer(overrides)))
       .mockResolvedValueOnce(runEnvelope(semanticAnswer(overrides)));
 
     await expect(critiqueCloudflareRasterSemanticV15({
@@ -376,6 +382,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(envelope({ result: { caption: null, finish_reason: 'stop' }, usage: {} }))
       .mockResolvedValueOnce(envelope({ result: { caption: null, finish_reason: 'stop' }, usage: {} }));
 
     await expect(critiqueCloudflareRasterSemanticV15({
@@ -390,6 +397,10 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+      .mockResolvedValueOnce(runEnvelope(answer))
+      // A format-invalid first answer triggers the critic's single retry,
+      // which replays the same answer here; acceptance-path tests simply
+      // never consume this fifth response.
       .mockResolvedValueOnce(runEnvelope(answer));
   }
 
@@ -525,6 +536,153 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
     expect(body.question).toContain('Independently inspect visible output safety');
     expect(body.question).toContain('Return ONLY valid compact JSON');
+  });
+
+  it('states the output contract up front and again at the end of the question', async () => {
+    const fetchMock = criticFetch(semanticAnswer());
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.adjustments).toEqual([]);
+    const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    // Up-front limits, matching the parser's bounds with headroom.
+    expect(body.question).toContain('Output limits that bind your answer');
+    expect(body.question).toContain('the summary must be at most 400 characters');
+    expect(body.question).toContain('criticalIssues must contain at most 8 entries');
+    expect(body.question).toContain('whenever safetyPassed is true, safetyIssues must be exactly an empty array');
+    // Restated at the end: summary bound, then JSON-only as the final line.
+    expect(body.question).toContain('The summary must be at most 400 characters — one or two sentences that state the verdict.');
+    expect(body.question.trimEnd().endsWith('Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.')).toBe(true);
+    // The defect hunt itself is unchanged.
+    expect(body.question).toContain('actively hunt for defects');
+  });
+
+  it('truncates an over-limit summary instead of rejecting the verdict', async () => {
+    // 601 characters: one over the parser bound of 600. The summary is
+    // display text the verdict never consumes, so it is clipped to the
+    // bound and the repair is recorded in adjustments.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '青い空と白い雲、緑の丘の風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ summary: 'x'.repeat(601) })) as unknown as typeof fetch);
+
+    expect(result.summary).toHaveLength(600);
+    expect(result.adjustments).toEqual(['summary-truncated-from-601-to-600']);
+    expect(result.passed).toBe(true);
+  });
+
+  it('truncates a ninth critical issue instead of rejecting the verdict', async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `defect ${i + 1}`);
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '五重塔のある風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ criticalIssues: nine })) as unknown as typeof fetch);
+
+    expect(result.issues).toEqual(nine.slice(0, 8));
+    expect(result.adjustments).toEqual(['criticalIssues-truncated-from-9-to-8']);
+    // The verdict still reflects the reported defects.
+    expect(result.passed).toBe(false);
+  });
+
+  it('truncates over-limit safety issues while keeping the safety judgment itself', async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `safety reason ${i + 1}`);
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ safetyPassed: false, safetyIssues: nine })) as unknown as typeof fetch);
+
+    expect(result.safetyPassed).toBe(false);
+    expect(result.safetyIssues).toEqual(nine.slice(0, 8));
+    expect(result.adjustments).toEqual(['safetyIssues-truncated-from-9-to-8']);
+    expect(result.passed).toBe(false);
+  });
+
+  it('retries the critic call once with a format reminder when the first answer is unparseable prose', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        .mockResolvedValueOnce(runEnvelope('The image looks fine overall.'))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '青い空と白い雲、緑の丘の風景',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.passed).toBe(true);
+      expect(result.adjustments).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      // The retry counts toward the call's external requests honestly.
+      expect(result.externalNetworkRequests).toBe(5);
+      const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
+      const retryBody = JSON.parse(String(retryInit.body));
+      expect(retryBody.question).toContain('FORMAT REMINDER');
+      expect(retryBody.question).toContain('Keep the summary at or below 400 characters');
+      // The failed attempt was logged server-side with its sub-reason, and
+      // the log record carries no raw answer text.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-semantic-critic] response failed validation');
+      expect(record).toMatchObject({ detail: 'json-no-object-span', attempt: 1 });
+      expect(Object.keys(record).sort()).toEqual(['answerChars', 'attempt', 'detail']);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs the specific validation condition when both attempts fail validation', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const missingAxis = semanticAnswer({ composition: undefined });
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(missingAxis) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 2 });
+      expect(records[0]?.answerChars).toBe(missingAxis.length);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    ['a non-string entry among nine critical issues', { criticalIssues: [...Array.from({ length: 8 }, (_, i) => `defect ${i + 1}`), 42] }],
+    ['a blank entry among the safety issues', { safetyPassed: false, safetyIssues: ['graphic gore is visibly present', '   '] }],
+  ])('still rejects a list with %s instead of repairing it', async (_label, overrides) => {
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer(overrides)) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+  });
+
+  it('still rejects safetyPassed=true with over-limit safety issues after truncation', async () => {
+    // Truncation repairs the count, never the contradiction: nine listed
+    // reasons clipped to eight still contradict a passing safety flag.
+    const nine = Array.from({ length: 9 }, (_, i) => `reason ${i + 1}`);
+    await expect(critiqueCloudflareRasterSemanticV15({
+      originalRequest: '安全な架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ safetyPassed: true, safetyIssues: nine })) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
   it.each([
