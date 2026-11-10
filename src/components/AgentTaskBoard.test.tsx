@@ -185,6 +185,90 @@ describe('AgentTaskBoard', () => {
     expect(listCalls).toBe(2);
   });
 
+  it('re-drives an orphaned queued run when the operator explicitly loads the board (PR-D3)', async () => {
+    const queued = runView({
+      status: 'queued',
+      hold: null,
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'queued', attempts: 0 },
+      ],
+    });
+    const completed = runView({
+      status: 'completed',
+      hold: null,
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'completed', attempts: 1 },
+      ],
+    });
+    let listCalls = 0;
+    let advanceCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('/api/agent/v3/runs?')) {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-key');
+        listCalls += 1;
+        return json({ ok: true, runs: [listCalls === 1 ? queued : completed] });
+      }
+      if (url === '/api/agent/v3/runs/run-board-1/advance') {
+        // The operator binding rides on the Bearer header; the body
+        // carries no plan token.
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-key');
+        expect(JSON.parse(String(init?.body))).toEqual({});
+        advanceCalls += 1;
+        if (advanceCalls === 1) return json({ ok: true, runId: 'run-board-1', status: 'running', advanced: true }, 202);
+        return json({ ok: true, runId: 'run-board-1', status: 'completed', run: completed });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard />);
+    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+
+    expect(await screen.findByText('実行待ち')).toBeTruthy();
+    // The bounded loop drives through the 202 and, once the run
+    // completes, the board reloads so the row lands in the done group.
+    expect(await screen.findByText('完了', {}, { timeout: 5000 })).toBeTruthy();
+    expect(advanceCalls).toBe(2);
+    expect(listCalls).toBe(2);
+  });
+
+  it('never drives runs for a browser-bound load, even when a queued run is listed', async () => {
+    const queued = runView({ status: 'queued', hold: null });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [queued] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
+    await screen.findByText('調査レポートを作ってください');
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 50); }); });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not drive held runs on an operator load — they need the resume flow (design §8)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [runView({})] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard />);
+    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    await screen.findByText('調査レポートを作ってください');
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 50); }); });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('resumes a held run in browser mode: re-plan diff, fresh approval, confirm with the original token', async () => {
     const held = runView({});
     const queued = runView({ status: 'queued', hold: null });
