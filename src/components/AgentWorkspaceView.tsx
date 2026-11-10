@@ -4,6 +4,7 @@ import AgentTaskBoard from './AgentTaskBoard';
 import FormattedMarkdown from './FormattedMarkdown';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 import type { CheckpointState } from '../agent/checkpointManager';
+import { createAgentRunRecord, driveAgentRun, type AgentRunAuth } from '../agent/agentRunClient';
 
 type AgentCapability = {
   ready: boolean;
@@ -42,120 +43,10 @@ type AgentPlan = {
   plan: AgentPlanStep[];
 };
 
-type AgentExecutionResponse = {
-  ok?: boolean;
-  code?: string;
-  status?: string;
-  artifact?: string;
-  checkpoint?: CheckpointState;
-};
-
-type AgentRunResponse = {
-  ok?: boolean;
-  code?: string;
-  status?: string;
-  artifact?: string;
-};
-
-// 'held' and 'recorded' are the runs-path end states (PR-D2): the work
-// now lives in the durable record on the task board, not in this
+// 'held' and 'recorded' are the runs-path end states (PR-D2/D3): the
+// work now lives in the durable record on the task board, not in this
 // screen's stateless execution.
 type Phase = 'idle' | 'planning' | 'awaiting_approval' | 'executing' | 'completed' | 'failed' | 'held' | 'recorded';
-
-// PR-D2 (wiring design §4.5): the client drives a recorded run with
-// bounded advance calls. The caps keep a stuck or contended run from
-// being polled forever from this screen; the record is durable, so
-// stopping here never loses the work — the task board keeps it visible
-// and the board's resume flow can pick it up again.
-const RUN_ADVANCE_MAX_CALLS = 10;
-const RUN_ADVANCE_TOTAL_LIMIT_MS = 5 * 60 * 1000;
-const RUN_ADVANCE_RETRY_DELAY_MS = 1500;
-
-type BrowserRunOutcome =
-  | { kind: 'completed'; artifact?: string }
-  | { kind: 'held' }
-  | { kind: 'recorded' }
-  | { kind: 'store_unavailable' }
-  | { kind: 'failed'; code?: string };
-
-function waitForAdvanceRetry(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('The operation was aborted.', 'AbortError'));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new DOMException('The operation was aborted.', 'AbortError'));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, RUN_ADVANCE_RETRY_DELAY_MS);
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-/**
- * Records the approved plan as a durable run (wiring design §4.1). The
- * browser binding rides on the plan token in the body, exactly like the
- * board's calls; no credential is sent. A 503 means the run store is
- * unavailable — the caller fails closed and never falls back to the
- * stateless /execute path (design §4.6).
- */
-async function createAgentRunRecord(plan: AgentPlan, approvalToken: string, signal: AbortSignal): Promise<'created' | 'store_unavailable'> {
-  const response = await fetch('/api/agent/v3/runs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    cache: 'no-store',
-    body: JSON.stringify({ runId: plan.runId, goal: plan.goal, planToken: plan.planToken, approvalToken, steps: plan.steps }),
-    signal,
-  });
-  if (response.status === 503) return 'store_unavailable';
-  const data = await response.json().catch(() => ({})) as AgentRunResponse;
-  if (!response.ok || data.ok !== true) throw new Error(data.code ?? 'AGENT_RUN_CREATE_FAILED');
-  return 'created';
-}
-
-/**
- * Drives a recorded run with bounded advance calls (wiring design
- * §4.5/§4.6). A 202 'held' outcome means the quota gate parked the run:
- * driving stops and the board's resume flow owns it from there (§8).
- * Other 202s (progress, writer-lock contention, a busy driver) are
- * transient and the loop keeps driving within its caps.
- */
-async function driveAgentRun(plan: AgentPlan, signal: AbortSignal): Promise<BrowserRunOutcome> {
-  const startedAt = Date.now();
-  for (let call = 1; call <= RUN_ADVANCE_MAX_CALLS; call += 1) {
-    if (call > 1) {
-      if (Date.now() - startedAt >= RUN_ADVANCE_TOTAL_LIMIT_MS) return { kind: 'recorded' };
-      await waitForAdvanceRetry(signal);
-    }
-    const response = await fetch(`/api/agent/v3/runs/${encodeURIComponent(plan.runId)}/advance`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      cache: 'no-store',
-      body: JSON.stringify({ planToken: plan.planToken }),
-      signal,
-    });
-    if (response.status === 503) return { kind: 'store_unavailable' };
-    const data = await response.json().catch(() => ({})) as AgentRunResponse;
-    if (response.status === 200 && data.ok === true && data.status === 'completed') {
-      return { kind: 'completed', artifact: typeof data.artifact === 'string' ? data.artifact : undefined };
-    }
-    if (response.status === 202) {
-      if (data.status === 'held' || data.code === 'AGENT_RUN_QUOTA_EXHAUSTED') return { kind: 'held' };
-      continue;
-    }
-    if (response.status === 409) {
-      if (data.code === 'AGENT_RUN_HELD') return { kind: 'held' };
-      return { kind: 'recorded' };
-    }
-    if (response.status === 422) return { kind: 'failed', code: data.code };
-    throw new Error(data.code ?? 'AGENT_RUN_ADVANCE_FAILED');
-  }
-  return { kind: 'recorded' };
-}
 
 // The runs path returns no checkpoint object (PR-D1 delivers only the
 // artifact body), so the on-device save is a local record built from
@@ -418,36 +309,23 @@ export default function AgentWorkspaceView() {
         throw new Error(approval.code ?? 'AGENT_APPROVAL_FAILED');
       }
 
-      if (credential) {
-        // Operator path: unchanged in PR-D2 (its runs wiring is PR-D3).
-        const executeResponse = await fetch('/api/agent/v3/execute', {
-          method: 'POST',
-          headers: authorizationHeaders(credential),
-          cache: 'no-store',
-          body: JSON.stringify({
-            runId: plan.runId,
-            ...operationBody,
-            approvalToken: approval.approvalToken,
-          }),
-          signal: controller.signal,
-        });
-        const result = await executeResponse.json() as AgentExecutionResponse;
-        if (!executeResponse.ok || result.ok !== true || result.status !== 'completed' || typeof result.artifact !== 'string') {
-          throw new Error(result.code ?? 'AGENT_EXECUTION_FAILED');
-        }
-        setArtifact(result.artifact);
-        if (result.checkpoint) await persistCheckpoint(result.checkpoint);
-        setPhase('completed');
-        setLog((current) => [...current, '機能の実行と確認が完了しました。', result.checkpoint ? '結果を端末内に保存しました。' : '']);
-        setPlan(null);
-        return;
-      }
-
-      // Browser path (PR-D2, wiring design §4.1/§4.4): the approved plan
-      // is recorded as a durable run first and then driven from here,
-      // replacing the stateless /execute call. If the record cannot be
-      // created, nothing executes — there is no fallback (design §4.6).
-      const creation = await createAgentRunRecord(plan, approval.approvalToken, controller.signal);
+      // Both approval modes (PR-D2 browser, PR-D3 operator; wiring
+      // design §4.1/§4.4): the approved plan is recorded as a durable
+      // run first and then driven from here, replacing the stateless
+      // /execute call. Only the owner binding differs — the plan token
+      // in the body for the browser, the Bearer credential for the
+      // operator; the creation body and the drive are identical. If
+      // the record cannot be created, nothing executes — there is no
+      // fallback (design §4.6).
+      const runAuth: AgentRunAuth = credential
+        ? { kind: 'operator', credential }
+        : { kind: 'browser', planToken: plan.planToken };
+      const creation = await createAgentRunRecord(
+        { runId: plan.runId, goal: plan.goal, planToken: plan.planToken, steps: plan.steps },
+        approval.approvalToken,
+        runAuth,
+        controller.signal,
+      );
       if (creation === 'store_unavailable') {
         setPhase('failed');
         setArtifact('実行は開始していません。タスクの記録が利用できないため、安全に停止しました。');
@@ -455,7 +333,7 @@ export default function AgentWorkspaceView() {
         return;
       }
       setLog((current) => [...current, '実行を記録しました。進み具合はタスクボードにも表示されます。']);
-      const outcome = await driveAgentRun(plan, controller.signal);
+      const outcome = await driveAgentRun(plan.runId, runAuth, controller.signal);
       if (outcome.kind === 'completed') {
         setArtifact(outcome.artifact ?? '実行が完了しました。');
         if (outcome.artifact) await persistCheckpoint(localRunCheckpoint(plan.runId, outcome.artifact));

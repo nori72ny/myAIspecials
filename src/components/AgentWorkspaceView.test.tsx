@@ -91,16 +91,7 @@ describe('AgentWorkspaceView v3', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
-  it('uses exact v3 approval then execute with the original goal instead of the rendered plan artifact', async () => {
-    const checkpoint = {
-      checkpointId: 'task-4-exec-test-v1',
-      taskId: 'task-4',
-      executionId: 'exec-test',
-      version: 1,
-      status: 'completed',
-      artifact: '# 完成した文書',
-      createdAt: Date.now(),
-    };
+  it('records and drives the run for the operator path with the Bearer binding (PR-D3)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === '/api/agent/v3/status') return json(readyStatus());
@@ -113,12 +104,28 @@ describe('AgentWorkspaceView v3', () => {
         expect(body.params).toEqual({ content: '文書案を作ってください' });
         return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', approvalToken: 'signed-approval-token', scope: 'exact-operation' }, 201);
       }
-      if (url === '/api/agent/v3/execute') {
+      if (url === '/api/agent/v3/runs') {
+        // PR-D3: same creation body as the browser path (the server
+        // verifies both capabilities either way); the operator binding
+        // is the Bearer header on top.
+        expect(init?.method).toBe('POST');
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         const body = JSON.parse(String(init?.body));
-        expect(body).toMatchObject({ runId: 'run-test-1', toolName: 'document_generator', approvalToken: 'signed-approval-token' });
-        expect(body.params).toEqual({ content: '文書案を作ってください' });
-        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# 完成した文書', checkpoint });
+        expect(body).toEqual({
+          runId: 'run-test-1',
+          goal: '文書案を作ってください',
+          planToken: 'signed-plan-token',
+          approvalToken: 'signed-approval-token',
+          steps: [{ toolName: 'document_generator', params: { content: '文書案を作ってください' } }],
+        });
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'queued', run: { runId: 'run-test-1', status: 'queued' } }, 201);
+      }
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
+        expect(init?.method).toBe('POST');
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
+        // The operator binding rides on the header; no plan token body.
+        expect(JSON.parse(String(init?.body))).toEqual({});
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# 完成した文書', run: { runId: 'run-test-1', status: 'completed' } });
       }
       throw new Error(`unexpected request: ${url}`);
     });
@@ -134,14 +141,22 @@ describe('AgentWorkspaceView v3', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して実行' })); });
 
     await waitFor(() => expect(screen.getByRole('heading', { name: '完成した文書' })).toBeTruthy());
-    expect(saveCheckpointToIndexedDB).toHaveBeenCalledWith(checkpoint);
+    // The runs path delivers only the artifact body, so the on-device
+    // save is the same local run record the browser path uses.
+    expect(saveCheckpointToIndexedDB).toHaveBeenCalledWith(expect.objectContaining({
+      checkpointId: 'run-test-1-runs-v1',
+      taskId: 'run-test-1',
+      status: 'completed',
+      artifact: '# 完成した文書',
+    }));
     expect(screen.queryByLabelText('実行認証キー')).toBeNull();
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
       '/api/agent/v3/runs?limit=50',
       '/api/agent/v3/approval',
-      '/api/agent/v3/execute',
+      '/api/agent/v3/runs',
+      '/api/agent/v3/runs/run-test-1/advance',
     ]);
   });
 
@@ -157,10 +172,12 @@ describe('AgentWorkspaceView v3', () => {
         expect(body.params).toEqual({ code: goal });
         return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
       }
-      if (url === '/api/agent/v3/execute') {
+      if (url === '/api/agent/v3/runs') {
         const body = JSON.parse(String(init?.body));
-        expect(body.toolName).toBe('code_interpreter');
-        expect(body.params).toEqual({ code: goal });
+        expect(body.steps).toEqual([{ toolName: 'code_interpreter', params: { code: goal } }]);
+        return json({ ok: true, runId: 'run-test-1', status: 'queued' }, 201);
+      }
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
         return json({ ok: true, status: 'completed', artifact: '// verified analysis' });
       }
       throw new Error(`unexpected request: ${url}`);
@@ -384,6 +401,67 @@ describe('AgentWorkspaceView v3', () => {
     }
     // The bounded loop made exactly the capped number of advance calls.
     expect(advanceCalls).toBe(10);
+    expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on the operator path when the run record cannot be created (503)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
+      if (url === '/api/agent/v3/runs') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
+        return json({ ok: false, code: 'AGENT_RUN_STORE_UNAVAILABLE' }, 503);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('エージェントを利用できます');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+
+    await screen.findByText('タスクの記録が利用できないため、安全に停止しました。実行は開始していません。');
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    // No advance, and no fallback to the stateless execute endpoint.
+    expect(urls.some((url) => url.endsWith('/advance'))).toBe(false);
+    expect(urls).not.toContain('/api/agent/v3/execute');
+    expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
+  });
+
+  it('maps a quota-held run to the held display on the operator path too', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/approval') return json({ ok: true, approvalToken: 'signed-approval-token' }, 201);
+      if (url === '/api/agent/v3/runs') return json({ ok: true, runId: 'run-test-1', status: 'queued' }, 201);
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
+        expect(JSON.parse(String(init?.body))).toEqual({});
+        return json({ ok: true, runId: 'run-test-1', status: 'held', advanced: false, code: 'AGENT_RUN_QUOTA_EXHAUSTED' }, 202);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('エージェントを利用できます');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+
+    await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。');
+    expect(screen.getByText('保留中')).toBeTruthy();
     expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
   });
 });

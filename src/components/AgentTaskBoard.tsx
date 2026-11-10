@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { driveAgentRun } from '../agent/agentRunClient';
 
 /**
  * Task board (multitask Phase 1, PR 1-F; design §5.2 and §8.8).
@@ -24,9 +25,20 @@ import React, { useEffect, useRef, useState } from 'react';
  * workspace still costs no request in the common case and cannot
  * surprise the shared rate limiter. Row actions are limited to what the API already offers:
  * starting a resume (PR 1-C, which re-plans and requires a fresh
- * approval before anything runs again) and cancelling a run. Driving a
- * queued run forward (advance) and changing priority have no board
- * wiring in this PR.
+ * approval before anything runs again) and cancelling a run. Changing
+ * priority has no board wiring.
+ *
+ * Re-driving (PR-D3, wiring design §4.5): the operator binding spans
+ * every operator run across plans, so when the operator explicitly
+ * loads the board and finds runs still queued or running — work whose
+ * driver went away, e.g. the workspace tab was closed mid-drive — the
+ * board resumes driving them with the same bounded advance loop the
+ * workspace uses, then refreshes the list. This only continues work a
+ * human already approved; held runs are never driven from here (they
+ * need the resume flow's fresh approval, design §8), browser-bound
+ * loads never drive (the binding is per-plan and auto-loads during
+ * planning), and internal reloads after row actions do not re-trigger
+ * driving.
  */
 
 const TOOL_LABELS: Record<string, string> = {
@@ -252,6 +264,8 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const credentialInputRef = useRef<HTMLInputElement>(null);
   const previousTokenRef = useRef<string | null>(browserPlanToken ?? null);
   const autoLoadedTokenRef = useRef<string | null>(null);
+  const redriveAbortRef = useRef<AbortController | null>(null);
+  const redriveInFlightRef = useRef(false);
 
   // If the workspace moves to a different plan, browser-bound results of
   // the previous plan no longer belong on screen.
@@ -273,6 +287,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   }, [browserPlanToken]);
 
   useEffect(() => () => {
+    redriveAbortRef.current?.abort();
     if (credentialInputRef.current) credentialInputRef.current.value = '';
   }, []);
 
@@ -318,10 +333,46 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         setLoadState('error');
         return;
       }
-      setRuns(data.runs.map(parseRunView).filter((run): run is RunView => run !== null));
+      const parsed = data.runs.map(parseRunView).filter((run): run is RunView => run !== null);
+      setRuns(parsed);
       setLoadState('ready');
+      // Re-drive (PR-D3): only an explicit load by the operator — the
+      // board's "show tasks" action with a credential, never an
+      // internal reload or a browser-bound auto-load — picks up
+      // orphaned queued/running runs (design §4.5).
+      if (!authOverride && resolved.kind === 'operator') {
+        void redriveOperatorRuns(resolved, parsed);
+      }
     } catch {
       setLoadState('error');
+    }
+  };
+
+  // Continues already-approved operator runs whose driver went away.
+  // Each run is driven with the workspace's bounded advance loop; a
+  // run that fails or parks (held, store unavailable) simply stops and
+  // keeps its record state. Afterwards the list is reloaded through
+  // the internal path, which never re-triggers driving — but only when
+  // at least one drive actually got a server response; if every drive
+  // died on the wire nothing could have changed, and the display the
+  // operator is looking at stays untouched.
+  const redriveOperatorRuns = async (auth: BoardAuth & { kind: 'operator' }, listed: RunView[]) => {
+    const pending = listed.filter((run) => run.status === 'queued' || run.status === 'running');
+    if (pending.length === 0 || redriveInFlightRef.current) return;
+    redriveInFlightRef.current = true;
+    const controller = new AbortController();
+    redriveAbortRef.current = controller;
+    let anyResponse = false;
+    try {
+      for (const run of pending) {
+        if (controller.signal.aborted) break;
+        const outcome = await driveAgentRun(run.runId, auth, controller.signal).catch(() => null);
+        if (outcome) anyResponse = true;
+      }
+      if (anyResponse && !controller.signal.aborted) await load(auth);
+    } finally {
+      redriveInFlightRef.current = false;
+      if (redriveAbortRef.current === controller) redriveAbortRef.current = null;
     }
   };
 
