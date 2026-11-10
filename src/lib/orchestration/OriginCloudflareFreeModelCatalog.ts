@@ -7,6 +7,8 @@ export const ORIGIN_CLOUDFLARE_FREE_MODEL = "@cf/google/gemma-4-26b-a4b-it" as c
  * pinned to ORIGIN_CLOUDFLARE_FREE_MODEL, and
  * selectCurrentOriginCloudflareFreeModel keeps returning the primary model.
  * It is never used as the route's primary model in this catalog's contract.
+ * The model page shows a planned deprecation on 2026-11-20, so this entry's
+ * reviewAfter is capped at that date (see the entry's sourceDescription).
  */
 export const ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID = "@cf/qwen/qwen3-30b-a3b-fp8" as const;
 export type OriginCloudflareFreeModelId = typeof ORIGIN_CLOUDFLARE_FREE_MODEL | typeof ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID;
