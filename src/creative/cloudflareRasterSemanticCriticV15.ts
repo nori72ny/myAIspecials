@@ -383,6 +383,24 @@ function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticSc
   ) {
     throw responseInvalid('verdict-inconsistent:all-zero-scores-without-issues', answer.length);
   }
+  // The mirror-image contradiction, from the same calibration rule: a
+  // defect found on an axis caps that axis at 3, so a verdict that lists
+  // defects yet scores every axis 4 — the maximum the parser accepts —
+  // does not follow the scoring rules it was given. It is the shape of a
+  // uniform, unexamined answer (or of scores produced without reference
+  // to the hunt's own findings), not of a judgment, so it fails as a
+  // format error and rides the same format-reminder retry instead of
+  // reaching the gate. A failing safety flag is exempt, as above: the
+  // gate itself rejects safety failures, as it should. Everything else
+  // about listed defects is unchanged — defects whose axes respect the
+  // calibration cap still reach the gate as diagnostic evidence.
+  if (
+    parsed.safetyPassed
+    && issues.length > 0
+    && RASTER_SEMANTIC_AXES_V15.every(axis => scores[axis] >= 4)
+  ) {
+    throw responseInvalid('verdict-inconsistent:defects-with-near-perfect-scores', answer.length);
+  }
   return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
 }
 
@@ -433,21 +451,29 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
     'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
     'The summary must be at most 400 characters — one or two sentences that state the verdict.',
-    // The example scores are deliberately mixed and gate-failing (mean
-    // below 3.5, several axes below 3): the previous all-zero example was
-    // echoed verbatim by the model in production (2026-11-10), returning
-    // self-contradictory all-zero verdicts for real images. An example
-    // that cannot pass if copied keeps an echo on the fail-closed side.
-    // The parser-side guard for the echoed shape is in
-    // parseSemanticPayloadChecked (verdict-inconsistent:all-zero-scores-without-issues).
-    'Return ONLY valid compact JSON with exactly these keys. The example values below show the format only — never copy them: score every axis from what you actually observed in this image:',
-    '{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3,"safetyPassed":true,"safetyIssues":[],"criticalIssues":["FORMAT EXAMPLE ONLY: replace this entry with a defect you actually observed, or use an empty array when you observed none"],"summary":"FORMAT EXAMPLE ONLY: replace this with your own one-sentence verdict."}',
+    // The template below shows types only — no concrete score vector
+    // appears anywhere in this question. Production evidence forced this:
+    // the original all-zero example was echoed verbatim as the verdict
+    // for real images, and the mixed real-score example that replaced it
+    // (#1185, 3/2/3/2/4/2/3) was echoed verbatim too — three different
+    // candidate images received that identical vector, differing only in
+    // their defect counts (2026-11-10, production c561cd9b). A vector
+    // that exists in the prompt becomes the answer, whatever values it
+    // holds, so there is nothing left to copy: every axis value is a
+    // placeholder string, and a verbatim copy fails axis validation (a
+    // string is not a score) and rides the format-reminder retry instead
+    // of ever becoming a verdict. The parser-side guards for the
+    // self-contradictory verdict shapes are in
+    // parseSemanticPayloadChecked (verdict-inconsistent:*).
+    'Return ONLY valid compact JSON with exactly these keys, following the type template below. There is no sample answer: the template shows the required types only — every score must be an integer from 0 to 4 that you choose by judging this image alone, and every placeholder must be replaced with your own words:',
+    '{"promptAdherence":"<integer 0-4>","composition":"<integer 0-4>","subjectIntegrity":"<integer 0-4>","styleExecution":"<integer 0-4>","textHandling":"<integer 0-4>","artifactControl":"<integer 0-4>","professionalUsefulness":"<integer 0-4>","safetyPassed":true,"safetyIssues":[],"criticalIssues":["<FORMAT TEMPLATE ONLY: one defect you actually observed, or an empty array when you observed none>"],"summary":"<FORMAT TEMPLATE ONLY: your own one-sentence verdict>"}',
+    'Judge this image alone: these instructions contain no sample scores, and the placeholders above are type labels, not values. A verdict that contradicts the calibration rules — every axis at 0 with no defects listed, or defects listed while every axis is scored 4 — is rejected as a format error.',
     // Restated as the very last instruction: the answer must be the JSON
     // object and nothing else, so no inspection narrative may precede or
     // follow it.
     'Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.',
     ...(formatReminder
-      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true. Score every axis from what you actually observed — never copy the example values. An answer with every axis at 0 and no defects listed contradicts the scoring rules and is rejected: 0 means that axis was observed to be unusable, so the defects behind it belong in criticalIssues.']
+      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true. Score every axis from what you actually observed in this image: the template placeholders are type labels, not values — never return them as scores, and never return a uniform or patterned set of scores you did not derive from this image; either is a format error. An answer with every axis at 0 and no defects listed contradicts the scoring rules and is rejected: 0 means that axis was observed to be unusable, so the defects behind it belong in criticalIssues. An answer that lists defects while scoring every axis 4 also contradicts the scoring rules and is rejected: a found defect caps its axis at 3, so lower the axes the defects belong to — or, if the defects were not actually observed, do not list them.']
       : []),
   ].join('\n');
 }
