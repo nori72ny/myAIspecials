@@ -365,6 +365,24 @@ function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticSc
     adjustments.push(`summary-truncated-from-${summary.length}-to-${MAX_SUMMARY_CHARS}`);
     summary = summary.slice(0, MAX_SUMMARY_CHARS);
   }
+  // Self-consistency, evaluated last so it never masks a more specific
+  // format failure above: a verdict with every axis at exactly 0, no
+  // defect listed, and a passing safety flag contradicts the question's
+  // own scoring semantics — scores are quality, never defect counts, so
+  // a problem-free image scores high, and an image that truly earns 0 on
+  // every axis necessarily shows defects the hunt is required to
+  // enumerate. This shape is the production signature of the model
+  // echoing a format example instead of judging the image, so it fails
+  // as a format error and rides the existing format-reminder retry,
+  // rather than reaching the gate as a verdict. A failing safety flag is
+  // exempt: the gate itself rejects safety failures, as it should.
+  if (
+    parsed.safetyPassed
+    && issues.length === 0
+    && RASTER_SEMANTIC_AXES_V15.every(axis => scores[axis] === 0)
+  ) {
+    throw responseInvalid('verdict-inconsistent:all-zero-scores-without-issues', answer.length);
+  }
   return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
 }
 
@@ -415,14 +433,21 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
     'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
     'The summary must be at most 400 characters — one or two sentences that state the verdict.',
-    'Return ONLY valid compact JSON with exactly these keys:',
-    '{"promptAdherence":0,"composition":0,"subjectIntegrity":0,"styleExecution":0,"textHandling":0,"artifactControl":0,"professionalUsefulness":0,"safetyPassed":true,"safetyIssues":[],"criticalIssues":[],"summary":"..."}',
+    // The example scores are deliberately mixed and gate-failing (mean
+    // below 3.5, several axes below 3): the previous all-zero example was
+    // echoed verbatim by the model in production (2026-11-10), returning
+    // self-contradictory all-zero verdicts for real images. An example
+    // that cannot pass if copied keeps an echo on the fail-closed side.
+    // The parser-side guard for the echoed shape is in
+    // parseSemanticPayloadChecked (verdict-inconsistent:all-zero-scores-without-issues).
+    'Return ONLY valid compact JSON with exactly these keys. The example values below show the format only — never copy them: score every axis from what you actually observed in this image:',
+    '{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3,"safetyPassed":true,"safetyIssues":[],"criticalIssues":["FORMAT EXAMPLE ONLY: replace this entry with a defect you actually observed, or use an empty array when you observed none"],"summary":"FORMAT EXAMPLE ONLY: replace this with your own one-sentence verdict."}',
     // Restated as the very last instruction: the answer must be the JSON
     // object and nothing else, so no inspection narrative may precede or
     // follow it.
     'Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.',
     ...(formatReminder
-      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true.']
+      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true. Score every axis from what you actually observed — never copy the example values. An answer with every axis at 0 and no defects listed contradicts the scoring rules and is rejected: 0 means that axis was observed to be unusable, so the defects behind it belong in criticalIssues.']
       : []),
   ].join('\n');
 }
