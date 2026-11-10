@@ -801,7 +801,28 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
       expect(tag).toBe('[raster-semantic-critic] response failed validation');
       expect(record).toMatchObject({ detail: 'json-no-object-span', attempt: 1 });
-      expect(Object.keys(record).sort()).toEqual(['answerChars', 'attempt', 'detail']);
+      expect(Object.keys(record).sort()).toEqual([
+        'answerChars', 'attempt', 'detail', 'finishReason', 'structure',
+        'usageCompletionTokens', 'usageNeurons', 'usagePromptTokens', 'usageTotalTokens',
+      ]);
+      // The prose answer attempted no JSON at all: no opening brace, prose
+      // lead-in. The envelope metadata rides along (runEnvelope carries
+      // finish_reason 'stop' and the usage block).
+      expect(record.structure).toEqual({
+        hasOpeningBrace: false,
+        firstBraceOffset: -1,
+        braceClosed: false,
+        maxBraceDepth: 0,
+        startsWithProse: true,
+        hasCodeFence: false,
+      });
+      expect(record).toMatchObject({
+        finishReason: 'stop',
+        usageNeurons: 34.34,
+        usagePromptTokens: 836,
+        usageCompletionTokens: 127,
+        usageTotalTokens: 963,
+      });
     } finally {
       errorSpy.mockRestore();
     }
@@ -822,6 +843,105 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       expect(records[0]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 1 });
       expect(records[1]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 2 });
       expect(records[0]?.answerChars).toBe(missingAxis.length);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('records prose-only structure and never the answer text when no JSON is attempted', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const prose = 'XYZZY-UNIQUE-MARKER: the image looks fine overall and needs no changes.';
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(prose) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      for (const record of records) {
+        expect(record.detail).toBe('json-no-object-span');
+        // Case (i): the model attempted no JSON at all — no opening
+        // brace anywhere, and the answer leads with prose.
+        expect(record.structure).toEqual({
+          hasOpeningBrace: false,
+          firstBraceOffset: -1,
+          braceClosed: false,
+          maxBraceDepth: 0,
+          startsWithProse: true,
+          hasCodeFence: false,
+        });
+        // Classification only: no fragment of the answer reaches the log.
+        expect(JSON.stringify(record)).not.toContain('XYZZY-UNIQUE-MARKER');
+        expect(JSON.stringify(record)).not.toContain('needs no changes');
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('records an unclosed object span when the JSON answer is cut off mid-object', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The production shape of an output-token cutoff: the flat verdict
+      // object starts, runs, and stops before its closing brace exists.
+      const truncated = semanticAnswer().slice(0, 90);
+      expect(truncated.startsWith('{')).toBe(true);
+      expect(truncated).not.toContain('}');
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(truncated) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      for (const record of records) {
+        expect(record.detail).toBe('json-no-object-span');
+        // Case (ii): same detail as prose-only, told apart by the
+        // structure alone — an object began at offset 0 and never closed.
+        expect(record.structure).toEqual({
+          hasOpeningBrace: true,
+          firstBraceOffset: 0,
+          braceClosed: false,
+          maxBraceDepth: 1,
+          startsWithProse: false,
+          hasCodeFence: false,
+        });
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('records a closed span when a complete object still does not parse', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The braces balance and close, so the structure alone rules out
+      // the truncation hypothesis; the contents are simply not JSON.
+      const unparseable = '{promptAdherence: 4, summary: "looks fine"}';
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(unparseable) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      for (const record of records) {
+        expect(record.detail).toBe('json-unparseable');
+        // Case (iii): a complete object span exists but is not valid
+        // JSON — brace correspondence itself is intact.
+        expect(record.structure).toMatchObject({
+          hasOpeningBrace: true,
+          firstBraceOffset: 0,
+          braceClosed: true,
+          maxBraceDepth: 1,
+          startsWithProse: false,
+          hasCodeFence: false,
+        });
+      }
     } finally {
       errorSpy.mockRestore();
     }
