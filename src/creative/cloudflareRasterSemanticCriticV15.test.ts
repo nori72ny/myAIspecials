@@ -78,36 +78,28 @@ function runEnvelopeWithoutUsage(answer: string, extraHeaders: Record<string, st
   }, 200, extraHeaders);
 }
 
+// The current answer contract: the model returns no numbers — each axis
+// carries the list of defects it observed on that axis (empty when it
+// observed none), plus the safety judgment and an optional summary. The
+// default fixture is a defect-free verdict, which derives to all axes 4.
 function semanticAnswer(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
-    promptAdherence: 3.8,
-    composition: 3.6,
-    subjectIntegrity: 3.7,
-    styleExecution: 3.5,
-    textHandling: 3.4,
-    artifactControl: 3.8,
-    professionalUsefulness: 3.6,
+    promptAdherence: [],
+    composition: [],
+    subjectIntegrity: [],
+    styleExecution: [],
+    textHandling: [],
+    artifactControl: [],
+    professionalUsefulness: [],
     safetyPassed: true,
     safetyIssues: [],
-    criticalIssues: [],
     summary: 'The requested subject is coherent and professionally composed.',
     ...overrides,
   });
 }
 
-// Every axis at exactly 0 — the shape the production critic returned when
-// it echoed the prompt's old all-zero format example as its verdict.
-function allZeroAnswer(overrides: Record<string, unknown> = {}) {
-  return semanticAnswer({
-    promptAdherence: 0,
-    composition: 0,
-    subjectIntegrity: 0,
-    styleExecution: 0,
-    textHandling: 0,
-    artifactControl: 0,
-    professionalUsefulness: 0,
-    ...overrides,
-  });
+function defectList(count: number, label: string) {
+  return Array.from({ length: count }, (_, i) => `${label} ${i + 1}`);
 }
 
 describe('cloudflareRasterSemanticCriticV15', () => {
@@ -119,7 +111,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, {})).rejects.toThrow('CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED');
   });
 
-  it('re-verifies Workers Free before vision judgment and returns bounded semantic scores', async () => {
+  it('re-verifies Workers Free before vision judgment and returns a defect-free verdict', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
@@ -149,7 +141,18 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       // caller's post-generation reconciliation.
       reportedNeurons: 34.34,
     });
-    expect(result.score).toBeGreaterThanOrEqual(80);
+    // No defects on any axis derives to a perfect score.
+    expect(result.scores).toEqual({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+    });
+    expect(result.score).toBe(100);
+    expect(result.issues).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/ai/models/schema?model=%40cf%2Fmoondream%2Fmoondream3.1-9B-A2B');
     expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/ai/run/@cf/moondream/moondream3.1-9B-A2B');
@@ -163,11 +166,11 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.max_tokens).toBe(1100);
     expect(body.image).toMatch(/^data:image\/png;base64,/);
     expect(body.question).toContain('Return ONLY valid compact JSON');
-    // Axis-semantics calibration (2026-11-07 production probe): the model had
-    // answered textHandling/artifactControl as defect counts (0 = none found),
-    // so the question must state explicitly that absence scores high.
-    expect(body.question).toContain('For textHandling: score 4 when the image contains no text and no text was requested');
-    expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
+    // The question asks for defect lists, never numbers: an axis list
+    // stays empty exactly when nothing is wrong on that axis.
+    expect(body.question).toContain('You never return numeric scores');
+    expect(body.question).toContain('For textHandling: list a defect only when visible text is garbled, unwanted, misspelled, or incorrect');
+    expect(body.question).toContain('For artifactControl: list every artifact, distortion, warped geometry, or malformed detail that is actually visible');
   });
 
   it('reports null Neurons when the run response carries no usage block', async () => {
@@ -255,14 +258,23 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   });
 
   it('fails semantic quality when material visible defects are reported', async () => {
+    // Three defects on an axis derive to 2 — below the gate floor. Two
+    // such axes also pull the derived mean (24/7) below 3.5.
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        subjectIntegrity: 2.2,
-        professionalUsefulness: 2.5,
-        criticalIssues: ['watch-face geometry is visibly distorted'],
+        subjectIntegrity: [
+          'watch-face geometry is visibly distorted',
+          'the crown is fused into the case',
+          'the strap stitching melts into the leather',
+        ],
+        professionalUsefulness: [
+          'the product is partly cropped out of the frame',
+          'a visible watermark-like smudge sits over the product',
+          'the background clashes with the brand palette',
+        ],
       })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -272,184 +284,219 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(false);
+    expect(result.scores.subjectIntegrity).toBe(2);
+    expect(result.scores.professionalUsefulness).toBe(2);
+    // Flattened findings keep their axis attribution.
     expect(result.issues).toEqual(expect.arrayContaining([
-      'watch-face geometry is visibly distorted',
+      'subjectIntegrity: watch-face geometry is visibly distorted',
+      'professionalUsefulness: the product is partly cropped out of the frame',
       'subjectIntegrity-below-3',
       'professionalUsefulness-below-3',
     ]));
   });
 
-  it('retries when a verdict lists defects yet scores every axis 4, then accepts the recalibrated verdict', async () => {
-    // Parser policy (2026-11-10): a verdict that lists defects while
-    // scoring every axis 4 contradicts the question's own calibration
-    // rule — a found defect caps its axis at 3 — so the shape is a
-    // format failure that rides the reminder retry instead of reaching
-    // the gate; this exact verdict previously passed under diag16 §7 A.
-    // That section still governs everything else: once the retry brings
-    // the defect-bearing axes down to the calibration cap, the listed
-    // defects remain diagnostic evidence, not a veto, and the verdict
-    // passes on its scores.
+  it('accepts a defect-bearing verdict in a single attempt and derives its scores from the defect counts', async () => {
+    // One defect each on composition and subjectIntegrity derives those
+    // axes to 3; every other axis is clean (4). Mean 26/7 ≥ 3.5 and no
+    // axis below the floor, so the verdict passes exactly as returned —
+    // the derivation is the server's, not something the retry negotiates.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '五重塔と池のある風景、手前に人物',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      composition: ['pagoda reflection in the pond is offset by a few pixels'],
+      subjectIntegrity: ['left hand pinky joint bends at a slightly unnatural angle'],
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.safetyPassed).toBe(true);
+    expect(result.scores).toEqual({
+      promptAdherence: 4,
+      composition: 3,
+      subjectIntegrity: 3,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+    });
+    expect(result.issues).toEqual([
+      'composition: pagoda reflection in the pond is offset by a few pixels',
+      'subjectIntegrity: left hand pinky joint bends at a slightly unnatural angle',
+    ]);
+    expect(result.checks).toHaveLength(7);
+    expect(result.externalNetworkRequests).toBe(4);
+  });
+
+  it('rejects a numeric axis value as a format error, retries, and accepts the corrected defect lists', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const defects = [
-        'left hand pinky joint bends at a slightly unnatural angle',
-        'pagoda reflection in the pond is offset by a few pixels',
-      ];
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
         .mockResolvedValueOnce(envelope([]))
         .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-        .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-          promptAdherence: 4,
-          composition: 4,
-          subjectIntegrity: 4,
-          styleExecution: 4,
-          textHandling: 4,
-          artifactControl: 4,
-          professionalUsefulness: 4,
-          criticalIssues: defects,
-        })))
-        .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-          promptAdherence: 4,
-          composition: 3,
-          subjectIntegrity: 3,
-          styleExecution: 4,
-          textHandling: 4,
-          artifactControl: 4,
-          professionalUsefulness: 4,
-          criticalIssues: defects,
-        })));
+        // The retired contract's shape: a number where the defect list
+        // belongs. There is no numeric field left to accept it as.
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer({ promptAdherence: 4 })))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
 
       const result = await critiqueCloudflareRasterSemanticV15({
-        originalRequest: '五重塔と池のある風景、手前に人物',
+        originalRequest: '静かな湖の写真',
         bytes: png(),
         mimeType: 'image/png',
       }, ENV, fetchMock as unknown as typeof fetch);
 
       expect(result.passed).toBe(true);
-      expect(result.safetyPassed).toBe(true);
-      // The listed defects are retained verbatim as diagnostics.
-      expect(result.issues).toEqual(defects);
-      expect(result.checks).toHaveLength(7);
       expect(result.externalNetworkRequests).toBe(5);
-      // The first answer failed format validation with the near-perfect
-      // inconsistency detail — that failure is what fired the retry.
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
       expect(tag).toBe('[raster-semantic-critic] response failed validation');
-      expect(record).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 1 });
-      // The retry's reminder names the contradiction and its remedy.
+      expect(record).toMatchObject({ detail: 'axis-defects-not-a-list:promptAdherence', attempt: 1 });
+      // The retry's reminder states the list contract and the numeric ban.
       const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
       const retryBody = JSON.parse(String(retryInit.body));
       expect(retryBody.question).toContain('FORMAT REMINDER');
-      expect(retryBody.question).toContain('lists defects while scoring every axis 4 also contradicts the scoring rules');
-      expect(retryBody.question).toContain('a found defect caps its axis at 3');
+      expect(retryBody.question).toContain('Every axis value must be an array of the defects you actually observed on that axis');
+      expect(retryBody.question).toContain('a numeric axis value is a format error');
     } finally {
       errorSpy.mockRestore();
     }
   });
 
-  it('fails closed when the retry also lists defects with every axis at 4', async () => {
+  it('fails closed when both attempts return numeric axis values', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const nearPerfect = semanticAnswer({
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 4,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
-        criticalIssues: ['the horizon line is visibly tilted'],
-      });
       await expect(critiqueCloudflareRasterSemanticV15({
-        originalRequest: '夕日の海辺の風景',
+        originalRequest: '静かな湖の写真',
         bytes: png(),
         mimeType: 'image/png',
-      }, ENV, criticFetch(nearPerfect) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+      }, ENV, criticFetch(semanticAnswer({ promptAdherence: 4 })) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
 
       expect(errorSpy).toHaveBeenCalledTimes(2);
       const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
-      expect(records[0]).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 1 });
-      expect(records[1]).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 2 });
+      expect(records[0]).toMatchObject({ detail: 'axis-defects-not-a-list:promptAdherence', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-defects-not-a-list:promptAdherence', attempt: 2 });
     } finally {
       errorSpy.mockRestore();
     }
   });
 
-  it('accepts a defects-with-perfect-scores verdict whose safety judgment fails, without the inconsistency check', async () => {
-    // safetyPassed=false is exempt from the near-perfect consistency
-    // check, exactly as it is from the all-zero one: the safety failure
-    // is a real verdict the gate must see and reject on safety grounds,
-    // not a format failure to retry away.
-    const result = await critiqueCloudflareRasterSemanticV15({
-      originalRequest: '架空の商品広告',
-      bytes: png(),
-      mimeType: 'image/png',
-    }, ENV, criticFetch(semanticAnswer({
-      promptAdherence: 4,
-      composition: 4,
-      subjectIntegrity: 4,
-      styleExecution: 4,
-      textHandling: 4,
-      artifactControl: 4,
-      professionalUsefulness: 4,
-      safetyPassed: false,
-      safetyIssues: ['graphic gore is visibly present'],
-      criticalIssues: ['a visible open wound on the subject'],
-    })) as unknown as typeof fetch);
+  it('rejects a copied template placeholder as a format error, retries, and accepts real defect lists', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        // The template's placeholder entry, copied verbatim into the
+        // axis list it was only meant to illustrate. It is type-label
+        // text, not an observed defect — the model has echoed template
+        // material as its answer before (#1185), so the parser must
+        // not accept it as evidence.
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+          promptAdherence: ['<defect you actually observed on this axis>'],
+        })))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
 
-    expect(result.passed).toBe(false);
-    expect(result.safetyPassed).toBe(false);
-    expect(result.issues).toContain('visible-output-safety-failed');
-    // No format retry was consumed: the single critic call was accepted
-    // as a verdict on the first attempt.
-    expect(result.externalNetworkRequests).toBe(4);
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.passed).toBe(true);
+      expect(result.externalNetworkRequests).toBe(5);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-semantic-critic] response failed validation');
+      expect(record).toMatchObject({ detail: 'axis-defect-placeholder:promptAdherence', attempt: 1 });
+      // The retry's reminder names the placeholder copy itself as a
+      // format error, not merely a style preference.
+      const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
+      const retryBody = JSON.parse(String(retryInit.body));
+      expect(retryBody.question).toContain('FORMAT REMINDER');
+      expect(retryBody.question).toContain('copying the placeholder text "<defect you actually observed on this axis>" into an axis list is itself a format error');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
-  it('accepts a differentiated verdict with defects in a single attempt', async () => {
-    // A judged verdict with per-axis differences and defects whose axes
-    // respect the calibration cap parses exactly as before: no format
-    // error, no retry, and the gate verdict follows the scores (mean
-    // 26/7 ≥ 3.5, every axis ≥ 3).
+  it('fails closed when both attempts copy the template placeholder', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Mixed case on purpose: the placeholder match is
+      // case-insensitive, so a case-shifted copy is still a copy.
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer({
+        composition: ['<Defect You Actually Observed On This Axis>'],
+      })) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'axis-defect-placeholder:composition', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-defect-placeholder:composition', attempt: 2 });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('accepts ordinary defect text that does not copy the placeholder phrase', async () => {
+    // Real findings may share individual words with the template —
+    // only the placeholder phrase itself is a copy. Japanese defect
+    // text and a near-miss English phrasing both parse as defects.
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '五重塔と池のある風景',
       bytes: png(),
       mimeType: 'image/png',
     }, ENV, criticFetch(semanticAnswer({
-      promptAdherence: 4,
-      composition: 3,
-      subjectIntegrity: 4,
-      styleExecution: 3,
-      textHandling: 4,
-      artifactControl: 4,
-      professionalUsefulness: 4,
-      criticalIssues: ['pagoda reflection in the pond is offset by a few pixels'],
+      promptAdherence: ['依頼された五重塔ではなく、四重の塔が描かれている'],
+      composition: ['a defect you can actually see: the tower leans left of the frame center'],
     })) as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.issues).toEqual(['pagoda reflection in the pond is offset by a few pixels']);
+    expect(result.scores.promptAdherence).toBe(3);
+    expect(result.scores.composition).toBe(3);
+    expect(result.issues).toEqual([
+      'promptAdherence: 依頼された五重塔ではなく、四重の塔が描かれている',
+      'composition: a defect you can actually see: the tower leans left of the frame center',
+    ]);
     expect(result.externalNetworkRequests).toBe(4);
   });
 
-  it('passes a verdict whose defect-bearing axis sits exactly at the floor of 3', async () => {
-    // diag16 §7 D: the question's calibration rule caps a defect-bearing
-    // axis at 3, so the gate floor is 3. One axis at exactly 3 with the
-    // rest at 4 (mean 27/7 ≈ 3.86) is a deliverable verdict; the previous
-    // 3.4/3.3 thresholds rejected it because an integer 3 is below both.
+  it('accepts a defect-bearing verdict whose safety judgment fails, and the gate rejects it on safety alone', async () => {
+    // A safety failure is a real verdict the gate must see, not a format
+    // failure to retry away: the single critic call is accepted as a
+    // verdict on the first attempt and rejected on safety grounds.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      safetyPassed: false,
+      safetyIssues: ['graphic gore is visibly present'],
+      subjectIntegrity: ['a visible open wound on the subject'],
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(false);
+    expect(result.issues).toContain('subjectIntegrity: a visible open wound on the subject');
+    expect(result.issues).toContain('visible-output-safety-failed');
+    expect(result.externalNetworkRequests).toBe(4);
+  });
+
+  it('passes a verdict whose only defect derives its axis to exactly the floor of 3', async () => {
+    // One listed defect derives to 3 — exactly the gate floor — and the
+    // remaining axes are clean (4), so the mean (27/7 ≈ 3.86) clears 3.5
+    // and the verdict is deliverable with the defect kept as evidence.
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        promptAdherence: 4,
-        composition: 3,
-        subjectIntegrity: 4,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
-        criticalIssues: ['horizon line tilts slightly to the right'],
+        composition: ['horizon line tilts slightly to the right'],
       })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -459,28 +506,20 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.issues).toEqual(['horizon line tilts slightly to the right']);
+    expect(result.scores.composition).toBe(3);
+    expect(result.issues).toEqual(['composition: horizon line tilts slightly to the right']);
   });
 
-  it('fails on safety alone even with perfect scores and no listed defects', async () => {
-    // The safety judgment is never relaxed by the gate realignment: a
-    // safety failure fails closed no matter how high the quality scores
-    // are and even when the critic lists no quality defects at all.
+  it('fails on safety alone even with no listed defects', async () => {
+    // The safety judgment is never relaxed by the gate: a safety failure
+    // fails closed no matter how clean the defect lists are.
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 4,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
         safetyPassed: false,
         safetyIssues: ['graphic gore is visibly present'],
-        criticalIssues: [],
       })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -491,24 +530,20 @@ describe('cloudflareRasterSemanticCriticV15', () => {
 
     expect(result.passed).toBe(false);
     expect(result.safetyPassed).toBe(false);
+    expect(result.scores.promptAdherence).toBe(4);
     expect(result.issues).toContain('visible-output-safety-failed');
   });
 
-  it('fails when the mean is below 3.5 even with no defects and every axis at or above the floor', async () => {
+  it('fails when the mean is below 3.5 even though every derived axis sits at the floor', async () => {
+    // One defect on every axis derives to all 3s: no axis breaches the
+    // floor, but the derived mean 3.0 is below 3.5, so the average alone
+    // rejects the candidate.
+    const oneEach = Object.fromEntries(RASTER_SEMANTIC_AXES_V15.map(axis => [axis, ['a minor visible defect']]));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        promptAdherence: 3.2,
-        composition: 3.2,
-        subjectIntegrity: 3.2,
-        styleExecution: 3.2,
-        textHandling: 3.2,
-        artifactControl: 3.2,
-        professionalUsefulness: 3.2,
-        criticalIssues: [],
-      })));
+      .mockResolvedValueOnce(runEnvelope(semanticAnswer(oneEach)));
 
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '静かな湖の写真',
@@ -517,27 +552,23 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(false);
-    expect(result.issues).toEqual([]);
     expect(result.safetyPassed).toBe(true);
+    expect(result.scores).toEqual(Object.fromEntries(RASTER_SEMANTIC_AXES_V15.map(axis => [axis, 3])));
+    expect(result.issues).toEqual(RASTER_SEMANTIC_AXES_V15.map(axis => `${axis}: a minor visible defect`));
   });
 
-  it('fails when a serious defect pulls one axis below the floor, even with a passing mean', async () => {
-    // Severity reaches the gate through the scores: under the calibration
-    // rule a serious defect scores its axis low. Mean here is
-    // (4*6 + 1) / 7 ≈ 3.57 ≥ 3.5, so only the axis floor rejects it.
+  it('fails when defects pull one axis below the floor, even with a passing mean', async () => {
+    // Five defects on subjectIntegrity derive to 1. The derived mean
+    // (4*6 + 1) / 7 = 25/7 ≈ 3.57 ≥ 3.5, so only the axis floor rejects.
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(envelope([]))
       .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
       .mockResolvedValueOnce(runEnvelope(semanticAnswer({
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 1,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
-        criticalIssues: ['the watch face is melted and its hands are unreadable'],
+        subjectIntegrity: [
+          'the watch face is melted and its hands are unreadable',
+          ...defectList(4, 'further subject defect'),
+        ],
       })));
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -547,10 +578,71 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(false);
+    expect(result.scores.subjectIntegrity).toBe(1);
     expect(result.issues).toEqual(expect.arrayContaining([
-      'the watch face is melted and its hands are unreadable',
+      'subjectIntegrity: the watch face is melted and its hands are unreadable',
       'subjectIntegrity-below-3',
     ]));
+  });
+
+  it('passes when three axes carry one defect each and the rest are clean', async () => {
+    // The boundary passing shape for the derived gate: derived scores
+    // 3,3,3,4,4,4,4 — every axis at or above the floor and the mean
+    // 25/7 ≈ 3.57 at or above 3.5.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '五重塔と池のある風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      promptAdherence: ['a requested bench is missing from the scene'],
+      composition: ['the pagoda sits slightly left of the visual center'],
+      subjectIntegrity: ['one roof tile row is subtly warped'],
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.scores).toEqual({
+      promptAdherence: 3,
+      composition: 3,
+      subjectIntegrity: 3,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+    });
+    // (3+3+3+4+4+4+4) / 7 axes / 4 max * 100 = 89.28 -> 89.
+    expect(result.score).toBe(89);
+  });
+
+  it('fails at the gate when one axis carries three defects', async () => {
+    // Three defects derive to 2 — below the floor — even though the
+    // derived mean (26/7) clears 3.5.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      composition: defectList(3, 'composition defect'),
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.scores.composition).toBe(2);
+    expect(result.issues).toContain('composition-below-3');
+  });
+
+  it.each([
+    [0, 4], [1, 3], [2, 3], [3, 2], [4, 2], [5, 1], [6, 1], [7, 0], [8, 0],
+  ])('derives the composition score from its defect count: %i defects -> %i', async (count, expected) => {
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      composition: defectList(count, 'composition defect'),
+    })) as unknown as typeof fetch);
+
+    expect(result.scores.composition).toBe(expected);
+    // Untouched axes stay clean throughout the mapping.
+    expect(result.scores.promptAdherence).toBe(4);
   });
 
   it('fails closed when the visible-output safety judgment is negative', async () => {
@@ -628,7 +720,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, fetchMock as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.scores.promptAdherence).toBe(3.8);
+    expect(result.scores.promptAdherence).toBe(4);
     expect(result.summary).toBe('The requested subject is coherent and professionally composed.');
   });
 
@@ -651,7 +743,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
 
   it.each([
     ['a missing axis', { composition: undefined }],
-    ['an out-of-range axis score', { promptAdherence: 4.5 }],
+    ['a numeric axis value', { promptAdherence: 4 }],
+    ['a placeholder string as an axis value', { promptAdherence: '<integer 0-4>' }],
   ])('rejects a nested answer with %s instead of guessing', async (_label, overrides) => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
@@ -704,7 +797,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, criticFetch(fenced) as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.scores.promptAdherence).toBe(3.8);
+    expect(result.scores.promptAdherence).toBe(4);
     expect(result.summary).toBe('The requested subject is coherent and professionally composed.');
   });
 
@@ -718,12 +811,12 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, criticFetch(prefixed) as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.scores.composition).toBe(3.6);
+    expect(result.scores.composition).toBe(4);
   });
 
   it.each([
     ['a missing axis', { composition: undefined }],
-    ['an out-of-range axis score', { promptAdherence: 4.5 }],
+    ['a numeric axis value', { promptAdherence: 4 }],
   ])('still rejects an extracted payload with %s instead of guessing', async (_label, overrides) => {
     const wrapped = 'Evaluation follows.\n```json\n' + semanticAnswer(overrides) + '\n```';
 
@@ -734,15 +827,12 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }, ENV, criticFetch(wrapped) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
   });
 
-  it('parses the diag9 production payload unchanged (parsing and score math are not recalibrated)', async () => {
-    // Mirrors the 2026-11-07 production probe for a genuinely good generated
-    // image (red apple on a white background, studio photograph): every
-    // content axis scored 4 with a laudatory summary, yet textHandling and
-    // artifactControl came back 0 because the model answered those two axes
-    // as defect counts. The payload must parse exactly as before and the
-    // score math must not move. (The gate's axis floor was later realigned
-    // from 3.4/3.3 to 3 by diag16 §7 D; this payload still fails either way
-    // — two axes at 0 are below any floor and the mean is 20/7 < 3.5.)
+  it('rejects the retired numeric-score payload shape (diag9) as a format error under the defect-list contract', async () => {
+    // The 2026-11-07 production probe for a genuinely good image came
+    // back in the old numeric contract (diag9). That contract is retired:
+    // the payload's axis values are numbers, so it fails list validation
+    // on the first axis, rides the reminder retry, and fails closed —
+    // its content is never reinterpreted as defects or scores.
     const diag9Answer = JSON.stringify({
       promptAdherence: 4,
       composition: 4,
@@ -753,43 +843,35 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       professionalUsefulness: 4,
       safetyPassed: true,
       safetyIssues: [],
-      criticalIssues: [],
       summary: 'A clean studio photograph of a red apple on a white background, exactly as requested.',
     }, null, 2);
 
-    const result = await critiqueCloudflareRasterSemanticV15({
-      originalRequest: '白背景の赤いリンゴ、スタジオ写真',
-      bytes: png(),
-      mimeType: 'image/png',
-    }, ENV, criticFetch(diag9Answer) as unknown as typeof fetch);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '白背景の赤いリンゴ、スタジオ写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(diag9Answer) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
 
-    expect(result.scores).toEqual({
-      promptAdherence: 4,
-      composition: 4,
-      subjectIntegrity: 4,
-      styleExecution: 4,
-      textHandling: 0,
-      artifactControl: 0,
-      professionalUsefulness: 4,
-    });
-    // (4+4+4+4+0+0+4) / 7 axes / 4 max * 100 = 71.4 -> 71, unchanged.
-    expect(result.score).toBe(71);
-    expect(result.passed).toBe(false);
-    expect(result.issues).toEqual(expect.arrayContaining([
-      'textHandling-below-3',
-      'artifactControl-below-3',
-    ]));
-    expect(result.safetyPassed).toBe(true);
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'axis-defects-not-a-list:promptAdherence', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-defects-not-a-list:promptAdherence', attempt: 2 });
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
-  it('instructs the critic to hunt for concrete defects before scoring', async () => {
+  it('instructs the critic to hunt for concrete defects and file each one under its axis', async () => {
     // Discrimination fix (2026-11-07 quality-inspection batch 1): the critic
     // saturated at 4/4 on every axis for all six delivered images while human
     // review found real defects — malformed piano-playing fingers, a pagoda
     // with four roof tiers instead of five, a slightly inconsistent mirror
-    // reflection, garbled book-spine text. The generic scoring instructions
-    // never made the model look for these, so the question must order an
-    // active defect hunt with concrete checks and a calibrated scale.
+    // reflection, garbled book-spine text. The generic instructions never
+    // made the model look for these, so the question must order an active
+    // defect hunt with concrete checks, and (since the 2026-11-10 contract
+    // change) each finding must be filed in the list of its own axis.
     const fetchMock = criticFetch(semanticAnswer());
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -801,30 +883,34 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.passed).toBe(true);
     const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body));
-    // The hunt itself, before any scoring.
+    // The hunt itself, before any answering.
     expect(body.question).toContain('actively hunt for defects');
-    expect(body.question).toContain('score only what you actually observed');
+    expect(body.question).toContain('report only what you actually observed');
     // 1. Anatomy: count fingers and inspect joints, nails, faces.
     expect(body.question).toContain('a natural hand has exactly five fingers');
     expect(body.question).toContain('fused, missing, extra, duplicated, or unnaturally bent fingers');
     expect(body.question).toContain('facial features symmetric and coherent');
+    expect(body.question).toContain('Report every anomaly you find in the subjectIntegrity list');
     // 2. Countable structures: actually count, compare against reality.
     expect(body.question).toContain('actually count them');
     expect(body.question).toContain('a five-story pagoda has exactly five roof tiers');
+    expect(body.question).toContain('name it in the list of the axis it belongs to');
     // 3. Reflections: compare against the source, left-right reversal.
     expect(body.question).toContain('compare the reflection against its source');
     expect(body.question).toContain('left-right reversal must hold');
     // 4. Text: read it all, quote the garbled strings.
     expect(body.question).toContain('read every piece of visible text in the image');
     expect(body.question).toContain('Misspelled, garbled, or meaningless character strings are concrete defects');
-    // 5. Calibration: a found defect caps its axis at 3 and must be listed.
-    expect(body.question).toContain('score that axis 3 or lower and list the defect in criticalIssues');
-    expect(body.question).toContain('Score from observed facts, not from how good the image feels overall');
-    expect(body.question).toContain('criticalIssues must list every concrete visible defect found in the hunt above');
-    expect(body.question).toContain('maximum 8 entries');
+    expect(body.question).toContain('quote them in the textHandling list');
+    // 5. Calibration: a found defect belongs in its axis list, and only
+    // there — an empty list contradicted by the summary is not a verdict.
+    expect(body.question).toContain('each axis list is the complete record of what your hunt found on that axis');
+    expect(body.question).toContain('Report observed facts only, not how good the image feels overall');
+    expect(body.question).toContain('Each axis list must contain every concrete visible defect found in the hunt above');
+    expect(body.question).toContain('maximum 8 entries per axis');
     // The pre-existing instructions stay in force.
-    expect(body.question).toContain('For textHandling: score 4 when the image contains no text and no text was requested');
-    expect(body.question).toContain('For artifactControl: score 4 when no artifacts');
+    expect(body.question).toContain('For textHandling: list a defect only when visible text is garbled');
+    expect(body.question).toContain('For artifactControl: list every artifact');
     expect(body.question).toContain('Independently inspect visible output safety');
     expect(body.question).toContain('Return ONLY valid compact JSON');
   });
@@ -844,17 +930,17 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const body = JSON.parse(String(init.body));
     // Up-front limits, matching the parser's bounds with headroom.
     expect(body.question).toContain('Output limits that bind your answer');
-    expect(body.question).toContain('the summary must be at most 400 characters');
-    expect(body.question).toContain('criticalIssues must contain at most 8 entries');
+    expect(body.question).toContain('each axis list must contain at most 8 entries');
     expect(body.question).toContain('whenever safetyPassed is true, safetyIssues must be exactly an empty array');
-    // Restated at the end: summary bound, then JSON-only as the final line.
-    expect(body.question).toContain('The summary must be at most 400 characters — one or two sentences that state the verdict.');
+    // Restated at the end: the optional summary, then JSON-only as the
+    // final line.
+    expect(body.question).toContain('The summary is optional: you may omit it or leave it empty.');
     expect(body.question.trimEnd().endsWith('Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.')).toBe(true);
     // The defect hunt itself is unchanged.
     expect(body.question).toContain('actively hunt for defects');
   });
 
-  it('shows a type-only format template with no numeric score vector to copy', async () => {
+  it('shows a type-only format template for defect lists, with no numeric score vector to copy', async () => {
     const fetchMock = criticFetch(semanticAnswer());
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -867,161 +953,46 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body));
     // The template pins the exact key names and value types, and nothing
-    // else: every axis value is a placeholder string, so there is no
-    // score vector in the question that could be echoed back as a
-    // verdict. (Both concrete examples that preceded this — all-zero,
-    // then #1185's mixed 3/2/3/2/4/2/3 — were echoed verbatim in
-    // production; changing the numbers only changed what was copied.)
-    expect(body.question).toContain('{"promptAdherence":"<integer 0-4>","composition":"<integer 0-4>","subjectIntegrity":"<integer 0-4>","styleExecution":"<integer 0-4>","textHandling":"<integer 0-4>","artifactControl":"<integer 0-4>","professionalUsefulness":"<integer 0-4>"');
+    // else: one axis shows a single placeholder defect entry, the rest
+    // show the empty list. No concrete defect text and no number appear
+    // that could be echoed back as a verdict. (Both numeric examples
+    // that preceded the list contract — all-zero, then #1185's mixed
+    // 3/2/3/2/4/2/3 — were echoed verbatim in production; the list
+    // contract removes the numeric channel itself.)
+    expect(body.question).toContain('{"promptAdherence":["<defect you actually observed on this axis>"],"composition":[],"subjectIntegrity":[],"styleExecution":[],"textHandling":[],"artifactControl":[],"professionalUsefulness":[]');
     expect(body.question).toContain('FORMAT TEMPLATE ONLY');
     // Stated around the template and again after it: no sample answer
-    // exists and each score must come from judging this image alone.
+    // exists and each axis must carry this image's own findings.
     expect(body.question).toContain('There is no sample answer');
-    expect(body.question).toContain('you choose by judging this image alone');
-    expect(body.question).toContain('these instructions contain no sample scores');
-    expect(body.question).toContain('the placeholders above are type labels, not values');
+    expect(body.question).toContain('every axis value must be an array of the defect strings you observed on that axis');
+    expect(body.question).toContain('never a number');
+    expect(body.question).toContain('these instructions contain no sample verdict');
     // No axis is ever paired with a concrete number anywhere in the
-    // question, in either of the retired example vectors' shapes.
+    // question, and the retired flat criticalIssues key is gone.
     for (const axis of RASTER_SEMANTIC_AXES_V15) {
       expect(body.question).not.toMatch(new RegExp(`"${axis}":\\s*\\d`));
     }
+    expect(body.question).not.toContain('criticalIssues');
     expect(body.question).not.toContain('FORMAT EXAMPLE ONLY');
   });
 
-  it('rejects an answer that returns the template placeholders as scores', async () => {
-    // A verbatim copy of the type template cannot become a verdict: the
-    // placeholder strings are not numbers, so axis validation fails and
-    // the answer rides the format-reminder retry, then fails closed.
-    const templateCopy = JSON.stringify({
-      promptAdherence: '<integer 0-4>',
-      composition: '<integer 0-4>',
-      subjectIntegrity: '<integer 0-4>',
-      styleExecution: '<integer 0-4>',
-      textHandling: '<integer 0-4>',
-      artifactControl: '<integer 0-4>',
-      professionalUsefulness: '<integer 0-4>',
-      safetyPassed: true,
-      safetyIssues: [],
-      criticalIssues: [],
-      summary: 'Copied template.',
-    });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      await expect(critiqueCloudflareRasterSemanticV15({
-        originalRequest: '静かな湖の写真',
-        bytes: png(),
-        mimeType: 'image/png',
-      }, ENV, criticFetch(templateCopy) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-
-      expect(errorSpy).toHaveBeenCalledTimes(2);
-      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
-      expect(records[0]).toMatchObject({ detail: 'axis-score-invalid:promptAdherence', attempt: 1 });
-      expect(records[1]).toMatchObject({ detail: 'axis-score-invalid:promptAdherence', attempt: 2 });
-    } finally {
-      errorSpy.mockRestore();
-    }
-  });
-
-  it('rejects an all-zero, defect-free, safety-passing verdict as inconsistent and retries with the reminder', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const fetchMock = vi.fn()
-        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
-        .mockResolvedValueOnce(envelope([]))
-        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-        .mockResolvedValueOnce(runEnvelope(allZeroAnswer({
-          summary: 'The image could not be assessed on any axis.',
-        })))
-        .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
-
-      const result = await critiqueCloudflareRasterSemanticV15({
-        originalRequest: '青い空と白い雲、緑の丘の風景',
-        bytes: png(),
-        mimeType: 'image/png',
-      }, ENV, fetchMock as unknown as typeof fetch);
-
-      expect(result.passed).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(5);
-      expect(result.externalNetworkRequests).toBe(5);
-      // The first attempt failed format validation with the inconsistency
-      // detail — that failure is what fired the retry.
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
-      expect(tag).toBe('[raster-semantic-critic] response failed validation');
-      expect(record).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 1 });
-      // The retry's reminder forbids returning the template placeholders
-      // or an unexamined uniform score set, and names the all-zero
-      // contradiction explicitly.
-      const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
-      const retryBody = JSON.parse(String(retryInit.body));
-      expect(retryBody.question).toContain('FORMAT REMINDER');
-      expect(retryBody.question).toContain('the template placeholders are type labels, not values');
-      expect(retryBody.question).toContain('never return a uniform or patterned set of scores you did not derive from this image');
-      expect(retryBody.question).toContain('every axis at 0 and no defects listed contradicts the scoring rules');
-    } finally {
-      errorSpy.mockRestore();
-    }
-  });
-
-  it('fails closed when the retry also returns the all-zero, defect-free verdict', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      await expect(critiqueCloudflareRasterSemanticV15({
-        originalRequest: '静かな湖の写真',
-        bytes: png(),
-        mimeType: 'image/png',
-      }, ENV, criticFetch(allZeroAnswer({
-        summary: 'The image could not be assessed on any axis.',
-      })) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
-
-      expect(errorSpy).toHaveBeenCalledTimes(2);
-      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
-      expect(records[0]).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 1 });
-      expect(records[1]).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 2 });
-    } finally {
-      errorSpy.mockRestore();
-    }
-  });
-
-  it('accepts an all-zero verdict that lists defects, and the gate rejects it on scores', async () => {
-    // All-zero scores WITH enumerated defects are self-consistent: the
-    // image was observed to be unusable and the critic said why. The
-    // payload parses normally — no format error — and the gate rejects
-    // the candidate through the scores alone.
+  it.each([
+    ['missing entirely', { summary: undefined }],
+    ['an empty string', { summary: '' }],
+  ])('accepts a verdict whose summary is %s', async (_label, overrides) => {
+    // The summary became optional with the list contract: it is display
+    // text the verdict never consumes, and a missing summary was one of
+    // the #1187 production format collapses. It now parses as empty.
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '静かな湖の写真',
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, criticFetch(allZeroAnswer({
-      criticalIssues: ['the image is a blank gray rectangle with no visible subject'],
-      summary: 'The image is unusable on every axis.',
-    })) as unknown as typeof fetch);
+    }, ENV, criticFetch(semanticAnswer(overrides)) as unknown as typeof fetch);
 
-    expect(result.passed).toBe(false);
-    expect(result.safetyPassed).toBe(true);
-    expect(result.score).toBe(0);
-    expect(result.issues).toContain('the image is a blank gray rectangle with no visible subject');
-    expect(result.issues).toContain('promptAdherence-below-3');
-  });
-
-  it('accepts an all-zero verdict whose safety judgment fails, without the inconsistency check', async () => {
-    // safetyPassed=false is exempt from the all-zero consistency check:
-    // the safety failure is a real verdict the gate must see and reject
-    // on safety grounds, not a format failure to retry away.
-    const result = await critiqueCloudflareRasterSemanticV15({
-      originalRequest: '架空の商品広告',
-      bytes: png(),
-      mimeType: 'image/png',
-    }, ENV, criticFetch(allZeroAnswer({
-      safetyPassed: false,
-      safetyIssues: ['graphic gore is visibly present'],
-      summary: 'The image is unusable and unsafe.',
-    })) as unknown as typeof fetch);
-
-    expect(result.passed).toBe(false);
-    expect(result.safetyPassed).toBe(false);
-    expect(result.safetyIssues).toEqual(['graphic gore is visibly present']);
-    expect(result.issues).toContain('visible-output-safety-failed');
+    expect(result.passed).toBe(true);
+    expect(result.summary).toBe('');
+    expect(result.adjustments).toEqual([]);
+    expect(result.externalNetworkRequests).toBe(4);
   });
 
   it('truncates an over-limit summary instead of rejecting the verdict', async () => {
@@ -1039,22 +1010,24 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.passed).toBe(true);
   });
 
-  it('truncates a ninth critical issue instead of rejecting the verdict', async () => {
-    const nine = Array.from({ length: 9 }, (_, i) => `defect ${i + 1}`);
+  it('truncates a ninth defect on one axis instead of rejecting the verdict', async () => {
+    const nine = defectList(9, 'defect');
     const result = await critiqueCloudflareRasterSemanticV15({
       originalRequest: '五重塔のある風景',
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, criticFetch(semanticAnswer({ criticalIssues: nine })) as unknown as typeof fetch);
+    }, ENV, criticFetch(semanticAnswer({ promptAdherence: nine })) as unknown as typeof fetch);
 
-    expect(result.issues).toEqual(nine.slice(0, 8));
-    expect(result.adjustments).toEqual(['criticalIssues-truncated-from-9-to-8']);
-    // The truncated list is preserved verbatim as diagnostic evidence. The
-    // verdict itself follows the scores (diag16 §7 A): listed defects alone
-    // no longer veto, and this fixture's scores clear the floor and the
-    // mean, so the verdict passes. (Before the realignment this same
-    // payload failed solely because the issues list was non-empty.)
-    expect(result.passed).toBe(true);
+    expect(result.issues).toEqual([
+      ...nine.slice(0, 8).map(defect => `promptAdherence: ${defect}`),
+      'promptAdherence-below-3',
+    ]);
+    expect(result.adjustments).toEqual(['promptAdherence-truncated-from-9-to-8']);
+    // The truncated list is preserved as diagnostic evidence; the
+    // derivation has long saturated (8 defects derive to 0, as 9 would),
+    // so the repair does not move the verdict — the axis floor does.
+    expect(result.scores.promptAdherence).toBe(0);
+    expect(result.passed).toBe(false);
   });
 
   it('truncates over-limit safety issues while keeping the safety judgment itself', async () => {
@@ -1095,7 +1068,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
       const retryBody = JSON.parse(String(retryInit.body));
       expect(retryBody.question).toContain('FORMAT REMINDER');
-      expect(retryBody.question).toContain('Keep the summary at or below 400 characters');
+      expect(retryBody.question).toContain('Every axis value must be an array');
+      expect(retryBody.question).toContain('the summary (optional) at or below 400 characters');
       // The failed attempt was logged server-side with its sub-reason, and
       // the log record carries no raw answer text.
       expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -1141,8 +1115,8 @@ describe('cloudflareRasterSemanticCriticV15', () => {
 
       expect(errorSpy).toHaveBeenCalledTimes(2);
       const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
-      expect(records[0]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 1 });
-      expect(records[1]).toMatchObject({ detail: 'axis-score-invalid:composition', attempt: 2 });
+      expect(records[0]).toMatchObject({ detail: 'axis-defects-not-a-list:composition', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-defects-not-a-list:composition', attempt: 2 });
       expect(records[0]?.answerChars).toBe(missingAxis.length);
     } finally {
       errorSpy.mockRestore();
@@ -1248,26 +1222,18 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }
   });
 
-  it('logs the verdict numbers and failed conditions when the gate rejects on the mean alone', async () => {
+  it('logs the derived numbers, defect counts, and failed conditions when the gate rejects on the mean alone', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      // Every axis exactly at the floor of 3: no axis condition fires and
-      // safety passes, but the mean 3.0 is below 3.5, so the rejection is
-      // attributable to the average alone.
-      const allAxesThree = {
-        promptAdherence: 3,
-        composition: 3,
-        subjectIntegrity: 3,
-        styleExecution: 3,
-        textHandling: 3,
-        artifactControl: 3,
-        professionalUsefulness: 3,
-      };
+      // One defect on every axis derives to all 3s: no axis condition
+      // fires and safety passes, but the mean 3.0 is below 3.5, so the
+      // rejection is attributable to the average alone.
+      const oneEach = Object.fromEntries(RASTER_SEMANTIC_AXES_V15.map(axis => [axis, ['a minor visible defect']]));
       const result = await critiqueCloudflareRasterSemanticV15({
         originalRequest: '静かな湖の写真',
         bytes: png(),
         mimeType: 'image/png',
-      }, ENV, criticFetch(semanticAnswer({ ...allAxesThree, criticalIssues: ['a minor visible defect'] })) as unknown as typeof fetch);
+      }, ENV, criticFetch(semanticAnswer(oneEach)) as unknown as typeof fetch);
 
       expect(result.passed).toBe(false);
       expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -1277,18 +1243,19 @@ describe('cloudflareRasterSemanticCriticV15', () => {
         passed: false,
         safetyPassed: true,
         safetyIssuesCount: 0,
-        criticalIssuesCount: 1,
+        defectsTotal: 7,
         failedConditions: ['average-below-3.5'],
         adjustments: [],
       });
+      expect(record.defectCounts).toEqual(Object.fromEntries(RASTER_SEMANTIC_AXES_V15.map(axis => [axis, 1])));
       expect(record.average).toBeCloseTo(3, 10);
-      expect(record.scores).toEqual(allAxesThree);
+      expect(record.scores).toEqual(Object.fromEntries(RASTER_SEMANTIC_AXES_V15.map(axis => [axis, 3])));
       expect(Object.keys(record).sort()).toEqual([
-        'adjustments', 'average', 'criticalIssuesCount', 'failedConditions',
+        'adjustments', 'average', 'defectCounts', 'defectsTotal', 'failedConditions',
         'passed', 'safetyIssuesCount', 'safetyPassed', 'scores',
       ]);
-      // Numbers and identifiers only: neither the summary text nor the
-      // listed issue's text ever reaches the record.
+      // Numbers and identifiers only: neither the summary text nor any
+      // listed defect's text ever reaches the record.
       const serialized = JSON.stringify(record);
       expect(serialized).not.toContain('a minor visible defect');
       expect(serialized).not.toContain('professionally composed');
@@ -1300,20 +1267,15 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   it('logs each axis below the floor as its own failed condition', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      // composition 2 with every other axis 4: the mean (26/7) clears 3.5,
-      // so the floor breach is the only failing condition.
+      // Three composition defects derive to 2 with every other axis
+      // clean (4): the mean (26/7) clears 3.5, so the floor breach is
+      // the only failing condition.
       const result = await critiqueCloudflareRasterSemanticV15({
         originalRequest: '静かな湖の写真',
         bytes: png(),
         mimeType: 'image/png',
       }, ENV, criticFetch(semanticAnswer({
-        promptAdherence: 4,
-        composition: 2,
-        subjectIntegrity: 4,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
+        composition: defectList(3, 'composition defect'),
       })) as unknown as typeof fetch);
 
       expect(result.passed).toBe(false);
@@ -1321,6 +1283,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const [, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
       expect(record.failedConditions).toEqual(['axis-below-3:composition']);
       expect(record.average).toBeCloseTo(26 / 7, 10);
+      expect(record.defectCounts).toMatchObject({ composition: 3, promptAdherence: 0 });
     } finally {
       errorSpy.mockRestore();
     }
@@ -1329,19 +1292,12 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   it('logs the safety condition and only the count of safety reasons when safety fails', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      // Perfect axis scores cannot rescue a safety failure.
+      // A clean defect record cannot rescue a safety failure.
       const result = await critiqueCloudflareRasterSemanticV15({
         originalRequest: '架空の商品広告',
         bytes: png(),
         mimeType: 'image/png',
       }, ENV, criticFetch(semanticAnswer({
-        promptAdherence: 4,
-        composition: 4,
-        subjectIntegrity: 4,
-        styleExecution: 4,
-        textHandling: 4,
-        artifactControl: 4,
-        professionalUsefulness: 4,
         safetyPassed: false,
         safetyIssues: ['graphic gore is visibly present'],
       })) as unknown as typeof fetch);
@@ -1365,27 +1321,21 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   it('records parser adjustments in the verdict log when a rejected answer needed repairs', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const nine = Array.from({ length: 9 }, (_, i) => `defect ${i + 1}`);
+      const nine = defectList(9, 'defect');
       const result = await critiqueCloudflareRasterSemanticV15({
         originalRequest: '五重塔のある風景',
         bytes: png(),
         mimeType: 'image/png',
       }, ENV, criticFetch(semanticAnswer({
-        promptAdherence: 3,
-        composition: 3,
-        subjectIntegrity: 3,
-        styleExecution: 3,
-        textHandling: 3,
-        artifactControl: 3,
-        professionalUsefulness: 3,
-        criticalIssues: nine,
+        promptAdherence: nine,
       })) as unknown as typeof fetch);
 
       expect(result.passed).toBe(false);
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const [, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
-      expect(record.adjustments).toEqual(['criticalIssues-truncated-from-9-to-8']);
-      expect(record.criticalIssuesCount).toBe(8);
+      expect(record.adjustments).toEqual(['promptAdherence-truncated-from-9-to-8']);
+      expect(record.defectCounts).toMatchObject({ promptAdherence: 8 });
+      expect(record.defectsTotal).toBe(8);
     } finally {
       errorSpy.mockRestore();
     }
@@ -1408,7 +1358,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
   });
 
   it.each([
-    ['a non-string entry among nine critical issues', { criticalIssues: [...Array.from({ length: 8 }, (_, i) => `defect ${i + 1}`), 42] }],
+    ['a non-string entry among nine defects on one axis', { promptAdherence: [...defectList(8, 'defect'), 42] }],
     ['a blank entry among the safety issues', { safetyPassed: false, safetyIssues: ['graphic gore is visibly present', '   '] }],
   ])('still rejects a list with %s instead of repairing it', async (_label, overrides) => {
     await expect(critiqueCloudflareRasterSemanticV15({

@@ -35,17 +35,25 @@ export type RasterSemanticCriticResultV15 = {
   safetyIssues: readonly string[];
   score: number;
   model: typeof CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15;
+  /**
+   * Axis scores derived deterministically on the server from the model's
+   * per-axis defect lists (see deriveAxisScore in the parser): the model
+   * itself returns no numbers, only the defects it observed per axis and
+   * the safety judgment.
+   */
   scores: RasterSemanticScoresV15;
   checks: readonly string[];
   issues: readonly string[];
   /**
    * Non-semantic repairs applied while accepting the model's answer:
-   * over-limit issue lists and an over-limit summary are truncated to the
-   * parser's bounds instead of rejecting the whole verdict (the enumerated
-   * text is evidence, not the verdict). The verdict itself — axis scores
-   * and the safety judgment — is never altered by these repairs, and each
-   * one is recorded here rather than silently dropped. An empty array
-   * means the answer was accepted exactly as returned.
+   * over-limit defect/safety lists and an over-limit summary are
+   * truncated to the parser's bounds instead of rejecting the whole
+   * verdict (the enumerated text is evidence, not the verdict). The
+   * verdict itself — the derived axis scores and the safety judgment —
+   * is never altered by these repairs (list truncation happens past the
+   * point where the derived score has already saturated), and each one
+   * is recorded here rather than silently dropped. An empty array means
+   * the answer was accepted exactly as returned.
    */
   adjustments: readonly string[];
   summary: string;
@@ -202,7 +210,6 @@ type SemanticPayload = {
   professionalUsefulness?: unknown;
   safetyPassed?: unknown;
   safetyIssues?: unknown;
-  criticalIssues?: unknown;
   summary?: unknown;
 };
 
@@ -221,10 +228,6 @@ async function timedFetch(url: string, init: RequestInit, fetchImpl: typeof fetc
   } finally {
     clearTimeout(timer);
   }
-}
-
-function axisScore(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 4 ? value : null;
 }
 
 function usageNeurons(value: unknown): number | null {
@@ -304,16 +307,31 @@ const MAX_ISSUE_ENTRIES = 8;
 const MAX_SUMMARY_CHARS = 600;
 
 /**
- * Clean one issue list. Malformed elements (non-strings, blanks) still
- * reject the whole payload — the list's contents cannot be trusted as
- * evidence if its shape is broken. A pure overflow of well-formed entries,
- * however, is truncated to the bound and recorded in `adjustments` instead
- * of rejecting: the entries are evidence text, and dropping the tail does
- * not change the verdict the model returned.
+ * The format template's one placeholder defect entry, matched
+ * case-insensitively as a substring. The template shows it as a type
+ * label, not content — and this model has echoed template material
+ * verbatim as its answer before (the #1185 numeric examples were
+ * returned as the verdict for different images), so an axis entry
+ * still carrying this phrase is a copied placeholder, not an observed
+ * defect. The payload is rejected as a format error so the
+ * format-reminder retry runs; a placeholder on both attempts fails
+ * closed like any other repeated format failure.
+ */
+const AXIS_DEFECT_PLACEHOLDER_PHRASE = 'defect you actually observed';
+
+/**
+ * Clean one defect/safety list. Malformed elements (non-strings, blanks)
+ * still reject the whole payload — the list's contents cannot be trusted
+ * as evidence if its shape is broken. A pure overflow of well-formed
+ * entries, however, is truncated to the bound and recorded in
+ * `adjustments` instead of rejecting: the entries are evidence text, and
+ * dropping the tail does not change the verdict the model returned.
+ * `field` names the list in the failure detail and the adjustment
+ * identifier: 'safetyIssues' or one of the seven axis names.
  */
 function cleanIssueList(
   raw: unknown,
-  field: 'safetyIssues' | 'criticalIssues',
+  field: string,
   adjustments: string[],
   answerChars: number,
 ): string[] {
@@ -330,22 +348,58 @@ function cleanIssueList(
   return valid;
 }
 
-function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
+/**
+ * Deterministic server-side score derivation. The critic model returns
+ * no numbers at all — only, per axis, the list of defects it observed —
+ * so each axis score is a fixed function of that axis's defect count:
+ * 0 defects -> 4, 1-2 -> 3, 3-4 -> 2, 5-6 -> 1, 7 or more -> 0. The
+ * mapping is deliberately coarse and monotone: the model's enumeration
+ * is evidence of what it saw, and the count is the only part of it that
+ * becomes a number, by a rule the model cannot shape beyond what it
+ * lists. (Defect lists are truncated at MAX_ISSUE_ENTRIES = 8 before
+ * derivation, and the score has already saturated at 0 from 7 on, so
+ * truncation never moves a derived score.)
+ *
+ * The numeric channel this replaces was retired on production evidence
+ * (2026-11-10): with a concrete example vector in the question, the
+ * model echoed that vector verbatim as its verdict for different images
+ * (#1185, both the all-zero and the mixed-score examples); with the
+ * vector removed and only a type template left (#1187), its attempts
+ * either collapsed at the format layer or returned listed defects
+ * alongside uniform maximum scores. The defect enumeration itself was
+ * the one channel that varied per image (defect counts 3/6/3 across
+ * candidates whose "scores" were identical), so it is now the only
+ * quality signal the model is asked for.
+ */
+function deriveAxisScore(defectCount: number): number {
+  return Math.max(0, 4 - Math.ceil(defectCount / 2));
+}
+
+function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticScoresV15; defectCounts: Record<RasterSemanticAxisV15, number>; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
   if (!answer || answer.length > MAX_ANSWER_CHARS) throw responseInvalid('answer-empty-or-over-limit', answer.length);
   const parsed = parseSemanticJson(answer) as SemanticPayload;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw responseInvalid('payload-not-a-plain-object', answer.length);
   }
 
-  const scores = {} as RasterSemanticScoresV15;
+  // Each axis value must be the list of defects the model observed on
+  // that axis. Anything else — a number (the retired contract), a
+  // string, a missing key — is a format failure that rides the
+  // format-reminder retry; there is no numeric field left to guess from.
+  const adjustments: string[] = [];
+  const axisDefects = {} as Record<RasterSemanticAxisV15, string[]>;
   for (const axis of RASTER_SEMANTIC_AXES_V15) {
-    const score = axisScore(parsed[axis]);
-    if (score === null) throw responseInvalid(`axis-score-invalid:${axis}`, answer.length);
-    scores[axis] = score;
+    if (!Array.isArray(parsed[axis])) throw responseInvalid(`axis-defects-not-a-list:${axis}`, answer.length);
+    axisDefects[axis] = cleanIssueList(parsed[axis], axis, adjustments, answer.length);
+    // A verbatim copy of the template's placeholder entry is not an
+    // observed defect: accepting it would hand the model a defect (and
+    // a derived score) it never had to look at the image to produce.
+    if (axisDefects[axis].some(defect => defect.toLowerCase().includes(AXIS_DEFECT_PLACEHOLDER_PHRASE))) {
+      throw responseInvalid(`axis-defect-placeholder:${axis}`, answer.length);
+    }
   }
 
   if (typeof parsed.safetyPassed !== 'boolean') throw responseInvalid('safety-flag-not-boolean', answer.length);
-  const adjustments: string[] = [];
   const safetyIssues = cleanIssueList(parsed.safetyIssues, 'safetyIssues', adjustments, answer.length);
   // Safety consistency stays fail-closed exactly as before, evaluated on
   // the (possibly truncated) lists: a passing flag with any listed reason,
@@ -354,54 +408,28 @@ function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticSc
   if (parsed.safetyPassed && safetyIssues.length > 0) throw responseInvalid('safety-inconsistent:passed-with-issues', answer.length);
   if (!parsed.safetyPassed && safetyIssues.length === 0) throw responseInvalid('safety-inconsistent:failed-without-issues', answer.length);
 
-  const issues = cleanIssueList(parsed.criticalIssues, 'criticalIssues', adjustments, answer.length);
-
-  const rawSummary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
-  if (!rawSummary) throw responseInvalid('summary-missing-or-empty', answer.length);
-  // The summary is display text the verdict never consumes; an over-limit
-  // summary is truncated to the bound and recorded, not rejected.
-  let summary = rawSummary;
+  // The summary is optional display text the verdict never consumes: a
+  // missing, empty, or non-string summary is accepted as an empty
+  // summary, and an over-limit one is truncated to the bound and
+  // recorded, not rejected.
+  let summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
   if (summary.length > MAX_SUMMARY_CHARS) {
     adjustments.push(`summary-truncated-from-${summary.length}-to-${MAX_SUMMARY_CHARS}`);
     summary = summary.slice(0, MAX_SUMMARY_CHARS);
   }
-  // Self-consistency, evaluated last so it never masks a more specific
-  // format failure above: a verdict with every axis at exactly 0, no
-  // defect listed, and a passing safety flag contradicts the question's
-  // own scoring semantics — scores are quality, never defect counts, so
-  // a problem-free image scores high, and an image that truly earns 0 on
-  // every axis necessarily shows defects the hunt is required to
-  // enumerate. This shape is the production signature of the model
-  // echoing a format example instead of judging the image, so it fails
-  // as a format error and rides the existing format-reminder retry,
-  // rather than reaching the gate as a verdict. A failing safety flag is
-  // exempt: the gate itself rejects safety failures, as it should.
-  if (
-    parsed.safetyPassed
-    && issues.length === 0
-    && RASTER_SEMANTIC_AXES_V15.every(axis => scores[axis] === 0)
-  ) {
-    throw responseInvalid('verdict-inconsistent:all-zero-scores-without-issues', answer.length);
+
+  // Derive the axis scores from the defect counts and flatten the
+  // per-axis lists into the single issues list the result carries, each
+  // entry prefixed with its axis so the finding stays attributable.
+  const scores = {} as RasterSemanticScoresV15;
+  const defectCounts = {} as Record<RasterSemanticAxisV15, number>;
+  const issues: string[] = [];
+  for (const axis of RASTER_SEMANTIC_AXES_V15) {
+    defectCounts[axis] = axisDefects[axis].length;
+    scores[axis] = deriveAxisScore(axisDefects[axis].length);
+    for (const defect of axisDefects[axis]) issues.push(`${axis}: ${defect}`);
   }
-  // The mirror-image contradiction, from the same calibration rule: a
-  // defect found on an axis caps that axis at 3, so a verdict that lists
-  // defects yet scores every axis 4 — the maximum the parser accepts —
-  // does not follow the scoring rules it was given. It is the shape of a
-  // uniform, unexamined answer (or of scores produced without reference
-  // to the hunt's own findings), not of a judgment, so it fails as a
-  // format error and rides the same format-reminder retry instead of
-  // reaching the gate. A failing safety flag is exempt, as above: the
-  // gate itself rejects safety failures, as it should. Everything else
-  // about listed defects is unchanged — defects whose axes respect the
-  // calibration cap still reach the gate as diagnostic evidence.
-  if (
-    parsed.safetyPassed
-    && issues.length > 0
-    && RASTER_SEMANTIC_AXES_V15.every(axis => scores[axis] >= 4)
-  ) {
-    throw responseInvalid('verdict-inconsistent:defects-with-near-perfect-scores', answer.length);
-  }
-  return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
+  return { scores, defectCounts, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
 }
 
 /**
@@ -429,51 +457,54 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     'Act as a strict production image QA critic.',
     'Judge only what is visibly present in the supplied image against the user request below.',
     'Do not reward style alone if the requested subject, geometry, anatomy, layout, or text is wrong.',
-    'Score each axis from 0 to 4, where 4 means professional production quality and 0 means unusable.',
-    'Every axis is a quality score, never a defect count: the absence of a problem is a high score, not a zero.',
-    'For textHandling: score 4 when the image contains no text and no text was requested, and score high when every visible character is rendered correctly and legibly. Score low only when text is garbled, unwanted, or incorrect.',
-    'For artifactControl: score 4 when no artifacts, distortions, warped geometry, or malformed details are visible anywhere in the image. Score low only for artifacts that are actually visible.',
+    'You never return numeric scores. For each of the seven axes, return the list of concrete defects you actually observed on that axis: promptAdherence (the image delivers what the request asked for), composition (framing, layout, and balance), subjectIntegrity (the subject\'s geometry, anatomy, and coherence), styleExecution (the requested style, medium, and finish), textHandling (the correctness of visible text), artifactControl (generation artifacts and distortions), professionalUsefulness (fitness for professional use as requested).',
+    'An empty list for an axis is a definite claim: your hunt found no defect on that axis. A defect you observed always belongs in its axis list — never in the summary alone.',
+    'For textHandling: list a defect only when visible text is garbled, unwanted, misspelled, or incorrect. When the image contains no text and no text was requested, or when every visible character is rendered correctly and legibly, the textHandling list stays empty.',
+    'For artifactControl: list every artifact, distortion, warped geometry, or malformed detail that is actually visible. When none is visible anywhere in the image, the artifactControl list stays empty.',
     // The output contract is stated up front as well as at the end: the
     // defect-hunting instructions push the model toward long enumerations,
     // and answers that overflow these bounds cannot be accepted verbatim.
-    'Output limits that bind your answer: the summary must be at most 400 characters (one or two sentences); criticalIssues must contain at most 8 entries — if you find more defects, list only the 8 most severe; whenever safetyPassed is true, safetyIssues must be exactly an empty array.',
-    'Before scoring, actively hunt for defects. Do not grade from a general impression: inspect the image region by region and score only what you actually observed.',
-    'Anatomy check: whenever hands or fingers are visible, count them — a natural hand has exactly five fingers — and inspect every joint, knuckle, and nail. Look for fused, missing, extra, duplicated, or unnaturally bent fingers, and for hands that merge into objects or other hands. Check faces the same way: both eyes present and aligned, facial features symmetric and coherent, no duplicated or melted features. Report every anomaly you find in criticalIssues with its location.',
-    'Counting check: whenever the image contains a structure with countable repeated elements — roof tiers, floors, windows, columns, stairs, wheels, people — actually count them and compare against what the request and the real-world object require (for example, a five-story pagoda has exactly five roof tiers). A wrong count is a concrete defect: name it in criticalIssues with the counted and expected numbers.',
-    'Reflection check: whenever a mirror, water surface, glass, or other reflective surface is visible, compare the reflection against its source: left-right reversal must hold, the same person or object must be present and corresponding, with consistent position and scale. Any contradiction is a concrete defect for criticalIssues.',
-    'Text check: read every piece of visible text in the image — signs, labels, book spines, screens, logos. Misspelled, garbled, or meaningless character strings are concrete defects: quote them in criticalIssues and score textHandling accordingly.',
-    'Calibration: a score of 4 on an axis is allowed only when your hunt found nothing wrong on that axis. If you found any concrete defect on an axis, score that axis 3 or lower and list the defect in criticalIssues — never mention a defect in the summary while still scoring its axis 4. Score from observed facts, not from how good the image feels overall.',
+    'Output limits that bind your answer: each axis list must contain at most 8 entries — if you find more defects on an axis, list only the 8 most severe; the summary is optional and, when written, must be at most 400 characters (one or two sentences); whenever safetyPassed is true, safetyIssues must be exactly an empty array.',
+    'Before answering, actively hunt for defects. Do not grade from a general impression: inspect the image region by region and report only what you actually observed.',
+    'Anatomy check: whenever hands or fingers are visible, count them — a natural hand has exactly five fingers — and inspect every joint, knuckle, and nail. Look for fused, missing, extra, duplicated, or unnaturally bent fingers, and for hands that merge into objects or other hands. Check faces the same way: both eyes present and aligned, facial features symmetric and coherent, no duplicated or melted features. Report every anomaly you find in the subjectIntegrity list, with its location.',
+    'Counting check: whenever the image contains a structure with countable repeated elements — roof tiers, floors, windows, columns, stairs, wheels, people — actually count them and compare against what the request and the real-world object require (for example, a five-story pagoda has exactly five roof tiers). A wrong count is a concrete defect: name it in the list of the axis it belongs to, with the counted and expected numbers.',
+    'Reflection check: whenever a mirror, water surface, glass, or other reflective surface is visible, compare the reflection against its source: left-right reversal must hold, the same person or object must be present and corresponding, with consistent position and scale. Any contradiction is a concrete defect for the list of the axis it belongs to.',
+    'Text check: read every piece of visible text in the image — signs, labels, book spines, screens, logos. Misspelled, garbled, or meaningless character strings are concrete defects: quote them in the textHandling list.',
+    'Calibration: each axis list is the complete record of what your hunt found on that axis. If you found a concrete defect on an axis, it must appear in that axis\'s list, phrased as what is wrong and where — never mention a defect in the summary while leaving its axis list empty. Report observed facts only, not how good the image feels overall.',
     'Independently inspect visible output safety. Set safetyPassed=false if the image visibly contains sexualized minors, explicit sexual content, graphic gore, hateful/extremist propaganda, actionable self-harm depiction, or clearly dangerous instructional imagery. Otherwise set safetyPassed=true.',
     'When safetyPassed=false, safetyIssues must list concise concrete visible safety reasons. When safetyPassed=true, safetyIssues must be an empty array.',
     exactText.length
       ? `Exact requested text, if visibly rendered, must be correct: ${JSON.stringify(exactText)}`
       : 'No exact text is mandatory unless the user request itself clearly asks for it.',
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
-    'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
-    'The summary must be at most 400 characters — one or two sentences that state the verdict.',
-    // The template below shows types only — no concrete score vector
-    // appears anywhere in this question. Production evidence forced this:
-    // the original all-zero example was echoed verbatim as the verdict
-    // for real images, and the mixed real-score example that replaced it
-    // (#1185, 3/2/3/2/4/2/3) was echoed verbatim too — three different
-    // candidate images received that identical vector, differing only in
-    // their defect counts (2026-11-10, production c561cd9b). A vector
-    // that exists in the prompt becomes the answer, whatever values it
-    // holds, so there is nothing left to copy: every axis value is a
-    // placeholder string, and a verbatim copy fails axis validation (a
-    // string is not a score) and rides the format-reminder retry instead
-    // of ever becoming a verdict. The parser-side guards for the
-    // self-contradictory verdict shapes are in
-    // parseSemanticPayloadChecked (verdict-inconsistent:*).
-    'Return ONLY valid compact JSON with exactly these keys, following the type template below. There is no sample answer: the template shows the required types only — every score must be an integer from 0 to 4 that you choose by judging this image alone, and every placeholder must be replaced with your own words:',
-    '{"promptAdherence":"<integer 0-4>","composition":"<integer 0-4>","subjectIntegrity":"<integer 0-4>","styleExecution":"<integer 0-4>","textHandling":"<integer 0-4>","artifactControl":"<integer 0-4>","professionalUsefulness":"<integer 0-4>","safetyPassed":true,"safetyIssues":[],"criticalIssues":["<FORMAT TEMPLATE ONLY: one defect you actually observed, or an empty array when you observed none>"],"summary":"<FORMAT TEMPLATE ONLY: your own one-sentence verdict>"}',
-    'Judge this image alone: these instructions contain no sample scores, and the placeholders above are type labels, not values. A verdict that contradicts the calibration rules — every axis at 0 with no defects listed, or defects listed while every axis is scored 4 — is rejected as a format error.',
+    'Each axis list must contain every concrete visible defect found in the hunt above for that axis, each described with what is wrong and where (maximum 8 entries per axis; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
+    'The summary is optional: you may omit it or leave it empty. If you write one, keep it to at most 400 characters — one or two sentences that state the verdict.',
+    // The template below shows types only — no numeric score vector
+    // appears anywhere in this question, because the model is no longer
+    // asked for numbers at all. Production evidence forced the whole
+    // redesign (2026-11-10): a concrete example vector in the question
+    // was echoed verbatim as the verdict for different images (#1185,
+    // both the all-zero and the mixed-score examples), and with the
+    // vector removed (#1187) the model's numeric attempts either
+    // collapsed at the format layer or paired listed defects with
+    // uniform maximum scores. The defect lists were the one channel
+    // that varied per image, so the axes now carry defect lists and the
+    // scores are derived from their lengths on the server. The template
+    // keeps the two list shapes visible — one axis shows a single
+    // placeholder entry, the rest show the empty list. A verbatim copy
+    // of that placeholder is copyable text exactly like the retired
+    // numeric examples were, so the parser rejects it as a format
+    // error (axis-defect-placeholder) instead of accepting it as an
+    // observed defect.
+    'Return ONLY valid compact JSON with exactly these keys, following the type template below. There is no sample answer: the template shows the required types only — every axis value must be an array of the defect strings you observed on that axis (empty when you observed none), never a number, and every placeholder must be replaced with your own words:',
+    '{"promptAdherence":["<defect you actually observed on this axis>"],"composition":[],"subjectIntegrity":[],"styleExecution":[],"textHandling":[],"artifactControl":[],"professionalUsefulness":[],"safetyPassed":true,"safetyIssues":[],"summary":"<FORMAT TEMPLATE ONLY: your own one-sentence verdict, or an empty string>"}',
+    'Judge this image alone: these instructions contain no sample verdict, and the placeholders above are type labels, not content. Returning a number for any axis is a format error.',
     // Restated as the very last instruction: the answer must be the JSON
     // object and nothing else, so no inspection narrative may precede or
     // follow it.
     'Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.',
     ...(formatReminder
-      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Keep the summary at or below 400 characters, criticalIssues at or below 8 entries, and safetyIssues exactly [] when safetyPassed is true. Score every axis from what you actually observed in this image: the template placeholders are type labels, not values — never return them as scores, and never return a uniform or patterned set of scores you did not derive from this image; either is a format error. An answer with every axis at 0 and no defects listed contradicts the scoring rules and is rejected: 0 means that axis was observed to be unusable, so the defects behind it belong in criticalIssues. An answer that lists defects while scoring every axis 4 also contradicts the scoring rules and is rejected: a found defect caps its axis at 3, so lower the axes the defects belong to — or, if the defects were not actually observed, do not list them.']
+      ? ['FORMAT REMINDER: your previous answer could not be read as the required JSON. Answer with the JSON object only — no prose, no markdown code fences, no text before or after it. Every axis value must be an array of the defects you actually observed on that axis — never a number: a numeric axis value is a format error, and so is returning a placeholder string as an axis value. Keep each axis list at or below 8 entries, the summary (optional) at or below 400 characters, and safetyIssues exactly [] when safetyPassed is true. An empty array is a complete answer for an axis: it states that your hunt found no defect there. Do not invent defects that are not visible, and do not copy the template placeholders as defect entries: copying the placeholder text "<defect you actually observed on this axis>" into an axis list is itself a format error — replace every placeholder with a defect you actually observed, or with an empty list.']
       : []),
   ].join('\n');
 }
@@ -627,25 +658,20 @@ export async function critiqueCloudflareRasterSemanticV15(
     }
   }
   const { parsed, reportedNeurons } = outcome;
-  // Quality gate, realigned with the question's scoring scale (diag16,
-  // 2026-11-10, §7 A+D). The verdict is decided by substance only:
-  //   passed = safetyPassed && average >= 3.5 && every axis >= 3.
-  // The axis floor is 3 — the same boundary the question's calibration
-  // rule uses ("a found defect caps its axis at 3"). The previous gate
-  // additionally required the model's criticalIssues list to be empty and
-  // used per-axis thresholds of 3.4 / 3.3; combined with the defect-hunting
-  // question (enumerate every defect found), any candidate whose critic
-  // did its job was structurally unpassable, and with the integer scores
-  // the model actually returns, 3.4 / 3.3 meant "every axis must be 4".
-  // criticalIssues are still returned in `issues` as diagnostic evidence
-  // and as the retry feedback source — they no longer veto the verdict by
-  // their mere presence. Severity reaches the gate through the scores
-  // themselves: under the (unchanged) calibration rule a defect pulls its
-  // axis to 3 or lower, so a serious defect drops the axis below the floor
-  // or the mean below 3.5, and any safety failure still fails closed via
-  // safetyPassed. The question's calibration rule is deliberately NOT
-  // relaxed (diag16 §7: option B rejected) so the critic keeps
-  // discriminating.
+  // Quality gate — the predicate is unchanged from the diag16 realignment
+  // (2026-11-10, §7 A+D), but it now reads derived scores:
+  //   passed = safetyPassed && average >= 3.5 && every axis >= 3,
+  // where each axis score is derived on the server from that axis's
+  // defect count (see deriveAxisScore: 0 defects -> 4, 1-2 -> 3,
+  // 3-4 -> 2, 5-6 -> 1, 7+ -> 0). In defect terms, a candidate passes
+  // when its safety judgment passes, no axis carries 3 or more listed
+  // defects (which would derive below the floor of 3), and the derived
+  // mean reaches 3.5 — for example three axes with one defect each and
+  // the rest clean (derived 3,3,3,4,4,4,4; mean 25/7). The listed
+  // defects are returned in `issues` as diagnostic evidence and as the
+  // retry feedback source — they veto the verdict only through the
+  // derived scores, never by their mere presence, and any safety failure
+  // still fails closed via safetyPassed.
   const AXIS_FLOOR = 3;
   const checks: string[] = [];
   for (const axis of RASTER_SEMANTIC_AXES_V15) {
@@ -687,7 +713,10 @@ export async function critiqueCloudflareRasterSemanticV15(
       average,
       scores: { ...parsed.scores },
       failedConditions,
-      criticalIssuesCount: parsed.issues.length,
+      // The evidence behind the derived scores, as counts only — the
+      // defect texts themselves are never logged, here or anywhere.
+      defectCounts: { ...parsed.defectCounts },
+      defectsTotal: parsed.issues.length,
       adjustments: parsed.adjustments,
     });
   }
