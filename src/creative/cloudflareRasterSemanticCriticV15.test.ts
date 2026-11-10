@@ -94,6 +94,21 @@ function semanticAnswer(overrides: Record<string, unknown> = {}) {
   });
 }
 
+// Every axis at exactly 0 — the shape the production critic returned when
+// it echoed the prompt's old all-zero format example as its verdict.
+function allZeroAnswer(overrides: Record<string, unknown> = {}) {
+  return semanticAnswer({
+    promptAdherence: 0,
+    composition: 0,
+    subjectIntegrity: 0,
+    styleExecution: 0,
+    textHandling: 0,
+    artifactControl: 0,
+    professionalUsefulness: 0,
+    ...overrides,
+  });
+}
+
 describe('cloudflareRasterSemanticCriticV15', () => {
   it('fails closed without server-only credentials', async () => {
     await expect(critiqueCloudflareRasterSemanticV15({
@@ -721,6 +736,130 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.question.trimEnd().endsWith('Answer with the JSON object only: no prose, no markdown code fences, and no text before or after the JSON.')).toBe(true);
     // The defect hunt itself is unchanged.
     expect(body.question).toContain('actively hunt for defects');
+  });
+
+  it('shows a mixed-score format example whose values are marked format-only', async () => {
+    const fetchMock = criticFetch(semanticAnswer());
+
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    // The example carries real, mixed scores: copying it verbatim cannot
+    // pass the gate (mean 19/7 < 3.5, three axes below the floor of 3),
+    // and its placeholder text is unmistakably not a verdict.
+    expect(body.question).toContain('{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3');
+    expect(body.question).toContain('FORMAT EXAMPLE ONLY');
+    expect(body.question).toContain('never copy them');
+    // The previous all-zero example is gone: it read as "0 = no defects"
+    // and the model echoed it back as its verdict in production.
+    expect(body.question).not.toContain('"promptAdherence":0');
+    expect(body.question).not.toContain('"composition":0');
+  });
+
+  it('rejects an all-zero, defect-free, safety-passing verdict as inconsistent and retries with the reminder', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        .mockResolvedValueOnce(runEnvelope(allZeroAnswer({
+          summary: 'The image could not be assessed on any axis.',
+        })))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer()));
+
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '青い空と白い雲、緑の丘の風景',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.passed).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(result.externalNetworkRequests).toBe(5);
+      // The first attempt failed format validation with the inconsistency
+      // detail — that failure is what fired the retry.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-semantic-critic] response failed validation');
+      expect(record).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 1 });
+      // The retry's reminder now also forbids echoing the example values
+      // and names the all-zero contradiction explicitly.
+      const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
+      const retryBody = JSON.parse(String(retryInit.body));
+      expect(retryBody.question).toContain('FORMAT REMINDER');
+      expect(retryBody.question).toContain('never copy the example values');
+      expect(retryBody.question).toContain('every axis at 0 and no defects listed contradicts the scoring rules');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('fails closed when the retry also returns the all-zero, defect-free verdict', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(allZeroAnswer({
+        summary: 'The image could not be assessed on any axis.',
+      })) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 2 });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('accepts an all-zero verdict that lists defects, and the gate rejects it on scores', async () => {
+    // All-zero scores WITH enumerated defects are self-consistent: the
+    // image was observed to be unusable and the critic said why. The
+    // payload parses normally — no format error — and the gate rejects
+    // the candidate through the scores alone.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(allZeroAnswer({
+      criticalIssues: ['the image is a blank gray rectangle with no visible subject'],
+      summary: 'The image is unusable on every axis.',
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.issues).toContain('the image is a blank gray rectangle with no visible subject');
+    expect(result.issues).toContain('promptAdherence-below-3');
+  });
+
+  it('accepts an all-zero verdict whose safety judgment fails, without the inconsistency check', async () => {
+    // safetyPassed=false is exempt from the all-zero consistency check:
+    // the safety failure is a real verdict the gate must see and reject
+    // on safety grounds, not a format failure to retry away.
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '架空の商品広告',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(allZeroAnswer({
+      safetyPassed: false,
+      safetyIssues: ['graphic gore is visibly present'],
+      summary: 'The image is unusable and unsafe.',
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(false);
+    expect(result.safetyIssues).toEqual(['graphic gore is visibly present']);
+    expect(result.issues).toContain('visible-output-safety-failed');
   });
 
   it('truncates an over-limit summary instead of rejecting the verdict', async () => {
