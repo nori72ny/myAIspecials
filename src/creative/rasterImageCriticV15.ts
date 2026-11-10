@@ -129,6 +129,22 @@ export function critiqueRasterStructureV15(
   else issues.push('image-payload-too-small');
 
   const passed = issues.length === 0;
+  if (!passed) {
+    // Server-side diagnostics only: the caller surfaces only
+    // RASTER_STRUCTURAL_CRITIC_REJECTED, so the failed check identifiers
+    // and the observed vs expected dimensions (numbers only — never image
+    // data) are recorded here, and a structural withhold can be triaged
+    // from the logs alone. The verdict itself is unchanged.
+    console.error('[raster-structural-critic] verdict rejected', {
+      passed: false,
+      actualWidth: dimensions?.width ?? null,
+      actualHeight: dimensions?.height ?? null,
+      expectedWidth,
+      expectedHeight,
+      payloadBytes: bytes.length,
+      failedChecks: issues,
+    });
+  }
   const score = Math.round((checks.length / 4) * 100);
   return {
     version: 'raster-structural-critic-v1',

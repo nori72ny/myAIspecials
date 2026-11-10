@@ -827,6 +827,165 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     }
   });
 
+  it('logs the verdict numbers and failed conditions when the gate rejects on the mean alone', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Every axis exactly at the floor of 3: no axis condition fires and
+      // safety passes, but the mean 3.0 is below 3.5, so the rejection is
+      // attributable to the average alone.
+      const allAxesThree = {
+        promptAdherence: 3,
+        composition: 3,
+        subjectIntegrity: 3,
+        styleExecution: 3,
+        textHandling: 3,
+        artifactControl: 3,
+        professionalUsefulness: 3,
+      };
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer({ ...allAxesThree, criticalIssues: ['a minor visible defect'] })) as unknown as typeof fetch);
+
+      expect(result.passed).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-semantic-critic] verdict rejected');
+      expect(record).toMatchObject({
+        passed: false,
+        safetyPassed: true,
+        safetyIssuesCount: 0,
+        criticalIssuesCount: 1,
+        failedConditions: ['average-below-3.5'],
+        adjustments: [],
+      });
+      expect(record.average).toBeCloseTo(3, 10);
+      expect(record.scores).toEqual(allAxesThree);
+      expect(Object.keys(record).sort()).toEqual([
+        'adjustments', 'average', 'criticalIssuesCount', 'failedConditions',
+        'passed', 'safetyIssuesCount', 'safetyPassed', 'scores',
+      ]);
+      // Numbers and identifiers only: neither the summary text nor the
+      // listed issue's text ever reaches the record.
+      const serialized = JSON.stringify(record);
+      expect(serialized).not.toContain('a minor visible defect');
+      expect(serialized).not.toContain('professionally composed');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs each axis below the floor as its own failed condition', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // composition 2 with every other axis 4: the mean (26/7) clears 3.5,
+      // so the floor breach is the only failing condition.
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer({
+        promptAdherence: 4,
+        composition: 2,
+        subjectIntegrity: 4,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+      })) as unknown as typeof fetch);
+
+      expect(result.passed).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(record.failedConditions).toEqual(['axis-below-3:composition']);
+      expect(record.average).toBeCloseTo(26 / 7, 10);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs the safety condition and only the count of safety reasons when safety fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Perfect axis scores cannot rescue a safety failure.
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '架空の商品広告',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer({
+        promptAdherence: 4,
+        composition: 4,
+        subjectIntegrity: 4,
+        styleExecution: 4,
+        textHandling: 4,
+        artifactControl: 4,
+        professionalUsefulness: 4,
+        safetyPassed: false,
+        safetyIssues: ['graphic gore is visibly present'],
+      })) as unknown as typeof fetch);
+
+      expect(result.passed).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(record).toMatchObject({
+        passed: false,
+        safetyPassed: false,
+        safetyIssuesCount: 1,
+        failedConditions: ['safety'],
+      });
+      // The reason's text itself is never recorded — only its count.
+      expect(JSON.stringify(record)).not.toContain('graphic gore');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('records parser adjustments in the verdict log when a rejected answer needed repairs', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const nine = Array.from({ length: 9 }, (_, i) => `defect ${i + 1}`);
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '五重塔のある風景',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer({
+        promptAdherence: 3,
+        composition: 3,
+        subjectIntegrity: 3,
+        styleExecution: 3,
+        textHandling: 3,
+        artifactControl: 3,
+        professionalUsefulness: 3,
+        criticalIssues: nine,
+      })) as unknown as typeof fetch);
+
+      expect(result.passed).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(record.adjustments).toEqual(['criticalIssues-truncated-from-9-to-8']);
+      expect(record.criticalIssuesCount).toBe(8);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('does not log a verdict record when the candidate passes', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(semanticAnswer()) as unknown as typeof fetch);
+
+      expect(result.passed).toBe(true);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it.each([
     ['a non-string entry among nine critical issues', { criticalIssues: [...Array.from({ length: 8 }, (_, i) => `defect ${i + 1}`), 42] }],
     ['a blank entry among the safety issues', { safetyPassed: false, safetyIssues: ['graphic gore is visibly present', '   '] }],
