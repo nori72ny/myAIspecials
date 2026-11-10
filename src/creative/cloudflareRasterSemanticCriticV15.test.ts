@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
+  RASTER_SEMANTIC_AXES_V15,
   critiqueCloudflareRasterSemanticV15,
 } from './cloudflareRasterSemanticCriticV15';
 
@@ -278,21 +279,80 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     ]));
   });
 
-  it('passes a verdict that lists minor defects when every axis scores 4', async () => {
-    // diag16 §7 A: criticalIssues are diagnostic evidence, not a veto. A
-    // critic that ran its defect hunt, listed what it found, and still
-    // scored every axis 4 has judged those defects minor; the previous
-    // gate failed this exact verdict structurally because the issues list
-    // was non-empty.
-    const defects = [
-      'left hand pinky joint bends at a slightly unnatural angle',
-      'pagoda reflection in the pond is offset by a few pixels',
-    ];
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
-      .mockResolvedValueOnce(envelope([]))
-      .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
-      .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+  it('retries when a verdict lists defects yet scores every axis 4, then accepts the recalibrated verdict', async () => {
+    // Parser policy (2026-11-10): a verdict that lists defects while
+    // scoring every axis 4 contradicts the question's own calibration
+    // rule — a found defect caps its axis at 3 — so the shape is a
+    // format failure that rides the reminder retry instead of reaching
+    // the gate; this exact verdict previously passed under diag16 §7 A.
+    // That section still governs everything else: once the retry brings
+    // the defect-bearing axes down to the calibration cap, the listed
+    // defects remain diagnostic evidence, not a veto, and the verdict
+    // passes on its scores.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const defects = [
+        'left hand pinky joint bends at a slightly unnatural angle',
+        'pagoda reflection in the pond is offset by a few pixels',
+      ];
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(envelope({ default_usage_model: 'bundled' }))
+        .mockResolvedValueOnce(envelope([]))
+        .mockResolvedValueOnce(envelope({ input: {}, output: {} }))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+          promptAdherence: 4,
+          composition: 4,
+          subjectIntegrity: 4,
+          styleExecution: 4,
+          textHandling: 4,
+          artifactControl: 4,
+          professionalUsefulness: 4,
+          criticalIssues: defects,
+        })))
+        .mockResolvedValueOnce(runEnvelope(semanticAnswer({
+          promptAdherence: 4,
+          composition: 3,
+          subjectIntegrity: 3,
+          styleExecution: 4,
+          textHandling: 4,
+          artifactControl: 4,
+          professionalUsefulness: 4,
+          criticalIssues: defects,
+        })));
+
+      const result = await critiqueCloudflareRasterSemanticV15({
+        originalRequest: '五重塔と池のある風景、手前に人物',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, fetchMock as unknown as typeof fetch);
+
+      expect(result.passed).toBe(true);
+      expect(result.safetyPassed).toBe(true);
+      // The listed defects are retained verbatim as diagnostics.
+      expect(result.issues).toEqual(defects);
+      expect(result.checks).toHaveLength(7);
+      expect(result.externalNetworkRequests).toBe(5);
+      // The first answer failed format validation with the near-perfect
+      // inconsistency detail — that failure is what fired the retry.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-semantic-critic] response failed validation');
+      expect(record).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 1 });
+      // The retry's reminder names the contradiction and its remedy.
+      const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
+      const retryBody = JSON.parse(String(retryInit.body));
+      expect(retryBody.question).toContain('FORMAT REMINDER');
+      expect(retryBody.question).toContain('lists defects while scoring every axis 4 also contradicts the scoring rules');
+      expect(retryBody.question).toContain('a found defect caps its axis at 3');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('fails closed when the retry also lists defects with every axis at 4', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const nearPerfect = semanticAnswer({
         promptAdherence: 4,
         composition: 4,
         subjectIntegrity: 4,
@@ -300,20 +360,76 @@ describe('cloudflareRasterSemanticCriticV15', () => {
         textHandling: 4,
         artifactControl: 4,
         professionalUsefulness: 4,
-        criticalIssues: defects,
-      })));
+        criticalIssues: ['the horizon line is visibly tilted'],
+      });
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '夕日の海辺の風景',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(nearPerfect) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
 
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'verdict-inconsistent:defects-with-near-perfect-scores', attempt: 2 });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('accepts a defects-with-perfect-scores verdict whose safety judgment fails, without the inconsistency check', async () => {
+    // safetyPassed=false is exempt from the near-perfect consistency
+    // check, exactly as it is from the all-zero one: the safety failure
+    // is a real verdict the gate must see and reject on safety grounds,
+    // not a format failure to retry away.
     const result = await critiqueCloudflareRasterSemanticV15({
-      originalRequest: '五重塔と池のある風景、手前に人物',
+      originalRequest: '架空の商品広告',
       bytes: png(),
       mimeType: 'image/png',
-    }, ENV, fetchMock as unknown as typeof fetch);
+    }, ENV, criticFetch(semanticAnswer({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+      safetyPassed: false,
+      safetyIssues: ['graphic gore is visibly present'],
+      criticalIssues: ['a visible open wound on the subject'],
+    })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(false);
+    expect(result.safetyPassed).toBe(false);
+    expect(result.issues).toContain('visible-output-safety-failed');
+    // No format retry was consumed: the single critic call was accepted
+    // as a verdict on the first attempt.
+    expect(result.externalNetworkRequests).toBe(4);
+  });
+
+  it('accepts a differentiated verdict with defects in a single attempt', async () => {
+    // A judged verdict with per-axis differences and defects whose axes
+    // respect the calibration cap parses exactly as before: no format
+    // error, no retry, and the gate verdict follows the scores (mean
+    // 26/7 ≥ 3.5, every axis ≥ 3).
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '五重塔と池のある風景',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      promptAdherence: 4,
+      composition: 3,
+      subjectIntegrity: 4,
+      styleExecution: 3,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+      criticalIssues: ['pagoda reflection in the pond is offset by a few pixels'],
+    })) as unknown as typeof fetch);
 
     expect(result.passed).toBe(true);
-    expect(result.safetyPassed).toBe(true);
-    // The listed defects are retained verbatim as diagnostics.
-    expect(result.issues).toEqual(defects);
-    expect(result.checks).toHaveLength(7);
+    expect(result.issues).toEqual(['pagoda reflection in the pond is offset by a few pixels']);
+    expect(result.externalNetworkRequests).toBe(4);
   });
 
   it('passes a verdict whose defect-bearing axis sits exactly at the floor of 3', async () => {
@@ -738,7 +854,7 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(body.question).toContain('actively hunt for defects');
   });
 
-  it('shows a mixed-score format example whose values are marked format-only', async () => {
+  it('shows a type-only format template with no numeric score vector to copy', async () => {
     const fetchMock = criticFetch(semanticAnswer());
 
     const result = await critiqueCloudflareRasterSemanticV15({
@@ -750,16 +866,60 @@ describe('cloudflareRasterSemanticCriticV15', () => {
     expect(result.passed).toBe(true);
     const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body));
-    // The example carries real, mixed scores: copying it verbatim cannot
-    // pass the gate (mean 19/7 < 3.5, three axes below the floor of 3),
-    // and its placeholder text is unmistakably not a verdict.
-    expect(body.question).toContain('{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3');
-    expect(body.question).toContain('FORMAT EXAMPLE ONLY');
-    expect(body.question).toContain('never copy them');
-    // The previous all-zero example is gone: it read as "0 = no defects"
-    // and the model echoed it back as its verdict in production.
-    expect(body.question).not.toContain('"promptAdherence":0');
-    expect(body.question).not.toContain('"composition":0');
+    // The template pins the exact key names and value types, and nothing
+    // else: every axis value is a placeholder string, so there is no
+    // score vector in the question that could be echoed back as a
+    // verdict. (Both concrete examples that preceded this — all-zero,
+    // then #1185's mixed 3/2/3/2/4/2/3 — were echoed verbatim in
+    // production; changing the numbers only changed what was copied.)
+    expect(body.question).toContain('{"promptAdherence":"<integer 0-4>","composition":"<integer 0-4>","subjectIntegrity":"<integer 0-4>","styleExecution":"<integer 0-4>","textHandling":"<integer 0-4>","artifactControl":"<integer 0-4>","professionalUsefulness":"<integer 0-4>"');
+    expect(body.question).toContain('FORMAT TEMPLATE ONLY');
+    // Stated around the template and again after it: no sample answer
+    // exists and each score must come from judging this image alone.
+    expect(body.question).toContain('There is no sample answer');
+    expect(body.question).toContain('you choose by judging this image alone');
+    expect(body.question).toContain('these instructions contain no sample scores');
+    expect(body.question).toContain('the placeholders above are type labels, not values');
+    // No axis is ever paired with a concrete number anywhere in the
+    // question, in either of the retired example vectors' shapes.
+    for (const axis of RASTER_SEMANTIC_AXES_V15) {
+      expect(body.question).not.toMatch(new RegExp(`"${axis}":\\s*\\d`));
+    }
+    expect(body.question).not.toContain('FORMAT EXAMPLE ONLY');
+  });
+
+  it('rejects an answer that returns the template placeholders as scores', async () => {
+    // A verbatim copy of the type template cannot become a verdict: the
+    // placeholder strings are not numbers, so axis validation fails and
+    // the answer rides the format-reminder retry, then fails closed.
+    const templateCopy = JSON.stringify({
+      promptAdherence: '<integer 0-4>',
+      composition: '<integer 0-4>',
+      subjectIntegrity: '<integer 0-4>',
+      styleExecution: '<integer 0-4>',
+      textHandling: '<integer 0-4>',
+      artifactControl: '<integer 0-4>',
+      professionalUsefulness: '<integer 0-4>',
+      safetyPassed: true,
+      safetyIssues: [],
+      criticalIssues: [],
+      summary: 'Copied template.',
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(critiqueCloudflareRasterSemanticV15({
+        originalRequest: '静かな湖の写真',
+        bytes: png(),
+        mimeType: 'image/png',
+      }, ENV, criticFetch(templateCopy) as unknown as typeof fetch)).rejects.toThrow('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
+
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      const records = errorSpy.mock.calls.map(call => call[1] as Record<string, unknown>);
+      expect(records[0]).toMatchObject({ detail: 'axis-score-invalid:promptAdherence', attempt: 1 });
+      expect(records[1]).toMatchObject({ detail: 'axis-score-invalid:promptAdherence', attempt: 2 });
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('rejects an all-zero, defect-free, safety-passing verdict as inconsistent and retries with the reminder', async () => {
@@ -789,12 +949,14 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
       expect(tag).toBe('[raster-semantic-critic] response failed validation');
       expect(record).toMatchObject({ detail: 'verdict-inconsistent:all-zero-scores-without-issues', attempt: 1 });
-      // The retry's reminder now also forbids echoing the example values
-      // and names the all-zero contradiction explicitly.
+      // The retry's reminder forbids returning the template placeholders
+      // or an unexamined uniform score set, and names the all-zero
+      // contradiction explicitly.
       const retryInit = fetchMock.mock.calls[4]?.[1] as RequestInit;
       const retryBody = JSON.parse(String(retryInit.body));
       expect(retryBody.question).toContain('FORMAT REMINDER');
-      expect(retryBody.question).toContain('never copy the example values');
+      expect(retryBody.question).toContain('the template placeholders are type labels, not values');
+      expect(retryBody.question).toContain('never return a uniform or patterned set of scores you did not derive from this image');
       expect(retryBody.question).toContain('every axis at 0 and no defects listed contradicts the scoring rules');
     } finally {
       errorSpy.mockRestore();
