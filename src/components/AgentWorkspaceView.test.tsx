@@ -274,5 +274,7 @@ describe('catStateForPhase', () => {
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.getAttribute('data-state')).toBe('waiting');
     expect(cat.tagName).toBe('IMG');
+    // 暗い絵柄が両テーマで沈まないよう、他の配置と同じ明るい台座の上に載る。
+    expect(cat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
   });
 });
