@@ -24,7 +24,7 @@ import {
 } from "../lib/orchestration/OriginExecutionPolicy";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog";
 
-const NOW_MS = Date.parse("2026-11-06T12:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-10T12:00:00.000Z");
 const enabledEnv = { ORIGIN_CF_FAILOVER_ENABLED: "true" } as NodeJS.ProcessEnv;
 
 const primaryPlan: OriginExecutionPlan = {

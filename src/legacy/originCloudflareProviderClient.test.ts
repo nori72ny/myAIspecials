@@ -19,7 +19,7 @@ import { DEFAULT_ORIGIN_CLOUDFLARE_FREE_MODEL_CATALOG } from "../lib/orchestrati
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const PROOF_TOKEN = "synthetic-proof-token-0123456789";
 const AI_TOKEN = "synthetic-ai-token-0123456789";
-const NOW_MS = Date.parse("2026-11-06T12:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-10T12:00:00.000Z");
 
 const enabledEnv = {
   ORIGIN_CF_FAILOVER_ENABLED: "true",
@@ -493,7 +493,7 @@ describe("executeOriginCloudflareProvider", () => {
 
     // Same UTC day, one minute before midnight: skipped before any network
     // call — not even the plan-proof reads are paid again.
-    const lateSameDay = Date.parse("2026-11-06T23:59:00.000Z");
+    const lateSameDay = Date.parse("2026-11-10T23:59:00.000Z");
     await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: lateSameDay }))
       .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "pool-exhausted" });
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -511,7 +511,7 @@ describe("executeOriginCloudflareProvider", () => {
     });
     await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
       .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
-    const nextUtcDay = Date.parse("2026-11-07T00:00:00.000Z");
+    const nextUtcDay = Date.parse("2026-11-11T00:00:00.000Z");
     const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: nextUtcDay });
     expect(result.text).toBe("回復後の確認結果です。");
     expect(inferenceCalls).toBe(2);
