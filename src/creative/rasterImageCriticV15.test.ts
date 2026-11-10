@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   critiqueRasterStructureV15,
@@ -54,6 +54,39 @@ describe('rasterImageCriticV15', () => {
     const outOfBounds = critiqueRasterStructureV15(png(2048, 2048), 'image/png', 2048, 2048);
     expect(outOfBounds.passed).toBe(false);
     expect(outOfBounds.issues).toContain('dimensions-out-of-bounds');
+  });
+
+  it('logs the failed checks and dimensions when the structural verdict rejects', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = critiqueRasterStructureV15(png(512, 512), 'image/png', 1024, 1024);
+      expect(result.passed).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const [tag, record] = errorSpy.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(tag).toBe('[raster-structural-critic] verdict rejected');
+      // Numbers and check identifiers only — never image data.
+      expect(record).toEqual({
+        passed: false,
+        actualWidth: 512,
+        actualHeight: 512,
+        expectedWidth: 1024,
+        expectedHeight: 1024,
+        payloadBytes: 96,
+        failedChecks: ['requested-dimensions-mismatch'],
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('does not log when the structural verdict passes', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(critiqueRasterStructureV15(png(768, 1024), 'image/png', 768, 1024).passed).toBe(true);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('reads PNG dimensions without decoding or executing image content', () => {

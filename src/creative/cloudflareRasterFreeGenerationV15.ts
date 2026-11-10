@@ -353,6 +353,33 @@ export async function generateCloudflareRasterImageFreeProofV15(
   }
 
   if (!winner || !winner.result || !winner.structural || !winner.semantic) {
+    // Server-side diagnostics only: every candidate (including the retry)
+    // failed the delivery gates and the image is withheld. Record the
+    // selection outcome — which gate carried the rejection, how many
+    // candidates were attempted, and each attempt's gate, semantic score,
+    // and error code — so the withhold can be triaged from the logs alone.
+    // Numbers, booleans, and machine identifiers only: no prompt text, no
+    // image data, no critic free text. The per-candidate verdict numbers
+    // behind a semantic rejection are in the semantic critic's own
+    // '[raster-semantic-critic] verdict rejected' records. Nothing here
+    // reaches the client, and the thrown error below is unchanged.
+    console.error('[raster-free-generation] all candidates rejected', {
+      rejection: attempts.some(candidate => candidate.semantic)
+        ? 'semantic'
+        : attempts.some(candidate => candidate.structural)
+          ? 'structural'
+          : 'generation-error',
+      candidatesPlanned,
+      candidatesAttempted: attempts.length,
+      retryUsed,
+      candidates: attempts.map(candidate => ({
+        index: candidate.index,
+        retried: candidate.retried,
+        gate: candidate.semantic ? 'semantic' : candidate.structural ? 'structural' : 'none',
+        semanticScore: candidate.semantic?.score ?? null,
+        errorCode: candidate.errorCode,
+      })),
+    });
     // Nothing deliverable. Prefer the most informative failure: a semantic
     // rejection over a structural one over the first provider error.
     if (attempts.some(candidate => candidate.semantic)) throw new Error('RASTER_SEMANTIC_CRITIC_REJECTED');

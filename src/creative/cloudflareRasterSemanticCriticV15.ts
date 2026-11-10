@@ -435,9 +435,39 @@ export async function critiqueCloudflareRasterSemanticV15(
   if (!parsed.safetyPassed) issues.push('visible-output-safety-failed');
   const uniqueIssues = [...new Set(issues)];
   const everyAxisAtOrAboveFloor = RASTER_SEMANTIC_AXES_V15.every(axis => parsed.scores[axis] >= AXIS_FLOOR);
+  const passed = parsed.safetyPassed && everyAxisAtOrAboveFloor && average >= 3.5;
+  if (!passed) {
+    // Server-side diagnostics only, same discipline as the format-failure
+    // record above: when a verdict exists but rejects the candidate, the
+    // caller surfaces only RASTER_SEMANTIC_CRITIC_REJECTED, so which gate
+    // conditions failed — safety, the mean, or which axes fell below the
+    // floor — is recorded here with the numbers behind it, and a
+    // production rejection can be triaged from the logs alone. Only
+    // numbers, axis names, booleans, counts, parser-made adjustment
+    // identifiers, and condition identifiers are recorded — never the
+    // prompt, the image, the model's raw answer, its summary, or the text
+    // of any listed issue. Nothing here reaches the client, and the
+    // verdict itself is unchanged.
+    const failedConditions: string[] = [];
+    if (!parsed.safetyPassed) failedConditions.push('safety');
+    if (average < 3.5) failedConditions.push('average-below-3.5');
+    for (const axis of RASTER_SEMANTIC_AXES_V15) {
+      if (parsed.scores[axis] < AXIS_FLOOR) failedConditions.push(`axis-below-3:${axis}`);
+    }
+    console.error('[raster-semantic-critic] verdict rejected', {
+      passed: false,
+      safetyPassed: parsed.safetyPassed,
+      safetyIssuesCount: parsed.safetyIssues.length,
+      average,
+      scores: { ...parsed.scores },
+      failedConditions,
+      criticalIssuesCount: parsed.issues.length,
+      adjustments: parsed.adjustments,
+    });
+  }
   return {
     version: 'raster-semantic-critic-v1',
-    passed: parsed.safetyPassed && everyAxisAtOrAboveFloor && average >= 3.5,
+    passed,
     safetyPassed: parsed.safetyPassed,
     safetyIssues: parsed.safetyIssues,
     score: Math.round((average / 4) * 100),

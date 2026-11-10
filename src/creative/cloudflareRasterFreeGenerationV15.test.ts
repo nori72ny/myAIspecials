@@ -292,6 +292,84 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(state.criticRuns).toBe(2);
   });
 
+  it('logs the selection outcome when every candidate is rejected by the semantic gate', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const state = baseState({ criticAnswer: FAILING_CRITIC_ANSWER });
+      const fetchMock = dispatchFetch(state);
+      await expect(generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch, { now: NOW_IN_WINDOW },
+      )).rejects.toThrow('RASTER_SEMANTIC_CRITIC_REJECTED');
+
+      const selectionRecords = errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] all candidates rejected')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(selectionRecords).toHaveLength(1);
+      expect(selectionRecords[0]).toMatchObject({
+        rejection: 'semantic',
+        candidatesPlanned: 1,
+        candidatesAttempted: 2,
+        retryUsed: true,
+      });
+      // FAILING_CRITIC_ANSWER: axis mean 13/7, i.e. a 0-100 score of 46.
+      expect(selectionRecords[0]?.candidates).toEqual([
+        { index: 0, retried: false, gate: 'semantic', semanticScore: 46, errorCode: 'RASTER_SEMANTIC_CRITIC_REJECTED' },
+        { index: 1, retried: true, gate: 'semantic', semanticScore: 46, errorCode: 'RASTER_SEMANTIC_CRITIC_REJECTED' },
+      ]);
+      // Numbers and identifiers only: the critic's listed-issue text and
+      // its summary never reach the record.
+      const serialized = JSON.stringify(selectionRecords[0]);
+      expect(serialized).not.toContain('主体が依頼と異なります');
+      expect(serialized).not.toContain('依頼に沿っていません');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs the selection outcome when every candidate is rejected by the structural gate', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const state = baseState({ imageBytes: pngBytes(256, 256, 40) });
+      const fetchMock = dispatchFetch(state);
+      await expect(generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch, { now: NOW_IN_WINDOW },
+      )).rejects.toThrow('RASTER_STRUCTURAL_CRITIC_REJECTED');
+
+      const selectionRecords = errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] all candidates rejected')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(selectionRecords).toHaveLength(1);
+      expect(selectionRecords[0]).toMatchObject({
+        rejection: 'structural',
+        candidatesPlanned: 1,
+        candidatesAttempted: 2,
+        retryUsed: true,
+      });
+      expect(selectionRecords[0]?.candidates).toEqual([
+        { index: 0, retried: false, gate: 'structural', semanticScore: null, errorCode: 'RASTER_STRUCTURAL_CRITIC_REJECTED' },
+        { index: 1, retried: true, gate: 'structural', semanticScore: null, errorCode: 'RASTER_STRUCTURAL_CRITIC_REJECTED' },
+      ]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('does not log a selection record when a candidate is delivered', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const state = baseState();
+      const fetchMock = dispatchFetch(state);
+      await generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch,
+        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+      );
+      expect(errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] all candidates rejected')).toHaveLength(0);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('withholds the image when post-generation usage cannot be reconciled', async () => {
     const state = baseState({ generationDelta: 0 });
     const fetchMock = dispatchFetch(state);
