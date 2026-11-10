@@ -105,6 +105,16 @@ describe('agent v3 durable runs API', () => {
       expect.objectContaining({ id: 'task-1', status: 'completed', attempts: 1 }),
     ]);
     expect(consumed.has(plan.runId)).toBe(true);
+    // PR-D1: the completing advance delivers the final artifact body for
+    // display (the same `artifact` field as the legacy /execute response),
+    // while the record and its view keep only the step reference/summary.
+    expect(typeof advanced.body.artifact).toBe('string');
+    const delivered = JSON.parse(advanced.body.artifact) as { kind?: unknown; verified?: unknown; content?: unknown };
+    expect(delivered.kind).toBe('document');
+    expect(delivered.verified).toBe(true);
+    expect(typeof delivered.content).toBe('string');
+    expect(advanced.body.run).not.toHaveProperty('artifact');
+    expect(advanced.body.run.stepsState[0]).not.toHaveProperty('artifact');
 
     // Advancing a terminal run is an idempotent read-back, not an error.
     const advancedAgain = await request(app).post(`/api/agent/v3/runs/${plan.runId}/advance`)
@@ -113,6 +123,9 @@ describe('agent v3 durable runs API', () => {
     expect(advancedAgain.status).toBe(200);
     expect(advancedAgain.body.status).toBe('completed');
     expect(advancedAgain.body.advanced).toBe(false);
+    // The read-back carries no artifact body: bodies are delivered only
+    // by the advance that finalized them.
+    expect(advancedAgain.body).not.toHaveProperty('artifact');
   });
 
   it('rejects run creation without the matching plan and approval bindings', async () => {
@@ -193,6 +206,8 @@ describe('agent v3 durable runs API', () => {
       .send({ planToken: plan.planToken });
     expect(advanced.status).toBe(200);
     expect(advanced.body.status).toBe('completed');
+    // PR-D1: the artifact delivery contract is the same in browser mode.
+    expect(typeof advanced.body.artifact).toBe('string');
   });
 
   it('cancels a queued run and tombstones the shared reservation', async () => {
