@@ -354,6 +354,53 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     }
   });
 
+  it('logs a sanitized sub-reason when a generation attempt fails below the code layer', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const state = baseState();
+      const inner = dispatchFetch(state);
+      // The FLUX run itself fails at the fetch layer: no HTTP response
+      // exists, so no classified code is produced and the attempt
+      // collapses to the generic RASTER_GENERATION_FAILED. The coded
+      // cause is the only sub-reason available, and it is an identifier,
+      // not message or body text.
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (String(url).includes('/ai/run/@cf/black-forest-labs/flux-')) {
+          const failure = new TypeError('fetch failed');
+          (failure as { cause?: unknown }).cause = Object.assign(
+            new Error('read ECONNRESET'),
+            { code: 'ECONNRESET' },
+          );
+          throw failure;
+        }
+        return inner(url, init);
+      });
+      await expect(generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch, { now: NOW_IN_WINDOW },
+      )).rejects.toThrow('RASTER_GENERATION_FAILED');
+      expect(state.criticRuns).toBe(0);
+
+      const selectionRecords = errorSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] all candidates rejected')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(selectionRecords).toHaveLength(1);
+      expect(selectionRecords[0]).toMatchObject({
+        rejection: 'generation-error',
+        candidatesPlanned: 1,
+        candidatesAttempted: 2,
+        retryUsed: true,
+      });
+      expect(selectionRecords[0]?.candidates).toEqual([
+        { index: 0, retried: false, gate: 'none', semanticScore: null, errorCode: 'RASTER_GENERATION_FAILED', errorDetail: 'TypeError:ECONNRESET' },
+        { index: 1, retried: true, gate: 'none', semanticScore: null, errorCode: 'RASTER_GENERATION_FAILED', errorDetail: 'TypeError:ECONNRESET' },
+      ]);
+      // Identifiers only: the prompt never reaches the record.
+      expect(JSON.stringify(selectionRecords[0])).not.toContain('静かな湖と朝焼け');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('does not log a selection record when a candidate is delivered', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {

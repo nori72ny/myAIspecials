@@ -198,6 +198,30 @@ function errorCode(error: unknown): string {
   return /^[A-Z0-9_]{3,80}$/.test(code) ? code : 'RASTER_GENERATION_FAILED';
 }
 
+/**
+ * Sub-reason for an attempt failure whose error carried no code-shaped
+ * message — the class errorCode() collapses into RASTER_GENERATION_FAILED
+ * (observed in production, 2026-11-10, with no further breakdown). What
+ * survives sanitization is identifiers only: the error's own class name
+ * (e.g. TypeError for a failed fetch, AbortError for the request timeout)
+ * plus, when the platform attaches a coded cause (undici's UND_ERR_* /
+ * errno-style codes), that code. Error messages and response bodies are
+ * never read into the record. HTTP failures of the run call itself do not
+ * land here: they are classified upstream into code-shaped errors that
+ * already carry their status (CLOUDFLARE_IMAGE_HTTP_<status> and the
+ * named allocation/capacity/auth codes).
+ */
+function errorSubReason(error: unknown): string {
+  if (!(error instanceof Error)) return 'non-error-thrown';
+  const name = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(error.name) ? error.name : 'Error';
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause && typeof cause === 'object') {
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[A-Z0-9_]{3,80}$/.test(code)) return `${name}:${code}`;
+  }
+  return name;
+}
+
 type CandidateAttemptV15 = {
   index: number;
   retried: boolean;
@@ -205,6 +229,12 @@ type CandidateAttemptV15 = {
   structural: RasterStructuralCriticResultV15 | null;
   semantic: RasterSemanticCriticResultV15 | null;
   errorCode: string | null;
+  /**
+   * Sanitized sub-reason, set only when errorCode collapsed to the
+   * generic RASTER_GENERATION_FAILED fallback (see errorSubReason);
+   * null whenever the error already identified itself by code.
+   */
+  errorDetail: string | null;
   externalNetworkRequests: number;
 };
 
@@ -284,7 +314,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
       if (!structural.passed) {
         return {
           index, retried, result: generated, structural, semantic: null,
-          errorCode: 'RASTER_STRUCTURAL_CRITIC_REJECTED',
+          errorCode: 'RASTER_STRUCTURAL_CRITIC_REJECTED', errorDetail: null,
           externalNetworkRequests: generated.externalNetworkRequests,
         };
       }
@@ -295,13 +325,16 @@ export async function generateCloudflareRasterImageFreeProofV15(
       }, env, fetchImpl);
       return {
         index, retried, result: generated, structural, semantic,
-        errorCode: semantic.passed ? null : 'RASTER_SEMANTIC_CRITIC_REJECTED',
+        errorCode: semantic.passed ? null : 'RASTER_SEMANTIC_CRITIC_REJECTED', errorDetail: null,
         externalNetworkRequests: generated.externalNetworkRequests + semantic.externalNetworkRequests,
       };
     } catch (error) {
+      const code = errorCode(error);
       return {
         index, retried, result: null, structural: null, semantic: null,
-        errorCode: errorCode(error), externalNetworkRequests: 0,
+        errorCode: code,
+        errorDetail: code === 'RASTER_GENERATION_FAILED' ? errorSubReason(error) : null,
+        externalNetworkRequests: 0,
       };
     }
   };
@@ -358,6 +391,9 @@ export async function generateCloudflareRasterImageFreeProofV15(
     // selection outcome — which gate carried the rejection, how many
     // candidates were attempted, and each attempt's gate, semantic score,
     // and error code — so the withhold can be triaged from the logs alone.
+    // An attempt whose error collapsed to the generic
+    // RASTER_GENERATION_FAILED additionally carries its sanitized
+    // sub-reason (error class and coded cause; see errorSubReason).
     // Numbers, booleans, and machine identifiers only: no prompt text, no
     // image data, no critic free text. The per-candidate verdict numbers
     // behind a semantic rejection are in the semantic critic's own
@@ -378,6 +414,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
         gate: candidate.semantic ? 'semantic' : candidate.structural ? 'structural' : 'none',
         semanticScore: candidate.semantic?.score ?? null,
         errorCode: candidate.errorCode,
+        ...(candidate.errorDetail ? { errorDetail: candidate.errorDetail } : {}),
       })),
     });
     // Nothing deliverable. Prefer the most informative failure: a semantic

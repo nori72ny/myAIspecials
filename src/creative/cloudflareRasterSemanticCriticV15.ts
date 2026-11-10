@@ -71,6 +71,43 @@ type CloudflareEnvelope = {
 };
 
 /**
+ * Structural features of an answer that failed format validation. Pure
+ * shape classification — counts, offsets, and booleans computed from the
+ * answer string without retaining any of it — so a production failure can
+ * be told apart by kind: (i) prose with no JSON attempted at all
+ * (hasOpeningBrace false), (ii) a JSON object that starts but is cut off
+ * before it closes, e.g. at the output-token limit (braceClosed false
+ * with firstBraceOffset >= 0), or (iii) a complete object span whose
+ * contents still do not parse (braceClosed true with a json-unparseable
+ * detail). The answer text itself is never stored here or logged.
+ */
+export type RasterSemanticAnswerStructureV15 = {
+  hasOpeningBrace: boolean;
+  firstBraceOffset: number;
+  braceClosed: boolean;
+  maxBraceDepth: number;
+  startsWithProse: boolean;
+  hasCodeFence: boolean;
+};
+
+/**
+ * Envelope-side diagnostics for a failed critic call, taken only from the
+ * run response's own metadata: the model's finish reason (an identifier,
+ * adopted only when it is a short identifier-shaped string) and the usage
+ * numbers the envelope itself reported. Fields the envelope did not carry
+ * stay null — never invented, and the cf-ai-neurons header fallback is
+ * deliberately not folded in here, so the record shows only what the
+ * envelope itself stated.
+ */
+export type RasterSemanticEnvelopeDiagnosticsV15 = {
+  finishReason: string | null;
+  usageNeurons: number | null;
+  usagePromptTokens: number | null;
+  usageCompletionTokens: number | null;
+  usageTotalTokens: number | null;
+};
+
+/**
  * A response-format validation failure. The message stays exactly the
  * public error code (callers surface it verbatim); `detail` names the one
  * validation condition that was hit and `answerChars` the answer length
@@ -80,6 +117,19 @@ type CloudflareEnvelope = {
 export class RasterSemanticCriticResponseInvalidError extends Error {
   readonly detail: string;
   readonly answerChars: number | null;
+  /**
+   * Structural features of the answer that failed validation, attached by
+   * parseSemanticPayload when the failure is answer-shaped. Null for
+   * envelope-level failures, where no answer string exists to classify.
+   * Diagnostics only — never part of the public error surface.
+   */
+  structure: RasterSemanticAnswerStructureV15 | null = null;
+  /**
+   * Envelope metadata of the run call whose answer failed validation,
+   * attached by the call site that owns the envelope. Null when the
+   * failure happened before an envelope existed. Diagnostics only.
+   */
+  envelope: RasterSemanticEnvelopeDiagnosticsV15 | null = null;
   constructor(detail: string, answerChars: number | null = null) {
     super('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
     this.name = 'RasterSemanticCriticResponseInvalidError';
@@ -90,6 +140,56 @@ export class RasterSemanticCriticResponseInvalidError extends Error {
 
 function responseInvalid(detail: string, answerChars: number | null = null): RasterSemanticCriticResponseInvalidError {
   return new RasterSemanticCriticResponseInvalidError(detail, answerChars);
+}
+
+/**
+ * Classify the shape of a failed answer without keeping any of its text.
+ * The brace scan starts at the first '{' and is string-aware, so braces
+ * inside JSON string values do not distort the depth or the closure
+ * verdict; the scan stops at the point the outermost object closes,
+ * because anything after a complete object is prose by definition here.
+ * Depth figures are a diagnostic heuristic for triage, not a parse — the
+ * strict validation path is unchanged.
+ */
+function answerStructure(answer: string): RasterSemanticAnswerStructureV15 {
+  const firstBraceOffset = answer.indexOf('{');
+  let braceClosed = false;
+  let maxBraceDepth = 0;
+  if (firstBraceOffset !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = firstBraceOffset; index < answer.length; index += 1) {
+      const char = answer[index]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+      } else if (char === '{') {
+        depth += 1;
+        if (depth > maxBraceDepth) maxBraceDepth = depth;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          braceClosed = true;
+          break;
+        }
+      }
+    }
+  }
+  const head = answer.trimStart();
+  return {
+    hasOpeningBrace: firstBraceOffset !== -1,
+    firstBraceOffset,
+    braceClosed,
+    maxBraceDepth,
+    startsWithProse: head.length > 0 && head[0] !== '{',
+    hasCodeFence: answer.includes('```'),
+  };
 }
 
 type SemanticPayload = {
@@ -131,6 +231,37 @@ function usageNeurons(value: unknown): number | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const neurons = (value as Record<string, unknown>).neurons;
   return typeof neurons === 'number' && Number.isFinite(neurons) && neurons >= 0 ? neurons : null;
+}
+
+function usageTokenCount(usage: unknown, field: 'prompt_tokens' | 'completion_tokens' | 'total_tokens'): number | null {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  const value = (usage as Record<string, unknown>)[field];
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Envelope metadata for the failure record, from the run response's own
+ * result object: the nested model's finish_reason (live-verified shape
+ * carries it alongside the answer) and the usage block that sits next to
+ * it (or inside the nested object). Only identifier-shaped finish reasons
+ * and finite non-negative numbers are adopted; anything else stays null.
+ */
+function envelopeDiagnostics(
+  resultObject: Record<string, unknown>,
+  nested: unknown,
+): RasterSemanticEnvelopeDiagnosticsV15 {
+  const nestedObject = nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : null;
+  const usage = resultObject.usage ?? nestedObject?.usage;
+  const finishRaw = nestedObject?.finish_reason ?? resultObject.finish_reason;
+  return {
+    finishReason: typeof finishRaw === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(finishRaw) ? finishRaw : null,
+    usageNeurons: usageNeurons(usage),
+    usagePromptTokens: usageTokenCount(usage, 'prompt_tokens'),
+    usageCompletionTokens: usageTokenCount(usage, 'completion_tokens'),
+    usageTotalTokens: usageTokenCount(usage, 'total_tokens'),
+  };
 }
 
 /**
@@ -199,7 +330,7 @@ function cleanIssueList(
   return valid;
 }
 
-function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
+function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticScoresV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
   if (!answer || answer.length > MAX_ANSWER_CHARS) throw responseInvalid('answer-empty-or-over-limit', answer.length);
   const parsed = parseSemanticJson(answer) as SemanticPayload;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -235,6 +366,25 @@ function parseSemanticPayload(answer: string): { scores: RasterSemanticScoresV15
     summary = summary.slice(0, MAX_SUMMARY_CHARS);
   }
   return { scores, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
+}
+
+/**
+ * Validation entry point. Identical accept/reject behavior to the checked
+ * parser; the only addition is that a format failure leaves the wrapper
+ * carrying the answer's structural features (shape classification only —
+ * the answer text itself is discarded with the frame) so the caller's
+ * server-side failure record can say which kind of malformed answer it
+ * was, instead of only which condition it tripped.
+ */
+function parseSemanticPayload(answer: string): ReturnType<typeof parseSemanticPayloadChecked> {
+  try {
+    return parseSemanticPayloadChecked(answer);
+  } catch (error) {
+    if (error instanceof RasterSemanticCriticResponseInvalidError && error.structure === null) {
+      error.structure = answerStructure(answer);
+    }
+    throw error;
+  }
 }
 
 function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false): string {
@@ -368,7 +518,18 @@ export async function critiqueCloudflareRasterSemanticV15(
         : null)
       ?? neuronsFromResponseHeader(response.headers);
 
-    return { parsed: parseSemanticPayload(answer.trim()), reportedNeurons };
+    // A format failure here is rethrown with the envelope's own metadata
+    // attached (finish reason and reported usage numbers), so the failure
+    // record can show e.g. a length finish alongside an unclosed object
+    // span. The parse outcome itself is unchanged.
+    try {
+      return { parsed: parseSemanticPayload(answer.trim()), reportedNeurons };
+    } catch (error) {
+      if (error instanceof RasterSemanticCriticResponseInvalidError && error.envelope === null) {
+        error.envelope = envelopeDiagnostics(resultObject, nested);
+      }
+      throw error;
+    }
   };
 
   // One bounded retry, only for response-format failures: when the model's
@@ -388,12 +549,26 @@ export async function critiqueCloudflareRasterSemanticV15(
       if (error instanceof RasterSemanticCriticResponseInvalidError) {
         // Server-side diagnostics only: which validation condition was hit,
         // the answer length, and the extraction outcome are recorded so a
-        // production failure can be triaged without a probe. The raw answer
-        // body is never logged, and nothing here reaches the client.
+        // production failure can be triaged without a probe. When the
+        // failure is answer-shaped, the record also carries the answer's
+        // structural features (brace presence/offset/closure/depth, prose
+        // or code-fence lead-in — classification only) and the envelope's
+        // finish reason and usage numbers, so prose-only answers, answers
+        // truncated mid-object, and complete-but-unparseable objects can
+        // be told apart from the logs alone. The raw answer body is never
+        // logged, and nothing here reaches the client.
         console.error('[raster-semantic-critic] response failed validation', {
           detail: error.detail,
           answerChars: error.answerChars,
           attempt: attemptsUsed,
+          ...(error.structure ? { structure: error.structure } : {}),
+          ...(error.envelope ? {
+            finishReason: error.envelope.finishReason,
+            usageNeurons: error.envelope.usageNeurons,
+            usagePromptTokens: error.envelope.usagePromptTokens,
+            usageCompletionTokens: error.envelope.usageCompletionTokens,
+            usageTotalTokens: error.envelope.usageTotalTokens,
+          } : {}),
         });
         if (attemptsUsed === 1) continue;
       }
