@@ -433,6 +433,11 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     `User request: ${input.originalRequest.normalize('NFKC').trim().slice(0, 1800)}`,
     'criticalIssues must list every concrete visible defect found in the hunt above, each described with what is wrong and where (maximum 8 entries; if there are more, list the 8 most severe). List only defects you actually observed; do not invent defects that are not visible.',
     'The summary must be at most 400 characters — one or two sentences that state the verdict.',
+    // The example scores are deliberately mixed and gate-failing (mean
+    // below 3.5, several axes below 3): the previous all-zero example was
+    // echoed verbatim by the model in production (2026-11-10), returning
+    // self-contradictory all-zero verdicts for real images. An example
+    // that cannot pass if copied keeps an echo on the fail-closed side.
     'Return ONLY valid compact JSON with exactly these keys. The example values below show the format only — never copy them: score every axis from what you actually observed in this image:',
     '{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3,"safetyPassed":true,"safetyIssues":[],"criticalIssues":["FORMAT EXAMPLE ONLY: replace this entry with a defect you actually observed, or use an empty array when you observed none"],"summary":"FORMAT EXAMPLE ONLY: replace this with your own one-sentence verdict."}',
     // Restated as the very last instruction: the answer must be the JSON
