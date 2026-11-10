@@ -459,16 +459,15 @@ describe('rasterImageV15Router', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     const criticAnswer = JSON.stringify({
-      promptAdherence: 4,
-      composition: 4,
-      subjectIntegrity: 4,
-      styleExecution: 4,
-      textHandling: 4,
-      artifactControl: 4,
-      professionalUsefulness: 4,
+      promptAdherence: [],
+      composition: [],
+      subjectIntegrity: [],
+      styleExecution: [],
+      textHandling: [],
+      artifactControl: [],
+      professionalUsefulness: [],
       safetyPassed: true,
       safetyIssues: [],
-      criticalIssues: [],
       summary: '依頼どおりの画像です。',
     });
     const fetchMock = vi.fn(async (url: string) => {
@@ -540,16 +539,15 @@ describe('rasterImageV15Router', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     const criticAnswer = JSON.stringify({
-      promptAdherence: 4,
-      composition: 4,
-      subjectIntegrity: 4,
-      styleExecution: 4,
-      textHandling: 4,
-      artifactControl: 4,
-      professionalUsefulness: 4,
+      promptAdherence: [],
+      composition: [],
+      subjectIntegrity: [],
+      styleExecution: [],
+      textHandling: [],
+      artifactControl: [],
+      professionalUsefulness: [],
       safetyPassed: true,
       safetyIssues: [],
-      criticalIssues: [],
       summary: '依頼どおりの画像です。',
     });
     const fetchMock = vi.fn(async (url: string) => {
@@ -614,12 +612,23 @@ describe('rasterImageV15Router', () => {
   it('runs best-of-2 candidate selection for quality-critical purposes within the quota reserve', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
-    const criticAnswer = (score: number) => JSON.stringify({
-      promptAdherence: score, composition: score, subjectIntegrity: score, styleExecution: score,
-      textHandling: score, artifactControl: score, professionalUsefulness: score,
-      safetyPassed: true, safetyIssues: [], criticalIssues: [], summary: '評価済みです。',
+    // Defect-list contract: candidate 0 carries one defect on each of
+    // three axes (derived 3,3,3,4,4,4,4 -> score 89); candidate 1 is
+    // defect-free (derived all 4 -> score 100).
+    const criticAnswer = (defects: Record<string, string[]>) => JSON.stringify({
+      promptAdherence: [], composition: [], subjectIntegrity: [], styleExecution: [],
+      textHandling: [], artifactControl: [], professionalUsefulness: [],
+      ...defects,
+      safetyPassed: true, safetyIssues: [], summary: '評価済みです。',
     });
-    const criticAnswers = [criticAnswer(3.6), criticAnswer(4)];
+    const criticAnswers = [
+      criticAnswer({
+        promptAdherence: ['依頼とわずかに異なる要素があります'],
+        composition: ['主体がわずかに中心からずれています'],
+        subjectIntegrity: ['輪郭の一部がわずかに歪んでいます'],
+      }),
+      criticAnswer({}),
+    ];
     const fetchMock = vi.fn(async (url: string) => {
       const target = String(url);
       if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
@@ -658,7 +667,7 @@ describe('rasterImageV15Router', () => {
       retryUsed: false,
       selectedCandidateIndex: 1,
       candidates: [
-        { index: 0, semanticScore: 90, passed: true, selected: false },
+        { index: 0, semanticScore: 89, passed: true, selected: false },
         { index: 1, semanticScore: 100, passed: true, selected: true },
       ],
     });

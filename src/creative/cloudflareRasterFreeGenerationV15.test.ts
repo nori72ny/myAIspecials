@@ -36,31 +36,35 @@ function pngBytes(width: number, height: number, totalBytes = 96): Buffer {
   return bytes;
 }
 
+// Defect-list contract: the critic returns per-axis defect lists and the
+// server derives scores from the counts (0 defects -> 4, 1-2 -> 3,
+// 3-4 -> 2, 5-6 -> 1, 7+ -> 0).
 const PASSING_CRITIC_ANSWER = JSON.stringify({
-  promptAdherence: 4,
-  composition: 4,
-  subjectIntegrity: 4,
-  styleExecution: 4,
-  textHandling: 4,
-  artifactControl: 4,
-  professionalUsefulness: 4,
+  promptAdherence: [],
+  composition: [],
+  subjectIntegrity: [],
+  styleExecution: [],
+  textHandling: [],
+  artifactControl: [],
+  professionalUsefulness: [],
   safetyPassed: true,
   safetyIssues: [],
-  criticalIssues: [],
   summary: '依頼どおりの画像です。',
 });
 
+// Defect counts 5/3/3/3/1/3/5 derive to axis scores 1/2/2/2/3/2/1 —
+// axis mean 13/7, i.e. a 0-100 score of 46, same as the retired numeric
+// fixture produced.
 const FAILING_CRITIC_ANSWER = JSON.stringify({
-  promptAdherence: 1,
-  composition: 2,
-  subjectIntegrity: 2,
-  styleExecution: 2,
-  textHandling: 3,
-  artifactControl: 2,
-  professionalUsefulness: 1,
+  promptAdherence: ['主体が依頼と異なります', '依頼された要素が欠けています', '背景が依頼と異なります', 'ポーズが依頼と異なります', '小物が依頼と異なります'],
+  composition: ['主体が画面端に寄りすぎています', '余白のバランスが崩れています', '視線誘導が弱いです'],
+  subjectIntegrity: ['輪郭が崩れています', '質感が不自然です', '影の付き方が不整合です'],
+  styleExecution: ['画風が依頼と異なります', '色調が統一されていません', '筆致が粗いです'],
+  textHandling: ['文字が判読しにくいです'],
+  artifactControl: ['ノイズが目立ちます', '圧縮アーティファクトがあります', '境界が滲んでいます'],
+  professionalUsefulness: ['解像感が不足しています', '商用利用には不適です', '構図の完成度が低いです', '色再現が不正確です', '余白設計が不適切です'],
   safetyPassed: true,
   safetyIssues: [],
-  criticalIssues: ['主体が依頼と異なります'],
   summary: '依頼に沿っていません。',
 });
 
@@ -669,12 +673,17 @@ describe('cloudflareRasterFreeGenerationV15', () => {
   });
 
   it('selects the highest-scoring passing candidate in best-of-2', async () => {
-    const score90 = JSON.stringify({
-      promptAdherence: 3.6, composition: 3.6, subjectIntegrity: 3.6, styleExecution: 3.6,
-      textHandling: 3.6, artifactControl: 3.6, professionalUsefulness: 3.6,
-      safetyPassed: true, safetyIssues: [], criticalIssues: [], summary: '良好です。',
+    // One defect on each of three axes derives to 3,3,3,4,4,4,4 — a
+    // 0-100 score of 89 (the retired uniform-3.6 fixture's 90 is not
+    // representable with integer derived sums: 25 -> 89, 26 -> 93).
+    const score89 = JSON.stringify({
+      promptAdherence: ['依頼とわずかに異なる要素があります'],
+      composition: ['主体がわずかに中心からずれています'],
+      subjectIntegrity: ['輪郭の一部がわずかに歪んでいます'],
+      styleExecution: [], textHandling: [], artifactControl: [], professionalUsefulness: [],
+      safetyPassed: true, safetyIssues: [], summary: '良好です。',
     });
-    const state = baseState({ criticAnswers: [score90, PASSING_CRITIC_ANSWER] });
+    const state = baseState({ criticAnswers: [score89, PASSING_CRITIC_ANSWER] });
     const fetchMock = dispatchFetch(state);
     const delivery = await generateCloudflareRasterImageFreeProofV15(
       INPUT, ENV, fetchMock as unknown as typeof fetch,
@@ -685,20 +694,22 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.usage.candidatesGenerated).toBe(2);
     expect(delivery.quality.selectedCandidateIndex).toBe(1);
     expect(delivery.quality.candidates).toEqual([
-      { index: 0, retried: false, semanticScore: 90, passed: true, selected: false },
+      { index: 0, retried: false, semanticScore: 89, passed: true, selected: false },
       { index: 1, retried: false, semanticScore: 100, passed: true, selected: true },
     ]);
     expect(delivery.quality.retryUsed).toBe(false);
   });
 
   it('runs the planned candidates concurrently and delivers the same winner and reconciliation as serial execution', async () => {
-    const score90 = JSON.stringify({
-      promptAdherence: 3.6, composition: 3.6, subjectIntegrity: 3.6, styleExecution: 3.6,
-      textHandling: 3.6, artifactControl: 3.6, professionalUsefulness: 3.6,
-      safetyPassed: true, safetyIssues: [], criticalIssues: [], summary: '良好です。',
+    const score89 = JSON.stringify({
+      promptAdherence: ['依頼とわずかに異なる要素があります'],
+      composition: ['主体がわずかに中心からずれています'],
+      subjectIntegrity: ['輪郭の一部がわずかに歪んでいます'],
+      styleExecution: [], textHandling: [], artifactControl: [], professionalUsefulness: [],
+      safetyPassed: true, safetyIssues: [], summary: '良好です。',
     });
     const state = baseState({
-      criticAnswers: [score90, PASSING_CRITIC_ANSWER],
+      criticAnswers: [score89, PASSING_CRITIC_ANSWER],
       generationReportedNeurons: 104.2,
       criticReportedNeurons: 41.3,
     });
@@ -743,7 +754,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     });
     expect(delivery.quality.selectedCandidateIndex).toBe(1);
     expect(delivery.quality.candidates).toEqual([
-      { index: 0, retried: false, semanticScore: 90, passed: true, selected: false },
+      { index: 0, retried: false, semanticScore: 89, passed: true, selected: false },
       { index: 1, retried: false, semanticScore: 100, passed: true, selected: true },
     ]);
     expect(delivery.quality.retryUsed).toBe(false);
