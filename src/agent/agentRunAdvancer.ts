@@ -127,8 +127,17 @@ export interface AgentRunAdvancerDeps {
   now?: () => number;
 }
 
+/**
+ * The `completed` variant may carry `artifact`: the final step's artifact
+ * body, finalized by this very advance (PR-D1, wiring design §4.3). It is
+ * a delivery-only hand-off for display — the record itself never persists
+ * artifact bodies (steps keep only `artifactRef` / `summary`) — and it is
+ * absent when this advance finalized no step (for example when every step
+ * had already completed in an earlier advance). No other variant carries
+ * an artifact body.
+ */
 export type AdvanceAgentRunOutcome =
-  | { kind: 'completed'; record: AgentRunRecord }
+  | { kind: 'completed'; record: AgentRunRecord; artifact?: string }
   | { kind: 'failed'; record: AgentRunRecord; errorCode: string }
   | { kind: 'held'; record: AgentRunRecord; provider: string; resetAt: number }
   | { kind: 'write_lock_busy'; record: AgentRunRecord; holderRunId: string | null; lockExpiresAt: number | null }
@@ -284,6 +293,7 @@ export async function advanceAgentRun(
   let graph = graphForRecord(record, stepsState);
   const executionId = createExecutionId();
   let previousText: string | undefined;
+  let finalArtifact: string | undefined;
   const startIndex = stepsState.findIndex((step) => step.status !== 'completed');
 
   // Quota gate preparation (PR 1-D): only advances whose remaining steps
@@ -448,6 +458,7 @@ export async function advanceAgentRun(
         mutation: executionRecord.mutation,
       });
       previousText = textualArtifactOf(step.toolName, executionRecord.artifact) ?? previousText;
+      finalArtifact = executionRecord.artifact;
     }
   } catch {
     return failRun('TOOL_EXECUTION_BLOCKED');
@@ -471,5 +482,11 @@ export async function advanceAgentRun(
   await releaseWriteLock();
   const finished = await runStore.finish(record.runId, driverId, 'completed');
   if (!finished) return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
-  return { kind: 'completed', record: finished };
+  return {
+    kind: 'completed',
+    record: finished,
+    // Delivery-only (see the outcome type): the persisted record is
+    // unchanged and never gains the artifact body.
+    ...(finalArtifact ? { artifact: finalArtifact } : {}),
+  };
 }

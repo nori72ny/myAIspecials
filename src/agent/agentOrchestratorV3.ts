@@ -794,7 +794,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const view = publicAgentRunView(refreshed ?? outcome.record);
     switch (outcome.kind) {
       case 'completed':
-        return res.json({ ok: true, protocolVersion: 3, runId, status: 'completed', run: view, ...runEnvelope });
+        // PR-D1 (wiring design §4.3): the completing advance hands the
+        // final artifact body to the caller for display, mirroring the
+        // legacy /execute response's `artifact` field. Delivery-only —
+        // the record and its view never carry artifact bodies — and
+        // absent when the completing advance finalized no step.
+        return res.json({ ok: true, protocolVersion: 3, runId, status: 'completed', ...(outcome.artifact !== undefined ? { artifact: outcome.artifact } : {}), run: view, ...runEnvelope });
       case 'failed':
         return res.status(422).json({ ok: false, protocolVersion: 3, runId, code: outcome.errorCode, status: 'failed', run: view, ...runEnvelope, error: 'The run failed verification or execution.' });
       case 'held':

@@ -72,6 +72,9 @@ describe('advanceAgentRun', () => {
     );
 
     expect(outcome.kind).toBe('completed');
+    // PR-D1: the completed outcome carries the final step's artifact body
+    // finalized by this advance, as a delivery-only hand-off.
+    expect(outcome).toMatchObject({ kind: 'completed', artifact: 'artifact:document_generator' });
     expect(runTool).toHaveBeenCalledTimes(2);
     expect(consumed.has(RUN_ID)).toBe(true);
     const record = await store.get(RUN_ID, OWNER);
@@ -79,6 +82,37 @@ describe('advanceAgentRun', () => {
     expect(record?.stepsState.map((step) => step.status)).toEqual(['completed', 'completed']);
     expect(record?.stepsState[0]?.summary).toBe('completed:repository_explorer');
     expect(record?.quotaLedger.origin?.execution_reserved).toBe(1);
+    // The persisted record never gains the artifact body.
+    expect(JSON.stringify(record)).not.toContain('artifact:document_generator');
+    expect(record?.stepsState[1]).not.toHaveProperty('artifact');
+  });
+
+  it('completes without an artifact when this advance finalized no step', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = makeRunTool();
+    const created = await store.create({
+      runId: RUN_ID,
+      ownerBinding: OWNER,
+      goal: 'Advancer test goal',
+      status: 'queued',
+      plan: [{ toolName: 'repository_explorer', params: {}, dependsOn: [] }],
+      planDigest: createHash('sha256').update(`plan:${RUN_ID}`).digest('hex'),
+      stepsState: [{ id: 'task-1', status: 'completed', attempts: 1, artifactRef: 'task-1', summary: 'completed:repository_explorer' }],
+      expiresAt: Date.now() + DAY_MS,
+    });
+    expect(created).not.toBeNull();
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      created!,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('completed');
+    expect(outcome).not.toHaveProperty('artifact');
+    expect(runTool).not.toHaveBeenCalled();
+    expect((await store.get(RUN_ID, OWNER))?.status).toBe('completed');
   });
 
   it('stops at the budget between steps and a live lease blocks a second advance', async () => {
@@ -101,6 +135,7 @@ describe('advanceAgentRun', () => {
 
     const first = await advanceAgentRun(deps, seeded, 'driver-alpha-01', { budgetMs: 1 });
     expect(first.kind).toBe('progress');
+    expect(first).not.toHaveProperty('artifact');
     expect(runTool).toHaveBeenCalledTimes(1);
     const midway = await store.get(RUN_ID, OWNER);
     expect(midway?.status).toBe('running');
@@ -139,7 +174,8 @@ describe('advanceAgentRun', () => {
     const recovered = await store.recoverStale(RUN_ID);
     expect(recovered?.status).toBe('queued');
     const second = await advanceAgentRun(deps, recovered!, 'driver-beta-02', { budgetMs: 60_000, leaseSeconds: 30 });
-    expect(second.kind).toBe('completed');
+    // The resuming advance delivers the artifact of the step it finalized.
+    expect(second).toMatchObject({ kind: 'completed', artifact: 'artifact:document_generator' });
     expect(runTool).toHaveBeenCalledTimes(2);
     expect(consumeSpy).toHaveBeenCalledTimes(1);
   });
@@ -224,6 +260,7 @@ describe('advanceAgentRun', () => {
     );
 
     expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    expect(outcome).not.toHaveProperty('artifact');
     const record = await store.get(RUN_ID, OWNER);
     expect(record?.status).toBe('failed');
     expect(record?.stepsState[0]?.errorCode).toBe('ARTIFACT_VERIFICATION_FAILED');
