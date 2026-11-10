@@ -438,6 +438,8 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     // echoed verbatim by the model in production (2026-11-10), returning
     // self-contradictory all-zero verdicts for real images. An example
     // that cannot pass if copied keeps an echo on the fail-closed side.
+    // The parser-side guard for the echoed shape is in
+    // parseSemanticPayloadChecked (verdict-inconsistent:all-zero-scores-without-issues).
     'Return ONLY valid compact JSON with exactly these keys. The example values below show the format only — never copy them: score every axis from what you actually observed in this image:',
     '{"promptAdherence":3,"composition":2,"subjectIntegrity":3,"styleExecution":2,"textHandling":4,"artifactControl":2,"professionalUsefulness":3,"safetyPassed":true,"safetyIssues":[],"criticalIssues":["FORMAT EXAMPLE ONLY: replace this entry with a defect you actually observed, or use an empty array when you observed none"],"summary":"FORMAT EXAMPLE ONLY: replace this with your own one-sentence verdict."}',
     // Restated as the very last instruction: the answer must be the JSON
