@@ -90,6 +90,26 @@ export function resolveStepParams(step: { params: ToolParams }, previousText: st
   return { params: { ...rest, content: previousText } };
 }
 
+const TOOL_FAILURE_CODE_PATTERN = /[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+/;
+
+/**
+ * Derives the run failure code for a step whose tool itself returned
+ * `ok: false`. Tool failure messages carry their reason as a bare code
+ * ('AGENT_DOCUMENT_PARAMS_INVALID') or embed it ('Grounded research
+ * failed closed (NO_RESULTS).'); either way the tool's own code wins.
+ * `ARTIFACT_VERIFICATION_FAILED` is reserved for steps whose tool ran
+ * and produced an artifact that verification then rejected — using it
+ * for tool failures used to erase the real reason (for example the
+ * research tool failing closed) from both the record and the response.
+ * A message with no code token collapses to TOOL_EXECUTION_FAILED.
+ */
+export function toolFailureCodeFromMessage(message: string | undefined): string {
+  if (!message) return 'TOOL_EXECUTION_FAILED';
+  const trimmed = message.trim();
+  if (/^[A-Z][A-Z0-9_]+$/.test(trimmed)) return trimmed;
+  return TOOL_FAILURE_CODE_PATTERN.exec(trimmed)?.[0] ?? 'TOOL_EXECUTION_FAILED';
+}
+
 export function textualArtifactOf(toolName: ToolName, artifact: string): string | undefined {
   if (toolName === 'file_reader') return artifact;
   if (toolName === 'document_generator') {
@@ -421,7 +441,9 @@ export async function advanceAgentRun(
         ? resolved.error
         : !executionRecord?.toolExecuted
           ? 'TOOL_EXECUTION_BLOCKED'
-          : 'ARTIFACT_VERIFICATION_FAILED';
+          : executionRecord.toolFailureMessage !== undefined
+            ? toolFailureCodeFromMessage(executionRecord.toolFailureMessage)
+            : 'ARTIFACT_VERIFICATION_FAILED';
       stepsState[index] = {
         id: `task-${index + 1}`,
         status: executionRecord?.status ?? 'failed',

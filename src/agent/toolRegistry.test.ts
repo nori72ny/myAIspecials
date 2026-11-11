@@ -1,4 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { researchCurrentInformation } from '../legacy/originResearchSource.js';
+
+const { composedResearch, createExecutorSpy } = vi.hoisted(() => {
+  const composedResearch = vi.fn();
+  const createExecutorSpy = vi.fn((_deps: unknown, _legacy: unknown) => composedResearch);
+  return { composedResearch, createExecutorSpy };
+});
+
+vi.mock('../search/originSearchGrounding.js', () => ({
+  createDefaultOriginResearchExecutor: createExecutorSpy,
+}));
+
 import { executeToolWithPermission } from './toolRegistry';
 
 describe('toolRegistry safety boundary', () => {
@@ -26,6 +38,46 @@ describe('toolRegistry safety boundary', () => {
       ok: false,
       tool: 'web_search_grounding',
       message: 'A research query is required.',
+    });
+  });
+
+  it('wires web_search_grounding to the composed grounding executor with the stable no-search fallback', () => {
+    expect(createExecutorSpy).toHaveBeenCalledTimes(1);
+    expect(createExecutorSpy.mock.calls[0]?.[0]).toEqual({ noSearchFallbackType: 'stable' });
+    // The legacy implementation stays on as the composer's own fallback.
+    expect(createExecutorSpy.mock.calls[0]?.[1]).toBe(researchCurrentInformation);
+  });
+
+  it('serves web_search_grounding through the composed executor and keeps the artifact shape', async () => {
+    composedResearch.mockResolvedValue({
+      ok: true,
+      sources: [{
+        title: '猫の平均寿命',
+        url: 'https://ja.wikipedia.org/wiki/ネコ',
+        excerpt: '猫の平均寿命は12〜15年程度とされる。',
+        domain: 'ja.wikipedia.org',
+        evidenceLevel: 'snippet',
+        sourceAuthority: 'secondary-reference',
+        freshness: 'unknown',
+      }],
+      searchProvider: 'Wikipedia',
+    });
+    const result = await executeToolWithPermission('web_search_grounding', { query: '猫の平均寿命' }, approved);
+    expect(composedResearch).toHaveBeenCalledWith('猫の平均寿命');
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { provider?: unknown; sources?: Array<{ title?: string; url?: string }> };
+    expect(artifact.provider).toBe('Wikipedia');
+    expect(artifact.sources?.[0]?.title).toBe('猫の平均寿命');
+    expect(artifact.sources?.[0]?.url).toBe('https://ja.wikipedia.org/wiki/ネコ');
+  });
+
+  it('keeps the fail-closed message contract when the composed executor finds nothing', async () => {
+    composedResearch.mockResolvedValue({ ok: false, sources: [], failure: { stage: 'web-search', code: 'NO_RESULTS' } });
+    const result = await executeToolWithPermission('web_search_grounding', { query: '存在しない話題' }, approved);
+    expect(result).toMatchObject({
+      ok: false,
+      tool: 'web_search_grounding',
+      message: 'Grounded research failed closed (NO_RESULTS).',
     });
   });
 

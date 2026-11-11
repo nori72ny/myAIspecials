@@ -346,6 +346,84 @@ describe('advanceAgentRun', () => {
     expect(runTool).not.toHaveBeenCalled();
   });
 
+  it('preserves the tool failure code embedded in its message instead of reporting a verification failure', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName): Promise<ToolResult> => ({
+      ok: false,
+      tool: name,
+      message: 'Grounded research failed closed (NO_RESULTS).',
+    }));
+    const seeded = await seedRun(store, [{ toolName: 'web_search_grounding', params: { query: '猫の平均寿命' } }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'NO_RESULTS' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('failed');
+    expect(record?.stepsState[0]?.errorCode).toBe('NO_RESULTS');
+  });
+
+  it('preserves a bare tool failure code verbatim', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName): Promise<ToolResult> => ({
+      ok: false,
+      tool: name,
+      message: 'AGENT_DOCUMENT_PARAMS_INVALID',
+    }));
+    const seeded = await seedRun(store, [{ toolName: 'document_generator' }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DOCUMENT_PARAMS_INVALID' });
+    expect((await store.get(RUN_ID, OWNER))?.stepsState[0]?.errorCode).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
+  });
+
+  it('collapses a tool failure message without a code token to TOOL_EXECUTION_FAILED', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName): Promise<ToolResult> => ({
+      ok: false,
+      tool: name,
+      message: 'A research query is required.',
+    }));
+    const seeded = await seedRun(store, [{ toolName: 'web_search_grounding', params: {} }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'TOOL_EXECUTION_FAILED' });
+    expect((await store.get(RUN_ID, OWNER))?.stepsState[0]?.errorCode).toBe('TOOL_EXECUTION_FAILED');
+  });
+
+  it('keeps ARTIFACT_VERIFICATION_FAILED when the tool ran but produced no verifiable artifact', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName): Promise<ToolResult> => ({ ok: true, tool: name, message: 'ok' }));
+    const seeded = await seedRun(store, [{ toolName: 'repository_explorer' }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    expect((await store.get(RUN_ID, OWNER))?.stepsState[0]?.errorCode).toBe('ARTIFACT_VERIFICATION_FAILED');
+  });
+
   it('runs the repository completion gate for file_writer plans', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();
