@@ -20,15 +20,26 @@ async function openConversation(page: import('@playwright/test').Page) {
 
 test.describe('ORIGIN Personal 2.0 accessibility', () => {
   test('settings dialog traps focus and restores the opener on Escape', async ({ page }) => {
+    // リリースIDが「ready」だと、閉じた details 内のボタンがトラップの
+    // 末尾要素になり回り込みを決定的に検証できないため、このテストでは
+    // 取得失敗（unavailable）の状態に固定する。MCP項目も未構成に固定し、
+    // ダイアログ内のフォーカス可能要素を決定的にする。
+    await page.route('**/api/health', route => route.abort());
+    await page.route('**/api/mcp/status', route => route.fulfill({ json: { configured: false, authenticated: false } }));
     await page.goto('/');
     const { opener, dialog } = await openSettings(page);
 
     const iconClose = page.getByTestId('close-settings-button');
-    const footerClose = dialog.getByRole('button', { name: /^(閉じる|Close)$/ });
+    // UI監査 #27：ダイアログ下部の重複「閉じる」ボタンは削除され、閉じる
+    // 手段は × ボタンに一本化された。× にはアクセス可能な名前
+    // （設定を閉じる / Close settings）がある。末尾のフォーカス可能要素は
+    // 履歴セクションの「初期化」ボタンになる。
+    await expect(iconClose).toHaveAccessibleName(/^(設定を閉じる|Close settings)$/);
+    const lastControl = dialog.getByRole('button', { name: /^(初期化|Clear)$/ });
 
     await iconClose.focus();
     await page.keyboard.press('Shift+Tab');
-    await expect(footerClose).toBeFocused();
+    await expect(lastControl).toBeFocused();
 
     await page.keyboard.press('Tab');
     await expect(iconClose).toBeFocused();

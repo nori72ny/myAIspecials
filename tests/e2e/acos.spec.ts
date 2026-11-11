@@ -85,7 +85,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-thinking')).toBeHidden({ timeout: 15_000 });
   });
 
-  test('protects Japanese IME composition, then discloses the exact delivery-evidence scope', async ({ page }) => {
+  test('protects Japanese IME composition and keeps the composer available after answering', async ({ page }) => {
     let requests = 0;
     await page.route('**/api/chat', async (route) => {
       requests += 1;
@@ -104,11 +104,10 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await composer.press('Control+Enter');
     await expect(page.getByText('変換確定後に回答しました。')).toBeVisible();
     expect(requests).toBe(1);
-    const verification = page.getByTestId('response-verification-details');
-    await expect(verification).not.toHaveAttribute('open');
-    await verification.getByText('詳細', { exact: true }).click();
-    for (const label of ['応答完了', '費用経路', '内容の限界']) await expect(page.getByTestId('response-verification-log')).toContainText(label);
-    await expect(page.getByTestId('response-verification-log')).toContainText('出典確認や別AIによる内容検証を示すものではありません');
+    // UI監査 #1：回答ごとの検証バッジ（「詳細」）は削除されたため、証拠
+    // 範囲の開示アサーションは落とした。IME変換の保護と、回答後も
+    // コンポーザーが使えることがこのテストの残りの意図。
+    await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     await expect(page.locator('.safe-area-bottom .origin-composer')).toBeVisible();
   });
 
@@ -168,8 +167,11 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'minimal');
     await preview.evaluate((element) => { (window as Window & { originThemeFrame?: Window | null }).originThemeFrame = (element as HTMLIFrameElement).contentWindow; });
     const originalAccent = await sandbox.locator('html').evaluate((element) => getComputedStyle(element).getPropertyValue('--accent-primary').trim());
-    await page.getByTestId('artifact-action-details').click();
-    await page.getByTestId('artifact-open-design-settings').click();
+    // UI監査：成果物メニュー内の「デザインテーマ」入口
+    // （artifact-open-design-settings）は削除され、テーマ変更は設定
+    // ダイアログに一本化された。ワークスペースがヘッダー右側を覆うため、
+    // 設定ボタンは force クリックで開く。
+    await page.getByRole('button', { name: '設定を開く' }).click({ force: true });
     await page.getByTestId('design-theme-luxury').click();
     await expect(page.locator('html')).toHaveAttribute('data-design-theme', 'luxury');
     await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'luxury');
@@ -335,7 +337,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     }
   });
 
-  test('restores a local archived conversation from the requestAnimationFrame knowledge map', async ({ page }) => {
+  test('restores a local archived conversation from the history drawer session list', async ({ page }) => {
     await page.route('**/api/chat', async (route) => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: 'セッションを整理しました。' }));
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('復元対象のローカルセッション');
@@ -343,10 +345,11 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: '新規対話を開始' }).click();
     await page.getByTestId('history-drawer-toggle').click();
-    await page.getByText('その他の表示').click();
-    await page.getByTestId('knowledge-map-toggle').click();
-    await expect(page.getByTestId('knowledge-map-node-count')).toHaveText('1');
-    await page.getByTestId('knowledge-map-session-0').click();
+    // UI監査 #6：ドロワー内のナレッジマップと「その他の表示」は削除された。
+    // 復元は履歴一覧のセッション項目から直接行う（復元処理自体は従来どおり
+    // requestAnimationFrame 経由でスケジュールされる）。
+    await expect(page.getByTestId('history-session-item-0')).toContainText('復元対象のローカルセッション');
+    await page.getByTestId('history-session-item-0').click();
     await expect(page.getByRole('article', { name: 'あなたの依頼' }).filter({ hasText: '復元対象のローカルセッション' })).toBeVisible();
   });
 
