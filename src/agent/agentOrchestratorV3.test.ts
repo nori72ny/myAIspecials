@@ -71,37 +71,81 @@ describe('agent orchestrator v3', () => {
 
   it('reports readiness and legacy credential compatibility truthfully', async () => {
     const store: AgentRunConsumptionStore = { consume: async () => true };
-    const ready = await request(appFor(env, store)).get('/api/agent/v3/status');
+    const app = appFor(env, store);
+    // Unauthenticated callers receive readiness booleans only; the
+    // configuration breakdown is not disclosed.
+    const ready = await request(app).get('/api/agent/v3/status');
     expect(ready.status).toBe(200);
     expect(ready.body).toEqual({
       ok: true,
       protocolVersion: 3,
       ready: true,
       approvalSigningConfigured: true,
-      operatorAuthenticationConfigured: true,
-      authorizationMode: 'legacy-approval-compat',
-      credentialSeparationConfigured: false,
       replayProtectionConfigured: true,
-      replayProtection: 'shared-atomic',
       browserApprovalEnabled: true,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
-      secretDelivery: 'legacy-shared-credential',
     });
     expect(JSON.stringify(ready.body)).not.toContain(env.ORIGIN_AGENT_APPROVAL_SECRET);
 
+    // The operator-authenticated view keeps the full breakdown, including
+    // the truthful legacy credential compatibility reporting.
+    const detailed = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`);
+    expect(detailed.status).toBe(200);
+    expect(detailed.body).toEqual({
+      ok: true,
+      protocolVersion: 3,
+      ready: true,
+      approvalSigningConfigured: true,
+      replayProtectionConfigured: true,
+      browserApprovalEnabled: true,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      operatorAuthenticationConfigured: true,
+      authorizationMode: 'legacy-approval-compat',
+      credentialSeparationConfigured: false,
+      replayProtection: 'shared-atomic',
+      secretDelivery: 'legacy-shared-credential',
+    });
+    expect(JSON.stringify(detailed.body)).not.toContain(env.ORIGIN_AGENT_APPROVAL_SECRET);
+
+    // A wrong credential receives the public shape, never the breakdown.
+    const wrongCredential = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${'x'.repeat(48)}`);
+    expect(wrongCredential.body).toEqual(ready.body);
+
     const unavailable = await request(appFor({})).get('/api/agent/v3/status');
-    expect(unavailable.body).toMatchObject({
+    expect(unavailable.body).toEqual({
+      ok: true,
+      protocolVersion: 3,
       ready: false,
       approvalSigningConfigured: false,
-      operatorAuthenticationConfigured: false,
-      authorizationMode: 'unconfigured',
-      credentialSeparationConfigured: false,
       replayProtectionConfigured: false,
-      replayProtection: 'unavailable',
-      secretDelivery: 'unavailable',
+      browserApprovalEnabled: false,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
     });
+  });
+
+  it('rate limits repeated status requests so operator credential checks stay metered', async () => {
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const app = appFor(env, store);
+    // The outer guard's sustained ceiling is 60 requests per minute per IP;
+    // legitimate status probes stay far below it.
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await request(app).get('/api/agent/v3/status');
+      expect(response.status).toBe(200);
+    }
+    const limited = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`);
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('CHAT_RATE_LIMITED');
+    expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(limited.headers['retry-after']).toBeDefined();
   });
 
   it('uses a dedicated operator credential without exposing or accepting the signing key', async () => {
@@ -116,13 +160,31 @@ describe('agent orchestrator v3', () => {
     expect(status.body).toMatchObject({
       ready: true,
       approvalSigningConfigured: true,
+    });
+    expect(status.body).not.toHaveProperty('operatorAuthenticationConfigured');
+    expect(status.body).not.toHaveProperty('authorizationMode');
+    expect(status.body).not.toHaveProperty('credentialSeparationConfigured');
+    expect(status.body).not.toHaveProperty('secretDelivery');
+    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET);
+    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET);
+
+    // The signing key does not unlock the operator detail view either.
+    const signingKeyDetail = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET}`);
+    expect(signingKeyDetail.body).not.toHaveProperty('authorizationMode');
+
+    const detailed = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET}`);
+    expect(detailed.body).toMatchObject({
+      ready: true,
+      approvalSigningConfigured: true,
       operatorAuthenticationConfigured: true,
       authorizationMode: 'agent-operator',
       credentialSeparationConfigured: true,
       secretDelivery: 'signing-secret-server-only',
     });
-    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET);
-    expect(JSON.stringify(status.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET);
+    expect(JSON.stringify(detailed.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET);
+    expect(JSON.stringify(detailed.body)).not.toContain(dedicatedEnv.ORIGIN_AGENT_OPERATOR_SECRET);
 
     const signingKeyRejected = await request(app).post('/api/agent/v3/execute')
       .set('Authorization', `Bearer ${dedicatedEnv.ORIGIN_AGENT_APPROVAL_SECRET}`)
@@ -148,10 +210,16 @@ describe('agent orchestrator v3', () => {
     expect(status.body).toMatchObject({
       ready: false,
       approvalSigningConfigured: true,
-      operatorAuthenticationConfigured: false,
-      authorizationMode: 'unconfigured',
-      credentialSeparationConfigured: false,
+      replayProtectionConfigured: true,
+      browserApprovalEnabled: true,
     });
+    expect(status.body).not.toHaveProperty('operatorAuthenticationConfigured');
+    expect(status.body).not.toHaveProperty('authorizationMode');
+    expect(status.body).not.toHaveProperty('credentialSeparationConfigured');
+    // A malformed dedicated credential cannot authenticate the detail view.
+    const detailAttempt = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${malformed.ORIGIN_AGENT_OPERATOR_SECRET}`);
+    expect(detailAttempt.body).not.toHaveProperty('authorizationMode');
 
     const response = await request(app).post('/api/agent/v3/execute')
       .set('Authorization', `Bearer ${malformed.ORIGIN_AGENT_APPROVAL_SECRET}`)

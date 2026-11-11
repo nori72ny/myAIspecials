@@ -10,7 +10,6 @@ type AgentCapability = {
   ready: boolean;
   approvalSigningConfigured: boolean;
   replayProtectionConfigured: boolean;
-  replayProtection: string;
   browserApprovalEnabled: boolean;
   freeOnly: boolean;
   costUsd: number;
@@ -167,7 +166,6 @@ export default function AgentWorkspaceView() {
           ready: data.ready === true,
           approvalSigningConfigured: data.approvalSigningConfigured === true,
           replayProtectionConfigured: data.replayProtectionConfigured === true,
-          replayProtection: typeof data.replayProtection === 'string' ? data.replayProtection : 'unavailable',
           browserApprovalEnabled: data.browserApprovalEnabled === true,
           freeOnly: data.freeOnly === true,
           costUsd: typeof data.costUsd === 'number' ? data.costUsd : -1,

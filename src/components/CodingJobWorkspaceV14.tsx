@@ -209,6 +209,33 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
     };
   }, []);
 
+  const capabilityDetailInFlightRef = useRef(false);
+  const refreshCapabilityDetail = useCallback((credential: string) => {
+    // The status endpoint discloses its configuration breakdown only to an
+    // operator-authenticated request; the mount-time fetch is anonymous and
+    // yields readiness alone. When the operator opens the detailed
+    // information area with a credential at hand, refresh the capability
+    // with it so the diagnostics panel and authorization notices can
+    // render from the full detail. Operation flows never trigger this.
+    if (!credential || capabilityDetailInFlightRef.current) return;
+    capabilityDetailInFlightRef.current = true;
+    void fetch('/api/coding/v1.4/status', { headers: authHeaders(credential) })
+      .then(async response => {
+        if (!response.ok) return;
+        const data = await response.json() as CapabilityResponse;
+        if (!data || data.ok !== true) return;
+        if (mountedRef.current) setCapability(data);
+      })
+      .catch(() => undefined)
+      .finally(() => { capabilityDetailInFlightRef.current = false; });
+  }, []);
+
+  const handleCapabilityDetailToggle = (open: boolean) => {
+    if (!open || capability?.authorizationMode !== undefined) return;
+    const credential = credentialRef.current || (credentialInputRef.current?.value.trim() ?? '');
+    if (credential) refreshCapabilityDetail(credential);
+  };
+
   const applyResponse = useCallback((data: JobResponse, epoch: number) => {
     if (epoch !== requestEpochRef.current) return;
     if (data.job) {
@@ -378,7 +405,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
         </div>
 
-        <details className="mt-2 border-t border-origin-border pt-2 text-xs">
+        <details className="mt-2 border-t border-origin-border pt-2 text-xs" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">詳しい実行情報</summary>
           <p className="leading-5 text-origin-muted">認証情報は端末へ保存せず、実行中に必要な範囲だけで利用します。</p>
 
@@ -386,14 +413,16 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
             <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
             <details className="mt-2">
               <summary className="min-h-11 cursor-pointer py-3 font-semibold">接続・認証の詳細</summary>
-              <div className="mt-2 flex items-center justify-between gap-2"><span className="text-origin-muted">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
+              {capability?.authorizationMode !== undefined && <>
+                <div className="mt-2 flex items-center justify-between gap-2"><span className="text-origin-muted">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
+                <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
+              </>}
               <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Git publish</span><span>not authorized</span></div>
               <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Deploy</span><span>not authorized</span></div>
             </details>
           </div>
 
-          {!checkingCapability && <details className="mt-3 rounded-xl border border-origin-border p-3" aria-label="Coding production readiness">
+          {!checkingCapability && capability?.authorizationMode !== undefined && <details className="mt-3 rounded-xl border border-origin-border p-3" aria-label="Coding production readiness">
             <summary className="min-h-11 cursor-pointer py-3 font-bold">設定の診断結果</summary>
             <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-origin-muted">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
           </details>}
