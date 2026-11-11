@@ -61,22 +61,46 @@ function publicRecord(jobId: string): CodingJobPublicRecordV14 {
 describe('V1.4 coding job API', () => {
   it('reports exact submission readiness without exposing credential material', async () => {
     const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() });
+    // Unauthenticated callers receive only the capability identity and the
+    // aggregate readiness; the breakdown stays behind operator auth.
     const response = await request(app).get('/api/coding/v1.4/status');
     expect(response.status).toBe(200);
-    expect(response.body.ready).toBe(true);
-    expect(response.body.controlPlaneReady).toBe(true);
-    expect(response.body.storeReady).toBe(true);
-    expect(response.body.resultStoreReady).toBe(true);
-    expect(response.body.authorizationReady).toBe(true);
-    expect(response.body.ownerBindingReady).toBe(true);
-    expect(response.body.dataKeyReady).toBe(true);
-    expect(response.body.cryptoReady).toBe(true);
-    expect(response.body.dispatchReady).toBe(true);
-    expect(response.body.workerEnabled).toBe(true);
-    expect(response.body.authorizationMode).toBe('coding-operator');
-    expect(response.body.authorizationScope).toBe('coding-v1.4-only-when-dedicated');
+    expect(response.body).toEqual({
+      ok: true,
+      version: '1.4',
+      capability: 'durable-agentic-coding-jobs',
+      ready: true,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      gitPublished: false,
+      deployed: false,
+    });
     expect(JSON.stringify(response.body)).not.toContain(codingSecret);
     expect(JSON.stringify(response.body)).not.toContain(approvalSecret);
+
+    const detailed = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
+    expect(detailed.status).toBe(200);
+    expect(detailed.body.ready).toBe(true);
+    expect(detailed.body.controlPlaneReady).toBe(true);
+    expect(detailed.body.storeReady).toBe(true);
+    expect(detailed.body.resultStoreReady).toBe(true);
+    expect(detailed.body.authorizationReady).toBe(true);
+    expect(detailed.body.ownerBindingReady).toBe(true);
+    expect(detailed.body.dataKeyReady).toBe(true);
+    expect(detailed.body.cryptoReady).toBe(true);
+    expect(detailed.body.dispatchReady).toBe(true);
+    expect(detailed.body.workerEnabled).toBe(true);
+    expect(detailed.body.authorizationMode).toBe('coding-operator');
+    expect(detailed.body.authorizationScope).toBe('coding-v1.4-only-when-dedicated');
+    expect(JSON.stringify(detailed.body)).not.toContain(codingSecret);
+    expect(JSON.stringify(detailed.body)).not.toContain(approvalSecret);
+
+    // The broader agent credential does not unlock the coding detail view.
+    const agentCredential = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${approvalSecret}`);
+    expect(agentCredential.body).toEqual(response.body);
   });
 
   it('stays fail-closed for new work until the hosted worker is explicitly enabled', async () => {
@@ -84,8 +108,11 @@ describe('V1.4 coding job API', () => {
     const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() }, defaultDispatch(), disabledEnv);
     const status = await request(app).get('/api/coding/v1.4/status');
     expect(status.body.ready).toBe(false);
-    expect(status.body.controlPlaneReady).toBe(true);
-    expect(status.body.workerEnabled).toBe(false);
+    expect(status.body).not.toHaveProperty('controlPlaneReady');
+    const detailed = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
+    expect(detailed.body.controlPlaneReady).toBe(true);
+    expect(detailed.body.workerEnabled).toBe(false);
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${codingSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
@@ -105,8 +132,11 @@ describe('V1.4 coding job API', () => {
     const { app } = appFor(store, defaultDispatch(), degradedEnv);
     const capability = await request(app).get('/api/coding/v1.4/status');
     expect(capability.body.ready).toBe(false);
-    expect(capability.body.controlPlaneReady).toBe(true);
-    expect(capability.body.dispatchReady).toBe(false);
+    expect(capability.body).not.toHaveProperty('controlPlaneReady');
+    const detailed = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
+    expect(detailed.body.controlPlaneReady).toBe(true);
+    expect(detailed.body.dispatchReady).toBe(false);
 
     const status = await request(app).get(`/api/coding/v1.4/jobs/${knownId}`).set('Authorization', `Bearer ${codingSecret}`);
     expect(status.status).toBe(200);
@@ -137,9 +167,14 @@ describe('V1.4 coding job API', () => {
     const invalidDedicatedEnv = { ...env, ORIGIN_CODING_OPERATOR_SECRET: 'short' };
     const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() }, defaultDispatch(), invalidDedicatedEnv);
     const status = await request(app).get('/api/coding/v1.4/status');
-    expect(status.body.authorizationMode).toBe('unconfigured');
+    expect(status.body).not.toHaveProperty('authorizationMode');
+    expect(status.body).not.toHaveProperty('controlPlaneReady');
     expect(status.body.ready).toBe(false);
-    expect(status.body.controlPlaneReady).toBe(false);
+    // No credential authenticates in this configuration, so the breakdown
+    // stays hidden even to a request presenting the agent credential.
+    const detailAttempt = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${approvalSecret}`);
+    expect(detailAttempt.body).not.toHaveProperty('authorizationMode');
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${approvalSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
@@ -157,8 +192,11 @@ describe('V1.4 coding job API', () => {
     };
     const { app } = appFor(store, defaultDispatch(), legacyEnv);
     const status = await request(app).get('/api/coding/v1.4/status');
-    expect(status.body.authorizationMode).toBe('legacy-agent-compat');
+    expect(status.body).not.toHaveProperty('authorizationMode');
     expect(status.body.ready).toBe(true);
+    const detailed = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${approvalSecret}`);
+    expect(detailed.body.authorizationMode).toBe('legacy-agent-compat');
     const response = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${approvalSecret}`)
       .send({ goal: 'fix the parser', confirmRun: true });
@@ -169,11 +207,13 @@ describe('V1.4 coding job API', () => {
     const store = { create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() };
     const missingDataKey = { ...env, ORIGIN_CODING_JOB_DATA_KEY: '' };
     const noKey = appFor(store, defaultDispatch(), missingDataKey);
-    expect((await request(noKey.app).get('/api/coding/v1.4/status')).body.dataKeyReady).toBe(false);
+    expect((await request(noKey.app).get('/api/coding/v1.4/status')).body.ready).toBe(false);
+    expect((await request(noKey.app).get('/api/coding/v1.4/status').set('Authorization', `Bearer ${codingSecret}`)).body.dataKeyReady).toBe(false);
     expect((await request(noKey.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
 
     const noResults = appFor(store, defaultDispatch(), env, null);
-    const noResultsStatus = await request(noResults.app).get('/api/coding/v1.4/status');
+    const noResultsStatus = await request(noResults.app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
     expect(noResultsStatus.body.resultStoreReady).toBe(false);
     expect((await request(noResults.app).post('/api/coding/v1.4/jobs').set('Authorization', `Bearer ${codingSecret}`).send({ goal: 'fix it', confirmRun: true })).status).toBe(503);
   });

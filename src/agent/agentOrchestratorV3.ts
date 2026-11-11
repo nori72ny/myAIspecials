@@ -296,25 +296,36 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   const runStore = deps?.runStore;
   const writeLockStore = deps?.writeLockStore;
 
-  router.get('/api/agent/v3/status', (_req, res) => {
+  router.get('/api/agent/v3/status', (req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
     const operatorAuthenticationConfigured = agentOperatorConfiguredV3(env);
     const authorizationMode = agentOperatorAuthorizationModeV3(env);
     const replayProtectionConfigured = Boolean(consumptionStore);
-    return res.status(200).json({
+    // Unauthenticated callers only learn readiness booleans. The security
+    // configuration breakdown below (authorization mode, credential
+    // separation, secret delivery, replay-protection method) is
+    // reconnaissance material, so it is returned solely to a request that
+    // authenticates as the operator.
+    const publicStatus = {
       ok: true,
       protocolVersion: 3,
       ready: approvalSigningConfigured && operatorAuthenticationConfigured && replayProtectionConfigured,
       approvalSigningConfigured,
-      operatorAuthenticationConfigured,
-      authorizationMode,
-      credentialSeparationConfigured: authorizationMode === 'agent-operator',
       replayProtectionConfigured,
-      replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
       browserApprovalEnabled: approvalSigningConfigured && replayProtectionConfigured,
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
+    };
+    if (!authenticateAgentOperatorV3(req, env)) {
+      return res.status(200).json(publicStatus);
+    }
+    return res.status(200).json({
+      ...publicStatus,
+      operatorAuthenticationConfigured,
+      authorizationMode,
+      credentialSeparationConfigured: authorizationMode === 'agent-operator',
+      replayProtection: replayProtectionConfigured ? 'shared-atomic' : 'unavailable',
       secretDelivery: authorizationMode === 'agent-operator'
         ? 'signing-secret-server-only'
         : authorizationMode === 'legacy-approval-compat'

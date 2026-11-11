@@ -19,7 +19,6 @@ import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
 import KenBurnsVideoDialog from './creative/KenBurnsVideoDialog';
 import OriginCatState from './components/OriginCatState';
-import { recoverWithAutonomousCascade } from './services/zeroFailureCascade';
 import { recoveryEstimateSentence } from './utils/recoveryEstimate';
 
 export interface ArtifactBlock {
@@ -2030,23 +2029,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenRe
       if (!response.ok) {
         const isModelBusy = failure?.retryable === true && typeof failure?.code === 'string' && TRANSIENT_PROVIDER_CODES.has(failure.code);
         if (isModelBusy) {
-          // The API may already have exhausted its retry budget. Do not launch
-          // another network cascade in that case; report the concrete busy
-          // state and keep the $0.00/no-unverified-answer boundary intact.
-          if (failure?.retryAttempted === true) {
-            appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-            if (sendAttachments.length === 0) setFailedChatRequest({ text });
-            return;
-          }
-          const cascade = await recoverWithAutonomousCascade(text, controller.signal);
-          if (cascade.ok) {
-            updateMessages((current) => [...current, { id: nextMessageId('a'), role: 'assistant', content: cascade.content }]);
-            setAttachmentError('');
-            setIsSafeWaiting(false);
-          } else {
-            appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-            if (sendAttachments.length === 0) setFailedChatRequest({ text });
-          }
+          // Report the concrete busy state and keep the $0.00/no-unverified-
+          // answer boundary intact. There is deliberately no client-side
+          // fallback here: the user's own words must never be sent from the
+          // browser to an unreviewed third party, so a temporary server-side
+          // failure is surfaced honestly with the existing retry affordance
+          // instead of being papered over by an outside answer.
+          appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+          if (sendAttachments.length === 0) setFailedChatRequest({ text });
           return;
         }
         if (failure?.code === 'PROVIDER_RATE_LIMITED') {

@@ -199,12 +199,29 @@ export function createCodingJobV14Router(
 ) {
   const router = Router();
 
-  router.get('/api/coding/v1.4/status', async (_req, res) => {
+  router.get('/api/coding/v1.4/status', async (req, res) => {
     const state = await readiness(env, store, resultStore);
-    return res.status(200).json({
+    // Unauthenticated callers only learn that the capability exists and
+    // whether it is ready. The readiness breakdown and configuration values
+    // below (authorization mode, persistence and probe descriptors, target
+    // alias) are reconnaissance material, so they are returned solely to a
+    // request that authenticates as the coding operator.
+    const publicStatus = {
       ok: true,
       version: '1.4',
       capability: 'durable-agentic-coding-jobs',
+      ready: state.ready,
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackEnabled: false,
+      gitPublished: false,
+      deployed: false,
+    };
+    if (!authenticateCodingJobOperatorV14(req, env)) {
+      return res.status(200).json(publicStatus);
+    }
+    return res.status(200).json({
+      ...publicStatus,
       ...state,
       resultDetailsReady: state.resultStoreReady,
       databaseProbe: 'live-schema-select',
@@ -216,11 +233,6 @@ export function createCodingJobV14Router(
       authorizationMode: codingJobAuthorizationModeV14(env),
       authorizationScope: 'coding-v1.4-only-when-dedicated',
       workerOptInRequired: true,
-      freeOnly: true,
-      costUsd: 0,
-      paidFallbackEnabled: false,
-      gitPublished: false,
-      deployed: false,
     });
   });
 

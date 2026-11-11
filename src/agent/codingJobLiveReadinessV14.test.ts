@@ -42,14 +42,20 @@ describe('V1.4 live database readiness', () => {
 
     const status = await request(app).get('/api/coding/v1.4/status');
     expect(status.status).toBe(200);
-    expect(status.body.storeConfigured).toBe(true);
-    expect(status.body.resultStoreConfigured).toBe(true);
-    expect(status.body.storeReady).toBe(false);
-    expect(status.body.resultStoreReady).toBe(true);
-    expect(status.body.databaseReady).toBe(false);
-    expect(status.body.controlPlaneReady).toBe(false);
     expect(status.body.ready).toBe(false);
-    expect(status.body.databaseProbe).toBe('live-schema-select');
+    expect(status.body).not.toHaveProperty('storeReady');
+    expect(status.body).not.toHaveProperty('databaseProbe');
+
+    const detailed = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
+    expect(detailed.body.storeConfigured).toBe(true);
+    expect(detailed.body.resultStoreConfigured).toBe(true);
+    expect(detailed.body.storeReady).toBe(false);
+    expect(detailed.body.resultStoreReady).toBe(true);
+    expect(detailed.body.databaseReady).toBe(false);
+    expect(detailed.body.controlPlaneReady).toBe(false);
+    expect(detailed.body.ready).toBe(false);
+    expect(detailed.body.databaseProbe).toBe('live-schema-select');
 
     const create = await request(app).post('/api/coding/v1.4/jobs')
       .set('Authorization', `Bearer ${codingSecret}`)
@@ -72,7 +78,8 @@ describe('V1.4 live database readiness', () => {
     };
     const { app } = appFor(store, resultStore);
 
-    const status = await request(app).get('/api/coding/v1.4/status');
+    const status = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
     expect(status.body.storeReady).toBe(true);
     expect(status.body.resultStoreReady).toBe(false);
     expect(status.body.databaseReady).toBe(false);
@@ -124,7 +131,8 @@ describe('V1.4 live database readiness', () => {
     };
     const { app } = appFor(store, resultStore);
 
-    const status = await request(app).get('/api/coding/v1.4/status');
+    const status = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
     expect(status.body.databaseReady).toBe(true);
     expect(status.body.storeReady).toBe(true);
     expect(status.body.resultStoreReady).toBe(true);

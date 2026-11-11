@@ -115,8 +115,9 @@ async function postJson(baseUrl: string, route: string, body: unknown, bearer?: 
   return { status: response.status, body: value };
 }
 
-async function getJson(baseUrl: string, route: string): Promise<JsonResponse> {
+async function getJson(baseUrl: string, route: string, bearer?: string): Promise<JsonResponse> {
   const response = await fetch(`${baseUrl}${route}`, {
+    headers: bearer ? { authorization: `Bearer ${bearer}` } : undefined,
     signal: AbortSignal.timeout(10_000),
   });
   let value: any = null;
@@ -395,7 +396,11 @@ async function main(): Promise<void> {
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('GENERAL_AGENT_PRIVATE_SERVER_BIND_FAILED');
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const status = await getJson(baseUrl, '/api/agent/v3/status');
+    // The status endpoint only discloses its configuration breakdown to an
+    // operator-authenticated request, so present this run's operator
+    // credential; readiness booleans alone cannot prove credential
+    // separation.
+    const status = await getJson(baseUrl, '/api/agent/v3/status', operatorAuthSecret);
     const globalZeroCostReady = status.status === 200
       && status.body?.ready === true
       && status.body?.freeOnly === true
