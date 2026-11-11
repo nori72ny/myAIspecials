@@ -275,6 +275,53 @@ function logAgentRunStoreFailure(operation: string, error: unknown): void {
   });
 }
 
+/**
+ * Records an advance that ended `unavailable` for production triage.
+ * The advance handler answers those with a bare 503 and no other log
+ * line, so without this record an infrastructure failure inside the
+ * advancer (for example replay protection rejecting the reservation) is
+ * invisible in the production logs. Only the outcome's error code is
+ * logged — validated against the same safe-token pattern as the
+ * run-store failure log; codes are internal constants, never free text.
+ */
+function logAgentRunAdvanceUnavailable(errorCode: string): void {
+  console.error('ORIGIN_AGENT_RUN_ADVANCE_UNAVAILABLE', {
+    code: SAFE_RUN_STORE_ERROR_FIELD.test(errorCode) ? errorCode : 'UNKNOWN',
+  });
+}
+
+/** The longest reservation expiry the consumption store contract accepts,
+ * measured from the reservation instant. The Postgres implementation
+ * validates against this same constant, so callers and store can never
+ * drift apart. */
+export const AGENT_RUN_CONSUMPTION_MAX_TTL_MS = 15 * 60 * 1_000;
+
+/** The reservation window callers ask for when the authorizing lifetime
+ * bound is longer than the store contract: the legacy execute path's
+ * floor (an approval's expiry, but at least twelve minutes). A short
+ * horizon is sufficient because the capability tokens that could
+ * re-enter execution are themselves short-lived (plan TTL 10 minutes +
+ * approval TTL 2 minutes). */
+export const AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS = 12 * 60 * 1_000;
+
+/**
+ * The reservation expiry a runs-path caller passes to `consume()` for a
+ * run whose record lifetime (`recordExpiresAt`, creation + 7 days) far
+ * exceeds the store contract. Mirrors the legacy execute path's
+ * semantics — retain for the authorizing lifetime, with the
+ * twelve-minute floor — clamped to the store's maximum so the call can
+ * never be rejected with INVALID_AGENT_RUN_EXPIRY: passing the record
+ * expiry verbatim made every durable-run advance fail deterministically
+ * (and, through the reservation journal in the record's quota ledger,
+ * the runs path stays protected after the reservation lapses).
+ */
+export function agentRunConsumptionReservationExpiresAt(recordExpiresAt: number, nowMs: number): number {
+  return Math.min(
+    Math.max(recordExpiresAt, nowMs + AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS),
+    nowMs + AGENT_RUN_CONSUMPTION_MAX_TTL_MS,
+  );
+}
+
 /** Must atomically reserve a run across all server instances until expiresAt.
  * Return false for a previously reserved run. Never release after a tool failure.
  * No process-local default: serverless instances cannot share an in-memory map.
@@ -868,6 +915,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       case 'busy':
         return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: view.status, advanced: false, code: 'AGENT_RUN_DRIVER_BUSY', run: view, ...runEnvelope });
       case 'unavailable':
+        logAgentRunAdvanceUnavailable(outcome.errorCode);
         return res.status(503).json({ ok: false, code: outcome.errorCode, runId });
       case 'not_runnable':
         // A held run must re-plan and be re-approved before it can move
@@ -925,7 +973,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let tombstoned = false;
     if (consumptionStore) {
       try {
-        await consumptionStore.consume(runId, record.expiresAt);
+        await consumptionStore.consume(runId, agentRunConsumptionReservationExpiresAt(record.expiresAt, Date.now()));
         tombstoned = true;
       } catch { tombstoned = false; }
     }

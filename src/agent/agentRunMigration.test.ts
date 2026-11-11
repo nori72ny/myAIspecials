@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS,
   AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
   AGENT_RUN_MIGRATION_SQL_RUNS,
   AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
@@ -77,6 +78,27 @@ describe('agent write locks migration contract', () => {
   });
 });
 
+describe('agent consumed runs migration contract', () => {
+  it('keeps replay-protection reservations service-role-only with the columns the store writes', async () => {
+    const sql = await readFile(new URL('../../supabase/migrations/20261108120000_origin_agent_consumed_runs.sql', import.meta.url), 'utf8');
+    expect(sql).toContain('create table if not exists public.origin_agent_consumed_runs');
+    expect(sql).toContain('enable row level security');
+    expect(sql).toContain('revoke all on table public.origin_agent_consumed_runs from anon');
+    expect(sql).toContain('revoke all on table public.origin_agent_consumed_runs from authenticated');
+    expect(sql).toContain('grant select, insert, update, delete on table public.origin_agent_consumed_runs to service_role');
+    // One row per run id: the primary key is the ON CONFLICT target of
+    // the store's atomic reservation insert.
+    expect(sql).toContain('run_id text primary key');
+    // Exactly the columns the store's INSERT writes, in the formats the
+    // store validates before database access.
+    expect(sql).toContain('expires_at timestamptz not null');
+    expect(sql).toContain("run_id ~ '^run-[A-Za-z0-9-]{8,100}$'");
+    // The store's consume() deletes lapsed reservations inside the same
+    // statement, so expiry needs an index.
+    expect(sql).toContain('origin_agent_consumed_runs_expires_at_idx');
+  });
+});
+
 describe('agent run schema constants mirror the migration files', () => {
   // The production bundle cannot read files at runtime, so the runs
   // schema is ensured lazily from in-code constants (agentRunSchema.ts).
@@ -87,6 +109,7 @@ describe('agent run schema constants mirror the migration files', () => {
     { constant: AGENT_RUN_MIGRATION_SQL_RUNS, file: '../../supabase/migrations/20261108090000_origin_agent_runs.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS, file: '../../supabase/migrations/20261108100000_origin_agent_write_locks.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION, file: '../../supabase/migrations/20261108110000_origin_agent_run_resume_evaluation.sql' },
+    { constant: AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS, file: '../../supabase/migrations/20261108120000_origin_agent_consumed_runs.sql' },
   ];
 
   it('keeps every schema constant identical to its migration file', async () => {
@@ -101,6 +124,7 @@ describe('agent run schema constants mirror the migration files', () => {
       AGENT_RUN_MIGRATION_SQL_RUNS,
       AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
       AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
+      AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS,
     ]);
   });
 });

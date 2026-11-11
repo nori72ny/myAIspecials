@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { advanceAgentRun } from './agentRunAdvancer.js';
-import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
+import {
+  AGENT_RUN_CONSUMPTION_MAX_TTL_MS,
+  AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS,
+  type AgentRunConsumptionStore,
+} from './agentOrchestratorV3.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
 import { InMemoryAgentRunWriteLockStore } from './agentRunWriteLockStoreMemory.fixture.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
@@ -85,6 +89,42 @@ describe('advanceAgentRun', () => {
     // The persisted record never gains the artifact body.
     expect(JSON.stringify(record)).not.toContain('artifact:document_generator');
     expect(record?.stepsState[1]).not.toHaveProperty('artifact');
+  });
+
+  it('reserves replay protection within the consumption store TTL contract', async () => {
+    const store = new InMemoryAgentRunStore();
+    // A fake that enforces the Postgres store's contract, which the
+    // plain in-memory fake historically did not: the reservation expiry
+    // must be in the future and at most the shared maximum TTL out.
+    // Passing the record's own expiry (a day here; seven days in
+    // production) verbatim used to make every advance fail this check.
+    const seen: number[] = [];
+    const consumptionStore: AgentRunConsumptionStore = {
+      consume: vi.fn(async (_runId: string, expiresAt: number) => {
+        const nowMs = Date.now();
+        if (!Number.isFinite(expiresAt) || expiresAt <= nowMs || expiresAt > nowMs + AGENT_RUN_CONSUMPTION_MAX_TTL_MS) {
+          throw new Error('INVALID_AGENT_RUN_EXPIRY');
+        }
+        seen.push(expiresAt);
+        return true;
+      }),
+    };
+    const runTool = makeRunTool();
+    const seeded = await seedRun(store, [{ toolName: 'repository_explorer' }]);
+
+    const before = Date.now();
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+    const after = Date.now();
+
+    expect(outcome.kind).toBe('completed');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(before + AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS);
+    expect(seen[0]).toBeLessThanOrEqual(after + AGENT_RUN_CONSUMPTION_MAX_TTL_MS);
+    expect((await store.get(RUN_ID, OWNER))?.status).toBe('completed');
   });
 
   it('completes without an artifact when this advance finalized no step', async () => {
