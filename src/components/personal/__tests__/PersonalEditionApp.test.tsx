@@ -4,14 +4,12 @@ import { DEFAULT_PERSONAL_SETTINGS } from '../../../hooks/usePersonalSettings';
 import PersonalEditionApp from '../PersonalEditionApp';
 
 type MockAppProps = Record<string, unknown> & {
-  onOpenResearch?: () => void;
   onOpenAgent?: () => void;
   onOpenCoding?: (goal?: string) => void;
   onOpenCreative?: (request?: string) => void;
 };
 
 const appProps = vi.fn();
-vi.mock('../ResearchWorkspaceV31', () => ({ default: () => <section aria-label="Research Workspace">Research test workspace</section> }));
 vi.mock('../CodingWorkspaceV31', () => ({ default: ({ initialGoal }: { initialGoal?: string }) => <section aria-label="Coding Job Workspace">Coding test workspace{initialGoal ? `: ${initialGoal}` : ''}</section> }));
 vi.mock('../../CreativeWorkspaceV15', () => ({ default: ({ initialRequest }: { initialRequest?: string }) => <section aria-label="Creative Workspace">Creative test workspace{initialRequest ? `: ${initialRequest}` : ''}</section> }));
 vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
@@ -28,7 +26,7 @@ function latestAppProps(): MockAppProps {
   return appProps.mock.calls.at(-1)?.[0] as MockAppProps;
 }
 
-function runAppAction(name: 'onOpenResearch' | 'onOpenAgent' | 'onOpenCoding' | 'onOpenCreative') {
+function runAppAction(name: 'onOpenAgent' | 'onOpenCoding' | 'onOpenCreative') {
   act(() => latestAppProps()[name]?.());
 }
 
@@ -44,28 +42,14 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
     const props = latestAppProps();
-    expect(typeof props.onOpenResearch).toBe('function');
+    // リサーチはチャット内モードになったため、画面遷移コールバックは
+    // 存在しない（画面構成の見直し 2026-11-09）。
+    expect(props.onOpenResearch).toBeUndefined();
     expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
     // 「詳細・作業状況」パネルは廃止したため、開くためのコールバックは渡らない。
     expect('onOpenDetails' in props).toBe(false);
-  });
-
-  it('opens Research from the chat action and preserves the chat mount', async () => {
-    render(<PersonalEditionApp />);
-    const originalChat = screen.getByTestId('mock-origin-app');
-
-    runAppAction('onOpenResearch');
-    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(window.location.search).toBe('?workspace=research');
-    expect(originalChat.closest('[hidden]')).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
-
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
-    expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
-    expect(originalChat.closest('[hidden]')).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
   });
 
   it('opens Agent v3 from the chat action and preserves the chat mount', async () => {
@@ -146,11 +130,13 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     render(<PersonalEditionApp />);
     // 新規ロードでは URL の ?workspace= を復元せず、必ずチャットから始める。
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
 
     fireEvent(window, new PopStateEvent('popstate'));
-    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('調べる');
+    // リサーチ専用画面は廃止されたため（2026-11-09）、旧 URL を踏んでも
+    // ワークスペースは開かずチャットのままになる。
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
 
     window.history.replaceState(null, '', '/?workspace=agent');
     fireEvent(window, new PopStateEvent('popstate'));
@@ -187,7 +173,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(props.sessions).toEqual([]);
     expect(props.resetSignal).toBe(0);
     expect(props.embedded).toBe(true);
-    expect(typeof props.onOpenResearch).toBe('function');
+    expect(props.onOpenResearch).toBeUndefined();
     expect(typeof props.onOpenAgent).toBe('function');
     expect(typeof props.onOpenCoding).toBe('function');
     expect(typeof props.onOpenCreative).toBe('function');
@@ -239,15 +225,10 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(conversation.getAttribute('aria-selected')).toBe('true');
   });
 
-  it('keeps the Chat Artifact layer out of Research, Code, and Create workspaces', async () => {
+  it('keeps the Chat Artifact layer out of Code and Create workspaces', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '作成物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
     expect(screen.getByRole('region', { name: '作成物' })).toBeTruthy();
-
-    runAppAction('onOpenResearch');
-    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
     runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
@@ -271,15 +252,15 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
     expect('onOpenDetails' in latestAppProps()).toBe(false);
 
-    runAppAction('onOpenResearch');
-    expect(await screen.findByRole('region', { name: 'Research Workspace' })).toBeTruthy();
-    expect(window.location.search).toBe('?workspace=research');
+    // 「詳しく調べる」は専用画面を持たず、画面遷移用の開始関数も App へ
+    // 渡らない（チャット内モードとして App 内部で処理される）。
+    expect('onOpenResearch' in latestAppProps()).toBe(false);
+    expect(screen.queryByRole('region', { name: 'Research Workspace' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Project Workspace' })).toBeNull();
     // ワークスペース側のヘッダーにも詳細トグルは存在しない。
     expect(screen.queryByRole('button', { name: '詳細を開く' })).toBeNull();
     expect(screen.queryByRole('button', { name: '詳細を閉じる' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     fireEvent.click(screen.getByRole('tab', { name: '作成物' }));
     expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('Project artifact');
   });

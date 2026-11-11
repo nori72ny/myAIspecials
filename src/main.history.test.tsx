@@ -34,6 +34,42 @@ const validImage = (providerId: PersistedImage['providerId']): PersistedImage =>
   relation: 'generated',
 });
 
+const validResearch = {
+  ok: true,
+  version: '1.1',
+  status: 'grounded',
+  provider: 'DuckDuckGo',
+  freeOnly: true,
+  costUsd: 0,
+  paidFallbackUsed: false,
+  sourceCount: 1,
+  distinctDomainCount: 1,
+  confidence: 'moderate',
+  confidenceScope: 'retrieval-evidence-only',
+  semanticConflictDetection: 'conservative-structured-only',
+  sources: [{ id: 'S1', title: 'Primary source', url: 'https://example.com/a', domain: 'example.com', evidenceLevel: 'page-verified', freshness: 'recent', score: 85, scoreScope: 'retrieval-evidence-only', citation: '[S1](https://example.com/a)' }],
+  conflicts: [],
+  report: '## 確認できた内容\n- 根拠があります [S1](https://example.com/a)',
+};
+
+describe('conversation research history persistence', () => {
+  it('keeps a validated research report attached to its message across reload restore', () => {
+    const messages = parseImportedHistory({
+      messages: [{ id: 'r', role: 'assistant', content: validResearch.report, research: validResearch }],
+    });
+    expect(messages[0]?.research?.report).toBe(validResearch.report);
+    expect(messages[0]?.research?.sources[0]?.title).toBe('Primary source');
+  });
+
+  it('drops research data that violates the free-only contract but keeps the report text', () => {
+    const messages = parseImportedHistory({
+      messages: [{ id: 'r', role: 'assistant', content: 'レポート本文', research: { ...validResearch, freeOnly: false, costUsd: 1, paidFallbackUsed: true } }],
+    });
+    expect(messages[0]?.content).toBe('レポート本文');
+    expect(messages[0]?.research).toBeUndefined();
+  });
+});
+
 describe('conversation image history persistence', () => {
   it('restores locally generated canvas image metadata after reload', () => {
     const messages = parseImportedHistory({

@@ -177,11 +177,17 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(addMenuBox!.y).toBeGreaterThanOrEqual(0);
       expect(addMenuBox!.y + addMenuBox!.height).toBeLessThanOrEqual(width <= 390 ? (width === 320 ? 568 : 844) : 900);
       await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
-      await expect(page).toHaveURL(/workspace=research/);
-      await expect(page.getByRole('heading', { name: '詳しく調べる' })).toBeVisible();
-      await expect(page.getByLabel('調べたいこと', { exact: true })).toBeEditable();
+      // リサーチは専用画面へ遷移せず、チャット内のモードになる
+      // （画面構成の見直し 2026-11-09）。旧検証（workspace=research への
+      // 遷移・専用見出し・専用入力欄・「会話に戻る」）は、モード表示と
+      // チャット入力欄の継続利用、解除での復帰に置き換える。
+      await expect(page).not.toHaveURL(/workspace=/);
+      await expect(page.getByTestId('research-mode')).toBeVisible();
+      await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
+      await expect(input).toBeEditable();
       await noOverflow();
-      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      await page.getByRole('button', { name: '解除', exact: true }).click();
+      await expect(page.getByTestId('research-mode')).toBeHidden();
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: 'エージェントに任せる', exact: true }).click();
