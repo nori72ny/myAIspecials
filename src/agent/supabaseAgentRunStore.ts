@@ -1,4 +1,5 @@
 import { Pool, type QueryResult } from 'pg';
+import { createAgentRunSchemaEnsuringExecutor } from './agentRunSchema.js';
 import {
   AGENT_RUN_ID_PATTERN,
   AGENT_RUN_OWNER_BINDING_PATTERN,
@@ -510,5 +511,10 @@ export function createAgentRunStoreFromEnv(env: NodeJS.ProcessEnv = process.env)
     connectionTimeoutMillis: 3_000,
     allowExitOnIdle: true,
   });
-  return new PostgresAgentRunStore(pool);
+  // The env-built store is the production path, and production never
+  // had the runs migrations applied, so its executor lazily ensures the
+  // schema (idempotent DDL, in migration order) before the first store
+  // operation of the process. Direct constructions (tests, tools) keep
+  // the raw executor and never trigger DDL.
+  return new PostgresAgentRunStore(createAgentRunSchemaEnsuringExecutor(pool));
 }
