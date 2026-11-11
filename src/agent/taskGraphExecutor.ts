@@ -16,6 +16,14 @@ export type TaskExecutionRecord = {
   verificationAttempts: number;
   resumedFromCheckpoint?: boolean;
   mutation?: FileMutationCheckpoint;
+  /**
+   * The tool's own failure message, set only when the tool itself
+   * returned `ok: false` — never for a verification rejection (there
+   * the tool ran and produced an artifact that verification refused).
+   * Lets callers preserve the tool's reason instead of collapsing
+   * every failure into a generic verification code.
+   */
+  toolFailureMessage?: string;
 };
 
 function markCheckpointedTasksCompleted(graph: AgentTaskGraph, executionId: string): AgentTaskGraph {
@@ -37,7 +45,7 @@ export async function executeNextTask(
   const result = await tool(task);
   if (!result.ok) {
     running = markTaskResult(running, task.id, false);
-    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0, mutation: result.mutation } };
+    return { graph: running, record: { taskId: task.id, attempt: task.attempts + 1, toolExecuted: true, verified: false, status: running.tasks.find((candidate) => candidate.id === task.id)?.status === 'blocked' ? 'blocked' : 'failed', artifact: '', verificationAttempts: 0, mutation: result.mutation, ...(result.message !== undefined ? { toolFailureMessage: result.message } : {}) } };
   }
 
   const verification = await verify(result);

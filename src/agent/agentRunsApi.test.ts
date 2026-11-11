@@ -365,6 +365,41 @@ describe('agent v3 durable runs API', () => {
     }
   });
 
+  it('logs only the failure code when an advance ends failed (422)', async () => {
+    const runStore = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const app = appFor(env, consumptionStore, runStore);
+    // A queued research step with no query fails closed inside the tool
+    // itself, deterministically and without any network access.
+    const seeded = await runStore.create({
+      runId: 'run-advance-failed-log-01',
+      ownerBinding: OPERATOR_BINDING,
+      goal: 'Research step without a query',
+      status: 'queued',
+      plan: [{ toolName: 'web_search_grounding', params: {}, dependsOn: [] }],
+      planDigest: createHash('sha256').update('plan:run-advance-failed-log-01').digest('hex'),
+      stepsState: [{ id: 'task-1', status: 'queued', attempts: 0 }],
+      expiresAt: Date.now() + 10 * 60_000,
+    });
+    expect(seeded?.status).toBe('queued');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const advanced = await request(app).post('/api/agent/v3/runs/run-advance-failed-log-01/advance')
+        .set('Authorization', `Bearer ${SECRET}`)
+        .send({});
+      expect(advanced.status).toBe(422);
+      expect(advanced.body.status).toBe('failed');
+      expect(advanced.body.code).toBe('TOOL_EXECUTION_FAILED');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('ORIGIN_AGENT_RUN_ADVANCE_FAILED', { code: 'TOOL_EXECUTION_FAILED' });
+      // The tool's free-text failure message is never logged.
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('research query');
+      expect((await runStore.get('run-advance-failed-log-01', OPERATOR_BINDING))?.status).toBe('failed');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('logs the store failure class when listing runs hits an infrastructure error', async () => {
     const failure = Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' });
     const runStore = new ListFailingRunStore(failure);

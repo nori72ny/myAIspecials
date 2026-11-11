@@ -7,6 +7,7 @@ import { isCapabilityAllowed, type AgentCapability } from './agentExecutionPolic
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { FileMutationCheckpoint } from './checkpointManager.js';
 import { researchCurrentInformation } from '../legacy/originResearchSource.js';
+import { createDefaultOriginResearchExecutor } from '../search/originSearchGrounding.js';
 import { generateArtifactV12Async, type ArtifactType } from '../artifacts/artifactGeneratorV12.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 
@@ -55,6 +56,24 @@ function composeDocumentContent(params: ToolParams, title: string): string {
   if (!brief && outline.length === 0) lines.push('## 本文', '内容は依頼内容に基づいて構成されます。', '');
   return lines.join('\n').slice(0, MAX_TEXT);
 }
+
+/**
+ * The agent research path: the same composed search-grounding pipeline
+ * the chat / research surfaces use (classified routes over Wikipedia /
+ * Tavily / GDELT with minimized queries and the provider free-quota
+ * gates), with the no-search fallback pinned to `stable`. The planner
+ * only emits web_search_grounding when a search has already been
+ * decided, and agent goal strings are fact-shaped text the classifier
+ * would otherwise leave unsearched — which used to drop them onto the
+ * legacy scrape-only implementation (DuckDuckGo / Bing HTML through a
+ * pinned non-browser fetch), a path that fails closed from the
+ * production network. The legacy implementation remains the composer's
+ * own not-applicable fallback, so the result shape is unchanged.
+ */
+const executeAgentResearch = createDefaultOriginResearchExecutor(
+  { noSearchFallbackType: 'stable' },
+  researchCurrentInformation,
+);
 
 const CODE_SIGNAL_PATTERN = /[{}();=<>]|\b(function|def|class|return|import|from|const|let|var|SELECT|INSERT|if|for|while)\b/;
 
@@ -156,13 +175,13 @@ const registry: Record<ToolName, ToolDefinition> = {
   web_search_grounding: {
     name: 'web_search_grounding',
     capability: 'grounded_research',
-    description: 'Zero-cost grounded research through allowlisted public search surfaces; arbitrary network access remains disabled.',
+    description: 'Zero-cost grounded research through the shared search-grounding pipeline (classified Wikipedia / Tavily / GDELT routes over minimized queries, stable-fact fallback); arbitrary network access remains disabled.',
     sideEffects: 'none',
     requiresApproval: true,
     execute: async (params) => {
       const query = textParam(params, 'query').trim();
       if (!query) return { ok: false, tool: 'web_search_grounding', message: 'A research query is required.' };
-      const result = await researchCurrentInformation(query);
+      const result = await executeAgentResearch(query);
       if (!result.ok || result.sources.length < 1) {
         return { ok: false, tool: 'web_search_grounding', message: `Grounded research failed closed (${result.failure?.code ?? 'NO_RESULTS'}).` };
       }

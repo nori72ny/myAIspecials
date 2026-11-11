@@ -290,6 +290,21 @@ function logAgentRunAdvanceUnavailable(errorCode: string): void {
   });
 }
 
+/**
+ * Records an advance that ended `failed` for production triage. The
+ * 422 response carries the failure code, but the browser client only
+ * writes it to its own console, so without this record a deterministic
+ * step failure (for example the research tool failing closed) leaves
+ * no trace in the production logs at all. Only the outcome's error
+ * code is logged — validated against the same safe-token pattern as
+ * the unavailable log; codes are internal constants, never free text.
+ */
+function logAgentRunAdvanceFailed(errorCode: string): void {
+  console.error('ORIGIN_AGENT_RUN_ADVANCE_FAILED', {
+    code: SAFE_RUN_STORE_ERROR_FIELD.test(errorCode) ? errorCode : 'UNKNOWN',
+  });
+}
+
 /** The longest reservation expiry the consumption store contract accepts,
  * measured from the reservation instant. The Postgres implementation
  * validates against this same constant, so callers and store can never
@@ -896,6 +911,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         // absent when the completing advance finalized no step.
         return res.json({ ok: true, protocolVersion: 3, runId, status: 'completed', ...(outcome.artifact !== undefined ? { artifact: outcome.artifact } : {}), run: view, ...runEnvelope });
       case 'failed':
+        logAgentRunAdvanceFailed(outcome.errorCode);
         return res.status(422).json({ ok: false, protocolVersion: 3, runId, code: outcome.errorCode, status: 'failed', run: view, ...runEnvelope, error: 'The run failed verification or execution.' });
       case 'held':
         // Quota gate (PR 1-D): the advance parked the run instead of

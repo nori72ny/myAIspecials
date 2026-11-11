@@ -18,6 +18,7 @@ import {
   classifyOriginSearchQuestion,
   extractOriginMarketInstruments,
   extractOriginWeatherPlace,
+  minimizeOriginSearchQuery,
   ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS,
   type OriginSearchFreshnessRequirement,
   type OriginSearchQuestionType,
@@ -74,6 +75,18 @@ export interface OriginSearchGroundingDeps {
   counter?: OriginSearchUsageCounter;
   cache?: OriginSearchTtlCache;
   budgets?: { searchMs?: number; totalMs?: number };
+  /**
+   * Opt-in reclassification: when the classifier returns `no_search`,
+   * ground the query as if it were of this type (same minimized query,
+   * the named type's freshness requirement) instead of returning
+   * not-applicable. For callers that have already decided a search is
+   * required — the agent's `web_search_grounding` tool, whose queries
+   * are fact-shaped goal strings the classifier would otherwise leave
+   * unsearched. Only the `no_search` outcome is affected; every other
+   * classification is untouched, and unset (the default) the behaviour
+   * is exactly as before.
+   */
+  noSearchFallbackType?: Exclude<OriginSearchQuestionType, "no_search">;
 }
 
 export interface OriginGroundedSource extends OriginSearchSource {
@@ -115,6 +128,7 @@ interface ResolvedDeps {
   cache: OriginSearchTtlCache;
   searchMs: number;
   totalMs: number;
+  noSearchFallbackType?: Exclude<OriginSearchQuestionType, "no_search">;
 }
 
 function resolveDeps(deps: OriginSearchGroundingDeps): ResolvedDeps {
@@ -127,6 +141,7 @@ function resolveDeps(deps: OriginSearchGroundingDeps): ResolvedDeps {
     cache: deps.cache ?? defaultOriginSearchCache,
     searchMs: deps.budgets?.searchMs ?? ORIGIN_SEARCH_BUDGET_MS.search,
     totalMs: deps.budgets?.totalMs ?? ORIGIN_SEARCH_BUDGET_MS.total,
+    noSearchFallbackType: deps.noSearchFallbackType,
   };
 }
 
@@ -297,7 +312,20 @@ export async function executeOriginSearchGrounding(
 ): Promise<OriginSearchGroundingOutcome> {
   const deps = resolveDeps(depsInput);
   const startedAtMs = deps.now();
-  const classification = classifyOriginSearchQuestion(message);
+  const classified = classifyOriginSearchQuestion(message);
+  // Opt-in reclassification (deps.noSearchFallbackType): only the
+  // no_search outcome is rewritten, as the named type over the same
+  // minimized query the classifier would have produced. Without the
+  // opt-in — and for every signal-bearing question — this is exactly
+  // the classifier's own verdict.
+  const classification = classified.type === "no_search" && deps.noSearchFallbackType
+    ? {
+        type: deps.noSearchFallbackType,
+        freshness: ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS[deps.noSearchFallbackType],
+        query: minimizeOriginSearchQuery(message),
+        rule: "no-search-fallback",
+      }
+    : classified;
   if (classification.type === "no_search" || !classification.freshness) {
     return { kind: "not-applicable", reason: "no-search-needed" };
   }
@@ -626,7 +654,9 @@ export function originSearchGroundingToResearchResult(
  * needed, or no route is enabled yet — e.g. the Tavily key is not registered
  * or the free-terms evidence has expired). When an enabled route ran and
  * could not produce verified sources, the honest failure is returned as-is:
- * an unverified answer must not be dressed up by a weaker path.
+ * an unverified answer must not be dressed up by a weaker path. Callers that
+ * pass `deps.noSearchFallbackType` narrow the not-applicable case: a
+ * no-search-needed classification is then grounded as the named type.
  */
 export function createDefaultOriginResearchExecutor(
   deps: OriginSearchGroundingDeps,

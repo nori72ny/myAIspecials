@@ -471,3 +471,107 @@ describe("market grounding route", () => {
     expect(result).toEqual({ ok: false, reason: "no-instruments" });
   });
 });
+
+describe("noSearchFallbackType opt-in", () => {
+  const PLAIN_QUESTION = "日本の首都はどこですか？";
+  const WIKI_EXCERPT = "東京は日本の首都であり、最大の都市である。".repeat(30);
+  const legacyResult: OriginResearchResult = {
+    ok: true,
+    sources: [{
+      title: "legacy",
+      url: "https://example.com/legacy",
+      excerpt: "legacy excerpt",
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-11-07T12:00:00.000Z",
+      freshness: "unknown",
+    }],
+    searchProvider: "DuckDuckGo",
+  };
+
+  function wikipediaFetch(pages: unknown[]) {
+    return routedFetch([
+      { match: "/search/page", respond: () => ({ pages }) },
+      {
+        match: "wikipedia.org",
+        respond: () => ({ html_url: "https://ja.wikipedia.org/wiki/東京", latest: { timestamp: "2026-01-01T00:00:00.000Z" } }),
+      },
+    ]);
+  }
+
+  it("keeps the default behaviour without the opt-in: no search, no fetch", async () => {
+    const { fetchImpl, calls } = wikipediaFetch([]);
+    const outcome = await executeOriginSearchGrounding(PLAIN_QUESTION, makeDeps({ env: {}, fetchImpl }));
+    expect(outcome).toEqual({ kind: "not-applicable", reason: "no-search-needed" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("grounds a no-signal question as stable via Wikipedia only when opted in", async () => {
+    const { fetchImpl, calls } = wikipediaFetch([
+      { key: "東京", title: "東京", excerpt: WIKI_EXCERPT, description: "日本の首都" },
+    ]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      PLAIN_QUESTION,
+      makeDeps({ env: {}, fetchImpl, noSearchFallbackType: "stable" }),
+    ));
+    expect(outcome.questionType).toBe("stable");
+    expect(outcome.providersUsed).toEqual(["wikipedia"]);
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0]?.title).toBe("東京");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((call) => {
+      const { hostname } = new URL(call.url);
+      return hostname === "wikipedia.org" || hostname.endsWith(".wikipedia.org");
+    })).toBe(true);
+  });
+
+  it("never reclassifies a signal-bearing question", async () => {
+    const { fetchImpl } = routedFetch(tavilyRoute(
+      [{ title: "iPhone 17 - Apple（日本）", url: "https://www.apple.com/jp/iphone-17/", content: "価格は128,800円。", score: 0.9, published_date: "2026-10-15T00:00:00.000Z" }],
+      [{ url: "https://www.apple.com/jp/iphone-17/", raw_content: "iPhone 17 価格 128,800円" }],
+    ));
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      PRICE_QUESTION,
+      makeDeps({ fetchImpl, noSearchFallbackType: "stable" }),
+    ));
+    expect(outcome.questionType).toBe("price_spec");
+  });
+
+  it("executor: the opt-in grounds a no-signal query without calling legacy", async () => {
+    const { fetchImpl } = wikipediaFetch([
+      { key: "東京", title: "東京", excerpt: WIKI_EXCERPT, description: "日本の首都" },
+    ]);
+    const legacy = vi.fn(async () => legacyResult);
+    const execute = createDefaultOriginResearchExecutor(
+      makeDeps({ env: {}, fetchImpl, noSearchFallbackType: "stable" }),
+      legacy,
+    );
+    const result = await execute(PLAIN_QUESTION);
+    expect(result.ok).toBe(true);
+    expect(result.searchProvider).toBe("Wikipedia");
+    expect(result.sources[0]?.sourceType).toBe("encyclopedia");
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("executor: without the opt-in a no-signal query still delegates to legacy", async () => {
+    const { fetchImpl, calls } = wikipediaFetch([]);
+    const legacy = vi.fn(async () => legacyResult);
+    const execute = createDefaultOriginResearchExecutor(makeDeps({ env: {}, fetchImpl }), legacy);
+    const result = await execute(PLAIN_QUESTION);
+    expect(result).toBe(legacyResult);
+    expect(legacy).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("executor: with the opt-in, an enabled route that found nothing fails honestly instead of delegating", async () => {
+    const { fetchImpl } = wikipediaFetch([]);
+    const legacy = vi.fn(async () => legacyResult);
+    const execute = createDefaultOriginResearchExecutor(
+      makeDeps({ env: {}, fetchImpl, noSearchFallbackType: "stable" }),
+      legacy,
+    );
+    const result = await execute(PLAIN_QUESTION);
+    expect(result.ok).toBe(false);
+    expect(result.groundingFailure).toBe("no-sources");
+    expect(legacy).not.toHaveBeenCalled();
+  });
+});
