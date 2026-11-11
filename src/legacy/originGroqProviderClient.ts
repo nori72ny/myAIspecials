@@ -6,6 +6,7 @@ import {
   isOriginGroqFreeModelId,
   ORIGIN_GROQ_FREE_MODEL_ID,
   ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+  ORIGIN_GROQ_QWEN_MODEL_ID,
   selectCurrentOriginGroqFreeModelById,
   type OriginGroqFreeModelEvidence,
   type OriginGroqFreeModelId,
@@ -72,9 +73,38 @@ import {
  * outcome is surfaced exactly as before. Rotation is invisible outside the
  * route except through the result's routing evidence (requested/served model)
  * and the shared transport count, which honestly counts both sends.
+ *
+ * Second rotation stage (2026-11-11): when the first rotation model also
+ * fails with a rotation trigger, the executor may make one final attempt on
+ * qwen/qwen3.8-27b (Preview), a third per-model quota bucket documented from
+ * Groq's official limits table on 2026-11-10. That stage exists only while
+ * the kill switch ORIGIN_GROQ_QWEN_ROTATION_ENABLED is exactly "true" — the
+ * default is OFF, because the model is a Preview that Groq may discontinue
+ * on short notice and its Japanese answer quality has not been screened yet.
+ * With the switch off, the route behaves exactly as the two-model rotation
+ * always has. The qwen attempt is held to the same invariants as every other
+ * attempt (its own current catalog evidence, its own pre-send TPM gate,
+ * served-model identity) and qwen requests carry reasoning_effort "none" so
+ * the dual-mode model answers in instruct mode without spending the free
+ * token budgets on thinking tokens.
  */
 
 export const ORIGIN_GROQ_API_KEY_ENV = "GROQ_API_KEY" as const;
+
+/**
+ * Kill switch for the second rotation stage (qwen/qwen3.8-27b, Preview).
+ * The qwen stage exists only while this variable is exactly "true"; the
+ * default is OFF, so cataloguing the model and shipping the rotation code
+ * changes nothing about what the route sends until the switch is flipped
+ * after the blind quality screening passes. The two Production models are
+ * never affected by this switch.
+ */
+export const ORIGIN_GROQ_QWEN_ROTATION_ENV = "ORIGIN_GROQ_QWEN_ROTATION_ENABLED" as const;
+
+/** True only for the exact value "true"; every other value keeps qwen off. */
+export function isOriginGroqQwenRotationEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_GROQ_QWEN_ROTATION_ENV] === "true";
+}
 
 /** Free-plan tokens/minute ceiling for openai/gpt-oss-120b, verified 2026-11-08. */
 export const ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT = 8_000;
@@ -88,9 +118,19 @@ export const ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT = 8_000;
  * answer is produced from an unverified condition.
  */
 export const ORIGIN_GROQ_ROTATION_TOKENS_PER_MINUTE_LIMIT = 8_000;
+/**
+ * Free-plan tokens/minute ceiling for the second rotation model
+ * qwen/qwen3.8-27b, taken from Groq's official rate-limits table (checked
+ * 2026-11-10), which lists the same 8,000 tokens/minute as the other two
+ * models. As with the first rotation model, the organization's own effective
+ * value has not been re-verified in the console yet, so this figure only
+ * feeds the pre-send estimate and the $0 boundary does not depend on it.
+ */
+export const ORIGIN_GROQ_QWEN_TOKENS_PER_MINUTE_LIMIT = 8_000;
 
 /** Per-model pre-send tokens/minute ceiling used by the TPM gate below. */
 export function originGroqTokensPerMinuteLimit(modelId: OriginGroqFreeModelId): number {
+  if (modelId === ORIGIN_GROQ_QWEN_MODEL_ID) return ORIGIN_GROQ_QWEN_TOKENS_PER_MINUTE_LIMIT;
   return modelId === ORIGIN_GROQ_FREE_ROTATION_MODEL_ID
     ? ORIGIN_GROQ_ROTATION_TOKENS_PER_MINUTE_LIMIT
     : ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT;
@@ -369,6 +409,12 @@ async function executeGroqModelAttempt(
         messages,
         max_tokens: completionBudget,
         temperature: 0.2,
+        // qwen3.8-27b is a dual-mode (thinking / instruct) model: Groq's
+        // documented recommendation for conversational use is
+        // reasoning_effort "none", which also keeps thinking tokens from
+        // consuming the free tokens/minute and tokens/day budgets. The
+        // gpt-oss models keep their previous request shape exactly.
+        ...(modelId === ORIGIN_GROQ_QWEN_MODEL_ID ? { reasoning_effort: "none" } : {}),
       }),
       signal: controller.signal,
     });
@@ -426,16 +472,17 @@ function isGroqRotationTrigger(error: OriginProviderError): boolean {
 }
 
 /**
- * Derives the rotation plan from the rotation model's own current catalog
- * evidence. Returns null when that evidence is not current, in which case the
- * primary model's failure is surfaced unchanged (fail closed).
+ * Derives a rotation plan from the target model's own current catalog
+ * evidence. Returns null when that evidence is not current, in which case
+ * the failure that led here is surfaced unchanged (fail closed, per model).
  */
 function buildGroqRotationPlan(
   providerRequest: OriginProviderExecutionRequest,
   options: OriginGroqExecutionOptions,
+  rotationModelId: OriginGroqFreeModelId = ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
 ): OriginExecutionPlan | null {
   const nowMs = options.nowMs ?? Date.now();
-  const selection = selectCurrentOriginGroqFreeModelById(options.catalog, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, nowMs);
+  const selection = selectCurrentOriginGroqFreeModelById(options.catalog, rotationModelId, nowMs);
   if (selection.ok === false) return null;
   const entry = selection.model;
   return {
@@ -482,6 +529,23 @@ export async function executeOriginGroqProvider(
         try {
           return await executeGroqModelAttempt(providerRequest, rotationPlan, apiKey, fetchImpl, options, transport);
         } catch (rotationError) {
+          // Second rotation stage: qwen/qwen3.8-27b (Preview), reached only
+          // when the first rotation model also failed with a rotation
+          // trigger AND the kill switch is explicitly enabled. The default
+          // is OFF, in which case the first rotation's failure is surfaced
+          // exactly as before this stage existed.
+          if (rotationError instanceof OriginProviderError
+            && isGroqRotationTrigger(rotationError)
+            && isOriginGroqQwenRotationEnabled(env)) {
+            const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
+            if (qwenPlan) {
+              try {
+                return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport);
+              } catch (qwenError) {
+                throw withTransportCount(qwenError, transport);
+              }
+            }
+          }
           throw withTransportCount(rotationError, transport);
         }
       }
