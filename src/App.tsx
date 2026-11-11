@@ -18,6 +18,8 @@ import { planRasterVisualRequestV15 } from './creative/rasterVisualPlannerV15';
 import { inspectRasterBlobV15 } from './creative/rasterTechnicalCriticV15';
 import { prepareRasterReferenceDataUrlV15 } from './creative/rasterReferenceEditClientV15';
 import KenBurnsVideoDialog from './creative/KenBurnsVideoDialog';
+import type { CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
+import CreativeArtifactEditorV15 from './components/CreativeArtifactEditorV15';
 import OriginCatState from './components/OriginCatState';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
 import { ResearchMessageView, ResearchReaderOverlay } from './components/personal/ResearchReportView';
@@ -32,6 +34,13 @@ export interface ArtifactBlock {
   isComplete: boolean;
   revision?: number;
   revisions?: readonly ArtifactRevision[];
+  /**
+   * Structured editing metadata for Creative deliverables (SVG cards /
+   * posters generated through the verified Creative flow). Present only
+   * on those artifacts; lets the artifact panel re-edit the design
+   * fields and regenerate instead of editing raw SVG.
+   */
+  creative?: CreativeArtifactMetaV15;
 }
 
 export type ArtifactRevision = { id: string; content: string; createdAt: number; source: 'generated' | 'direct-touch' | 'restore' };
@@ -1260,7 +1269,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       </div>
       {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isDirectEditing && isSandboxRenderable && activeTab === 'preview' && <p data-testid="artifact-direct-touch-status" role="status" className="origin-safe-note mt-2 rounded-[10px] px-3 py-2 text-[13px] font-semibold">{language === 'ja' ? '編集モード：プレビュー上の文字を直接変更できます。ソースを編集する場合は「コード」を開いてください。' : 'Edit mode: change text directly in the preview. Open Code to edit the source.'}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-[13px] text-amber-600 dark:text-amber-300">オフライン中: 端末内の作成物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-[13px] text-[var(--danger)]">パッケージを作成できませんでした。</p>}{exportError && <p role="alert" className="text-[13px] text-[var(--danger)]">この形式でのローカル書き出しを完了できませんでした。</p>}
     </div>
-    <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{isDiffInspectorOpen && visualDiff && priorRevision ? <ArtifactVisualDiffInspector diff={visualDiff} /> : previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="p-3 my-2 bg-red-950/80 border border-red-500/50 rounded-lg text-red-200 text-sm font-mono shadow-lg relative z-50 block w-full">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-[13px]">{sandboxError}</p><p className="origin-muted mt-3 text-[13px]">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-semibold">{t.close}</button></div></div>}</div>
+    <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{artifact.creative && onArtifactRevision && <CreativeArtifactEditorV15 artifact={artifact} onRegenerated={onArtifactRevision} />}{isDiffInspectorOpen && visualDiff && priorRevision ? <ArtifactVisualDiffInspector diff={visualDiff} /> : previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="p-3 my-2 bg-red-950/80 border border-red-500/50 rounded-lg text-red-200 text-sm font-mono shadow-lg relative z-50 block w-full">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-[13px]">{sandboxError}</p><p className="origin-muted mt-3 text-[13px]">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-semibold">{t.close}</button></div></div>}</div>
     {isStreaming && !artifact.isComplete && onSteer && <form data-testid="artifact-live-steering" aria-label="作成物の方向修正" onSubmit={(event) => { event.preventDefault(); const direction = steeringPrompt.trim(); if (!direction) return; setSteeringPrompt(''); onSteer(direction); }} className="safe-area-bottom origin-surface-muted shrink-0 px-3 pt-3"><label htmlFor="artifact-live-steering-input" className="mb-2 block text-[13px] font-semibold text-[var(--accent-primary)]">⚡ {language === 'ja' ? '方向修正' : 'Adjust direction'}</label><div className="flex items-center gap-2"><input id="artifact-live-steering-input" data-testid="artifact-live-steering-input" aria-label={language === 'ja' ? '作成物の方向修正' : 'Adjust artifact direction'} value={steeringPrompt} onChange={(event) => setSteeringPrompt(event.target.value)} onKeyDown={(event) => { if ((event.nativeEvent.isComposing || event.keyCode === 229) && event.key === 'Enter') event.preventDefault(); }} placeholder={language === 'ja' ? '例：配色を落ち着いたネイビーに' : 'Example: use a calmer navy palette'} maxLength={1200} className="origin-input min-h-11 min-w-0 flex-1 rounded-[10px] border border-[var(--border-default)] bg-transparent px-3 text-base" /><button type="submit" data-testid="artifact-live-steering-submit" disabled={!steeringPrompt.trim()} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold disabled:opacity-50">{language === 'ja' ? '反映' : 'Apply'}</button></div></form>}
   </aside>;
 };
@@ -1642,9 +1651,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       && isDirectCreativeWorkspaceRequest(text.trim())
     ) {
       const creativeRequest = text.trim();
+      // 画面構成の移行（第3段）で「作る」専用画面は廃止され、会話のそばの
+      // パネルで開く形になった。画面遷移はせず、依頼はパネルの下書きに
+      // 反映される。生成はパネルで利用者が開始するまで始まらない。
       const handoffMessage = language === 'en'
-        ? 'I moved this request to the Create workspace and carried the original brief with it. No image/provider generation was started by the handoff.'
-        : 'この依頼を「作る」ワークスペースへ内容ごと引き継ぎました。引き継ぎだけでは画像・プロバイダ生成を開始していません。';
+        ? 'I opened the Create panel beside this conversation with your brief in the draft. Nothing has been generated yet.'
+        : '「作る」パネルを会話のそばに開きました。依頼内容はパネルの下書きに反映済みです。作成はまだ開始していません。';
       updateMessages((current) => [
         ...current,
         { id: nextMessageId('u'), role: 'user', content: creativeRequest },

@@ -207,11 +207,15 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-      await expect(page).toHaveURL(/workspace=creative/);
+      // 「作る」は画面構成の移行（第3段）で専用画面からパネルに統合された。
+      // URLは変えず、会話のそばにパネルが開く。
+      await expect(page).not.toHaveURL(/workspace=/);
+      await expect(page.getByTestId('creative-panel')).toBeVisible();
       await expect(page.getByRole('heading', { name: 'カード・ポスターを作る' })).toBeVisible();
       await expect(page.getByLabel('タイトル', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      await expect(page.getByTestId('creative-panel')).toHaveCount(0);
 
       await expect(page).toHaveURL(/\/$/);
       await expect(page.getByTestId('origin-home-request')).toBeVisible();

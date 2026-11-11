@@ -1000,7 +1000,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(isDirectCreativeWorkspaceRequest('Creativeワークスペースの仕組みを説明して')).toBe(false);
   });
 
-  it('hands explicit Create-workspace requests over with the original brief and no provider call', async () => {
+  it('opens the Create panel beside the conversation for explicit Create requests, with the original brief and no provider call', async () => {
     const fetchMock = vi.fn();
     const onOpenCreative = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -1012,7 +1012,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     await waitFor(() => expect(onOpenCreative).toHaveBeenCalledWith(request));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/「作る」ワークスペースへ内容ごと引き継ぎました/)).toBeTruthy();
+    expect(screen.getByText(/「作る」パネルを会話のそばに開きました/)).toBeTruthy();
     vi.unstubAllGlobals();
   });
 

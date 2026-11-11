@@ -303,13 +303,23 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(page.getByTestId('research-mode')).toBeHidden();
 
     // Each workspace action must result in navigation, not a silent click.
-    for (const [label, workspace] of [['コード', 'coding'], ['作る', 'creative']] as const) {
+    for (const [label, workspace] of [['コード', 'coding']] as const) {
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
       await expect(page).not.toHaveURL(/workspace=/);
     }
+
+    // 「作る」は画面構成の移行（第3段）で画面遷移ではなく会話のそばの
+    // パネルになった。URLは変えずにパネルが開閉することに置き換える。
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
+    await expect(page).not.toHaveURL(/workspace=/);
+    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+    await expect(page.getByTestId('creative-panel')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/workspace=/);
 
     // Settings controls must change state and close visibly.
     await page.getByRole('button', { name: '設定を開く', exact: true }).click();

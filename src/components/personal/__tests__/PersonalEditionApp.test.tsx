@@ -11,7 +11,7 @@ type MockAppProps = Record<string, unknown> & {
 
 const appProps = vi.fn();
 vi.mock('../CodingWorkspaceV31', () => ({ default: ({ initialGoal }: { initialGoal?: string }) => <section aria-label="Coding Job Workspace">Coding test workspace{initialGoal ? `: ${initialGoal}` : ''}</section> }));
-vi.mock('../../CreativeWorkspaceV15', () => ({ default: ({ initialRequest }: { initialRequest?: string }) => <section aria-label="Creative Workspace">Creative test workspace{initialRequest ? `: ${initialRequest}` : ''}</section> }));
+vi.mock('../../CreativePanelV15', () => ({ default: ({ initialRequest, onClose }: { initialRequest?: string; onClose: () => void }) => <aside aria-label="Creative Panel">Creative test panel{initialRequest ? `: ${initialRequest}` : ''}<button type="button" onClick={onClose}>会話に戻る</button></aside> }));
 vi.mock('../../AgentWorkspaceView', () => ({ default: () => <section aria-label="Agent Workspace">Agent test workspace</section> }));
 
 vi.mock('../../../App', () => ({
@@ -92,36 +92,40 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(window.location.search).toBe('?workspace=coding');
   });
 
-  it('opens Create from the chat action and preserves the chat mount', async () => {
+  // 「作る」は画面構成の移行（第3段）で専用画面から会話のそばのパネルに
+  // なった。画面遷移（URL変更・チャットの非表示）は発生せず、パネルが
+  // 会話の上に開くこと、閉じると会話だけに戻ることを固定する。
+  it('opens Create as a panel beside the chat without navigation', async () => {
     render(<PersonalEditionApp />);
     const originalChat = screen.getByTestId('mock-origin-app');
 
     runAppAction('onOpenCreative');
-    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
-    expect(window.location.search).toBe('?workspace=creative');
-    expect(originalChat.closest('[hidden]')).toBeTruthy();
+    expect(await screen.findByRole('complementary', { name: 'Creative Panel' })).toBeTruthy();
+    expect(window.location.search).toBe('');
+    expect(originalChat.closest('[hidden]')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
-    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Creative Panel' })).toBeNull();
   });
 
-  it('carries an explicit chat creative request into the Create workspace without starting generation', async () => {
+  it('carries an explicit chat creative request into the Create panel without starting generation', async () => {
     render(<PersonalEditionApp />);
     const request = 'Creativeワークスペースで新商品のSNSカードを作って';
 
     act(() => latestAppProps().onOpenCreative?.(request));
 
-    const creative = await screen.findByRole('region', { name: 'Creative Workspace' });
+    const creative = await screen.findByRole('complementary', { name: 'Creative Panel' });
     expect(creative.textContent).toContain(request);
-    expect(window.location.search).toBe('?workspace=creative');
+    expect(window.location.search).toBe('');
   });
 
   it('does not reopen the previous workspace on a fresh load, even when the URL still carries it', () => {
     window.history.replaceState(null, '', '/?workspace=creative');
     render(<PersonalEditionApp />);
     expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Creative Panel' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
   });
 
@@ -148,15 +152,18 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('コード');
 
+    // ?workspace=creative は移行で廃止された値のため、チャットに着地し、
+    // ツールヘッダーも作るパネルも開かない。
     window.history.replaceState(null, '', '/?workspace=creative');
     fireEvent(window, new PopStateEvent('popstate'));
-    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('作る');
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Creative Panel' })).toBeNull();
 
     window.history.replaceState(null, '', '/');
     fireEvent(window, new PopStateEvent('popstate'));
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Creative Workspace' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Creative Panel' })).toBeNull();
     expect(screen.queryByRole('navigation', { name: 'Mode' })).toBeNull();
   });
 
@@ -225,7 +232,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(conversation.getAttribute('aria-selected')).toBe('true');
   });
 
-  it('keeps the Chat Artifact layer out of Code and Create workspaces', async () => {
+  it('keeps the Chat Artifact layer out of the Code workspace; the Create panel stays on the chat surface', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '作成物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
     expect(screen.getByRole('region', { name: '作成物' })).toBeTruthy();
@@ -235,9 +242,11 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
+    // 作るパネルはチャット画面の上に開くため、チャットの成果物レイヤーは
+    // 残ったままになる（専用画面時代とは異なる、統合後の仕様）。
     runAppAction('onOpenCreative');
-    expect(await screen.findByRole('region', { name: 'Creative Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: '作成物' })).toBeNull();
+    expect(await screen.findByRole('complementary', { name: 'Creative Panel' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '作成物' })).toBeTruthy();
   });
 
   it('never renders the abolished Project details panel and keeps artifacts reachable from the chat surface', async () => {
