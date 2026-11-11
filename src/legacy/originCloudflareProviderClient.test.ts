@@ -3,6 +3,7 @@ import {
   classifyOriginCloudflareUpstreamErrorCode,
   executeOriginCloudflareProvider,
   ORIGIN_CF_CAPACITY_COOLDOWN_MS,
+  ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS,
   OriginCloudflarePreflightError,
   resetOriginCloudflareRouteStateForTests,
   verifyOriginCloudflareWorkersFreePlan,
@@ -438,6 +439,72 @@ describe("executeOriginCloudflareProvider", () => {
     expect(inferenceBody.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
     expect(inferenceBody.messages[1]).toEqual({ role: "user", content: "確認してください" });
     expect(inferenceBody.max_tokens).toBe(4096);
+  });
+
+  it("reuses a positive plan proof within the TTL and re-verifies after it expires", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+    }));
+    const first = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(first.transportRequestCount).toBe(4);
+    // Within the TTL the three proof reads are skipped; only inference is sent.
+    const second = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + 30_000 });
+    expect(second.transportRequestCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    // After the TTL the proof is verified from scratch again.
+    const third = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS + 1 });
+    expect(third.transportRequestCount).toBe(4);
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+  });
+
+  it("never caches a failed plan proof, so a corrected account passes on the next execution", async () => {
+    let settingsModel = "standard";
+    const proof = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes("/workers/account-settings")) return cloudflareJson({ default_usage_model: settingsModel });
+      if (target.includes("/subscriptions")) return cloudflareJson([]);
+      if (target.includes("/ai/models/schema")) return cloudflareJson({ input: {}, output: {} });
+      throw new Error(`unexpected proof URL: ${target}`);
+    });
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("/ai/run/")) {
+        return cloudflareJson({ response: "確認結果です。", usage: { prompt_tokens: 100, completion_tokens: 50 } });
+      }
+      return proof(url as string);
+    });
+    await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ reason: "plan-proof-failed", proofReason: "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED" });
+    settingsModel = "bundled";
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + 1_000 });
+    expect(result.text).toBe("確認結果です。");
+    expect(result.transportRequestCount).toBe(4);
+  });
+
+  it("re-verifies from scratch when the proof token rotates within the TTL", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+    }));
+    await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    const rotatedEnv = { ...enabledEnv, ORIGIN_CF_PROOF_TOKEN: "synthetic-proof-token-9876543210" } as NodeJS.ProcessEnv;
+    const result = await executeOriginCloudflareProvider(request, rotatedEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + 1_000 });
+    expect(result.transportRequestCount).toBe(4);
+  });
+
+  it("shares one in-flight plan proof between concurrent executions", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+    }));
+    const [first, second] = await Promise.all([
+      executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }),
+      executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }),
+    ]);
+    expect(first.text).toBe("確認結果です。");
+    expect(second.text).toBe("確認結果です。");
+    const proofCalls = (fetchMock.mock.calls as Array<[string]>).filter(([url]) => !String(url).includes("/ai/run/"));
+    expect(proofCalls).toHaveLength(3);
   });
 
   it("maps an inference 429 to PROVIDER_RATE_LIMITED", async () => {

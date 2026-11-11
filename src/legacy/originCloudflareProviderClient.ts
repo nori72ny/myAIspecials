@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL,
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID,
@@ -22,10 +23,12 @@ import {
  *
  * This executor is only reachable through originProviderFailover when the owner enables
  * ORIGIN_CF_FAILOVER_ENABLED. It never runs on its own from a router, and it never relaxes
- * the zero-cost contract: before every inference it mechanically proves that the account is
+ * the zero-cost contract: before inference it mechanically proves that the account is
  * on the Workers Free plan (no paid Workers subscription, exact $0 prices on any Workers
- * row, live model schema) using the read-only proof token. Any unverifiable condition
- * blocks the route before inference is sent (fail closed), mirroring the plan-proof logic
+ * row, live model schema) using the read-only proof token. A completed positive proof is
+ * reused for at most ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS (see the proof-cache note below);
+ * failed proofs are never reused, so any unverifiable condition blocks the route before
+ * inference is sent (fail closed), mirroring the plan-proof logic
  * first built for PR #1092 and tightened by PR #1094. Cloudflare documents zero data
  * retention and no training on Customer Content for Workers AI, which is why this route can
  * carry the same data policy class as the OpenRouter primary route.
@@ -129,6 +132,8 @@ let cloudflareCapacityCooldownUntilMs = 0;
 export function resetOriginCloudflareRouteStateForTests(): void {
   cloudflarePoolExhaustedUntilMs = 0;
   cloudflareCapacityCooldownUntilMs = 0;
+  cachedPlanProof = null;
+  inflightPlanProof = null;
 }
 
 function nextUtcMidnightMs(nowMs: number): number {
@@ -149,6 +154,84 @@ function noteCloudflareUpstreamFailure(body: CloudflareEnvelope | null, nowMs: n
   } else if (kind === "temporary-capacity") {
     cloudflareCapacityCooldownUntilMs = nowMs + ORIGIN_CF_CAPACITY_COOLDOWN_MS;
   }
+}
+
+/** How long a completed positive plan proof may be reused by later executions. */
+export const ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS = 60_000;
+
+/**
+ * Plan-proof read cache (quota leftover item 1, 2026-11-10).
+ *
+ * The full verification below performs three account reads on every dispatch.
+ * Those reads consume no Neurons; their cost is latency (three sequential
+ * round trips before inference may start) and failure exposure (any transient
+ * read error blocks this route for that dispatch). To cut both, a completed
+ * POSITIVE verification is reused for at most
+ * ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS, and concurrent executions share a single
+ * in-flight verification instead of each paying the three reads.
+ *
+ * Fail-closed semantics are deliberately unchanged:
+ * - Only a completed `{ ok: true }` result is ever cached. A failed proof is
+ *   never stored, so the next execution re-reads from scratch: an unverifiable
+ *   state still blocks the route at the moment it is checked, and a route
+ *   blocked by a transient read error recovers as soon as the reads succeed
+ *   again — exactly as without the cache.
+ * - The free-model catalog evidence gate (selectCurrentOriginCloudflareFreeModel
+ *   and planEvidenceIsCurrent in the executor) is still evaluated fresh on
+ *   every execution before this cache is consulted, so stale catalog evidence
+ *   stops the route regardless of any cached proof.
+ * - The cache key is a SHA-256 fingerprint of the account ID and the proof
+ *   token (the raw token is never stored), so rotating either credential
+ *   forces a fresh verification.
+ * The one bounded relaxation is freshness of the plan state itself: a plan
+ * change made in the dashboard during the TTL window is detected at the next
+ * verification, at most one TTL later. Plan changes are owner-initiated
+ * dashboard actions that no external party can trigger, and the window is
+ * kept at the same 60-second order as the capacity cooldown above. Like the
+ * route stop state, this cache is in-process and best-effort only: losing it
+ * (cold start, scale-out, instance recycling) simply reverts to verifying on
+ * every dispatch.
+ */
+interface OriginCloudflarePlanProofCacheEntry {
+  key: string;
+  expiresAtMs: number;
+}
+
+let cachedPlanProof: OriginCloudflarePlanProofCacheEntry | null = null;
+let inflightPlanProof: { key: string; promise: Promise<OriginCloudflarePlanProofResult> } | null = null;
+
+function planProofCacheKey(credentials: OriginCloudflareCredentials): string {
+  return createHash("sha256").update(`${credentials.accountId}\n${credentials.proofToken}`).digest("hex");
+}
+
+async function verifyOriginCloudflareWorkersFreePlanCached(
+  fetchImpl: OriginFetch,
+  credentials: OriginCloudflareCredentials,
+  transport: { count: number },
+  nowMs: number,
+): Promise<OriginCloudflarePlanProofResult> {
+  const key = planProofCacheKey(credentials);
+  if (cachedPlanProof && cachedPlanProof.key === key && nowMs < cachedPlanProof.expiresAtMs) {
+    return { ok: true };
+  }
+  if (inflightPlanProof && inflightPlanProof.key === key) {
+    return inflightPlanProof.promise;
+  }
+  const promise = verifyOriginCloudflareWorkersFreePlan(fetchImpl, credentials, transport)
+    .then((result) => {
+      if (result.ok) {
+        // Expiry is anchored at this dispatch's start (nowMs), never at the
+        // verification's completion, so a slow verification shortens — never
+        // extends — the reuse window.
+        cachedPlanProof = { key, expiresAtMs: nowMs + ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS };
+      }
+      return result;
+    })
+    .finally(() => {
+      if (inflightPlanProof?.promise === promise) inflightPlanProof = null;
+    });
+  inflightPlanProof = { key, promise };
+  return promise;
 }
 
 export function isOriginCloudflareFailoverEnabled(env: NodeJS.ProcessEnv): boolean {
@@ -517,7 +600,7 @@ export async function executeOriginCloudflareProvider(
       throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
     }
 
-    const proof = await verifyOriginCloudflareWorkersFreePlan(fetchImpl, credentials, transport);
+    const proof = await verifyOriginCloudflareWorkersFreePlanCached(fetchImpl, credentials, transport, nowMs);
     if (proof.ok === false) throw new OriginCloudflarePreflightError("plan-proof-failed", proof.reason);
 
     const messages = [
