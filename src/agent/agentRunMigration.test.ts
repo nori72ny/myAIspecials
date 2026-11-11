@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import {
+  AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
+  AGENT_RUN_MIGRATION_SQL_RUNS,
+  AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
+  AGENT_RUN_SCHEMA_MIGRATIONS,
+} from './agentRunSchema.js';
 
 describe('agent runs migration contract', () => {
   it('keeps run records service-role-only with lifecycle constraints mirroring the store', async () => {
@@ -68,5 +74,33 @@ describe('agent write locks migration contract', () => {
     expect(sql).toContain("holder_driver_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$'");
     // A lease always outlives its acquisition instant.
     expect(sql).toContain('lease_expires_at > acquired_at');
+  });
+});
+
+describe('agent run schema constants mirror the migration files', () => {
+  // The production bundle cannot read files at runtime, so the runs
+  // schema is ensured lazily from in-code constants (agentRunSchema.ts).
+  // Those constants must never drift from the migration files they
+  // mirror: after edge-whitespace normalization they are identical.
+  const normalize = (sql: string): string => sql.replace(/\r\n/g, '\n').trim();
+  const cases: Array<{ constant: string; file: string }> = [
+    { constant: AGENT_RUN_MIGRATION_SQL_RUNS, file: '../../supabase/migrations/20261108090000_origin_agent_runs.sql' },
+    { constant: AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS, file: '../../supabase/migrations/20261108100000_origin_agent_write_locks.sql' },
+    { constant: AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION, file: '../../supabase/migrations/20261108110000_origin_agent_run_resume_evaluation.sql' },
+  ];
+
+  it('keeps every schema constant identical to its migration file', async () => {
+    for (const { constant, file } of cases) {
+      const sql = await readFile(new URL(file, import.meta.url), 'utf8');
+      expect(normalize(constant)).toBe(normalize(sql));
+    }
+  });
+
+  it('applies the migrations in file order', () => {
+    expect(AGENT_RUN_SCHEMA_MIGRATIONS).toEqual([
+      AGENT_RUN_MIGRATION_SQL_RUNS,
+      AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
+      AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
+    ]);
   });
 });
