@@ -475,7 +475,11 @@ describe("market grounding route", () => {
 
 describe("noSearchFallbackType opt-in", () => {
   const PLAIN_QUESTION = "日本の首都はどこですか？";
-  const WIKI_EXCERPT = "東京は日本の首都であり、最大の都市である。".repeat(30);
+  // Mirrors the live Wikipedia API's top hit for the topic-shaped query
+  // "日本 首都": the article "首都" itself. (The article "東京" shares no
+  // topic term with the question, so the relevance screen now drops it
+  // by design and the route would fail closed / fall back instead.)
+  const WIKI_CAPITAL_EXCERPT = "首都は国の中央政府が置かれる都市であり、日本の首都は東京である。".repeat(30);
   const legacyResult: OriginResearchResult = {
     ok: true,
     sources: [{
@@ -508,7 +512,7 @@ describe("noSearchFallbackType opt-in", () => {
 
   it("grounds a no-signal question as stable via Wikipedia only when opted in", async () => {
     const { fetchImpl, calls } = wikipediaFetch([
-      { key: "東京", title: "東京", excerpt: WIKI_EXCERPT, description: "日本の首都" },
+      { key: "首都", title: "首都", excerpt: WIKI_CAPITAL_EXCERPT, description: "国の中央政府が置かれる都市" },
     ]);
     const outcome = groundedOf(await executeOriginSearchGrounding(
       PLAIN_QUESTION,
@@ -517,7 +521,7 @@ describe("noSearchFallbackType opt-in", () => {
     expect(outcome.questionType).toBe("stable");
     expect(outcome.providersUsed).toEqual(["wikipedia"]);
     expect(outcome.sources).toHaveLength(1);
-    expect(outcome.sources[0]?.title).toBe("東京");
+    expect(outcome.sources[0]?.title).toBe("首都");
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.every((call) => {
       const { hostname } = new URL(call.url);
@@ -539,7 +543,7 @@ describe("noSearchFallbackType opt-in", () => {
 
   it("executor: the opt-in grounds a no-signal query without calling legacy", async () => {
     const { fetchImpl } = wikipediaFetch([
-      { key: "東京", title: "東京", excerpt: WIKI_EXCERPT, description: "日本の首都" },
+      { key: "首都", title: "首都", excerpt: WIKI_CAPITAL_EXCERPT, description: "国の中央政府が置かれる都市" },
     ]);
     const legacy = vi.fn(async () => legacyResult);
     const execute = createDefaultOriginResearchExecutor(
