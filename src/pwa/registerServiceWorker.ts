@@ -124,8 +124,15 @@ export function registerOriginServiceWorker(): void {
           scheduleSafeApply();
         }
       };
+      const checkForUpdateWhenVisible = () => {
+        // Returning to the app should not wait for the hourly interval to
+        // discover an update. Hidden transitions never trigger a check.
+        if (document.visibilityState !== 'visible') return;
+        checkForUpdate();
+      };
       window.addEventListener('online', checkForUpdate);
       document.addEventListener('visibilitychange', retrySafeApply);
+      document.addEventListener('visibilitychange', checkForUpdateWhenVisible);
       window.addEventListener('focus', retrySafeApply);
       window.addEventListener('origin:pwa-safe-apply', retrySafeApply);
 
