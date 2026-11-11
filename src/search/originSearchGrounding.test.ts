@@ -15,6 +15,7 @@ import {
   executeOriginSearchGrounding,
   fetchOriginMarketAnswer,
   originSearchGroundingToResearchResult,
+  selectOriginSearchSources,
   type OriginSearchGroundingDeps,
   type OriginSearchGroundingOutcome,
 } from "./originSearchGrounding";
@@ -573,5 +574,100 @@ describe("noSearchFallbackType opt-in", () => {
     expect(result.ok).toBe(false);
     expect(result.groundingFailure).toBe("no-sources");
     expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the search engine's top hit over a more recently revised lower-ranked page of the same domain", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "富士山", title: "富士山", excerpt: "富士山は日本の活火山で、標高は3,775.51メートルである。" },
+            { key: "富士山の登山", title: "富士山の登山", excerpt: "富士山の登山ルートと標高の関係を解説する。" },
+          ],
+        }),
+      },
+      {
+        match: `/w/rest.php/v1/page/${encodeURIComponent("富士山の登山")}/bare`,
+        respond: () => ({
+          html_url: "https://ja.wikipedia.org/wiki/富士山の登山",
+          latest: { timestamp: "2026-11-05T00:00:00.000Z" },
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({
+          html_url: "https://ja.wikipedia.org/wiki/富士山",
+          latest: { timestamp: "2026-01-15T00:00:00.000Z" },
+        }),
+      },
+    ]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      "富士山の標高はどのくらいですか？",
+      makeDeps({ env: {}, fetchImpl, noSearchFallbackType: "stable" }),
+    ));
+    // Both pages share ja.wikipedia.org, so only one survives selection:
+    // the top-ranked hit, not the page revised most recently.
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0]?.title).toBe("富士山");
+  });
+
+  it("falls back to Tavily when every Wikipedia candidate is screened out as off-topic", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "鬼滅の刃", title: "鬼滅の刃", excerpt: "鬼滅の刃は、吾峠呼世晴による日本の漫画作品。日本の歴代興行収入第1位を記録した。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({
+          results: [
+            { title: "日本の首都・東京", url: "https://example.com/tokyo-capital", content: "日本の首都は東京である。", score: 0.9 },
+          ],
+        }),
+      },
+      { match: "api.tavily.com/extract", respond: () => ({ results: [], failed_results: [] }) },
+    ]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(
+      PLAIN_QUESTION,
+      makeDeps({ fetchImpl, noSearchFallbackType: "stable" }),
+    ));
+    expect(outcome.questionType).toBe("stable");
+    expect(outcome.providersUsed).toEqual(["tavily"]);
+    expect(outcome.sources[0]?.title).toBe("日本の首都・東京");
+  });
+});
+
+describe("selectOriginSearchSources", () => {
+  it("keeps the top-ranked hit of a domain over a more recently revised lower-ranked hit", () => {
+    const topHit: OriginSearchSource = {
+      title: "富士山",
+      url: "https://ja.wikipedia.org/wiki/富士山",
+      excerpt: "富士山は日本の活火山で、標高は3,775.51メートルである。",
+      publishedAt: "2026-01-15T00:00:00.000Z",
+      providerId: "wikipedia",
+      domain: "ja.wikipedia.org",
+      authorityTier: "specialist",
+      evidenceLevel: "snippet",
+      providerScore: 1,
+    };
+    const lowerHit: OriginSearchSource = {
+      ...topHit,
+      title: "富士山の登山",
+      url: "https://ja.wikipedia.org/wiki/富士山の登山",
+      publishedAt: "2026-11-05T00:00:00.000Z",
+      providerScore: 1 / 3,
+    };
+    const selected = selectOriginSearchSources([lowerHit, topHit]);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.title).toBe("富士山");
   });
 });

@@ -354,6 +354,75 @@ describe("searchWikipediaSources", () => {
     // string "&lt;", never collapse further into "<".
     expect(sources[0]?.excerpt).toBe("A & B <x> &lt;");
   });
+
+  it("records the search rank as a descending provider score on the 0..1 scale", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "東京", title: "東京", excerpt: "東京は日本の首都である。" },
+            { key: "東京都", title: "東京都", excerpt: "東京都は日本の都道府県の一つである。" },
+            { key: "東京駅", title: "東京駅", excerpt: "東京駅は東京都にある鉄道駅である。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("東京", { fetchImpl });
+    expect(sources.map((source) => source.title)).toEqual(["東京", "東京都", "東京駅"]);
+    expect(sources[0]?.providerScore).toBe(1);
+    expect(sources[1]?.providerScore).toBeCloseTo(2 / 3);
+    expect(sources[2]?.providerScore).toBeCloseTo(1 / 3);
+  });
+
+  it("screens out a candidate whose title and excerpt miss the query topic, before fetching its metadata", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "富士山", title: "富士山", excerpt: "富士山は日本の活火山で、標高は3,775.51メートルである。" },
+            { key: "ゆるキャン△", title: "ゆるキャン△", excerpt: "ゆるキャン△は、あfろによる日本の漫画作品。女子高生が野外活動でキャンプを楽しむ物語。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("富士山 標高", { fetchImpl });
+    // The on-topic hit survives unchanged; the off-topic hit is dropped and
+    // its bare-metadata endpoint is never requested.
+    expect(sources.map((source) => source.title)).toEqual(["富士山"]);
+    expect(sources[0]?.providerScore).toBe(1);
+    const bareCalls = calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"));
+    expect(bareCalls).toHaveLength(1);
+  });
+
+  it("returns no sources when every candidate misses the query topic", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "鬼滅の刃", title: "鬼滅の刃", excerpt: "鬼滅の刃は、吾峠呼世晴による日本の漫画作品である。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("都道府県 面積", { fetchImpl });
+    expect(sources).toEqual([]);
+    expect(calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"))).toHaveLength(0);
+  });
 });
 
 describe("classifyOriginDomainTier", () => {
