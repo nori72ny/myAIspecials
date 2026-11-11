@@ -89,6 +89,21 @@ describe('PostgresAgentRunStore create and read', () => {
     await expect(store.create(createInput(), now)).resolves.toBeNull();
   });
 
+  it('pins the deadline parameter with explicit casts so its type never depends on inference', async () => {
+    const database = new Recorder();
+    database.responses.push([dbRow({ status: 'queued', plan, plan_digest: digest })]);
+    const store = new PostgresAgentRunStore(database);
+    // A queued run is born with a null approval deadline ($12). Read
+    // both by an IS NULL test and by a division, the uncast parameter
+    // made production Postgres fail the insert with 42P08
+    // (ambiguous_parameter); the casts pin it to double precision.
+    const created = await store.create(createInput({ status: 'queued', plan, planDigest: digest }), now);
+    expect(created?.status).toBe('queued');
+    expect(database.calls[0].values[11]).toBeNull();
+    expect(database.calls[0].text).toContain('$12::double precision is null');
+    expect(database.calls[0].text).toContain('to_timestamp($12::double precision / 1000.0)');
+  });
+
   it('creates a held run with its hold record and no plan', async () => {
     const database = new Recorder();
     database.responses.push([dbRow({ status: 'held', hold, prior_resume_attempts: hold.resumeAttempts })]);
