@@ -250,7 +250,8 @@
 .origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
 .origin-chat-user {
-  background: linear-gradient(135deg, var(--bubble-from), var(--bubble-to));
+  background-color: var(--bubble-from);
+  background-image: linear-gradient(135deg, var(--bubble-from), var(--bubble-to));
   color: var(--bubble-text, var(--text-on-accent));
   box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 55%, transparent), inset 0 1px 0 rgb(255 255 255 / 14%);
 }
