@@ -144,7 +144,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     expect(screen.getByTestId('creative-panel')).toBeTruthy();
     // 初期値は標語文ではなく空欄＋プレースホルダ（棚卸しで「無くす」）。
@@ -159,7 +159,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
     const onClose = vi.fn();
     render(<CreativePanelV15 onClose={onClose} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
     expect(onClose).toHaveBeenCalledOnce();
@@ -171,7 +171,7 @@ describe('CreativePanelV15', () => {
     const request = 'Creativeワークスペースで新商品のSNSカードを作って';
 
     render(<CreativePanelV15 initialRequest={request} onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     // 引き継ぎバナーは統合で廃止（依頼はチャット履歴と下書きに残る）。
     expect(screen.queryByTestId('creative-handoff-request')).toBeNull();
@@ -189,7 +189,7 @@ describe('CreativePanelV15', () => {
     const onArtifactCreated = vi.fn();
 
     render(<CreativePanelV15 onClose={() => undefined} onArtifactCreated={onArtifactCreated} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
@@ -248,7 +248,7 @@ describe('CreativePanelV15', () => {
     const onArtifactCreated = vi.fn();
 
     render(<CreativePanelV15 onClose={() => undefined} onArtifactCreated={onArtifactCreated} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
@@ -265,7 +265,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
     await screen.findByAltText('作成した画像: 日本語');
@@ -305,7 +305,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     // 生成可能な状態（タイトル入力済み）にしてから削除し、削除後も
     // 生成能力が保たれることを確認する。
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
@@ -327,7 +327,7 @@ describe('CreativePanelV15', () => {
     vi.mocked(rasterizeVerifiedSvgToPng).mockRejectedValueOnce(new Error('decode'));
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
     await screen.findByRole('link', { name: 'SVG保存' });
@@ -356,7 +356,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
@@ -372,7 +372,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
@@ -388,7 +388,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
@@ -404,7 +404,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.change(screen.getByLabelText('サイズ'), { target: { value: 'story' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));

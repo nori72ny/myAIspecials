@@ -109,7 +109,7 @@ describe('CreativeArtifactEditorV15', () => {
   it('restores the structured fields from the artifact metadata', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(statusBody)));
     render(<CreativeArtifactEditorV15 artifact={creativeArtifact()} onRegenerated={() => undefined} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     expect((screen.getByLabelText('タイトル') as HTMLTextAreaElement).value).toBe('元のタイトル');
     expect((screen.getByLabelText('内容') as HTMLTextAreaElement).value).toBe('元の内容');
@@ -125,7 +125,7 @@ describe('CreativeArtifactEditorV15', () => {
     const artifact = creativeArtifact();
 
     render(<CreativeArtifactEditorV15 artifact={artifact} onRegenerated={onRegenerated} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
 
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '新しいタイトル' } });
     fireEvent.change(screen.getByLabelText('背景色'), { target: { value: '#112233' } });
@@ -159,7 +159,7 @@ describe('CreativeArtifactEditorV15', () => {
     const onRegenerated = vi.fn();
 
     render(<CreativeArtifactEditorV15 artifact={creativeArtifact()} onRegenerated={onRegenerated} />);
-    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    await screen.findByText('利用できます');
     fireEvent.click(screen.getByTestId('creative-artifact-regenerate'));
 
     await screen.findByRole('alert');

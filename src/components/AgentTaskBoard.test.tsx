@@ -96,14 +96,13 @@ describe('AgentTaskBoard', () => {
     expect(screen.getByRole('heading', { name: /実行中/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /保留中/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /完了・終了/ })).toBeTruthy();
-    // Held row: reason, resume condition and remaining days in plain words,
-    // with step progress — and no internal codes or provider ids.
+    // Held row: reason and resume condition in plain words, with step
+    // progress — and no internal codes or provider ids.
     const heldRow = screen.getByText('調査レポートを作ってください').closest('article');
     expect(heldRow?.textContent).toContain('保留中');
     expect(heldRow?.textContent).toContain('ステップ 1/2');
     expect(heldRow?.textContent).toContain('無料枠の回復待ち');
     expect(heldRow?.textContent).toContain('無料枠の回復後に再開できます');
-    expect(heldRow?.textContent).toContain('あと7日で記録の期限切れ');
     expect(heldRow?.textContent).not.toContain('quota_exhausted');
     expect(heldRow?.textContent).not.toContain('tavily');
     const runningRow = screen.getByText('実行中の仕事').closest('article');

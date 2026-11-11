@@ -39,7 +39,8 @@ describe('ResearchReportView (chat-integrated research result)', () => {
     expect(screen.getByText('出典の確かさ: 中')).toBeTruthy();
     expect(screen.getByText(/example\.com · 最近の情報 · 本文確認済み/)).toBeTruthy();
     expect(screen.getAllByRole('link', { name: '原文を開く' })).toHaveLength(2);
-    expect(screen.getByText('出典同士の違い')).toBeTruthy();
+    // 食い違いがない場合は「出典同士の違い」のボックス自体を出さない。
+    expect(screen.queryByText('出典同士の違い')).toBeNull();
     // 旧専用画面にあった内部方針の説明文は持ち込まない。
     expect(screen.queryByText(/調査の安全条件/)).toBeNull();
     expect(screen.queryByText(/有料AIへの自動切り替え/)).toBeNull();
