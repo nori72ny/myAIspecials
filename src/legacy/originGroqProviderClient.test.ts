@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   estimateOriginGroqInputTokens,
   executeOriginGroqProvider,
+  isOriginGroqQwenRotationEnabled,
   isOriginGroqRouteConfigured,
   OriginGroqPreflightError,
   ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET,
@@ -27,6 +28,7 @@ import {
   DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG,
   ORIGIN_GROQ_FREE_MODEL_ID,
   ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+  ORIGIN_GROQ_QWEN_MODEL_ID,
   type OriginGroqFreeModelEvidence,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog";
 
@@ -451,6 +453,109 @@ describe("executeOriginGroqProvider in-route model rotation", () => {
     expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
     expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(1);
     expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+});
+
+describe("isOriginGroqQwenRotationEnabled (kill switch, default OFF)", () => {
+  it("is false when unset and for every value except the exact string 'true'", () => {
+    expect(isOriginGroqQwenRotationEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(isOriginGroqQwenRotationEnabled({ ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "false" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isOriginGroqQwenRotationEnabled({ ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "1" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isOriginGroqQwenRotationEnabled({ ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "TRUE" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isOriginGroqQwenRotationEnabled({ ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "true" } as NodeJS.ProcessEnv)).toBe(true);
+  });
+});
+
+describe("executeOriginGroqProvider qwen second rotation stage", () => {
+  // Inside all three evidence windows: gpt-oss entries run 2026-11-08 to
+  // 2026-11-22, the qwen entry runs 2026-11-10 to 2026-12-10.
+  const QWEN_NOW_MS = Date.parse("2026-11-15T12:00:00.000Z");
+  const qwenEnv = { GROQ_API_KEY: SYNTHETIC_KEY, ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "true" } as NodeJS.ProcessEnv;
+  const qwenSuccessBody = (content = "第3経路（第2ローテーション先）の回答です。"): Record<string, unknown> => ({
+    model: ORIGIN_GROQ_QWEN_MODEL_ID,
+    choices: [{ message: { content } }],
+    usage: { prompt_tokens: 110, completion_tokens: 30, total_tokens: 140 },
+  });
+  const rateLimitResponse = () => groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429);
+  function sequencedFetch(steps: Array<() => Response>): OriginFetch {
+    let index = 0;
+    return vi.fn(async () => {
+      const step = steps[Math.min(index, steps.length - 1)];
+      index += 1;
+      return step();
+    }) as unknown as OriginFetch;
+  }
+
+  it("stays off by default: both gpt-oss models rate-limited means two sends and the rotation failure, no qwen attempt", async () => {
+    const fetchMock = sequencedFetch([rateLimitResponse, rateLimitResponse, () => groqJson(qwenSuccessBody())]);
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: QWEN_NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(2);
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
+
+  it("rotates to qwen last when enabled and both gpt-oss models are rate-limited, sending reasoning_effort none only to qwen", async () => {
+    const fetchMock = sequencedFetch([rateLimitResponse, rateLimitResponse, () => groqJson(qwenSuccessBody())]);
+    const result = await executeOriginGroqProvider(request, qwenEnv, fetchMock, { nowMs: QWEN_NOW_MS });
+    expect(result.text).toBe("第3経路（第2ローテーション先）の回答です。");
+    expect(result.transportRequestCount).toBe(3);
+    expect(result.actualCostUsd).toBe(0);
+    expect(result.routingEvidence).toEqual({
+      requestedModel: ORIGIN_GROQ_QWEN_MODEL_ID,
+      servedModel: ORIGIN_GROQ_QWEN_MODEL_ID,
+      strategy: "verified-free-failover",
+      provider: "Groq",
+      attempt: 3,
+      fallbackUsed: true,
+    });
+    const calls = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(3);
+    const bodies = calls.map((call) => JSON.parse(String((call as [string, RequestInit])[1].body)) as { model: string; reasoning_effort?: string });
+    expect(bodies[0].model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(bodies[0].reasoning_effort).toBeUndefined();
+    expect(bodies[1].model).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(bodies[1].reasoning_effort).toBeUndefined();
+    expect(bodies[2].model).toBe(ORIGIN_GROQ_QWEN_MODEL_ID);
+    expect(bodies[2].reasoning_effort).toBe("none");
+  });
+
+  it("does not reach for qwen when the first rotation fails with a non-trigger error", async () => {
+    const fetchMock = sequencedFetch([
+      rateLimitResponse,
+      () => groqJson({ error: { code: "invalid_api_key", message: "Invalid API key" } }, 401),
+      () => groqJson(qwenSuccessBody()),
+    ]);
+    const error = await executeOriginGroqProvider(request, qwenEnv, fetchMock, { nowMs: QWEN_NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
+
+  it("fails closed per model: stale qwen evidence surfaces the first rotation failure after two sends", async () => {
+    const staleQwenCatalog: OriginGroqFreeModelEvidence[] = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG.map((entry) =>
+      entry.modelId === ORIGIN_GROQ_QWEN_MODEL_ID
+        ? { ...entry, verifiedAt: "2026-10-26T00:00:00.000Z", reviewAfter: "2026-11-05T00:00:00.000Z" }
+        : entry);
+    const fetchMock = sequencedFetch([rateLimitResponse, rateLimitResponse, () => groqJson(qwenSuccessBody())]);
+    const error = await executeOriginGroqProvider(request, qwenEnv, fetchMock, { nowMs: QWEN_NOW_MS, catalog: staleQwenCatalog })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(2);
+    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
+
+  it("holds qwen to the same served-model identity standard", async () => {
+    const fetchMock = sequencedFetch([
+      rateLimitResponse,
+      rateLimitResponse,
+      // Answers as the primary model although qwen was requested.
+      () => groqJson(successBody()),
+    ]);
+    const error = await executeOriginGroqProvider(request, qwenEnv, fetchMock, { nowMs: QWEN_NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_ROUTING_UNVERIFIED");
+    expect((error as OriginProviderError).diagnostic?.transportRequestCount).toBe(3);
   });
 });
 

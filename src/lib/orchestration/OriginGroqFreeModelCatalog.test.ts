@@ -3,7 +3,9 @@ import {
   DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG,
   isOriginGroqFreeModelId,
   ORIGIN_GROQ_FREE_MODEL_ID,
+  ORIGIN_GROQ_FREE_MODEL_IDS,
   ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+  ORIGIN_GROQ_QWEN_MODEL_ID,
   selectCurrentOriginGroqFreeModel,
   selectCurrentOriginGroqFreeModelById,
   type OriginGroqFreeModelEvidence,
@@ -87,12 +89,64 @@ describe("Groq free model evidence catalog", () => {
       .toMatchObject({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" });
   });
 
-  it("recognizes exactly the two catalog models as Groq free model ids", () => {
+  it("recognizes exactly the three catalog models as Groq free model ids", () => {
     expect(isOriginGroqFreeModelId("openai/gpt-oss-120b")).toBe(true);
     expect(isOriginGroqFreeModelId("openai/gpt-oss-20b")).toBe(true);
+    expect(isOriginGroqFreeModelId("qwen/qwen3.8-27b")).toBe(true);
     expect(isOriginGroqFreeModelId("llama-3.3-70b-versatile")).toBe(false);
-    expect(isOriginGroqFreeModelId("qwen/qwen3.8-27b")).toBe(false);
+    expect(isOriginGroqFreeModelId("openai/gpt-oss-safeguard-20b")).toBe(false);
     expect(isOriginGroqFreeModelId(undefined)).toBe(false);
+  });
+
+  it("pins the rotation order as primary, first rotation, then qwen last", () => {
+    expect(ORIGIN_GROQ_FREE_MODEL_IDS).toEqual([
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-20b",
+      "qwen/qwen3.8-27b",
+    ]);
+    expect(DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG.map((entry) => entry.modelId)).toEqual([
+      ORIGIN_GROQ_FREE_MODEL_ID,
+      ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
+      ORIGIN_GROQ_QWEN_MODEL_ID,
+    ]);
+  });
+
+  it("pins the qwen entry as a Preview model with a short review window and honest unverified notes", () => {
+    const entry = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG[2];
+    expect(entry.providerId).toBe("groq-free");
+    expect(entry.modelId).toBe(ORIGIN_GROQ_QWEN_MODEL_ID);
+    expect(entry.modelId).toBe("qwen/qwen3.8-27b");
+    expect(entry.verifiedAt).toBe("2026-11-10T00:00:00.000Z");
+    expect(entry.reviewAfter).toBe("2026-12-10T00:00:00.000Z");
+    expect(entry.sourceDescription).toContain("Preview");
+    expect(entry.sourceDescription).toContain("8,000 tokens/minute");
+    expect(entry.sourceDescription).toContain("NOT been re-verified");
+    expect(entry.sourceDescription).toContain("has NOT been screened");
+    expect(entry.sourceDescription).toContain("ORIGIN_GROQ_QWEN_ROTATION_ENABLED");
+  });
+
+  it("selects the qwen evidence inside its own window, which opens after the primary window", () => {
+    const qwenDuringMs = Date.parse("2026-11-15T12:00:00.000Z");
+    const result = selectCurrentOriginGroqFreeModelById(undefined, ORIGIN_GROQ_QWEN_MODEL_ID, qwenDuringMs);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.model.modelId).toBe("qwen/qwen3.8-27b");
+    // Before its verifiedAt the qwen entry is not yet usable either.
+    const tooEarly = selectCurrentOriginGroqFreeModelById(undefined, ORIGIN_GROQ_QWEN_MODEL_ID, DURING_MS);
+    expect(tooEarly).toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
+  });
+
+  it("fails closed per model: a lapsed qwen window does not close the primary model", () => {
+    const lapsedQwenCatalog: OriginGroqFreeModelEvidence[] = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG.map((entry) =>
+      entry.modelId === ORIGIN_GROQ_QWEN_MODEL_ID
+        ? { ...entry, verifiedAt: "2026-10-26T00:00:00.000Z", reviewAfter: "2026-11-05T00:00:00.000Z" }
+        : entry);
+    const qwenDuringMs = Date.parse("2026-11-15T12:00:00.000Z");
+    expect(selectCurrentOriginGroqFreeModelById(lapsedQwenCatalog, ORIGIN_GROQ_QWEN_MODEL_ID, qwenDuringMs))
+      .toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
+    const primary = selectCurrentOriginGroqFreeModel(lapsedQwenCatalog, qwenDuringMs);
+    expect(primary.ok).toBe(true);
+    const rotation = selectCurrentOriginGroqFreeModelById(lapsedQwenCatalog, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, qwenDuringMs);
+    expect(rotation.ok).toBe(true);
   });
 });
 
