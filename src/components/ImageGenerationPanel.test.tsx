@@ -8,7 +8,11 @@ import ImageGenerationPanel from './ImageGenerationPanel';
 // Whether a generation may proceed is decided per request by the
 // server-side free-proof pipeline, which fails closed and returns a
 // reason code. These tests pin that the panel is usable on its own form
-// conditions and states the per-request $0.00 verification honestly.
+// conditions. Since 2026-11-11 the sheet itself is minimal (owner
+// decision): prompt + generate button up front, aspect ratio and
+// resolution behind a closed Advanced settings disclosure, and the
+// $0.00 verification is no longer restated as visible copy — the
+// server-side contract behind it is unchanged.
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -27,8 +31,7 @@ describe('ImageGenerationPanel', () => {
     const onClose = vi.fn();
     render(<ImageGenerationPanel language="ja" onClose={onClose} onGenerate={onGenerate} />);
 
-    const note = screen.getByTestId('origin-image-free-proof-note');
-    expect(note.textContent).toContain('$0.00');
+    expect(screen.queryByTestId('origin-image-free-proof-note')).toBeNull();
     expect(screen.queryByTestId('origin-image-provider-unavailable')).toBeNull();
     const submit = screen.getByTestId('origin-image-generate-submit');
     expect((submit as HTMLButtonElement).disabled).toBe(false);
@@ -36,8 +39,13 @@ describe('ImageGenerationPanel', () => {
     fireEvent.change(screen.getByTestId('origin-image-prompt'), {
       target: { value: '  夕焼けの海辺  ' },
     });
+    const advanced = screen.getByTestId('origin-image-advanced-settings');
+    expect(advanced.hasAttribute('open')).toBe(false);
+    fireEvent.click(screen.getByText('詳細設定'));
+    expect(advanced.hasAttribute('open')).toBe(true);
     fireEvent.change(screen.getByTestId('origin-image-ratio'), { target: { value: '9:16' } });
     fireEvent.change(screen.getByTestId('origin-image-resolution'), { target: { value: '1536' } });
+    expect(screen.getByTestId('origin-image-dimensions').textContent).toContain('864 × 1536px');
     fireEvent.click(submit);
 
     expect(onGenerate).toHaveBeenCalledOnce();
@@ -45,10 +53,34 @@ describe('ImageGenerationPanel', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('states the per-request free-proof contract in English', () => {
+  it('keeps the English sheet minimal as well: no free-proof copy, settings closed', () => {
     render(<ImageGenerationPanel language="en" onClose={() => undefined} onGenerate={() => undefined} />);
-    expect(screen.getByTestId('origin-image-free-proof-note').textContent).toContain('$0.00');
+    expect(screen.queryByTestId('origin-image-free-proof-note')).toBeNull();
+    expect(screen.getByText('Advanced settings')).toBeTruthy();
+    expect(screen.getByTestId('origin-image-advanced-settings').hasAttribute('open')).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
     expect((screen.getByTestId('origin-image-generate-submit') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('submits the prompt with the default 1:1 / 1024px size without opening Advanced settings', () => {
+    const onGenerate = vi.fn();
+    render(<ImageGenerationPanel language="ja" onClose={() => undefined} onGenerate={onGenerate} />);
+
+    expect(screen.getByTestId('origin-image-advanced-settings').hasAttribute('open')).toBe(false);
+    expect(screen.getByTestId('origin-image-dimensions').textContent).toContain('1024 × 1024px · 1:1');
+    fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '青い鳥' } });
+    fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+    expect(onGenerate).toHaveBeenCalledOnce();
+    expect(onGenerate).toHaveBeenCalledWith('青い鳥', 1024, 1024);
+  });
+
+  it('closes only via the × button (no duplicate Cancel button)', () => {
+    const onClose = vi.fn();
+    render(<ImageGenerationPanel language="ja" onClose={onClose} onGenerate={() => undefined} />);
+    expect(screen.queryByRole('button', { name: 'キャンセル' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('does not submit an empty prompt and exposes an accessible validation error', () => {

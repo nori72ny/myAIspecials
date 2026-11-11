@@ -36,10 +36,16 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
       if (event.key !== 'Tab') return;
-      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusable?.length) { event.preventDefault(); return; }
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]), a[href], summary, [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => {
+        // Controls inside a closed <details> are not rendered and cannot
+        // take focus; its <summary> stays focusable so the disclosure can
+        // still be opened from the keyboard.
+        const details = element.closest('details');
+        return !details || details.open || element.tagName === 'SUMMARY';
+      });
+      if (!focusable.length) { event.preventDefault(); return; }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
@@ -85,11 +91,10 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   // Availability is decided per request by the server-side free-proof
   // pipeline: it proves $0.00 cost before any inference runs and fails
   // closed when it cannot. The panel therefore does not pre-check a
-  // status endpoint; it states that contract honestly and lets the
-  // generation result (or its failure reason) speak for itself.
-  const freeProofNote = ja
-    ? '生成するときに、費用が $0.00（無料）であることを1回ごとに確認してから生成します。確認できない場合は生成しません。'
-    : 'Each generation first verifies that it costs $0.00. If that cannot be confirmed, nothing is generated.';
+  // status endpoint; it lets the generation result (or its failure
+  // reason) speak for itself. The contract itself is unchanged, but it
+  // is no longer restated as visible copy in the sheet (owner decision
+  // 2026-11-11: keep the sheet to the essentials).
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -98,7 +103,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
           <div>
             <p className="origin-muted m-0 text-xs font-semibold uppercase tracking-[0.16em]">ORIGIN · IMAGE STUDIO</p>
             <h2 id="origin-image-panel-title" className="m-0 mt-1 text-lg font-semibold">{ja ? '画像を生成' : 'Generate an image'}</h2>
-            <p className="origin-muted m-0 mt-1 text-sm">{ja ? '内容・縦横比・解像度を指定できます。' : 'Set the prompt, aspect ratio, and resolution.'}</p>
+            <p className="origin-muted m-0 mt-1 text-sm">{ja ? '内容を入力してください。縦横比・解像度は詳細設定で変更できます。' : 'Enter a prompt. Aspect ratio and resolution live under Advanced settings.'}</p>
           </div>
           <button type="button" aria-label={ja ? '閉じる' : 'Close'} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 min-w-11 items-center justify-center rounded-full text-xl">×</button>
         </header>
@@ -107,33 +112,29 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
             {ja ? '作りたい画像' : 'Image brief'}
             <textarea ref={promptRef} data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-y rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="grid gap-2 text-sm font-medium">
-              {ja ? '縦横比' : 'Aspect ratio'}
-              <select data-testid="origin-image-ratio" value={ratio} onChange={(event) => setRatio(event.target.value as ImageRatio)} className="origin-input min-h-11 rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base">
-                {RATIOS.map((value) => <option key={value} value={value}>{ja ? RATIO_LABELS_JA[value] : value}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm font-medium">
-              {ja ? '解像度（長辺）' : 'Resolution (long edge)'}
-              <select data-testid="origin-image-resolution" value={resolution} onChange={(event) => setResolution(event.target.value as ImageResolution)} className="origin-input min-h-11 rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base">
-                <option value="1024">1K · 1024px</option>
-                <option value="1536">1.5K · 1536px</option>
-              </select>
-            </label>
-          </div>
-          <p data-testid="origin-image-dimensions" className="origin-muted m-0 text-xs tabular-nums">{dimensions.width} × {dimensions.height}px · {ratio}</p>
-          <p
-            data-testid="origin-image-free-proof-note"
-            role="status"
-            aria-live="polite"
-            className="origin-muted m-0 rounded-xl px-3 py-2 text-sm"
-          >
-            {freeProofNote}
-          </p>
+          <details data-testid="origin-image-advanced-settings">
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold">{ja ? '詳細設定' : 'Advanced settings'}</summary>
+            <div className="mt-3 grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="grid gap-2 text-sm font-medium">
+                  {ja ? '縦横比' : 'Aspect ratio'}
+                  <select data-testid="origin-image-ratio" value={ratio} onChange={(event) => setRatio(event.target.value as ImageRatio)} className="origin-input min-h-11 rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base">
+                    {RATIOS.map((value) => <option key={value} value={value}>{ja ? RATIO_LABELS_JA[value] : value}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-medium">
+                  {ja ? '解像度（長辺）' : 'Resolution (long edge)'}
+                  <select data-testid="origin-image-resolution" value={resolution} onChange={(event) => setResolution(event.target.value as ImageResolution)} className="origin-input min-h-11 rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base">
+                    <option value="1024">1K · 1024px</option>
+                    <option value="1536">1.5K · 1536px</option>
+                  </select>
+                </label>
+              </div>
+              <p data-testid="origin-image-dimensions" className="origin-muted m-0 text-xs tabular-nums">{dimensions.width} × {dimensions.height}px · {ratio}</p>
+            </div>
+          </details>
           {error && <p role="alert" className="m-0 text-sm text-[var(--danger)]">{error}</p>}
           <footer className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onClose} className="origin-secondary-button min-h-11 rounded-xl px-4 text-sm font-semibold">{ja ? 'キャンセル' : 'Cancel'}</button>
             <button type="submit" data-testid="origin-image-generate-submit" className="origin-primary-button min-h-11 rounded-xl px-5 text-sm font-semibold">{ja ? '画像を生成する' : 'Generate image'}</button>
           </footer>
         </form>
