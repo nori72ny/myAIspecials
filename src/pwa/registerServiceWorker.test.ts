@@ -25,6 +25,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   let reloads = 0;
   let activations = 0;
   let announcements = 0;
+  let updateChecks = 0;
   const draft = { value: '' };
   const files = { files: [] as unknown[] };
   const busy = { value: false };
@@ -37,7 +38,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     ...eventTarget(),
     installing: null as null | (ReturnType<typeof eventTarget> & { state: string }),
     waiting: waiting ? { postMessage: () => { activations += 1; } } : null,
-    update: async () => undefined,
+    update: async () => { updateChecks += 1; },
   };
   const serviceWorker = {
     ...eventTarget(),
@@ -95,6 +96,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     reloads: () => reloads,
     activations: () => activations,
     announcements: () => announcements,
+    updateChecks: () => updateChecks,
     installWaiting: () => {
       const installing = { ...eventTarget(), state: 'installing' };
       registration.installing = installing;
@@ -236,6 +238,18 @@ describe('PWA controller changes preserve user work', () => {
     app.activeEditable.value = '';
     app.retry();
     assert.equal(app.reloads(), 1);
+  });
+
+  it('checks for an update when the tab becomes visible again', async () => {
+    const app = await launch(true);
+    // The launch sequence already performs one update check.
+    assert.equal(app.updateChecks(), 1);
+    app.document.visibilityState = 'hidden';
+    app.document.emit('visibilitychange');
+    assert.equal(app.updateChecks(), 1);
+    app.document.visibilityState = 'visible';
+    app.document.emit('visibilitychange');
+    assert.equal(app.updateChecks(), 2);
   });
 
   it('activates a waiting update after unsaved work is cleared', async () => {
