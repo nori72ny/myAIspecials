@@ -105,7 +105,6 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       // 各ワークスペースへはURL直指定ではなくアプリ内メニューから入る。
       const surfaces = [
         { menuLabel: null, heading: '今日は何をしますか？' },
-        { menuLabel: '詳しく調べる', heading: '詳しく調べる' },
         { menuLabel: 'エージェントに任せる', heading: 'エージェントに任せる' },
         { menuLabel: 'コード', heading: 'コードの変更を依頼' },
         { menuLabel: '作る', heading: 'カード・ポスターを作る' },
@@ -144,6 +143,18 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
           await expect(page.getByTestId('origin-home-request')).toBeVisible();
         }
       }
+
+      // 詳しく調べるは専用画面ではなくチャット内モード（2026-11-09）。
+      // 旧検証（見出し「詳しく調べる」の画面と「会話に戻る」）は、モード
+      // バナーの出現・画面不変・解除による消去の検証に置き換える。
+      await page.getByTestId('origin-add-menu-toggle').click();
+      await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
+      await expect(page.getByTestId('research-mode')).toBeVisible();
+      await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
+      await expect(page).not.toHaveURL(/workspace=/);
+      await assertSurfaceContract(page, viewport.width);
+      await page.getByRole('button', { name: '解除', exact: true }).click();
+      await expect(page.getByTestId('research-mode')).toBeHidden();
     });
   }
 
@@ -244,16 +255,17 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         }],
       }),
     }));
-    // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
-    // 調べる画面へはアプリ内メニューから入る。
+    // 詳しく調べるはチャット内モード（2026-11-09）。レポートと出典は
+    // 会話の中に表示される。旧検証（専用画面の見出し・開閉式の出典）は
+    // 会話内の表示に置き換え、リンクの安全性の強度は維持する。
     await page.goto('/');
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
-    await expect(page).toHaveURL(/workspace=research/);
-    await page.getByLabel('調べたいこと', { exact: true }).fill('検証用クエリ');
-    await page.getByRole('button', { name: '調査する', exact: true }).click();
-    await page.getByText('調査結果', { exact: true }).waitFor();
-    await page.getByText('出典を見る', { exact: true }).click();
+    await expect(page.getByTestId('research-mode')).toBeVisible();
+    await page.getByTestId('origin-home-request').fill('検証用クエリ');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByText('Verified test evidence.')).toBeVisible({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/workspace=/);
     const link = page.getByRole('link', { name: '原文を開く' });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', 'https://example.com/evidence');
@@ -281,8 +293,17 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await page.getByRole('menuitem', { name: 'ファイルを添付', exact: true }).click();
     await chooser;
 
+    // 詳しく調べるは画面遷移ではなくチャット内モードのオン/オフに
+    // なった（2026-11-09）。無反応でないことはバナーの出現/消去で検証する。
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
+    await expect(page.getByTestId('research-mode')).toBeVisible();
+    await expect(page).not.toHaveURL(/workspace=/);
+    await page.getByRole('button', { name: '解除', exact: true }).click();
+    await expect(page.getByTestId('research-mode')).toBeHidden();
+
     // Each workspace action must result in navigation, not a silent click.
-    for (const [label, workspace] of [['詳しく調べる', 'research'], ['コード', 'coding'], ['作る', 'creative']] as const) {
+    for (const [label, workspace] of [['コード', 'coding'], ['作る', 'creative']] as const) {
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));

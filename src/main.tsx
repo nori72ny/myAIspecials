@@ -10,6 +10,7 @@ import { UniversalMasterEnginePanel } from './components/UniversalMasterEnginePa
 import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
+import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import './index.css';
@@ -112,12 +113,20 @@ export function parseImportedHistory(value: unknown): ConversationMessage[] {
         };
       }
     }
+    // リサーチ結果は会話の一部として履歴に残るため（2026-11-09の
+    // チャット統合）、保存時と同じ契約で検証できた場合だけ復元する。
+    // 検証できない結果は、画像と同じく静かに落とす（本文は残る）。
+    let research: ConversationMessage['research'];
+    if (isResearchReportResult(candidate.research)) {
+      research = { ...candidate.research, report: candidate.research.report.slice(0, 50_000) };
+    }
     return {
       id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
       role: candidate.role,
       content: candidate.content.slice(0, 50_000),
       deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined,
       image,
+      research,
     };
   });
 }

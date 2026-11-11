@@ -184,7 +184,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving 44px targets', () => {
-    render(<App language="ja" onOpenResearch={() => undefined} />);
+    render(<App language="ja" />);
 
     const composer = document.querySelector('.origin-composer') as HTMLElement;
     const input = screen.getByTestId('origin-home-request') as HTMLTextAreaElement;
@@ -225,7 +225,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('shows tappable home suggestions on the empty state', () => {
-    render(<App language="ja" onOpenResearch={() => undefined} />);
+    render(<App language="ja" />);
 
     const suggestion1 = screen.getByTestId('home-suggestion-1');
     const suggestion2 = screen.getByTestId('home-suggestion-2');
@@ -240,7 +240,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('shows English home suggestions when language is English', () => {
-    render(<App language="en" onOpenResearch={() => undefined} />);
+    render(<App language="en" />);
 
     expect(screen.getByTestId('home-suggestion-1').textContent).toBe("Summarize today's news");
     expect(screen.getByTestId('home-suggestion-2').textContent).toBe('Draft a proposal');
@@ -294,14 +294,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('keeps advanced capabilities behind the existing composer plus button', () => {
-    const onOpenResearch = vi.fn();
     const onOpenAgent = vi.fn();
     const onOpenCoding = vi.fn();
     const onOpenCreative = vi.fn();
 
     render(<App
       language="ja"
-      onOpenResearch={onOpenResearch}
       onOpenAgent={onOpenAgent}
       onOpenCoding={onOpenCoding}
       onOpenCreative={onOpenCreative}
@@ -325,8 +323,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
-    expect(onOpenResearch).toHaveBeenCalledOnce();
+    // 詳しく調べるは専用画面へは遷移せず、チャット内のリサーチモードが
+    // 有効になる（画面構成の見直し 2026-11-09、オーナー承認）。
+    expect(screen.getByTestId('research-mode')).toBeTruthy();
     expect(menu.hasAttribute('open')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '解除' }));
+    expect(screen.queryByTestId('research-mode')).toBeNull();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'エージェントに任せる' }));
@@ -345,6 +347,164 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(screen.queryByRole('menuitem', { name: '詳細・作業状況' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Details & status' })).toBeNull();
+  });
+
+  describe('Research mode inside chat', () => {
+    const researchPayload = {
+      ok: true,
+      version: '1.1',
+      status: 'grounded',
+      provider: 'DuckDuckGo',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      sourceCount: 2,
+      distinctDomainCount: 2,
+      confidence: 'moderate',
+      confidenceScope: 'retrieval-evidence-only',
+      semanticConflictDetection: 'conservative-structured-only',
+      sources: [
+        { id: 'S1', title: 'Primary source', url: 'https://example.com/a', domain: 'example.com', evidenceLevel: 'page-verified', freshness: 'recent', score: 85, scoreScope: 'retrieval-evidence-only', citation: '[S1](https://example.com/a)' },
+        { id: 'S2', title: 'Second source', url: 'https://example.org/b', domain: 'example.org', evidenceLevel: 'snippet', freshness: 'unknown', score: 45, scoreScope: 'retrieval-evidence-only', citation: '[S2](https://example.org/b)' },
+      ],
+      conflicts: [],
+      report: '## 確認できた内容\n- 営業時間を編集できます [S1](https://example.com/a)',
+    };
+    const researchResponse = () => new Response(JSON.stringify(researchPayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const jsonChatReply = (content: string) => new Response(JSON.stringify({
+      content,
+      routing: { modelId: 'google/gemma-4-31b-it:free', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: 'google/gemma-4-31b-it:free', servedModel: 'google/gemma-4-31b-it:free', fallbackUsed: false } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const armResearchMode = () => {
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '詳しく調べる' }));
+      expect(screen.getByTestId('research-mode')).toBeTruthy();
+    };
+
+    it('runs research from the composer and keeps the sourced report in the conversation', async () => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') return researchResponse();
+        if (requestPath(input) === '/api/chat') return jsonChatReply('通常の回答です');
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '現在の公開情報を調査' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      expect(await screen.findByRole('heading', { name: '確認できた内容' })).toBeTruthy();
+      expect(screen.getByText('Primary source')).toBeTruthy();
+      expect(screen.getByText('Second source')).toBeTruthy();
+      expect(screen.getByText('出典の確かさ: 中')).toBeTruthy();
+      expect(screen.getByRole('link', { name: 'S1' })).toBeTruthy();
+      expect(screen.getAllByRole('link', { name: '原文を開く' })).toHaveLength(2);
+      const researchCalls = fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query');
+      expect(researchCalls).toHaveLength(1);
+      expect(JSON.parse((researchCalls[0]?.[1] as RequestInit)?.body as string)).toEqual({ query: '現在の公開情報を調査' });
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
+      expect(screen.queryByTestId('origin-research-progress')).toBeNull();
+
+      // モードを解除すれば、同じ会話の続きは通常チャットとして送れる
+      // （レポートが会話に残るため、続けて質問できる）。
+      fireEvent.click(screen.getByRole('button', { name: '解除' }));
+      const composer = screen.getByTestId('origin-chat-request');
+      fireEvent.change(composer, { target: { value: 'ありがとう、続きを教えて' } });
+      fireEvent.click(screen.getByTestId('send-request-button'));
+      expect(await screen.findByText('通常の回答です')).toBeTruthy();
+      expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(1);
+    });
+
+    it('shows staged progress with the working cat inside the conversation while research runs', async () => {
+      let resolveResearch!: (value: Response) => void;
+      const gate = new Promise<Response>((resolve) => { resolveResearch = resolve; });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') return gate;
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '時間のかかる調査' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      const progress = await screen.findByTestId('origin-research-progress');
+      expect(progress.textContent).toContain('公開情報を探しています');
+      expect(screen.queryByTestId('origin-thinking')).toBeNull();
+
+      resolveResearch(researchResponse());
+      expect(await screen.findByRole('heading', { name: '確認できた内容' })).toBeTruthy();
+      expect(screen.queryByTestId('origin-research-progress')).toBeNull();
+    });
+
+    it('keeps a research failure in the conversation with its reason and never calls the chat route', async () => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') {
+          return new Response(JSON.stringify({ ok: false, code: 'SENSITIVE_INPUT_BLOCKED' }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'sensitive test' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      expect(await screen.findByText('機微情報の可能性があるため、外部情報源への送信を停止しました。')).toBeTruthy();
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
+      expect(screen.queryByTestId('origin-research-progress')).toBeNull();
+    });
+
+    it('fails closed when a nominal research success violates the free-only contract', async () => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') {
+          return new Response(JSON.stringify({ ...researchPayload, freeOnly: false, costUsd: 1, paidFallbackUsed: true, report: 'must not render' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'query' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      expect(await screen.findByText('調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。')).toBeTruthy();
+      expect(screen.queryByText('must not render')).toBeNull();
+      expect(screen.queryByText('Primary source')).toBeNull();
+    });
+
+    it('queues a research send behind a running chat reply and drains it as research', async () => {
+      let resolveChat!: (value: Response) => void;
+      const chatGate = new Promise<Response>((resolve) => { resolveChat = resolve; });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/chat') return chatGate;
+        if (requestPath(input) === '/api/research/v1.1/query') return researchResponse();
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最初の質問' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(true));
+
+      armResearchMode();
+      const composer = screen.getByTestId('origin-chat-request');
+      fireEvent.change(composer, { target: { value: '続けて調査して' } });
+      fireEvent.keyDown(composer, { key: 'Enter' });
+      await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/research/v1.1/query')).toBe(false);
+
+      resolveChat(jsonChatReply('最初の回答'));
+      expect(await screen.findByRole('heading', { name: '確認できた内容' }, { timeout: 5000 })).toBeTruthy();
+      const researchCalls = fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query');
+      expect(researchCalls).toHaveLength(1);
+      expect(JSON.parse((researchCalls[0]?.[1] as RequestInit)?.body as string)).toEqual({ query: '続けて調査して' });
+    });
   });
 
   it('sends the dedicated image panel prompt and selected dimensions to the raster endpoint', async () => {
