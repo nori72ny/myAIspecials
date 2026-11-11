@@ -16,6 +16,7 @@ export function createNodeMcpManagement(options: {
   resolveCredential: (ownerId: string, serverId: string) => Promise<string | undefined>;
   disconnectCredential?: (ownerId: string, serverId: string) => Promise<void>;
   oauth?: McpManagementDependencies['oauth'];
+  audit?: McpManagementDependencies['audit'];
 }): McpManagementDependencies {
   const origin = new URL(options.appOrigin);
   if (origin.origin !== options.appOrigin || origin.protocol !== 'https:') throw new Error('MCP_APP_ORIGIN_INVALID');
@@ -23,6 +24,7 @@ export function createNodeMcpManagement(options: {
     appOrigin: options.appOrigin,
     authenticate: options.authenticate,
     oauth: options.oauth,
+    ...(options.audit ? { audit: options.audit } : {}),
     service: new McpConnectionService({
       servers: options.servers,
       store: options.store,
