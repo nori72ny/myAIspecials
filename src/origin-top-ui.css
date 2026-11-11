@@ -432,9 +432,6 @@
     height: 100% !important;
     min-height: 0 !important;
   }
-  .origin-app main .origin-home-suggestions {
-    flex: 0 0 auto !important;
-  }
   /* Bound the intro's text growth (system font scaling / text zoom):
      at the default font size the heading is one line and the
      description three lines, so these clamps change nothing visually;
