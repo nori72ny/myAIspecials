@@ -249,6 +249,32 @@ function generatedParams(toolName: ToolName, goal: string, options?: { contentFr
 }
 
 
+const SAFE_RUN_STORE_ERROR_FIELD = /^[A-Za-z0-9_.:-]{1,80}$/;
+
+function safeRunStoreErrorField(error: unknown, field: 'name' | 'code'): string {
+  if (error && typeof error === 'object' && field in error) {
+    const value = (error as Record<string, unknown>)[field];
+    if (typeof value === 'string' && SAFE_RUN_STORE_ERROR_FIELD.test(value)) return value;
+  }
+  return 'UNKNOWN';
+}
+
+/**
+ * Records a run-store infrastructure failure for production triage. Only
+ * the error's name and code are logged — never the message: driver error
+ * messages can be composed from host names or connection details (the
+ * same policy as the coding router's ORIGIN_CODING_DB_PROBE_FAILED). The
+ * code carries the diagnostic value: for Postgres it is the SQLSTATE
+ * (for example 42P01 when the runs table does not exist).
+ */
+function logAgentRunStoreFailure(operation: string, error: unknown): void {
+  console.error('ORIGIN_AGENT_RUN_STORE_FAILED', {
+    operation,
+    name: safeRunStoreErrorField(error, 'name'),
+    code: safeRunStoreErrorField(error, 'code'),
+  });
+}
+
 /** Must atomically reserve a run across all server instances until expiresAt.
  * Return false for a previously reserved run. Never release after a tool failure.
  * No process-local default: serverless instances cannot share an in-memory map.
@@ -647,6 +673,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return { status: 403, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' };
   };
   const runsStoreUnavailable = (res: express.Response) => res.status(503).json({ ok: false, code: 'AGENT_RUN_STORE_UNAVAILABLE' });
+  // Same 503 contract as runsStoreUnavailable, but the underlying store
+  // failure is recorded first: without this, an infrastructure error
+  // (for example a missing runs table) is indistinguishable in the
+  // production logs from the store simply not being configured.
+  const runsStoreFailure = (res: express.Response, operation: string, error: unknown) => {
+    logAgentRunStoreFailure(operation, error);
+    return runsStoreUnavailable(res);
+  };
 
   // Piggyback evaluation (multitask Phase 1, PR 1-G; design §2.3, §8.5):
   // the owner-scoped run reads below first re-examine the owner's held
@@ -737,7 +771,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (message.startsWith('AGENT_RUN_')) return res.status(400).json({ ok: false, code: message });
-      return runsStoreUnavailable(res);
+      return runsStoreFailure(res, 'create', error);
     }
   });
 
@@ -759,8 +793,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     try {
       const runs = await runStore.listByOwner(resolved.auth.ownerBinding, { statuses: statuses as AgentRunRecordStatus[] | undefined, limit });
       return res.json({ ok: true, protocolVersion: 3, runs: runs.map(publicAgentRunView), ...(evaluation ? { piggybackEvaluation: evaluation } : {}), ...runEnvelope });
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'list', error);
     }
   });
 
@@ -776,8 +810,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       const record = await runStore.get(runId, resolved.auth.ownerBinding);
       if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
       return res.json({ ok: true, protocolVersion: 3, run: publicAgentRunView(record), ...(evaluation ? { piggybackEvaluation: evaluation } : {}), ...runEnvelope });
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'get', error);
     }
   });
 
@@ -791,8 +825,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let record: AgentRunRecord | null;
     try {
       record = await runStore.get(runId, resolved.auth.ownerBinding);
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'advance', error);
     }
     if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
     const budgetMs = typeof body.budgetMs === 'number' && Number.isFinite(body.budgetMs)
@@ -857,8 +891,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let record: AgentRunRecord | null;
     try {
       record = await runStore.get(runId, resolved.auth.ownerBinding);
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'cancel', error);
     }
     if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
     if (record.status === 'completed' || record.status === 'failed' || record.status === 'cancelled' || record.status === 'expired') {
@@ -967,8 +1001,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let record: AgentRunRecord | null;
     try {
       record = await runStore.get(runId, resolved.auth.ownerBinding);
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'hold', error);
     }
     if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
     if (record.status === 'held') {
@@ -1043,8 +1077,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let record: AgentRunRecord | null;
     try {
       record = await runStore.get(runId, resolved.auth.ownerBinding);
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'resume', error);
     }
     if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
 
@@ -1170,8 +1204,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     let record: AgentRunRecord | null;
     try {
       record = await runStore.get(runId, resolved.auth.ownerBinding);
-    } catch {
-      return runsStoreUnavailable(res);
+    } catch (error) {
+      return runsStoreFailure(res, 'resume-confirm', error);
     }
     if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
     if (record.status === 'queued') {
