@@ -423,6 +423,118 @@ describe("searchWikipediaSources", () => {
     expect(sources).toEqual([]);
     expect(calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"))).toHaveLength(0);
   });
+
+  it("searches with the topic terms only and keeps the on-topic article for a goal-shaped query", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          // The live API's actual top 3 for the shaped query
+          // "富士山 標高" (captured 2026-11-11, excerpts trimmed).
+          pages: [
+            { key: "富士山", title: "富士山", excerpt: "富士山北麓の一部地域（現在の山梨県富士吉田市など）では、富士山の標高2600 m付近に現れる農鳥（のうとり）の出現する時期によって、農作物の豊作・凶作を判断する言い伝えがある。" },
+            { key: "富士山有料道路", title: "富士山有料道路", excerpt: "山梨県南都留郡富士河口湖町船津から、富士山の北斜面を登って富士山五合目（吉田口五合目）までの、延長約29.5キロメートル、標高差約1200メートルの山岳ドライブウェイである。" },
+            { key: "山", title: "山", excerpt: "日本国内では、最高峰は富士山（標高3,776m）である。対してもっとも低い山は仙台市の日和山（標高3m）であるが、山の定義によりとらえ方はさまざまである。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("富士山の標高について簡単に調べて、2〜3行でまとめてください", { fetchImpl });
+    // The request carries the topic terms only, not the goal sentence.
+    const searchCall = calls.find((call) => call.url.includes("/w/rest.php/v1/search/page"));
+    expect(searchCall).toBeDefined();
+    expect(new URL(searchCall!.url).searchParams.get("q")).toBe("富士山 標高");
+    // "山" matches both topic terms in its excerpt but neither in its
+    // title, so it is screened out; the on-topic hits survive in rank
+    // order and only they consume metadata fetches.
+    expect(sources.map((source) => source.title)).toEqual(["富士山", "富士山有料道路"]);
+    expect(sources[0]?.providerScore).toBe(1);
+    expect(calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"))).toHaveLength(2);
+  });
+
+  it("screens out the production hit whose lead merely mentions the topic terms (a different mountain)", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            // Production regression fixture (2026-11-11): the verbatim
+            // live-API excerpt for 御嶽山. It contains both topic terms
+            // (富士山 and 標高), so the excerpt-count screen alone let
+            // it become the run's only source for the goal "富士山の
+            // 標高について調べて" — but the article is about a
+            // different mountain and its title matches neither term.
+            { key: "御嶽山", title: "御嶽山", excerpt: "御嶽山（おんたけさん）は、長野県木曽郡木曽町・王滝村と岐阜県下呂市・高山市にまたがり、東日本火山帯の西端に位置する複合成層火山。大きな裾野を広げる独立峰である。標高3,067 mで日本国内の火山としては富士山に次いで2番目に高い（日本国内の山としては14番目に標高が高い）。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("富士山の標高について簡単に調べて、2〜3行でまとめてください", { fetchImpl });
+    expect(sources).toEqual([]);
+    expect(calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"))).toHaveLength(0);
+  });
+
+  it("screens out the production hit whose snippet quotes the topic words from its reference list", async () => {
+    const { fetchImpl, calls } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            // Production regression fixture (2026-11-11): the verbatim
+            // live-API snippet for 鬼滅の刃 on the autumn-leaves goal.
+            // The snippet is drawn from the article's reference list and
+            // quotes a cited title containing 紅葉 and 見頃 (two of the
+            // three topic terms), so the excerpt-count screen alone let
+            // it through; the article itself is about a manga and its
+            // title matches no topic term.
+            { key: "鬼滅の刃", title: "鬼滅の刃", excerpt: "「竈門炭治郎の故郷か? 鬼滅の刃の聖地が熊本にもあった! 鬼舞辻無惨のアジトか? 熊本に竈門と鬼の住処を見つけた!!」くまきゅー、2020年5月19日。2021年9月23日閲覧。 「今話題「竈門神社」の紅葉が見頃!」薩摩川内観光物産ガイド こころ、2020年10月20日。2021年9月23日閲覧。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("京都の紅葉の見頃について簡単に調べて、3〜5行でまとめてください", { fetchImpl });
+    const searchCall = calls.find((call) => call.url.includes("/w/rest.php/v1/search/page"));
+    expect(searchCall).toBeDefined();
+    expect(new URL(searchCall!.url).searchParams.get("q")).toBe("京都 紅葉 見頃");
+    expect(sources).toEqual([]);
+    expect(calls.filter((call) => call.url.includes("/w/rest.php/v1/page/"))).toHaveLength(0);
+  });
+
+  it("keeps only the on-topic hit from the shaped autumn-leaves search", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          // The live API's actual top 3 for the shaped query
+          // "京都 紅葉 見頃" (captured 2026-11-11, excerpts trimmed).
+          pages: [
+            { key: "紅葉", title: "紅葉", excerpt: "日本における紅葉は、8月下旬から北海道の大雪山を手始めに始まり、徐々に南下する。紅葉の見頃の推移を桜前線と対比して紅葉前線（こうようぜんせん）と呼ぶ。紅葉が始まってから完了するまでは約1か月かかる。見頃は開始後20 - 25日程度である。" },
+            { key: "花見", title: "花見", excerpt: "現在でも、日本料理店などが趣向を凝らした花見弁当の注文に応じている。北海道では、桜の見頃は本州より遅く4月下旬から5月中旬頃であり、花見の際にジンギスカンを食べる習慣がある。" },
+            { key: "京成バラ園", title: "京成バラ園", excerpt: "園内にある散策の森や、池の周りの自然風庭園には様々な草花が咲いている。特にゴールデンウィーク頃に咲く「ハンカチの木」は日本でもまだ珍しく、見頃を迎える。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const sources = await searchWikipediaSources("京都の紅葉の見頃について簡単に調べて、3〜5行でまとめてください", { fetchImpl });
+    expect(sources.map((source) => source.title)).toEqual(["紅葉"]);
+    expect(sources[0]?.providerScore).toBe(1);
+  });
 });
 
 describe("classifyOriginDomainTier", () => {

@@ -528,6 +528,22 @@ interface WikipediaSearchResponse {
  * term can be extracted the screen is a no-op, exactly like the legacy
  * filter. If every candidate is screened out the caller sees zero
  * sources, which is what lets the stable route's Tavily fallback fire.
+ *
+ * Two reinforcements, both from production evidence (2026-11-11): the
+ * excerpt-count screen alone let unrelated articles through, because a
+ * candidate can *mention* the query's words without being *about* them —
+ * a different mountain whose lead gives its elevation and names the
+ * queried mountain as the taller one, and a popular work whose search
+ * snippet is drawn from its reference list, quoting an article title
+ * that contains the query's words. So (1) the search itself is issued
+ * with the extracted topic terms only: full-text search ranks
+ * goal-shaped sentences by shared common words and can leave the
+ * on-topic article out of the top 3 entirely, while the same terms as a
+ * keyword query rank it first; and (2) a candidate must be about at
+ * least one topic term, proven by a title hit — excerpt matches alone
+ * no longer suffice. A correct article whose title happens to share no
+ * term with the query is dropped too; that fails closed into the same
+ * Tavily fallback, which is the safe direction.
  */
 const WIKIPEDIA_TOPIC_GENERIC_LATIN_TERMS: ReadonlySet<string> = new Set([
   "the", "and", "for", "from", "with", "about", "please", "explain", "summary", "summarize",
@@ -556,6 +572,11 @@ function wikipediaTopicTerms(query: string): string[] {
 
 function wikipediaCandidateMatchesTopic(title: string, excerpt: string, topicTerms: readonly string[]): boolean {
   if (topicTerms.length === 0) return true;
+  // Aboutness first: at least one topic term must appear in the title.
+  // Excerpt-only matches passed production hits that merely mention the
+  // query's words (see the note above), so they no longer suffice.
+  const normalizedTitle = title.normalize("NFKC").toLowerCase();
+  if (!topicTerms.some((term) => normalizedTitle.includes(term))) return false;
   const haystack = `${title} ${excerpt}`.normalize("NFKC").toLowerCase();
   const matched = topicTerms.filter((term) => haystack.includes(term)).length;
   return matched >= Math.min(2, topicTerms.length);
@@ -573,10 +594,14 @@ export async function searchWikipediaSources(
   const language = deps.language ?? (/[ぁ-んァ-ヶ一-龠]/.test(query) ? "ja" : "en");
   const origin = `https://${language}.wikipedia.org`;
   const headers = { "User-Agent": USER_AGENT };
-  const searchUrl = `${origin}/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=3`;
+  const topicTerms = wikipediaTopicTerms(query);
+  // Search with the topic terms only (see the relevance-screen note
+  // above): the raw, goal-shaped query ranks unrelated articles first.
+  // When no topic term can be extracted the query is sent unchanged.
+  const searchQuery = topicTerms.length > 0 ? topicTerms.join(" ") : query;
+  const searchUrl = `${origin}/w/rest.php/v1/search/page?q=${encodeURIComponent(searchQuery)}&limit=3`;
   const payload = await requestJson<WikipediaSearchResponse>("wikipedia", deps, searchUrl, { headers });
   const pages = Array.isArray(payload.pages) ? payload.pages.slice(0, 3) : [];
-  const topicTerms = wikipediaTopicTerms(query);
   const sources: OriginSearchSource[] = [];
   for (const [index, page] of pages.entries()) {
     const key = typeof page.key === "string" ? page.key : "";
