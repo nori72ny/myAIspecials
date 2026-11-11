@@ -518,7 +518,10 @@ describe("noSearchFallbackType opt-in", () => {
     expect(outcome.sources).toHaveLength(1);
     expect(outcome.sources[0]?.title).toBe("東京");
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((call) => call.url.includes("wikipedia.org"))).toBe(true);
+    expect(calls.every((call) => {
+      const { hostname } = new URL(call.url);
+      return hostname === "wikipedia.org" || hostname.endsWith(".wikipedia.org");
+    })).toBe(true);
   });
 
   it("never reclassifies a signal-bearing question", async () => {
