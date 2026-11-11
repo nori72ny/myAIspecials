@@ -239,6 +239,9 @@ export type ConversationMessage = {
   role: 'user' | 'assistant';
   content: string;
   deliveryState?: 'verified' | 'error';
+  // 回答が長さの上限で未完のまま届いたこと（PKG-2）。部分回答は破棄せず、
+  // この印とともに表示し、画面末尾に未完であることを明示する。
+  truncated?: boolean;
   image?: GeneratedImageMessage;
   // 「詳しく調べる」（チャット内リサーチモード）の結果。content には
   // レポート本文が入り、出典・食い違い等の構造化データはここに保持して
@@ -569,6 +572,54 @@ const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ",
 const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
 const RATE_LIMIT_MESSAGE = '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。';
 const RATE_LIMIT_MESSAGE_EN = 'The free AI usage limit has been reached. Your input is preserved; please wait a moment and try again.';
+/**
+ * Failure notices split by cause (PKG-2, audit UX N1). The send handler's
+ * catch block used to show the busy notice for EVERY exception, so a dropped
+ * connection, an incomplete stream, or an unparseable response was
+ * misreported as congestion and users waited for a recovery that waiting
+ * cannot produce. Each cause now has its own accurate wording; the busy
+ * notice is reserved for failures where the server actually reported a
+ * transient provider state (the handled !response.ok branch), never for
+ * exceptions thrown while talking to or reading from the server.
+ */
+const NETWORK_FAILURE_MESSAGE = '通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。';
+const NETWORK_FAILURE_MESSAGE_EN = 'The connection was interrupted, so the answer could not be received. Your input is preserved; please check your connection and try again.';
+const INCOMPLETE_STREAM_MESSAGE = '回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const INCOMPLETE_STREAM_MESSAGE_EN = 'The answer stopped arriving partway through, so it cannot be shown. Your input is preserved; please try again.';
+const INVALID_RESPONSE_MESSAGE = '受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const INVALID_RESPONSE_MESSAGE_EN = 'The response that arrived could not be verified, so it was not shown. Your input is preserved; please try again.';
+const UNEXPECTED_FAILURE_MESSAGE = '予期しない問題が発生し、回答を表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const UNEXPECTED_FAILURE_MESSAGE_EN = 'An unexpected problem occurred, so the answer cannot be shown. Your input is preserved; please try again.';
+
+/** Classifies a send-handler exception into its display cause (PKG-2). */
+export type ChatSendFailureKind = 'network' | 'incomplete-stream' | 'invalid-response' | 'unexpected';
+export const chatSendFailureKind = (error: unknown): ChatSendFailureKind => {
+  if (error instanceof TypeError) return 'network';
+  if (error instanceof Error) {
+    if (error.message === 'incomplete-stream') return 'incomplete-stream';
+    if (error.message === 'invalid-response'
+      || error.message === 'invalid-stream-event'
+      || error.message === 'event-after-done'
+      || error.message === 'unverified-upstream-stream'
+      || error instanceof SyntaxError) return 'invalid-response';
+  }
+  return 'unexpected';
+};
+export const chatSendFailureMessage = (kind: ChatSendFailureKind, language: 'ja' | 'en'): string => {
+  switch (kind) {
+    case 'network': return language === 'en' ? NETWORK_FAILURE_MESSAGE_EN : NETWORK_FAILURE_MESSAGE;
+    case 'incomplete-stream': return language === 'en' ? INCOMPLETE_STREAM_MESSAGE_EN : INCOMPLETE_STREAM_MESSAGE;
+    case 'invalid-response': return language === 'en' ? INVALID_RESPONSE_MESSAGE_EN : INVALID_RESPONSE_MESSAGE;
+    default: return language === 'en' ? UNEXPECTED_FAILURE_MESSAGE_EN : UNEXPECTED_FAILURE_MESSAGE;
+  }
+};
+/**
+ * Appended to a partial answer that ended at the length limit (PKG-2). The
+ * wording states the incompleteness plainly and offers the way forward,
+ * without internal vocabulary (no token counts, no route names).
+ */
+export const TRUNCATED_ANSWER_NOTICE = '（この回答は長さの上限に達したため、途中で終わっています。「続き」と送ると、続きを依頼できます。）';
+export const TRUNCATED_ANSWER_NOTICE_EN = '(This answer reached the length limit and ends partway through. Send "continue" to ask for the rest.)';
 
 type OriginChatFailurePayload = {
   code?: unknown;
@@ -710,6 +761,18 @@ const RASTER_GENERATION_FAILURE_MESSAGES: Record<string, { ja: string; en: strin
     ja: 'リクエスト単位で費用0円を事前保証できないため、AI画像生成は停止しています。',
     en: 'AI image generation is stopped because $0.00 cost cannot be guaranteed per request in advance.',
   },
+  RASTER_STRUCTURAL_CRITIC_REJECTED: {
+    ja: '生成された画像が品質チェックを通過しなかったため、配信しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
+    en: 'The generated image did not pass the quality check, so it was not delivered. Try again with a slightly different subject or composition.',
+  },
+  RASTER_SEMANTIC_CRITIC_REJECTED: {
+    ja: '生成された画像が品質チェックを通過しなかったため、配信しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
+    en: 'The generated image did not pass the quality check, so it was not delivered. Try again with a slightly different subject or composition.',
+  },
+  SENSITIVE_INPUT_BLOCKED: {
+    ja: '機密・個人情報の可能性があるため、外部の画像生成へ送信しませんでした。内容を見直して、もう一度お試しください。',
+    en: 'The request may contain confidential or personal information, so it was not sent to the external image generator. Please review the content and try again.',
+  },
   CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED: {
     ja: '無料の画像生成経路がまだ構成されていないため、生成できませんでした。',
     en: 'The free image generation route is not configured yet, so nothing was generated.',
@@ -799,6 +862,7 @@ type OriginVerifiedChatPayload = {
     billingTier?: unknown;
     usage?: { cost?: unknown; costUsd?: unknown };
     providerRouting?: { requestedModel?: unknown; servedModel?: unknown; fallbackUsed?: unknown };
+    answerTruncated?: unknown;
   };
 };
 
@@ -2158,6 +2222,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         return;
       }
       let verifiedResponseText: string | undefined;
+      // Set when the stream's verified completion event reports a truncated
+      // (length-limited) answer, or when the JSON payload's routing record
+      // does (PKG-2): the partial answer is kept and marked, never discarded.
+      let answerTruncated = false;
       if ((response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
         const payload = await response.json() as OriginVerifiedChatPayload;
         if (!isFreeOnlyPolicyCompliantChatPayload(payload)) {
@@ -2166,6 +2234,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         }
         if (typeof payload.content !== 'string') throw new Error('invalid-response');
         verifiedResponseText = payload.content;
+        // The JSON router marks a length-limited partial answer in its
+        // routing record (PKG-2); remember it so the completed message can
+        // carry the incomplete marker below.
+        if (payload.routing?.answerTruncated === true) answerTruncated = true;
       }
       const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = nextMessageId('a');
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
@@ -2225,12 +2297,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
             const raw = line.slice(5).trim();
             if (doneSeen) throw new Error('event-after-done');
             if (raw === '[DONE]') { doneSeen = true; return; }
-            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costEvidenceStatus?: unknown; fallbackUsed?: unknown };
+            const event = JSON.parse(raw) as { type?: unknown; text?: unknown; modelId?: unknown; servedModel?: unknown; costEvidenceStatus?: unknown; fallbackUsed?: unknown; truncated?: unknown };
             if (event.type === 'delta' && typeof event.text === 'string' && !complete) { streamRenderBatcher?.enqueue(event.text); return; }
             if (event.type === 'complete' && !complete && event.modelId === ORIGIN_FIXED_FREE_MODEL
               && event.costEvidenceStatus === 'NOT_MEASURED'
               && (isVerifiedPrimaryServing(event.servedModel, event.fallbackUsed, true)
-                || isVerifiedFallbackServing(event.servedModel, event.fallbackUsed))) { complete = true; return; }
+                || isVerifiedFallbackServing(event.servedModel, event.fallbackUsed))) { complete = true; if (event.truncated === true) answerTruncated = true; return; }
             throw new Error('invalid-stream-event');
           };
           while (true) {
@@ -2254,10 +2326,26 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           streamRenderBatcher.flush();
         }
       }
-      updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, deliveryState: 'verified' } : message));
+      // A truncated answer (PKG-2) keeps its partial text and gains the
+      // explicit incomplete notice; it is still a verified delivery (the
+      // text passed every check), so it is marked verified + truncated
+      // rather than error.
+      updateMessages((current) => current.map((message) => message.id === assistantId ? {
+        ...message,
+        deliveryState: 'verified',
+        ...(answerTruncated ? {
+          truncated: true,
+          content: `${message.content}\n\n${language === 'en' ? TRUNCATED_ANSWER_NOTICE_EN : TRUNCATED_ANSWER_NOTICE}`,
+        } : {}),
+      } : message));
     } catch (error) {
       if ((error as DOMException).name !== 'AbortError') {
-        appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
+        // Cause-split failure display (PKG-2): the busy notice is only for
+        // server-reported transient provider states (handled above); an
+        // exception here means the exchange itself broke — a dropped
+        // connection, an incomplete stream, or an unverifiable response —
+        // and each is named accurately instead of "busy".
+        appendFailure(chatSendFailureMessage(chatSendFailureKind(error), language));
         if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text });
       }
     }

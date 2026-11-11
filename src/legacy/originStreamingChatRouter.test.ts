@@ -204,6 +204,24 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.text).toMatch(/data: \[DONE\]\s*$/);
   });
 
+  it("marks the complete event truncated for a length-limited partial answer (PKG-2)", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("途中で終わる回答");
+      return { ...result("途中で終わる回答"), truncated: true };
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "短い案内文を作ってください" }] });
+
+    expect(response.status).toBe(200);
+    // The completion proof stays fully valid; only the truncated flag is
+    // added, so the client keeps the partial text and shows the incomplete
+    // notice instead of discarding the answer as a failure.
+    expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${evidence.modelId}","costEvidenceStatus":"NOT_MEASURED","fallbackUsed":false,"truncated":true}`);
+    expect(response.text).toMatch(/data: \[DONE\]\s*$/);
+  });
+
   it("ends a failed partial stream without a completion proof or DONE", async () => {
     const streamExecute = vi.fn(async (_providerRequest, handlers) => {
       handlers.onDelta("unverified partial");

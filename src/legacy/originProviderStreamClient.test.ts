@@ -349,13 +349,38 @@ describe("executeOriginProviderStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not issue continuation calls when a streamed answer hits the output limit", async () => {
+  it("keeps a length-limited streamed answer as a verified partial result flagged truncated (hold mode)", async () => {
     const fetchMock = vi.fn(async () => streamingResponse([
       event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "partial" }, finish_reason: "length" }], usage: { cost: 0, is_byok: false } }),
       "data: [DONE]\n\n",
     ]));
-    await expect(executeOriginProviderStream(providerRequest, { onDelta: () => undefined }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch))
-      .rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true });
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStream(providerRequest, { onDelta: (text) => deltas.push(text) }, { OPENROUTER_API_KEY: "synthetic-key" }, fetchMock as unknown as OriginFetch);
+    expect(result.text).toBe("partial");
+    expect(result.truncated).toBe(true);
+    expect(result.actualCostUsd).toBe(0);
+    // Hold mode releases the accumulated partial text once, at the end,
+    // exactly like a completed answer — the truncation rides on the result.
+    expect(deltas).toEqual(["partial"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps incrementally released fragments and flags the result truncated instead of failing the stream", async () => {
+    const fetchMock = vi.fn(async () => streamingResponse([
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "part one " }, finish_reason: null }] }),
+      event({ model: ORIGIN_OPENROUTER_FREE_MODEL, choices: [{ delta: { content: "part two" }, finish_reason: "length" }], usage: { cost: 0, is_byok: false } }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStream(
+      { ...providerRequest, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      { OPENROUTER_API_KEY: "synthetic-key" },
+      fetchMock as unknown as OriginFetch,
+    );
+    expect(result.text).toBe("part one part two");
+    expect(result.truncated).toBe(true);
+    expect(deltas).toEqual(["part one ", "part two"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

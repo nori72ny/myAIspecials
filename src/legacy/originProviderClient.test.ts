@@ -153,9 +153,38 @@ describe("executeOriginProvider", () => {
       vi.useRealTimers();
     }
   });
-  it("fails closed on a non-empty length-limited answer without a continuation request", async () => { const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "結論と理由の前半です。" }, finish_reason: "length" }], usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true }); expect(fetchMock).toHaveBeenCalledTimes(1); });
-  it("never issues a hidden continuation request when a structured answer reaches the output limit", async () => { const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "## 重要点\\n\\n- 推論AI\\n- エージェントAI" }, finish_reason: "length" }] })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE" }); expect(fetchMock).toHaveBeenCalledTimes(1); });
-  it("fails closed after the single bounded provider request", async () => { const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "まだ続く回答です。" }, finish_reason: "length" }] })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true }); expect(fetchMock).toHaveBeenCalledTimes(1); });
+  it("continues a length-limited answer and returns the joined full text", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "結論と理由の前半です。" }, finish_reason: "length" }], usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "後半です。これで完結します。" }, finish_reason: "stop" }], usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+    expect(result.text).toBe("結論と理由の前半です。\n\n後半です。これで完結します。");
+    expect(result.truncated).toBeUndefined();
+    expect(result.transportRequestCount).toBe(2);
+    expect(result.usage).toEqual({ promptTokens: 40, completionTokens: 30, totalTokens: 70, costUsd: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The continuation is an explicit, visible request: the second call
+    // re-sends the conversation plus the partial answer and asks only for
+    // the missing remainder (PKG-2 records that each segment costs quota
+    // exactly like a new question).
+    const secondBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)) as { messages: Array<{ role: string; content: string }> };
+    expect(secondBody.messages.at(-2)).toEqual({ role: "assistant", content: "結論と理由の前半です。" });
+    expect(secondBody.messages.at(-1)?.content).toContain("途切れた箇所から");
+  });
+  it("returns the accumulated partial answer flagged truncated after the bounded continuations instead of discarding it", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "まだ続く回答です。" }, finish_reason: "length" }], usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30, cost: 0, is_byok: false } })), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const result = await executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch);
+    // Each segment's identical text is joined by the continuation merge
+    // (no overlap of 20+ chars exists to dedupe), so the accumulated
+    // partial carries all three segments.
+    expect(result.text).toBe("まだ続く回答です。\n\nまだ続く回答です。\n\nまだ続く回答です。");
+    expect(result.truncated).toBe(true);
+    expect(result.actualCostUsd).toBe(0);
+    expect(result.usage?.costUsd).toBe(0);
+    // Exactly the bounded budget: the initial request plus two continuations.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.transportRequestCount).toBe(3);
+  });
   it("fails closed on an empty response without automatic retry", async () => { const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(successfulProviderPayload({ choices: [{ message: { content: "" }, finish_reason: "length" }] })), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", retryable: true }); expect(fetchMock).toHaveBeenCalledTimes(1); });
   it("maps a provider error embedded in a successful HTTP response", async () => { const payload = successfulProviderPayload({ choices: [{ message: { content: "" }, finish_reason: "error", error: { metadata: { error_type: "provider_unavailable" } } }] }); const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } })); await expect(executeOriginProvider(request, { OPENROUTER_API_KEY: "synthetic-test-key" }, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true, diagnostic: { upstreamErrorType: "provider_unavailable" } }); expect(fetchMock).toHaveBeenCalledTimes(1); });
   it("fails closed instead of attempting another provider when unconfigured", async () => { const fetchMock = vi.fn(); await expect(executeOriginProvider(request, {}, fetchMock as unknown as OriginFetch)).rejects.toMatchObject({ code: "PROVIDER_NOT_CONFIGURED", status: 503, retryable: false, diagnostic: { transportRequestCount: 0 } }); expect(fetchMock).not.toHaveBeenCalled(); });

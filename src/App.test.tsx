@@ -51,7 +51,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -626,8 +626,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       if (url === '/api/generate-image') {
         return new Response(JSON.stringify({
           ok: false,
-          code: 'SENSITIVE_INPUT_BLOCKED',
-          message: '機密・個人情報の可能性があるため、外部画像プロバイダへ送信しませんでした。',
+          code: 'RASTER_UNMAPPED_FAILURE_EXAMPLE',
+          message: 'サーバー側の人間向け理由文です。',
         }), { status: 422, headers: { 'Content-Type': 'application/json' } });
       }
       return new Response(JSON.stringify({ code: 'CHAT_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
@@ -641,7 +641,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
       const alert = await screen.findByRole('alert');
-      expect(alert.textContent).toContain('外部画像プロバイダへ送信しませんでした');
+      expect(alert.textContent).toContain('サーバー側の人間向け理由文です');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -654,6 +654,38 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(rasterGenerationFailureMessage('RASTER_PRICING_EVIDENCE_STALE', 'ja')).toContain('確認情報が古くなっているため');
     expect(rasterGenerationFailureMessage('PROVIDER_UNAVAILABLE', 'ja')).toBeNull();
     expect(rasterGenerationFailureMessage(undefined, 'ja')).toBeNull();
+  });
+
+  it('translates the server-fixed Japanese failure reasons instead of passing them through (PKG-2 i18n)', () => {
+    // Quality-gate rejections: the English UI gets the English reason plus
+    // the next-step guidance, never the server's Japanese fixed wording.
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'en')).toContain('did not pass the quality check');
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'en')).toContain('Try again');
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'en')).not.toContain('品質ゲート');
+    expect(rasterGenerationFailureMessage('RASTER_STRUCTURAL_CRITIC_REJECTED', 'en')).toContain('did not pass the quality check');
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'ja')).toContain('品質チェックを通過しなかったため');
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'ja')).toContain('もう一度お試しください');
+    // Sensitive-input block: translated in both languages.
+    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'en')).toContain('was not sent to the external image generator');
+    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'en')).not.toContain('機密');
+    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'ja')).toContain('外部の画像生成へ送信しませんでした');
+  });
+
+  it('classifies send failures by cause so only real congestion reads as busy (PKG-2)', () => {
+    expect(chatSendFailureKind(new TypeError('Failed to fetch'))).toBe('network');
+    expect(chatSendFailureKind(new Error('incomplete-stream'))).toBe('incomplete-stream');
+    expect(chatSendFailureKind(new Error('invalid-stream-event'))).toBe('invalid-response');
+    expect(chatSendFailureKind(new Error('unverified-upstream-stream'))).toBe('invalid-response');
+    expect(chatSendFailureKind(new SyntaxError('Unexpected token'))).toBe('invalid-response');
+    expect(chatSendFailureKind(new Error('something else'))).toBe('unexpected');
+    for (const kind of ['network', 'incomplete-stream', 'invalid-response', 'unexpected'] as const) {
+      expect(chatSendFailureMessage(kind, 'ja')).not.toContain('混み合っています');
+      expect(chatSendFailureMessage(kind, 'en')).not.toContain('busy');
+    }
+    expect(chatSendFailureMessage('network', 'ja')).toContain('通信が切れてしまい');
+    expect(chatSendFailureMessage('incomplete-stream', 'ja')).toContain('途中で終わってしまった');
+    expect(TRUNCATED_ANSWER_NOTICE).toContain('途中で終わっています');
+    expect(TRUNCATED_ANSWER_NOTICE_EN).toContain('ends partway through');
   });
 
   it('grants normal previews only script execution and never modal or same-origin privileges', () => {
@@ -1668,21 +1700,24 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信障害時も再試行しない' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('タイムアウト後に表示してはいけない回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
 
-  it('fails closed with the zero-cost busy notice after one network timeout', async () => {
+  it('fails closed with the network notice, not the busy notice, after one network timeout', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Network request timed out'));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信停止時の案内を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    // A dropped connection is not congestion (PKG-2): the notice names the
+    // network, and the busy wording must not appear.
+    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1718,6 +1753,49 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '無料で回答' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('検証済みの無料回答')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps a truncated SSE answer and appends the incomplete notice instead of discarding it (PKG-2)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '途中で終わる部分回答です' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false, truncated: true })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    // Stream rendering is batched through requestAnimationFrame; drive
+    // frames with timers so the batch flushes inside the test's waits.
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => window.setTimeout(() => callback(0), 0));
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '詳しく説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.textContent).toContain('途中で終わる部分回答です'));
+      await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限に達したため、途中で終わっています'));
+      expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a truncated JSON answer with the incomplete notice (PKG-2)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const payload = { content: '部分回答の本文です', routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false }, answerTruncated: true }, usage: { costUsd: 0 } };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '詳しく説明してください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(container.textContent).toContain('部分回答の本文です'));
+    await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限に達したため、途中で終わっています'));
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -1820,7 +1898,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '未検証フォールバックを拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない未検証フォールバック回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1847,7 +1925,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       const view = render(<App language="ja" />);
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '矛盾した証拠を拒否' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
-      await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
       expect(screen.queryByText('表示してはいけない矛盾した証拠の回答')).toBeNull();
       view.unmount();
       vi.unstubAllGlobals();
@@ -1870,7 +1948,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '費用証拠不備を拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない費用証拠不備の回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1919,7 +1997,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '旧形式のSSEを拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない旧形式の回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1935,7 +2013,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断を検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    // An incomplete stream is named as such (PKG-2), not as congestion.
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1987,7 +2066,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断された調査' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
     expect(screen.queryByTestId('origin-stream-sources')).toBeNull();
     vi.unstubAllGlobals();
@@ -2008,7 +2087,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '失敗する調査' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });

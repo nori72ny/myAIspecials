@@ -165,12 +165,18 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       if (!downstreamStarted || !result.text.trim()) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
       }
+      // A truncated result (PKG-2) is a completed exchange with an incomplete
+      // answer: the log records the fact so the measurement track (PKG-9) can
+      // count truncation rates, and the completion event carries the flag so
+      // the client keeps the displayed partial text and appends the explicit
+      // incomplete notice instead of treating the answer as finished.
       console.info("[origin-chat] upstream stream completed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
         modelId: planningResult.plan.modelId,
         costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
+        truncated: result.truncated === true,
       });
       res.write(`data: ${JSON.stringify({
         type: "complete",
@@ -178,6 +184,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         servedModel: result.routingEvidence.servedModel,
         costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: result.routingEvidence.fallbackUsed,
+        ...(result.truncated === true ? { truncated: true } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");
       return;
