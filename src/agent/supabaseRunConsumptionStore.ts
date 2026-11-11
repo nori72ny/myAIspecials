@@ -1,8 +1,7 @@
 import { Pool, type QueryResult } from 'pg';
-import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
+import { AGENT_RUN_CONSUMPTION_MAX_TTL_MS, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 
 const RUN_ID_PATTERN = /^run-[A-Za-z0-9-]{8,100}$/;
-const MAX_TTL_MS = 15 * 60 * 1000;
 
 export interface AgentReplaySqlExecutor {
   query<T extends Record<string, unknown> = Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<QueryResult<T>>;
@@ -14,7 +13,7 @@ export class PostgresAgentRunConsumptionStore implements AgentRunConsumptionStor
   async consume(runId: string, expiresAt: number): Promise<boolean> {
     const now = Date.now();
     if (!RUN_ID_PATTERN.test(runId)) throw new Error('INVALID_AGENT_RUN_ID');
-    if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + MAX_TTL_MS) {
+    if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + AGENT_RUN_CONSUMPTION_MAX_TTL_MS) {
       throw new Error('INVALID_AGENT_RUN_EXPIRY');
     }
 

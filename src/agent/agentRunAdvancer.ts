@@ -23,7 +23,7 @@ import {
   type AgentRunWriteLockRecord,
   type AgentRunWriteLockStore,
 } from './agentRunWriteLock.js';
-import type { AgentRunConsumptionStore } from './agentOrchestratorV3.js';
+import { agentRunConsumptionReservationExpiresAt, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 
 /**
  * The persistent-run execution core (multitask Phase 1, PR 1-B).
@@ -272,7 +272,16 @@ export async function advanceAgentRun(
   if (!alreadyReserved && !anyProgress) {
     let consumed: boolean;
     try {
-      consumed = await consumptionStore.consume(record.runId, record.expiresAt);
+      // The record's own expiry (creation + 7 days) is far beyond the
+      // consumption store's reservation contract (at most 15 minutes),
+      // so the reservation expiry is derived from the shared helper —
+      // the same semantics the legacy execute path applies — instead of
+      // passing record.expiresAt verbatim (which the store rejects with
+      // INVALID_AGENT_RUN_EXPIRY, failing every advance).
+      consumed = await consumptionStore.consume(
+        record.runId,
+        agentRunConsumptionReservationExpiresAt(record.expiresAt, now()),
+      );
     } catch {
       return { kind: 'unavailable', record, errorCode: 'AGENT_REPLAY_PROTECTION_UNAVAILABLE' };
     }
