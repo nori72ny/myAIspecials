@@ -31,6 +31,26 @@ function appFor(testEnv: NodeJS.ProcessEnv, consumptionStore?: AgentRunConsumpti
   return app;
 }
 
+class CreateFailingRunStore extends InMemoryAgentRunStore {
+  constructor(private readonly failure: unknown) {
+    super();
+  }
+
+  override async create(): Promise<never> {
+    throw this.failure;
+  }
+}
+
+class ListFailingRunStore extends InMemoryAgentRunStore {
+  constructor(private readonly failure: unknown) {
+    super();
+  }
+
+  override async listByOwner(): Promise<never> {
+    throw this.failure;
+  }
+}
+
 type PlanBody = {
   runId: string;
   planToken: string;
@@ -290,5 +310,80 @@ describe('agent v3 durable runs API', () => {
       .set('Authorization', `Bearer ${SECRET}`)
       .send({});
     expect(advanced.status).toBe(503);
+  });
+
+  it('logs the store failure class (never the message) when creation hits an infrastructure error', async () => {
+    // Shaped like a node-postgres error for a missing runs table, with a
+    // connection string embedded in the message to prove it never leaks.
+    const failure = Object.assign(
+      new Error('relation "public.origin_agent_runs" does not exist (postgres://origin:fixture-password@db.invalid:5432/postgres)'),
+      { code: '42P01' },
+    );
+    const runStore = new CreateFailingRunStore(failure);
+    const { store: consumptionStore } = makeConsumptionStore();
+    const app = appFor(env, consumptionStore, runStore);
+    const plan = await planDocument(app);
+    const approvalToken = await approveOperator(app, plan);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const created = await request(app).post('/api/agent/v3/runs')
+        .set('Authorization', `Bearer ${SECRET}`)
+        .send({ runId: plan.runId, goal: 'Create a sales report.', planToken: plan.planToken, approvalToken, steps: plan.steps });
+      expect(created.status).toBe(503);
+      expect(created.body.code).toBe('AGENT_RUN_STORE_UNAVAILABLE');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('ORIGIN_AGENT_RUN_STORE_FAILED', {
+        operation: 'create',
+        name: 'Error',
+        code: '42P01',
+      });
+      const logged = JSON.stringify(errorSpy.mock.calls);
+      expect(logged).not.toContain('does not exist');
+      expect(logged).not.toContain('fixture-password');
+      expect(logged).not.toContain('db.invalid');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('keeps AGENT_RUN_* store errors on the 400 path without an infrastructure log', async () => {
+    const runStore = new CreateFailingRunStore(new Error('AGENT_RUN_CREATE_INPUT_INVALID'));
+    const { store: consumptionStore } = makeConsumptionStore();
+    const app = appFor(env, consumptionStore, runStore);
+    const plan = await planDocument(app);
+    const approvalToken = await approveOperator(app, plan);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const created = await request(app).post('/api/agent/v3/runs')
+        .set('Authorization', `Bearer ${SECRET}`)
+        .send({ runId: plan.runId, goal: 'Create a sales report.', planToken: plan.planToken, approvalToken, steps: plan.steps });
+      expect(created.status).toBe(400);
+      expect(created.body.code).toBe('AGENT_RUN_CREATE_INPUT_INVALID');
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('logs the store failure class when listing runs hits an infrastructure error', async () => {
+    const failure = Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' });
+    const runStore = new ListFailingRunStore(failure);
+    const { store: consumptionStore } = makeConsumptionStore();
+    const app = appFor(env, consumptionStore, runStore);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const listed = await request(app).get('/api/agent/v3/runs').set('Authorization', `Bearer ${SECRET}`);
+      expect(listed.status).toBe(503);
+      expect(listed.body.code).toBe('AGENT_RUN_STORE_UNAVAILABLE');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('ORIGIN_AGENT_RUN_STORE_FAILED', {
+        operation: 'list',
+        name: 'Error',
+        code: '57P01',
+      });
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('connection terminated');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
