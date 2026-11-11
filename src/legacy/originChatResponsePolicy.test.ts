@@ -194,7 +194,9 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
       "do not turn a possible rule into a universal rule",
       "what the user must independently confirm before acting",
       "bottom line first",
-      "no Markdown table unless the user asks for one",
+      "a Markdown table only when it makes comparison easier",
+      "in Japanese, use the polite desu/masu register by default",
+      "give the point in time a time-sensitive value is as of",
     ]) {
       expect(compact).toContain(phrase);
     }
@@ -245,6 +247,98 @@ describe("assembled chat instruction (router composition)", () => {
       "- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.",
     ]) {
       expect(assembled.split(line).length - 1).toBe(1);
+    }
+  });
+});
+
+describe("instruction consistency (PKG-5: rubric alignment and route parity)", () => {
+  // The evaluation rubric (ANSWER_QUALITY_EVAL) scores the polite desu/masu
+  // register as ORIGIN's standard and an explicit as-of point for fresh
+  // values, but until PKG-5 neither instruction stated either rule — the
+  // measuring side and the making side disagreed (AUDIT2026 AQ §2.3).
+  it("fixes the polite Japanese register in the full instruction", () => {
+    expect(originChatSystemInstruction()).toContain(
+      "When answering in Japanese, use the polite desu/masu register (です・ます調) as the standard tone",
+    );
+  });
+
+  it("requires an as-of point for time-sensitive values in the full instruction", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain("attach the point in time it is as of");
+    expect(instruction).toContain("If the as-of point is unknown, say so instead of presenting the value as current");
+  });
+
+  it("unifies the table rule on the quality policy's conditional allowance", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain(
+      "Use a Markdown table only when it makes the answer easier to compare or scan than prose or a list",
+    );
+    expect(instruction).not.toContain("Do not use a Markdown table unless the user explicitly asks for a table");
+    // Assembled with the quality policy, the two table rules must not contradict:
+    // the base prohibition is gone and the policy's conditional line stands.
+    const intent = classifyOriginRequestIntent("AとBを比較して", "review");
+    const quality = resolveOriginAnswerQualityPolicy({ intent, taskType: "review", independentReviewRequired: false });
+    const assembled = originChatSystemInstruction(intent, undefined, undefined, originAnswerQualityInstruction(quality));
+    expect(assembled).not.toContain("Do not use a Markdown table unless the user explicitly asks");
+    expect(assembled).toContain("Use a table or list only when it makes the answer easier to compare or execute");
+  });
+
+  // The creation-only bullets of the base instruction, identified by the same
+  // prefixes the gating filter matches on. Pinning them here guards the gate
+  // against wording drift in the base text.
+  const creationGuidancePhrases = [
+    "Treat requirement discovery as part of the work",
+    "Build an internal requirement brief",
+    "Before a substantial custom deliverable",
+    "After producing a first version, treat user feedback as new requirements",
+    "Preserve the requested medium",
+    "When the user requests an image, do not substitute",
+    "When extending or converting something created earlier",
+    "For custom web or app deliverables, do not stop at a bare form or demo",
+    "Name created items descriptively",
+  ];
+
+  it("carries every creation-guidance bullet in the full instruction by default", () => {
+    const lines = originChatSystemInstruction().split("\n");
+    for (const phrase of creationGuidancePhrases) {
+      expect(lines.some((line) => line.startsWith(`- ${phrase}`))).toBe(true);
+    }
+  });
+
+  it("omits the creation rulebook for a plain conversational question but keeps the core guarantees", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    for (const phrase of creationGuidancePhrases) {
+      expect(instruction).not.toContain(phrase);
+    }
+    for (const phrase of [
+      "Reply in the language used by the user",
+      "use the polite desu/masu register (です・ます調) as the standard tone",
+      "attach the point in time it is as of",
+      "Silently use three passes before answering",
+      "Do not claim code, deployment, purchase, configuration, search, file creation",
+      "Request-context awareness",
+      // Clarification and follow-up refinement discipline stays universal:
+      // it governs reviews and consultations too, not only creation.
+      "Decide which missing items would materially change the next revision",
+      "Use follow-up answers to improve the existing draft",
+    ]) expect(instruction).toContain(phrase);
+  });
+
+  it("keeps the creation rulebook for deliverable requests and for creation capabilities in conversation mode", () => {
+    const deliverable = classifyOriginRequestIntent("企画書の草案を作って", "documentation");
+    expect(deliverable.interactionMode).toBe("deliverable");
+    // A writing request classifies as conversation mode (no catalog output),
+    // but the writing capability must still pull the creation rulebook in.
+    const writing = classifyOriginRequestIntent("取引先へのお詫びの文章を書いて", "documentation");
+    expect(writing.interactionMode).toBe("conversation");
+    expect(writing.requiredCapabilities).toContain("writing");
+    for (const intent of [deliverable, writing]) {
+      const instruction = originChatSystemInstruction(intent);
+      for (const phrase of creationGuidancePhrases) {
+        expect(instruction).toContain(phrase);
+      }
     }
   });
 });
