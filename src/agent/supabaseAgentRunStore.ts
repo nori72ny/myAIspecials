@@ -185,13 +185,18 @@ export class PostgresAgentRunStore implements AgentRunStore {
 
   async create(input: CreateAgentRunInput, now = Date.now()): Promise<AgentRunRecord | null> {
     const normalized = validateCreateAgentRunInput(input, now);
+    // The deadline parameter ($12) carries explicit double precision
+    // casts: without them Postgres cannot infer one type for a
+    // parameter read by both an IS NULL test and a division, and the
+    // insert fails with 42P08 (ambiguous_parameter) — observed in
+    // production for queued runs, which are born with a null deadline.
     const result = await this.database.query(
       `insert into public.origin_agent_runs
         (run_id, owner_binding, goal, status, plan, plan_digest, steps_state,
          parent_run_id, priority, hold, quota_ledger, approval_deadline_at,
          prior_resume_attempts, expires_at)
        values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb,
-         case when $12 is null then null else to_timestamp($12 / 1000.0) end, $13,
+         case when $12::double precision is null then null else to_timestamp($12::double precision / 1000.0) end, $13,
          to_timestamp($14 / 1000.0))
        on conflict (run_id) do nothing
        returning ${RECORD_RETURNING}`,
