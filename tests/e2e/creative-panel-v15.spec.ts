@@ -16,7 +16,12 @@ const statusBody = JSON.stringify({
 const svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350"><rect width="1080" height="1350" fill="#F7F7F4"/><text x="80" y="180">Creative E2E</text></svg>';
 const svgSha256 = createHash('sha256').update(svg).digest('hex');
 
-test.describe('V1.5 Creative workspace production surface', () => {
+// 「作る」は画面構成の移行（第3段、2026-11-09）で専用画面から会話のそばの
+// パネルに統合された。このスペックは統合後の経路を固定する：画面遷移
+// （?workspace=creative）は発生せず、成果物はパネルで開き、会話の成果物
+// としても残る。検証の強度（実バイト照合・ゼロコスト証拠・端末内履歴・
+// PNGの実バイト）は専用画面時代から落としていない。
+test.describe('V1.5 Creative panel beside the conversation', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/creative/v1.5/status', route => route.fulfill({
       status: 200,
@@ -45,7 +50,7 @@ test.describe('V1.5 Creative workspace production surface', () => {
   });
 
   for (const width of [390, 1440]) {
-    test(`preserves explicit Chat → Create brief without duplicate provider generation at ${width}px`, async ({ page }) => {
+    test(`opens the Create panel in place for an explicit Chat brief without provider generation at ${width}px`, async ({ page }) => {
       const providerRequests: string[] = [];
       page.on('request', request => {
         const url = request.url();
@@ -62,10 +67,12 @@ test.describe('V1.5 Creative workspace production surface', () => {
       await page.getByTestId('origin-home-request').fill(request);
       await page.getByTestId('start-request-button').click();
 
-      await expect(page).toHaveURL(/workspace=creative/);
-      const handoff = page.getByTestId('creative-handoff-request');
-      await expect(handoff).toContainText(request);
-      await expect(handoff).toContainText('作成はまだ開始していません');
+      // 画面遷移はしない：URLに workspace=creative は付かず、パネルが開く。
+      await expect(page.getByTestId('creative-panel')).toBeVisible();
+      await expect(page).not.toHaveURL(/workspace=/);
+      await expect(page.getByText('「作る」パネルを会話のそばに開きました')).toBeVisible();
+      // 引き継ぎバナーは統合で廃止。依頼はパネルの下書きに反映される。
+      await expect(page.getByTestId('creative-handoff-request')).toHaveCount(0);
       await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue(/新商品のSNSカード/);
       await expect(page.getByRole('textbox', { name: '内容', exact: true })).toHaveValue(request);
       expect(providerRequests).toEqual([]);
@@ -76,12 +83,11 @@ test.describe('V1.5 Creative workspace production surface', () => {
   for (const width of [390, 1440]) {
     test(`preserves multiline headlines and keeps expanded controls within ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-      // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
-      // ワークスペースへはURL直指定ではなくアプリ内メニューから入る。
       await page.goto('/');
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-      await expect(page).toHaveURL(/workspace=creative/);
+      await expect(page.getByTestId('creative-panel')).toBeVisible();
+      await expect(page).not.toHaveURL(/workspace=/);
       const title = '予約手数料を\n見直しませんか？';
       const titleInput = page.getByRole('textbox', { name: 'タイトル', exact: true });
       await titleInput.fill(title);
@@ -108,11 +114,14 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-    await expect(page).toHaveURL(/workspace=creative/);
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
+    await expect(page).not.toHaveURL(/workspace=/);
     await expect(page.getByText('利用できます · 無料 · 外部に送信しません')).toBeVisible();
     await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
     await expect(page.getByLabel('用途', { exact: true })).not.toBeVisible();
     await expect(page.getByRole('region', { name: '作成履歴' })).toHaveCount(0);
+    // 初期値は標語文ではなく空欄（棚卸しで「無くす」）。
+    await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue('');
 
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('モバイルCreative');
     await page.getByRole('button', { name: '画像を作成' }).click();
@@ -120,12 +129,9 @@ test.describe('V1.5 Creative workspace production surface', () => {
     await expect(page.getByRole('img', { name: '作成した画像: モバイルCreative' })).toBeVisible();
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
-    await page.getByText('検証の詳細', { exact: true }).click();
-    await expect(page.getByText(new RegExp(`SHA-256 ${svgSha256.slice(0, 12)}…`))).toBeVisible();
-    await expect(page.getByText(/visual-brain-v1/)).toBeVisible();
-    await expect(page.getByText(/文字と安全性を自動で確かめました（広告としての効果は未評価です）/)).toBeVisible();
-    await expect(page.getByText(/Critic 100/)).toHaveCount(0);
-    await expect(page.getByText(/実バイト照合済み/)).toBeVisible();
+    // 確認表示は「確認済み」の一言に圧縮され、検証の詳細は出ない。
+    await expect(page.getByText('確認済み', { exact: true })).toBeVisible();
+    await expect(page.getByText('検証の詳細', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 
     const requestsBeforePng = requests.length;
@@ -147,31 +153,77 @@ test.describe('V1.5 Creative workspace production surface', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
-  test('restores a verified artifact from IndexedDB after reload without another generation request', async ({ page }) => {
+  test('re-edits a generated deliverable from the artifact panel with the structured fields', async ({ page }) => {
     const generateRequests: string[] = [];
     page.on('request', request => {
       if (request.url().includes('/api/creative/v1.5/generate')) generateRequests.push(request.url());
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    // 起動時は必ずトップ画面から始める（オーナー指示 2026-11-09）ため、
-    // ワークスペースへはアプリ内メニューから入る。
     await page.goto('/');
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-    await expect(page).toHaveURL(/workspace=creative/);
+    await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('編集Creative');
+    await page.getByRole('button', { name: '画像を作成' }).click();
+    await expect(page.getByRole('img', { name: '作成した画像: 編集Creative' })).toBeVisible();
+    expect(generateRequests).toHaveLength(1);
+
+    // パネルを閉じ、会話の成果物パネルから開き直すと、構造化フィールドで
+    // 編集して再作成できる（作る画面の編集機能の移植先）。
+    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+    await expect(page.getByTestId('creative-panel')).toHaveCount(0);
+    await page.getByRole('tab', { name: '作成物', exact: true }).click();
+    const editor = page.getByRole('region', { name: 'デザインを編集' });
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue('編集Creative');
+    await editor.getByRole('textbox', { name: 'タイトル', exact: true }).fill('編集Creative 改');
+    await page.getByTestId('creative-artifact-regenerate').click();
+    await expect(page.getByText('デザインを再作成しました。')).toBeVisible();
+    await expect(page.getByText('更新あり', { exact: true })).toBeVisible();
+    expect(generateRequests).toHaveLength(2);
+  });
+
+  test('restores the deliverable as a chat artifact and from IndexedDB history after reload without another generation request', async ({ page }) => {
+    const generateRequests: string[] = [];
+    page.on('request', request => {
+      if (request.url().includes('/api/creative/v1.5/generate')) generateRequests.push(request.url());
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.getByTestId('origin-add-menu-toggle').click();
+    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('履歴Creative');
     await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
     expect(generateRequests).toHaveLength(1);
+    // 生成物は会話の成果物としても登録される。
+    await expect(page.getByRole('region', { name: '作成物' })).toContainText('履歴Creative');
+    // リロード前に、成果物がアプリのスナップショットへ実際に保存された
+    // ことを確認する（保存はデバウンスされるため、保存完了を待つ）。
+    await expect.poll(() => page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('origin-personal-local');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const rows = await new Promise<unknown[]>((resolve, reject) => {
+        const getAll = db.transaction('snapshots', 'readonly').objectStore('snapshots').getAll();
+        getAll.onsuccess = () => resolve(getAll.result as unknown[]);
+        getAll.onerror = () => reject(getAll.error);
+      });
+      const snapshot = rows[0] as { artifacts?: Array<{ title?: string }> } | undefined;
+      return snapshot?.artifacts?.some(artifact => artifact.title === '履歴Creative') ?? false;
+    })).toBe(true);
+    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
     await page.reload();
-    // リロード後も必ずトップ画面から始まる。作る画面へ入り直すと、
-    // 端末内履歴から検証済みの作成物が再生成なしで復元できる。
+    // リロード後は必ずトップ画面から始まる（#1170仕様）。成果物は会話の
+    // 記録として復元され、パネルの端末内履歴からも再生成なしで開ける。
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    await expect(page.getByRole('region', { name: '作成物' })).toContainText('履歴Creative');
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-    await expect(page).toHaveURL(/workspace=creative/);
     const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });
     await expect(openHistory).toBeVisible();
     await openHistory.click();
@@ -185,26 +237,27 @@ test.describe('V1.5 Creative workspace production surface', () => {
     expect(generateRequests.length).toBe(requestsBeforePng);
   });
 
-  // 旧仕様「?workspace= の直指定URLでワークスペースが開く」は、起動時は
-  // 必ずトップ画面というオーナー指示（2026-11-09）で廃止された。代わりに
-  // 直指定でもトップ画面に着地することと、セッション内の移動・ブラウザ
-  // 履歴の同期が保たれることを固定する。
-  test('lands on the top screen for a direct Create URL and keeps in-session navigation and browser history', async ({ page }) => {
+  // 旧仕様「?workspace=creative で作る画面が開く」は、起動時は必ずトップ
+  // 画面というオーナー指示（2026-11-09）と、作るのパネル統合で廃止された。
+  // 直指定でもトップ画面に着地し、作るはURLを変えずにパネルとして開閉
+  // できることを固定する（パネルはブラウザ履歴に積まない）。
+  test('lands on the top screen for a direct Create URL and opens Create as a panel without touching the URL', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?workspace=creative');
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
-    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toHaveCount(0);
+    await expect(page.getByTestId('creative-panel')).toHaveCount(0);
 
+    // パネルの開閉はURLを一切変更しない（読み込まれたURLがそのまま残る）。
+    const urlBefore = page.url();
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-    await expect(page).toHaveURL(/workspace=creative/);
-    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Workspace tool header' })).toContainText('作る');
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'カード・ポスターを作る' })).toBeVisible();
+    expect(page.url()).toBe(urlBefore);
 
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
-    await expect(page).not.toHaveURL(/workspace=creative/);
+    await expect(page.getByTestId('creative-panel')).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
-    await page.goBack();
-    await expect(page.getByRole('main', { name: '作る（カード・ポスターの作成）' })).toBeVisible();
+    expect(page.url()).toBe(urlBefore);
   });
 });

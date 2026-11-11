@@ -12,7 +12,7 @@ import {
   saveCreativeHistoryV15,
   type CreativeHistoryEntryV15,
 } from '../creative/localVisualHistoryV15';
-import CreativeWorkspaceV15 from './CreativeWorkspaceV15';
+import CreativePanelV15 from './CreativePanelV15';
 
 vi.mock('../creative/localVisualExportV15', () => ({
   pngFilenameFromSvg: (filename: string) => filename.replace(/\.svg$/i, '.png'),
@@ -94,7 +94,7 @@ function historyEntry(title = '履歴Visual'): CreativeHistoryEntryV15 {
   };
 }
 
-describe('CreativeWorkspaceV15', () => {
+describe('CreativePanelV15', () => {
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
   let objectUrlSequence = 0;
@@ -140,40 +140,55 @@ describe('CreativeWorkspaceV15', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: originalRevokeObjectURL });
   });
 
-  it('starts prompt-first without an empty history dashboard', async () => {
+  it('opens beside the conversation with empty fields and no history dashboard', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
-    expect(screen.getByLabelText('タイトル')).toBeTruthy();
-    expect(screen.getByLabelText('内容')).toBeTruthy();
+    expect(screen.getByTestId('creative-panel')).toBeTruthy();
+    // 初期値は標語文ではなく空欄＋プレースホルダ（棚卸しで「無くす」）。
+    expect((screen.getByLabelText('タイトル') as HTMLTextAreaElement).value).toBe('');
+    expect((screen.getByLabelText('タイトル') as HTMLTextAreaElement).placeholder).toContain('例');
+    expect((screen.getByLabelText('内容') as HTMLTextAreaElement).value).toBe('');
     expect(screen.getByText('詳細設定')).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Creative local history' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '作成履歴' })).toBeNull();
   });
 
-  it('preserves a chat handoff request, pre-fills a useful draft, and does not generate before user action', async () => {
+  it('closes back to the conversation from the panel header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(statusBody)));
+    const onClose = vi.fn();
+    render(<CreativePanelV15 onClose={onClose} />);
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('pre-fills the draft from a chat request without a handoff banner and without generating', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
     vi.stubGlobal('fetch', fetchMock);
     const request = 'Creativeワークスペースで新商品のSNSカードを作って';
 
-    render(<CreativeWorkspaceV15 initialRequest={request} />);
+    render(<CreativePanelV15 initialRequest={request} onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
-    expect(screen.getByTestId('creative-handoff-request').textContent).toContain(request);
-    expect((screen.getByLabelText('タイトル') as HTMLInputElement).value).toContain('新商品のSNSカード');
+    // 引き継ぎバナーは統合で廃止（依頼はチャット履歴と下書きに残る）。
+    expect(screen.queryByTestId('creative-handoff-request')).toBeNull();
+    expect((screen.getByLabelText('タイトル') as HTMLTextAreaElement).value).toContain('新商品のSNSカード');
     expect((screen.getByLabelText('内容') as HTMLTextAreaElement).value).toBe(request);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/creative/v1.5/status');
   });
 
-  it('checks the zero-cost capability, verifies actual bytes, previews SVG, and persists local history', async () => {
+  it('generates a verified artifact, shows a compact confirmation, persists history, and registers a chat artifact', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(statusBody))
       .mockResolvedValueOnce(svgResponse());
     vi.stubGlobal('fetch', fetchMock);
+    const onArtifactCreated = vi.fn();
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} onArtifactCreated={onArtifactCreated} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
 
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
@@ -183,11 +198,10 @@ describe('CreativeWorkspaceV15', () => {
     expect(preview.src).toContain('blob:origin-1');
     const download = screen.getByRole('link', { name: 'SVG保存' }) as HTMLAnchorElement;
     expect(download.getAttribute('download')).toBe('日本語-portrait.svg');
-    expect(screen.getByText(/SHA-256 aaaaaaaaaaaa…/)).toBeTruthy();
-    expect(screen.getByText(/visual-brain-v1/)).toBeTruthy();
-    expect(screen.getByText(/origin-local-svg/)).toBeTruthy();
-    expect(screen.getByText(/文字と安全性を自動で確かめました/)).toBeTruthy();
-    expect(screen.getByText(/実バイト照合済み/)).toBeTruthy();
+    // 確認表示は「確認済み」の一言に圧縮し、検証の詳細は出さない（棚卸し）。
+    expect(screen.getByText('確認済み')).toBeTruthy();
+    expect(screen.queryByText('検証の詳細')).toBeNull();
+    expect(screen.queryByText(/SHA-256/)).toBeNull();
     await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
 
     expect(verifyVisualBlobSha256V15).toHaveBeenCalledWith(expect.any(Blob), 'a'.repeat(64));
@@ -203,6 +217,26 @@ describe('CreativeWorkspaceV15', () => {
       relation: 'generated',
     }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // 成果物は会話の成果物（ArtifactBlock）としても登録される。
+    expect(onArtifactCreated).toHaveBeenCalledOnce();
+    const block = onArtifactCreated.mock.calls[0][0];
+    expect(block).toMatchObject({
+      id: `creative-${'a'.repeat(64)}`,
+      type: 'html',
+      language: 'svg',
+      title: '日本語',
+      isComplete: true,
+    });
+    expect(block.content).toContain('<svg');
+    expect(block.creative).toMatchObject({
+      version: 1,
+      kind: 'social-card',
+      preset: 'portrait',
+      layout: 'editorial',
+      sha256: 'a'.repeat(64),
+      downloadName: '日本語-portrait.svg',
+    });
   });
 
   it('rejects a response whose SVG bytes do not match the advertised SHA-256', async () => {
@@ -211,14 +245,17 @@ describe('CreativeWorkspaceV15', () => {
       .mockResolvedValueOnce(svgResponse());
     vi.stubGlobal('fetch', fetchMock);
     vi.mocked(verifyVisualBlobSha256V15).mockResolvedValueOnce(false);
+    const onArtifactCreated = vi.fn();
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} onArtifactCreated={onArtifactCreated} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByText('作成物の実バイトとSHA-256証拠が一致しませんでした。');
     expect(screen.queryByRole('link', { name: 'SVG保存' })).toBeNull();
     expect(saveCreativeHistoryV15).not.toHaveBeenCalled();
+    expect(onArtifactCreated).not.toHaveBeenCalled();
   });
 
   it('creates PNG locally from the verified artifact snapshot without another fetch', async () => {
@@ -227,7 +264,7 @@ describe('CreativeWorkspaceV15', () => {
       .mockResolvedValueOnce(svgResponse());
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
@@ -252,7 +289,7 @@ describe('CreativeWorkspaceV15', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     const open = await screen.findByRole('button', { name: '履歴を開く: 履歴Visual' });
     fireEvent.click(open);
 
@@ -267,7 +304,12 @@ describe('CreativeWorkspaceV15', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(statusBody));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
+    await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    // 生成可能な状態（タイトル入力済み）にしてから削除し、削除後も
+    // 生成能力が保たれることを確認する。
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
+    expect((screen.getByRole('button', { name: '画像を作成' }) as HTMLButtonElement).disabled).toBe(false);
     const remove = await screen.findByRole('button', { name: '履歴から削除: 履歴Visual' });
     fireEvent.click(remove);
     await screen.findByText('端末内履歴から削除しました。');
@@ -284,8 +326,9 @@ describe('CreativeWorkspaceV15', () => {
     vi.stubGlobal('fetch', fetchMock);
     vi.mocked(rasterizeVerifiedSvgToPng).mockRejectedValueOnce(new Error('decode'));
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
     await screen.findByRole('link', { name: 'SVG保存' });
     fireEvent.click(screen.getByRole('button', { name: 'PNGを作成' }));
@@ -299,8 +342,9 @@ describe('CreativeWorkspaceV15', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ ...statusBody, providerExecutions: 1 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('現在利用できません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     expect((screen.getByRole('button', { name: '画像を作成' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -311,8 +355,9 @@ describe('CreativeWorkspaceV15', () => {
       .mockResolvedValueOnce(svgResponse({ verified: false }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
@@ -326,8 +371,9 @@ describe('CreativeWorkspaceV15', () => {
       .mockResolvedValueOnce(svgResponse({ costUsd: '0.01' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
@@ -338,11 +384,12 @@ describe('CreativeWorkspaceV15', () => {
   it('rejects an artifact response without a valid SHA-256 proof', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(statusBody))
-      .mockResolvedValueOnce(svgResponse({ sha256: 'not-a-sha256' }));
+      .mockResolvedValueOnce(svgResponse({ sha256: 'not-a-sha' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
     await screen.findByRole('alert');
@@ -356,8 +403,9 @@ describe('CreativeWorkspaceV15', () => {
       .mockResolvedValueOnce(svgResponse());
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<CreativeWorkspaceV15 />);
+    render(<CreativePanelV15 onClose={() => undefined} />);
     await screen.findByText('利用できます · 無料 · 外部に送信しません');
+    fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     fireEvent.change(screen.getByLabelText('サイズ'), { target: { value: 'story' } });
     fireEvent.click(screen.getByRole('button', { name: '画像を作成' }));
 
