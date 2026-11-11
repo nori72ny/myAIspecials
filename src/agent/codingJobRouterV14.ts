@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { rateLimit, type AugmentedRequest } from 'express-rate-limit';
 import {
   CODING_JOB_ID_PATTERN,
   codingJobCryptoConfiguredV14,
@@ -199,7 +200,36 @@ export function createCodingJobV14Router(
 ) {
   const router = Router();
 
-  router.get('/api/coding/v1.4/status', async (req, res) => {
+  // The status route verifies operator credentials (its detailed view is
+  // behind operator auth), so it is metered with the same express-rate-limit
+  // pattern and ceiling as the agent v3 routes: 60 requests per minute per
+  // IP (CodeQL js/missing-rate-limiting). Legitimate readiness probes stay
+  // far below this ceiling.
+  const codingStatusRateLimitGuard = rateLimit({
+    windowMs: 60_000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      const resetTime = (req as AugmentedRequest).rateLimit?.resetTime;
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil(((resetTime?.getTime() ?? Date.now() + 60_000) - Date.now()) / 1_000),
+      );
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({
+        ok: false,
+        code: 'CODING_JOB_RATE_LIMITED',
+        retryAfterSeconds,
+        retryAfterMs: retryAfterSeconds * 1_000,
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      });
+    },
+  });
+
+  router.get('/api/coding/v1.4/status', codingStatusRateLimitGuard, async (req, res) => {
     const state = await readiness(env, store, resultStore);
     // Unauthenticated callers only learn that the capability exists and
     // whether it is ready. The readiness breakdown and configuration values

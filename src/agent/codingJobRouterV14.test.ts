@@ -103,6 +103,28 @@ describe('V1.4 coding job API', () => {
     expect(agentCredential.body).toEqual(response.body);
   });
 
+  it('rate limits repeated status requests so operator credential checks stay metered', async () => {
+    const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() });
+    // The guard's sustained ceiling is 60 requests per minute per IP, the
+    // same ceiling as the agent v3 routes; readiness probes stay far below.
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await request(app).get('/api/coding/v1.4/status');
+      expect(response.status).toBe(200);
+    }
+    const limited = await request(app).get('/api/coding/v1.4/status')
+      .set('Authorization', `Bearer ${codingSecret}`);
+    expect(limited.status).toBe(429);
+    expect(limited.body).toMatchObject({
+      ok: false,
+      code: 'CODING_JOB_RATE_LIMITED',
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    });
+    expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(limited.headers['retry-after']).toBeDefined();
+  });
+
   it('stays fail-closed for new work until the hosted worker is explicitly enabled', async () => {
     const disabledEnv = { ...env, ORIGIN_CODING_WORKER_ENABLED: 'false' };
     const { app } = appFor({ create: vi.fn(), getJob: vi.fn(), requestCancel: vi.fn() }, defaultDispatch(), disabledEnv);

@@ -290,13 +290,16 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   // middleware to each POST route defined below, so all five routes draw
   // on the same token bucket with the shared thresholds (burst 8,
   // sustained 60/min, concurrency 2) and the CHAT_RATE_LIMITED /
-  // Retry-After contract. GET /status is read-only and stays unmetered.
+  // Retry-After contract. The inner limiter stays POST-only; GET /status
+  // is covered by the outer guard alone because it verifies operator
+  // credentials, so credential guessing against it must be metered too
+  // (CodeQL js/missing-rate-limiting).
   const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
   const runStore = deps?.runStore;
   const writeLockStore = deps?.writeLockStore;
 
-  router.get('/api/agent/v3/status', (req, res) => {
+  router.get('/api/agent/v3/status', agentV3RateLimitGuard, (req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
     const operatorAuthenticationConfigured = agentOperatorConfiguredV3(env);
     const authorizationMode = agentOperatorAuthorizationModeV3(env);

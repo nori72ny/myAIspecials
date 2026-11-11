@@ -131,6 +131,23 @@ describe('agent orchestrator v3', () => {
     });
   });
 
+  it('rate limits repeated status requests so operator credential checks stay metered', async () => {
+    const store: AgentRunConsumptionStore = { consume: async () => true };
+    const app = appFor(env, store);
+    // The outer guard's sustained ceiling is 60 requests per minute per IP;
+    // legitimate status probes stay far below it.
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await request(app).get('/api/agent/v3/status');
+      expect(response.status).toBe(200);
+    }
+    const limited = await request(app).get('/api/agent/v3/status')
+      .set('Authorization', `Bearer ${env.ORIGIN_AGENT_APPROVAL_SECRET}`);
+    expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('CHAT_RATE_LIMITED');
+    expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(limited.headers['retry-after']).toBeDefined();
+  });
+
   it('uses a dedicated operator credential without exposing or accepting the signing key', async () => {
     const dedicatedEnv = {
       ORIGIN_AGENT_APPROVAL_SECRET: 's'.repeat(48),
