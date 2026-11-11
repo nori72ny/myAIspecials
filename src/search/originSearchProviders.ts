@@ -505,6 +505,62 @@ interface WikipediaSearchResponse {
   pages?: Array<{ key?: string; title?: string; excerpt?: string; description?: string }>;
 }
 
+/*
+ * Relevance screen for Wikipedia candidates (Wikipedia results only — no
+ * other provider passes through here).
+ *
+ * Wikipedia full-text search ranks by relevance, but its hits are not
+ * guaranteed on-topic for a long, goal-shaped query: a popular article
+ * whose text merely shares common words with the goal can rank in the top
+ * 3. Downstream, every candidate shares one domain (ja.wikipedia.org), so
+ * source selection can keep only one of them — without a topic check the
+ * survivor was decided by revision recency, not by relevance, and an
+ * unrelated article (a popular work that happens to mention the goal's
+ * words) could become the run's only "encyclopedia" source.
+ *
+ * The screen follows the legacy research filter's approach
+ * (meaningfulQueryTerms / sourceMatchesIntent in
+ * legacy/originResearchSource.ts), re-implemented small and local so the
+ * grounding layer gains no new dependency on the legacy module: extract
+ * the query's topic terms (generic instruction words removed) and require
+ * the candidate's title or excerpt to cover them — at least two distinct
+ * terms, or the only term when the query yields just one. When no topic
+ * term can be extracted the screen is a no-op, exactly like the legacy
+ * filter. If every candidate is screened out the caller sees zero
+ * sources, which is what lets the stable route's Tavily fallback fire.
+ */
+const WIKIPEDIA_TOPIC_GENERIC_LATIN_TERMS: ReadonlySet<string> = new Set([
+  "the", "and", "for", "from", "with", "about", "please", "explain", "summary", "summarize",
+  "research", "source", "sources", "official", "help", "support", "latest", "recent", "current",
+  "information", "news", "updates", "short", "brief", "using", "based", "method", "how",
+]);
+
+const WIKIPEDIA_TOPIC_GENERIC_JAPANESE_TERMS: ReadonlySet<string> = new Set([
+  "公式", "ヘルプ", "サポート", "出典", "情報", "公開情報", "最新", "現在", "説明", "方法", "確認",
+  "調査", "要約", "短く", "簡単", "詳しく", "最新情報", "複数", "ソース", "複数ソース",
+]);
+
+function wikipediaTopicTerms(query: string): string[] {
+  const normalized = query.normalize("NFKC").toLowerCase();
+  const terms: string[] = [];
+  for (const match of normalized.matchAll(/[a-z0-9][a-z0-9._-]{1,}/g)) {
+    const value = match[0].replace(/^www\./, "");
+    if (!WIKIPEDIA_TOPIC_GENERIC_LATIN_TERMS.has(value) && !terms.includes(value)) terms.push(value);
+  }
+  for (const match of normalized.matchAll(/[ァ-ヶー一-龠]{2,}/g)) {
+    const value = match[0];
+    if (!WIKIPEDIA_TOPIC_GENERIC_JAPANESE_TERMS.has(value) && !terms.includes(value)) terms.push(value);
+  }
+  return terms.slice(0, 18);
+}
+
+function wikipediaCandidateMatchesTopic(title: string, excerpt: string, topicTerms: readonly string[]): boolean {
+  if (topicTerms.length === 0) return true;
+  const haystack = `${title} ${excerpt}`.normalize("NFKC").toLowerCase();
+  const matched = topicTerms.filter((term) => haystack.includes(term)).length;
+  return matched >= Math.min(2, topicTerms.length);
+}
+
 interface WikipediaBareResponse {
   html_url?: string;
   latest?: { timestamp?: string };
@@ -520,12 +576,17 @@ export async function searchWikipediaSources(
   const searchUrl = `${origin}/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=3`;
   const payload = await requestJson<WikipediaSearchResponse>("wikipedia", deps, searchUrl, { headers });
   const pages = Array.isArray(payload.pages) ? payload.pages.slice(0, 3) : [];
+  const topicTerms = wikipediaTopicTerms(query);
   const sources: OriginSearchSource[] = [];
-  for (const page of pages) {
+  for (const [index, page] of pages.entries()) {
     const key = typeof page.key === "string" ? page.key : "";
     const title = stripHtml(page.title) || key;
     const excerpt = stripHtml(page.excerpt) || stripHtml(page.description);
     if (!key || !title || !excerpt) continue;
+    // Relevance screen (Wikipedia candidates only): an off-topic hit is
+    // dropped before its metadata fetch, so it can neither win source
+    // selection nor consume the route's one same-domain slot.
+    if (!wikipediaCandidateMatchesTopic(title, excerpt, topicTerms)) continue;
     let url = `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
     let publishedAt: string | undefined;
     try {
@@ -550,6 +611,12 @@ export async function searchWikipediaSources(
       domain: originDomainOf(url),
       authorityTier: "specialist",
       evidenceLevel: "snippet",
+      // Preserve the search engine's relevance order as a provider score
+      // on the same 0..1 scale Tavily's relevance scores already use
+      // (top hit highest, descending by rank), so source selection keeps
+      // the best-ranked hit of this domain instead of degrading to a
+      // revision-recency contest among equal scores.
+      providerScore: (pages.length - index) / pages.length,
     });
   }
   return sources;
