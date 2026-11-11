@@ -299,7 +299,35 @@ async function streamOpenRouter(
     throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
   }
   if (finishReason === "length") {
-    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
+    // The answer hit the output limit (PKG-2): the accumulated text is kept
+    // and returned flagged as truncated instead of failing the whole stream
+    // with a 502. Every check above has passed for this text (served-model
+    // identity, billing metadata, exact zero usage), so it is as verified as
+    // a completed answer — only incomplete. In hold-until-verified mode the
+    // accumulated output was never forwarded, so it is released here exactly
+    // like a completed answer; in incremental mode the fragments already
+    // reached the user progressively and the router marks the completion
+    // event as truncated, telling the client to keep the displayed text and
+    // show the incomplete notice instead of discarding it.
+    const partialResult: OriginProviderExecutionResult = {
+      text: output,
+      truncated: true,
+      transportRequestCount: transport.count,
+      actualCostUsd: 0,
+      providerDataPolicy: providerRequest.plan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: providerRequest.plan.modelId,
+        servedModel,
+        strategy: "adaptive-primary",
+        provider: "OpenRouter",
+        attempt: 1,
+        fallbackUsed: false,
+      },
+      usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 },
+    };
+    assertOriginZeroCostExecutionResult(partialResult, providerRequest.plan.modelId, providerRequest.plan.providerId);
+    if (!incrementalRelease) handlers.onDelta(output);
+    return partialResult;
   }
   if (!allowedServedModel(servedModel)) {
     throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "OpenRouter無料モデルを確認できません。", 502, false);

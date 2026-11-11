@@ -51,7 +51,16 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
  * example a missing token or stale evidence) are recorded on the error diagnostic instead.
  */
 export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; }
-export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[];
+  /**
+   * True when the answer text ended at the provider's output limit instead of
+   * completing (PKG-2). The text is the verified partial answer: it passed
+   * every billing/routing check exactly like a completed answer, and the
+   * truncation is a fact about the text, so consumers surface it as a partial
+   * answer with an explicit incomplete marker rather than discarding it as a
+   * failure (the pre-PKG-2 behavior). Absent on every other route and result.
+   */
+  truncated?: boolean; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
 export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; }
 
@@ -224,7 +233,17 @@ export type OriginFetch = typeof fetch;
 const RETRY: readonly number[] = [700, 1_800];
 const MAX_PROVIDER_TOTAL_BUDGET_MS = 60_000;
 const MAX_PROVIDER_REQUEST_TIMEOUT_MS = 52_000;
-const MAX_SEGMENTS = 1;
+/**
+ * Bounded continuation for length-limited answers (PKG-2): the first request
+ * plus up to this many continuation requests, so one answer costs at most 3
+ * provider requests. Continuation is deliberately VISIBLE usage — every extra
+ * request consumes the free daily quota exactly like a new question (route 1
+ * allows 50 requests/day; one continuation equals one question). When the
+ * segments still end at the limit after this many requests, the accumulated
+ * partial answer is returned flagged as truncated instead of being discarded.
+ * The measurement track (PKG-9) records how often this budget is consumed.
+ */
+const MAX_SEGMENTS = 3;
 const MAX_TOOL_SCHEMA_BYTES = 32 * 1024;
 const MAX_TOOL_ARGUMENT_BYTES = 256 * 1024;
 const REQUIRED_TOOL_REASONING = { effort: "minimal", exclude: true } as const;
@@ -454,7 +473,17 @@ async function openrouter(requestData: OriginProviderExecutionRequest, key: stri
       assertOriginZeroCostExecutionResult(result, requestData.plan.modelId, requestData.plan.providerId);
       return result;
     }
-    if (index === MAX_SEGMENTS - 1) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
+    if (index === MAX_SEGMENTS - 1) {
+      // The continuation budget is exhausted and the answer is still cut off
+      // (PKG-2): return the accumulated partial answer flagged as truncated
+      // instead of discarding it wholesale. `output` passed every billing and
+      // routing check for every segment above, so the result passes the same
+      // zero-cost assertion as a completed answer; only its completeness
+      // differs, and the flag is how consumers learn that.
+      const result: OriginProviderExecutionResult = { text: output, truncated: true, transportRequestCount: transport.count, actualCostUsd: 0, providerDataPolicy: requestData.plan.providerDataPolicy, routingEvidence: evidence(requestData, String(servedModel)), usage: { promptTokens, completionTokens, totalTokens, costUsd: 0 } };
+      assertOriginZeroCostExecutionResult(result, requestData.plan.modelId, requestData.plan.providerId);
+      return result;
+    }
     messages = [...msgs(requestData.messages, requestData.systemInstruction), { role: "assistant", content: output }, { role: "user", content: "直前の回答が出力上限で途切れました。途切れた箇所から最後まで不足部分だけを続けてください。" }];
   }
   throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "回答を完了できませんでした。", 502, true);
