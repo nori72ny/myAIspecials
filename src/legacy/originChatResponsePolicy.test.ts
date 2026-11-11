@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ORIGIN_REQUEST_CONTEXTS,
   originChatSystemInstruction,
   originGroqRouteSystemInstruction,
+  originIntentAwarenessInstruction,
   requiresOriginGroundedResearch,
   requiresOriginCurrentInformation,
   requiresOriginFutureReleaseInformation,
@@ -244,5 +246,95 @@ describe("assembled chat instruction (router composition)", () => {
     ]) {
       expect(assembled.split(line).length - 1).toBe(1);
     }
+  });
+});
+
+describe("intent awareness (request-context adaptation)", () => {
+  it("fixes the context taxonomy, with unknown as the unchanged fallback", () => {
+    expect(ORIGIN_REQUEST_CONTEXTS).toEqual([
+      "business",
+      "private",
+      "learning",
+      "creative",
+      "consultation",
+      "unknown",
+    ]);
+  });
+
+  it("is carried exactly once by the full instruction, with or without other guidance", () => {
+    for (const instruction of [originChatSystemInstruction(), originChatSystemInstruction(classifyOriginRequestIntent("企画書の草案を作って", "documentation"))]) {
+      expect(instruction.split("Request-context awareness").length - 1).toBe(1);
+      expect(instruction).toContain(originIntentAwarenessInstruction());
+    }
+  });
+
+  it("pins inference by purpose, per-context adaptation, and user override", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "silently infer the context of the request",
+      "work/business, personal/everyday life, learning or research, creative work, or casual consultation",
+      "Judge by purpose and setting, not by topic or task type",
+      "An explicit statement by the user about the context always overrides the inference",
+      "Adapt tone, structure, and formality to the inferred context",
+      "conclusion and recommendation first",
+      "key point first, then why, then an example",
+      "acknowledge the situation first",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the premise format: one short opening phrase, no label, no meta commentary", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "name it in one short opening phrase in the user's language at the start of the first sentence",
+      "仕事で使う前提で言うと、",
+      "never expose the category name, the inference process, or any meta commentary about intent detection",
+      "When the context does not change the answer, state nothing about it",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the clarification gate: all three conditions, and never for facts, calculations, or transformations", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Ask back instead of answering only when all three hold",
+      "would fundamentally change the answer's direction, form, or deliverable",
+      "cannot be inferred with reasonable confidence",
+      "no sensible default can simply be stated as an opening assumption",
+      "Simple factual questions, calculations, and transformations (rewriting, summarization, translation) never qualify",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the clarification format and its suppression rules", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "ask exactly one short question",
+      "offer two or three concrete choices when that helps",
+      "return only that question",
+      "do not attach an answer built on a guessed context",
+      "Creation requests keep the Version-1-first rule",
+      "at most once, never in two consecutive answers",
+      "never repeat a fork the user has already answered, moved past, or delegated",
+      "the opening assumption is preferred over a question",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins correction handling and the neutral fallback so quality never degrades", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "If the user corrects an assumed context, switch immediately",
+      "fall back to the neutral standard style of this instruction and change nothing",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("carries the condensed rule on the route-3 compact instruction within its budget", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "Adapt tone and structure to the request's context: work, personal, learning, creative, or casual",
+      "Name the assumed context in one short opening phrase when it shapes the answer",
+      "ask one short question with choices instead",
+      "once per topic, never repeat",
+      "If unclear, keep the neutral style",
+    ]) expect(compact).toContain(phrase);
+    expect(compact.length).toBeLessThanOrEqual(3_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
   });
 });
