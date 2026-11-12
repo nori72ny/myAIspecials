@@ -52,7 +52,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       expect(assistantStyle.left).toBeGreaterThanOrEqual(-1);
       expect(assistantStyle.right).toBeLessThanOrEqual(viewport.width + 1);
       expect(userBackground).not.toBe('rgba(0, 0, 0, 0)');
-      await expect(page.getByTestId('response-verification-details')).toBeVisible();
+      // UI監査 #1：検証バッジは削除済み。回答が箱に囲まれていないことの
+      // 検証（上の computed style 確認）がこのテストの本体。
+      await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
 
       await page.screenshot({ path: testInfo.outputPath(`assistant-reading-${viewport.name}.png`), fullPage: true });
     });

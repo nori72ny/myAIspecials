@@ -89,9 +89,12 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
       <span className="rounded-full border border-origin-border px-3 py-1 text-xs font-bold">{isEn ? `Confidence: ${researchConfidenceLabel(result.confidence, language)}` : `出典の確かさ: ${researchConfidenceLabel(result.confidence, language)}`}</span>
       <span className="rounded-full border border-origin-border px-3 py-1 text-xs">{isEn ? `${result.sourceCount} sources` : `${result.sourceCount}件`}</span>
     </div>
-    <p className="origin-muted mt-2 text-xs leading-5">{isEn
-      ? '"Page verified" means the source page text itself could be read during the research. Source confidence does not guarantee the whole answer is correct.'
-      : '「本文確認済み」は、調べたときに元のページ本文を読めた出典です。出典の確かさは、回答全体の正しさを保証するものではありません。'}</p>
+    <details className="mt-2">
+      <summary className="origin-muted inline-flex min-h-11 cursor-pointer list-none items-center text-xs font-semibold">{isEn ? 'About source labels' : '出典の表記について'}</summary>
+      <p className="origin-muted mt-1 text-xs leading-5">{isEn
+        ? '"Page verified" means the source page text itself could be read during the research. Source confidence does not guarantee the whole answer is correct.'
+        : '「本文確認済み」は、調べたときに元のページ本文を読めた出典です。出典の確かさは、回答全体の正しさを保証するものではありません。'}</p>
+    </details>
 
     <div className="mt-3 space-y-3">{result.sources.map(source => {
       const href = safeExternalUrl(source.url);
@@ -105,12 +108,10 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
       </article>;
     })}</div>
 
-    <div className="mt-4 rounded-xl border border-origin-border p-3 text-sm">
+    {result.conflicts.length > 0 && <div className="mt-4 rounded-xl border border-origin-border p-3 text-sm">
       <strong>{isEn ? 'Differences between sources' : '出典同士の違い'}</strong>
-      {result.conflicts.length === 0
-        ? <p className="origin-muted mt-2">{isEn ? 'No disagreements were found in comparable values such as prices, versions, or percentages.' : '価格・バージョン・割合など、比較できる数値の食い違いは見つかりませんでした。'}</p>
-        : <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{researchConflictTopicLabel(conflict.topic, language)}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>}
-    </div>
+      <ul className="mt-2 space-y-2 pl-5">{result.conflicts.map((conflict, index) => <li key={`${conflict.topic}-${index}`}><strong>{researchConflictTopicLabel(conflict.topic, language)}</strong>: {conflict.values.join(' / ')} · {conflict.sourceIds.join(', ')}</li>)}</ul>
+    </div>}
   </section>;
 }
 

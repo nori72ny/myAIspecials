@@ -116,7 +116,12 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
     await expect(page.getByTestId('creative-panel')).toBeVisible();
     await expect(page).not.toHaveURL(/workspace=/);
-    await expect(page.getByText('利用できます · 無料 · 外部に送信しません')).toBeVisible();
+    // UI監査 #22：ステータス行のポリシー文（無料・外部に送信しません）は
+    // 削除され、状態表示は「利用できます」に圧縮された。パネルが使える
+    // ことは、残っている入力欄と生成ボタンで確認する。
+    await expect(page.getByText('利用できます', { exact: true })).toBeVisible();
+    await expect(page.getByText('利用できます · 無料 · 外部に送信しません')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '画像を作成' })).toBeVisible();
     await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
     await expect(page.getByLabel('用途', { exact: true })).not.toBeVisible();
     await expect(page.getByRole('region', { name: '作成履歴' })).toHaveCount(0);
@@ -197,8 +202,11 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
     expect(generateRequests).toHaveLength(1);
-    // 生成物は会話の成果物としても登録される。
-    await expect(page.getByRole('region', { name: '作成物' })).toContainText('履歴Creative');
+    // 生成物は会話の成果物としても登録される。UI監査 #5 で表示専用の
+    // 作成物ストリップ（region「作成物」）は削除されたため、登録の証跡は
+    // モバイル表示切替の「作成物」タブが現れることで確認する（保存自体の
+    // 証拠は直後の IndexedDB 照合が担う）。
+    await expect(page.getByRole('tab', { name: '作成物', exact: true })).toBeVisible();
     // リロード前に、成果物がアプリのスナップショットへ実際に保存された
     // ことを確認する（保存はデバウンスされるため、保存完了を待つ）。
     await expect.poll(() => page.evaluate(async () => {
@@ -221,7 +229,9 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     // リロード後は必ずトップ画面から始まる（#1170仕様）。成果物は会話の
     // 記録として復元され、パネルの端末内履歴からも再生成なしで開ける。
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
-    await expect(page.getByRole('region', { name: '作成物' })).toContainText('履歴Creative');
+    // 復元された証跡も、削除された作成物ストリップではなく「作成物」
+    // タブの出現で確認する。
+    await expect(page.getByRole('tab', { name: '作成物', exact: true })).toBeVisible();
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: '作る', exact: true }).click();
     const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });

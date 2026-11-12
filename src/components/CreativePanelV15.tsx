@@ -105,7 +105,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
   const canGenerate = status === 'ready' && !busy && !pngBusy && !historyBusyId && draft.title.trim().length > 0;
   const canPreparePng = artifact !== null && !busy && !pngBusy && !historyBusyId;
   const verificationText = status === 'ready'
-    ? '利用できます · 無料 · 外部に送信しません'
+    ? '利用できます'
     : status === 'loading' ? '準備を確認中…' : '現在利用できません';
 
   const applyArtifact = (nextArtifact: VerifiedCreativeArtifactV15) => {
@@ -233,8 +233,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
     <aside aria-label="作る（カード・ポスターの作成）" data-testid="creative-panel" className="origin-workspace fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l shadow-2xl sm:w-[76vw] sm:max-w-[880px]">
       <div className="flex min-h-16 items-start justify-between gap-3 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent-primary)]">Create</p>
-          <h2 className="mt-0.5 truncate text-base font-black">カード・ポスターを作る</h2>
+          <h2 className="truncate text-base font-black">カード・ポスターを作る</h2>
           <p className={`mt-0.5 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? '' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</p>
         </div>
         <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">✕</button>

@@ -458,15 +458,6 @@ export default function AgentWorkspaceView() {
           </div>
         </section>}
 
-        <details className="mt-4 border-t border-origin-border pt-2 text-xs">
-          <summary className="min-h-11 cursor-pointer py-3 font-semibold">安全境界</summary>
-          <p className="leading-5 text-origin-muted">実行前に安全確認を行い、同じ操作の重複実行や追加料金が発生する処理を防ぎます。画面に「完了」と表示するのは、結果を確認できた場合だけです。</p>
-          {capability && <div className="mt-2 space-y-1 text-origin-muted">
-            <p>承認の確認方法: {capability.approvalSigningConfigured ? '準備できています' : '利用できません'}</p>
-            <p>同じ操作の繰り返し防止: {capability.replayProtectionConfigured ? '有効です' : '利用できません'}</p>
-          </div>}
-        </details>
-
         <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-xs leading-5 text-origin-muted" aria-label="実行履歴">
           {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行の経過はここに表示されます。'}
         </div>
@@ -474,8 +465,7 @@ export default function AgentWorkspaceView() {
 
       <main className="origin-workspace min-h-[28rem] overflow-hidden rounded-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-origin-border px-4 py-3">
-          <div><p className="text-xs font-bold uppercase tracking-widest text-origin-brand">Verified output</p><h2 className="font-bold">作業結果</h2></div>
-          <span className="rounded-full border border-origin-border px-3 py-1 text-xs">無料 · 承認制</span>
+          <div><h2 className="font-bold">作業結果</h2></div>
         </div>
         <div className="max-h-[60dvh] overflow-auto p-5"><FormattedMarkdown text={artifact} /></div>
 

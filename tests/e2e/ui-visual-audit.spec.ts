@@ -63,7 +63,8 @@ test.describe('ORIGIN visual QA evidence', () => {
       await expect(answer.getByRole('heading', { name: '結論', level: 2 })).toBeVisible();
       await expect(answer.getByRole('heading', { name: '完了条件', level: 2 })).toBeVisible();
       await expect(page.getByRole('group', { name: '回答を調整' })).toBeVisible();
-      await expect(page.getByTestId('response-verification-details')).toBeVisible();
+      // UI監査 #1：検証バッジは削除済み（証拠撮影の対象から外す）。
+      await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
       await testInfo.attach(`origin-answer-${viewport.name}.png`, {

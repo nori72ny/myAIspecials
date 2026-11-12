@@ -2,16 +2,22 @@ import { test, expect } from '@playwright/test';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-test('MCP settings reports its actual disabled backend without breaking the mobile dialog', async ({ page }) => {
+test('MCP settings hides the integration entry while the backend is unconfigured and keeps the mobile dialog intact', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  // バックエンド未構成の実状態を明示して固定する。
+  await page.route('**/api/mcp/status', route => route.fulfill({ json: { configured: false, authenticated: false } }));
   await page.goto('/');
   await page.getByRole('button', { name: '設定を開く', exact: true }).click();
-  await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
-  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
-  await expect(page.getByText('外部サービス接続は準備中です。認証と保存先の設定が完了すると利用できます。')).toBeVisible();
   await expect(page.getByRole('dialog')).toBeVisible();
+  // UI監査 #26：MCP項目は未設定時は表示されない（「準備中」への行き止まり
+  // を出さない）。構成済みの場合に項目が現れることは後続テストが固定する。
+  await expect(page.getByText('外部サービス連携（設定・状態確認）', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '外部サービス接続', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '登録', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  // ダイアログは × ボタンで正常に閉じられる。
+  await page.getByTestId('close-settings-button').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
   expect(errors).toEqual([]);
 });
 

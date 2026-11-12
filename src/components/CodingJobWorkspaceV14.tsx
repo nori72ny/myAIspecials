@@ -79,7 +79,6 @@ type CapabilityResponse = {
 };
 
 const ACTIVE = new Set<CodingJobStatus>(['queued', 'leased', 'running', 'repairing']);
-const JOB_ID = /^coding-[A-Za-z0-9_-]{22}$/;
 const STATUS_LABELS: Record<CodingJobStatus, string> = {
   queued: '受付済み',
   leased: '実行準備中',
@@ -113,7 +112,6 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   CODING_UI_CREATE_UNAVAILABLE: '通信が途切れ、依頼が受け付けられたか確認できませんでした。重複を避けるため、自動で再送はしていません。',
   CODING_UI_STATUS_UNAVAILABLE: '最新の状態を取得できませんでした。表示中の結果は最後に取得した内容です。',
   CODING_UI_CANCEL_UNAVAILABLE: '取り消しの結果を確認できませんでした。依頼が停止したとは限りません。',
-  CODING_UI_INVALID_JOB_ID: 'ジョブIDの形式を確認してください。',
 };
 
 function ErrorNotice({ code }: { code: string }) {
@@ -142,16 +140,6 @@ function formatTime(value: string | undefined): string {
   return Number.isFinite(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 }
 
-function authorizationLabel(mode: CodingJobAuthorizationMode | undefined): string {
-  if (mode === 'coding-operator') return 'dedicated coding credential';
-  if (mode === 'legacy-agent-compat') return 'legacy agent compatibility';
-  return 'unconfigured';
-}
-
-function ReadinessValue({ ready }: { ready: boolean | undefined }) {
-  return <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{ready ? 'ready' : 'missing'}</span>;
-}
-
 function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; cancelRequested: boolean }) {
   const terminal = !ACTIVE.has(status);
   const tone = status === 'verified'
@@ -171,7 +159,6 @@ type CodingJobWorkspaceV14Props = { initialGoal?: string };
 
 export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
-  const [existingJobId, setExistingJobId] = useState('');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
   const [job, setJob] = useState<CodingJobRecord | null>(null);
   const [result, setResult] = useState<CodingJobResult | null>(null);
@@ -311,21 +298,6 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
   }, [applyResponse, beginOperation, busy, capability?.ready, goal]);
 
-  const openExistingJob = useCallback(async () => {
-    const jobId = existingJobId.trim();
-    if (busy) return;
-    if (!JOB_ID.test(jobId)) { setError('CODING_UI_INVALID_JOB_ID'); return; }
-    const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
-    const epoch = beginOperation(credential, jobId);
-    try {
-      const loaded = await loadJob(jobId, credential, epoch);
-      if (loaded && credentialInputRef.current) credentialInputRef.current.value = '';
-      if (!loaded && epoch === requestEpochRef.current) credentialRef.current = '';
-    } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_STATUS_UNAVAILABLE'); } }
-    finally { if (epoch === requestEpochRef.current) setBusy(false); }
-  }, [beginOperation, busy, existingJobId, loadJob]);
-
   const cancelJob = useCallback(async () => {
     if (!job || !ACTIVE.has(job.status) || job.cancelRequested || busy || !credentialRef.current || currentJobIdRef.current !== job.jobId) return;
     const epoch = requestEpochRef.current;
@@ -342,24 +314,12 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
   }, [applyResponse, busy, job]);
 
   const ready = capability?.ready === true;
-  const dedicatedAuthorizationReady = capability?.authorizationReady === true && capability.authorizationMode === 'coding-operator';
-  const readinessItems = [
-    ['Control plane', capability?.controlPlaneReady],
-    ['Database config', capability?.storeConfigured === true && capability?.resultStoreConfigured === true],
-    ['Live job/result schema', capability?.databaseReady === true && capability?.storeReady === true && capability?.resultStoreReady === true],
-    ['Owner binding', capability?.ownerBindingReady],
-    ['Encryption', capability?.dataKeyReady === true && capability?.cryptoReady === true],
-    ['Dedicated coding auth', dedicatedAuthorizationReady],
-    ['GitHub dispatch', capability?.dispatchReady],
-    ['Worker opt-in', capability?.workerEnabled],
-  ] as const;
 
   return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="Coding Job Workspace">
     <div className="mx-auto max-w-4xl space-y-4">
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">Code</p>
-          <h1 className="mt-1 text-xl font-black">コードの変更を依頼</h1>
+          <h1 className="text-xl font-black">コードの変更を依頼</h1>
           <p className="mt-1 text-sm leading-6 text-origin-muted">変更したいことを伝えると、確認・編集・検証まで進めます。</p>
         </div>
         
@@ -411,30 +371,9 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
           <div className="mt-3 rounded-xl border border-origin-border p-3">
             <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
-            <details className="mt-2">
-              <summary className="min-h-11 cursor-pointer py-3 font-semibold">接続・認証の詳細</summary>
-              {capability?.authorizationMode !== undefined && <>
-                <div className="mt-2 flex items-center justify-between gap-2"><span className="text-origin-muted">Encrypted result details</span><span>{capability?.resultDetailsReady ? 'configured' : 'unavailable'}</span></div>
-                <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Authorization</span><span>{authorizationLabel(capability?.authorizationMode)}</span></div>
-              </>}
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Git publish</span><span>not authorized</span></div>
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="text-origin-muted">Deploy</span><span>not authorized</span></div>
-            </details>
-          </div>
-
-          {!checkingCapability && capability?.authorizationMode !== undefined && <details className="mt-3 rounded-xl border border-origin-border p-3" aria-label="Coding production readiness">
-            <summary className="min-h-11 cursor-pointer py-3 font-bold">設定の診断結果</summary>
-            <div className="space-y-1">{readinessItems.map(([label, itemReady]) => <div key={label} className="flex items-center justify-between gap-3"><span className="text-origin-muted">{label}</span><ReadinessValue ready={itemReady} /></div>)}</div>
-          </details>}
-
-          <div className="mt-3 rounded-xl border border-origin-border p-3">
-            <label htmlFor="coding-existing-job" className="block text-xs font-bold text-origin-muted">既存のジョブID</label>
-            <input id="coding-existing-job" value={existingJobId} onChange={event => setExistingJobId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="coding-…" className="mt-2 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 font-mono text-xs outline-none focus:ring-2 focus:ring-origin-brand" />
-            <button type="button" onClick={() => void openExistingJob()} disabled={busy || !JOB_ID.test(existingJobId.trim())} className="mt-2 min-h-11 w-full rounded-xl border border-origin-brand-border bg-origin-brand-soft px-3 text-sm font-bold text-origin-brand disabled:cursor-not-allowed disabled:opacity-50">{busy ? '処理中…' : '結果を開く'}</button>
           </div>
         </details>
 
-        {capability?.authorizationMode === 'legacy-agent-compat' && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">互換モードです。<code>ORIGIN_CODING_OPERATOR_SECRET</code> を設定するとCoding権限を他のAgent操作から分離できます。</div>}
         {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">現在はコード変更を実行できません。安全に実行できる条件が揃うまで、新しい変更は開始しません。</div>}
         {error && <ErrorNotice code={error} />}
       </section>
@@ -447,18 +386,13 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
         <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを要求しました。停止の確認を待っています。' : STATUS_DETAILS[job.status]}</p>
         <details className="mt-2 border-t border-origin-border pt-2 text-xs">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">ジョブ情報</summary>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">Updated</dt><dd>{formatTime(job.updatedAt)}</dd><dt className="text-origin-muted">Result</dt><dd className="break-all font-mono">{job.resultCode ?? 'pending'}</dd><dt className="text-origin-muted">Attempt</dt><dd>{job.attempt}</dd></dl>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">Updated</dt><dd>{formatTime(job.updatedAt)}</dd></dl>
         </details>
       </section>}
 
       <OriginAgentActionProgressV31 status={job?.status ?? null} />
 
       <OriginCodingWorkspaceV31 result={result} state={resultState} changedPaths={job?.changedPaths ?? []} />
-
-      <details className="rounded-2xl border border-origin-border bg-origin-surface/70 px-4 text-xs leading-5 text-origin-muted">
-        <summary className="min-h-11 cursor-pointer py-3 font-semibold text-origin-ink">安全・公開権限</summary>
-        <p className="pb-4">UIからrepository/ref/pathは指定できません。targetはserver-ownedの <code>origin:self</code> に固定され、Git公開・デプロイはこのV1.4経路では実行されません。</p>
-      </details>
     </div>
   </section>;
 }
