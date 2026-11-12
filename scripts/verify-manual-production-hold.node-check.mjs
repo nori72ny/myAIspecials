@@ -4,10 +4,26 @@ import { assertManualProductionGitHold } from './verify-manual-production-hold.m
 
 const safe = () => ({
   git: { deploymentEnabled: { '**': false, main: false, 'release-*': true } },
+  github: { autoAlias: false },
 });
 
 test('permits protected release previews while disabling main auto-deploy', () => {
   assert.doesNotThrow(() => assertManualProductionGitHold(safe()));
+});
+
+test('rejects Git deployments that can auto-alias to Production', () => {
+  const unsafe = safe();
+  unsafe.github.autoAlias = true;
+  assert.throws(
+    () => assertManualProductionGitHold(unsafe),
+    /ORIGIN_AUTOMATIC_PRODUCTION_ALIAS_FORBIDDEN/,
+  );
+  const missing = safe();
+  delete missing.github;
+  assert.throws(
+    () => assertManualProductionGitHold(missing),
+    /ORIGIN_AUTOMATIC_PRODUCTION_ALIAS_FORBIDDEN/,
+  );
 });
 
 test('rejects main Git deploy when set to true', () => {
