@@ -20,11 +20,7 @@ async function openConversation(page: import('@playwright/test').Page) {
 
 test.describe('ORIGIN Personal 2.0 accessibility', () => {
   test('settings dialog traps focus and restores the opener on Escape', async ({ page }) => {
-    // リリースIDが「ready」だと、閉じた details 内のボタンがトラップの
-    // 末尾要素になり回り込みを決定的に検証できないため、このテストでは
-    // 取得失敗（unavailable）の状態に固定する。MCP項目も未構成に固定し、
-    // ダイアログ内のフォーカス可能要素を決定的にする。
-    await page.route('**/api/health', route => route.abort());
+    // MCP項目は未構成に固定し、ダイアログ内のフォーカス可能要素を決定的にする。
     await page.route('**/api/mcp/status', route => route.fulfill({ json: { configured: false, authenticated: false } }));
     await page.goto('/');
     const { opener, dialog } = await openSettings(page);
