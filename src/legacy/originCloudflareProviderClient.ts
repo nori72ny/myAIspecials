@@ -611,6 +611,9 @@ export async function executeOriginCloudflareProvider(
       })),
     ];
     const timeoutMs = Math.min(MAX_CF_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_CF_REQUEST_TIMEOUT_MS));
+    // (PKG-2b) Fix the requested completion budget once, so the truncation
+    // check below compares against exactly the value sent as max_tokens.
+    const completionTokenBudget = originCompletionTokenBudget(providerRequest.plan.taskType);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -623,7 +626,7 @@ export async function executeOriginCloudflareProvider(
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${credentials.aiToken}` },
           body: JSON.stringify({
             messages,
-            max_tokens: originCompletionTokenBudget(providerRequest.plan.taskType),
+            max_tokens: completionTokenBudget,
             temperature: 0.2,
           }),
           signal: controller.signal,
@@ -656,6 +659,13 @@ export async function executeOriginCloudflareProvider(
     );
     const result: OriginProviderExecutionResult = {
       text,
+      // (PKG-2b) Truncation detection, method B: reaching the requested
+      // completion budget means the answer was cut at the cap. Usage collapses
+      // to 0 when the provider omits it, so a 0 reading is "undetectable" and
+      // never flags the result.
+      ...(usage.completionTokens > 0 && usage.completionTokens >= completionTokenBudget
+        ? { truncated: true }
+        : {}),
       transportRequestCount: transport.count,
       actualCostUsd: 0,
       providerDataPolicy: providerRequest.plan.providerDataPolicy,
