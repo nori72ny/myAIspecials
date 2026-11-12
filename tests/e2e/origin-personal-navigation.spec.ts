@@ -299,6 +299,40 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     });
   }
 
+  // オーナー決定（2026-11-12「ホームも一番下に寄せて」）: デスクトップでも
+  // ホーム初期画面の入力欄を一番下に置く。以前は sm:justify-center で
+  // イントロと入力欄が一体で中央寄せされ、入力欄が縦の約65%に来ていた。
+  // モバイルと同じ2ゾーン構成（イントロが残りの高さを吸収して上部に残り、
+  // 入力欄はスクロールビューポートの下端に付く）を固定する。
+  test('anchors the desktop home composer to the bottom of the scroll viewport', async ({ page }) => {
+    const viewport = { width: 1440, height: 900 };
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
+
+    const scrollViewport = page.locator('.origin-app main > div.min-h-0.flex-1.overflow-y-auto').first();
+    const scrollBox = await scrollViewport.boundingBox();
+    const scrollPaddingBottom = await scrollViewport.evaluate((element) => {
+      const value = Number.parseFloat(getComputedStyle(element).paddingBottom);
+      return Number.isFinite(value) ? value : 0;
+    });
+    const composerBox = await page.locator('.origin-app .origin-composer').boundingBox();
+    const logoBox = await page.getByTestId('origin-core-logo').boundingBox();
+    const descriptionBox = await page.locator('.origin-app main [data-testid="origin-core-logo"] + h1 + p').boundingBox();
+
+    expect(scrollBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+    expect(logoBox).not.toBeNull();
+    expect(descriptionBox).not.toBeNull();
+
+    const scrollBottom = scrollBox!.y + scrollBox!.height;
+    expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - scrollPaddingBottom - 1);
+    expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - scrollPaddingBottom + 1);
+    expect(composerBox!.y).toBeGreaterThanOrEqual(viewport.height * 0.55);
+    expect(logoBox!.y).toBeLessThan(viewport.height * 0.5);
+    expect(descriptionBox!.y + descriptionBox!.height).toBeLessThanOrEqual(composerBox!.y);
+  });
+
   test('opens HTML artifacts as finished previews instead of source code', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route('**/api/chat', route => route.fulfill({
