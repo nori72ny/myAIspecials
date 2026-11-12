@@ -208,6 +208,12 @@ describe("createOriginChatRouter with search grounding (default research composi
   // gate required a 最新/今日/現在 prefix plus a listed target noun, and
   // 最低賃金 matched neither — so the model asserted the 2024 values with
   // no sources. It must now take the research path via the classifier.
+  // Presentation note (PKG-9 search-dump fix): this app disables the
+  // synthesis stage, so the response is the fallback. The fallback cites
+  // the retrieved official source without reproducing its text — grounded
+  // values reach the answer body only through a citation-validated
+  // synthesis (see the GPT-5.1 case above). What this regression pins is
+  // the routing: research path, official evidence, no model execution.
   it("grounds the minimum-wage policy question instead of answering from memory", async () => {
     const { fetchImpl } = routedFetch([
       {
@@ -234,8 +240,10 @@ describe("createOriginChatRouter with search grounding (default research composi
     expect(response.body.routing.searchGrounding).toEqual(expect.objectContaining({
       questionType: "policy",
     }));
-    expect(response.body.content).toContain("1,177円");
+    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
     expect(response.body.content).toContain("mhlw.go.jp");
+    expect(response.body.content).not.toContain("1,177円");
+    expect(response.body.content).not.toContain("全国加重平均");
     expect(response.body.answer.evidence).toHaveLength(1);
     expect(executeMock).not.toHaveBeenCalled();
   });

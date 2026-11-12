@@ -191,8 +191,10 @@ describe("createOriginChatRouter", () => {
       .send({ messages: [{ role: "user", content: "今日のニュースを教えてください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
+    expect(response.body.content).not.toContain("現在確認できた公開情報の要点です。");
+    expect(response.body.content).not.toContain("## 確認できた公開情報");
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
       answerMode: "research",
@@ -434,7 +436,7 @@ describe("createOriginChatRouter", () => {
     expect(synthesisRequest.systemInstruction).toContain("実ファイルを生成済みとは表現しない");
   });
 
-  it("discards synthesized text when citation validation fails and returns the deterministic digest", async () => {
+  it("discards synthesized text when citation validation fails and falls back to the source list", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
       searchProvider: "DuckDuckGo",
@@ -478,7 +480,11 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "最新情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("https://example.com/one");
+    expect(response.body.content).toContain("https://example.org/two");
+    expect(response.body.content).not.toContain("公開情報その1です。");
+    expect(response.body.content).not.toContain("公開情報その2です。");
     expect(response.body.content).not.toContain("捏造された統合結果");
     expect(response.body.content).not.toContain("outside.invalid");
     expect(response.body.routing).toEqual(expect.objectContaining({
@@ -492,7 +498,7 @@ describe("createOriginChatRouter", () => {
     expect(executeMock).not.toHaveBeenCalled();
   });
 
-  it("fails the synthesis stage closed after one provider failure and keeps only retrieved evidence", async () => {
+  it("fails the synthesis stage closed after one provider failure and keeps only the retrieved source list", async () => {
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
       searchProvider: "DuckDuckGo",
@@ -522,7 +528,9 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("https://example.com/current");
+    expect(response.body.content).not.toContain("現在確認できた公開情報です。");
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "provider-failed",
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
@@ -539,6 +547,62 @@ describe("createOriginChatRouter", () => {
         expect.objectContaining({ id: "artifact", status: "not-required", artifactCount: 0 }),
       ],
     }));
+    expect(synthesisMock).toHaveBeenCalledTimes(1);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("never pastes a raw extracted page into the answer when synthesis fails (PKG-9 search-dump regression)", async () => {
+    // Mirrors the production defect (chat 100-question inspection batch 1,
+    // A-02 / B-01 / B-05): for number-critical question types the grounding
+    // layer replaces the snippet with a full extracted page, navigation and
+    // advertising text included. When synthesis then fails, the fallback
+    // answer must list compact citations only — the extracted page text,
+    // boilerplate included, must not leak into the answer body.
+    const rawPageText = "サービス紹介 資料ダウンロード お問い合わせ 退職の基礎知識を確認したい人事担当者も、ぜひ最後までチェックしてみてください。退職の予告は民法により、原則として2週間前の申し出で退職が可能です。資料を無料ダウンロード";
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      searchProvider: "Tavily",
+      sources: [{
+        title: "法律で退職は何日前までに伝えられるべき？",
+        url: "https://example.com/retirement-law",
+        excerpt: rawPageText,
+        sourceType: "web-search",
+        domain: "example.com",
+        rank: 1,
+        evidenceLevel: "extracted",
+        retrievedAt: "2026-09-24T06:00:00.000Z",
+        freshness: "recent",
+      }],
+    }) as unknown as OriginResearchExecutor;
+    const synthesisMock = vi.fn().mockRejectedValue(
+      new OriginProviderError("PROVIDER_TIMEOUT", "internal", 504, true),
+    ) as unknown as OriginChatExecutor;
+
+    const response = await request(createApp(
+      execute,
+      { OPENROUTER_API_KEY: "synthetic-test-key" },
+      undefined,
+      undefined,
+      researchMock,
+      synthesisMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.routing.synthesisStatus).toBe("provider-failed");
+    // No fragment of the extracted page — fact sentence or boilerplate — is
+    // presented as the answer.
+    expect(response.body.content).not.toContain("退職の予告は民法により");
+    expect(response.body.content).not.toContain("お問い合わせ");
+    expect(response.body.content).not.toContain("無料ダウンロード");
+    expect(response.body.content).not.toContain("## 確認できた公開情報");
+    // The fallback states its own limit first, keeps the cross-check notes,
+    // and cites the source compactly (title, domain, URL).
+    expect(response.body.content).toContain("要約した回答を作成できなかったため、出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("## 照合メモ");
+    expect(response.body.content).toContain("法律で退職は何日前までに伝えられるべき？");
+    expect(response.body.content).toContain("example.com");
+    expect(response.body.content).toContain("https://example.com/retirement-law");
+    expect(response.body.answer.conclusion).toContain("要約した回答を作成できなかった");
     expect(synthesisMock).toHaveBeenCalledTimes(1);
     expect(executeMock).not.toHaveBeenCalled();
   });
@@ -571,7 +635,9 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("確認できた公開情報");
+    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("https://example.com/current");
+    expect(response.body.content).not.toContain("現在確認できた公開情報です。");
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "plan-unavailable",
       synthesisFailureCode: "FREE_PROVIDER_NOT_CONFIGURED",
