@@ -388,18 +388,26 @@
   }
 }
 
-/* Mobile home top breathing room: with suggestion chips present, the
-   centered intro otherwise leaves a description-to-composer gap above the
-   mobile-composer-layout contract (30% of viewport height) at 390x844.
-   Extra top padding trims the intro's flex slack. Home layout only; the
-   generic first-child rule above also covers the conversation view.
-   Retuned 80px -> 128px when the composer became a compact single row:
-   the freed 42px otherwise lands in the centered intro slack and pushes
-   the gap back over the contract. */
+/* Mobile home top breathing room: the centered intro is the only flexible
+   part between this top padding and the bottom-pinned composer, so the
+   padding also calibrates the logo's vertical position: every 2px of top
+   padding moves the centered intro down 1px, and the description-to-
+   composer gap shrinks by the same 1px. The value must keep the logo in
+   the upper band (<= 40% of viewport height) at tall phones while the gap
+   stays under the mobile-composer-layout contract (30% of viewport
+   height). Home layout only; the generic first-child rule above also
+   covers the conversation view.
+   Retuned 128px -> 48px when the suggestion chips were removed
+   (2026-11-12): the chips sat between the intro and the composer and
+   shrank the intro's flex region, and the 128px offset was calibrated
+   for that three-block column. Without the chips the intro region
+   grows, its center drops, and 128px pushes the logo below the 40%
+   band (measured 350px at 390x844, 385.5px at 412x915); 48px restores
+   it (about 310px / 345px) with the gap contract intact. */
 @media (max-width: 639px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
-    padding-block: 128px 0 !important;
+    padding-block: 48px 0 !important;
   }
 }
 
@@ -431,9 +439,6 @@
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
     height: 100% !important;
     min-height: 0 !important;
-  }
-  .origin-app main .origin-home-suggestions {
-    flex: 0 0 auto !important;
   }
   /* Bound the intro's text growth (system font scaling / text zoom):
      at the default font size the heading is one line and the
