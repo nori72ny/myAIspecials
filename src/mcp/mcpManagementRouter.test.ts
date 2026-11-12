@@ -107,6 +107,43 @@ describe('MCP management ownership, credentials and concurrency', () => {
     expect(begin).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled(); expect(f.createProbe).not.toHaveBeenCalled();
     expect(f.resolveCredential).toHaveBeenCalledTimes(1);
   });
+  it('fails closed at the kill switch before credential resolution or any live connection when MCP is disabled', async () => {
+    const f = fixture(); const record = await f.register();
+    // Bring the connection to verified (version 2) through the ungated fixture service.
+    await f.service.probe('alice', record.id, 1);
+    expect(f.records.get(record.id)?.status).toBe('verified');
+
+    const disabled = new McpConnectionService({ servers: [server], store: f.store, toolGrants: f.toolGrants,
+      resolveCredential: f.resolveCredential, disconnectCredential: f.disconnectCredential, createProbe: f.createProbe,
+      enabled: () => false, now: () => clock });
+    const app = express(); app.use(express.json());
+    app.use(createMcpManagementRouter({ appOrigin: origin, service: disabled,
+      authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')! } : null }));
+
+    const credentialReads = f.resolveCredential.mock.calls.length;
+    f.createProbe.mockClear();
+
+    const checked = await request(app).post(`/api/mcp/connections/${record.id}/check`).set(f.headers).send({ version: 2 });
+    expect(checked.status).toBe(503); expect(checked.body.code).toBe('MCP_NOT_CONFIGURED');
+
+    const tools = await request(app).get(`/api/mcp/connections/${record.id}/tools?version=2`).set('test-user', 'alice');
+    expect(tools.status).toBe(503); expect(tools.body.code).toBe('MCP_NOT_CONFIGURED');
+
+    const grants = await request(app).post(`/api/mcp/connections/${record.id}/grants`).set(f.headers)
+      .send({ version: 2, grants: [{ alias: f.toolCatalog[0].alias, fingerprint: f.toolCatalog[0].fingerprint }] });
+    expect(grants.status).toBe(503); expect(grants.body.code).toBe('MCP_NOT_CONFIGURED');
+    expect(f.granted.get(record.id)).toBeUndefined();
+
+    expect(f.resolveCredential.mock.calls.length).toBe(credentialReads);
+    expect(f.createProbe).not.toHaveBeenCalled();
+
+    // Registration is deliberately outside the gate (it opens no external
+    // connection): it still resolves the broker credential and reaches the
+    // store, surfacing the duplicate as before instead of the gate's 503.
+    const duplicate = await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' });
+    expect(duplicate.status).toBe(409); expect(duplicate.body.code).toBe('MCP_CONNECTION_LIMIT_OR_DUPLICATE');
+    expect(f.resolveCredential.mock.calls.length).toBe(credentialReads + 1);
+  });
   it('re-resolves the current broker credential before every probe and revokes before deletion', async () => {
     const f = fixture(); const record = await f.register();
     f.resolveCredential.mockResolvedValueOnce('fresh-service-token');

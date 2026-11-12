@@ -70,6 +70,13 @@ export class McpConnectionService {
     createProbe: (ownerId: string, server: McpServerChoice, token: string) => Pick<OriginMcpSession, 'connect' | 'catalog' | 'close'>;
     /** Optional only for pre-grant compatibility tests. Production wiring supplies the durable store. */
     toolGrants?: McpToolGrantStore;
+    /**
+     * Kill-switch predicate (PR-1c). When supplied and it reports disabled,
+     * the methods that open an external connection (probe, catalog, and the
+     * live catalog behind grant approval) fail closed before any credential
+     * is resolved. The production composition always supplies it.
+     */
+    enabled?: () => boolean;
     now?: () => number;
   }) {
     if (options.servers.length > 20 || new Set(options.servers.map(s => s.id)).size !== options.servers.length) reject('MCP_MANAGEMENT_CONFIG_INVALID', 503);
@@ -91,6 +98,15 @@ export class McpConnectionService {
   allows(serverId: string): boolean {
     const server = this.servers.find(candidate => candidate.id === serverId);
     return Boolean(server && Date.parse(server.zeroCostEvidence.expiresAt) > (this.options.now?.() ?? Date.now()));
+  }
+  /**
+   * Consumption-point kill-switch gate (PR-1c). Consulted at the entry of
+   * every method that opens an external connection, so a disabled switch
+   * fails closed before credential resolution or transport creation —
+   * independent of how this service was composed.
+   */
+  private assertEnabled(): void {
+    if (this.options.enabled && !this.options.enabled()) reject('MCP_NOT_CONFIGURED', 503);
   }
   private server(serverId: string, endpoint?: string): McpServerChoice {
     const server = this.servers.find(candidate => candidate.id === serverId && (endpoint === undefined || candidate.endpoint === endpoint));
@@ -115,6 +131,11 @@ export class McpConnectionService {
     return { servers: this.servers.filter(server => this.allows(server.id)).map(({ id, label }) => ({ id, label })), connections: records.map(publicRecord) };
   }
   async register(ownerId: string, serverId: string) {
+    // Deliberately outside the consumption-point kill-switch gate (PR-1c
+    // design §1.4): registration opens no external connection — it only
+    // verifies that a broker credential exists and persists metadata.
+    // The gated surface is probe/catalog and the live catalog behind
+    // grant approval, i.e. everything that actually reaches a server.
     const server = this.server(serverId);
     // Verify that a current broker credential exists, but never persist a copy here.
     await this.credential(ownerId, serverId);
@@ -123,6 +144,7 @@ export class McpConnectionService {
     return publicRecord(record);
   }
   async probe(ownerId: string, id: string, version: number) {
+    this.assertEnabled();
     const record = await this.owned(ownerId, id, version);
     const server = this.server(record.serverId, record.endpoint);
     const token = await this.credential(ownerId, record.serverId);
@@ -139,6 +161,7 @@ export class McpConnectionService {
     return { connection: publicRecord(next), toolCount: verified ? toolCount : 0, verified };
   }
   private async liveCatalog(ownerId: string, record: McpConnectionRecord) {
+    this.assertEnabled();
     const server = this.server(record.serverId, record.endpoint);
     const token = await this.credential(ownerId, record.serverId);
     const session = this.options.createProbe(ownerId, structuredClone(server), token);
@@ -155,6 +178,7 @@ export class McpConnectionService {
   }
 
   async catalog(ownerId: string, id: string, version: number) {
+    this.assertEnabled();
     const record = await this.owned(ownerId, id, version);
     if (record.status !== 'verified') return reject('MCP_CONNECTION_NOT_VERIFIED', 409);
     const catalog = await this.liveCatalog(ownerId, record);

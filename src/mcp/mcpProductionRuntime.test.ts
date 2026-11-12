@@ -62,6 +62,15 @@ describe('MCP production runtime composition', () => {
     expect(createMcpProductionSessionRouterFromEnv({ ...enabledEnv(), ORIGIN_MCP_ENABLED: 'false' })).toBeUndefined();
   });
 
+  it.each(['TRUE', 'True', '1', 'yes', ' true'])(
+    'treats a non-exact enable flag (%s) as disabled at both composition points',
+    value => {
+      const env = { ...enabledEnv(), ORIGIN_MCP_ENABLED: value };
+      expect(createMcpProductionRuntimeFromEnv(env)).toBeUndefined();
+      expect(createMcpProductionSessionRouterFromEnv(env)).toBeUndefined();
+    },
+  );
+
   it('constructs the reviewed OAuth runtime and owner-session router only when prerequisites are present', () => {
     const env = enabledEnv();
     const runtime = createMcpProductionRuntimeFromEnv(env);

@@ -17,6 +17,12 @@ export function createNodeMcpManagement(options: {
   disconnectCredential?: (ownerId: string, serverId: string) => Promise<void>;
   oauth?: McpManagementDependencies['oauth'];
   audit?: McpManagementDependencies['audit'];
+  /**
+   * Kill-switch predicate (PR-1c), forwarded to the connection service so
+   * its live-connection methods re-check the switch at the consumption
+   * point. The production composition always supplies it.
+   */
+  enabled?: () => boolean;
 }): McpManagementDependencies {
   const origin = new URL(options.appOrigin);
   if (origin.origin !== options.appOrigin || origin.protocol !== 'https:') throw new Error('MCP_APP_ORIGIN_INVALID');
@@ -31,6 +37,7 @@ export function createNodeMcpManagement(options: {
       toolGrants: options.toolGrants,
       resolveCredential: options.resolveCredential,
       disconnectCredential: options.disconnectCredential,
+      ...(options.enabled ? { enabled: options.enabled } : {}),
       createProbe: (ownerId, server, token) => new OriginMcpSession({
         subjectId: ownerId, serverId: server.id, grants: [], authorize: async () => false,
         transport: () => createNodeMcpTransport({
@@ -67,6 +74,12 @@ export function createNodeMcpAgentSessionFactory(options: {
     arguments: Record<string, unknown>;
     signal: AbortSignal;
   }) => Promise<boolean>;
+  /**
+   * Kill-switch predicate (PR-1c). When supplied and it reports disabled,
+   * open() fails closed before any durable state, grant, or credential is
+   * read. The production composition always supplies it.
+   */
+  enabled?: () => boolean;
   now?: () => number;
 }): McpAgentSessionFactory {
   const servers = structuredClone(options.servers);
@@ -76,6 +89,14 @@ export function createNodeMcpAgentSessionFactory(options: {
 
   return {
     async open(input) {
+      // Kill-switch gate at the deepest shared consumption point (PR-1c):
+      // whichever router or composition drives this factory, a disabled
+      // switch stops the open before connection metadata, grants, or the
+      // broker credential are read, so no transport can ever be built.
+      if (options.enabled && !options.enabled()) {
+        throw new McpManagementError('MCP_NOT_CONFIGURED', 503);
+      }
+
       if (!input || typeof input.ownerId !== 'string' || !input.ownerId
         || typeof input.connectionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.connectionId)
         || !Number.isSafeInteger(input.version) || input.version < 1) {

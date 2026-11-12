@@ -256,3 +256,45 @@ export function connectorAutoExecutableActions(declaration: ConnectorDeclaration
     (action): action is ConnectorReadActionDeclaration => action.kind === 'read' && action.autoExecutable,
   );
 }
+
+/**
+ * Conservative defaults for action limits a declaration leaves undeclared
+ * (PR-1c, carrying the PR-1b review decision: the consuming side must never
+ * fall back to the parser's validity ranges, which only say what may be
+ * declared, not what is safe to run with).
+ *
+ * - Rate: 10 invocations per minute — one sixth of the existing
+ *   per-IP request ceiling on the MCP routes (60/minute). Route A runs at
+ *   most one tool call per request, so this ceiling only bites on runaway
+ *   or repeated invocation, never on ordinary use.
+ * - Result size: 256KiB — exactly the hard cap the live execution path
+ *   already enforces (mcpClient / mcpAgentExecution), so adopting the
+ *   declaration layer can never loosen today's behavior. It stays the
+ *   effective ceiling even for declarations that name more; a larger
+ *   declared value only takes effect if a future change raises the
+ *   transport cap itself.
+ */
+export const DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE = 10;
+export const DEFAULT_CONNECTOR_MAX_RESULT_BYTES = 256 * 1024;
+
+/** The effective per-action limits after defaults and hard ceilings are applied. */
+export interface ConnectorActionLimits {
+  rateLimitPerMinute: number;
+  maxResultBytes: number;
+  /** Resolved executability: always false for write actions, whatever was declared or defaulted. */
+  autoExecutable: boolean;
+}
+
+/**
+ * Resolves one action's effective limits (PR-1c). Declared values win for
+ * the rate; the result size is additionally capped at the conservative
+ * hard ceiling above. Automatic execution stays impossible for writes
+ * regardless of declarations or defaults — limits never widen authority.
+ */
+export function connectorActionLimits(action: ConnectorActionDeclaration): ConnectorActionLimits {
+  return {
+    rateLimitPerMinute: action.rateLimitPerMinute ?? DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE,
+    maxResultBytes: Math.min(action.maxResultBytes ?? DEFAULT_CONNECTOR_MAX_RESULT_BYTES, DEFAULT_CONNECTOR_MAX_RESULT_BYTES),
+    autoExecutable: action.kind === 'read' && action.autoExecutable,
+  };
+}

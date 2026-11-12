@@ -1,8 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  connectorActionLimits,
   connectorAutoExecutableActions,
   connectorDeclarationAllows,
+  DEFAULT_CONNECTOR_MAX_RESULT_BYTES,
+  DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE,
   isConnectorUsable,
   parseConnectorDeclarations,
   reviewedServerToConnectorDeclaration,
@@ -226,5 +229,59 @@ describe('registry usability gates', () => {
       enabled: true,
     };
     expect(connectorAutoExecutableActions(declaration).map(action => action.name)).toEqual(['read-auto']);
+  });
+});
+
+describe('conservative default action limits (PR-1c)', () => {
+  const readAction = (overrides: Partial<ConnectorActionDeclaration> = {}): ConnectorActionDeclaration => ({
+    name: 'search', kind: 'read', inputSchema: {}, autoExecutable: true, ...overrides,
+  } as ConnectorActionDeclaration);
+
+  it('pins the defaults to the conservative values, not the parser validity ranges', () => {
+    expect(DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE).toBe(10);
+    expect(DEFAULT_CONNECTOR_MAX_RESULT_BYTES).toBe(256 * 1024);
+  });
+
+  it('applies the defaults when an action declares neither limit', () => {
+    expect(connectorActionLimits(readAction())).toEqual({
+      rateLimitPerMinute: DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE,
+      maxResultBytes: DEFAULT_CONNECTOR_MAX_RESULT_BYTES,
+      autoExecutable: true,
+    });
+  });
+
+  it('honors declared values within the hard ceiling', () => {
+    expect(connectorActionLimits(readAction({ rateLimitPerMinute: 60, maxResultBytes: 65_536 }))).toEqual({
+      rateLimitPerMinute: 60,
+      maxResultBytes: 65_536,
+      autoExecutable: true,
+    });
+    // A declaration exactly at the ceiling stays at the ceiling.
+    expect(connectorActionLimits(readAction({ maxResultBytes: 256 * 1024 })).maxResultBytes).toBe(256 * 1024);
+  });
+
+  it('caps the result size at 256KiB even when a declaration names more', () => {
+    expect(connectorActionLimits(readAction({ maxResultBytes: 16 * 1024 * 1024 })).maxResultBytes)
+      .toBe(DEFAULT_CONNECTOR_MAX_RESULT_BYTES);
+    // The rate has no equivalent cap: a declared rate passes through as declared.
+    expect(connectorActionLimits(readAction({ rateLimitPerMinute: 5_000 })).rateLimitPerMinute).toBe(5_000);
+  });
+
+  it('never resolves a write action as auto-executable, with or without declared limits', () => {
+    const bare: ConnectorActionDeclaration = { name: 'create-note', kind: 'write', inputSchema: {}, autoExecutable: false };
+    expect(connectorActionLimits(bare)).toEqual({
+      rateLimitPerMinute: DEFAULT_CONNECTOR_RATE_LIMIT_PER_MINUTE,
+      maxResultBytes: DEFAULT_CONNECTOR_MAX_RESULT_BYTES,
+      autoExecutable: false,
+    });
+    const declared: ConnectorActionDeclaration = {
+      name: 'create-note', kind: 'write', inputSchema: {}, autoExecutable: false,
+      rateLimitPerMinute: 30, maxResultBytes: 1024,
+    };
+    expect(connectorActionLimits(declared).autoExecutable).toBe(false);
+  });
+
+  it('keeps a non-auto-executable read action non-executable after resolution', () => {
+    expect(connectorActionLimits(readAction({ autoExecutable: false })).autoExecutable).toBe(false);
   });
 });
