@@ -441,6 +441,35 @@ describe("executeOriginCloudflareProvider", () => {
     expect(inferenceBody.max_tokens).toBe(4096);
   });
 
+  it("flags the result as truncated when completion tokens reach the requested budget", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100, completion_tokens: 4096 },
+    }));
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.truncated).toBe(true);
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
+    const inferenceBody = JSON.parse(String(calls[3][1]?.body)) as { max_tokens: number };
+    expect(inferenceBody.max_tokens).toBe(4096);
+  });
+
+  it("does not flag truncation when completion tokens stay below the requested budget", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100, completion_tokens: 4095 },
+    }));
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.truncated).toBeUndefined();
+  });
+
+  it("does not flag truncation when the provider omits usage (undetectable)", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+    }));
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.truncated).toBeUndefined();
+  });
+
   it("reuses a positive plan proof within the TTL and re-verifies after it expires", async () => {
     const fetchMock = fullFetch(async () => cloudflareJson({
       response: "確認結果です。",
