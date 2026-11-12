@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
+import type { ConnectorAuditEntry, ConnectorAuditRecorder } from './connectorAuditLog.js';
 import { McpConnectionService, McpManagementError } from './mcpConnections.js';
 import type { McpOAuthBroker } from './mcpOAuthBroker.js';
 
@@ -15,12 +16,30 @@ export interface McpManagementDependencies {
   authenticate: (req: Request) => Promise<McpAuthenticatedPrincipal | null>;
   /** Disabled unless explicitly provided by the server composition. */
   oauth?: Pick<McpOAuthBroker, 'begin' | 'complete' | 'supports'>;
+  /** Optional connector audit recorder (PR-1a). Absent = operations are not recorded. */
+  audit?: ConnectorAuditRecorder;
 }
 export function createMcpManagementRouter(deps?: McpManagementDependencies) {
   const router = Router();
   router.use('/api/mcp', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   router.use('/api/mcp', createOriginChatRateLimiter(Date.now, ['GET', 'POST', 'DELETE']));
   const failure = (res: Response, error: unknown) => res.status(error instanceof McpManagementError ? error.status : 503).json({ ok: false, code: error instanceof McpManagementError ? error.code : 'MCP_MANAGEMENT_UNAVAILABLE' });
+  const auditErrorCode = (error: unknown): string => (error instanceof McpManagementError ? error.code : 'MCP_MANAGEMENT_UNAVAILABLE');
+  /**
+   * Connector audit (PR-1a): management operations are recorded with
+   * identifiers and a short summary only — never request bodies or
+   * credentials. The recorder contract is never-throw; a violation is
+   * ignored here as well, so auditing can never break management.
+   * Unvalidated caller input (a requested server id) is echoed into an
+   * entry only when it matches the server-id format; anything else is
+   * recorded as the management plane itself, with no echo.
+   */
+  async function recordAudit(entry: ConnectorAuditEntry): Promise<void> {
+    if (!deps?.audit) return;
+    try { await deps.audit.record(entry); } catch { /* auditing must never break management */ }
+  }
+  const auditedServerId = (value: string): string => (/^[A-Za-z0-9-]{1,64}$/.test(value) ? value : 'mcp');
+  const serverSummary = (value: string): string => (/^[A-Za-z0-9-]{1,64}$/.test(value) ? `server=${value}` : '');
   async function authenticated(req: Request): Promise<McpAuthenticatedPrincipal> {
     if (!deps) throw new McpManagementError('MCP_NOT_CONFIGURED', 503);
     const user = await deps.authenticate(req);
@@ -62,13 +81,17 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
   }
   router.get('/api/mcp/status', async (req, res) => {
     if (!deps) return res.json({ configured: false, authenticated: false });
+    let ownerId: string | undefined;
+    const started = Date.now();
     try {
-      const ownerId = await principal(req);
+      ownerId = await principal(req);
       const overview = await deps.service.overview(ownerId);
+      await recordAudit({ ownerId, connectorId: 'mcp', action: 'mcp.status.read', kind: 'read', outcome: 'succeeded', durationMs: Date.now() - started, summary: `connections=${overview.connections.length} servers=${overview.servers.length}` });
       return res.json({ configured: true, authenticated: true, ...overview,
         servers: overview.servers.map(server => ({ ...server, authMode: deps.oauth?.supports(server.id) ? 'oauth' : 'broker' })) });
     } catch (error) {
       if (error instanceof McpManagementError && error.status === 401) return res.json({ configured: true, authenticated: false });
+      if (ownerId) await recordAudit({ ownerId, connectorId: 'mcp', action: 'mcp.status.read', kind: 'read', outcome: 'failed', errorCode: auditErrorCode(error), durationMs: Date.now() - started, summary: '' });
       return failure(res, error);
     }
   });
@@ -86,6 +109,7 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
     } catch (error) { return failure(res, error); }
   });
   router.get('/api/mcp/oauth/:serverId/callback', async (req, res) => {
+    const started = Date.now();
     try {
       if (!deps?.oauth) throw new McpManagementError('MCP_OAUTH_NOT_CONFIGURED', 503);
       const requestedServerId = serverId(req);
@@ -99,7 +123,8 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
       // must not fail merely because that row already exists.
       const overview = await deps.service.overview(who.ownerId);
       if (!overview.connections.some(connection => connection.serverId === requestedServerId)) {
-        await deps.service.register(who.ownerId, requestedServerId);
+        const connection = await deps.service.register(who.ownerId, requestedServerId);
+        await recordAudit({ ownerId: who.ownerId, connectorId: requestedServerId, action: 'mcp.connection.register', kind: 'manage', outcome: 'succeeded', durationMs: Date.now() - started, summary: `connection=${connection.id} server=${requestedServerId} via=oauth-callback` });
       }
       const destination = new URL('/', deps.appOrigin); destination.searchParams.set('mcp', 'linked');
       return res.redirect(303, destination.href);
@@ -113,13 +138,29 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
       const owner = await principal(req); mutation(req);
       const { serverId: requestedServerId } = body(req, ['serverId']);
       if (typeof requestedServerId !== 'string') throw new McpManagementError('MCP_REQUEST_INVALID', 400);
-      return res.status(201).json({ ok: true, connection: await deps!.service.register(owner, requestedServerId) });
+      const started = Date.now();
+      try {
+        const connection = await deps!.service.register(owner, requestedServerId);
+        await recordAudit({ ownerId: owner, connectorId: connection.serverId, action: 'mcp.connection.register', kind: 'manage', outcome: 'succeeded', durationMs: Date.now() - started, summary: `connection=${connection.id} server=${connection.serverId}` });
+        return res.status(201).json({ ok: true, connection });
+      } catch (error) {
+        await recordAudit({ ownerId: owner, connectorId: auditedServerId(requestedServerId), action: 'mcp.connection.register', kind: 'manage', outcome: 'failed', errorCode: auditErrorCode(error), durationMs: Date.now() - started, summary: serverSummary(requestedServerId) });
+        throw error;
+      }
     } catch (error) { return failure(res, error); }
   });
   router.post('/api/mcp/connections/:id/check', async (req, res) => {
     try {
       const owner = await principal(req); mutation(req); const { id, version } = reference(req);
-      return res.json({ ok: true, ...await deps!.service.probe(owner, id, version) });
+      const started = Date.now();
+      try {
+        const result = await deps!.service.probe(owner, id, version);
+        await recordAudit({ ownerId: owner, connectorId: result.connection.serverId, action: 'mcp.connection.probe', kind: 'manage', outcome: 'succeeded', durationMs: Date.now() - started, summary: `connection=${id} verified=${result.verified} tools=${result.toolCount}` });
+        return res.json({ ok: true, ...result });
+      } catch (error) {
+        await recordAudit({ ownerId: owner, connectorId: 'mcp', action: 'mcp.connection.probe', kind: 'manage', outcome: 'failed', errorCode: auditErrorCode(error), durationMs: Date.now() - started, summary: `connection=${id}` });
+        throw error;
+      }
     } catch (error) { return failure(res, error); }
   });
   router.get('/api/mcp/connections/:id/tools', async (req, res) => {
@@ -145,14 +186,31 @@ export function createMcpManagementRouter(deps?: McpManagementDependencies) {
           || Object.keys(grant as Record<string, unknown>).some(key => !['alias', 'fingerprint'].includes(key)))) {
         throw new McpManagementError('MCP_REQUEST_INVALID', 400);
       }
-      const result = await deps!.service.approveGrants(owner, id, Number(version), grants as Array<{ alias: string; fingerprint: string }>);
-      return res.json({ ok: true, ...result });
+      // This route is itself the owner's approval act, so approved stays
+      // true for both outcomes of the grants update.
+      const started = Date.now();
+      try {
+        const result = await deps!.service.approveGrants(owner, id, Number(version), grants as Array<{ alias: string; fingerprint: string }>);
+        await recordAudit({ ownerId: owner, connectorId: 'mcp', action: 'mcp.grants.update', kind: 'manage', approved: true, outcome: 'succeeded', durationMs: Date.now() - started, summary: `connection=${id} approved=${result.approved}` });
+        return res.json({ ok: true, ...result });
+      } catch (error) {
+        await recordAudit({ ownerId: owner, connectorId: 'mcp', action: 'mcp.grants.update', kind: 'manage', approved: true, outcome: 'failed', errorCode: auditErrorCode(error), durationMs: Date.now() - started, summary: `connection=${id}` });
+        throw error;
+      }
     } catch (error) { return failure(res, error); }
   });
   router.delete('/api/mcp/connections/:id', async (req, res) => {
     try {
       const owner = await principal(req); mutation(req); const { id, version } = reference(req);
-      await deps!.service.remove(owner, id, version); return res.json({ ok: true, removed: true });
+      const started = Date.now();
+      try {
+        await deps!.service.remove(owner, id, version);
+        await recordAudit({ ownerId: owner, connectorId: 'mcp', action: 'mcp.connection.remove', kind: 'manage', outcome: 'succeeded', durationMs: Date.now() - started, summary: `connection=${id}` });
+        return res.json({ ok: true, removed: true });
+      } catch (error) {
+        await recordAudit({ ownerId: owner, connectorId: 'mcp', action: 'mcp.connection.remove', kind: 'manage', outcome: 'failed', errorCode: auditErrorCode(error), durationMs: Date.now() - started, summary: `connection=${id}` });
+        throw error;
+      }
     } catch (error) { return failure(res, error); }
   });
   return router;
