@@ -308,6 +308,12 @@
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .safe-area-bottom { padding-bottom: 1.25rem; } }
+/* Bottom sheets (e.g. the image generation panel) touch the screen's
+   bottom edge, so the safe-area inset is applied exactly once, as the
+   sheet's own bottom padding. At sm and up the sheet is a centered card
+   whose uniform padding (sm:p-6 = 1.5rem) already covers the inset. */
+.origin-sheet-safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+@media (min-width: 640px) { .origin-sheet-safe-area-bottom { padding-bottom: 1.5rem; } }
 @media (max-width: 639px) {
   .origin-header { padding-inline: 0.5rem; }
   .origin-header > div:first-child { gap: 0.25rem; }
