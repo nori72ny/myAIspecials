@@ -52,8 +52,14 @@ export default function SettingsModalLegacy({
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
       if (event.key !== 'Tab') return;
       const dialog = closeButtonRef.current?.closest('[role="dialog"]');
-      const focusable = dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), select:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
-      if (!focusable?.length) return;
+      const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), select:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])') ?? []).filter((element) => {
+        // Controls inside a closed <details> are not rendered and cannot
+        // take focus; its <summary> stays focusable so the disclosure can
+        // still be opened from the keyboard.
+        const details = element.closest('details');
+        return !details || details.open || element.tagName === 'SUMMARY';
+      });
+      if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
