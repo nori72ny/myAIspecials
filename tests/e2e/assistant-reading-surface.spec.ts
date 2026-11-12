@@ -82,9 +82,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 猫28px＋台座の余白3px×2＋枠線で、台座の外径は34pxになる。
-    expect(headerCatStyle.width).toBe('34px');
-    expect(headerCatStyle.height).toBe('34px');
+    // 猫28px＋台座のリング2px×2で、台座の外径は32pxになる（枠線は
+    // border-box の内側。2026-11-12 のリング細分化で旧形状の34pxから変更）。
+    expect(headerCatStyle.width).toBe('32px');
+    expect(headerCatStyle.height).toBe('32px');
     expect(headerCatStyle.borderRadius).toBe('999px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
