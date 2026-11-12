@@ -203,15 +203,6 @@ function formatDateTime(value: string | number): string {
   return date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function expiryNote(run: RunView): string | null {
-  const expires = Date.parse(run.expiresAt);
-  if (Number.isNaN(expires)) return null;
-  const days = Math.ceil((expires - Date.now()) / 86_400_000);
-  if (days <= 0) return 'まもなく記録の期限切れ';
-  if (days === 1) return 'あと1日で記録の期限切れ';
-  return `あと${days}日で記録の期限切れ`;
-}
-
 function goalSummary(goal: string): string {
   const collapsed = goal.replace(/\s+/g, ' ').trim();
   return collapsed.length > 90 ? `${collapsed.slice(0, 90)}…` : collapsed;
@@ -584,7 +575,6 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     const done = run.stepsState.filter((step) => step.status === 'completed').length;
     const session = resumeSession?.runId === run.runId ? resumeSession : null;
     const expanded = expandedRunId === run.runId;
-    const expiry = !TERMINAL_STATUSES.has(run.status) ? expiryNote(run) : null;
     return <article key={run.runId} className="rounded-xl border border-origin-border p-3">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-sm font-bold leading-6">{goalSummary(run.goal)}</p>
@@ -595,7 +585,6 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
       <p className="mt-1 text-xs leading-5 text-origin-muted">
         {total > 0 ? `ステップ ${done}/${total}` : ''}
         {run.status === 'held' && run.hold ? `${total > 0 ? ' · ' : ''}${HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'} · ${resumeConditionText(run.hold.resumeCondition)}` : ''}
-        {expiry ? ` · ${expiry}` : ''}
       </p>
       {actionMessage?.runId === run.runId && (
         <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">{actionMessage.text}</p>
@@ -638,8 +627,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   return <section className="origin-workspace rounded-2xl p-4" aria-label="タスク">
     <div className="flex items-center justify-between gap-3">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">Task board</p>
-        <h2 className="mt-1 text-base font-black">タスク</h2>
+        <h2 className="text-base font-black">タスク</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
         className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50">

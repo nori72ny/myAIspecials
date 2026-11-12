@@ -178,9 +178,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
 
     fireEvent.click(screen.getByTestId('history-drawer-toggle'));
-    const knowledgeMap = screen.getByTestId('knowledge-map-toggle');
-    expect(knowledgeMap.className).toContain('min-h-11');
-    expect(knowledgeMap.className).toContain('min-w-11');
+    expect(screen.getByTestId('history-drawer')).toBeTruthy();
   });
 
   it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving 44px targets', () => {
@@ -933,19 +931,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     for (const format of ['html', 'svg', 'png', 'markdown', 'json']) expect(screen.getByTestId(`artifact-export-${format}`)).toBeTruthy();
   });
 
-  it('collapses truthful delivery evidence into a one-line badge until requested', () => {
-    render(<App language="ja" messages={[{ id: 'a-1', role: 'assistant', content: '結論です。' }]} />);
-    const verification = screen.getByTestId('response-verification-details');
-    expect(verification.textContent).toContain('✓');
-    expect(verification.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByText('詳細'));
-    expect(verification.hasAttribute('open')).toBe(true);
-    const verificationLog = screen.getByTestId('response-verification-log');
-    for (const label of ['応答完了', '費用経路', '内容の限界']) expect(verificationLog.textContent).toContain(label);
-    expect(verificationLog.textContent).toContain('固定の無料モデル');
-    expect(verificationLog.textContent).toContain('出典確認や別AIによる内容検証を示すものではありません');
-  });
-
   it('never discloses a verified Process Trace for a failed assistant message', () => {
     render(<App language="ja" messages={[{
       id: 'error-1',
@@ -1189,13 +1174,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
 
     await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy());
-    expect(screen.getByText('画像を生成し、実ファイルを検証しました。')).toBeTruthy();
-    // A successful raster/quality check does not prove the real-world bill is $0.
-    expect(screen.getByText(/費用未検証/)).toBeTruthy();
+    expect(screen.getByText('画像ができました。')).toBeTruthy();
     expect(screen.queryByText(/\$0 verified/i)).toBeNull();
     expect(screen.getByRole('link', { name: '画像を保存' }).getAttribute('download')).toBe('origin-image.png');
-    expect(screen.getByText(/flux-2-klein-4b/)).toBeTruthy();
-    expect(screen.getByText(/photograph/)).toBeTruthy();
     expect(screen.getByText(/1024×1024/)).toBeTruthy();
     await waitFor(() => {
       const emitted = onMessagesChange.mock.calls.flatMap((call) => call[0] as ConversationMessage[]);
@@ -1442,26 +1423,6 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const japanesePrompt = getOriginSystemPrompt('ja');
     for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', '画像生成プロンプト・SVG・HTML・文章説明を代用品として返さない', 'Artifact-1のような機械的な名前', '端末内保存', '質問だけで最初の1ターンを使い切らない', 'Version 1のたたき台', '最大1〜2個だけ']) expect(japanesePrompt).toContain(phrase);
     vi.unstubAllGlobals();
-  });
-
-  it('coalesces knowledge-map restoration through requestAnimationFrame', () => {
-    const restore = vi.fn();
-    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(0); return 1; });
-    const session: ConversationSession = { id: 'session-1', title: 'Previous planning session', createdAt: 1, messages: [{ id: 'm-1', role: 'user', content: 'Plan the project' }] };
-    render(<App sessions={[session]} onRestoreSession={restore} language="ja" />);
-    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
-    expect(screen.getByTestId('history-search-input').getAttribute('placeholder')).toBe('履歴を検索');
-    expect(screen.getByTestId('history-drawer-close').className).toContain('min-h-11');
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByTestId('history-drawer')).toBeNull();
-    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
-    fireEvent.click(screen.getByText('その他の表示'));
-    fireEvent.click(screen.getByTestId('knowledge-map-toggle'));
-    expect(screen.getByTestId('knowledge-map-node-count').textContent).toBe('1');
-    fireEvent.click(screen.getByTestId('knowledge-map-session-0'));
-    expect(frame).toHaveBeenCalled();
-    expect(restore).toHaveBeenCalledWith(session);
-    frame.mockRestore();
   });
 
   it('searches local sessions, artifact code, and immutable revisions without a network request', () => {
@@ -1826,7 +1787,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'SSEを検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('検証済みSSE回答')).toBeTruthy());
-    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -1848,7 +1809,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'フォールバックSSEを検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('フォールバック経由の検証済みSSE回答')).toBeTruthy());
-    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     expect(screen.queryByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeNull();
     vi.unstubAllGlobals();
@@ -1871,7 +1832,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'GroqフォールバックSSEを検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('Groq経由の検証済みSSE回答')).toBeTruthy());
-    await waitFor(() => expect(screen.getByTestId('response-verification-details')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });

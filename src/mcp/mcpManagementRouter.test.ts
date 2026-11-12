@@ -4,6 +4,7 @@ import express from 'express';
 import request from 'supertest';
 import { McpConnectionService, type McpConnectionRecord, type McpConnectionStore } from './mcpConnections.js';
 import { createMcpManagementRouter } from './mcpManagementRouter.js';
+import type { ConnectorAuditEntry, ConnectorAuditRecorder } from './connectorAuditLog.js';
 
 const origin = 'https://origin.example.com';
 const clock = Date.parse('2026-09-20T00:00:00.000Z');
@@ -218,5 +219,105 @@ describe('MCP management ownership, credentials and concurrency', () => {
     const app = express(); app.use(express.json()); app.use(createMcpManagementRouter());
     expect((await request(app).get('/api/mcp/status')).body).toEqual({ configured: false, authenticated: false });
     await request(app).post('/api/mcp/connections').send({ serverId: 'docs' }).expect(503);
+  });
+});
+
+describe('MCP management connector audit (PR-1a)', () => {
+  function auditRecorder() {
+    const entries: ConnectorAuditEntry[] = [];
+    const recorder: ConnectorAuditRecorder = { record: async entry => { entries.push(structuredClone(entry)); } };
+    return { entries, recorder };
+  }
+  function auditedApp(f: ReturnType<typeof fixture>, audit?: ConnectorAuditRecorder) {
+    const app = express(); app.use(express.json());
+    app.use(createMcpManagementRouter({ appOrigin: origin, service: f.service, audit,
+      authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')! } : null }));
+    return app;
+  }
+
+  it('records register, status, probe, grants and remove with identifiers and summaries only', async () => {
+    const f = fixture(); const { entries, recorder } = auditRecorder(); const app = auditedApp(f, recorder);
+    const created = await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(201);
+    const connection = created.body.connection as McpConnectionRecord;
+    await request(app).get('/api/mcp/status').set('test-user', 'alice').expect(200);
+    await request(app).post(`/api/mcp/connections/${connection.id}/check`).set(f.headers).send({ version: 1 }).expect(200);
+    await request(app).post(`/api/mcp/connections/${connection.id}/grants`).set(f.headers)
+      .send({ version: 2, grants: [{ alias: f.toolCatalog[0].alias, fingerprint: f.toolCatalog[0].fingerprint }] }).expect(200);
+    await request(app).delete(`/api/mcp/connections/${connection.id}`).set(f.headers).send({ version: 2 }).expect(200);
+
+    expect(entries.map(e => e.action)).toEqual([
+      'mcp.connection.register', 'mcp.status.read', 'mcp.connection.probe', 'mcp.grants.update', 'mcp.connection.remove',
+    ]);
+    for (const e of entries) {
+      expect(e.ownerId).toBe('alice'); expect(e.outcome).toBe('succeeded'); expect(e.errorCode).toBeUndefined();
+      expect(typeof e.durationMs).toBe('number'); expect(e.durationMs!).toBeGreaterThanOrEqual(0);
+    }
+    expect(entries[0]).toMatchObject({ connectorId: 'docs', kind: 'manage' });
+    expect(entries[0].approved).toBeFalsy();
+    expect(entries[0].summary).toContain(`connection=${connection.id}`);
+    expect(entries[1]).toMatchObject({ connectorId: 'mcp', kind: 'read' });
+    expect(entries[2].summary).toContain('verified=true');
+    expect(entries[3]).toMatchObject({ action: 'mcp.grants.update', approved: true });
+    expect(entries[3].summary).toContain('approved=1');
+    // The broker credential used throughout this flow appears nowhere.
+    expect(JSON.stringify(entries)).not.toContain(f.token);
+  });
+
+  it('records failures with the management error code', async () => {
+    const f = fixture(); const { entries, recorder } = auditRecorder(); const app = auditedApp(f, recorder);
+    await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'evil' }).expect(400);
+    const created = await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(201);
+    const connection = created.body.connection as McpConnectionRecord;
+    await request(app).delete(`/api/mcp/connections/${connection.id}`).set(f.headers).send({ version: 99 }).expect(409);
+    const failed = entries.filter(e => e.outcome === 'failed');
+    expect(failed.map(e => [e.action, e.errorCode])).toEqual([
+      ['mcp.connection.register', 'MCP_SERVER_NOT_ALLOWED'],
+      ['mcp.connection.remove', 'MCP_CONNECTION_CHANGED'],
+    ]);
+  });
+
+  it('never echoes unvalidated caller input into an audit entry', async () => {
+    const f = fixture(); const { entries, recorder } = auditRecorder(); const app = auditedApp(f, recorder);
+    const junk = 'raw-token-material with spaces and no valid format';
+    await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: junk }).expect(400);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].connectorId).toBe('mcp');
+    expect(entries[0].summary).toBe('');
+    expect(JSON.stringify(entries)).not.toContain('raw-token-material');
+  });
+
+  it('records nothing when the caller is unauthenticated', async () => {
+    const f = fixture(); const { entries, recorder } = auditRecorder(); const app = auditedApp(f, recorder);
+    expect((await request(app).get('/api/mcp/status')).body).toEqual({ configured: true, authenticated: false });
+    expect(entries).toHaveLength(0);
+  });
+
+  it('keeps management working when the recorder itself throws', async () => {
+    const f = fixture();
+    const broken: ConnectorAuditRecorder = { record: async () => { throw new Error('audit store on fire'); } };
+    const app = auditedApp(f, broken);
+    await request(app).post('/api/mcp/connections').set(f.headers).send({ serverId: 'docs' }).expect(201);
+  });
+
+  it('records the OAuth-callback auto-registration', async () => {
+    const f = fixture(); const { entries, recorder } = auditRecorder();
+    const app = express(); app.use(express.json());
+    app.use(createMcpManagementRouter({
+      appOrigin: origin,
+      service: f.service,
+      audit: recorder,
+      oauth: {
+        supports: (serverId: string) => serverId === 'docs',
+        begin: vi.fn(async () => ({ authorizationUrl: 'https://auth.example.com/authorize?state=x' })),
+        complete: vi.fn(async () => ({ linked: true as const, serverId: 'docs' })),
+      },
+      authenticate: async req => req.get('test-user') ? { subjectId: req.get('test-user')!, sessionBinding: req.get('test-session') ?? undefined } : null,
+    }));
+    await request(app).get('/api/mcp/oauth/docs/callback?state=state&code=code')
+      .set({ 'test-user': 'alice', 'test-session': '33333333-3333-4333-8333-333333333333' }).expect(303);
+    const registrations = entries.filter(e => e.action === 'mcp.connection.register');
+    expect(registrations).toHaveLength(1);
+    expect(registrations[0]).toMatchObject({ ownerId: 'alice', connectorId: 'docs', outcome: 'succeeded' });
+    expect(registrations[0].summary).toContain('via=oauth-callback');
   });
 });

@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { PostgresConnectorAuditLog } from './connectorAuditLog.js';
 import { createNodeMcpAgentSessionFactory, createNodeMcpManagement } from './mcpNodeIntegration.js';
 import { McpOAuthBroker } from './mcpOAuthBroker.js';
 import type { McpOAuthProvider } from './mcpOAuthAuthorization.js';
@@ -293,6 +294,10 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     toolGrants: toolGrantStore,
     servers: reviewed.servers,
     oauth: broker,
+    // Connector audit (PR-1a): management operations are recorded on the
+    // same pool. The recorder never throws, so auditing cannot break
+    // management; with MCP disabled this composition is never built.
+    audit: new PostgresConnectorAuditLog(pool),
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
     disconnectCredential: async (ownerId, serverId) => { await broker.disconnect(ownerId, serverId); },
   });

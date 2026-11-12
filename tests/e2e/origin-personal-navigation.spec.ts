@@ -373,7 +373,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('table')).toBeVisible();
     await expect(answer.getByRole('img')).toHaveCount(0);
     await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
-    await expect(page.getByTestId('response-verification-details')).toContainText('詳細');
+    // UI監査 #1：回答ごとの検証バッジ（「詳細」）は削除済み。
+    await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     const typography = await answer.evaluate((element) => {
       const heading = element.querySelector('h2');
       const paragraph = element.querySelector('p');
@@ -390,12 +391,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(typography!.headingPx).toBeGreaterThan(typography!.paragraphPx * 1.2);
     expect(typography!.paragraphLineHeightPx).toBeGreaterThan(typography!.paragraphPx * 1.7);
     const answerSurface = page.locator('.origin-chat-assistant');
-    const verification = page.getByTestId('response-verification-details');
     const answerBox = await answerSurface.boundingBox();
-    const verificationBox = await verification.boundingBox();
     expect(answerBox?.width).toBeLessThanOrEqual(832);
-    expect(verificationBox?.width).toBeLessThanOrEqual(832);
-    expect(Math.abs((answerBox?.width ?? 0) - (verificationBox?.width ?? 0))).toBeLessThanOrEqual(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
@@ -416,7 +413,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     expect(attempts).toBe(1);
   });
 
-  test('batches fragmented streamed output without losing Japanese characters or verification', async ({ page }) => {
+  test('batches fragmented streamed output without losing Japanese characters', async ({ page }) => {
     await page.addInitScript(() => {
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -439,7 +436,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('start-request-button').click();
 
     await expect(page.getByText('結論：描画バッチで滑らかに表示します。')).toBeVisible();
-    await expect(page.getByTestId('response-verification-details')).toBeVisible();
+    // UI監査 #1：検証バッジは削除済み（表示の有無ではなく文字の欠落が対象）。
+    await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
   });
 
   test('shows the zero-cost congestion notice without a verified trace or client retry', async ({ page }) => {
@@ -521,9 +519,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await history.click();
     await expect(page.getByTestId('history-search-input')).toBeVisible();
-    await expect(page.getByTestId('knowledge-map-toggle')).toBeHidden();
-    await page.getByText('その他の表示').click();
-    await expect(page.getByTestId('knowledge-map-toggle')).toBeVisible();
+    // UI監査 #6：ドロワー内のナレッジマップと「その他の表示」は削除され、
+    // セッション一覧がそのまま表示される。
+    await expect(page.getByTestId('history-session-list')).toBeVisible();
+    await expect(page.getByText('その他の表示')).toHaveCount(0);
+    await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
   });
 });
 

@@ -58,6 +58,21 @@ async function verifyPwa(browser, baseUrl) {
   }
 }
 
+async function restoreSavedSessionFromHistoryDrawer(page, expectedPrompt) {
+  // UI audit #6 removed the history drawer's "その他の表示" expander and
+  // the knowledge map: saved sessions are now restored directly from the
+  // history session list, exactly as a user does. The session list count
+  // is the exposure gate the knowledge-map node count used to provide.
+  await page.getByTestId("history-drawer-toggle").click();
+  const sessionItems = page.locator('[data-testid^="history-session-item-"]');
+  await page.getByTestId("history-session-item-0").waitFor({ state: "visible", timeout: 10_000 });
+  const sessionCount = await sessionItems.count();
+  assert.ok(sessionCount >= 1, `Production history must expose at least one saved session; observed ${sessionCount}.`);
+  const savedSession = sessionItems.filter({ hasText: expectedPrompt }).first();
+  await savedSession.waitFor({ state: "visible", timeout: 10_000 });
+  await savedSession.click();
+}
+
 async function verifyHistoryAndRecovery(browser, baseUrl) {
   const context = await browser.newContext({ serviceWorkers: "block" });
   const page = await context.newPage();
@@ -120,29 +135,13 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     // session instead of being reopened, so restore it explicitly through
     // the history drawer, exactly as a user would.
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 15_000 });
-    await page.getByTestId("history-drawer-toggle").click();
-    await page.getByText("その他の表示").click();
-    await page.getByTestId("knowledge-map-toggle").click();
-    await page.waitForFunction(() => {
-      const raw = document.querySelector('[data-testid="knowledge-map-node-count"]')?.textContent ?? "0";
-      return Number(raw) >= 1;
-    }, undefined, { timeout: 10_000 });
-    await page.getByTestId("knowledge-map-session-0").click();
+    await restoreSavedSessionFromHistoryDrawer(page, firstPrompt);
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
     await page.getByRole("button", { name: "新規対話を開始" }).click();
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByTestId("history-drawer-toggle").click();
-    await page.getByText("その他の表示").click();
-    await page.getByTestId("knowledge-map-toggle").click();
-    await page.waitForFunction(() => {
-      const raw = document.querySelector('[data-testid="knowledge-map-node-count"]')?.textContent ?? "0";
-      return Number(raw) >= 1;
-    }, undefined, { timeout: 10_000 });
-    const nodeCount = Number(await page.getByTestId("knowledge-map-node-count").textContent());
-    assert.ok(nodeCount >= 1, `Production history must expose at least one saved session; observed ${nodeCount}.`);
-    await page.getByTestId("knowledge-map-session-0").click();
+    await restoreSavedSessionFromHistoryDrawer(page, firstPrompt);
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 10_000 });
 
     await page.getByRole("button", { name: "新規対話を開始" }).click();

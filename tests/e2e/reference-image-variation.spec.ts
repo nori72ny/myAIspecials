@@ -101,7 +101,11 @@ for (const width of [390, 1440] as const) {
     expect(reference).toMatch(/^data:image\/(?:webp|jpeg);base64,/);
     expect(Buffer.from(reference.split(',')[1] ?? '', 'base64').byteLength).toBeLessThanOrEqual(768 * 1024);
 
-    await expect(page.getByText(/Technical \d+\/100/)).toHaveCount(2);
+    // UI監査 #2：画像の詳細表示（モデル名・Technical スコア・SHA等）は
+    // 削除された。バリエーションが2件並んだことは、各画像に付く編集
+    // ボタンの数で確認する。
+    await expect(page.getByRole('button', { name: '画像を編集' })).toHaveCount(2);
+    await expect(page.getByText(/Technical \d+\/100/)).toHaveCount(0);
 
     const editButtons = page.getByRole('button', { name: '画像を編集' });
     await editButtons.nth(1).click();
@@ -133,7 +137,8 @@ for (const width of [390, 1440] as const) {
     expect(guidedReference).toMatch(/^data:image\/(?:webp|jpeg);base64,/);
     expect(Buffer.from(guidedReference.split(',')[1] ?? '', 'base64').byteLength).toBeLessThanOrEqual(768 * 1024);
     await expect(page.getByTestId('image-edit-mode')).toHaveCount(0);
-    await expect(page.getByText(/Technical \d+\/100/)).toHaveCount(3);
+    await expect(page.getByRole('button', { name: '画像を編集' })).toHaveCount(3);
+    await expect(page.getByText(/Technical \d+\/100/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
 }
