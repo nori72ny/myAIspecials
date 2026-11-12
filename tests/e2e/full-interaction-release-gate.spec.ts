@@ -107,7 +107,9 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         { menuLabel: null, heading: '今日は何をしますか？' },
         { menuLabel: 'エージェントに任せる', heading: 'エージェントに任せる' },
         { menuLabel: 'コード', heading: 'コードの変更を依頼' },
-        { menuLabel: '作る', heading: 'カード・ポスターを作る' },
+        // 「作る」はオーナー決定（2026-11-12）で「+」メニューから隠したため、
+        // メニュー経由の対象面には含めない（パネル自体の検証は
+        // creative-panel-v15.spec.ts が会話経由の経路で担う）。
       ];
 
       await page.goto('/');
@@ -180,7 +182,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       // Add-menu panel height follows the approved design cap for two-line
       // items: max-height min(46dvh, 400px), plus border tolerance.
       if (viewport.width <= 390) expect(menuBox!.height).toBeLessThanOrEqual(Math.min(viewport.height * 0.46, 400) + 2);
-      for (const label of ['ファイルを添付', '詳しく調べる', 'コード', '作る']) {
+      for (const label of ['ファイルを添付', '詳しく調べる', 'コード']) {
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await expect(item).toBeVisible();
         expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -312,9 +314,11 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     }
 
     // 「作る」は画面構成の移行（第3段）で画面遷移ではなく会話のそばの
-    // パネルになった。URLは変えずにパネルが開閉することに置き換える。
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    // パネルになった。オーナー決定（2026-11-12）で「+」メニューからは
+    // 隠したため、会話で明示した依頼（Creativeワークスペース指定）から
+    // 開く。URLは変えずにパネルが開閉することは従来どおり。
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('creative-panel')).toBeVisible();
     await expect(page).not.toHaveURL(/workspace=/);
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();

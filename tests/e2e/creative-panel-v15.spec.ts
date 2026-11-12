@@ -21,6 +21,9 @@ const svgSha256 = createHash('sha256').update(svg).digest('hex');
 // （?workspace=creative）は発生せず、成果物はパネルで開き、会話の成果物
 // としても残る。検証の強度（実バイト照合・ゼロコスト証拠・端末内履歴・
 // PNGの実バイト）は専用画面時代から落としていない。
+// 2026-11-12 のオーナー決定で「+」メニューの入り口は隠した（機能は残す）
+// ため、パネルを開く経路は会話で明示した依頼（Creativeワークスペース
+// 指定）に統一した。パネル本体の検証範囲は変えていない。
 test.describe('V1.5 Creative panel beside the conversation', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/creative/v1.5/status', route => route.fulfill({
@@ -84,8 +87,8 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     test(`preserves multiline headlines and keeps expanded controls within ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await page.goto('/');
-      await page.getByTestId('origin-add-menu-toggle').click();
-      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+      await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+      await page.getByTestId('start-request-button').click();
       await expect(page.getByTestId('creative-panel')).toBeVisible();
       await expect(page).not.toHaveURL(/workspace=/);
       const title = '予約手数料を\n見直しませんか？';
@@ -112,8 +115,8 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await page.goto('/');
 
     await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('creative-panel')).toBeVisible();
     await expect(page).not.toHaveURL(/workspace=/);
     // UI監査 #22：ステータス行のポリシー文（無料・外部に送信しません）は
@@ -125,8 +128,10 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByText('詳細設定', { exact: true })).toBeVisible();
     await expect(page.getByLabel('用途', { exact: true })).not.toBeVisible();
     await expect(page.getByRole('region', { name: '作成履歴' })).toHaveCount(0);
-    // 初期値は標語文ではなく空欄（棚卸しで「無くす」）。
-    await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue('');
+    // 初期タイトルは標語文ではなく、依頼文から引き継いだ題材になる
+    // （会話経由で開くため）。標語文を入れない空ドラフト自体は
+    // creativeDraftFromRequestV15 の単体テストが担保する。
+    await expect(page.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue('新商品のSNSカード');
 
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('モバイルCreative');
     await page.getByRole('button', { name: '画像を作成' }).click();
@@ -166,8 +171,9 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('編集Creative');
     await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('img', { name: '作成した画像: 編集Creative' })).toBeVisible();
@@ -196,8 +202,9 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
     await page.getByRole('textbox', { name: 'タイトル', exact: true }).fill('履歴Creative');
     await page.getByRole('button', { name: '画像を作成' }).click();
     await expect(page.getByRole('button', { name: '履歴を開く: 履歴Creative' })).toBeVisible();
@@ -232,8 +239,9 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     // 復元された証跡も、削除された作成物ストリップではなく「作成物」
     // タブの出現で確認する。
     await expect(page.getByRole('tab', { name: '作成物', exact: true })).toBeVisible();
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
+    await expect(page.getByTestId('creative-panel')).toBeVisible();
     const openHistory = page.getByRole('button', { name: '履歴を開く: 履歴Creative' });
     await expect(openHistory).toBeVisible();
     await openHistory.click();
@@ -258,16 +266,18 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByTestId('creative-panel')).toHaveCount(0);
 
     // パネルの開閉はURLを一切変更しない（読み込まれたURLがそのまま残る）。
+    // 開く経路は会話で明示した依頼（Creativeワークスペース指定）。
     const urlBefore = page.url();
-    await page.getByTestId('origin-add-menu-toggle').click();
-    await page.getByRole('menuitem', { name: '作る', exact: true }).click();
+    await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
+    await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('creative-panel')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'カード・ポスターを作る' })).toBeVisible();
     expect(page.url()).toBe(urlBefore);
 
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('creative-panel')).toHaveCount(0);
-    await expect(page.getByTestId('origin-home-request')).toBeVisible();
+    // 依頼を送信したため会話には依頼文が残り、入力欄は会話用になる。
+    await expect(page.getByTestId('origin-chat-request')).toBeVisible();
     expect(page.url()).toBe(urlBefore);
   });
 });

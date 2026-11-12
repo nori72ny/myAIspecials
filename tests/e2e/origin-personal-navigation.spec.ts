@@ -82,13 +82,16 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByTestId('origin-add-menu-toggle')).toBeVisible();
     await expect(page.getByRole('menu', { name: '追加機能' })).toBeHidden();
     await page.getByTestId('origin-add-menu-toggle').click();
-    for (const label of ['ファイルを添付', '詳しく調べる', 'エージェントに任せる', 'コード', '作る']) {
+    for (const label of ['ファイルを添付', '詳しく調べる', 'エージェントに任せる', 'コード']) {
       await expect(page.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('menuitem', { name: '詳細', exact: true })).toHaveCount(0);
     // 「詳細・作業状況」パネルは 2026-11-09 の画面構成再編で廃止したため、
     // メニュー項目自体が存在しない（SCREEN_NECESSITY_REVIEW_2026-11-09.md）。
     await expect(page.getByRole('menuitem', { name: '詳細・作業状況', exact: true })).toHaveCount(0);
+    // 「作る」はオーナー決定（2026-11-12）で「+」メニューから隠したため、
+    // メニュー項目自体が存在しない（機能と会話経由の経路は残る）。
+    await expect(page.getByRole('menuitem', { name: '作る', exact: true })).toHaveCount(0);
     await page.getByTestId('origin-add-menu-toggle').click();
     await expect(page.getByRole('region', { name: 'Project Workspace' })).toHaveCount(0);
     await expect(page.getByLabel('Model ORIGIN Auto')).toHaveCount(0);
@@ -205,10 +208,12 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
-      await page.getByTestId('origin-add-menu-toggle').click();
-      await page.getByRole('menuitem', { name: '作る', exact: true }).click();
-      // 「作る」は画面構成の移行（第3段）で専用画面からパネルに統合された。
-      // URLは変えず、会話のそばにパネルが開く。
+      // 「作る」は画面構成の移行（第3段）で専用画面からパネルに統合され、
+      // オーナー決定（2026-11-12）で「+」メニューからは隠した。そのため
+      // ここでは会話で明示した依頼（Creativeワークスペース指定）から開く。
+      // URLは変えず、会話のそばにパネルが開く点は従来どおり。
+      await input.fill('Creativeワークスペースで新商品のSNSカードを作って');
+      await send.click();
       await expect(page).not.toHaveURL(/workspace=/);
       await expect(page.getByTestId('creative-panel')).toBeVisible();
       await expect(page.getByRole('heading', { name: 'カード・ポスターを作る' })).toBeVisible();
@@ -218,7 +223,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByTestId('creative-panel')).toHaveCount(0);
 
       await expect(page).toHaveURL(/\/$/);
-      await expect(page.getByTestId('origin-home-request')).toBeVisible();
+      // 依頼を送信したため会話には依頼文が残り、入力欄は会話用になる。
+      await expect(page.getByTestId('origin-chat-request')).toBeVisible();
       await noOverflow();
     });
   }
