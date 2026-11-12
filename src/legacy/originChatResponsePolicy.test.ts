@@ -343,6 +343,57 @@ describe("instruction consistency (PKG-5: rubric alignment and route parity)", (
   });
 });
 
+describe("answer-quality follow-ups (PKG-9 batch 1: safety standards and form/length discipline)", () => {
+  // Batch 1 of the 100-question measurement (accuracy 8.55 / expression 7.45
+  // against the 9.0 bar) exposed two systematic failures. B-08 answered a
+  // food-heating question with U.S. center temperatures presented as the
+  // standard while Japan's standard (core 75°C for at least one minute) was
+  // absent — a fatal defect. The A-series creation answers overrode explicit
+  // form/length specifications (「簡潔に」, 「項目だけ」, 「短い文章で」) with a
+  // fixed pattern of two versions plus premise notes and follow-up questions.
+  // These tests pin the two counter-rules in both instructions.
+  it("anchors safety and health guidance values in the full instruction to Japan's official standards", () => {
+    const instruction = originChatSystemInstruction();
+    for (const phrase of [
+      "For safety- or health-related guidance values, use Japan's official public standards as the basis",
+      "heat food until its core reaches 75°C and keep it at that temperature for at least one minute",
+      "state its country or authority explicitly",
+      "never present it as the Japanese standard",
+    ]) expect(instruction).toContain(phrase);
+  });
+
+  it("makes a specified form or length the top priority in the full instruction, with a single-version default", () => {
+    const instruction = originChatSystemInstruction();
+    for (const phrase of [
+      "that specification takes top priority",
+      "no multiple versions or patterns, no premise statement or background explanation, and no follow-up refinement questions",
+      "This overrides the Version-1 refinement questions and the opening context phrase",
+      "default to presenting a single version rather than several patterns",
+    ]) expect(instruction).toContain(phrase);
+  });
+
+  it("keeps both rules for a plain conversational question (they are not creation-gated)", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    expect(instruction).toContain("use Japan's official public standards as the basis");
+    expect(instruction).toContain("that specification takes top priority");
+  });
+
+  it("carries both rules on the route-3 compact instruction within its budget", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "Safety/health values follow Japan's official standards",
+      "core 75°C, at least one minute",
+      "label foreign ones by country, never as Japan's",
+      "Specified form or length (brief, items only, one line) is strict",
+      "no added versions, premises, or follow-up questions; otherwise one version only",
+    ]) expect(compact).toContain(phrase);
+    expect(compact.length).toBeLessThanOrEqual(3_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+  });
+});
+
 describe("intent awareness (request-context adaptation)", () => {
   it("fixes the context taxonomy, with unknown as the unchanged fallback", () => {
     expect(ORIGIN_REQUEST_CONTEXTS).toEqual([
