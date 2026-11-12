@@ -606,6 +606,14 @@ describe('rasterImageV15Router', () => {
       reportedNeurons: null,
       reconciliationReason: 'per-request-usage-incomplete',
     });
+    // The diagnostics also name which calls reported nothing, per
+    // candidate: both generation calls and both semantic-critic calls.
+    expect(response.body.usage.unreportedCalls).toEqual([
+      { candidateIndex: 0, retried: false, call: 'generation' },
+      { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+      { candidateIndex: 1, retried: false, call: 'generation' },
+      { candidateIndex: 1, retried: false, call: 'semantic-critic' },
+    ]);
     expect(state.imageRuns).toBe(2);
   });
 

@@ -497,6 +497,29 @@ describe('cloudflareRasterImageProviderV15', () => {
     expect(result.reportedNeurons).toBe(99);
   });
 
+  it('reports null Neurons when the body usage block carries no neurons value', async () => {
+    const bytes = png(768, 1024);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ input: {}, output: {} }))
+      // A usage block exists but reports only token counts, and the
+      // response carries no cf-ai-neurons header: the call reported
+      // nothing usable, so the report stays null — never invented.
+      .mockResolvedValueOnce(json({
+        image: bytes.toString('base64'),
+        usage: { prompt_tokens: 120, completion_tokens: 0, total_tokens: 120 },
+      }));
+
+    const result = await generateCloudflareRasterImageV15({
+      prompt: 'usage block without neurons check',
+      width: 768,
+      height: 1024,
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    expect(result.reportedNeurons).toBeNull();
+  });
+
   it('rejects oversized Cloudflare JSON image responses before buffering the body', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ default_usage_model: 'bundled' }))

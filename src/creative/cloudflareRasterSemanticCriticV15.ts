@@ -69,8 +69,21 @@ export type RasterSemanticCriticResultV15 = {
    * or null when neither carried a usable value. Evidence for the caller's
    * post-generation reconciliation fallback only; never a gate by itself
    * and never a substitute for the plan proof or the quota pre-check.
+   * When the bounded format retry ran, this is the final call's report;
+   * reportedCallsNeurons carries every call's.
    */
   reportedNeurons: number | null;
+  /**
+   * The usage report of every critic call actually made, in call order:
+   * the initial call and, when the bounded format retry ran, the retry
+   * call as well. The retry's first call consumed Neurons too, so
+   * post-generation reconciliation must account for all of them — reading
+   * only reportedNeurons (the final call) would understate the request's
+   * consumption. An entry is null where that call reported nothing
+   * usable, which keeps the caller's evidence set incomplete exactly as
+   * a missing report should.
+   */
+  reportedCallsNeurons: readonly (number | null)[];
 };
 
 type CloudflareEnvelope = {
@@ -138,6 +151,16 @@ export class RasterSemanticCriticResponseInvalidError extends Error {
    * failure happened before an envelope existed. Diagnostics only.
    */
   envelope: RasterSemanticEnvelopeDiagnosticsV15 | null = null;
+  /**
+   * The Neurons the failed call reported for itself, attached by the run
+   * call site that read the envelope before the answer failed validation.
+   * The bounded format retry consumes this so the failed first call's
+   * consumption stays inside the caller's usage accounting instead of
+   * being dropped with the failed answer. Null when the failure happened
+   * before an envelope existed or the envelope reported nothing usable.
+   * Evidence only — never part of the public error surface.
+   */
+  reportedNeurons: number | null = null;
   constructor(detail: string, answerChars: number | null = null) {
     super('RASTER_SEMANTIC_CRITIC_RESPONSE_INVALID');
     this.name = 'RasterSemanticCriticResponseInvalidError';
@@ -603,12 +626,18 @@ export async function critiqueCloudflareRasterSemanticV15(
     // A format failure here is rethrown with the envelope's own metadata
     // attached (finish reason and reported usage numbers), so the failure
     // record can show e.g. a length finish alongside an unclosed object
-    // span. The parse outcome itself is unchanged.
+    // span. The call's own usage report rides along as well: the bounded
+    // retry below counts the failed call's consumption in the request's
+    // reconciliation evidence instead of dropping it with the answer.
+    // The parse outcome itself is unchanged.
     try {
       return { parsed: parseSemanticPayload(answer.trim()), reportedNeurons };
     } catch (error) {
-      if (error instanceof RasterSemanticCriticResponseInvalidError && error.envelope === null) {
-        error.envelope = envelopeDiagnostics(resultObject, nested);
+      if (error instanceof RasterSemanticCriticResponseInvalidError) {
+        if (error.envelope === null) {
+          error.envelope = envelopeDiagnostics(resultObject, nested);
+        }
+        error.reportedNeurons = reportedNeurons;
       }
       throw error;
     }
@@ -622,10 +651,17 @@ export async function critiqueCloudflareRasterSemanticV15(
   // format failure fails closed exactly as a single failure did before.
   let attemptsUsed = 0;
   let outcome: Awaited<ReturnType<typeof runCriticOnce>> | null = null;
+  // Every call's own usage report, in call order. A format-failed first
+  // call still consumed its Neurons, so its report (attached to the
+  // validation error by the call site) is kept for the caller's
+  // post-generation reconciliation instead of being silently dropped;
+  // a call that reported nothing usable keeps a null entry.
+  const callReports: (number | null)[] = [];
   for (;;) {
     attemptsUsed += 1;
     try {
       outcome = await runCriticOnce(questionFor(input, attemptsUsed > 1));
+      callReports.push(outcome.reportedNeurons);
       break;
     } catch (error) {
       if (error instanceof RasterSemanticCriticResponseInvalidError) {
@@ -652,7 +688,10 @@ export async function critiqueCloudflareRasterSemanticV15(
             usageTotalTokens: error.envelope.usageTotalTokens,
           } : {}),
         });
-        if (attemptsUsed === 1) continue;
+        if (attemptsUsed === 1) {
+          callReports.push(error.reportedNeurons);
+          continue;
+        }
       }
       throw error;
     }
@@ -739,5 +778,6 @@ export async function critiqueCloudflareRasterSemanticV15(
     // 3 free-plan proof reads plus one run call per attempt actually made.
     externalNetworkRequests: 3 + attemptsUsed,
     reportedNeurons,
+    reportedCallsNeurons: callReports,
   };
 }
