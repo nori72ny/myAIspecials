@@ -222,28 +222,22 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(input.style.height).toBe('176px');
   });
 
-  it('shows tappable home suggestions on the empty state', () => {
+  it('does not show sample request suggestions on the empty state', () => {
     render(<App language="ja" />);
 
-    const suggestion1 = screen.getByTestId('home-suggestion-1');
-    const suggestion2 = screen.getByTestId('home-suggestion-2');
-    const suggestion3 = screen.getByTestId('home-suggestion-3');
-    const suggestion4 = screen.getByTestId('home-suggestion-4');
-
-    expect(suggestion1.textContent).toBe('今日のニュースを要約して');
-    expect(suggestion2.textContent).toBe('企画書の草案を作って');
-    expect(suggestion3.textContent).toBe('Pythonでデータ分析のコードを書いて');
-    expect(suggestion4.textContent).toBe('旅行プランを立てて');
-    expect(suggestion1.getAttribute('type')).toBe('button');
+    expect(screen.queryByTestId('home-suggestion-1')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-2')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-3')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-4')).toBeNull();
   });
 
-  it('shows English home suggestions when language is English', () => {
+  it('does not show sample request suggestions when language is English', () => {
     render(<App language="en" />);
 
-    expect(screen.getByTestId('home-suggestion-1').textContent).toBe("Summarize today's news");
-    expect(screen.getByTestId('home-suggestion-2').textContent).toBe('Draft a proposal');
-    expect(screen.getByTestId('home-suggestion-3').textContent).toBe('Write Python code for data analysis');
-    expect(screen.getByTestId('home-suggestion-4').textContent).toBe('Plan a trip');
+    expect(screen.queryByTestId('home-suggestion-1')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-2')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-3')).toBeNull();
+    expect(screen.queryByTestId('home-suggestion-4')).toBeNull();
   });
 
   it('opens renderable artifacts in preview first and exposes source only on demand', () => {
