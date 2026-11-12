@@ -91,17 +91,35 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
 
   const grounded = buildGroundedResearchReport(query, safeSources);
   const sources = safeSources;
-  const evidenceBlocks = sources.map((source, index) => {
+  // Fallback presentation (PKG-9 search-dump defect): this content is the
+  // answer body only when the AI synthesis stage did not produce an
+  // adoptable answer (provider failure, citation-validation failure, plan
+  // unavailable, or synthesis disabled). It must never paste retrieved
+  // page text into the answer: for number-critical question types the
+  // excerpts are full extracted pages, navigation and advertising
+  // boilerplate included, and presenting them verbatim made the search
+  // results themselves pose as the answer (chat 100-question inspection
+  // batch 1, A-02 / B-01 / B-05). The fallback therefore states plainly
+  // that no summarized answer is available and lists compact citations
+  // only (id, title, domain, URL). Excerpts stay available to the
+  // synthesis stage as evidence; they are not user-facing text.
+  const sourceList = sources.map((source, index) => {
     const id = `S${index + 1}`;
-    return `### ${id}: ${source.title}\n${source.excerpt}\n\n〔出典: [${id}](${source.url})〕`;
+    let domain = source.domain ?? "";
+    if (!domain) {
+      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+    }
+    return isEnglish
+      ? (domain ? `- ${id}: ${source.title} (${domain})\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`)
+      : (domain ? `- ${id}: ${source.title}（${domain}）\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`);
   });
   const conflictText = grounded.conflicts.length === 0
     ? (isEnglish ? "No structured-value mismatch was detected in the retrieved evidence." : "取得した証拠では、構造化値の不一致は検出されませんでした。")
     : grounded.conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" / ")} (${conflict.sourceIds.join(", ")})`).join("\n");
 
   const content = isEnglish
-    ? `## Current public information\n\n${evidenceBlocks.join("\n\n")}\n\n## Cross-check notes\n${conflictText}`
-    : `## 確認できた公開情報\n\n${evidenceBlocks.join("\n\n")}\n\n## 照合メモ\n${conflictText}`;
+    ? `I retrieved ${sources.length} public source(s), but a summarized answer could not be produced, so only the source list follows. Please check the sources for the details.\n\n## Cross-check notes\n${conflictText}\n\n## Sources\n${sourceList.join("\n")}`
+    : `公開情報を${sources.length}件取得しましたが、要約した回答を作成できなかったため、出典の一覧だけをお伝えします。内容は各出典でご確認ください。\n\n## 照合メモ\n${conflictText}\n\n## 出典\n${sourceList.join("\n")}`;
   const reason = isEnglish
     ? `Grounded Research retrieved ${grounded.sourceCount} public sources without a paid fallback.`
     : `Grounded Researchで公開情報を${grounded.sourceCount}件取得し、有料fallbackを使わず整理しました。`;
@@ -123,8 +141,8 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     })),
     limitations: [
       isEnglish
-        ? "This is a bounded digest of retrieved public evidence, not an independent determination of factual truth or publisher authority."
-        : "取得できた公開情報を範囲限定で整理したもので、事実の最終確定や媒体の権威性を独立判定したものではありません。",
+        ? "Only the retrieved source list is shown; source article text is not reproduced. This is not an independent determination of factual truth or publisher authority."
+        : "取得した出典の一覧のみを表示し、出典記事の本文は転載していません。事実の最終確定や媒体の権威性を独立判定したものではありません。",
     ],
     nextActions: grounded.conflicts.length > 0
       ? [isEnglish ? "Review the conflicting values against primary sources before making an important decision." : "重要な判断前に、不一致がある値を一次情報で再確認してください。"]
@@ -427,7 +445,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           } catch (error) {
             synthesisStatus = "provider-failed";
             synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
-            console.warn("[origin-chat] research synthesis unavailable; deterministic digest retained", { requestId, code: synthesisFailureCode });
+            console.warn("[origin-chat] research synthesis unavailable; source-list fallback retained", { requestId, code: synthesisFailureCode });
           }
         } else {
           synthesisStatus = "plan-unavailable";
@@ -440,8 +458,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const digestReason = synthesisStatus === "not-run"
         ? grounded.reason
         : grounded.language === "en"
-          ? `${grounded.reason} AI synthesis was not adopted; the deterministic evidence digest is shown instead.`
-          : `${grounded.reason} AI統合は採用せず、安全な証拠ダイジェストを表示しています。`;
+          ? `${grounded.reason} AI synthesis was not adopted; the retrieved source list is shown instead.`
+          : `${grounded.reason} AI統合は採用せず、取得した出典の一覧を表示しています。`;
       const digestLimitations = researchNeedsDownstreamDeliverable
         ? [...grounded.limitations, grounded.language === "en"
           ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
