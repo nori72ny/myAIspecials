@@ -7,7 +7,6 @@ import SplashScreen from './components/SplashScreen';
 import FocusModeController from './components/FocusModeController';
 import PersonalEditionApp from './components/personal/PersonalEditionApp';
 import { isCreativeArtifactMetaV15, type CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
-import { UniversalMasterEnginePanel } from './components/UniversalMasterEnginePanel';
 import { usePersonalSettings } from './hooks/usePersonalSettings';
 import { getTranslations } from './i18n';
 import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersistedSnapshot, type OriginStorageWriteResult } from './lib/local/OriginIndexedDb';
@@ -223,7 +222,6 @@ function PersonalReleaseRoot() {
   const [resetSignal, setResetSignal] = useState(0);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false);
   const [updateReady, setUpdateReady] = useState(false);
-  const [knowledgeContext, setKnowledgeContext] = useState('');
   const dirtyDuringHydration = useRef({ messages: false, sessions: false, artifacts: false });
 
   const resolvedTheme = useMemo(() => settings.selectedTheme === 'dark' || settings.selectedTheme === 'light' ? settings.selectedTheme : (systemPrefersDark ? 'dark' : 'light'), [settings.selectedTheme, systemPrefersDark]);
@@ -247,8 +245,6 @@ function PersonalReleaseRoot() {
   return <>
     <FocusModeController />
     <SplashScreen durationMs={420} oncePerSession />
-    <UniversalMasterEnginePanel onContextReady={(context) => { setKnowledgeContext(context); window.dispatchEvent(new CustomEvent('origin:knowledge-context', { detail: { context } })); }} />
-    {knowledgeContext && <p role="status" className="sr-only">ナレッジグラフからチャット文脈を選択しました。</p>}
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
