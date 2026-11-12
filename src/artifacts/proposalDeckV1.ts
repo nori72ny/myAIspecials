@@ -91,6 +91,30 @@ export const PROPOSAL_COLOR_TOKEN_NAMES: ReadonlySet<ProposalColorTokenName> =
   new Set(Object.keys(PROPOSAL_COLOR_TOKENS) as ProposalColorTokenName[]);
 
 /**
+ * 図表のカテゴリ色（テーマ4色とは別枠、最大8色）。
+ * - 用途は図形・グラフの塗り専用。本文テキストには使わない。
+ * - 全色とも白地（paper #FFFFFF）に対してコントラスト比 3:1 以上（WCAG 2.1 非テキスト基準）。
+ *   実測はいずれも約 5.0:1 以上で、白の太字ラベルを載せても判読できる濃さに揃えている。
+ * - ディープネイビー基調と喧嘩しない、彩度を抑えた深めの色相で互いに識別可能に選定。
+ */
+export const PROPOSAL_CATEGORY_COLOR_TOKENS = {
+  teal: '#0F766E',
+  indigo: '#4338CA',
+  violet: '#6D28D9',
+  rose: '#BE123C',
+  orange: '#C2410C',
+  amber: '#B45309',
+  green: '#15803D',
+  cyan: '#0E7490',
+} as const;
+
+export type ProposalCategoryColorTokenName = keyof typeof PROPOSAL_CATEGORY_COLOR_TOKENS;
+
+/** カテゴリ色の名前一覧（定義順 = レンダラーが系列へ割り当てる順）。 */
+export const PROPOSAL_CATEGORY_COLOR_TOKEN_NAMES: readonly ProposalCategoryColorTokenName[] =
+  Object.keys(PROPOSAL_CATEGORY_COLOR_TOKENS) as ProposalCategoryColorTokenName[];
+
+/**
  * デザイントークン（スライド 16:9 基準）。
  * 自己チェック（proposalDeckSelfCheckV1）と将来のレンダラー（PR-2/PR-3）が共通で参照する。
  */
