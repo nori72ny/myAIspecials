@@ -7,6 +7,15 @@
  * - 回答確定後、この決定的パーサーが骨格 Markdown → ProposalDeckInput に変換する。
  *   骨格として読めない回答は null を返し、呼び出し側はファイルを作らない。
  * - 純関数。LLM は呼ばない。同じ入力には同じ出力。
+ *
+ * 自由形式フォールバック（2026-11-13 本番事象への対応）:
+ * - 経路1のモデルが骨格指示に従わず、見出し記号なしの導入文＋番号付き／太字の
+ *   セクション＋箇条書きで提案アウトラインを返すことがある（本番ログで確認）。
+ *   厳格パースで読めない場合に限り、その形状だけを対象に決定的な規則で変換する
+ *   寛容フォールバック（parseFreeformProposalDeckFallback）を追加で試す。
+ * - フォールバックで得た入力も、従来どおり buildProposalDeck の構造検証と
+ *   checkProposalDeck の自己チェックを通らなければファイル化されない
+ *   （品質ゲートは一切緩めない）。要が揃わない形状は null のまま返す。
  */
 
 import type {
@@ -137,7 +146,7 @@ function newSection(kind: SectionKind, role?: string): SectionState {
  * 骨格の要（タイトル／要約／役割セクション／締め）が欠ける場合は null。
  * 点数が3点ちょうどか等の構造検証は buildProposalDeck の担当（ここでは素材を渡す）。
  */
-export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput | null {
+function parseProposalDeckSkeletonStrict(markdown: string): ProposalDeckInput | null {
   if (typeof markdown !== 'string' || markdown.trim() === '') return null;
 
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
@@ -247,5 +256,268 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
   if (subtitle !== '') input.subtitle = subtitle;
   if (presenter !== '') input.presenter = presenter;
   if (date !== '') input.date = date;
+  return input;
+}
+
+/**
+ * 骨格 Markdown を ProposalDeckInput へ決定的に変換する（公開入口）。
+ * まず固定骨格の厳格パースを試し、読めない場合に限り自由形式フォールバックを試す。
+ * どちらでも読めなければ null（呼び出し側はファイルを作らない）。
+ */
+export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput | null {
+  const strict = parseProposalDeckSkeletonStrict(markdown);
+  if (strict) return strict;
+  return parseFreeformProposalDeckFallback(markdown);
+}
+
+// ---------------------------------------------------------------------------
+// 自由形式フォールバック
+//
+// 対象形状（2026-11-13 本番の実回答）:
+//   【…】導入文（見出し記号なし）
+//   1. 提案の要点 / 2. 主なメリット / … のような番号付き（または太字）セクション
+//   各セクションは任意のリード文＋箇条書き、末尾に「確認質問」のような質問節。
+//
+// 変換規則（すべて決定的・純関数）:
+// - セクション見出しは「連番であること＋役割キーワード一致＋40字以内＋
+//   コロン（：/:）を含まないこと」を全て満たす行だけを採用する。番号付きの
+//   箇条書き等を誤検出しないための歯止めで、条件を満たさない番号行は通常の
+//   箇条書きとして扱う。
+// - 役割への対応付けは見出し文のキーワードで行う（FREEFORM_KIND_RULES、上から優先）。
+// - タイトルは導入文の第1文、要約の見出し文も導入文の第1文（要約セクションに
+//   リード文があればそちらを優先）とする。残りの導入文は副題にする。
+// - 要約の要点は3点に切り詰める（4点目以降は費用・比較等の他セクションと
+//   重なる前提の、形式側の件数合わせ）。3点未満しかなければ null。
+// - 役割セクションの箇条書きは設計トークンの上限（4件）に切り詰める。
+// - 役割セクションの結論文（message）は、リード文 → 結論文らしい最初の箇条書き
+//   （その場合は箇条書きから外す）→ 見出し文からの定型文（「〜は次のとおりです。」）
+//   の順で決める。事実の捏造はせず、見出しの言い換えに留める。
+// - 締め（closing）の節が無い場合は、計画セクションの箇条書きを次のステップに
+//   流用する。どちらも無ければ null。
+// - 「確認質問」等の節の項目は assumptions（前提・未確認事項）へ入れる。
+// ---------------------------------------------------------------------------
+
+type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
+
+interface FreeformSection {
+  kind: FreeformSectionKind;
+  role?: string;
+  /** 強調記法を除いた見出し文。 */
+  heading: string;
+  /** 箇条書きでない本文行（出現順）。 */
+  leadLines: string[];
+  /** 箇条書きの原文（出現順、強調記法を含む）。 */
+  bullets: string[];
+}
+
+/** 自由形式の見出し文 → 役割。配列の上から順に照合し、最初に一致したものを採る。 */
+const FREEFORM_KIND_RULES: ReadonlyArray<{
+  pattern: RegExp;
+  kind: FreeformSectionKind;
+  role?: string;
+}> = [
+  { pattern: /確認質問|確認事項|質問事項|前提|未確認/, kind: 'assumptions' },
+  { pattern: /要約|サマリー|要点|概要/, kind: 'summary' },
+  { pattern: /次のステップ|次ステップ|締め/, kind: 'closing' },
+  { pattern: /課題|問題|現状|悩み/, kind: 'role', role: 'challenge' },
+  { pattern: /費用対効果|費用|価格|料金|コスト|ROI/, kind: 'role', role: 'cost' },
+  { pattern: /計画|ステップ|スケジュール|進め方|ロードマップ/, kind: 'role', role: 'plan' },
+  { pattern: /価値|メリット|ベネフィット|強み|効果/, kind: 'role', role: 'value' },
+  { pattern: /比較|競合/, kind: 'role', role: 'other' },
+  {
+    pattern: /解決|ソリューション|機能|提案内容|提供内容|サービス内容|アプローチ/,
+    kind: 'role',
+    role: 'solution',
+  },
+];
+
+function classifyFreeformHeading(
+  heading: string,
+): { kind: FreeformSectionKind; role?: string } | null {
+  for (const rule of FREEFORM_KIND_RULES) {
+    if (rule.pattern.test(heading)) return { kind: rule.kind, role: rule.role };
+  }
+  return null;
+}
+
+/** 見出しだけが単独行になったラベル（確認質問／次のステップ等）の完全一致判定用。 */
+const FREEFORM_LABEL_HEADING =
+  /^(確認質問|確認事項|質問事項|前提・未確認事項|前提条件|未確認事項|次のステップ|次ステップ)(（[^）]*）)?$/;
+
+/** 結論文かどうかの判定（自己チェック proposalDeckSelfCheckV1 の isAssertion と同じ規則）。 */
+const FREEFORM_ASSERTION_ENDING =
+  /(です|ます|した|します|できる|できます|なります|あります|います|高い|大きい|小さい|多い|少ない|必要です|可能です|有効です)$/;
+
+function isAssertionSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === '') return false;
+  if (trimmed.endsWith('。')) return true;
+  return FREEFORM_ASSERTION_ENDING.test(trimmed);
+}
+
+function toHalfWidthDigits(text: string): string {
+  return text.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+}
+
+function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput | null {
+  if (typeof markdown !== 'string' || markdown.trim() === '') return null;
+
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  const introLines: string[] = [];
+  const sections: FreeformSection[] = [];
+  let current: FreeformSection | null = null;
+  let expectedNumber = 1;
+  let inFence = false;
+
+  const startSection = (kind: FreeformSectionKind, role: string | undefined, heading: string) => {
+    current = { kind, role, heading, leadLines: [], bullets: [] };
+    sections.push(current);
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    // Markdown 見出し行は厳格パーサーの領域。フォールバックでは混ぜない。
+    if (/^\s*#/.test(line)) continue;
+
+    const text = line.trim();
+    if (text === '') continue;
+    const plain = stripEmphasis(text);
+
+    // 見出し判定（番号付き → 太字単独行 → ラベル完全一致、の順）。
+    let heading: { kind: FreeformSectionKind; role?: string; text: string } | null = null;
+    const numbered = toHalfWidthDigits(plain).match(/^(\d{1,2})\s*[.．)）]\s*(.+)$/);
+    if (numbered && Number.parseInt(numbered[1], 10) === expectedNumber) {
+      const headingText = numbered[2].trim();
+      const classified = classifyFreeformHeading(headingText);
+      if (classified && [...headingText].length <= 40 && !/[：:]/.test(headingText)) {
+        heading = { ...classified, text: headingText };
+        expectedNumber += 1;
+      }
+    }
+    if (!heading && text.startsWith('**') && text.endsWith('**')) {
+      const classified = classifyFreeformHeading(plain);
+      if (classified && [...plain].length <= 40 && !/[：:]/.test(plain)) {
+        heading = { ...classified, text: plain };
+      }
+    }
+    if (!heading) {
+      const label = plain.replace(/[：:]$/, '');
+      if (FREEFORM_LABEL_HEADING.test(label)) {
+        const classified = classifyFreeformHeading(label);
+        if (classified) heading = { ...classified, text: label };
+      }
+    }
+    if (heading) {
+      startSection(heading.kind, heading.role, heading.text);
+      continue;
+    }
+
+    const bullet = text.match(BULLET_LINE);
+    if (bullet) {
+      // 見出しより前の箇条書きは、帰属先がないため拾わない。
+      if (current) current.bullets.push(bullet[1]);
+      continue;
+    }
+    if (current) current.leadLines.push(text);
+    else introLines.push(text);
+  }
+
+  // タイトル: 導入文の第1文（【…】のマーカーは除く）。残りは副題。
+  const introBody = introLines
+    .map((entry) => stripEmphasis(entry))
+    .join('')
+    .replace(/^【[^】]*】/, '');
+  const firstSentenceMatch = introBody.match(/^[^。]*。/);
+  const firstSentence = firstSentenceMatch ? firstSentenceMatch[0] : introBody;
+  const title = firstSentence.replace(/。$/, '').trim();
+  if (title === '') return null;
+  const subtitle = introBody.slice(firstSentence.length).replace(/。$/, '').trim();
+
+  // 要約: 要点系セクションの箇条書きを3点に切り詰める。3点未満は作らない。
+  const summarySection = sections.find((section) => section.kind === 'summary');
+  if (!summarySection) return null;
+  const summaryPoints = summarySection.bullets
+    .map((entry) => stripEmphasis(entry))
+    .filter((entry) => entry !== '');
+  if (summaryPoints.length < 3) return null;
+  const summaryHeadline =
+    summarySection.leadLines.length > 0
+      ? stripEmphasis(summarySection.leadLines[0])
+      : firstSentence.trim();
+
+  // 役割セクション: 結論文を決め、箇条書きを上限4件に切り詰める。
+  const roleSections = sections.filter((section) => section.kind === 'role');
+  if (roleSections.length === 0) return null;
+  const builtSections: ProposalDeckSectionInput[] = roleSections.map((section) => {
+    let message = section.leadLines.length > 0 ? stripEmphasis(section.leadLines[0]) : '';
+    let bulletTexts = section.bullets.slice();
+    if (message === '' && bulletTexts.length > 0) {
+      const first = stripEmphasis(bulletTexts[0]);
+      if (isAssertionSentence(first)) {
+        message = first;
+        bulletTexts = bulletTexts.slice(1);
+      }
+    }
+    if (message === '') {
+      const core = section.heading.replace(/（[^）]*）\s*$/, '').trim();
+      message = `${core}は次のとおりです。`;
+    }
+    return {
+      role: section.role,
+      message,
+      bullets: bulletTexts.slice(0, 4).map((entry) => splitBullet(entry)),
+    };
+  });
+
+  // 締め: 締め節があればそこから、無ければ計画セクションの箇条書きを流用する。
+  let ask = '';
+  let nextSteps: string[] = [];
+  const closingSection = sections.find((section) => section.kind === 'closing');
+  if (closingSection) {
+    const absorb = (raw: string, isBullet: boolean) => {
+      const body = stripEmphasis(raw);
+      if (body === '') return;
+      const askMatch = body.match(/^依頼事項[：:]\s*(.+)$/);
+      if (askMatch) {
+        if (ask === '') ask = askMatch[1].trim();
+        return;
+      }
+      if (isBullet) nextSteps.push(body);
+      else if (ask === '') ask = body;
+    };
+    for (const entry of closingSection.leadLines) absorb(entry, false);
+    for (const entry of closingSection.bullets) absorb(entry, true);
+  }
+  if (nextSteps.length === 0) {
+    const planSection = roleSections.find((section) => section.role === 'plan');
+    if (planSection) {
+      nextSteps = planSection.bullets
+        .map((entry) => stripEmphasis(entry))
+        .filter((entry) => entry !== '');
+    }
+  }
+  if (nextSteps.length === 0) return null;
+
+  // 前提・未確認事項: 確認質問等の節の項目をすべて集める。
+  const assumptions: string[] = [];
+  for (const section of sections) {
+    if (section.kind !== 'assumptions') continue;
+    for (const entry of section.bullets) assumptions.push(stripEmphasis(entry));
+    for (const entry of section.leadLines) assumptions.push(stripEmphasis(entry));
+  }
+
+  const input: ProposalDeckInput = {
+    title,
+    summary: { headline: summaryHeadline, points: summaryPoints.slice(0, 3) },
+    sections: builtSections,
+    closing: { ask, nextSteps },
+    assumptions: assumptions.filter((entry) => entry !== ''),
+  };
+  if (subtitle !== '') input.subtitle = subtitle;
   return input;
 }
