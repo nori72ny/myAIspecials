@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
+
 import express from 'express';
-import request from 'supertest';
+import request, { type Response as SupertestResponse } from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createRasterImageV15Router } from './rasterImageV15Router';
+import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15';
 
 const CF_ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
@@ -50,6 +53,124 @@ function pngBytes(width: number, height: number): Uint8Array {
 
 function referenceDataUrl(width = 320, height = 240): string {
   return `data:image/png;base64,${Buffer.from(pngBytes(width, height)).toString('base64')}`;
+}
+
+function parseBinaryBody(res: SupertestResponse, callback: (err: Error, body: Buffer) => void) {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer) => chunks.push(chunk));
+  res.on('end', () => callback(null!, Buffer.concat(chunks)));
+  res.on('error', (error: Error) => callback(error, Buffer.alloc(0)));
+}
+
+// The App.tsx success gate, reproduced condition by condition (the
+// conjunction that throws 'unverified-raster-response', plus the body
+// digest comparison that follows it). This is the cross-boundary
+// regression guard for IMAGE_DELIVERY_TRIAGE_2026-11-13: the router's
+// real success response must pass every condition the client enforces,
+// so a contract drift on either side fails CI instead of production.
+function clientRasterContractFailures(
+  headers: Record<string, string | undefined>,
+  body: Buffer,
+  options: { referenceEdit?: boolean } = {},
+): string[] {
+  const failures: string[] = [];
+  const check = (label: string, passed: boolean) => { if (!passed) failures.push(label); };
+  const mimeType = (headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  const sha256 = headers['x-origin-visual-sha256'] ?? '';
+  const providerId = headers['x-origin-visual-provider'] ?? '';
+  const model = headers['x-origin-visual-model'] ?? '';
+  const generationId = headers['x-origin-visual-generation-id'] ?? '';
+  const visualBrainVersion = headers['x-origin-visual-brain'] ?? '';
+  const visualPlan = headers['x-origin-visual-plan'] ?? '';
+  const visualPlanSha256 = headers['x-origin-visual-plan-sha256'] ?? '';
+  const purpose = headers['x-origin-visual-purpose'] ?? '';
+  const typographyOverlay = headers['x-origin-visual-typography-overlay'] ?? '';
+  const sourceCriticVersion = headers['x-origin-visual-critic'] ?? '';
+  const sourceQualityScore = Number(headers['x-origin-visual-quality-score'] ?? '0');
+  const sourceActualWidth = Number(headers['x-origin-visual-actual-width'] ?? '0');
+  const sourceActualHeight = Number(headers['x-origin-visual-actual-height'] ?? '0');
+  const width = Number(headers['x-origin-visual-width'] ?? '0');
+  const height = Number(headers['x-origin-visual-height'] ?? '0');
+  const cost = headers['x-origin-cost-usd'];
+  const freeOnly = headers['x-origin-free-only'];
+  const paidFallback = headers['x-origin-paid-fallback'];
+  const secretDelivery = headers['x-origin-secret-delivery'];
+  const providerTask = headers['x-origin-visual-task'];
+  const referenceCount = headers['x-origin-visual-reference-count'];
+  const expectsReferenceEdit = Boolean(options.referenceEdit);
+  check('mimeType', ['image/png', 'image/jpeg', 'image/webp'].includes(mimeType));
+  check('sha256', /^[a-f0-9]{64}$/i.test(sha256));
+  check('providerId', providerId === 'pollinations-zero-cost' || providerId === 'cloudflare-workers-ai-free');
+  check('model', Boolean(model));
+  check('generationId', /^raster-[a-f0-9]{24}$/i.test(generationId));
+  check('visualBrainVersion', visualBrainVersion === 'visual-brain-v1');
+  check('visualPlan', visualPlan === 'raster-visual-plan-v1');
+  check('visualPlanSha256', /^[a-f0-9]{64}$/i.test(visualPlanSha256));
+  check('purpose', /^[a-z-]{1,40}$/.test(purpose));
+  check('typographyOverlay', typographyOverlay === 'recommended' || typographyOverlay === 'not-required');
+  check('sourceCriticVersion', sourceCriticVersion === 'raster-structural-critic-v1');
+  check('sourceQualityScore', sourceQualityScore === 100);
+  check('sourceActualWidth', sourceActualWidth === width);
+  check('sourceActualHeight', sourceActualHeight === height);
+  check('width', Number.isInteger(width) && width >= 256 && width <= 1536);
+  check('height', Number.isInteger(height) && height >= 256 && height <= 1536);
+  check('cost', cost === '0');
+  check('freeOnly', freeOnly === 'true');
+  check('paidFallback', paidFallback === 'false');
+  check('secretDelivery', secretDelivery === 'server-only');
+  check('providerTask', expectsReferenceEdit
+    ? providerTask === 'edit' && referenceCount === '1'
+    : providerTask === undefined || providerTask === 'generate');
+  check('bodyDigest', createHash('sha256').update(body).digest('hex') === sha256.toLowerCase());
+  return failures;
+}
+
+const DEFECT_FREE_CRITIC_ANSWER = JSON.stringify({
+  promptAdherence: [],
+  composition: [],
+  subjectIntegrity: [],
+  styleExecution: [],
+  textHandling: [],
+  artifactControl: [],
+  professionalUsefulness: [],
+  safetyPassed: true,
+  safetyIssues: [],
+  summary: '依頼どおりの画像です。',
+});
+
+// Stubs the Cloudflare Free proof pipeline exactly as the delivery tests
+// below need it: plan proof reads, a usage aggregate, image runs that
+// return the given bytes, and a defect-free semantic critic.
+function stubSuccessfulCloudflarePipeline(
+  state: { usedNeurons: number; imageRuns: number },
+  image: Uint8Array,
+) {
+  const fetchMock = vi.fn(async (url: string) => {
+    const target = String(url);
+    if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+    if (target.includes('/subscriptions')) return cfEnvelope([]);
+    if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+    if (target.includes('/graphql')) {
+      return json({
+        data: {
+          viewer: {
+            accounts: [{
+              aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
+            }],
+          },
+        },
+      });
+    }
+    if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
+      state.imageRuns += 1;
+      state.usedNeurons += 140;
+      return cfEnvelope(Buffer.from(image).toString('base64'));
+    }
+    if (target.includes('/ai/run/@cf/moondream/')) return cfEnvelope({ answer: DEFECT_FREE_CRITIC_ANSWER });
+    throw new Error(`unexpected fetch: ${target}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 describe('rasterImageV15Router', () => {
@@ -458,81 +579,86 @@ describe('rasterImageV15Router', () => {
   it('delivers an image only when the full Cloudflare Free proof pipeline passes', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
-    const criticAnswer = JSON.stringify({
-      promptAdherence: [],
-      composition: [],
-      subjectIntegrity: [],
-      styleExecution: [],
-      textHandling: [],
-      artifactControl: [],
-      professionalUsefulness: [],
-      safetyPassed: true,
-      safetyIssues: [],
-      summary: '依頼どおりの画像です。',
-    });
-    const fetchMock = vi.fn(async (url: string) => {
-      const target = String(url);
-      if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
-      if (target.includes('/subscriptions')) return cfEnvelope([]);
-      if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
-      if (target.includes('/graphql')) {
-        return json({
-          data: {
-            viewer: {
-              accounts: [{
-                aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
-              }],
-            },
-          },
-        });
-      }
-      if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
-        state.imageRuns += 1;
-        state.usedNeurons += 140;
-        return cfEnvelope(Buffer.from(pngBytes(768, 1024)).toString('base64'));
-      }
-      if (target.includes('/ai/run/@cf/moondream/')) return cfEnvelope({ answer: criticAnswer });
-      throw new Error(`unexpected fetch: ${target}`);
-    });
-    vi.stubGlobal('fetch', fetchMock);
+    stubSuccessfulCloudflarePipeline(state, pngBytes(768, 1024));
 
     const response = await request(app(CF_ENV))
       .post('/api/creative/v1.5/raster/generate')
-      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 });
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 })
+      .buffer(true)
+      .parse(parseBinaryBody);
+
+    // Binary contract (IMAGE_DELIVERY_TRIAGE_2026-11-13): the success
+    // response is the image bytes themselves, with the delivery evidence
+    // carried in headers. Usage reconciliation detail stays observable on
+    // the failure path (see the reconciliation test below); a 200 here
+    // already proves the post-generation reconciliation passed.
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toBe('image/png');
+    expect(response.headers['content-disposition']).toContain('filename="origin-image.png"');
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect(response.body.equals(Buffer.from(pngBytes(768, 1024)))).toBe(true);
+    expect(response.headers).toMatchObject({
+      'x-origin-structural-verified': 'true',
+      'x-origin-visual-verified': 'true',
+      'x-origin-visual-brain': 'visual-brain-v1',
+      'x-origin-visual-plan': 'raster-visual-plan-v1',
+      'x-origin-visual-critic': 'raster-structural-critic-v1',
+      'x-origin-visual-quality-score': '100',
+      'x-origin-visual-width': '768',
+      'x-origin-visual-height': '1024',
+      'x-origin-visual-actual-width': '768',
+      'x-origin-visual-actual-height': '1024',
+      'x-origin-visual-task': 'generate',
+      'x-origin-visual-reference-count': '0',
+      'x-origin-visual-provider': 'cloudflare-workers-ai-free',
+      'x-origin-visual-model': '@cf/black-forest-labs/flux-2-klein-4b',
+      'x-origin-cost-usd': '0',
+      'x-origin-free-only': 'true',
+      'x-origin-paid-fallback': 'false',
+      'x-origin-secret-delivery': 'server-only',
+    });
+    const plan = planRasterVisualRequestV15('静かな湖と朝焼け', { width: 768, height: 1024 });
+    expect(response.headers['x-origin-visual-purpose']).toBe(plan.purpose);
+    expect(response.headers['x-origin-visual-typography-overlay'])
+      .toBe(plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
+    expect(response.headers['x-origin-visual-plan-sha256'])
+      .toBe(createHash('sha256').update(JSON.stringify(plan)).digest('hex'));
+    expect(response.headers['x-origin-visual-sha256'])
+      .toBe(createHash('sha256').update(response.body).digest('hex'));
+    expect(response.headers['x-origin-visual-generation-id'])
+      .toBe(`raster-${(response.headers['x-origin-visual-sha256'] ?? '').slice(0, 24)}`);
+    expect(clientRasterContractFailures(response.headers, response.body)).toEqual([]);
+    // Two candidates are the standard policy for every prompt.
+    expect(state.imageRuns).toBe(2);
+  });
+
+  it('delivers a binary success the app client accepts for the production blue-bird plan shape', async () => {
+    // Cross-boundary regression for IMAGE_DELIVERY_TRIAGE_2026-11-13: in
+    // production (2026-11-13) this exact request — the image sheet's
+    // default 1024x1024 for 「青い鳥」 — returned 200 yet the app showed
+    // only the generic failure message, because the JSON success shape
+    // failed the client's binary verification. The real router response
+    // must now pass every client condition for this plan shape
+    // (purpose 'photograph', typography 'not-required').
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-13T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    stubSuccessfulCloudflarePipeline(state, pngBytes(1024, 1024));
+
+    const plan = planRasterVisualRequestV15('青い鳥', { width: 1024, height: 1024 });
+    expect(plan.ready).toBe(true);
+    expect(plan.purpose).toBe('photograph');
+    expect(plan.requiresDeterministicTypography).toBe(false);
+
+    const response = await request(app(CF_ENV))
+      .post('/api/generate-image')
+      .send({ prompt: '青い鳥', width: 1024, height: 1024 })
+      .buffer(true)
+      .parse(parseBinaryBody);
 
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      ok: true,
-      code: 'RASTER_GENERATED',
-      model: '@cf/black-forest-labs/flux-2-klein-4b',
-      providerId: 'cloudflare-workers-ai-free',
-      costUsd: 0,
-      costEvidence: 'post-generation-usage-zero-confirmed',
-      freeOnly: true,
-      paidFallbackUsed: false,
-      providerExecutions: 1,
-    });
-    expect(response.body.image.dataUrl).toMatch(/^data:image\/png;base64,/);
-    expect(response.body.image).toMatchObject({ width: 768, height: 1024, mimeType: 'image/png' });
-    expect(response.body.critics.semantic).toMatchObject({ passed: true, score: 100 });
-    expect(response.body.usage).toMatchObject({
-      allocationNeurons: 10_000,
-      usedBeforeNeurons: 100,
-      // Two candidates are the standard policy for every prompt:
-      // (126 generation + 256 critic reserve) x (2 candidates + 1
-      // budgeted retry).
-      reservedNeurons: 1146,
-      candidatesPlanned: 2,
-      candidatesGenerated: 2,
-      observedDeltaNeurons: 280,
-      usedAfterNeurons: 380,
-      // The usage object is serialized verbatim into the response, so the
-      // reconciliation method and the per-request report total reach API
-      // clients as delivery evidence.
-      reconciliationMethod: 'aggregate-delta',
-      reportedNeurons: null,
-    });
-    expect(state.imageRuns).toBe(2);
+    expect(response.headers['x-origin-visual-purpose']).toBe('photograph');
+    expect(response.headers['x-origin-visual-typography-overlay']).toBe('not-required');
+    expect(clientRasterContractFailures(response.headers, response.body)).toEqual([]);
   });
 
   it('includes the observed usage snapshot when reconciliation fails', async () => {
@@ -665,20 +791,20 @@ describe('rasterImageV15Router', () => {
 
     const response = await request(app(CF_ENV))
       .post('/api/creative/v1.5/raster/generate')
-      .send({ prompt: '高級で未来的なORIGINのスマホ広告画像を作ってください', width: 768, height: 1024 });
+      .send({ prompt: '高級で未来的なORIGINのスマホ広告画像を作ってください', width: 768, height: 1024 })
+      .buffer(true)
+      .parse(parseBinaryBody);
 
     expect(response.status).toBe(200);
-    expect(response.body.plan).toMatchObject({ purpose: 'advertisement' });
+    // Binary contract: the selected candidate's bytes are the body, and
+    // the plan purpose travels in the evidence headers. (Candidate
+    // selection internals — scores, selected index — are pipeline state,
+    // covered by the generation module's own tests; the wire contract is
+    // what this router test pins.)
+    expect(response.headers['x-origin-visual-purpose']).toBe('advertisement');
+    expect(response.body.equals(Buffer.from(pngBytes(768, 1024)))).toBe(true);
+    expect(clientRasterContractFailures(response.headers, response.body)).toEqual([]);
     expect(state.imageRuns).toBe(2);
-    expect(response.body.usage).toMatchObject({ candidatesPlanned: 2, candidatesGenerated: 2 });
-    expect(response.body.quality).toMatchObject({
-      retryUsed: false,
-      selectedCandidateIndex: 1,
-      candidates: [
-        { index: 0, semanticScore: 89, passed: true, selected: false },
-        { index: 1, semanticScore: 100, passed: true, selected: true },
-      ],
-    });
   });
 
   it('refuses generation before inference when the daily free allocation cannot cover the reserve', async () => {

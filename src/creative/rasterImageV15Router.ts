@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
@@ -109,6 +110,12 @@ function parseBody(body: unknown, mode: 'generate' | 'edit' = 'generate'): Raste
     model: record.model as string | undefined,
     referenceImages,
   };
+}
+
+function rasterDeliveryFilename(mimeType: string): string {
+  if (mimeType === 'image/png') return 'origin-image.png';
+  if (mimeType === 'image/webp') return 'origin-image.webp';
+  return 'origin-image.jpg';
 }
 
 function cloudflareCredentialsConfigured(env: NodeJS.ProcessEnv): boolean {
@@ -300,58 +307,42 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
         },
       );
       const { result } = delivery;
-      return res.status(200).json({
-        ok: true,
-        code: 'RASTER_GENERATED',
-        image: {
-          dataUrl: `data:${result.mimeType};base64,${result.bytes.toString('base64')}`,
-          mimeType: result.mimeType,
-          width: result.width,
-          height: result.height,
-          sha256: result.sha256,
-        },
-        model: result.model,
-        providerId: result.providerId,
-        costUsd: 0,
-        costEvidence: result.costEvidence,
-        freeOnly: true,
-        paidFallbackUsed: false,
-        secretDelivery: 'server-only',
-        providerExecutions: 1,
-        plan: {
-          version: plan.version,
-          purpose: plan.purpose,
-          platform: plan.platform,
-          width: plan.width,
-          height: plan.height,
-        },
-        critics: {
-          structural: {
-            version: delivery.structural.version,
-            passed: delivery.structural.passed,
-            score: delivery.structural.score,
-            checks: delivery.structural.checks,
-          },
-          technicalPixel: {
-            version: 'raster-technical-critic-v1',
-            execution: 'client-side-inspectRasterBlobV15',
-            deliveryGateWired: true,
-            semanticVisionJudgment: false,
-          },
-          semantic: {
-            version: delivery.semantic.version,
-            passed: delivery.semantic.passed,
-            score: delivery.semantic.score,
-            model: delivery.semantic.model,
-            scores: delivery.semantic.scores,
-            issues: delivery.semantic.issues,
-            summary: delivery.semantic.summary,
-          },
-        },
-        usage: delivery.usage,
-        quality: delivery.quality,
-        externalNetworkRequests: delivery.externalNetworkRequests,
-      });
+      // Success is delivered as the raw image bytes plus the evidence
+      // header chain the client verifies fail-closed (App.tsx) — the
+      // contract the pre-2026-10-31 binary delivery used. The JSON success
+      // shape introduced with the free-proof re-enablement never matched
+      // that contract, so every successful generation was rejected by the
+      // client's first verification gate (IMAGE_DELIVERY_TRIAGE_2026-11-13).
+      // Error responses stay JSON (the fail() helper and the branches
+      // above/below); only this success response is binary.
+      const planSha256 = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${rasterDeliveryFilename(result.mimeType)}"`);
+      res.setHeader('X-Origin-Structural-Verified', 'true');
+      if (delivery.semantic.passed) res.setHeader('X-Origin-Visual-Verified', 'true');
+      res.setHeader('X-Origin-Visual-Sha256', result.sha256);
+      res.setHeader('X-Origin-Visual-Generation-Id', `raster-${result.sha256.slice(0, 24)}`);
+      res.setHeader('X-Origin-Visual-Brain', 'visual-brain-v1');
+      res.setHeader('X-Origin-Visual-Plan', plan.version);
+      res.setHeader('X-Origin-Visual-Plan-Sha256', planSha256);
+      res.setHeader('X-Origin-Visual-Purpose', plan.purpose);
+      res.setHeader('X-Origin-Visual-Typography-Overlay', plan.requiresDeterministicTypography ? 'recommended' : 'not-required');
+      res.setHeader('X-Origin-Visual-Critic', delivery.structural.version);
+      res.setHeader('X-Origin-Visual-Quality-Score', String(delivery.structural.score));
+      res.setHeader('X-Origin-Visual-Actual-Width', String(delivery.structural.actualWidth));
+      res.setHeader('X-Origin-Visual-Actual-Height', String(delivery.structural.actualHeight));
+      res.setHeader('X-Origin-Visual-Width', String(result.width));
+      res.setHeader('X-Origin-Visual-Height', String(result.height));
+      res.setHeader('X-Origin-Visual-Task', mode);
+      res.setHeader('X-Origin-Visual-Reference-Count', String(input.referenceImages?.length ?? 0));
+      res.setHeader('X-Origin-Visual-Provider', result.providerId);
+      res.setHeader('X-Origin-Visual-Model', result.model);
+      res.setHeader('X-Origin-Cost-Usd', '0');
+      res.setHeader('X-Origin-Free-Only', 'true');
+      res.setHeader('X-Origin-Paid-Fallback', 'false');
+      res.setHeader('X-Origin-Secret-Delivery', 'server-only');
+      return res.status(200).send(result.bytes);
     } catch (error) {
       if (error instanceof CloudflareRasterUsageReconciliationErrorV15) {
         // Reconciliation blocks carry the observed usage snapshot so the
