@@ -1,8 +1,12 @@
 import React from 'react';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import OrinSpeechBubble, {
   ORIN_BUBBLE_FADE_MS,
+  ORIN_OVERLAY_CAT_SIZE_PX,
+  ORIN_OVERLAY_PEDESTAL_SIZE_PX,
   resolveOrinBubbleText,
   type OrinBubbleSignals,
 } from './OrinSpeechBubble';
@@ -24,6 +28,17 @@ function stubMatchMedia(reduced: boolean) {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
+}
+
+function renderPresence(overrides: Partial<React.ComponentProps<typeof OrinSpeechBubble>> = {}) {
+  const props: React.ComponentProps<typeof OrinSpeechBubble> = {
+    text: '回答を準備しています…',
+    state: 'thinking',
+    language: 'ja',
+    onOpenWorkSheet: vi.fn(),
+    ...overrides,
+  };
+  return { props, ...render(<OrinSpeechBubble {...props} />) };
 }
 
 describe('resolveOrinBubbleText', () => {
@@ -49,7 +64,7 @@ describe('resolveOrinBubbleText', () => {
   });
 });
 
-describe('OrinSpeechBubble', () => {
+describe('Orin working presence (2026-11-14 revision)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     stubMatchMedia(false);
@@ -60,39 +75,98 @@ describe('OrinSpeechBubble', () => {
     vi.useRealTimers();
   });
 
-  it('renders nothing while the text is null', () => {
-    render(<OrinSpeechBubble text={null} />);
+  it('renders nothing while the text is null, and never renders the old bubble', () => {
+    renderPresence({ text: null });
+    expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
   });
 
-  it('fades in when a stage text arrives and swaps text without unmounting on phase changes', () => {
-    const { rerender } = render(<OrinSpeechBubble text={null} />);
-    rerender(<OrinSpeechBubble text="回答を準備しています…" />);
-    const bubble = screen.getByTestId('origin-orin-bubble');
-    expect(bubble.textContent).toContain('回答を準備しています…');
+  it('renders the large Orin with the name and the status pill while working', () => {
+    renderPresence();
+    const overlay = screen.getByTestId('origin-orin-overlay');
+    expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
+    // 名前は円の真下に「オリン」。
+    expect(screen.getByTestId('origin-orin-overlay-name').textContent).toBe('オリン');
+    // 状態ピルは吹き出しと同じ解決済みテキストをそのまま出す。
+    expect(screen.getByTestId('origin-orin-overlay-status').textContent).toBe('回答を準備しています…');
+    // 大きなオリン：絵96px・台座外径104px（約104pxの円）。
+    const cat = screen.getByTestId('origin-cat-state');
+    expect((cat as HTMLElement).style.width).toBe(`${ORIN_OVERLAY_CAT_SIZE_PX}px`);
+    expect((cat as HTMLElement).style.height).toBe(`${ORIN_OVERLAY_CAT_SIZE_PX}px`);
+    const pedestal = screen.getByTestId('origin-cat-pedestal');
+    expect((pedestal as HTMLElement).style.width).toBe(`${ORIN_OVERLAY_PEDESTAL_SIZE_PX}px`);
+    expect((pedestal as HTMLElement).style.height).toBe(`${ORIN_OVERLAY_PEDESTAL_SIZE_PX}px`);
+    expect(ORIN_OVERLAY_PEDESTAL_SIZE_PX).toBe(104);
+    expect(overlay.contains(pedestal)).toBe(true);
+  });
+
+  it('uses the English name for the English locale', () => {
+    renderPresence({ language: 'en' });
+    expect(screen.getByTestId('origin-orin-overlay-name').textContent).toBe('Orin');
+  });
+
+  it('moves while working: the working state uses the motion video asset', () => {
+    renderPresence({ state: 'working' });
+    const cat = screen.getByTestId('origin-cat-state');
+    expect(cat.tagName).toBe('VIDEO');
+    expect(cat.getAttribute('data-state')).toBe('working');
+  });
+
+  it('swaps the status text without unmounting on phase changes', () => {
+    const { props, rerender } = renderPresence();
+    const overlay = screen.getByTestId('origin-orin-overlay');
     act(() => { vi.advanceTimersByTime(50); });
-    expect((bubble as HTMLElement).style.opacity).toBe('1');
-    rerender(<OrinSpeechBubble text="回答をまとめています…" />);
-    expect(screen.getByTestId('origin-orin-bubble').textContent).toContain('回答をまとめています…');
+    expect((overlay as HTMLElement).style.opacity).toBe('1');
+    rerender(<OrinSpeechBubble {...props} text="回答をまとめています…" state="thinking" />);
+    expect(screen.getByTestId('origin-orin-overlay')).toBe(overlay);
+    expect(screen.getByTestId('origin-orin-overlay-status').textContent).toBe('回答をまとめています…');
   });
 
   it('fades out and unmounts after the fade when the text clears', () => {
-    const { rerender } = render(<OrinSpeechBubble text="回答を準備しています…" />);
+    const { props, rerender } = renderPresence();
     act(() => { vi.advanceTimersByTime(50); });
-    rerender(<OrinSpeechBubble text={null} />);
+    rerender(<OrinSpeechBubble {...props} text={null} />);
     // フェードアウトの間はまだ残り、尺が過ぎたら消える。
-    expect(screen.queryByTestId('origin-orin-bubble')).not.toBeNull();
+    expect(screen.queryByTestId('origin-orin-overlay')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_BUBBLE_FADE_MS); });
-    expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
+    expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
   });
 
-  it('shows and hides immediately under reduced motion (no fade)', () => {
+  it('shows and hides immediately under reduced motion, with a still instead of the video', () => {
     stubMatchMedia(true);
-    const { rerender } = render(<OrinSpeechBubble text={null} />);
-    rerender(<OrinSpeechBubble text="回答を準備しています…" />);
-    const bubble = screen.getByTestId('origin-orin-bubble');
-    expect((bubble as HTMLElement).style.opacity).toBe('1');
-    rerender(<OrinSpeechBubble text={null} />);
-    expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
+    const { props, rerender } = renderPresence({ text: null, state: 'working' });
+    rerender(<OrinSpeechBubble {...props} text="描いています" />);
+    const overlay = screen.getByTestId('origin-orin-overlay');
+    expect((overlay as HTMLElement).style.opacity).toBe('1');
+    const cat = screen.getByTestId('origin-cat-state');
+    expect(cat.tagName).toBe('IMG');
+    expect(cat.getAttribute('data-state')).toBe('working');
+    rerender(<OrinSpeechBubble {...props} text={null} />);
+    expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
+  });
+
+  it('stays hidden while the work sheet is open (hidden prop), even with a status text', () => {
+    renderPresence({ hidden: true });
+    expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
+  });
+
+  it('opens the work sheet when the overlay is tapped', () => {
+    const onOpenWorkSheet = vi.fn();
+    renderPresence({ onOpenWorkSheet });
+    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('pins the overlay CSS: no old bubble styles, z-index below the work sheet', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
+    expect(css).not.toContain('.origin-orin-bubble');
+    expect(css).not.toContain('top: 3.5rem');
+    expect(css).toContain('.origin-orin-overlay {');
+    expect(css).toContain('.origin-orin-overlay__pill {');
+    // 作業シート（backdrop z-20／panel z-30）より下、会話より上。
+    expect(css).toContain('z-index: 15;');
+    // タップできるのはプレゼンス自身のタップ対象だけ。
+    expect(css).toContain('pointer-events: none;');
+    expect(css).toContain('pointer-events: auto;');
   });
 });

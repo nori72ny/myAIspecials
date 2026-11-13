@@ -537,59 +537,87 @@
   }
 }
 
-/* Orin speech bubble (waiting-display revision, 2026-11-13; design
-   ORIN_WAITING_DISPLAY_REVISION_2026-11-13).
-   The resident header Orin "speaks" the current work stage in one
-   plain line. The bubble is an overlay centred just under the header
-   (top: 3.5rem = the header's min-height): it never pushes the
-   conversation layout down, it carries a small tail pointing up at
-   Orin, and its only motion is an opacity fade driven by the
-   component. z-index 40 keeps it above the header and the work-sheet
-   backdrop area, and below the artifact workspace (50) and the
-   image panel (80); the bubble is hidden while the work sheet is
-   open, so it never competes with the sheet (z-30). Width is capped
-   by the viewport so it cannot overflow at 320px. */
-.origin-orin-bubble {
+/* Orin working presence (owner revision, 2026-11-14, from the Muse
+   app's working-state screenshot). While work is active, a large Orin
+   (104px pedestal) floats at the top centre of the screen as an
+   overlay, with the name directly under the circle and a small dark
+   translucent pill under the name carrying the current stage in one
+   plain line. This replaces the outlined speech bubble of 2026-11-13
+   (PR #1249); the two are never shown together.
+   Position: top 50px tucks the pedestal's top edge just under the
+   header bar (min-height 60px, 58px on small screens, plus the top
+   safe-area inset), so the circle reads as emerging from the header's
+   bottom edge without pushing the conversation layout down.
+   z-index 15 sits above the conversation and the composer (neither
+   carries an explicit z-index) and below the work-sheet backdrop
+   (z-20) and panel (z-30), the header (z-50), the artifact workspace
+   (z-50) and the image panel (z-80): the sheet opens from the top and
+   covers this overlay, and the component also hides immediately while
+   the sheet is open. The overlay itself is pointer-events: none; only
+   its own tap target (circle + name + pill) accepts taps, so the
+   conversation behind it stays scrollable. Width is capped by the
+   viewport so it cannot overflow at 320px. Motion is a gentle
+   opacity fade plus a slight scale on entry, driven by the
+   component; prefers-reduced-motion removes both. */
+.origin-orin-overlay {
   position: absolute;
-  top: 3.5rem;
+  top: 50px;
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
+  transform: translateX(-50%) scale(0.96);
+  z-index: 15;
   width: max-content;
-  max-width: min(88vw, 26rem);
-  padding: 0 12px;
+  max-width: min(92vw, 24rem);
   box-sizing: border-box;
   pointer-events: none;
-  transition: opacity 180ms ease-out;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
 }
-.origin-orin-bubble-body {
-  position: relative;
-  margin-top: 10px;
-  padding: 8px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 14px;
-  background: var(--bg-surface);
+.origin-orin-overlay.is-visible {
+  transform: translateX(-50%) scale(1);
+}
+.origin-orin-overlay__tap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 10px 6px;
+  border: 0;
+  background: transparent;
   color: var(--text-primary);
-  box-shadow: 0 6px 18px rgb(15 23 42 / 10%);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-overlay__tap:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 24px;
+}
+.origin-orin-overlay__name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.origin-orin-overlay__pill {
+  max-width: min(88vw, 20rem);
+  padding: 6px 12px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 82%);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 22%);
+  backdrop-filter: blur(8px);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.4;
   text-align: center;
   overflow-wrap: break-word;
 }
-.origin-orin-bubble-tail {
-  position: absolute;
-  top: -5px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border-default);
-  border-left: 1px solid var(--border-default);
-  transform: rotate(45deg);
-}
 @media (prefers-reduced-motion: reduce) {
-  .origin-orin-bubble {
+  .origin-orin-overlay {
     transition: none;
+    transform: translateX(-50%) scale(1);
   }
 }
