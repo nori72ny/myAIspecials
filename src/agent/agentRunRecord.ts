@@ -42,6 +42,15 @@ export const MAX_AGENT_RUN_HOLD_BYTES = 4096;
 export const MAX_AGENT_RUN_QUOTA_LEDGER_BYTES = 4096;
 export const MAX_AGENT_RUN_SUMMARY_LENGTH = 500;
 export const MAX_AGENT_RUN_ARTIFACT_REF_LENGTH = 512;
+/** Live-view detail caps (agent live view PR-L1, design §5.2). The
+ * per-step worst case stays around 2.4KB, so even a 20-step run whose
+ * every step is a research step fits the 32KiB steps_state budget. */
+export const MAX_AGENT_RUN_LIVE_QUERY_LENGTH = 200;
+export const MAX_AGENT_RUN_LIVE_SOURCES = 3;
+export const MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH = 120;
+export const MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH = 512;
+export const MAX_AGENT_RUN_LIVE_SOURCE_DOMAIN_LENGTH = 253;
+export const MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH = 160;
 export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
@@ -123,6 +132,30 @@ export type AgentRunPlanStep = {
   inputFrom?: number;
 };
 
+/** One page a research step actually looked at, kept for the live view. */
+export type AgentRunStepLiveSource = {
+  title: string;
+  url: string;
+  domain?: string;
+  excerpt?: string;
+};
+
+/**
+ * Live-view detail for one step (agent live view PR-L1, design
+ * AGENT_LIVE_VIEW_DESIGN_2026-11-13 §5.2). Optional and additive:
+ * records written before this field existed read back unchanged, and
+ * consumers that ignore it keep the previous behavior. It holds only
+ * what the step itself was planned with or produced in public — the
+ * query a research step actually ran and the first sources it returned
+ * — never prompts, capability tokens or other internals.
+ */
+export type AgentRunStepLiveDetail = {
+  startedAt?: number;
+  finishedAt?: number;
+  query?: string;
+  sources?: AgentRunStepLiveSource[];
+};
+
 /** Per-step progress. Status vocabulary matches the agent task graph. */
 export type AgentRunStepState = {
   id: string;
@@ -131,6 +164,7 @@ export type AgentRunStepState = {
   artifactRef?: string;
   summary?: string;
   errorCode?: string;
+  liveDetail?: AgentRunStepLiveDetail;
 };
 
 export type AgentRunHoldReason =
@@ -396,6 +430,58 @@ export function normalizeAgentRunPlanDigest(planDigest: string | null | undefine
   return planDigest;
 }
 
+/** Epoch-ms upper bound for live-detail timestamps (2100-01-01 UTC). */
+const MAX_LIVE_TIMESTAMP_MS = 4_102_444_800_000;
+
+function truncateLiveText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeLiveTimestamp(value: unknown): number | undefined {
+  if (!Number.isFinite(value) || Number(value) <= 0 || Number(value) > MAX_LIVE_TIMESTAMP_MS) return undefined;
+  return Math.floor(Number(value));
+}
+
+/**
+ * Normalizes the optional live-view detail of one step. Unlike the
+ * surrounding fields this is deliberately fail-soft (design §5.2): the
+ * detail is display data derived from public pages, so a malformed
+ * value is dropped and overlong text is truncated to the caps instead
+ * of rejecting the step state — a bad excerpt must never make a
+ * progress write (or a stored record's read-back) fail.
+ */
+function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const detail: AgentRunStepLiveDetail = {};
+  const startedAt = normalizeLiveTimestamp(value.startedAt);
+  if (startedAt !== undefined) detail.startedAt = startedAt;
+  const finishedAt = normalizeLiveTimestamp(value.finishedAt);
+  if (finishedAt !== undefined) detail.finishedAt = finishedAt;
+  const query = truncateLiveText(value.query, MAX_AGENT_RUN_LIVE_QUERY_LENGTH);
+  if (query !== undefined) detail.query = query;
+  if (Array.isArray(value.sources)) {
+    const sources: AgentRunStepLiveSource[] = [];
+    for (const raw of value.sources) {
+      if (sources.length >= MAX_AGENT_RUN_LIVE_SOURCES) break;
+      if (!isPlainObject(raw)) continue;
+      const title = truncateLiveText(raw.title, MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH);
+      const url = truncateLiveText(raw.url, MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH);
+      if (title === undefined || url === undefined) continue;
+      const source: AgentRunStepLiveSource = { title, url };
+      const domain = truncateLiveText(raw.domain, MAX_AGENT_RUN_LIVE_SOURCE_DOMAIN_LENGTH);
+      if (domain !== undefined) source.domain = domain;
+      const excerpt = truncateLiveText(raw.excerpt, MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH);
+      if (excerpt !== undefined) source.excerpt = excerpt;
+      sources.push(source);
+    }
+    if (sources.length > 0) detail.sources = sources;
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
 export function normalizeAgentRunStepsState(stepsState: AgentRunStepState[] | undefined): AgentRunStepState[] {
   if (stepsState === undefined) return [];
   if (!Array.isArray(stepsState) || stepsState.length > MAX_AGENT_RUN_STEPS_STATE) {
@@ -404,7 +490,7 @@ export function normalizeAgentRunStepsState(stepsState: AgentRunStepState[] | un
   const seen = new Set<string>();
   const normalized = stepsState.map((step) => {
     if (!isPlainObject(step)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
-    const { id, status, attempts, artifactRef, summary, errorCode } = step as Record<string, unknown>;
+    const { id, status, attempts, artifactRef, summary, errorCode, liveDetail } = step as Record<string, unknown>;
     if (typeof id !== 'string' || !STEP_ID_PATTERN.test(id) || seen.has(id)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
     seen.add(id);
     if (typeof status !== 'string' || !STEP_STATUSES.has(status)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
@@ -429,6 +515,10 @@ export function normalizeAgentRunStepsState(stepsState: AgentRunStepState[] | un
         throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
       }
       normalizedStep.errorCode = errorCode;
+    }
+    if (liveDetail !== undefined) {
+      const normalizedLiveDetail = normalizeAgentRunStepLiveDetail(liveDetail);
+      if (normalizedLiveDetail) normalizedStep.liveDetail = normalizedLiveDetail;
     }
     return normalizedStep;
   });

@@ -445,4 +445,123 @@ describe('advanceAgentRun', () => {
     expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'COMPLETION_VERIFICATION_FAILED' });
     expect((await store.get(RUN_ID, OWNER))?.status).toBe('failed');
   });
+
+  it('records live detail for a research step: timing, the executed query and up to three truncated sources (PR-L1)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const artifact = JSON.stringify({
+      provider: 'tavily',
+      sources: [
+        { title: 't'.repeat(150), url: 'https://example.jp/1', excerpt: 'e'.repeat(200), domain: 'example.jp', evidenceLevel: 'extracted', sourceAuthority: null, freshness: 'recent' },
+        { title: 'Second', url: 'https://example.jp/2', excerpt: 'short', domain: 'example.jp' },
+        { title: 'Third', url: 'https://example.jp/3', excerpt: 'short', domain: 'example.jp' },
+        { title: 'Fourth', url: 'https://example.jp/4', excerpt: 'short', domain: 'example.jp' },
+        { title: 'Fifth', url: 'https://example.jp/5', excerpt: 'short', domain: 'example.jp' },
+      ],
+    });
+    const runTool = makeRunTool({ web_search_grounding: artifact });
+    const seeded = await seedRun(store, [{ toolName: 'web_search_grounding', params: { query: '富士山の標高' } }]);
+
+    const before = Date.now();
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+    const after = Date.now();
+
+    expect(outcome.kind).toBe('completed');
+    const detail = (await store.get(RUN_ID, OWNER))?.stepsState[0]?.liveDetail;
+    expect(detail?.query).toBe('富士山の標高');
+    expect(detail?.startedAt).toBeGreaterThanOrEqual(before);
+    expect(detail?.finishedAt).toBeLessThanOrEqual(after);
+    expect(detail?.finishedAt).toBeGreaterThanOrEqual(detail?.startedAt ?? 0);
+    expect(detail?.sources).toHaveLength(3);
+    expect(detail?.sources?.[0]).toEqual({
+      title: 't'.repeat(120),
+      url: 'https://example.jp/1',
+      domain: 'example.jp',
+      excerpt: 'e'.repeat(160),
+    });
+    expect(detail?.sources?.map((source) => source.title)).not.toContain('Fourth');
+    // Only the display fields are recorded: provider bookkeeping from the
+    // artifact (evidence level, authority, freshness) never enters it.
+    expect(JSON.stringify(detail)).not.toContain('evidenceLevel');
+    expect(JSON.stringify(detail)).not.toContain('sourceAuthority');
+  });
+
+  it('records timing-only live detail for a non-research step (PR-L1)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const seeded = await seedRun(store, [{ toolName: 'repository_explorer' }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool: makeRunTool(), verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('completed');
+    const detail = (await store.get(RUN_ID, OWNER))?.stepsState[0]?.liveDetail;
+    expect(typeof detail?.startedAt).toBe('number');
+    expect(typeof detail?.finishedAt).toBe('number');
+    expect(detail?.query).toBeUndefined();
+    expect(detail?.sources).toBeUndefined();
+  });
+
+  it('still completes and persists progress when the research artifact cannot be parsed for live detail (PR-L1 fail-soft)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = makeRunTool({ web_search_grounding: 'not-json{{{' });
+    const seeded = await seedRun(store, [{ toolName: 'web_search_grounding', params: { query: '猫の平均寿命' } }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('completed');
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('completed');
+    expect(record?.stepsState[0]?.status).toBe('completed');
+    const detail = record?.stepsState[0]?.liveDetail;
+    expect(detail?.query).toBe('猫の平均寿命');
+    expect(typeof detail?.startedAt).toBe('number');
+    expect(detail?.sources).toBeUndefined();
+  });
+
+  it('drops secret-tripping live fields instead of failing the progress write (PR-L1 fail-soft)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const artifact = JSON.stringify({
+      provider: 'tavily',
+      sources: [
+        { title: 'Clean', url: 'https://example.jp/clean', excerpt: 'plain excerpt', domain: 'example.jp' },
+        { title: 'Leaky excerpt', url: 'https://example.jp/leaky', excerpt: "the token = 'supersecretvalue' appears here", domain: 'example.jp' },
+        { title: "password = 'hunter2' の解説", url: 'https://example.jp/dropped', excerpt: 'short', domain: 'example.jp' },
+      ],
+    });
+    const runTool = makeRunTool({ web_search_grounding: artifact });
+    const seeded = await seedRun(store, [{ toolName: 'web_search_grounding', params: { query: '富士山の標高' } }]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    // Without the fail-soft screening, the steps-state secret check
+    // would reject the progress write and fail the whole run.
+    expect(outcome.kind).toBe('completed');
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('completed');
+    const sources = record?.stepsState[0]?.liveDetail?.sources;
+    expect(sources).toHaveLength(2);
+    expect(sources?.[0]?.title).toBe('Clean');
+    expect(sources?.[1]?.title).toBe('Leaky excerpt');
+    expect(sources?.[1]?.excerpt).toBeUndefined();
+    expect(JSON.stringify(record)).not.toContain('supersecretvalue');
+    expect(JSON.stringify(record)).not.toContain('hunter2');
+  });
 });
