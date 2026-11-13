@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { enhanceRasterPromptV15 } from './rasterPromptEnhancementV15';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog';
 
-const NOW_IN_WINDOW = Date.parse('2026-11-06T12:00:00.000Z');
+const NOW_IN_WINDOW = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 const ENV: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: 'test-openrouter-key' };
 const PROMPT = '静かな湖と朝焼け';
 
@@ -34,7 +35,7 @@ describe('rasterPromptEnhancementV15', () => {
   it('fails soft when the free-model evidence is stale', async () => {
     const fetchMock = vi.fn();
     await expect(enhanceRasterPromptV15(
-      PROMPT, ENV, fetchMock as unknown as typeof fetch, Date.parse('2026-12-01T00:00:00.000Z'),
+      PROMPT, ENV, fetchMock as unknown as typeof fetch, Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter) + 1,
     )).resolves.toMatchObject({ prompt: PROMPT, applied: false, reason: 'PROMPT_ENHANCEMENT_EVIDENCE_UNAVAILABLE' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
