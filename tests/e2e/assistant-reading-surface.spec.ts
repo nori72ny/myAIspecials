@@ -82,10 +82,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 猫28px＋台座のリング2px×2で、台座の外径は32pxになる（枠線は
-    // border-box の内側。2026-11-12 のリング細分化で旧形状の34pxから変更）。
-    expect(headerCatStyle.width).toBe('32px');
-    expect(headerCatStyle.height).toBe('32px');
+    // PR-β（設計正本 §9）でヘッダーの猫は上部中央常駐となり、指定範囲
+    // 32〜36px のうち 34px に拡大した。猫34px＋台座のリング2px×2で、
+    // 台座の外径は38pxになる（枠線は border-box の内側）。
+    expect(headerCatStyle.width).toBe('38px');
+    expect(headerCatStyle.height).toBe('38px');
     expect(headerCatStyle.borderRadius).toBe('999px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });

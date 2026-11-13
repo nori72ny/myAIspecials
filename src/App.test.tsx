@@ -171,7 +171,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
     const header = document.querySelector('.origin-header') as HTMLElement;
-    expect(within(header).getAllByRole('button')).toHaveLength(2);
+    // 履歴・設定に加え、上部中央の常駐オリン（いまの作業シート）で3つ。
+    expect(within(header).getAllByRole('button')).toHaveLength(3);
     expect(screen.queryByRole('button', { name: '新規対話を開始' })).toBeNull();
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
@@ -410,7 +411,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(1);
     });
 
-    it('shows staged progress with the working cat inside the conversation while research runs', async () => {
+    it('shows staged one-line progress inside the conversation while research runs', async () => {
       let resolveResearch!: (value: Response) => void;
       const gate = new Promise<Response>((resolve) => { resolveResearch = resolve; });
       const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
@@ -427,6 +428,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       const progress = await screen.findByTestId('origin-research-progress');
       expect(progress.textContent).toContain('公開情報を探しています');
       expect(screen.queryByTestId('origin-thinking')).toBeNull();
+      // PR-β：会話内の進捗は1行表示のみで猫は置かない。調査中である
+      // ことはヘッダー常駐オリンの「調べている」状態が表す。
+      expect(within(progress).queryByTestId('origin-cat-state')).toBeNull();
+      const headerCat = within(screen.getByTestId('origin-header-orin')).getByTestId('origin-cat-state');
+      expect(headerCat.getAttribute('data-state')).toBe('searching');
 
       resolveResearch(researchResponse());
       expect(await screen.findByRole('heading', { name: '確認できた内容' })).toBeTruthy();
@@ -2497,20 +2503,68 @@ describe('cat visibility on the top screen and while generating (owner request 2
     }
   });
 
-  it('animates a large pedestal cat while a response is generating', async () => {
+  it('shows a light one-line status without a cat inside the conversation while generating (PR-β)', async () => {
     const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、生成中表示を維持する */ }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '生成中の猫を確認' } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '生成中の表示を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     const thinking = await screen.findByTestId('origin-thinking');
-    const cat = within(thinking).getByTestId('origin-cat-state');
-    expect(cat.tagName).toBe('VIDEO');
-    expect(cat.getAttribute('src')).toBe('/brand/origin-cat-working.mp4');
-    expect(cat.getAttribute('poster')).toBe('/brand/origin-cat-working.webp');
-    const pedestal = within(thinking).getByTestId('origin-cat-pedestal');
-    // 台座の外径は絵 84px + 両側リング 3px で 90px（ヒーローと同じ大きさ。
-    // 2026-11-12 に細いリングへ見直し、旧形状の 100px から変更）。
-    expect(parseInt(pedestal.style.width, 10)).toBe(90);
+    // 会話内は小さなドット＋平易な段階テキストの軽い1行だけ（PR-β で
+    // 大きなオリン＋重いピルを廃止）。段階文言も「回答を準備しています」
+    // に改めた。
+    expect(thinking.textContent).toContain('回答を準備しています');
+    expect(within(thinking).queryByTestId('origin-cat-state')).toBeNull();
+    // 状態は画面上部中央の常駐オリンが表す（静止画・細リング台座）。
+    const headerOrin = screen.getByTestId('origin-header-orin');
+    const headerCat = within(headerOrin).getByTestId('origin-cat-state');
+    expect(headerCat.tagName).toBe('IMG');
+    expect(headerCat.getAttribute('data-state')).toBe('thinking');
+    expect(headerCat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+  });
+});
+
+describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
+  afterEach(cleanup);
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('opens from the header cat and reports that nothing is in progress', () => {
+    render(<App language="ja" />);
+    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    const sheet = screen.getByTestId('origin-work-sheet');
+    expect(sheet.textContent).toContain('いまは作業していません');
+  });
+
+  it('shows the current chat stage while generating and the last completed work afterwards', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    let resolveChat!: (value: Response) => void;
+    const gate = new Promise<Response>((resolve) => { resolveChat = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestPath(input) === '/api/chat') return gate;
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートの確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await screen.findByTestId('origin-thinking');
+
+    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    const sheet = screen.getByTestId('origin-work-sheet');
+    expect(within(sheet).getByText('回答を準備しています')).toBeTruthy();
+    expect(sheet.textContent).toContain('進行中');
+    fireEvent.click(within(sheet).getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
+
+    resolveChat(new Response(JSON.stringify({
+      content: 'シート確認の回答',
+      routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    expect(await screen.findByText('シート確認の回答')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    const reopened = screen.getByTestId('origin-work-sheet');
+    expect(within(reopened).getByText('質問への回答')).toBeTruthy();
+    expect(reopened.textContent).toContain('完了');
   });
 });

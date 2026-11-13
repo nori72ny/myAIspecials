@@ -13,6 +13,7 @@ import {
   type AgentRunAuth,
   type AgentRunView,
 } from '../agent/agentRunClient';
+import { reportAgentActivity } from '../agent/agentActivityStore';
 
 type AgentCapability = {
   ready: boolean;
@@ -243,6 +244,31 @@ export default function AgentWorkspaceView() {
     };
   }, [liveSession, phase, liveRunView]);
 
+  // 「いまの作業」シート／ヘッダー常駐オリンへの要約の共有（PR-β）。
+  // 駆動やポーリングの結果（liveRunView）が変わるたびに、平易な
+  // ステップタイトルと進み具合だけを共有ストアへ書く。実行系の
+  // 挙動には一切影響しない（書き込み専用の副作用）。
+  useEffect(() => {
+    if (!liveSession) return;
+    const steps = liveSession.steps;
+    const total = steps.length;
+    const stateAt = (index: number) => liveRunView?.stepsState.find((item) => item.id === `task-${index + 1}`) ?? liveRunView?.stepsState[index];
+    const runningIndex = steps.findIndex((_, index) => stateAt(index)?.status === 'running');
+    const completedCount = steps.filter((_, index) => stateAt(index)?.status === 'completed').length;
+    const runStatus = liveRunView?.status ?? null;
+    const terminal = runStatus !== null && AGENT_RUN_TERMINAL_STATUSES.has(runStatus);
+    const active = !terminal && (phase === 'executing' || phase === 'recorded' || runningIndex >= 0);
+    const currentIndex = runningIndex >= 0 ? runningIndex : Math.min(completedCount, Math.max(0, total - 1));
+    reportAgentActivity({
+      active,
+      outcome: terminal ? (runStatus === 'completed' ? 'completed' : 'failed') : active ? 'running' : null,
+      stepTitle: total > 0 ? toolLabel(steps[currentIndex].toolName) : null,
+      currentStep: total > 0 ? currentIndex + 1 : 0,
+      totalSteps: total,
+      updatedAt: Date.now(),
+    });
+  }, [liveSession, phase, liveRunView]);
+
   const requestPlan = useCallback(async () => {
     const trimmed = goal.trim();
     const planCapable = capability?.ready === true || capability?.browserApprovalEnabled === true;
@@ -459,6 +485,20 @@ export default function AgentWorkspaceView() {
   // string; show it as source cards instead of raw JSON (PR-L2).
   const researchArtifact = useMemo(() => parseAgentResearchArtifact(artifact), [artifact]);
 
+  // 実況パネルのオリンは、実行中ステップがウェブ調査のときは専用の
+  // 「調べている」状態にする（working からの分離、動きの作り直し
+  // 第1段 PR-β）。それ以外は従来のフェーズ連動のまま。
+  const livePanelCatState: OriginCatStateKind = (() => {
+    if (liveSession && liveRunView) {
+      const runningIndex = liveSession.steps.findIndex((_, index) => {
+        const state = liveRunView.stepsState.find((item) => item.id === `task-${index + 1}`) ?? liveRunView.stepsState[index];
+        return state?.status === 'running';
+      });
+      if (runningIndex >= 0 && liveSession.steps[runningIndex]?.toolName === 'web_search_grounding') return 'searching';
+    }
+    return catStateForPhase(phase, checkingCapability, ready);
+  })();
+
   return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
@@ -532,7 +572,7 @@ export default function AgentWorkspaceView() {
             steps={liveSession.steps}
             runView={liveRunView}
             statusHint={phase === 'completed' ? 'completed' : phase === 'failed' ? 'failed' : phase === 'held' ? 'held' : 'active'}
-            catState={catStateForPhase(phase, checkingCapability, ready)}
+            catState={livePanelCatState}
           />
         </div>}
         <div className="flex items-center justify-between gap-3 border-b border-origin-border px-4 py-3">
