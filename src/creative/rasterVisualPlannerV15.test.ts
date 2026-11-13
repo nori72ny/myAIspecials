@@ -10,6 +10,32 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.questions[0]).toContain('何を主役');
   });
 
+  // 主役判定は具体性（内容語が残るか）で決まる。短い題材でも内容があれば
+  // 確認質問なしで生成に進む（旧ルールは除去後の文字数 >= 4 で判定し、
+  // 「青い鳥」のような具体的な3文字題材を未充足にしていた）。
+  it.each([
+    '青い鳥',
+    '富士山',
+    '猫',
+    'リンゴの画像',
+  ])('treats a short but concrete subject as specified, with no subject question: %s', (request) => {
+    const plan = planRasterVisualRequestV15(request);
+    expect(plan.ready).toBe(true);
+    expect(plan.questions).toEqual([]);
+  });
+
+  // 逆に、画像語・作成動詞を取り除いた後に内容語が何も残らなければ、
+  // これまでどおり主役の確認質問を出す。
+  it.each([
+    '画像を作ってください',
+    '作って',
+  ])('still asks for a subject when no content word remains after stripping: %s', (request) => {
+    const plan = planRasterVisualRequestV15(request);
+    expect(plan.ready).toBe(false);
+    expect(plan.questions).toHaveLength(1);
+    expect(plan.questions[0]).toContain('何を主役');
+  });
+
   it('turns a mobile premium ad request into a production-oriented visual spec', () => {
     const plan = planRasterVisualRequestV15(
       'スマホ広告用に、高級感のある黒背景で未来的なORIGIN Personalの広告画像を9:16で作ってください',

@@ -1126,6 +1126,110 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps a clarification answer in the image path when it is queued offline and drained after reconnecting', async () => {
+    const digest = new Uint8Array(32);
+    digest.fill(0xef);
+    const sha = Array.from(digest).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    let imageCallCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (requestPath(input) === '/api/generate-image') {
+        imageCallCount += 1;
+        if (imageCallCount === 1) {
+          return new Response(JSON.stringify({
+            ok: false,
+            code: 'IMAGE_REQUIREMENTS_INCOMPLETE',
+            questions: ['何を主役にした画像にしますか？'],
+          }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Disposition': 'attachment; filename="origin-image.png"',
+            'X-Origin-Visual-Verified': 'true',
+            'X-Origin-Visual-Sha256': sha,
+            'X-Origin-Visual-Provider': 'cloudflare-workers-ai-free',
+            'X-Origin-Visual-Model': '@cf/black-forest-labs/flux-2-klein-4b',
+            'X-Origin-Visual-Generation-Id': `raster-${sha.slice(0, 24)}`,
+            'X-Origin-Visual-Brain': 'visual-brain-v1',
+            'X-Origin-Visual-Plan': 'raster-visual-plan-v1',
+            'X-Origin-Visual-Purpose': 'photograph',
+            'X-Origin-Visual-Critic': 'raster-structural-critic-v1',
+            'X-Origin-Visual-Quality-Score': '100',
+            'X-Origin-Visual-Actual-Width': '1024',
+            'X-Origin-Visual-Actual-Height': '1024',
+            'X-Origin-Visual-Typography-Overlay': 'not-required',
+            'X-Origin-Visual-Plan-Sha256': 'e'.repeat(64),
+            'X-Origin-Visual-Width': '1024',
+            'X-Origin-Visual-Height': '1024',
+            'X-Origin-Free-Only': 'true',
+            'X-Origin-Cost-Usd': '0',
+            'X-Origin-Paid-Fallback': 'false',
+            'X-Origin-Secret-Delivery': 'server-only',
+          },
+        });
+      }
+      const model = 'google/gemma-4-31b-it:free';
+      return new Response(JSON.stringify({
+        content: '通常の回答です',
+        routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: { digest: vi.fn(async () => digest.buffer) } },
+    });
+    const originalCreateObjectURL = URL.createObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:origin-offline-clarified-image') });
+    const onlineDescriptor = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    const setOnline = (value: boolean) => {
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, value });
+      fireEvent(window, new Event(value ? 'online' : 'offline'));
+    };
+
+    try {
+      render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '画像を作ってください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(screen.getByText(/何を主役にした画像にしますか/)).toBeTruthy());
+      expect(imageCallCount).toBe(1);
+
+      // The connection drops before the user answers the clarification
+      // question: the answer joins the offline send queue. Queueing must
+      // carry the image intent with it instead of silently dropping it.
+      setOnline(false);
+      await waitFor(() => expect(screen.getByTestId('origin-offline-status')).toBeTruthy());
+      fireEvent.change(screen.getByTestId('origin-chat-request'), { target: { value: '朝焼けの富士山をリアルな写真で' } });
+      fireEvent.click(screen.getByTestId('send-request-button'));
+      await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
+      expect(within(screen.getByTestId('origin-send-queue')).getByText('朝焼けの富士山をリアルな写真で')).toBeTruthy();
+      expect(imageCallCount).toBe(1);
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
+
+      // Once the connection returns, the queued answer drains back into the
+      // raster path with the original request plus the answer combined —
+      // it must not fall through to plain chat.
+      setOnline(true);
+      await waitFor(() => expect(screen.getByAltText('ORIGINが生成した画像')).toBeTruthy(), { timeout: 5000 });
+      expect(imageCallCount).toBe(2);
+      const imageCalls = fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/generate-image');
+      const secondBody = JSON.parse(String(imageCalls[1]?.[1]?.body));
+      expect(secondBody.prompt).toContain('画像を作ってください');
+      expect(secondBody.prompt).toContain('追加条件: 朝焼けの富士山をリアルな写真で');
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
+    } finally {
+      if (onlineDescriptor) Object.defineProperty(window.navigator, 'onLine', onlineDescriptor);
+      else delete (window.navigator as { onLine?: boolean }).onLine;
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: originalCreateObjectURL });
+      else delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+      Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('routes an image request to real raster generation and never falls through to text prompt generation', async () => {
     const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
     const digest = new Uint8Array(32);

@@ -256,10 +256,25 @@ export type ConversationMessage = {
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
+// An image generation/edit intent armed outside the send pipeline (image
+// panel, edit/variation actions, or a raster clarification round-trip). The
+// next send consumes it exactly once and re-enters the raster path with it.
+type PendingImageRequest = {
+  prompt: string;
+  questions: readonly string[];
+  relation?: 'generated' | 'variation' | 'edited-from';
+  parentId?: string;
+  referenceAssetId?: string;
+  width?: number;
+  height?: number;
+};
 // A request submitted while a response is still generating. Held in a FIFO
 // queue (session state only, never persisted) with a snapshot of the
-// attachments taken at enqueue time.
-type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean };
+// attachments taken at enqueue time. When the send carried a pending image
+// intent (e.g. it answers a raster clarification question), the intent is
+// stored on the item and restored when the item drains, so queueing never
+// silently turns an image answer into plain chat.
+type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean; imageRequest?: PendingImageRequest };
 export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
 
 export const searchOriginLocalSnapshot = (query: string, sessions: readonly ConversationSession[], artifacts: readonly ArtifactBlock[]): OriginLocalSearchResult[] => {
@@ -1374,15 +1389,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const rasterObjectUrls = useRef(new Set<string>());
   const rasterHydratingIds = useRef(new Set<string>());
   const rasterSessionBlobs = useRef(new Map<string, Blob>());
-  const pendingImageRequestRef = useRef<{
-    prompt: string;
-    questions: readonly string[];
-    relation?: 'generated' | 'variation' | 'edited-from';
-    parentId?: string;
-    referenceAssetId?: string;
-    width?: number;
-    height?: number;
-  } | null>(null);
+  const pendingImageRequestRef = useRef<PendingImageRequest | null>(null);
   const observedResetSignal = useRef(resetSignal);
   const messages = controlledMessages ?? uncontrolledMessages;
   const artifacts = controlledArtifacts ?? uncontrolledArtifacts;
@@ -1485,7 +1492,17 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       // before sending so a later restore can never send it a second time.
       forgetOutboxEntry(head.id);
       const send = handleSendRef.current;
-      if (send) void send(head.text, false, head.attachments, head.research ?? false);
+      if (send) {
+        // Restore the image intent this queued request carried (e.g. a
+        // raster clarification answer) so handleSend re-enters the image
+        // path with the original request instead of treating the answer as
+        // plain chat. Only when no newer intent is armed: the newest user
+        // action wins and the carried one is superseded.
+        if (head.imageRequest && pendingImageRequestRef.current === null) {
+          pendingImageRequestRef.current = head.imageRequest;
+        }
+        void send(head.text, false, head.attachments, head.research ?? false);
+      }
     })();
   };
   // A conversation reset also discards any queued sends and the loading
@@ -1583,16 +1600,27 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     // new interrupt (and never re-queued) just because React has not yet
     // committed the isLoading=false render.
     if (isLoadingRef.current && !interruptCurrent) {
+      // Carry any pending image intent with the queued request instead of
+      // dropping it: this send may be the answer to a raster clarification
+      // question, and losing the intent here would silently turn that
+      // answer into an ordinary chat message once the queue drains.
+      const queuedImageRequest = pendingImageRequestRef.current;
       pendingImageRequestRef.current = null;
       // Do not stop or drop the in-flight response: hold this request in the
       // send queue with a snapshot of the current attachments. It is sent via
       // handleSend once the current response completes naturally.
-      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested }]);
+      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested, ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}) }]);
       if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
       setQueueNotice(t.queueAcceptedNotice.replace('{count}', String(nextQueue.length)));
       return;
     }
     if (isOfflineRef.current) {
+      // Same carry as the in-flight queue gate above: an offline
+      // clarification answer joins the send queue (via the durable outbox)
+      // and must keep its image intent for when the queue drains after
+      // reconnecting. The durable outbox copy itself stays text-only, so
+      // the intent survives on the in-session queue item only.
+      const queuedImageRequest = pendingImageRequestRef.current;
       pendingImageRequestRef.current = null;
       if (researchRequested) {
         // 調査はオンライン専用。オフラインの送信を通常チャットとして
@@ -1615,7 +1643,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         const entry: OriginOutboxEntry = { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, createdAt: Date.now() };
         outboxEntryIdsRef.current.add(entry.id);
         void saveOriginOutboxEntry(entry);
-        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [] }]);
+        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [], ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}) }]);
         if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
         setQueueNotice(t.queueOfflineNotice.replace('{count}', String(nextQueue.length)));
         return;
@@ -2346,6 +2374,12 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const sendQueuedRequestNow = (item: QueuedChatRequest) => {
     if (isLoading || isOffline) return;
     removeQueuedRequest(item.id);
+    // Same image-intent restore as the automatic drain (see
+    // scheduleQueueDrain): a manually sent clarification answer must also
+    // re-enter the raster path instead of becoming plain chat.
+    if (item.imageRequest && pendingImageRequestRef.current === null) {
+      pendingImageRequestRef.current = item.imageRequest;
+    }
     void handleSend(item.text, false, item.attachments, item.research ?? false);
   };
   const queuedRequestSummary = (item: QueuedChatRequest) => {

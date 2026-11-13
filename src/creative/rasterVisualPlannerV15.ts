@@ -98,13 +98,27 @@ function explicitlyRequestsNoText(input: string): boolean {
     || /\b(?:no\s+text|without\s+text|text[-\s]?free|no\s+words|no\s+lettering|no\s+logo)\b/i.test(input);
 }
 
+// 主役の有無は題材の「具体性」で判定する（文字数ではない）。画像語・作成
+// 動詞を取り除いた後に、助詞や言いよどみ（フィラー）だけしか残らなければ
+// 主役なし。内容のある語が1つでも残れば主役ありとするため、「青い鳥」
+// 「富士山」「猫」のような短くても具体的な題材は確認なしで生成に進む。
+// 以前の「除去後の残りが4文字以上」という長さ判定は、具体的な短い題材
+// まで未充足にして確認質問を返していた（2026-11-13 本番で再現）。
+const SUBJECT_FILLER_TOKEN = /^(?:これ|それ|あれ|この|その|あの|どの|何か|なにか|なんか|えっと|うーん|あのー|something|anything|it|this|that|a|an|the)$/i;
+// 文末側に連なる助詞・丁寧語だけを取り除くための後置パターン。内容語の
+// 末尾がたまたま同じ文字でも、語そのものが残る限り主役判定は変わらない
+// （ここでは「空になったかどうか」だけを見るため）。
+const SUBJECT_TRAILING_PARTICLES = /(?:の|を|に|が|は|へ|と|も|で|だけ|から|まで|より|だ|です)+$/;
+
 function meaningfulSubject(input: string): boolean {
-  const stripped = input
+  const residue = input
     .replace(/(?:画像|イラスト|写真|絵|ポスター|バナー|サムネ(?:イル)?|ロゴ|アイコン|壁紙|アート|キービジュアル)/gi, ' ')
     .replace(/(?:作って|作成して|生成して|描いて|お願い(?:します)?|ほしい|欲しい|ください)/g, ' ')
-    .replace(/\b(?:generate|create|make|draw|render|design|please|image|picture|illustration|poster|banner|thumbnail|logo|icon|wallpaper|artwork|key visual)\b/gi, ' ')
-    .replace(/[\s。、,.!?！？]+/g, '');
-  return stripped.length >= 4;
+    .replace(/\b(?:generate|create|make|draw|render|design|please|image|picture|illustration|poster|banner|thumbnail|logo|icon|wallpaper|artwork|key visual)\b/gi, ' ');
+  return residue
+    .split(/[\s。、,.!?！？・:：/]+/)
+    .map((token) => token.replace(SUBJECT_TRAILING_PARTICLES, ''))
+    .some((token) => token.length > 0 && !SUBJECT_FILLER_TOKEN.test(token));
 }
 
 function questionsFor(input: string, requestedSize?: { width?: number; height?: number }): string[] {
