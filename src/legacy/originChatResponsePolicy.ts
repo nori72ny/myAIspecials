@@ -160,10 +160,16 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     && /(?:公表|発表|結果|指数|統計|数値|データ|実績|記録|動向)/.test(message)
   ) return true;
 
+  // The bare price branch requires a question / confirmation marker
+  // shortly after the price word: a plain statement mentioning a price
+  // (「月額料金が安いことです」 — a follow-up answer in a proposal
+  // conversation, 2026-11-13 production) must not be pulled into the
+  // grounded-research gate and answered with the no-sources refusal
+  // (PROPOSAL_CHAT_TRIAGE_2026-11-13 cause D).
   return requiresOriginFutureReleaseInformation(message)
     || hasRealtimeExternalDataIntent(message)
     || /(?:最新|今日|現在)(?:の)?[^。！？\n]{0,16}(?:情報|ニュース|天気|料金|価格|株価|相場|仕様|バージョン|モデル|状況|結果|為替|レート)/.test(message)
-    || /(?:料金|価格)(?:は|を|が|について|って|\?|？|$)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
+    || /(?:料金|価格).{0,12}(?:ですか|教えて|知りたい|確認|比較|調べ|いくら|どう|？|\?)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
 }

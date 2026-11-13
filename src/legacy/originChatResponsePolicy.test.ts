@@ -100,6 +100,26 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
   });
 
+  // Regression (2026-11-13 production, PROPOSAL_CHAT_TRIAGE_2026-11-13
+  // cause D): the bare (料金|価格)(は|を|が|…) branch pulled a plain
+  // follow-up statement — the exact second message of the production
+  // proposal conversation — into the grounded-research gate, which
+  // answered with the no-sources refusal. A price word now needs a
+  // question / confirmation marker shortly after it; price questions
+  // keep routing to current information.
+  it.each([
+    ["このサービスの料金はいくらですか", true],
+    ["最新のガソリン価格を教えてください", true],
+    ["電気料金が値上がりしたか確認したい", true],
+    ["強みは、導入が簡単で月額料金が安いことです。トーンは丁寧で信頼感のある形でお願いします。", false],
+  ])("requires question context for a bare price mention: %s", (message, expected) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+
+  it("does not route the production proposal follow-up statement to grounded research", () => {
+    expect(requiresOriginGroundedResearch("強みは、導入が簡単で月額料金が安いことです。トーンは丁寧で信頼感のある形でお願いします。")).toBe(false);
+  });
+
   // Regression (2026-11-07 production benchmark, SEARCH_BENCHMARK_2026-11-07):
   // these freshness questions were answered from stale memorized knowledge
   // with no sources because this gate returned false, while the search
