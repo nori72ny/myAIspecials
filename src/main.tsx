@@ -31,9 +31,15 @@ type StorageHealth = 'ready' | Exclude<OriginStorageWriteResult, 'saved'>;
 type IdleWindow = Window & typeof globalThis & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void };
 
 export function persistableConversationMessages(messages: readonly ConversationMessage[]): ConversationMessage[] {
-  return messages.map((message) => message.image
-    ? { ...message, image: { ...message.image, url: undefined } }
-    : { ...message });
+  return messages.map((message) => {
+    // ファイル成果物（PR-3a）はバイト列を base64 で保持するため、履歴には
+    // 含めない（UnifiedChatCore の messagesForStorage と同じ扱い）。
+    // 回答本文はそのまま残る。
+    const withoutFiles = message.files ? { ...message, files: undefined } : message;
+    return withoutFiles.image
+      ? { ...withoutFiles, image: { ...withoutFiles.image, url: undefined } }
+      : { ...withoutFiles };
+  });
 }
 
 function scheduleIdle(task: () => void): () => void {

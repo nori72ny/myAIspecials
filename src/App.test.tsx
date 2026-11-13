@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createHash } from 'node:crypto';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { currentConversationSession, withCurrentConversationSession } from './App';
@@ -330,16 +331,15 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
     expect(onOpenCoding).toHaveBeenCalledOnce();
 
+    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
+    expect(onOpenCreative).toHaveBeenCalledOnce();
+
     // 「詳細・作業状況」は 2026-11-09 の画面構成再編で廃止したため、
     // メニューには現れない（SCREEN_NECESSITY_REVIEW_2026-11-09.md）。
-    // 「作る」もオーナー決定（2026-11-12）で「+」メニューから隠したため
-    // 現れない。機能自体は残し、会話で明示した依頼から開く経路は
-    // 後方の Chat brief のテスト（onOpenCreative）が担保する。
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(screen.queryByRole('menuitem', { name: '詳細・作業状況' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Details & status' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: '作る' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Create a deliverable' })).toBeNull();
   });
 
   describe('Research mode inside chat', () => {
@@ -1789,6 +1789,99 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('検証済みSSE回答')).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
+    expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a downloadable file chip for a verified artifact carried by the completion event (PR-3a)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const bytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('ppt/presentation.xml'), Buffer.from('deck-contents')]);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const artifact = {
+      id: `artifact-pptx-${sha256.slice(0, 20)}`,
+      kind: 'presentation',
+      artifactType: 'pptx',
+      filename: 'proposal-deck.pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      sha256,
+      byteLength: bytes.length,
+      encoding: 'base64',
+      data: bytes.toString('base64'),
+      verified: true,
+      verification: ['non-empty', 'zip-signature', 'pptx-package'],
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    };
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '提案資料の構成案です' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false, artifacts: [artifact] })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const createObjectURL = vi.fn(() => 'blob:proposal-deck');
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '提案資料を作って' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(screen.getByText('提案資料の構成案です')).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId(`chat-file-artifact-${artifact.id}`)).toBeTruthy());
+      const chip = screen.getByTestId(`chat-file-artifact-${artifact.id}`);
+      expect(chip.textContent).toContain('proposal-deck.pptx');
+      fireEvent.click(chip);
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+      expect(anchorClick).toHaveBeenCalled();
+      expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
+    } finally {
+      anchorClick.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('silently drops a completion-event artifact whose digest does not match (PR-3a)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const bytes = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('ppt/presentation.xml'), Buffer.from('deck-contents')]);
+    const declaredSha256 = createHash('sha256').update(Buffer.from('other-bytes')).digest('hex');
+    const artifact = {
+      id: `artifact-pptx-${declaredSha256.slice(0, 20)}`,
+      kind: 'presentation',
+      artifactType: 'pptx',
+      filename: 'proposal-deck.pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      sha256: declaredSha256,
+      byteLength: bytes.length,
+      encoding: 'base64',
+      data: bytes.toString('base64'),
+      verified: true,
+      verification: ['non-empty', 'zip-signature', 'pptx-package'],
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+    };
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: '回答本文は表示されます' })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false, artifacts: [artifact] })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '提案資料を作って' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByText('回答本文は表示されます')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
+    expect(container.querySelector('[data-testid^="chat-file-artifact-"]')).toBeNull();
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });

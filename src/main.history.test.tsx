@@ -107,3 +107,35 @@ describe('conversation image history persistence', () => {
     expect(persisted[0]?.image?.url).toBeUndefined();
   });
 });
+
+describe('conversation file artifact history persistence', () => {
+  it('strips inline file artifacts (base64 payloads) while keeping the answer text (PR-3a)', () => {
+    const source: ConversationMessage[] = [{
+      id: 'deck-1',
+      role: 'assistant',
+      content: '提案資料の構成案です',
+      deliveryState: 'verified',
+      files: [{
+        id: `artifact-pptx-${'a'.repeat(20)}`,
+        kind: 'presentation',
+        artifactType: 'pptx',
+        filename: 'proposal-deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        sha256: 'b'.repeat(64),
+        byteLength: 128,
+        encoding: 'base64',
+        data: 'UEsDBHBwdC9wcmVzZW50YXRpb24ueG1s',
+        verified: true,
+        verification: ['zip-signature'],
+        freeOnly: true,
+        costUsd: 0,
+        paidFallbackUsed: false,
+      }],
+    }];
+    const persisted = persistableConversationMessages(source);
+    expect(persisted[0]?.content).toBe('提案資料の構成案です');
+    expect(persisted[0]?.deliveryState).toBe('verified');
+    expect(persisted[0]?.files).toBeUndefined();
+    expect(JSON.stringify(persisted)).not.toContain('UEsDBHBwdC9wcmVzZW50YXRpb24ueG1s');
+  });
+});
