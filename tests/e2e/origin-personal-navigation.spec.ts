@@ -448,7 +448,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     // A raw edge-level 503 has no trusted provider failure code. It must use
     // the generic localized error, not claim that a provider retry budget was exhausted.
-    await expect(page.getByText('エラーが発生しました。再度お試しください。')).toBeVisible();
+    // （待ち表示の仕様修正 2026-11-13 以降、同じ失敗文は常駐オリンの
+    // 吹き出しにも失敗キューの間だけ出る。恒常表示側のアラートに
+    // 絞って検証する。）
+    await expect(page.getByTestId('origin-safe-waiting-state')).toBeVisible();
+    await expect(page.getByTestId('origin-safe-waiting-state')).toContainText('エラーが発生しました。再度お試しください。');
     await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     expect(attempts).toBe(1);
   });

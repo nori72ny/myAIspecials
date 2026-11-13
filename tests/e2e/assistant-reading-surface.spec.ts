@@ -121,7 +121,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(historyOnTop).toBe(true);
   });
 
-  test('captures the full-screen stage shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
+  test('captures the Orin speech bubble shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => {
@@ -132,12 +132,15 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
-    // PR-δ1：待ちの主表示は全体画面ステージ（reduced-motion では静止画で
-    // 出る）。会話内の1行表示はステージ表示中は抑制される。
-    const stage = page.getByTestId('origin-stage');
-    await expect(stage).toBeVisible();
+    // 待ち表示の仕様修正（2026-11-13）：待ちの主表示は上部の常駐
+    // オリンの吹き出し（reduced-motion ではフェードなしで出る）。
+    // 全体画面ステージは出ない。
+    const bubble = page.getByTestId('origin-orin-bubble');
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toContainText('回答を準備しています');
+    await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
-    await expect(stage).toBeHidden({ timeout: 15_000 });
+    await expect(bubble).toBeHidden({ timeout: 15_000 });
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 
