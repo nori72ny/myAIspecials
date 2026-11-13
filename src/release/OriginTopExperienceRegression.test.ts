@@ -181,6 +181,23 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('width: 104px !important;');
   });
 
+  it('keeps the composer stop-generation button neutral instead of danger-toned (PR-α2)', () => {
+    // The live composer renders the stop button from App.tsx while a
+    // response is generating; it must not carry the danger class (pale
+    // pink background, dark-red glyph). PR-α restyled
+    // .origin-composer__action.is-generating in origin-top-ui.css, but no
+    // rendered element carries that class, so the rule never applied.
+    expect(app).toContain('aria-label={t.stopGeneration}');
+    expect(app).toContain('origin-stop-button');
+    expect(app).not.toContain('origin-danger-button');
+    // The stop button's neutral tones are the exact values PR-α
+    // specified for the generating state.
+    expect(indexCss).toContain('.origin-stop-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-secondary); }');
+    // The danger class itself stays untouched for genuinely destructive
+    // actions (for example clearing history in the legacy settings UI).
+    expect(indexCss).toContain('.origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface));');
+  });
+
   it('keeps retired glass shell tokens out of standalone Release 2 primitives', () => {
     expect(ultraOptics).not.toContain('.origin-ultra-panel,');
     expect(ultraOptics).not.toContain('.origin-glass-control {');
