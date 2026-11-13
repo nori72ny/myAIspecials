@@ -536,3 +536,207 @@
     line-height: 1.6 !important;
   }
 }
+
+/* Full-screen Orin stage (PR-δ1, 2026-11-13; design
+   ORIN_FULLSCREEN_STAGE_DESIGN_2026-11-13 §3–§5).
+   The stage covers the whole screen (z-index 60: above the header and
+   the artifact workspace at 50, below the image panel at 80) while a
+   chat answer or an image is being prepared. The ground is the opaque
+   --bg-primary plus one soft radial glow in the same language as
+   .origin-logo-glow; there is NO pedestal disc (統括確定 U-2 — a bright
+   disc floats like a moon on dark themes at this size). Orin's own
+   colors never change; harmony is done on the background side.
+   Motion is transform/opacity only, inside the §4.2 numbers: the flat
+   stills move as one body, so amplitudes stay deliberately small to
+   avoid the whole-body morphing failure of the old working video.
+   After 20s of waiting, thinking/searching amplitudes halve (the
+   .origin-stage--quiet variants keep the same periods).
+   prefers-reduced-motion drops every stage animation (the component
+   also omits the motion classes; index.css has a global kill switch
+   as a second net). */
+.origin-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  transition-property: opacity;
+  transition-timing-function: ease-out;
+}
+.origin-stage-dismiss {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.origin-stage-content {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.origin-stage-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(80vw, 520px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -54%);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgb(37 64 143 / 26%) 0%, rgb(96 131 214 / 12%) 40%, transparent 72%);
+  filter: blur(10px);
+  opacity: .72;
+}
+:root[data-theme="dark"] .origin-stage-glow {
+  opacity: .36;
+}
+.origin-stage-cat {
+  position: relative;
+  flex: none;
+}
+/* Short viewports (landscape phones etc.): shrink the whole cat block
+   so the stage still fits, mirroring the home compaction approach. */
+@media (max-height: 480px) {
+  .origin-stage-cat {
+    transform: scale(0.72);
+  }
+}
+.origin-stage-title {
+  position: relative;
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+@media (max-width: 380px) {
+  .origin-stage-title {
+    font-size: 15px;
+  }
+}
+.origin-stage-breathe {
+  animation: origin-stage-breathe 5200ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-breathe {
+  0%, 100% { transform: scale(1); }
+  42% { transform: scale(1.02); }
+  76% { transform: scale(1.01); }
+  80% { transform: scale(1.01) scaleY(0.985); }
+  83% { transform: scale(1.01); }
+}
+.origin-stage-tilt {
+  animation: origin-stage-tilt 7800ms ease-in-out infinite alternate;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-tilt {
+  from { transform: rotate(-1deg); }
+  to { transform: rotate(1deg); }
+}
+.origin-stage-searching {
+  animation: origin-stage-searching 6000ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-searching {
+  0% { transform: translateX(-6px) rotate(-1deg) scale(1); }
+  17% { transform: translateX(6px) rotate(1deg) scale(1.01); }
+  33% { transform: translateX(-6px) rotate(-1deg) scale(1.005); }
+  66% { transform: translateX(-6px) rotate(-1deg) scale(1.01); }
+  100% { transform: translateX(-6px) rotate(-1deg) scale(1); }
+}
+.origin-stage-working {
+  animation: origin-stage-working 2400ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-working {
+  0%, 22%, 55%, 72%, 100% { transform: translateY(0); }
+  12% { transform: translateY(2px); }
+  63% { transform: translateY(1px); }
+}
+.origin-stage-designing {
+  animation: origin-stage-designing 4000ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-designing {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.015) rotate(0.6deg); }
+}
+.origin-stage-checking {
+  animation: origin-stage-checking 6000ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-checking {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.008); }
+  78% { transform: scale(1.008); }
+  80% { transform: scale(1.008) scaleY(0.985); }
+  83% { transform: scale(1.008); }
+}
+.origin-stage-done {
+  animation: origin-stage-nod 700ms ease-out 1 both;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-nod {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(3px) scale(0.985); }
+}
+.origin-stage-sorry {
+  animation: origin-stage-sorry 900ms ease-out 1 both;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-stage-sorry {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(4px) scale(0.99); }
+}
+.origin-stage--quiet .origin-stage-breathe {
+  animation-name: origin-stage-breathe-quiet;
+}
+.origin-stage--quiet .origin-stage-tilt {
+  animation-name: origin-stage-tilt-quiet;
+}
+.origin-stage--quiet .origin-stage-searching {
+  animation-name: origin-stage-searching-quiet;
+}
+@keyframes origin-stage-breathe-quiet {
+  0%, 100% { transform: scale(1); }
+  42% { transform: scale(1.01); }
+  76% { transform: scale(1.005); }
+  80% { transform: scale(1.005) scaleY(0.992); }
+  83% { transform: scale(1.005); }
+}
+@keyframes origin-stage-tilt-quiet {
+  from { transform: rotate(-0.5deg); }
+  to { transform: rotate(0.5deg); }
+}
+@keyframes origin-stage-searching-quiet {
+  0% { transform: translateX(-3px) rotate(-0.5deg) scale(1); }
+  17% { transform: translateX(3px) rotate(0.5deg) scale(1.005); }
+  33% { transform: translateX(-3px) rotate(-0.5deg) scale(1.002); }
+  66% { transform: translateX(-3px) rotate(-0.5deg) scale(1.005); }
+  100% { transform: translateX(-3px) rotate(-0.5deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-stage-breathe,
+  .origin-stage-tilt,
+  .origin-stage-searching,
+  .origin-stage-working,
+  .origin-stage-designing,
+  .origin-stage-checking,
+  .origin-stage-done,
+  .origin-stage-sorry {
+    animation: none;
+  }
+}
