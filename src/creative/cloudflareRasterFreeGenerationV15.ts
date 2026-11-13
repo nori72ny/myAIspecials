@@ -43,7 +43,12 @@
  *      unobserved. Otherwise the
  *      generated image is withheld — a generated-but-unproven image is
  *      never delivered — and the failure carries the observed usage
- *      snapshot so the block is diagnosable from the API response.
+ *      snapshot so the block is diagnosable from the API response. The
+ *      same snapshot is also recorded in the server log at the failure
+ *      point: the API response used to be the only place it survived,
+ *      and a client that reduces the failure to a fixed message loses it
+ *      (production, 2026-11-12: an ordinary request was withheld and its
+ *      reconciliation reason could no longer be recovered afterwards).
  *
  * Quality layer, all inside the same $0.00 proof:
  *   - Prompt enhancement (fail-soft): the user prompt is first rewritten by
@@ -119,6 +124,20 @@ export type CloudflareRasterFreeProofUsageV15 = {
 };
 
 /**
+ * One inference call this request made, with the Neurons it reported for
+ * itself — or null when it reported nothing usable. Stage 5 builds this
+ * list alongside the flat report values the reconciliation decision
+ * consumes, so the failure record can name exactly which calls are
+ * missing their report instead of only that the set was incomplete.
+ */
+export type CloudflareRasterReportedCallV15 = {
+  candidateIndex: number;
+  retried: boolean;
+  call: 'generation' | 'semantic-critic';
+  reportedNeurons: number | null;
+};
+
+/**
  * Usage snapshot attached to a Stage 5 reconciliation failure, in the same
  * shape as the success usage (CloudflareRasterFreeProofUsageV15) as far as
  * values were observed: reconciliationMethod stays null (no evidence
@@ -142,6 +161,17 @@ export type CloudflareRasterReconciliationFailureUsageV15 = {
   reconciliationMethod: null;
   reportedNeurons: number | null;
   reconciliationReason: CloudflareUsageReconciliationDecisionV15['reason'];
+  /**
+   * The calls whose usage report was missing — the gap that kept the
+   * primary evidence from carrying the delivery. One entry per missing
+   * report, in call order: which candidate the call belonged to and
+   * whether it was the generation or the semantic-critic call.
+   */
+  unreportedCalls: readonly {
+    candidateIndex: number;
+    retried: boolean;
+    call: 'generation' | 'semantic-critic';
+  }[];
 };
 
 /** Stage 5 failure: the image exists but its consumption is unproven. */
@@ -236,6 +266,23 @@ type CandidateAttemptV15 = {
    */
   errorDetail: string | null;
   externalNetworkRequests: number;
+  /**
+   * Exception-path evidence preservation, set only when the attempt's
+   * chain threw after the generation call had already returned: the
+   * generation call's own usage report was obtained before the throw and
+   * belongs to the request's Stage 5 evidence, so it is kept here
+   * instead of being discarded with the failed attempt (whose result
+   * stays null — a failed attempt can never win, and no other field of
+   * the attempt changes). criticAttempted records whether the
+   * semantic-critic call had been entered before the throw: that call
+   * reported nothing, so Stage 5 enters it as unreported and the
+   * request's evidence stays incomplete exactly as before. Null on every
+   * non-exception path.
+   */
+  preservedReports: {
+    generationNeurons: number | null;
+    criticAttempted: boolean;
+  } | null;
 };
 
 export async function generateCloudflareRasterImageFreeProofV15(
@@ -308,16 +355,25 @@ export async function generateCloudflareRasterImageFreeProofV15(
     index: number,
     retried: boolean,
   ): Promise<CandidateAttemptV15> => {
+    // Tracked outside the try so the exception path can preserve what
+    // the chain had already obtained (see preservedReports): the
+    // generation result once its call returned, and whether the
+    // semantic-critic call was entered.
+    let generatedOrNull: CloudflareRasterImageResultV15 | null = null;
+    let criticAttempted = false;
     try {
       const generated = await generateCloudflareRasterImageV15(attemptInput, env, fetchImpl);
+      generatedOrNull = generated;
       const structural = critiqueRasterStructureV15(generated.bytes, generated.mimeType, width, height);
       if (!structural.passed) {
         return {
           index, retried, result: generated, structural, semantic: null,
           errorCode: 'RASTER_STRUCTURAL_CRITIC_REJECTED', errorDetail: null,
           externalNetworkRequests: generated.externalNetworkRequests,
+          preservedReports: null,
         };
       }
+      criticAttempted = true;
       const semantic = await critiqueCloudflareRasterSemanticV15({
         originalRequest: input.prompt,
         bytes: generated.bytes,
@@ -327,6 +383,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
         index, retried, result: generated, structural, semantic,
         errorCode: semantic.passed ? null : 'RASTER_SEMANTIC_CRITIC_REJECTED', errorDetail: null,
         externalNetworkRequests: generated.externalNetworkRequests + semantic.externalNetworkRequests,
+        preservedReports: null,
       };
     } catch (error) {
       const code = errorCode(error);
@@ -335,6 +392,10 @@ export async function generateCloudflareRasterImageFreeProofV15(
         errorCode: code,
         errorDetail: code === 'RASTER_GENERATION_FAILED' ? errorSubReason(error) : null,
         externalNetworkRequests: 0,
+        preservedReports: {
+          generationNeurons: generatedOrNull?.reportedNeurons ?? null,
+          criticAttempted,
+        },
       };
     }
   };
@@ -433,21 +494,66 @@ export async function generateCloudflareRasterImageFreeProofV15(
   // are incomplete — its size or absence alone never vetoes complete
   // in-bounds reports (see decideCloudflareUsageReconciliationV15).
   // One entry per inference call this request actually made, across every
-  // candidate and the retry: the generation call, plus the semantic-critic
-  // call whenever one ran. A call whose usage is unknown is entered as
-  // null, which keeps the per-request fallback closed.
-  const reportedCallsNeurons: (number | null)[] = [];
+  // candidate and the retry: the generation call, plus every
+  // semantic-critic call whenever one ran (a critic that needed its
+  // bounded format retry contributes both of its calls). A call whose
+  // usage is unknown is entered as
+  // null, which keeps the per-request fallback closed. Each entry also
+  // carries which candidate it belonged to and which call it was, so the
+  // failure record below can name the missing reports exactly; the flat
+  // value list the decision consumes is projected from the same entries,
+  // in the same order.
+  const reportedCalls: CloudflareRasterReportedCallV15[] = [];
   for (const candidate of attempts) {
-    reportedCallsNeurons.push(candidate.result?.reportedNeurons ?? null);
+    reportedCalls.push({
+      candidateIndex: candidate.index,
+      retried: candidate.retried,
+      call: 'generation',
+      // An attempt whose chain threw after generation keeps the report
+      // its generation call already gave (preservedReports); the value
+      // is the call's own report either way, never an estimate.
+      reportedNeurons: candidate.result?.reportedNeurons
+        ?? candidate.preservedReports?.generationNeurons
+        ?? null,
+    });
     if (candidate.semantic) {
-      reportedCallsNeurons.push(candidate.semantic.reportedNeurons);
+      // Every critic call counts, including the bounded format retry's
+      // first call: it consumed Neurons too, and reading only the final
+      // call's report would understate the request's consumption.
+      const criticReports = candidate.semantic.reportedCallsNeurons
+        ?? [candidate.semantic.reportedNeurons];
+      for (const criticReportedNeurons of criticReports) {
+        reportedCalls.push({
+          candidateIndex: candidate.index,
+          retried: candidate.retried,
+          call: 'semantic-critic',
+          reportedNeurons: criticReportedNeurons,
+        });
+      }
+    } else if (candidate.preservedReports?.criticAttempted) {
+      // The chain threw inside the semantic-critic call: the call was
+      // made but reported nothing, so it is entered as unreported and
+      // the request's evidence stays incomplete — preserving the
+      // generation report above never fills this gap.
+      reportedCalls.push({
+        candidateIndex: candidate.index,
+        retried: candidate.retried,
+        call: 'semantic-critic',
+        reportedNeurons: null,
+      });
     } else if (candidate.result && candidate.errorCode !== 'RASTER_STRUCTURAL_CRITIC_REJECTED') {
       // Generation produced an image but the semantic verdict (and its
       // usage report) is missing without a structural rejection to explain
       // the absence: count the critic call as unreported.
-      reportedCallsNeurons.push(null);
+      reportedCalls.push({
+        candidateIndex: candidate.index,
+        retried: candidate.retried,
+        call: 'semantic-critic',
+        reportedNeurons: null,
+      });
     }
   }
+  const reportedCallsNeurons = reportedCalls.map((call) => call.reportedNeurons);
   // When every call already reported its own usage, the aggregate poll
   // can add no evidence: decide judges the complete reports on its
   // primary path, and the polling window (up to 40s) would be pure wait.
@@ -486,7 +592,7 @@ export async function generateCloudflareRasterImageFreeProofV15(
       && (reconciliation.observedDeltaNeurons === null
         || reconciliation.finalUsedNeurons === null))
   ) {
-    throw new CloudflareRasterUsageReconciliationErrorV15({
+    const failureUsage: CloudflareRasterReconciliationFailureUsageV15 = {
       date: baseline.date,
       allocationNeurons: CLOUDFLARE_FREE_DAILY_NEURONS_V15,
       usedBeforeNeurons: baseline.usedNeurons,
@@ -501,7 +607,43 @@ export async function generateCloudflareRasterImageFreeProofV15(
       reconciliationMethod: null,
       reportedNeurons: decision.totalReportedNeurons,
       reconciliationReason: decision.reason,
+      unreportedCalls: reportedCalls
+        .filter((call) => call.reportedNeurons === null)
+        .map((call) => ({
+          candidateIndex: call.candidateIndex,
+          retried: call.retried,
+          call: call.call,
+        })),
+    };
+    // Server-side diagnostics only: the snapshot above travels with the
+    // thrown error into the failure response, but that response used to
+    // be the only place the values survived — the app client reduces the
+    // failure to a fixed message and keeps nothing, so a withheld
+    // delivery could not be triaged after the fact (production,
+    // 2026-11-12). Record the whole snapshot here as well, including
+    // every call's own report, so the failure reason and the exact
+    // missing reports are recoverable from the server log alone.
+    // Numbers, booleans, and machine identifiers only: no prompt text,
+    // no image data, no credentials.
+    console.info('[raster-free-generation] usage reconciliation failed', {
+      reconciliationReason: failureUsage.reconciliationReason,
+      reconciliationMethod: failureUsage.reconciliationMethod,
+      date: failureUsage.date,
+      allocationNeurons: failureUsage.allocationNeurons,
+      usedBeforeNeurons: failureUsage.usedBeforeNeurons,
+      reservedNeurons: failureUsage.reservedNeurons,
+      estimatedGenerationNeurons: failureUsage.estimatedGenerationNeurons,
+      semanticCriticReservedNeurons: failureUsage.semanticCriticReservedNeurons,
+      candidatesPlanned: failureUsage.candidatesPlanned,
+      candidatesGenerated: failureUsage.candidatesGenerated,
+      retryBudgeted: failureUsage.retryBudgeted,
+      reportedNeurons: failureUsage.reportedNeurons,
+      observedDeltaNeurons: failureUsage.observedDeltaNeurons,
+      usedAfterNeurons: failureUsage.usedAfterNeurons,
+      reportedCalls,
+      unreportedCalls: failureUsage.unreportedCalls,
     });
+    throw new CloudflareRasterUsageReconciliationErrorV15(failureUsage);
   }
   const reconciliationMethod = decision.method;
   const deliveryCostEvidence: RasterImageResultV15['costEvidence'] = reconciliationMethod === 'aggregate-delta'
