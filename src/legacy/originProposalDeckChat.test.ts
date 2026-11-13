@@ -105,8 +105,29 @@ describe("buildProposalDeckChatArtifact", () => {
     const outcome = buildProposalDeckChatArtifact("構成案だけの自由文の回答です。");
     expect(outcome).toEqual({
       status: "failed",
-      failureCode: "PROPOSAL_DECK_SKELETON_NOT_MATCHED",
+      failureCode: "PROPOSAL_DECK_PARSE_NO_HEADINGS",
+      failureShape: {
+        totalChars: 15,
+        markdownHeadingCount: 0,
+        numberedHeadingCount: 0,
+        bracketStandaloneLineCount: 0,
+        boldLabelLineCount: 0,
+        bulletLineCount: 0,
+        tableRowCount: 0,
+      },
     });
+  });
+
+  it("keeps the generic parse code when structure exists but does not match", () => {
+    const outcome = buildProposalDeckChatArtifact(
+      "# 会議のメモ\n## 雑談\n- コーヒーを買う\n- 次回の日程を決める\n",
+    );
+    expect(outcome.status).toBe("failed");
+    if (outcome.status === "failed") {
+      expect(outcome.failureCode).toBe("PROPOSAL_DECK_SKELETON_NOT_MATCHED");
+      expect(outcome.failureShape?.markdownHeadingCount).toBe(2);
+      expect(outcome.failureShape?.bulletLineCount).toBe(2);
+    }
   });
 
   it("fails without a file when the summary does not have exactly three points", () => {

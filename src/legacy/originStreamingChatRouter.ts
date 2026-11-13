@@ -19,6 +19,7 @@ import {
   PROPOSAL_DECK_FAILURE_NOTE,
   PROPOSAL_DECK_SKELETON_INSTRUCTION,
 } from "./originProposalDeckChat.js";
+import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureShapeV1.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
   detectSensitiveConversation,
@@ -195,6 +196,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
       let deckFailureCode: string | undefined;
       let deckViolationCodes: readonly string[] | undefined;
+      let deckFailureShape: ProposalDeckAnswerShape | undefined;
       if (deckRequested) {
         const outcome = buildProposalDeckChatArtifact(result.text);
         if (outcome.status === "created") {
@@ -202,6 +204,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         } else {
           deckFailureCode = outcome.failureCode;
           deckViolationCodes = outcome.violationCodes;
+          deckFailureShape = outcome.failureShape;
         }
       }
       console.info("[origin-chat] upstream stream completed", {
@@ -214,6 +217,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         proposalDeck: deckRequested ? (deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
+        ...(deckFailureShape ? { proposalDeckFailureShape: deckFailureShape } : {}),
       });
       if (deckRequested && !deckArtifact) {
         res.write(`data: ${JSON.stringify({ type: "delta", text: PROPOSAL_DECK_FAILURE_NOTE })}\n\n`);

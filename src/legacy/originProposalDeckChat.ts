@@ -18,7 +18,15 @@ import {
   ProposalDeckBuildError,
 } from "../artifacts/proposalDeckPlannerV1.js";
 import { renderProposalDeckPptx } from "../artifacts/proposalDeckPptxV1.js";
-import { checkProposalDeck } from "../artifacts/proposalDeckSelfCheckV1.js";
+import {
+  checkProposalDeck,
+  proposalDeckNumericSourceTexts,
+} from "../artifacts/proposalDeckSelfCheckV1.js";
+import {
+  classifyProposalDeckParseFailureCode,
+  summarizeProposalDeckAnswerShape,
+  type ProposalDeckAnswerShape,
+} from "../artifacts/proposalDeckFailureShapeV1.js";
 import {
   parseProposalDeckSkeleton,
   PROPOSAL_DECK_SKELETON_INSTRUCTION,
@@ -60,7 +68,13 @@ export function isProposalDeckChatRequest(
 
 export type ProposalDeckChatArtifactOutcome =
   | { status: "created"; artifact: OriginSupervisorArtifactPayloadV2 }
-  | { status: "failed"; failureCode: string; violationCodes?: readonly string[] };
+  | {
+      status: "failed";
+      failureCode: string;
+      violationCodes?: readonly string[];
+      /** 失敗時の回答の「形」（件数のみ・原文テキストは含まない）。完了ログへそのまま渡す。 */
+      failureShape?: ProposalDeckAnswerShape;
+    };
 
 /** artifactGeneratorV12 の safeName と同じ規則でファイル名の stem を作る。 */
 function deckFilenameStem(title: string): string {
@@ -80,38 +94,49 @@ function deckFilenameStem(title: string): string {
 export function buildProposalDeckChatArtifact(
   answerText: string,
 ): ProposalDeckChatArtifactOutcome {
+  // 失敗時は段階別の failureCode に加え、回答の「形」（件数のみ）を必ず添える。
+  // 形があれば、原文を保存しなくても失敗形状を恒常フィクスチャとして再構成できる。
+  const fail = (
+    failureCode: string,
+    violationCodes?: readonly string[],
+  ): ProposalDeckChatArtifactOutcome => ({
+    status: "failed",
+    failureCode,
+    ...(violationCodes ? { violationCodes } : {}),
+    failureShape: summarizeProposalDeckAnswerShape(answerText),
+  });
+
   const input = parseProposalDeckSkeleton(answerText);
   if (!input) {
-    return { status: "failed", failureCode: "PROPOSAL_DECK_SKELETON_NOT_MATCHED" };
+    return fail(classifyProposalDeckParseFailureCode(answerText));
   }
 
   let deck;
   try {
     deck = buildProposalDeck(input);
   } catch (error) {
-    return {
-      status: "failed",
-      failureCode:
-        error instanceof ProposalDeckBuildError
-          ? `PROPOSAL_DECK_BUILD_${error.code}`
-          : "PROPOSAL_DECK_BUILD_FAILED",
-    };
+    return fail(
+      error instanceof ProposalDeckBuildError
+        ? `PROPOSAL_DECK_BUILD_${error.code}`
+        : "PROPOSAL_DECK_BUILD_FAILED",
+    );
   }
 
-  const selfCheck = checkProposalDeck(deck);
+  const selfCheck = checkProposalDeck(deck, {
+    numericSourceTexts: proposalDeckNumericSourceTexts(input),
+  });
   if (!selfCheck.ok) {
-    return {
-      status: "failed",
-      failureCode: "PROPOSAL_DECK_SELF_CHECK_FAILED",
-      violationCodes: selfCheck.violations.map((violation) => violation.code),
-    };
+    return fail(
+      "PROPOSAL_DECK_SELF_CHECK_FAILED",
+      selfCheck.violations.map((violation) => violation.code),
+    );
   }
 
   let bytes: Buffer;
   try {
     bytes = renderProposalDeckPptx(deck);
   } catch {
-    return { status: "failed", failureCode: "PROPOSAL_DECK_RENDER_FAILED" };
+    return fail("PROPOSAL_DECK_RENDER_FAILED");
   }
 
   // 生成物の決定的検証（artifactGeneratorV12 の pptx 検証と同じ観点）。
@@ -128,10 +153,10 @@ export function buildProposalDeckChatArtifact(
   }
   verification.push("proposal-deck-self-check");
   if (!verification.includes("zip-signature") || !verification.includes("pptx-package")) {
-    return { status: "failed", failureCode: "PROPOSAL_DECK_VERIFICATION_FAILED" };
+    return fail("PROPOSAL_DECK_VERIFICATION_FAILED");
   }
   if (bytes.length > MAX_INLINE_ARTIFACT_BYTES) {
-    return { status: "failed", failureCode: "PROPOSAL_DECK_ARTIFACT_TOO_LARGE" };
+    return fail("PROPOSAL_DECK_ARTIFACT_TOO_LARGE");
   }
 
   const sha256 = createHash("sha256").update(bytes).digest("hex");
