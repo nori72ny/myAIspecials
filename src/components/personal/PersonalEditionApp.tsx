@@ -18,7 +18,6 @@ function workspaceLocation(): OriginWorkspaceModeV31 {
 }
 
 type PersonalEditionAppProps = {
-  onSwitchToEnterprise?: () => void;
   settings?: Settings;
   onOpenSettings?: () => void;
   messages?: ConversationMessage[];

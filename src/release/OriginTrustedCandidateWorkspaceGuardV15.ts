@@ -25,6 +25,10 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     // guard (CodeQL js/missing-rate-limiting remediation, PR #1110); owner-approved
     // baseline update after review of the exact dependency-only lockfile delta.
     '1cee086d3fa3a423295066e2bef0a8c161103ee5',
+    // 2026-11-13 hono 4.13.18 / @hono/node-server 2.1.6 security patch (overrides pin
+    // update for the GHSA advisories published 2026-11-12); exact dependency-only PR
+    // lockfile blob after review of the two-entry lockfile delta.
+    '44f1acc8660f876aed4343dad4dd5d276e7a94b3',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',

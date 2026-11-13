@@ -97,8 +97,8 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
   // 2026-11-11: keep the sheet to the essentials).
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 safe-area-bottom backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 backdrop-blur-sm sm:items-center sm:p-4 sm:pb-5" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface origin-sheet-safe-area-bottom max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="origin-muted m-0 text-xs font-semibold uppercase tracking-[0.16em]">ORIGIN · IMAGE STUDIO</p>
@@ -107,7 +107,14 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
           </div>
           <button type="button" aria-label={ja ? '閉じる' : 'Close'} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 min-w-11 items-center justify-center rounded-full text-xl">×</button>
         </header>
-        <form onSubmit={submit} className="grid gap-4">
+        {/* The global light/dark overrides in index.css paint every <form>
+            as a bordered pale card (built for the bottom composer). Inside
+            this sheet that card became a second frame within the sheet's
+            own frame and squeezed the content, so the form opts out with
+            important utilities (layered !important outranks the unlayered
+            !important overrides) and the sheet surface stays the only
+            background. */}
+        <form onSubmit={submit} className="grid gap-4 rounded-none! border-none! bg-transparent! shadow-none!">
           <label className="grid gap-2 text-sm font-medium">
             {ja ? '作りたい画像' : 'Image brief'}
             <textarea ref={promptRef} data-testid="origin-image-prompt" value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(''); }} maxLength={2000} rows={4} placeholder={ja ? '例：夕暮れの海辺、映画のワンシーンのような光、人物なし' : 'Example: a quiet beach at sunset, cinematic lighting, no people'} className="origin-input min-h-28 w-full resize-y rounded-2xl border border-[var(--border-default)] bg-transparent p-3 text-base leading-6" />

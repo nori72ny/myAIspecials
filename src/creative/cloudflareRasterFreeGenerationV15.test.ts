@@ -89,6 +89,10 @@ type MockState = {
   generationReportedNeurons?: number;
   /** When set, the critic run envelope (live shape) reports this many Neurons. */
   criticReportedNeurons?: number;
+  /** Per-call critic responses, consumed in call order before the defaults. */
+  criticSequence?: { answer: string; neurons?: number }[];
+  /** The first this many critic run calls fail with an HTTP 500 instead. */
+  criticFailFirstCalls?: number;
 };
 
 function usageResponse(usedNeurons: number): Response {
@@ -147,6 +151,20 @@ function dispatchFetch(state: MockState) {
     }
     if (target.includes('/ai/run/@cf/moondream/')) {
       state.criticRuns += 1;
+      if (state.criticRuns <= (state.criticFailFirstCalls ?? 0)) {
+        return new Response(JSON.stringify({
+          success: false,
+          result: null,
+          errors: [{ code: 5000, message: 'upstream failure' }],
+          messages: [],
+        }), { status: 500, headers: { 'content-type': 'application/json' } });
+      }
+      const sequenced = state.criticSequence?.shift();
+      if (sequenced) {
+        return sequenced.neurons !== undefined
+          ? envelope({ result: { answer: sequenced.answer }, usage: { neurons: sequenced.neurons } })
+          : envelope({ answer: sequenced.answer });
+      }
       const answer = state.criticAnswers?.length
         ? state.criticAnswers.shift()
         : state.criticAnswer ?? PASSING_CRITIC_ANSWER;
@@ -489,6 +507,84 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.usage.reconciliationMethod).toBe('per-request-reported');
   });
 
+  it('counts the critic format retry first call in the per-request accounting', async () => {
+    // The critic's first answer is not valid contract JSON, so the
+    // critic repeats its call once with a format reminder. Both calls
+    // consumed Neurons and both reported them (30, then 35); the
+    // request's evidence must total all of them, not only the final
+    // call's report.
+    const state = baseState({
+      lagUsage: true,
+      generationReportedNeurons: 140,
+      criticSequence: [
+        { answer: 'this is not the contracted JSON', neurons: 30 },
+        { answer: PASSING_CRITIC_ANSWER, neurons: 35 },
+      ],
+    });
+    const fetchMock = dispatchFetch(state);
+    const delivery = await generateCloudflareRasterImageFreeProofV15(
+      INPUT, ENV, fetchMock as unknown as typeof fetch,
+      { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+    );
+    expect(state.imageRuns).toBe(1);
+    expect(state.criticRuns).toBe(2);
+    expect(delivery.usage.reconciliationMethod).toBe('per-request-reported');
+    // 140 generation + 30 failed critic call + 35 retry critic call.
+    expect(delivery.usage.reportedNeurons).toBe(205);
+    expect(delivery.semantic.reportedNeurons).toBe(35);
+    expect(delivery.semantic.reportedCallsNeurons).toEqual([30, 35]);
+  });
+
+  it('preserves a failed candidate generation report when its critic call throws, and still withholds', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      // Best-of-2: both generations report 140 Neurons for themselves.
+      // One candidate's semantic-critic call fails at the provider (HTTP
+      // 500); the other candidate passes with a 35-Neuron critic report
+      // and wins. The aggregate lags past the polling window.
+      const state = baseState({
+        lagUsage: true,
+        generationReportedNeurons: 140,
+        criticReportedNeurons: 35,
+        criticFailFirstCalls: 1,
+      });
+      const fetchMock = dispatchFetch(state);
+      const error = await generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch,
+        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST, maxCandidates: 2 },
+      ).catch((caught: unknown) => caught);
+      expect(state.imageRuns).toBe(2);
+      expect(state.criticRuns).toBe(2);
+      // The failed candidate's generation report is preserved, but its
+      // critic call reported nothing, so the evidence set is still
+      // incomplete and the image is still withheld: preservation never
+      // fills a missing report.
+      expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+      const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+      expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
+      expect(failure.usage.unreportedCalls).toHaveLength(1);
+      expect(failure.usage.unreportedCalls[0]?.call).toBe('semantic-critic');
+      const records = infoSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')
+        .map(call => call[1] as { reportedCalls: { call: string; reportedNeurons: number | null }[] });
+      expect(records).toHaveLength(1);
+      const reportedCalls = records[0]!.reportedCalls;
+      // Both generation calls are present with their own reports — the
+      // failed candidate's 140 was not discarded with its attempt.
+      expect(reportedCalls.filter(call => call.call === 'generation')).toEqual([
+        { candidateIndex: 0, retried: false, call: 'generation', reportedNeurons: 140 },
+        { candidateIndex: 1, retried: false, call: 'generation', reportedNeurons: 140 },
+      ]);
+      const criticReports = reportedCalls
+        .filter(call => call.call === 'semantic-critic')
+        .map(call => call.reportedNeurons)
+        .sort((a, b) => Number(a) - Number(b));
+      expect(criticReports).toEqual([null, 35]);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it('withholds the image under analytics lag when any single call reported no usage', async () => {
     // Critic reported, generation did not.
     const noGenerationReport = baseState({ lagUsage: true, criticReportedNeurons: 35 });
@@ -634,6 +730,88 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       reportedNeurons: null,
       reconciliationReason: 'per-request-usage-incomplete',
     });
+  });
+
+  it('records the reconciliation snapshot in the server log when Stage 5 withholds the image', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      // Neither call reported its usage: the generation envelope is a
+      // bare base64 string and the critic answer arrives in the flat
+      // shape, so the primary evidence is incomplete and the aggregate
+      // (delta 0) cannot carry the delivery either.
+      const state = baseState({ generationDelta: 0 });
+      const fetchMock = dispatchFetch(state);
+      const error = await generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch,
+        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+      ).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+      const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+      // The failure snapshot names exactly which calls reported nothing:
+      // the generation call and the semantic-critic call of candidate 0.
+      expect(failure.usage.unreportedCalls).toEqual([
+        { candidateIndex: 0, retried: false, call: 'generation' },
+        { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+      ]);
+      // The same snapshot is recorded in the server log, with every
+      // call's own report, so the block stays triageable after the API
+      // response is gone.
+      const records = infoSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        reconciliationReason: 'per-request-usage-incomplete',
+        reconciliationMethod: null,
+        reservedNeurons: 576,
+        reportedNeurons: null,
+        reportedCalls: [
+          { candidateIndex: 0, retried: false, call: 'generation', reportedNeurons: null },
+          { candidateIndex: 0, retried: false, call: 'semantic-critic', reportedNeurons: null },
+        ],
+        unreportedCalls: [
+          { candidateIndex: 0, retried: false, call: 'generation' },
+          { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+        ],
+      });
+      // Identifiers and numbers only: the prompt never reaches the record.
+      expect(JSON.stringify(records[0])).not.toContain('静かな湖と朝焼け');
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it('names only the unreported call in the failure snapshot when the other calls reported', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      // Generation reported 140 Neurons for itself; the critic reported
+      // nothing, and the aggregate lags past the polling window, so the
+      // delivery is withheld on the critic call alone.
+      const state = baseState({ lagUsage: true, generationReportedNeurons: 140 });
+      const fetchMock = dispatchFetch(state);
+      const error = await generateCloudflareRasterImageFreeProofV15(
+        INPUT, ENV, fetchMock as unknown as typeof fetch,
+        { now: NOW_IN_WINDOW, usageVerification: RECONCILE_FAST },
+      ).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(CloudflareRasterUsageReconciliationErrorV15);
+      const failure = error as CloudflareRasterUsageReconciliationErrorV15;
+      expect(failure.usage.reconciliationReason).toBe('per-request-usage-incomplete');
+      expect(failure.usage.unreportedCalls).toEqual([
+        { candidateIndex: 0, retried: false, call: 'semantic-critic' },
+      ]);
+      const records = infoSpy.mock.calls
+        .filter(call => call[0] === '[raster-free-generation] usage reconciliation failed')
+        .map(call => call[1] as Record<string, unknown>);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        reportedCalls: [
+          { candidateIndex: 0, retried: false, call: 'generation', reportedNeurons: 140 },
+          { candidateIndex: 0, retried: false, call: 'semantic-critic', reportedNeurons: null },
+        ],
+      });
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it('withholds the image when the per-request reported total exceeds the reserve', async () => {

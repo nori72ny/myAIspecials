@@ -14,6 +14,7 @@ import { createSupabaseMcpOwnerSessionRouterFromEnv } from './mcpOwnerSessionRou
 import type { McpManagementDependencies } from './mcpManagementRouter.js';
 import type { McpServerChoice } from './mcpConnections.js';
 import { createMcpAgentRouter } from './mcpAgentRouter.js';
+import { isMcpEnabled } from './mcpKillSwitch.js';
 
 const ENABLED = 'true';
 const CLIENT_SECRET_ENV = /^ORIGIN_MCP_[A-Z0-9_]+_CLIENT_SECRET$/;
@@ -246,7 +247,7 @@ function tokenCipher(raw: string): McpOAuthTokenCipher {
 export type McpProductionRuntime = McpManagementDependencies & { agentRouter?: ReturnType<typeof createMcpAgentRouter> };
 
 export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = process.env): McpProductionRuntime | undefined {
-  if (env.ORIGIN_MCP_ENABLED !== ENABLED) return undefined;
+  if (!isMcpEnabled(env)) return undefined;
   if (env.FREE_ONLY !== ENABLED) return invalid();
 
   const appOrigin = env.APP_URL?.trim();
@@ -300,6 +301,11 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     audit: new PostgresConnectorAuditLog(pool),
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
     disconnectCredential: async (ownerId, serverId) => { await broker.disconnect(ownerId, serverId); },
+    // Consumption-point kill switch (PR-1c): the connection service
+    // re-checks this predicate at the entry of every live-connection
+    // method, so the gate holds even if the service is ever composed
+    // without this runtime's composition-point check.
+    enabled: () => isMcpEnabled(env),
   });
 
   const readOnlyServers = reviewed.servers.filter(server => server.executionMode === 'read-only');
@@ -313,6 +319,9 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     // Exact tool grants are owner-approved and fingerprint pinned. Automatic execution
     // is additionally limited here to connectors reviewed as strict read-only servers.
     authorize: async ({ signal }) => !signal.aborted,
+    // Consumption-point kill switch (PR-1c): open() re-checks this
+    // predicate before reading any state or credential.
+    enabled: () => isMcpEnabled(env),
   });
   return {
     ...management,
@@ -326,7 +335,7 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
  * rather than exposing a partially configured login or refresh surface.
  */
 export function createMcpProductionSessionRouterFromEnv(env: NodeJS.ProcessEnv = process.env) {
-  if (env.ORIGIN_MCP_ENABLED !== ENABLED) return undefined;
+  if (!isMcpEnabled(env)) return undefined;
   if (env.FREE_ONLY !== ENABLED) return invalid();
   const router = createSupabaseMcpOwnerSessionRouterFromEnv(env);
   if (!router) return invalid();

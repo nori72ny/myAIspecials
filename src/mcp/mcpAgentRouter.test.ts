@@ -71,26 +71,29 @@ function session(): McpAgentSession {
 
 function app(options: {
   authenticated?: boolean;
+  enabled?: boolean;
   executeProvider?: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 } = {}) {
   const target = session();
   const open = vi.fn(async (_input: { ownerId: string; connectionId: string; version: number }) => target);
+  const authenticate = vi.fn(async () => options.authenticated === false ? null : { subjectId: OWNER, sessionBinding: "session" });
   const executeProvider = options.executeProvider ?? vi.fn()
     .mockResolvedValueOnce(providerResult(JSON.stringify({ alias: ALIAS, arguments: { path: "README.md" } })))
     .mockResolvedValueOnce(providerResult("README.md was read successfully."));
   const instance = express();
   instance.use(express.json({ limit: "64kb" }));
   instance.use(createMcpAgentRouter({
-    authenticate: async () => options.authenticated === false ? null : { subjectId: OWNER, sessionBinding: "session" },
+    authenticate,
     sessionFactory: { open },
     env: {
       APP_URL: "https://origin.example.com",
       OPENROUTER_API_KEY: "fixture",
+      ...(options.enabled === false ? {} : { ORIGIN_MCP_ENABLED: "true" }),
     },
     executeProvider,
     now: () => TEST_NOW,
   }));
-  return { instance, target, open, executeProvider };
+  return { instance, target, open, authenticate, executeProvider };
 }
 
 describe("MCP owner tool-chat router", () => {
@@ -135,6 +138,25 @@ describe("MCP owner tool-chat router", () => {
 
     expect(response.status).toBe(401);
     expect(response.body.code).toBe("MCP_AUTH_REQUIRED");
+    expect(fixture.open).not.toHaveBeenCalled();
+    expect(fixture.executeProvider).not.toHaveBeenCalled();
+  });
+
+  it("fails closed at the kill switch before authentication or session creation when MCP is not enabled", async () => {
+    const fixture = app({ enabled: false });
+    const response = await request(fixture.instance)
+      .post("/api/mcp/chat")
+      .set("Origin", "https://origin.example.com")
+      .send({
+        connectionId: CONNECTION,
+        version: 3,
+        messages: [{ role: "user", content: "Read README.md." }],
+      });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("MCP_AGENT_UNAVAILABLE");
+    expect(response.body.retryable).toBe(false);
+    expect(fixture.authenticate).not.toHaveBeenCalled();
     expect(fixture.open).not.toHaveBeenCalled();
     expect(fixture.executeProvider).not.toHaveBeenCalled();
   });

@@ -120,4 +120,49 @@ describe("Node MCP agent session factory", () => {
       .rejects.toMatchObject({ code: "MCP_AGENT_NO_APPROVED_TOOLS", status: 409 });
     expect(resolveCredential).not.toHaveBeenCalled();
   });
+
+  it("fails closed at the kill switch before reading state, grants or credentials when disabled", async () => {
+    const resolveCredential = vi.fn(async () => "must-not-be-read");
+    const durable = store(record());
+    const get = vi.fn(durable.get);
+    const grantStore = grants();
+    const listGrants = vi.fn(grantStore.list);
+    const factory = createNodeMcpAgentSessionFactory({
+      store: { ...durable, get },
+      toolGrants: { ...grantStore, list: listGrants },
+      servers: [server()],
+      resolveCredential,
+      authorize: async () => true,
+      enabled: () => false,
+      now: () => Date.parse("2026-09-21T01:00:00.000Z"),
+    });
+
+    await expect(factory.open({ ownerId: OWNER, connectionId: CONNECTION, version: 3 }))
+      .rejects.toMatchObject({ code: "MCP_NOT_CONFIGURED", status: 503 });
+    expect(get).not.toHaveBeenCalled();
+    expect(listGrants).not.toHaveBeenCalled();
+    expect(resolveCredential).not.toHaveBeenCalled();
+  });
+
+  it("consults the kill-switch predicate on every open, not only at construction", async () => {
+    const resolveCredential = vi.fn(async () => "fresh-access-token");
+    let enabled = true;
+    const factory = createNodeMcpAgentSessionFactory({
+      store: store(record()),
+      toolGrants: grants(),
+      servers: [server()],
+      resolveCredential,
+      authorize: async () => true,
+      enabled: () => enabled,
+      now: () => Date.parse("2026-09-21T01:00:00.000Z"),
+    });
+
+    const session = await factory.open({ ownerId: OWNER, connectionId: CONNECTION, version: 3 });
+    await session.close();
+
+    enabled = false;
+    await expect(factory.open({ ownerId: OWNER, connectionId: CONNECTION, version: 3 }))
+      .rejects.toMatchObject({ code: "MCP_NOT_CONFIGURED", status: 503 });
+    expect(resolveCredential).toHaveBeenCalledTimes(1);
+  });
 });
