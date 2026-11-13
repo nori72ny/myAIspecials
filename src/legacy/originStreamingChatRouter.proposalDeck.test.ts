@@ -40,6 +40,13 @@ function appWith(streamExecute: OriginProviderStreamExecutor) {
 
 const DECK_PROMPT = "営業部向けに、業務効率化ツールの導入を提案する提案資料を作ってください。スライド形式でお願いします。";
 
+// Regression (2026-11-13 production, PROPOSAL_CHAT_TRIAGE_2026-11-13
+// cause A): this natural phrasing — the exact first message sent in the
+// production check — contains none of スライド / 提案書 / 資料を作成, so
+// the intent catalog assigned no outputs and the deck path never fired.
+// The deck trigger must accept 「提案資料を作ってください」 directly.
+const PRODUCTION_DECK_PROMPT = "中小企業向けのクラウド会計サービスの販促提案資料を作ってください";
+
 const SKELETON_ANSWER = `# 業務効率化ツール導入のご提案
 営業部の定型作業を自動化する提案
 
@@ -119,6 +126,30 @@ describe("createOriginStreamingChatRouter proposal deck (PR-3a)", () => {
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(artifact.sha256);
     expect(bytes.includes(Buffer.from("ppt/presentation.xml"))).toBe(true);
     // No failure note is appended when the file is produced.
+    expect(response.text).not.toContain("資料ファイルの作成はできませんでした");
+    expect(response.text).toMatch(/data: \[DONE\]\s*$/);
+  });
+
+  it("fires for the natural production phrasing without any catalog keyword", async () => {
+    let seenInstruction = "";
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenInstruction = providerRequest.systemInstruction;
+      handlers.onDelta(SKELETON_ANSWER);
+      return result(SKELETON_ANSWER);
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: PRODUCTION_DECK_PROMPT }] });
+
+    expect(response.status).toBe(200);
+    expect(seenInstruction).toContain("提案資料の作成形式（この依頼専用の追加ルール）");
+    const complete = completeEvent(response.text);
+    const artifacts = complete.artifacts as Array<Record<string, unknown>>;
+    expect(Array.isArray(artifacts)).toBe(true);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].artifactType).toBe("pptx");
     expect(response.text).not.toContain("資料ファイルの作成はできませんでした");
     expect(response.text).toMatch(/data: \[DONE\]\s*$/);
   });
