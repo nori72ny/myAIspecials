@@ -61,30 +61,33 @@ describe('OriginCatState', () => {
     render(<OriginCatState state="idle" size={80} pedestal />);
     const pedestal = screen.getByTestId('origin-cat-pedestal');
     expect(pedestal).toBeTruthy();
-    // pad = round(80 * 0.09) = 7, so the disc is 94px across.
-    expect(pedestal.style.width).toBe('94px');
-    expect(pedestal.style.height).toBe('94px');
+    // pad = round(80 * 0.04) = 3, so the disc is 86px across.
+    expect(pedestal.style.width).toBe('86px');
+    expect(pedestal.style.height).toBe('86px');
     const visual = screen.getByTestId('origin-cat-state');
     expect(pedestal.contains(visual)).toBe(true);
-    // 暫定対処：絵は台座の内寸の 80%（= 64px）に縮小し、明るい台座面を
-    // はっきり見せる。台座の総寸（94px）は従来どおり変えない。
-    expect(visual.style.width).toBe('80%');
-    expect(visual.style.height).toBe('80%');
+    // 2026-11-12 見直し：絵は台座の内寸いっぱい（80px）に載せ、台座側は
+    // 細いリング（片側3px、絵の約4%）だけにする。旧形状は絵64px＋円盤
+    // 94pxで円盤/絵が約1.49倍あり、白い枠が太過ぎた（オーナー指摘）。
+    expect(visual.style.width).toBe('80px');
+    expect(visual.style.height).toBe('80px');
   });
 
-  it('keeps the hero geometry: an 84px inner size on a 100px pedestal with the visual at 80%', () => {
+  it('keeps the hero geometry: an 84px visual on a 90px pedestal with a thin 3px ring', () => {
     stubReducedMotion(false);
     render(<OriginCatState state="idle" size={84} pedestal />);
-    // pad = round(84 * 0.09) = 8, so the disc stays 100px across (#1170).
+    // pad = round(84 * 0.04) = 3, so the disc is 90px across. This
+    // supersedes the #1170 geometry (100px disc, visual shrunk to 80%),
+    // which the owner flagged on 2026-11-12 as a too-thick white frame.
     const pedestal = screen.getByTestId('origin-cat-pedestal');
-    expect(pedestal.style.width).toBe('100px');
-    expect(pedestal.style.height).toBe('100px');
+    expect(pedestal.style.width).toBe('90px');
+    expect(pedestal.style.height).toBe('90px');
     const visual = screen.getByTestId('origin-cat-state');
-    expect(visual.style.width).toBe('80%');
-    expect(visual.style.height).toBe('80%');
+    expect(visual.style.width).toBe('84px');
+    expect(visual.style.height).toBe('84px');
   });
 
-  it('keeps the working video (with its poster) on a pedestal at the same 80% occupancy', () => {
+  it('keeps the working video (with its poster) on a pedestal at the same full occupancy', () => {
     stubReducedMotion(false);
     render(<OriginCatState state="working" size={64} pedestal />);
     const visual = screen.getByTestId('origin-cat-state');
@@ -93,12 +96,12 @@ describe('OriginCatState', () => {
     expect(visual.getAttribute('poster')).toBe(ORIGIN_CAT_STILL_SRC.working);
     const pedestal = screen.getByTestId('origin-cat-pedestal');
     expect(pedestal.contains(visual)).toBe(true);
-    // pad = round(64 * 0.09) = 6, so the disc is 76px across; the video
-    // (and its poster frame) use the same 80% occupancy as the stills.
-    expect(pedestal.style.width).toBe('76px');
-    expect(pedestal.style.height).toBe('76px');
-    expect(visual.style.width).toBe('80%');
-    expect(visual.style.height).toBe('80%');
+    // pad = round(64 * 0.04) = 3, so the disc is 70px across; the video
+    // (and its poster frame) fill the pedestal inner size like the stills.
+    expect(pedestal.style.width).toBe('70px');
+    expect(pedestal.style.height).toBe('70px');
+    expect(visual.style.width).toBe('64px');
+    expect(visual.style.height).toBe('64px');
   });
 
   it('falls back to the still image for the working state under prefers-reduced-motion', () => {
