@@ -300,4 +300,43 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.body).toEqual({ delegated: true });
     expect(streamExecute).not.toHaveBeenCalled();
   });
+
+  // S-PR-1 output-side assertion gate: a volatile-fact question with no
+  // freshness marker reaches this router directly. An answer asserting a
+  // stale value in current form must never reach the client — the buffered
+  // deltas are replaced by the could-not-confirm form.
+  it("replaces an ungrounded current assertion on a volatile-fact question (S-PR-1)", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("現在の日本の内閣総理大臣は");
+      handlers.onDelta("石破茂氏です。");
+      return result("現在の日本の内閣総理大臣は石破茂氏です。");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "日本の内閣総理大臣は誰ですか？" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("現在の情報は確認できなかったため");
+    expect(response.text).not.toContain("石破茂");
+    expect(response.text).toContain(`"type":"complete"`);
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes buffered deltas unchanged when the answer makes no current assertion (S-PR-1)", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("日本の内閣総理大臣は");
+      handlers.onDelta("国会で指名され、天皇に任命されます。");
+      return result("日本の内閣総理大臣は国会で指名され、天皇に任命されます。");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "日本の内閣総理大臣はどうやって決まりますか？" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain(`data: {"type":"delta","text":"日本の内閣総理大臣は"}`);
+    expect(response.text).toContain(`data: {"type":"delta","text":"国会で指名され、天皇に任命されます。"}`);
+    expect(response.text).not.toContain("確認できなかったため");
+  });
 });

@@ -68,8 +68,14 @@ instruments?: OriginMarketInstrument[];
 rule: string;
 }
 
+// The standalone 「今」 alternative (S-PR-1 vocabulary reinforcement) is
+// fenced by a negative lookahead so discourse / idiom uses that assert no
+// currency — 今さら (too late to ask now), 今いち (mediocre), 今や, 今回
+// (this time, a discourse reference), 今から / 今すぐ / 今まで (the user's
+// own immediate actions and spans) — do not read as freshness markers.
+// 今いくつ・今月・今週・今の首相 etc. still match, as do the longer forms.
 const FRESHNESS_MARKER =
-/(?:最新|現在|直近|最近|今日|今の|現時点|今年|いま|アップデート|バージョンアップ|発売予定|リリース予定|登場予定|今後|これから)/;
+/(?:最新|現在|直近|最近|今日|今の|今(?![さ]|いち|や|回|後|のち|から|すぐ|まで|にも)|現時点|今年|いま|アップデート|バージョンアップ|発売予定|リリース予定|登場予定|今後|これから)/;
 const CONCEPT_MARKER =
 /(?:とは|って何|の意味|意味を|定義|歴史|由来|仕組み|読み方|誰が作|いつ作られ|いつからある)/;
 
@@ -83,7 +89,17 @@ if (FRESHNESS_MARKER.test(message)) return false;
 const hasDigits = /[0-9０-９]/.test(message);
 const asksCalculation = /(?:計算|合計|平均|中央値|求め|何件|何個|何人|割合は)/.test(message)
 || /\b(?:calculate|compute|total|average|median)\b/i.test(message);
-return hasDigits && asksCalculation;
+if (hasDigits && asksCalculation) return true;
+// Supplied-value result questions (S-PR-1, the H-01 self-destruct shape):
+// the user provides the amounts / percentages and asks what they come to
+// ("税抜12,800円の商品を3個買うと、消費税10%込みでいくらになりますか").
+// That is arithmetic over supplied values, not a price lookup: a supplied
+// monetary amount or percentage AND a result-amount cue are both required,
+// so a bare "いくらですか" about a product (no supplied values) still
+// routes to price_spec below.
+const hasSuppliedValue = /(?:[0-9０-９][0-9０-９,，]*(?:円|%|％|パーセント)|[0-9０-９]\s*(?:×|＊|\*)\s*[0-9０-９])/.test(message);
+const asksResultAmount = /(?:いくらになります|いくらになる|合計でいくら|総額はいくら)/.test(message);
+return hasDigits && hasSuppliedValue && asksResultAmount;
 }
 
 function isStablePricingConcept(message: string): boolean {
@@ -101,9 +117,9 @@ const WEATHER_SIGNAL =
 const MARKET_SIGNAL =
 /(?:為替|ドル円|円ドル|ユーロ円|ポンド円|株価|日経平均|ダウ平均|ナスダック|nyダウ|ビットコイン|暗号資産.{0,6}(?:価格|相場)|金価格|原油価格|exchange\s+rate|stock\s+price|btc\s+price)/i;
 const NEWS_SIGNAL =
-/(?:ニュース|速報|見出し|報道され|試合結果|試合の結果|選挙結果|当選|優勝し|breaking\s+news|headlines?|latest\s+news)/i;
+/(?:ニュース|速報|見出し|報道され|試合結果|試合の結果|選挙結果|当選|優勝|breaking\s+news|headlines?|latest\s+news)/i;
 const POLICY_SIGNAL =
-/(?:最低賃金|児童手当|基礎年金|年金制度|年金.{0,4}額|消費税|税率|所得税|住民税|法改正|法律|制度|補助金|給付金|助成金|介護保険|健康保険.{0,4}(?:料|制度)|雇用保険|minimum\s+wage|child\s+benefit|regulation)/i;
+/(?:政策金利|金利|利上げ|利下げ|物価|人口|統計|平均寿命|最低賃金|児童手当|基礎年金|年金制度|年金.{0,4}額|消費税|税率|所得税|住民税|法改正|法律|制度|補助金|給付金|助成金|介護保険|健康保険.{0,4}(?:料|制度)|雇用保険|\bcpi\b|minimum\s+wage|child\s+benefit|regulation)/i;
 const PRICE_SIGNAL =
 /(?:価格|値段|料金|いくら|発売日|発売|スペック|仕様|定価|実売|price|release\s+date|specs?)/i;
 const PRODUCT_SIGNAL =
@@ -129,6 +145,17 @@ if (isDeterministicCalculation(text)) return done("no_search", "deterministic-ca
 
 const hasFreshnessMarker = FRESHNESS_MARKER.test(text);
 const hasConceptMarker = CONCEPT_MARKER.test(text);
+
+// Historical-fact questions (S-PR-1, the G-01 shape): a question pinned to
+// a past point ("消費税が導入された当初の税率は") asks for a fixed fact
+// that never changes again, so it is stable — sending it down the policy
+// route made the grounding layer shred a directly answerable question
+// over unrelated current values. A freshness marker anywhere in the
+// question disables this guard (a past-vs-current comparison still
+// needs grounding).
+if (!hasFreshnessMarker && /(?:当初|当時)/.test(text)) {
+return done("stable", "historical-fact");
+}
 
 // Weather concept questions ("天気とは") are stable explanations, not forecasts.
 if (WEATHER_SIGNAL.test(text) &&!hasConceptMarker) {

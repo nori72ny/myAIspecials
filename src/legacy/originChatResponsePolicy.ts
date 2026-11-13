@@ -110,6 +110,22 @@ function isProvidedPriceDecisionRequest(message: string): boolean {
   return hasPriceTopic && hasDecisionIntent && suppliedOptions;
 }
 
+/**
+ * Non-factual fresh_general requests (S-PR-1): the classifier's freshness
+ * fallback also fires for requests whose "freshness" word modifies the
+ * user's own situation rather than a published fact — advice / how-to
+ * requests and operations on the user's own data (schedules, task lists).
+ * Those carry no external fact to ground, so the unified determination
+ * below keeps them on the direct path. Everything else the classifier
+ * marks fresh_general promotes: undecidable fails TOWARD search.
+ */
+function isNonFactualFreshGeneralRequest(message: string): boolean {
+  if (/(?:方法|やり方|仕方|立て方|作り方|考え方|コツ)を/.test(message)) return true;
+  if (/(?:どうすれば|どうしたら)/.test(message)) return true;
+  if (/(?:予定|スケジュール|タスク|やること).{0,16}(?:整理|まとめ|管理|確認)/s.test(message)) return true;
+  return false;
+}
+
 export function requiresOriginGroundedResearch(message: string): boolean {
   if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
 
@@ -119,6 +135,21 @@ export function requiresOriginGroundedResearch(message: string): boolean {
     || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
 }
 
+/**
+ * The single canonical needs-freshness determination for the chat paths
+ * (S-PR-1, SEARCH_STRENGTHENING_DESIGN_2026-11-12 §3 S-1). Both chat
+ * routers reach search exclusively through this function (via
+ * requiresOriginGroundedResearch): if EITHER layer — the search
+ * classifier's signal types / freshness fallback, or this policy's own
+ * explicit patterns — judges that current information is needed, search
+ * runs; no second gate may veto it afterwards. When the classifier cannot
+ * rule out a freshness need (fresh_general), the determination fails
+ * TOWARD search, with the single deterministic exception of non-factual
+ * requests (isNonFactualFreshGeneralRequest). Before S-PR-1 the two
+ * layers disagreed — the classifier said fresh_general while this policy
+ * demanded a narrow recency pattern — and stale memorized values were
+ * asserted as current (the F+G regression fatals).
+ */
 export function requiresOriginCurrentInformation(message: string): boolean {
   if (
     isTransformOnlyRequest(message)
@@ -151,13 +182,16 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || searchClassification.type === "price_spec"
     || searchClassification.type === "policy"
   ) return true;
-  // fresh_general is the classifier's ambiguity fallback — it also fires
-  // for advice such as 「今年の目標の立て方」 — so only an explicit
-  // recency marker tied to a published fact promotes it here.
+  // fresh_general is the classifier's ambiguity fallback: it cannot rule
+  // out that current information is needed, so under the unified
+  // determination it promotes like the signal types above — the previous
+  // rule (only 「直近」 tied to a published-fact noun promoted) is exactly
+  // the second gate that let the F+G fatals through. The deterministic
+  // non-factual exception (advice / how-to, operations on the user's own
+  // data) is the only carve-out.
   if (
     searchClassification.type === "fresh_general"
-    && /(?:直近)/.test(message)
-    && /(?:公表|発表|結果|指数|統計|数値|データ|実績|記録|動向)/.test(message)
+    && !isNonFactualFreshGeneralRequest(message)
   ) return true;
 
   // The bare price branch requires a question / confirmation marker
@@ -172,6 +206,119 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || /(?:料金|価格).{0,12}(?:ですか|教えて|知りたい|確認|比較|調べ|いくら|どう|？|\?)|(?:いくら|費用).{0,12}(?:ですか|教えて|知りたい|比較|確認)/.test(message)
     || /\b(?:news|pricing|prices?|weather)\b/i.test(message)
     || /\b(?:latest|current|today'?s?)\b.{0,48}\b(?:information|news|weather|pricing|prices?|exchange\s+rates?|rates?|status|results?|version|model)\b/i.test(message);
+}
+
+/**
+ * Today's-date context for the chat system instruction (S-PR-1,
+ * SEARCH_STRENGTHENING_DESIGN_2026-11-12 §3 S-1; the external answer-quality
+ * adjudication of 2026-11-14 rejected a fixed date string — the date is
+ * injected programmatically, in Asia/Tokyo, at request time). Carries the
+ * design's as-of annotation form: an answer that relies on current
+ * information states the value's point in time as 「（YYYY年M月D日時点）」
+ * taken from its source or effective date, and never presents a value
+ * whose point is unknown as current. Appended by both chat routers to the
+ * full (routes 1-2) instruction; the route-3 compact instruction is a
+ * fixed budget contract and is deliberately left untouched.
+ */
+export function originCurrentDateInstruction(nowMs: number, language: "ja" | "en"): string {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date(nowMs));
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const jaDate = `${year}年${Number(month)}月${Number(day)}日`;
+  if (language === "en") {
+    return `Current date (Asia/Tokyo): ${iso}. Judge every "current", "latest", or "recent" wording against this date, never against the cutoff of your training data. When your answer relies on current information, state the as-of point of the value in the form "(as of ${iso})", taken from its source or effective date; if that point is unknown, say so instead of presenting the value as current.`;
+  }
+  return `現在の日付（Asia/Tokyo）は${jaDate}（${iso}）です。「現在」「最新」「直近」といった表現は、学習データの時期ではなく、この日付を基準に判断してください。現在の情報に基づく値を述べる場合は、その値の時点を出典または適用日から取り、「（${jaDate}時点）」の形式で明示してください。その時点が分からない場合は、現在の値として断定せず、その旨を述べてください。`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Ungrounded current-assertion gate (S-PR-1 output side)              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Volatile-fact topics whose current values change over time and must
+ * never be asserted from memory: office holders, policy rates and
+ * official statistics, market values, and competition winners. The set
+ * follows the classes that produced the F+G regression fatals (PM /
+ * policy rate / job-offer ratio / unemployment / population / Hakone
+ * Ekiden winner) plus their nearest neighbours.
+ */
+const ORIGIN_VOLATILE_FACT_TOPIC =
+  /(?:首相|総理大臣|大統領|知事|政策金利|金利|有効求人倍率|完全失業率|失業率|総人口|人口|消費者物価|物価指数|為替|ドル円|日経平均|株価|最低賃金|年金保険料|ガソリン|優勝|チャンピオン)/;
+
+const ORIGIN_CURRENT_ASSERTION_CUE = /(?:現在|最新|直近|現時点|本日|今日|今)/;
+const ORIGIN_PAST_QUESTION_MARKER = /(?:当初|当時|昔|かつて|過去)/;
+const ORIGIN_DATE_ANNOTATION = /(?:時点|\d{4}年|\d{4}[-/]\d{1,2})/;
+const ORIGIN_VOLATILE_VALUE_TOKEN = /(?:[0-9０-９]|倍|％|%|円|万人|歳|ドル)/;
+
+/**
+ * Whether a direct (ungrounded) answer to this question needs the
+ * assertion gate: the question touches a volatile fact and is not pinned
+ * to a past point. The streaming router uses this to buffer the answer
+ * until the gate has seen the full text; the non-streaming router applies
+ * the gate to the finished text directly.
+ */
+export function originAnswerNeedsAssertionGate(question: string): boolean {
+  if (ORIGIN_PAST_QUESTION_MARKER.test(question)) return false;
+  return ORIGIN_VOLATILE_FACT_TOPIC.test(question);
+}
+
+/**
+ * Deterministic detection (no model call, no LLM self-check): an answer
+ * asserts a volatile fact as current when a sentence joins a volatile
+ * topic to a currentness cue （現在/最新/直近…), or when it states a
+ * volatile VALUE (a number / rate / amount on a volatile topic) with no
+ * date / as-of annotation anywhere in the answer. Timeless explanations
+ * that merely mention a topic （内閣総理大臣は国会で指名されます) carry no
+ * value and pass, as does any answer that honestly dates its values
+ * (「2024年11月時点」).
+ */
+export function detectOriginUngroundedCurrentAssertion(question: string, answer: string): boolean {
+  if (!originAnswerNeedsAssertionGate(question)) return false;
+  const hasDateAnnotation = ORIGIN_DATE_ANNOTATION.test(answer);
+  const sentences = answer
+    .split(/(?<=[。！？.!?])|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  for (const sentence of sentences) {
+    if (!ORIGIN_VOLATILE_FACT_TOPIC.test(sentence)) continue;
+    if (ORIGIN_CURRENT_ASSERTION_CUE.test(sentence)) return true;
+    if (!hasDateAnnotation && ORIGIN_VOLATILE_VALUE_TOKEN.test(sentence)) return true;
+  }
+  return false;
+}
+
+/**
+ * The honest could-not-confirm form that replaces an ungrounded current
+ * assertion: short, names what could not be confirmed, and points at the
+ * honest next step — the same fail-closed shape the grounded path already
+ * uses when no source can be verified.
+ */
+export const ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA =
+  "現在の情報は確認できなかったため、古い情報や推測を現在の値としてお答えしません。お手数ですが、時間をおいて再度お試しいただくか、公式の情報源でご確認ください。";
+export const ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN =
+  "I could not verify the current information, so I will not present stale or guessed values as current. Please try again later, or check an official source.";
+
+export function applyOriginUngroundedAssertionGate(
+  question: string,
+  answer: string,
+  grounded: boolean,
+): { text: string; replaced: boolean } {
+  if (grounded) return { text: answer, replaced: false };
+  if (!detectOriginUngroundedCurrentAssertion(question, answer)) return { text: answer, replaced: false };
+  const isEnglish = !/[ぁ-んァ-ヶ一-龠]/.test(question);
+  return {
+    text: isEnglish ? ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN : ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA,
+    replaced: true,
+  };
 }
 
 /**

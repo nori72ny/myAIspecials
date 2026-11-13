@@ -97,7 +97,12 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing.answerMode).toBe("research");
     expect(executeMock).not.toHaveBeenCalled();
   });
-  it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "最新の依頼" }]); });
+  // S-PR-1 note: this test pins context windowing only. Its final message
+  // used to be 「最新の依頼」, which under the unified needs-freshness
+  // determination now routes to grounded research (fresh_general fails
+  // toward search) and never reaches the provider — so the window fixture
+  // uses a freshness-neutral final message with the same shape.
+  it("sends only the latest coherent context window", async () => { const response = await request(createApp(execute, undefined, undefined, { version: 1, maxMessages: 3, maxCharacters: 12_000 })).post("/api/chat").send({ messages: [{ role: "ai", content: "初期案内" }, { role: "user", content: "古い依頼" }, { role: "ai", content: "古い回答" }, { role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "新しい依頼" }] }); expect(response.status).toBe(200); const call = executeMock.mock.calls[0]?.[0]; expect(call?.messages).toEqual([{ role: "user", content: "直近の依頼" }, { role: "ai", content: "直近の回答" }, { role: "user", content: "新しい依頼" }]); });
   it("keeps creation intent and task-specific clarification guidance after a short option reply", async () => {
     const response = await request(createApp(execute)).post("/api/chat").send({
       messages: [

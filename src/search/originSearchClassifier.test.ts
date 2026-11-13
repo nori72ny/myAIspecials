@@ -66,8 +66,48 @@ describe("classifyOriginSearchQuestion", () => {
     expect(result.type).toBe("fresh_general");
     expect(result.freshness?.maxSourceAgeMs).toBe(365 * DAY_MS);
     expect(result.freshness?.tavilyTimeRange).toBe("year");
-    expect(classifyOriginSearchQuestion("日本の消費者物価指数の直近公表分の前年比と、その公表日を教えてください").type).toBe("fresh_general");
     expect(classifyOriginSearchQuestion("Android の最新バージョンと、配信が始まった時期を教えてください").type).toBe("fresh_general");
+  });
+
+  // S-PR-1 vocabulary reinforcement: the policy signal gained the terms the
+  // freshness triage found missing （金利・政策金利・利上げ・利下げ・物価・
+  // CPI・人口・統計・平均寿命）, so policy statistics now classify as policy
+  // (180-day window) instead of falling through to fresh_general. The CPI
+  // question below used to pin fresh_general; its intent — it must reach
+  // search with a freshness requirement — is preserved and strengthened.
+  it("classifies policy-rate / price-index / population statistics as policy (S-PR-1 vocabulary)", () => {
+    expect(classifyOriginSearchQuestion("日銀の政策金利は今いくつですか？いつ決まったものですか？").type).toBe("policy");
+    expect(classifyOriginSearchQuestion("日本の消費者物価指数の直近公表分の前年比と、その公表日を教えてください").type).toBe("policy");
+    expect(classifyOriginSearchQuestion("日本の総人口の最新の推計値と、その基準日を教えてください").type).toBe("policy");
+    expect(classifyOriginSearchQuestion("日銀が利上げする可能性について教えてください").type).toBe("policy");
+    expect(classifyOriginSearchQuestion("日本人の平均寿命は何歳ですか").type).toBe("policy");
+    expect(classifyOriginSearchQuestion("CPIの前年比を教えてください").type).toBe("policy");
+  });
+
+  it("classifies a championship-winner question as news via 優勝 (S-PR-1)", () => {
+    // 「優勝し」 never matched 「優勝校」; the bare 優勝 form fixes the
+    // Hakone Ekiden fatal (F-10) at the classifier layer.
+    expect(classifyOriginSearchQuestion("箱根駅伝の直近の優勝校はどこですか？").type).toBe("news");
+  });
+
+  it("treats standalone 今 as a freshness marker but not its idiom forms (S-PR-1)", () => {
+    expect(classifyOriginSearchQuestion("今、日本で一番売れている車は何ですか？").type).toBe("fresh_general");
+    // 今さら / 今いち are not currency claims; without any other signal the
+    // questions stay on the normal chat path.
+    expect(classifyOriginSearchQuestion("今さら聞けない、確定申告の基本を教えてください").type).toBe("no_search");
+    expect(classifyOriginSearchQuestion("今いち分からないので、相対性理論を分かりやすく教えてください").type).toBe("no_search");
+  });
+
+  it("keeps supplied-value arithmetic off the search path even with a tax word (H-01 shape)", () => {
+    const result = classifyOriginSearchQuestion("税抜12,800円の商品を3個買うと、消費税10%込みでいくらになりますか？");
+    expect(result.type).toBe("no_search");
+    expect(result.rule).toBe("deterministic-calculation");
+  });
+
+  it("classifies a question pinned to a past point as stable (G-01 shape)", () => {
+    const result = classifyOriginSearchQuestion("消費税が導入された当初の税率は何%でしたか？");
+    expect(result.type).toBe("stable");
+    expect(result.rule).toBe("historical-fact");
   });
 
   it("classifies definition questions as stable without a freshness limit", () => {
