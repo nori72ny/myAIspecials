@@ -3,12 +3,13 @@ import {
   generateCloudflareRasterImageFreeProofV15,
   CloudflareRasterUsageReconciliationErrorV15,
 } from './cloudflareRasterFreeGenerationV15';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog';
 
 const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
   CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
 };
-const NOW_IN_WINDOW = () => Date.parse('2026-11-06T12:00:00.000Z');
+const NOW_IN_WINDOW = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 const RECONCILE_FAST = { attempts: 2, delayMs: 0, totalMs: 1_000 };
 
 function envelope(result: unknown, status = 200): Response {
@@ -212,7 +213,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     expect(delivery.structural.passed).toBe(true);
     expect(delivery.semantic.passed).toBe(true);
     expect(delivery.usage).toMatchObject({
-      date: '2026-11-06',
+      date: new Date(NOW_IN_WINDOW()).toISOString().slice(0, 10),
       allocationNeurons: 10_000,
       usedBeforeNeurons: 100,
       estimatedGenerationNeurons: 32,
@@ -259,7 +260,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       INPUT,
       ENV,
       fetchMock as unknown as typeof fetch,
-      { now: () => Date.parse('2026-12-01T00:00:00.000Z') },
+      { now: () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter) + 1 },
     )).rejects.toThrow('RASTER_PRICING_EVIDENCE_STALE');
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -718,7 +719,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
     const failure = error as CloudflareRasterUsageReconciliationErrorV15;
     expect(failure.message).toBe('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
     expect(failure.usage).toMatchObject({
-      date: '2026-11-06',
+      date: new Date(NOW_IN_WINDOW()).toISOString().slice(0, 10),
       allocationNeurons: 10_000,
       usedBeforeNeurons: 100,
       reservedNeurons: 576,
