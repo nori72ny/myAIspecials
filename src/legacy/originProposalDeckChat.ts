@@ -42,6 +42,10 @@ export const PROPOSAL_DECK_FAILURE_NOTE =
  * - outputs の presentation（スライド等）/ proposal（提案書・企画書）は常に対象。
  * - outputs の document は汎用文書（報告書・手順書等）も含むため、
  *   依頼文に提案・企画の語がある場合だけ対象にする。
+ * - 依頼文に「提案資料」「企画資料」が直接含まれる場合も対象にする。
+ *   出力カタログは「提案書」「資料を作成」等の語形しか拾えず、本番の自然な
+ *   言い回し「販促提案資料を作ってください」が対象外になっていた
+ *   （PROPOSAL_CHAT_TRIAGE_2026-11-13 原因A）。
  */
 export function isProposalDeckChatRequest(
   intent: OriginRequestIntent,
@@ -50,6 +54,7 @@ export function isProposalDeckChatRequest(
   const outputs = intent.requestedOutputs;
   if (outputs.includes("presentation") || outputs.includes("proposal")) return true;
   if (outputs.includes("document") && /提案|企画/.test(intentInput)) return true;
+  if (/提案資料|企画資料/.test(intentInput)) return true;
   return false;
 }
 
