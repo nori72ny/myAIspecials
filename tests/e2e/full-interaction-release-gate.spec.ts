@@ -348,8 +348,9 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       contentType: 'text/plain; charset=utf-8',
       body: '完成しました。\n\n\`\`\`html:button-audit\n<main><h1>Button audit</h1><input aria-label="監査入力"><button type="button">追加</button></main>\n\`\`\`',
     }));
-    await page.getByTestId('origin-home-request').fill('成果物ボタン監査');
-    await page.getByTestId('start-request-button').click();
+    // 「作る」を会話経由で開いたため会話は開始済みで、入力欄は会話用になる。
+    await page.getByTestId('origin-chat-request').fill('成果物ボタン監査');
+    await page.getByTestId('send-request-button').click();
     await expect(page.getByTestId('artifact-workspace')).toBeVisible();
 
     const edit = page.getByTestId('artifact-action-edit');
