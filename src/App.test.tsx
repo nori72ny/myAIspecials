@@ -2194,20 +2194,27 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     const push = (event: unknown) => streamController.enqueue(encoder.encode(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`));
     push({ type: 'phase', phase: 'searching' });
-    await waitFor(() => expect(screen.getByTestId('origin-thinking').textContent).toContain('最新の情報を調べています'));
+    // PR-δ1：200msを超える待ちは全体画面ステージが担い、段階テキストは
+    // ステージ側に出る。会話内の1行表示は二重表示防止のため抑制される。
+    await waitFor(() => expect(screen.getByTestId('origin-stage').textContent).toContain('最新の情報を調べています'));
+    await waitFor(() => expect(screen.queryByTestId('origin-thinking')).toBeNull());
     push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
     await waitFor(() => expect(screen.getByTestId('origin-stream-sources')).toBeTruthy());
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('集まった出典');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('料金の公式ページ');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('example.org');
     push({ type: 'phase', phase: 'composing' });
-    await waitFor(() => expect(screen.getByTestId('origin-thinking').textContent).toContain('回答をまとめています'));
+    await waitFor(() => expect(screen.getByTestId('origin-stage').textContent).toContain('回答をまとめています'));
     push({ type: 'delta', text: '検証済みの調査回答です。' });
     push({ type: 'complete' });
     push('[DONE]');
     streamController.close();
     await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('origin-stream-sources')).toBeNull());
+    // 本文が流れ始めたらステージは引っ込む（§3.2-1）。このテストでは
+    // delta と完了が同一コミットに畳まれるため、非ストリーミング応答と
+    // 同じ完了の合図（最大950ms）を経て消える場合がある（§3.4）。
+    await waitFor(() => expect(screen.queryByTestId('origin-stage')).toBeNull(), { timeout: 3000 });
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -2566,5 +2573,31 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     const reopened = screen.getByTestId('origin-work-sheet');
     expect(within(reopened).getByText('質問への回答')).toBeTruthy();
     expect(reopened.textContent).toContain('完了');
+  });
+});
+
+describe('Orin full-screen stage (PR-δ1, owner request 2026-11-13)', () => {
+  afterEach(cleanup);
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('takes over the wait after 200ms, suppresses the one-line status, and returns it on minimize', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、待ち状態を維持する */ }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'ステージの確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    // 出現遅延（200ms）の間は、従来どおり会話内の1行表示が出る。
+    expect(await screen.findByTestId('origin-thinking')).toBeTruthy();
+    // 200msを超えて待つとステージが出て、1行表示は二重表示にならない
+    // よう抑制される。段階テキストはステージが引き継ぐ。
+    const stage = await screen.findByTestId('origin-stage', undefined, { timeout: 3000 });
+    expect(stage.textContent).toContain('回答を準備しています');
+    await waitFor(() => expect(screen.queryByTestId('origin-thinking')).toBeNull());
+    expect(within(stage).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('thinking');
+    // ステージをタップすると会話に戻り、1行表示が最小化形として出る。
+    // 作業自体は継続する（応答保留のまま）。
+    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    expect(screen.queryByTestId('origin-stage')).toBeNull();
+    expect(await screen.findByTestId('origin-thinking')).toBeTruthy();
   });
 });
