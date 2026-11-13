@@ -119,7 +119,43 @@
   flex: none;
 }
 :root[data-theme="dark"] .origin-cat-pedestal {
-  box-shadow: 0 4px 16px rgb(0 0 0 / 50%), inset 0 1px 0 rgb(255 255 255 / 70%);
+  /* ダークテーマでは明るい円盤が光る輪のように浮くため、台座側の
+     明度を落として画面に馴染ませる（オリンの色自体は変えない。
+     設計正本 §8 の D-3 追加調整、2026-11-13）。 */
+  background: radial-gradient(circle at 50% 36%, #d8d2c2 0%, #a49d8b 76%, #847d6c 100%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 50%), inset 0 1px 0 rgb(255 255 255 / 45%);
+}
+/* Resident Orin quiet motion (redesign stage 1, 2026-11-13; design
+   canon §7 / D-5). Idle breathing stays inside the caps declared in
+   OriginCatState.tsx: period 6000ms (>= 3000ms), scale <= 1.025
+   (<= 3%), vertical shift <= 1px (<= 2px), plus one brief blink-like
+   dip per cycle. The tap nod is a single 700ms one-shot, never a
+   loop. prefers-reduced-motion stops both (the component also drops
+   the classes in that case). */
+.origin-cat-breathe {
+  animation: origin-cat-breathe 6000ms ease-in-out infinite;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-cat-breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  42% { transform: scale(1.025) translateY(-1px); }
+  76% { transform: scale(1.012) translateY(0); }
+  79% { transform: scale(1.012) translateY(0) scaleY(0.985); }
+  82% { transform: scale(1.015) translateY(0); }
+}
+.origin-cat-nod {
+  animation: origin-cat-nod 700ms ease-in-out 1;
+  transform-origin: 50% 62%;
+}
+@keyframes origin-cat-nod {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(2px) scale(0.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-cat-breathe,
+  .origin-cat-nod {
+    animation: none;
+  }
 }
 [data-testid="origin-core-logo"] .origin-logo-glow {
   inset: -5px !important;

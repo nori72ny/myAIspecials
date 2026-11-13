@@ -81,7 +81,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
-    await expect(page.getByTestId('origin-thinking')).toContainText('ORIGIN が思考・生成中…');
+    await expect(page.getByTestId('origin-thinking')).toContainText('回答を準備しています…');
     await expect(page.getByTestId('origin-thinking')).toBeHidden({ timeout: 15_000 });
   });
 

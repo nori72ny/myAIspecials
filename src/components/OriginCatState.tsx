@@ -23,17 +23,34 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 同じく size 基準で決まるため、猫の大きさ自体は変わらない。
  * 本命の修正は透過背景アセットへの差し替え（猫ホスト化フェーズ）。
  */
-export type OriginCatStateKind = 'idle' | 'thinking' | 'working' | 'waiting' | 'done' | 'sorry' | 'sleep';
+export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'waiting' | 'done' | 'sorry' | 'sleep';
 
 export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
   idle: '/brand/origin-cat.webp',
   thinking: '/brand/origin-cat-thinking.webp',
+  // 「調べている」は作業中（working）から分離した専用の状態（動きの
+  // 作り直し第1段、2026-11-13）。専用アセットは第2段で制作するため、
+  // 第1段では視線が上〜横を向く thinking の静止画を暫定的に使う。
+  // 差し替えはこの1か所だけで全配置に効く。
+  searching: '/brand/origin-cat-thinking.webp',
   working: '/brand/origin-cat-working.webp',
   waiting: '/brand/origin-cat-waiting.webp',
   done: '/brand/origin-cat-done.webp',
   sorry: '/brand/origin-cat-sorry.webp',
   sleep: '/brand/origin-cat-sleep.webp',
 };
+
+/**
+ * 常駐オリンの静かな動きの上限（設計正本 §7・D-5）。
+ * 待機の呼吸は周期3秒以上・スケール3%以内・上下動2px以内に収める。
+ * CSS 側（origin-top-ui.css の origin-cat-breathe）もこの値に合わせ、
+ * テストで両方の整合を確認する。prefers-reduced-motion では動かさない。
+ */
+export const ORIGIN_CAT_IDLE_MOTION_PERIOD_MS = 6000;
+export const ORIGIN_CAT_IDLE_MOTION_MAX_SCALE = 1.025;
+export const ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX = 1;
+/** タップ時などの一回性の小さな頷きの長さ（ループさせない）。 */
+export const ORIGIN_CAT_NOD_DURATION_MS = 700;
 
 export const ORIGIN_CAT_WORKING_VIDEO_SRC = '/brand/origin-cat-working.mp4';
 
@@ -70,10 +87,22 @@ export interface OriginCatStateProps {
   size?: number;
   /** 明るい円形の台座を付けて、暗い絵柄を両テーマで視認しやすくする。 */
   pedestal?: boolean;
+  /**
+   * 動画を使わず静止画だけにする（ヘッダー常駐など小さい表示用。
+   * 小さな常駐表示で動画は騒がしいため、設計 D-3 で静止画に限る）。
+   */
+  stillOnly?: boolean;
+  /**
+   * 待機中のごく静かな呼吸モーション（CSS）を付ける。常駐表示用。
+   * 上限は ORIGIN_CAT_IDLE_MOTION_* の定数どおりで、
+   * prefers-reduced-motion では付けない（CSS 側でも止める）。
+   */
+  breathing?: boolean;
 }
 
-export default function OriginCatState({ state, size = 36, pedestal = false }: OriginCatStateProps) {
+export default function OriginCatState({ state, size = 36, pedestal = false, stillOnly = false, breathing = false }: OriginCatStateProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
+  const motionClassName = breathing && !prefersReducedMotion ? ' origin-cat-breathe' : '';
   // 絵の寸法は台座の有無にかかわらず size そのもの。台座がある場合は
   // その周りに細いリング（片側 = 内寸の約4%、最小2px）だけを足し、
   // 円盤の外径を絵の 1.08 倍前後に抑える（2026-11-12 見直し）。
@@ -82,12 +111,12 @@ export default function OriginCatState({ state, size = 36, pedestal = false }: O
   const style: CSSProperties = { width: size, height: size };
 
   let media: ReactElement;
-  if (state === 'working' && !prefersReducedMotion) {
+  if (state === 'working' && !prefersReducedMotion && !stillOnly) {
     media = (
       <video
         data-testid="origin-cat-state"
         data-state={state}
-        className="shrink-0 rounded-full object-cover"
+        className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
         style={style}
         src={ORIGIN_CAT_WORKING_VIDEO_SRC}
         poster={ORIGIN_CAT_STILL_SRC.working}
@@ -103,7 +132,7 @@ export default function OriginCatState({ state, size = 36, pedestal = false }: O
       <img
         data-testid="origin-cat-state"
         data-state={state}
-        className="shrink-0 rounded-full object-cover"
+        className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
         style={style}
         src={ORIGIN_CAT_STILL_SRC[state]}
         alt=""
@@ -120,7 +149,7 @@ export default function OriginCatState({ state, size = 36, pedestal = false }: O
   return (
     <span
       data-testid="origin-cat-pedestal"
-      className="origin-cat-pedestal"
+      className={`origin-cat-pedestal${motionClassName}`}
       style={{ width: total, height: total, padding: pad }}
     >
       {media}

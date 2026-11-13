@@ -261,7 +261,9 @@
 /* Intermediate status surfaces (thinking / researching / streaming
    sources), PR-α: retint only — no shadow, a paler surface and quiet
    secondary text, so they read as one light line instead of a heavy
-   pill. Markup and layout are unchanged (restructure is PR-β). */
+   pill. PR-β removed the in-conversation cat and heavy pill markup;
+   the thinking / research lines are now a single light row (small
+   dot + plain stage text) wearing this tint. */
 [data-testid="origin-thinking"],
 [data-testid="origin-research-progress"],
 [data-testid="origin-stream-sources"] {

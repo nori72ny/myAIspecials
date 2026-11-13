@@ -1,9 +1,15 @@
 import React from 'react';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import OriginCatState, { ORIGIN_CAT_STILL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC } from './OriginCatState';
+import OriginCatState, {
+  ORIGIN_CAT_IDLE_MOTION_MAX_SCALE,
+  ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
+  ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
+  ORIGIN_CAT_STILL_SRC,
+  ORIGIN_CAT_WORKING_VIDEO_SRC,
+} from './OriginCatState';
 
 afterEach(() => {
   cleanup();
@@ -110,5 +116,44 @@ describe('OriginCatState', () => {
     const visual = screen.getByTestId('origin-cat-state');
     expect(visual.tagName).toBe('IMG');
     expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.working);
+  });
+
+  it('renders the dedicated searching state as a still (split from working, PR-β)', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="searching" />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('IMG');
+    expect(visual.getAttribute('data-state')).toBe('searching');
+    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.searching);
+  });
+
+  it('keeps the working state a still when stillOnly is set (quiet surfaces such as the header)', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="working" stillOnly />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('IMG');
+    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.working);
+  });
+
+  it('applies the quiet breathing motion only when motion is allowed', () => {
+    stubReducedMotion(false);
+    const { unmount } = render(<OriginCatState state="idle" breathing />);
+    expect(screen.getByTestId('origin-cat-state').className).toContain('origin-cat-breathe');
+    unmount();
+    stubReducedMotion(true);
+    render(<OriginCatState state="idle" breathing />);
+    expect(screen.getByTestId('origin-cat-state').className).not.toContain('origin-cat-breathe');
+  });
+
+  it('keeps the resident motion inside the design caps and stops it for reduced motion', () => {
+    // 設計正本 §7・D-5 の上限：周期3秒以上、スケール3%以内、上下動2px以内。
+    expect(ORIGIN_CAT_IDLE_MOTION_PERIOD_MS).toBeGreaterThanOrEqual(3000);
+    expect(ORIGIN_CAT_IDLE_MOTION_MAX_SCALE).toBeLessThanOrEqual(1.03);
+    expect(ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX).toBeLessThanOrEqual(2);
+    const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
+    expect(css).toContain('@keyframes origin-cat-breathe');
+    expect(css).toContain(`origin-cat-breathe ${ORIGIN_CAT_IDLE_MOTION_PERIOD_MS}ms`);
+    expect(css).toContain('@keyframes origin-cat-nod');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 });
