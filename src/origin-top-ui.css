@@ -81,10 +81,13 @@
 .origin-composer__action.is-ready:hover:not(:disabled) {
   background: var(--accent-hover);
 }
+/* Generating is a normal working state, not an error: keep the stop
+   action in the same neutral tones as the idle action (PR-α). Danger
+   colors made a healthy generation look like an alarm. */
 .origin-composer__action.is-generating {
-  border-color: color-mix(in oklch, var(--danger) 42%, var(--border-default));
-  background: color-mix(in oklch, var(--danger) 14%, var(--bg-surface));
-  color: var(--danger);
+  border-color: var(--border-default);
+  background: var(--bg-surface-muted);
+  color: var(--text-secondary);
 }
 .origin-composer__action:disabled {
   opacity: .55;
