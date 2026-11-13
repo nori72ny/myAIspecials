@@ -291,6 +291,21 @@ describe("buildOriginProviderFailureDiagnostic", () => {
     expect(serialized).not.toContain("requestBody");
   });
 
+  it("passes valid per-attempt durations through the whitelist and drops invalid ones (PKG-4 PR-1)", () => {
+    const error = new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, {
+      transportFailure: "timeout",
+      failoverAttempts: [
+        { providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT", transportRequestCount: 1, durationMs: 7_812 },
+        { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT", transportRequestCount: 0, durationMs: -5 },
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "skipped", skipReason: "not-configured", transportRequestCount: 0, durationMs: 1.5 },
+      ],
+    });
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary.failoverAttempts[0]?.durationMs).toBe(7_812);
+    expect(summary.failoverAttempts[1]?.durationMs).toBeUndefined();
+    expect(summary.failoverAttempts[2]?.durationMs).toBeUndefined();
+  });
+
   it("keeps only allowlisted upstream error types and provider-vocabulary error codes", () => {
     expect(safeOriginUpstreamErrorCode(10023)).toBe("10023");
     expect(safeOriginUpstreamErrorCode("4006")).toBe("4006");

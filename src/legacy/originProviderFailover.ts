@@ -100,6 +100,23 @@ import {
  * instead: the route only backs off briefly (skipReason "capacity-cooldown") and
  * is never mistaken for a day-long stop.
  *
+ * Third-route reserve (PKG-4 PR-1, 2026-11-13): the second route previously raced
+ * against ALL of the remaining total budget, so a slow Cloudflare inference could
+ * consume the whole window and the third route (Groq) started with nothing left —
+ * it recorded an immediate timeout without ever sending. While the Groq route is
+ * configured, the second route's race is now capped at the remaining time minus
+ * ORIGIN_GROQ_ROUTE_RESERVE_MS, so the third route always starts with at least the
+ * reserve left. When Groq is not configured there is no third route to protect and
+ * the second route keeps the full remainder, exactly as before. The reserve only
+ * caps the second route's wait; it never extends the total budget, and a second
+ * route that finishes inside its slice is unaffected.
+ *
+ * Attempt durations (PKG-4 PR-1): every executed attempt now records durationMs
+ * (real elapsed time of that route's bounded execution) on its attempt evidence,
+ * so the failure diagnostic and the success routing record show how much of the
+ * budget each route actually consumed and whether the third route really sent.
+ * Skipped attempts (nothing was executed) carry no duration.
+ *
  * Circuit breaker (best effort, in-process memory only): when the primary fails with
  * PROVIDER_RATE_LIMITED or a timeout (its own, or the dispatcher budget above), the
  * breaker opens for ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS and later requests skip the
@@ -133,6 +150,13 @@ export const ORIGIN_CHAT_TOTAL_BUDGET_MS = 45_000;
 export const ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS = 300_000;
 /** Timeout given to the Cloudflare route plan; the Cloudflare client caps inference at its own 52s maximum. */
 export const ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS = 52_000;
+/**
+ * Time kept free at the end of the total budget for the third (Groq) route while
+ * that route is configured (PKG-4 PR-1). The second route's bounded race is capped
+ * at the remaining budget minus this reserve, so the third route is guaranteed at
+ * least this much time to actually attempt its request.
+ */
+export const ORIGIN_GROQ_ROUTE_RESERVE_MS = 10_000;
 /** skipReason recorded on the primary attempt evidence while the circuit breaker is open. */
 export const ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON = "primary-circuit-open";
 
@@ -150,6 +174,8 @@ export interface OriginProviderFailoverOptions {
   primaryCircuitCooldownMs?: number;
   /** Overrides ORIGIN_CHAT_TOTAL_BUDGET_MS (tests and tuning). */
   totalBudgetMs?: number;
+  /** Overrides ORIGIN_GROQ_ROUTE_RESERVE_MS (tests and tuning). */
+  groqReserveMs?: number;
   /**
    * Internal: the total-budget window opened by the public entry points and shared
    * with every internal helper, so the primary phase and the second route draw from
@@ -268,9 +294,9 @@ function withTotalBudgetWindow(options: OriginProviderFailoverOptions): OriginPr
 }
 
 type PrimaryAttemptOutcome =
-  | { kind: "result"; result: OriginProviderExecutionResult }
-  | { kind: "error"; error: unknown }
-  | { kind: "budget-timeout"; transportRequestCount: number };
+  | { kind: "result"; result: OriginProviderExecutionResult; durationMs: number }
+  | { kind: "error"; error: unknown; durationMs: number }
+  | { kind: "budget-timeout"; transportRequestCount: number; durationMs: number };
 
 /**
  * Runs one primary executor call under the dispatcher attempt budget. The executor is
@@ -289,14 +315,15 @@ async function runPrimaryAttempt(
   fetchImpl: OriginFetch,
   options: OriginProviderFailoverOptions,
 ): Promise<PrimaryAttemptOutcome> {
+  const startedAtMs = Date.now();
   const attemptController = new AbortController();
   const transport = { count: 0 };
   const boundedFetch = createAttemptBoundedFetch(fetchImpl, attemptController, transport);
   const primaryPromise = execute(request, env, boundedFetch);
   primaryPromise.catch(() => undefined);
   const settled: Promise<PrimaryAttemptOutcome> = primaryPromise.then(
-    (result): PrimaryAttemptOutcome => ({ kind: "result", result }),
-    (error): PrimaryAttemptOutcome => ({ kind: "error", error }),
+    (result): PrimaryAttemptOutcome => ({ kind: "result", result, durationMs: Date.now() - startedAtMs }),
+    (error): PrimaryAttemptOutcome => ({ kind: "error", error, durationMs: Date.now() - startedAtMs }),
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
@@ -305,7 +332,7 @@ async function runPrimaryAttempt(
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget") {
     attemptController.abort();
-    return { kind: "budget-timeout", transportRequestCount: transport.count };
+    return { kind: "budget-timeout", transportRequestCount: transport.count, durationMs: Date.now() - startedAtMs };
   }
   if (timer) clearTimeout(timer);
   return winner;
@@ -322,6 +349,7 @@ function primaryAttemptEvidence(
   request: OriginProviderExecutionRequest,
   outcome: OriginProviderAttemptEvidence["outcome"],
   error?: OriginProviderError,
+  durationMs?: number,
 ): OriginProviderAttemptEvidence {
   return {
     providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
@@ -329,6 +357,7 @@ function primaryAttemptEvidence(
     outcome,
     ...(error ? { errorCode: error.code, ...upstreamAttemptFields(error) } : {}),
     transportRequestCount: error ? error.diagnostic?.transportRequestCount : undefined,
+    ...(durationMs !== undefined ? { durationMs } : {}),
   };
 }
 
@@ -412,20 +441,40 @@ async function runCloudflareRoute(
   );
 }
 
-function totalBudgetTimeoutError(): OriginProviderError {
+function totalBudgetTimeoutError(transportRequestCount?: number): OriginProviderError {
   return new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, {
     transportFailure: "timeout",
+    // The bounded race knows how many requests the route actually sent before
+    // the cut; recording it keeps the failed attempt's evidence (and the
+    // zero-cost transport accounting when a later route serves) exact.
+    ...(transportRequestCount !== undefined ? { transportRequestCount } : {}),
   });
 }
 
 /**
+ * The slice of the remaining budget the second route may consume. While the
+ * third (Groq) route is configured, the reserve for that route is subtracted so
+ * the third route always starts with at least the reserve left (PKG-4 PR-1);
+ * earlier routes that finish sooner leave the third route more than the reserve.
+ * Without a configured third route the second route keeps the full remainder.
+ */
+function cloudflareSliceMs(options: OriginProviderFailoverOptions, env: NodeJS.ProcessEnv): number {
+  const remainingMs = totalBudgetRemainingMs(options);
+  if (!isOriginGroqRouteConfigured(env)) return remainingMs;
+  const reserveMs = Math.max(0, options.groqReserveMs ?? ORIGIN_GROQ_ROUTE_RESERVE_MS);
+  return remainingMs - reserveMs;
+}
+
+/**
  * Runs the Cloudflare route inside the dispatch's total budget: the route (plan
- * proof + inference) is raced against the time remaining in the window and its
- * fetches are aborted when the total expires, so the second route can never wait
- * past the one authoritative deadline either. Expiry surfaces as a PROVIDER_TIMEOUT
- * availability error from the second route, which the callers record in the attempt
- * evidence. The abandoned promise's late settlement is always handled. Without a
- * window (direct internal use only) the route runs exactly as before.
+ * proof + inference) is raced against its slice of the time remaining in the
+ * window (the full remainder, minus the third route's reserve while that route
+ * is configured) and its fetches are aborted when the slice expires, so the
+ * second route can never wait past the one authoritative deadline either.
+ * Expiry surfaces as a PROVIDER_TIMEOUT availability error from the second
+ * route, which the callers record in the attempt evidence. The abandoned
+ * promise's late settlement is always handled. Without a window (direct
+ * internal use only) the route runs exactly as before.
  */
 async function runCloudflareRouteBounded(
   request: OriginProviderExecutionRequest,
@@ -434,8 +483,8 @@ async function runCloudflareRouteBounded(
   options: OriginProviderFailoverOptions,
 ): Promise<OriginProviderExecutionResult> {
   if (!options.totalBudgetWindow) return runCloudflareRoute(request, env, fetchImpl, options);
-  const remainingMs = totalBudgetRemainingMs(options);
-  if (remainingMs <= 0) throw totalBudgetTimeoutError();
+  const sliceMs = cloudflareSliceMs(options, env);
+  if (sliceMs <= 0) throw totalBudgetTimeoutError(0);
   const routeController = new AbortController();
   const transport = { count: 0 };
   const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
@@ -450,12 +499,12 @@ async function runCloudflareRouteBounded(
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
-    timer = setTimeout(() => resolve("budget"), remainingMs);
+    timer = setTimeout(() => resolve("budget"), sliceMs);
   });
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget") {
     routeController.abort();
-    throw totalBudgetTimeoutError();
+    throw totalBudgetTimeoutError(transport.count);
   }
   if (timer) clearTimeout(timer);
   if (winner.kind === "error") throw winner.error;
@@ -465,9 +514,11 @@ async function runCloudflareRouteBounded(
 function composeFailoverResult(
   cloudflareResult: OriginProviderExecutionResult,
   primaryAttempt: OriginProviderAttemptEvidence,
+  cloudflareDurationMs?: number,
 ): OriginProviderExecutionResult {
   const cloudflareAttempt = cloudflareAttemptEvidence("succeeded", {
     transportRequestCount: cloudflareResult.transportRequestCount,
+    ...(cloudflareDurationMs !== undefined ? { durationMs: cloudflareDurationMs } : {}),
   });
   return {
     ...cloudflareResult,
@@ -520,7 +571,7 @@ async function runGroqRouteBounded(
 ): Promise<OriginProviderExecutionResult> {
   if (!options.totalBudgetWindow) return runGroqRoute(request, env, fetchImpl, options);
   const remainingMs = totalBudgetRemainingMs(options);
-  if (remainingMs <= 0) throw totalBudgetTimeoutError();
+  if (remainingMs <= 0) throw totalBudgetTimeoutError(0);
   const routeController = new AbortController();
   const transport = { count: 0 };
   const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
@@ -540,7 +591,7 @@ async function runGroqRouteBounded(
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget") {
     routeController.abort();
-    throw totalBudgetTimeoutError();
+    throw totalBudgetTimeoutError(transport.count);
   }
   if (timer) clearTimeout(timer);
   if (winner.kind === "error") throw winner.error;
@@ -550,6 +601,7 @@ async function runGroqRouteBounded(
 function composeGroqResult(
   groqResult: OriginProviderExecutionResult,
   priorAttempts: readonly OriginProviderAttemptEvidence[],
+  groqDurationMs?: number,
 ): OriginProviderExecutionResult {
   // The Groq route may have rotated inside itself (120b rate-limited, then 20b
   // served): the attempt evidence names the model that actually served, taken
@@ -557,6 +609,7 @@ function composeGroqResult(
   const groqAttempt = groqAttemptEvidence("succeeded", {
     modelId: groqResult.routingEvidence?.servedModel ?? ORIGIN_GROQ_FREE_MODEL_ID,
     transportRequestCount: groqResult.transportRequestCount,
+    ...(groqDurationMs !== undefined ? { durationMs: groqDurationMs } : {}),
   });
   const priorTransport = priorAttempts.reduce((sum, attempt) => sum + (attempt.transportRequestCount ?? 0), 0);
   return {
@@ -585,9 +638,10 @@ async function attemptGroqRoute(
   if (!isOriginGroqRouteConfigured(env)) {
     throw withFailoverAttempts(fallbackError, priorAttempts);
   }
+  const groqStartedAtMs = Date.now();
   try {
     const groqResult = await runGroqRouteBounded(request, env, fetchImpl, options);
-    return composeGroqResult(groqResult, priorAttempts);
+    return composeGroqResult(groqResult, priorAttempts, Date.now() - groqStartedAtMs);
   } catch (error) {
     if (error instanceof OriginGroqPreflightError) {
       const skipped = groqAttemptEvidence("skipped", {
@@ -599,7 +653,7 @@ async function attemptGroqRoute(
     if (error instanceof OriginProviderError) {
       const failed = groqAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
       );
       throw withFailoverAttempts(error, [...priorAttempts, failed]);
     }
@@ -619,11 +673,13 @@ async function failOverFromPrimaryError(
   env: NodeJS.ProcessEnv,
   fetchImpl: OriginFetch,
   options: OriginProviderFailoverOptions,
+  primaryDurationMs?: number,
 ): Promise<OriginProviderExecutionResult> {
-  const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError);
+  const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError, primaryDurationMs);
+  const cloudflareStartedAtMs = Date.now();
   try {
     const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
-    return composeFailoverResult(cloudflareResult, primaryAttempt);
+    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
       const skipped = cloudflareAttemptEvidence("skipped", {
@@ -637,7 +693,7 @@ async function failOverFromPrimaryError(
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
       );
       if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
         return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
@@ -694,9 +750,10 @@ async function failOverFromOpenCircuit(
     errorCode: circuit.errorCode,
     transportRequestCount: 0,
   };
+  const cloudflareStartedAtMs = Date.now();
   try {
     const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
-    return composeFailoverResult(cloudflareResult, primaryAttempt);
+    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
       const skipped = cloudflareAttemptEvidence("skipped", {
@@ -714,7 +771,7 @@ async function failOverFromOpenCircuit(
     if (error instanceof OriginProviderError) {
       const failed = cloudflareAttemptEvidence(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount },
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
       );
       if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
         return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
@@ -743,14 +800,14 @@ export async function executeOriginProviderWithFailover(
   const outcome = await runPrimaryAttempt(primary, providerRequest, env, fetchImpl, scopedOptions);
   if (outcome.kind === "budget-timeout") {
     openPrimaryCircuit(scopedOptions, "PROVIDER_TIMEOUT");
-    return failOverFromPrimaryError(providerRequest, primaryBudgetTimeoutError(outcome.transportRequestCount), env, fetchImpl, scopedOptions);
+    return failOverFromPrimaryError(providerRequest, primaryBudgetTimeoutError(outcome.transportRequestCount), env, fetchImpl, scopedOptions, outcome.durationMs);
   }
   if (outcome.kind === "error") {
     const error = outcome.error;
     if (error instanceof OriginProviderError && ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
       const openingCode = circuitOpeningCode(error);
       if (openingCode) openPrimaryCircuit(scopedOptions, openingCode);
-      return failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions);
+      return failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions, outcome.durationMs);
     }
     throw error;
   }
@@ -759,7 +816,7 @@ export async function executeOriginProviderWithFailover(
   return {
     ...primaryResult,
     attempts: [{
-      ...primaryAttemptEvidence(providerRequest, "succeeded"),
+      ...primaryAttemptEvidence(providerRequest, "succeeded", undefined, outcome.durationMs),
       transportRequestCount: primaryResult.transportRequestCount,
     }],
   };
@@ -804,17 +861,18 @@ export async function executeOriginProviderStreamWithFailover(
   // after delivery simply keeps waiting for the primary under its own internal
   // caps. A budget win before any byte aborts the attempt's fetches, detaches its
   // handlers (a late delta from the abandoned stream is dropped), and fails over.
+  const streamStartedAtMs = Date.now();
   const attemptController = new AbortController();
   const transport = { count: 0 };
   const boundedFetch = createAttemptBoundedFetch(fetchImpl, attemptController, transport);
   const primaryPromise = stream(providerRequest, trackingHandlers, env, boundedFetch);
   primaryPromise.catch(() => undefined);
   const settled: Promise<
-    | { kind: "result"; result: OriginProviderExecutionResult }
-    | { kind: "error"; error: unknown }
+    | { kind: "result"; result: OriginProviderExecutionResult; durationMs: number }
+    | { kind: "error"; error: unknown; durationMs: number }
   > = primaryPromise.then(
-    (result) => ({ kind: "result" as const, result }),
-    (error) => ({ kind: "error" as const, error }),
+    (result) => ({ kind: "result" as const, result, durationMs: Date.now() - streamStartedAtMs }),
+    (error) => ({ kind: "error" as const, error, durationMs: Date.now() - streamStartedAtMs }),
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
@@ -831,6 +889,7 @@ export async function executeOriginProviderStreamWithFailover(
       env,
       fetchImpl,
       scopedOptions,
+      Date.now() - streamStartedAtMs,
     );
     handlers.onDelta(composed.text);
     return composed;
@@ -842,7 +901,7 @@ export async function executeOriginProviderStreamWithFailover(
     if (!delivered && error instanceof OriginProviderError && ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
       const openingCode = circuitOpeningCode(error);
       if (openingCode) openPrimaryCircuit(scopedOptions, openingCode);
-      const composed = await failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions);
+      const composed = await failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions, outcome.durationMs);
       handlers.onDelta(composed.text);
       return composed;
     }
@@ -853,7 +912,7 @@ export async function executeOriginProviderStreamWithFailover(
   return {
     ...primaryResult,
     attempts: [{
-      ...primaryAttemptEvidence(providerRequest, "succeeded"),
+      ...primaryAttemptEvidence(providerRequest, "succeeded", undefined, outcome.durationMs),
       transportRequestCount: primaryResult.transportRequestCount,
     }],
   };

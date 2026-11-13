@@ -3,6 +3,7 @@ import {
   assertOriginZeroCostExecutionResultWithFailover,
   executeOriginProviderStreamWithFailover,
   executeOriginProviderWithFailover,
+  ORIGIN_GROQ_ROUTE_RESERVE_MS,
   resetOriginProviderFailoverCircuitForTests,
 } from "./originProviderFailover";
 
@@ -138,9 +139,9 @@ describe("Groq third route in the failover dispatcher", () => {
     });
     expect(result.text).toBe("第3経路の回答です。");
     expect(result.attempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1 },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
       { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "skipped", skipReason: "not-configured", transportRequestCount: 0 },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1 },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
     expect(result.transportRequestCount).toBe(2);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -160,6 +161,7 @@ describe("Groq third route in the failover dispatcher", () => {
       outcome: "availability-error",
       errorCode: "PROVIDER_RATE_LIMITED",
       transportRequestCount: 4,
+      durationMs: expect.any(Number),
     });
     expect(result.transportRequestCount).toBe(1 + 4 + 1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -274,9 +276,9 @@ describe("Groq third route in the failover dispatcher", () => {
     }).catch((caught: unknown) => caught) as OriginProviderError;
     expect(error.code).toBe("PROVIDER_RATE_LIMITED");
     expect(error.diagnostic?.failoverAttempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1 },
-      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4 },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1 },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4, durationMs: expect.any(Number) },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
   });
 
@@ -334,6 +336,7 @@ describe("Groq third route in the failover dispatcher", () => {
       modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
       outcome: "succeeded",
       transportRequestCount: 2,
+      durationMs: expect.any(Number),
     });
     expect(result.transportRequestCount).toBe(1 + 0 + 2);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -418,5 +421,57 @@ describe("assertOriginZeroCostExecutionResultWithFailover with three attempts", 
     const result = groqServedResult([primaryFailed, cfSkipped, groqServed, groqServed], 3);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
       .toThrowError(expect.objectContaining({ code: "PROVIDER_ROUTING_UNVERIFIED" }));
+  });
+});
+
+describe("third-route reserve and attempt durations (PKG-4 PR-1)", () => {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("sets the default reserve for the third route to 10 seconds", () => {
+    expect(ORIGIN_GROQ_ROUTE_RESERVE_MS).toBe(10_000);
+  });
+
+  it("cuts a slow second route at its slice so the third route starts with the reserve left and actually runs", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const groqExecute = groqOk();
+    const startedAt = Date.now();
+    const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute, totalBudgetMs: 2_500, groqReserveMs: 1_000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(groqExecute).toHaveBeenCalledTimes(1);
+    // The second route's slice is total (2,500) minus reserve (1,000) = 1,500ms:
+    // the dispatch ends at the slice plus the third route's own time, well
+    // before the full total budget the second route used to consume alone.
+    expect(elapsedMs).toBeGreaterThanOrEqual(1_250);
+    expect(elapsedMs).toBeLessThan(2_500);
+    expect(result.attempts).toHaveLength(3);
+    expect(result.attempts?.[1]).toMatchObject({
+      providerId: "cloudflare-workers-ai-free",
+      outcome: "availability-error",
+      errorCode: "PROVIDER_TIMEOUT",
+    });
+    const cloudflareDurationMs = result.attempts?.[1]?.durationMs;
+    expect(cloudflareDurationMs).toBeGreaterThanOrEqual(1_250);
+    expect(cloudflareDurationMs).toBeLessThan(2_500);
+    expect(result.attempts?.[2]).toMatchObject({ providerId: "groq-free", outcome: "succeeded" });
+    expect(typeof result.attempts?.[0]?.durationMs).toBe("number");
+    expect(typeof result.attempts?.[2]?.durationMs).toBe("number");
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("leaves the second route untouched when it finishes inside its slice: the third route is never attempted", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => { await delay(100); return cloudflareSuccessResult(); });
+    const groqExecute = groqOk();
+    const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute, totalBudgetMs: 2_500, groqReserveMs: 1_000,
+    });
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(groqExecute).not.toHaveBeenCalled();
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[1]?.durationMs).toBeGreaterThanOrEqual(75);
   });
 });

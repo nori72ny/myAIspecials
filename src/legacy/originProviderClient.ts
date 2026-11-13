@@ -50,7 +50,7 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
  * attempts that were actually executed; routes that were skipped before execution (for
  * example a missing token or stale evidence) are recorded on the error diagnostic instead.
  */
-export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; }
+export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; durationMs?: number; }
 export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[];
   /**
    * True when the answer text ended at the provider's output limit instead of
@@ -114,6 +114,7 @@ export interface OriginProviderAttemptDiagnostic {
   upstreamErrorType?: string;
   upstreamErrorCode?: string;
   transportRequestCount?: number;
+  durationMs?: number;
 }
 
 export interface OriginProviderFailureDiagnostic {
@@ -178,6 +179,10 @@ function safeTransportRequestCount(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 100_000 ? Number(value) : undefined;
 }
 
+function safeDurationMs(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 3_600_000 ? Number(value) : undefined;
+}
+
 function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence): OriginProviderAttemptDiagnostic | null {
   if (!attempt || typeof attempt !== "object") return null;
   const providerId = safeRouteIdentifier(attempt.providerId);
@@ -196,6 +201,8 @@ function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence):
   if (upstreamErrorCode) summary.upstreamErrorCode = upstreamErrorCode;
   const transportRequestCount = safeTransportRequestCount(attempt.transportRequestCount);
   if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
+  const durationMs = safeDurationMs(attempt.durationMs);
+  if (durationMs !== undefined) summary.durationMs = durationMs;
   return summary;
 }
 
