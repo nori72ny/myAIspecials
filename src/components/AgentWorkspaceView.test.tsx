@@ -150,10 +150,26 @@ describe('AgentWorkspaceView v3', () => {
       artifact: '# 完成した文書',
     }));
     expect(screen.queryByLabelText('実行認証キー')).toBeNull();
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
+    // Every request in the flow fires exactly once. The task board's list
+    // load (`/api/agent/v3/runs?limit=50`) is independent of the approval
+    // call — the board fetches on its own schedule — so the pair's
+    // relative order is timing-dependent and is checked as a set, not a
+    // sequence (the two swapped under Node 24 in PR #1235 and PR #1237).
+    expect([...calledUrls].sort()).toEqual([
+      '/api/agent/v3/approval',
+      '/api/agent/v3/plan',
+      '/api/agent/v3/runs',
+      '/api/agent/v3/runs/run-test-1/advance',
+      '/api/agent/v3/runs?limit=50',
+      '/api/agent/v3/status',
+    ]);
+    // The dependent chain keeps its order: the plan token feeds the
+    // approval, the approval token feeds run creation, and the created
+    // run is the one that gets advanced.
+    expect(calledUrls.filter((url) => url !== '/api/agent/v3/runs?limit=50')).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
-      '/api/agent/v3/runs?limit=50',
       '/api/agent/v3/approval',
       '/api/agent/v3/runs',
       '/api/agent/v3/runs/run-test-1/advance',
@@ -271,10 +287,23 @@ describe('AgentWorkspaceView v3', () => {
       status: 'completed',
       artifact: '# ブラウザ承認で完成した文書',
     }));
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+    const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
+    // Same set/order split as the operator-path test above: the board's
+    // list load is independent of the browser-approval call, so only the
+    // pair's membership is checked, not its relative order.
+    expect([...calledUrls].sort()).toEqual([
+      '/api/agent/v3/browser-approval',
+      '/api/agent/v3/plan',
+      '/api/agent/v3/runs',
+      '/api/agent/v3/runs/run-test-1/advance',
+      '/api/agent/v3/runs?limit=50',
+      '/api/agent/v3/status',
+    ]);
+    // The dependent chain keeps its order: plan, then browser approval,
+    // then run creation, then advancement of the created run.
+    expect(calledUrls.filter((url) => url !== '/api/agent/v3/runs?limit=50')).toEqual([
       '/api/agent/v3/status',
       '/api/agent/v3/plan',
-      '/api/agent/v3/runs?limit=50',
       '/api/agent/v3/browser-approval',
       '/api/agent/v3/runs',
       '/api/agent/v3/runs/run-test-1/advance',
