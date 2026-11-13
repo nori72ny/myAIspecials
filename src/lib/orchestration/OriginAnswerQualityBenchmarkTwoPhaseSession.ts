@@ -100,7 +100,7 @@ function canonicalEnvironmentProof(proof: OriginAnswerQualityBenchmarkEnvironmen
     proof.expectedGitSha,
     proof.observedReleaseSha,
     proof.freeOnly ? 1 : 0,
-    proof.costUsd,
+    proof.maxPermittedCostUsd,
     proof.paidFallbackEnabled ? 1 : 0,
     proof.runtimeIds.research,
     proof.runtimeIds.coding,
