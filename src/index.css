@@ -310,7 +310,7 @@
 .origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
 .origin-dialog-overlay { background: oklch(0.12 0.015 255 / 0.56); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
-.origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; }
+.origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; top: 0 !important; }
 .origin-workspace:fullscreen .origin-code-panel { padding: 0; }
 .origin-code-panel { background: var(--bg-primary); color: var(--text-primary); }
 .origin-logo-glow { background: radial-gradient(circle, var(--accent-glow), transparent 68%); }
@@ -393,11 +393,13 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 
 @media (max-width: 379px) {
   .origin-header > div { width: 100%; min-width: 0; }
-  .origin-header > div > div { width: 100%; min-width: 0; justify-content: space-between; }
-  .origin-header > div > div > div:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; }
-  .origin-header > div > div > div:first-child > span:nth-child(2),
-  .origin-header > div > div > div:first-child > span:nth-child(3) { overflow: hidden; text-overflow: ellipsis; }
-  .origin-header > div > div > div:last-child { flex: 0 0 auto; gap: 0.125rem !important; }
+  /* PR-β でヘッダーは「左／中央／右」の3セクション構造になった。
+     旧構造（二重ラッパー）向けの width: 100% と space-between は、
+     中央セクション（常駐オリン）を行幅いっぱいに広げ、左右のボタンを
+     画面外へ押し出すため廃止する。代わりに各セクションが縮小可能で
+     あることだけを保証し、中央の44pxボタンは App.tsx 側の shrink-0
+     で固定する。 */
+  .origin-header > div > div { min-width: 0; }
 }
 
 /* Answer tools stay within the reading column, including on narrow screens. */
