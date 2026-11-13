@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } = vi.hoisted(() => ({
@@ -124,7 +124,8 @@ describe('AgentWorkspaceView v3', () => {
         expect(init?.method).toBe('POST');
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
         // The operator binding rides on the header; no plan token body.
-        expect(JSON.parse(String(init?.body))).toEqual({});
+        // The workspace drives with the small live-view budget (PR-L2).
+        expect(JSON.parse(String(init?.body))).toEqual({ budgetMs: 10000 });
         return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# 完成した文書', run: { runId: 'run-test-1', status: 'completed' } });
       }
       throw new Error(`unexpected request: ${url}`);
@@ -249,7 +250,7 @@ describe('AgentWorkspaceView v3', () => {
       if (url === '/api/agent/v3/runs/run-test-1/advance') {
         expect(init?.method).toBe('POST');
         expect(new Headers(init?.headers).get('authorization')).toBeNull();
-        expect(JSON.parse(String(init?.body))).toEqual({ planToken: 'signed-plan-token' });
+        expect(JSON.parse(String(init?.body))).toEqual({ planToken: 'signed-plan-token', budgetMs: 10000 });
         return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# ブラウザ承認で完成した文書', run: { runId: 'run-test-1', status: 'completed' } });
       }
       throw new Error(`unexpected request: ${url}`);
@@ -361,7 +362,9 @@ describe('AgentWorkspaceView v3', () => {
 
     await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。');
     expect(screen.getByText('保留中')).toBeTruthy();
-    expect(screen.getByTestId('origin-cat-state').getAttribute('data-state')).toBe('waiting');
+    // PR-L2: the live panel shows its own cat next to the panel
+    // headline, so the phase cat is scoped to the status row.
+    expect(within(screen.getByRole('status')).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('waiting');
     expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
   });
 
@@ -445,7 +448,7 @@ describe('AgentWorkspaceView v3', () => {
       if (url === '/api/agent/v3/runs') return json({ ok: true, runId: 'run-test-1', status: 'queued' }, 201);
       if (url === '/api/agent/v3/runs/run-test-1/advance') {
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer owner-agent-key');
-        expect(JSON.parse(String(init?.body))).toEqual({});
+        expect(JSON.parse(String(init?.body))).toEqual({ budgetMs: 10000 });
         return json({ ok: true, runId: 'run-test-1', status: 'held', advanced: false, code: 'AGENT_RUN_QUOTA_EXHAUSTED' }, 202);
       }
       throw new Error(`unexpected request: ${url}`);
@@ -463,6 +466,109 @@ describe('AgentWorkspaceView v3', () => {
     await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。');
     expect(screen.getByText('保留中')).toBeTruthy();
     expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
+  });
+
+  it('shows the live panel step by step and renders the research artifact as source cards (PR-L2)', async () => {
+    const researchLiveDetail = {
+      startedAt: 1000,
+      finishedAt: 13000,
+      query: '富士山 高さ',
+      sources: [
+        { title: '富士山の高さと登山情報', url: 'https://example.jp/fuji/', domain: 'example.jp', excerpt: '富士山は標高3,776mの日本最高峰です。' },
+        { title: '富士登山オフィシャルサイト', url: 'https://example.org/tozan/', domain: 'example.org', excerpt: '開山期は7月上旬から9月上旬です。' },
+      ],
+    };
+    const researchArtifact = JSON.stringify({
+      provider: 'tavily',
+      sources: [
+        { title: '富士山の高さと登山情報', url: 'https://example.jp/fuji/', domain: 'example.jp', excerpt: '富士山は標高3,776mの日本最高峰です。', evidenceLevel: 'extracted' },
+        { title: '富士登山オフィシャルサイト', url: 'https://example.org/tozan/', domain: 'example.org', excerpt: '開山期は7月上旬から9月上旬です。', evidenceLevel: 'snippet' },
+      ],
+    });
+    const planSteps = [
+      { toolName: 'web_search_grounding', params: { query: '富士山 高さ' } },
+      { toolName: 'document_generator', params: { content: '調査結果を文書にまとめてください' } },
+    ];
+    let advanceCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json({ ...readyStatus(), browserApprovalEnabled: true });
+      if (url === '/api/agent/v3/plan') {
+        return json({
+          ok: true,
+          protocolVersion: 3,
+          runId: 'run-test-1',
+          status: 'awaiting_approval',
+          planToken: 'signed-plan-token',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          freeOnly: true,
+          costUsd: 0,
+          paidFallbackUsed: false,
+          selectedTool: 'web_search_grounding',
+          params: { query: '富士山 高さ' },
+          steps: planSteps,
+          plan: [
+            { id: 'task-1', title: 'Research' },
+            { id: 'task-2', title: 'Document' },
+          ],
+        }, 201);
+      }
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/browser-approval') return json({ ok: true, approvalToken: 'signed-browser-approval-token' }, 201);
+      if (url === '/api/agent/v3/runs') return json({ ok: true, runId: 'run-test-1', status: 'queued' }, 201);
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
+        advanceCalls += 1;
+        if (advanceCalls === 1) {
+          return json({
+            ok: true, runId: 'run-test-1', status: 'running', advanced: true,
+            run: {
+              runId: 'run-test-1', status: 'running', goal: '富士山について調べてまとめてください', plan: planSteps,
+              stepsState: [
+                { id: 'task-1', status: 'completed', attempts: 1, liveDetail: researchLiveDetail },
+                { id: 'task-2', status: 'running', attempts: 1, liveDetail: { startedAt: 13000 } },
+              ],
+            },
+          }, 202);
+        }
+        return json({
+          ok: true, runId: 'run-test-1', status: 'completed', artifact: researchArtifact,
+          run: {
+            runId: 'run-test-1', status: 'completed', goal: '富士山について調べてまとめてください', plan: planSteps,
+            stepsState: [
+              { id: 'task-1', status: 'completed', attempts: 1, liveDetail: researchLiveDetail },
+              { id: 'task-2', status: 'completed', attempts: 1, liveDetail: { startedAt: 13000, finishedAt: 21000 } },
+            ],
+          },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('エージェントを利用できます');
+    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '富士山について調べてまとめてください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('未実行 · 承認待ち');
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+
+    // Mid-drive (between the two advances): the first advance's run
+    // view is already on the panel — the finished research step shows
+    // the pages it actually read and its duration while the second
+    // step is still running.
+    const panel = await screen.findByLabelText('いまの作業');
+    await within(panel).findByText('富士山の高さと登山情報');
+    expect(within(panel).getByText('富士山は標高3,776mの日本最高峰です。')).toBeTruthy();
+    expect(within(panel).getByText('出典2件 · 12秒')).toBeTruthy();
+    expect(within(panel).getByText('文書を作っています')).toBeTruthy();
+
+    // Completion: the delivered artifact is the research sources
+    // JSON, rendered as source cards — the raw JSON never appears.
+    await screen.findByText(/本文確認済み/, undefined, { timeout: 5000 });
+    expect(screen.queryByText(/"sources"/)).toBeNull();
+    expect(screen.getAllByRole('link', { name: '原文を開く' })).toHaveLength(3);
+    expect(within(panel).getByText('作業が完了しました')).toBeTruthy();
+    expect(advanceCalls).toBe(2);
   });
 });
 

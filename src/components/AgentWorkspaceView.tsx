@@ -1,10 +1,18 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
 import AgentTaskBoard from './AgentTaskBoard';
+import AgentLivePanel, { AgentResearchSourceCards, parseAgentResearchArtifact } from './AgentLivePanel';
 import FormattedMarkdown from './FormattedMarkdown';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
 import type { CheckpointState } from '../agent/checkpointManager';
-import { createAgentRunRecord, driveAgentRun, type AgentRunAuth } from '../agent/agentRunClient';
+import {
+  AGENT_RUN_SMALL_ADVANCE_BUDGET_MS,
+  createAgentRunRecord,
+  driveAgentRun,
+  fetchAgentRunView,
+  type AgentRunAuth,
+  type AgentRunView,
+} from '../agent/agentRunClient';
 
 type AgentCapability = {
   ready: boolean;
@@ -63,6 +71,19 @@ function localRunCheckpoint(runId: string, artifact: string): CheckpointState {
   };
 }
 type VerificationKind = 'test' | 'typecheck' | 'lint' | 'build';
+
+// One execution shown in the live panel (agent live view PR-L2). The
+// step snapshot and the owner binding are kept in memory only, like
+// every other credential in this screen, so the panel can keep
+// following the recorded run after this screen's driving stops.
+type LiveSession = {
+  runId: string;
+  steps: AgentToolStep[];
+  auth: AgentRunAuth;
+};
+
+const AGENT_RUN_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'expired']);
+const AGENT_RUN_LIVE_POLL_INTERVAL_MS = 5000;
 
 function authorizationHeaders(credential: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` };
@@ -149,6 +170,11 @@ export default function AgentWorkspaceView() {
   const [boardPlanToken, setBoardPlanToken] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
+  // Live view (PR-L2): the run being watched in the 「いまの作業」
+  // panel, and the latest run view fed by the drive's progress
+  // callback (then by polling once driving hands over at the caps).
+  const [liveSession, setLiveSession] = useState<LiveSession | null>(null);
+  const [liveRunView, setLiveRunView] = useState<AgentRunView | null>(null);
   const [artifact, setArtifact] = useState('実行が完了すると、確認済みの結果がここに表示されます。');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
@@ -196,6 +222,27 @@ export default function AgentWorkspaceView() {
     catch { setLog((current) => [...current, '結果はこの画面では利用できますが、端末への保存を確認できませんでした。']); }
   }, []);
 
+  // Live view (PR-L2, design §5.1): once this screen's driving stops
+  // at the caps ('recorded') while the run continues, keep the panel
+  // current by re-reading the run every few seconds. Polling runs
+  // only while the panel is on screen, the last known state is
+  // non-terminal, and this screen is no longer driving; it stops on
+  // unmount, on a new plan, and when the run reaches a terminal state.
+  useEffect(() => {
+    if (!liveSession || phase !== 'recorded' || !liveRunView) return undefined;
+    if (AGENT_RUN_TERMINAL_STATUSES.has(liveRunView.status)) return undefined;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      void fetchAgentRunView(liveSession.runId, liveSession.auth, controller.signal)
+        .then((view) => { if (view && !controller.signal.aborted) setLiveRunView(view); })
+        .catch(() => undefined);
+    }, AGENT_RUN_LIVE_POLL_INTERVAL_MS);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [liveSession, phase, liveRunView]);
+
   const requestPlan = useCallback(async () => {
     const trimmed = goal.trim();
     const planCapable = capability?.ready === true || capability?.browserApprovalEnabled === true;
@@ -204,6 +251,8 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPlan(null);
+    setLiveSession(null);
+    setLiveRunView(null);
     setPhase('planning');
     setLog(['エージェント: 実行計画を準備しています。']);
     setArtifact('計画を作成しています…');
@@ -331,7 +380,16 @@ export default function AgentWorkspaceView() {
         return;
       }
       setLog((current) => [...current, '実行を記録しました。進み具合はタスクボードにも表示されます。']);
-      const outcome = await driveAgentRun(plan.runId, runAuth, controller.signal);
+      // Live view (PR-L2): from here the 「いまの作業」 panel follows
+      // this run. Driving uses the small per-advance budget so each
+      // advance returns after a step or two, and every response's run
+      // view is fed into the panel as it arrives (design §5.1).
+      setLiveSession({ runId: plan.runId, steps: plan.steps, auth: runAuth });
+      setLiveRunView(null);
+      const outcome = await driveAgentRun(plan.runId, runAuth, controller.signal, {
+        budgetMs: AGENT_RUN_SMALL_ADVANCE_BUDGET_MS,
+        onProgress: (view) => { if (view.runId === plan.runId) setLiveRunView(view); },
+      });
       if (outcome.kind === 'completed') {
         setArtifact(outcome.artifact ?? '実行が完了しました。');
         if (outcome.artifact) await persistCheckpoint(localRunCheckpoint(plan.runId, outcome.artifact));
@@ -380,6 +438,8 @@ export default function AgentWorkspaceView() {
     abortRef.current?.abort();
     abortRef.current = null;
     setPlan(null);
+    setLiveSession(null);
+    setLiveRunView(null);
     setPhase('idle');
     setLog((current) => [...current, '計画をリセットしました。未承認の操作は実行していません。']);
     if (credentialInputRef.current) credentialInputRef.current.value = '';
@@ -395,6 +455,9 @@ export default function AgentWorkspaceView() {
     && capability.costUsd === 0
     && capability.paidFallbackEnabled === false;
   const plannedParamsReady = plan ? hasExecutableSteps(plan) : false;
+  // A research-final run delivers its artifact as a sources JSON
+  // string; show it as source cards instead of raw JSON (PR-L2).
+  const researchArtifact = useMemo(() => parseAgentResearchArtifact(artifact), [artifact]);
 
   return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
     <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
@@ -464,10 +527,22 @@ export default function AgentWorkspaceView() {
       </aside>
 
       <main className="origin-workspace min-h-[28rem] overflow-hidden rounded-2xl">
+        {liveSession && <div className="border-b border-origin-border">
+          <AgentLivePanel
+            steps={liveSession.steps}
+            runView={liveRunView}
+            statusHint={phase === 'completed' ? 'completed' : phase === 'failed' ? 'failed' : phase === 'held' ? 'held' : 'active'}
+            catState={catStateForPhase(phase, checkingCapability, ready)}
+          />
+        </div>}
         <div className="flex items-center justify-between gap-3 border-b border-origin-border px-4 py-3">
           <div><h2 className="font-bold">作業結果</h2></div>
         </div>
-        <div className="max-h-[60dvh] overflow-auto p-5"><FormattedMarkdown text={artifact} /></div>
+        <div className="max-h-[60dvh] overflow-auto p-5">
+          {researchArtifact
+            ? <AgentResearchSourceCards sources={researchArtifact.sources} />
+            : <FormattedMarkdown text={artifact} />}
+        </div>
 
         <section className="border-t border-origin-border p-4">
           <h3 className="text-sm font-black">端末内に保存した結果</h3>
