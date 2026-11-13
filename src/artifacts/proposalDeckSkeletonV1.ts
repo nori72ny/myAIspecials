@@ -65,7 +65,9 @@ export const PROPOSAL_DECK_SKELETON_INSTRUCTION = [
   '- 与えられていない事実や前提（なければ、この見出しごと省略します）',
   '',
   '守ること:',
-  '- 要約の要点は必ず3点にします。',
+  '- 要約の要点は必ず3点にします。要約は見出しだけで済ませず、要点を箇条書きで書いてください。',
+  '- 次のステップには、具体的なステップを箇条書きで書いてください。',
+  '- 見出しに【Assumption】などのタグや、（前提）（サンプル）といった注記を付けないでください。数値が仮定の場合は、その旨を本文中に明記してください。',
   '- 各セクションの箇条書きは4件まで、1件は見出しと補足を合わせて60字以内にします。',
   '- 各セクションの最初の1文は、名詞で終わるラベルではなく、「〜です。」で終わる結論の文にします。',
   '- 分からない数値や固有名詞を、[ ] や 〇〇 などのプレースホルダーで書かないでください。与えられていない事実は「前提・未確認事項」に集めます。',
@@ -317,6 +319,21 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   切り出し、依頼事項に使われた文と質問文を除いた残りを次のステップ
 //   とする（計画セクション流用の後段の受け皿）。
 // - 定型文・タイトルの生成では、見出し文中の【…】／（…）注記を除く。
+//
+// 第4回本番失敗（2026-11-14）への対応（fix-4）:
+// - 回答冒頭の「【要点系】＋本文」という同一行リードは、括弧内が要約に
+//   分類でき、かつ直後に箇条書きが続く場合に限り要約節の開始として
+//   扱い、行の残りをその節の最初の本文行にする（直下の箇条書きが
+//   帰属先を失って破棄され、要約が3点に届かなくなる形への対策）。
+//   箇条書きが続かない形は fix-3 の導入補給の経路を維持し、節が
+//   始まった後の行には適用しない。
+// - 締めが実質空で計画セクションも散文のみの場合、計画セクションの
+//   本文も文単位で次のステップの受け皿にする（箇条書き流用と同じ性質）。
+// - 分類では、前提系の規則だけは注記（（…）／【…】）の中の語を根拠に
+//   一致させない（「市場背景（前提）」が節ごと前提・未確認事項に化ける
+//   汚染への対策。他の規則の注記依存の照合は維持する）。あわせて cost
+//   規則に「投資対効果」を明示追加する（「効果」に先に一致して価値に
+//   誤分類されていた）。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -346,7 +363,7 @@ const FREEFORM_KIND_RULES: ReadonlyArray<{
   { pattern: /要約|サマリー|要点|概要/, kind: 'summary' },
   { pattern: /次のステップ|次ステップ|締め/, kind: 'closing' },
   { pattern: /課題|問題|現状|悩み/, kind: 'role', role: 'challenge' },
-  { pattern: /費用対効果|費用|価格|料金|コスト|ROI/, kind: 'role', role: 'cost' },
+  { pattern: /費用対効果|投資対効果|費用|価格|料金|コスト|ROI/, kind: 'role', role: 'cost' },
   { pattern: /計画|ステップ|スケジュール|進め方|ロードマップ/, kind: 'role', role: 'plan' },
   { pattern: /価値|メリット|ベネフィット|強み|効果|特長|特徴/, kind: 'role', role: 'value' },
   { pattern: /比較|競合/, kind: 'role', role: 'other' },
@@ -367,10 +384,22 @@ function classifyFreeformHeading(
     .replace(/（[^）]*）/g, '')
     .replace(/\([^)]*\)/g, '')
     .trim();
+  // 前提系の分類だけは、注記（（…）／【…】）の中の語を根拠に一致させない
+  // （fix-4、「市場背景（前提）」が節ごと前提・未確認事項に化ける汚染への
+  // 対策）。注記を除いた見出し本文の語による一致は従来どおり有効。他の
+  // 規則は「導入プラン（スケジュール）」のように注記の語へ依存する分類が
+  // あるため、従来の2段照合を維持する。
+  const annotationFree = heading
+    .replace(/【[^】]*】/g, '')
+    .replace(/（[^）]*）/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .trim();
   for (const rule of FREEFORM_KIND_RULES) {
-    if (core !== '' && rule.pattern.test(core)) return { kind: rule.kind, role: rule.role };
+    const target = rule.kind === 'assumptions' ? annotationFree : core;
+    if (target !== '' && rule.pattern.test(target)) return { kind: rule.kind, role: rule.role };
   }
   for (const rule of FREEFORM_KIND_RULES) {
+    if (rule.kind === 'assumptions') continue;
     if (rule.pattern.test(heading)) return { kind: rule.kind, role: rule.role };
   }
   return null;
@@ -490,7 +519,9 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     sections.push(current);
   };
 
+  let lineIndex = -1;
   for (const rawLine of lines) {
+    lineIndex += 1;
     const line = rawLine.trimEnd();
     if (/^\s*```/.test(line)) {
       inFence = !inFence;
@@ -571,6 +602,36 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         const inner = bracket[1].replace(/[：:]$/, '').trim();
         const classified = classifyFreeformHeading(inner);
         if (classified) heading = { ...classified, text: inner };
+      }
+    }
+    if (!heading && current === null && sections.length === 0) {
+      // fix-4: 回答冒頭の「【要点系】＋本文」という同一行リードは、括弧内が
+      // 要約に分類でき、かつ直後に箇条書き（- 記号）が続く場合に限り、
+      // 要約節の開始として扱い、行の残りをその節の最初の本文行にする。
+      // 単独行【…】と対称に扱わないと、直下の要点の箇条書きが「見出し
+      // より前の箇条書き」として破棄され、要約が3点に届かなくなる。
+      // 箇条書きが続かない形（直後が番号付き見出しになる形）は、導入文
+      // として扱い fix-3 の補給経路で処理する従来の挙動を維持する。
+      // 適用範囲は節がまだ始まっていない冒頭だけに限り、【お知らせ】等の
+      // 要約以外・分類不能の括弧には適用しない。
+      const inlineBracket = plain.match(/^【([^】]+)】\s*(.+)$/);
+      if (inlineBracket) {
+        const inner = inlineBracket[1].replace(/[：:]$/, '').trim();
+        if (classifyFreeformHeading(inner)?.kind === 'summary') {
+          let nextContentLine = '';
+          for (let i = lineIndex + 1; i < lines.length; i += 1) {
+            if (lines[i].trim() !== '') {
+              nextContentLine = lines[i].trim();
+              break;
+            }
+          }
+          if (/^[-*+]\s/.test(nextContentLine)) {
+            startSection('summary', undefined, inner);
+            const rest = inlineBracket[2].replace(/^[：:]\s*/, '').trim();
+            if (rest !== '' && current) current.leadLines.push(rest);
+            continue;
+          }
+        }
       }
     }
     if (heading) {
@@ -794,6 +855,24 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         (sentence) => !askSentences.has(sentence) && !FREEFORM_QUESTION_PATTERN.test(sentence),
       )
       .slice(0, 4);
+  }
+  if (nextSteps.length === 0 && !usedMarkdownHeadings) {
+    // fix-4: 締め節が実質空（見出しのみ、または依頼事項の文だけ）で、
+    // 計画セクションも散文のみの形への受け皿。計画セクションの本文を
+    // 文単位で切り出し、依頼事項に使われた文と質問文を除いた残りを
+    // 次のステップとする。計画セクションの箇条書き流用と同じ性質の
+    // 流用であり、材料はすべて原文の文（逐語切り出しのみ）。
+    const planSection = roleSections.find((section) => section.role === 'plan');
+    if (planSection) {
+      const askSentences = new Set(splitSentences(ask));
+      nextSteps = splitSentences(
+        planSection.leadLines.map((entry) => stripEmphasis(entry)).join(''),
+      )
+        .filter(
+          (sentence) => !askSentences.has(sentence) && !FREEFORM_QUESTION_PATTERN.test(sentence),
+        )
+        .slice(0, 4);
+    }
   }
   if (nextSteps.length === 0) return null;
 
