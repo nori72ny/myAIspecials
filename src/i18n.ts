@@ -84,7 +84,7 @@ type Translation = {
   thinking: string;
   searchingLatest: string;
   composingAnswer: string;
-  stageBackToConversation: string;
+  workDone: string;
   streamSourcesHeading: string;
   responseReady: string;
   error: string;
@@ -207,7 +207,7 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     thinking: '回答を準備しています…',
     searchingLatest: '最新の情報を調べています…',
     composingAnswer: '回答をまとめています…',
-    stageBackToConversation: '会話に戻る',
+    workDone: 'できました',
     streamSourcesHeading: '集まった出典',
     responseReady: 'ORIGINの回答が届きました',
     error: 'エラーが発生しました。再度お試しください。',
@@ -333,7 +333,7 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     thinking: 'Preparing your answer…',
     searchingLatest: 'Searching for the latest information…',
     composingAnswer: 'Composing the answer…',
-    stageBackToConversation: 'Back to conversation',
+    workDone: 'Done',
     streamSourcesHeading: 'Sources gathered',
     responseReady: 'ORIGIN response is ready',
     error: 'Something went wrong. Please try again.',

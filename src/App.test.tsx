@@ -411,7 +411,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(1);
     });
 
-    it('shows staged one-line progress inside the conversation while research runs', async () => {
+    it('shows the research stage in the Orin speech bubble while research runs', async () => {
       let resolveResearch!: (value: Response) => void;
       const gate = new Promise<Response>((resolve) => { resolveResearch = resolve; });
       const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
@@ -425,12 +425,14 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '時間のかかる調査' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
 
-      const progress = await screen.findByTestId('origin-research-progress');
-      expect(progress.textContent).toContain('公開情報を探しています');
+      const bubble = await screen.findByTestId('origin-orin-bubble');
+      expect(bubble.textContent).toContain('公開情報を探しています');
       expect(screen.queryByTestId('origin-thinking')).toBeNull();
-      // PR-β：会話内の進捗は1行表示のみで猫は置かない。調査中である
-      // ことはヘッダー常駐オリンの「調べている」状態が表す。
-      expect(within(progress).queryByTestId('origin-cat-state')).toBeNull();
+      expect(screen.queryByTestId('origin-research-progress')).toBeNull();
+      // 待ち表示の仕様修正（2026-11-13）：調査の段階は上部の常駐
+      // オリンの吹き出しが一文で表し、会話内に1行表示は置かない。
+      // 吹き出し自体に猫は入れない（猫はヘッダーの常駐オリン本体）。
+      expect(within(bubble).queryByTestId('origin-cat-state')).toBeNull();
       const headerCat = within(screen.getByTestId('origin-header-orin')).getByTestId('origin-cat-state');
       expect(headerCat.getAttribute('data-state')).toBe('searching');
 
@@ -2194,27 +2196,28 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     const push = (event: unknown) => streamController.enqueue(encoder.encode(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`));
     push({ type: 'phase', phase: 'searching' });
-    // PR-δ1：200msを超える待ちは全体画面ステージが担い、段階テキストは
-    // ステージ側に出る。会話内の1行表示は二重表示防止のため抑制される。
-    await waitFor(() => expect(screen.getByTestId('origin-stage').textContent).toContain('最新の情報を調べています'));
-    await waitFor(() => expect(screen.queryByTestId('origin-thinking')).toBeNull());
+    // 待ち表示の仕様修正（2026-11-13）：段階テキストは上部中央の
+    // 常駐オリンの吹き出しに出る。全体画面ステージと会話内の1行
+    // 表示は使わない（二重表示にしない）。
+    await waitFor(() => expect(screen.getByTestId('origin-orin-bubble').textContent).toContain('最新の情報を調べています'));
+    expect(screen.queryByTestId('origin-stage')).toBeNull();
+    expect(screen.queryByTestId('origin-thinking')).toBeNull();
     push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
     await waitFor(() => expect(screen.getByTestId('origin-stream-sources')).toBeTruthy());
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('集まった出典');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('料金の公式ページ');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('example.org');
     push({ type: 'phase', phase: 'composing' });
-    await waitFor(() => expect(screen.getByTestId('origin-stage').textContent).toContain('回答をまとめています'));
+    await waitFor(() => expect(screen.getByTestId('origin-orin-bubble').textContent).toContain('回答をまとめています'));
     push({ type: 'delta', text: '検証済みの調査回答です。' });
     push({ type: 'complete' });
     push('[DONE]');
     streamController.close();
     await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('origin-stream-sources')).toBeNull());
-    // 本文が流れ始めたらステージは引っ込む（§3.2-1）。このテストでは
-    // delta と完了が同一コミットに畳まれるため、非ストリーミング応答と
-    // 同じ完了の合図（最大950ms）を経て消える場合がある（§3.4）。
-    await waitFor(() => expect(screen.queryByTestId('origin-stage')).toBeNull(), { timeout: 3000 });
+    // 本文が流れ始めたら吹き出しの作業表示は引っ込み、完了の合図
+    // （「できました」、headerDoneCue の2,600ms）をはさんで消える。
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-bubble')).toBeNull(), { timeout: 5000 });
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -2510,18 +2513,19 @@ describe('cat visibility on the top screen and while generating (owner request 2
     }
   });
 
-  it('shows a light one-line status without a cat inside the conversation while generating (PR-β)', async () => {
+  it('shows the waiting stage in the Orin speech bubble without a cat inside the conversation (PR-β, revised 2026-11-13)', async () => {
     const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、生成中表示を維持する */ }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '生成中の表示を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    const thinking = await screen.findByTestId('origin-thinking');
-    // 会話内は小さなドット＋平易な段階テキストの軽い1行だけ（PR-β で
-    // 大きなオリン＋重いピルを廃止）。段階文言も「回答を準備しています」
-    // に改めた。
-    expect(thinking.textContent).toContain('回答を準備しています');
-    expect(within(thinking).queryByTestId('origin-cat-state')).toBeNull();
+    const bubble = await screen.findByTestId('origin-orin-bubble');
+    // 待ち表示の仕様修正（2026-11-13）：会話内の1行表示は廃止し、
+    // 段階は上部中央の常駐オリンの吹き出しが一文で表す。吹き出しは
+    // 文だけで、猫は入れない。
+    expect(bubble.textContent).toContain('回答を準備しています');
+    expect(within(bubble).queryByTestId('origin-cat-state')).toBeNull();
+    expect(screen.queryByTestId('origin-thinking')).toBeNull();
     // 状態は画面上部中央の常駐オリンが表す（静止画・細リング台座）。
     const headerOrin = screen.getByTestId('origin-header-orin');
     const headerCat = within(headerOrin).getByTestId('origin-cat-state');
@@ -2554,7 +2558,7 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await screen.findByTestId('origin-thinking');
+    await screen.findByTestId('origin-orin-bubble');
 
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     const sheet = screen.getByTestId('origin-work-sheet');
@@ -2576,28 +2580,76 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
   });
 });
 
-describe('Orin full-screen stage (PR-δ1, owner request 2026-11-13)', () => {
+describe('Orin speech bubble (waiting-display revision, owner request 2026-11-13)', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('takes over the wait after 200ms, suppresses the one-line status, and returns it on minimize', async () => {
+  it('shows the current stage in the bubble while waiting, with no stage and no one-line status', async () => {
     const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、待ち状態を維持する */ }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'ステージの確認' } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '吹き出しの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    // 出現遅延（200ms）の間は、従来どおり会話内の1行表示が出る。
-    expect(await screen.findByTestId('origin-thinking')).toBeTruthy();
-    // 200msを超えて待つとステージが出て、1行表示は二重表示にならない
-    // よう抑制される。段階テキストはステージが引き継ぐ。
-    const stage = await screen.findByTestId('origin-stage', undefined, { timeout: 3000 });
-    expect(stage.textContent).toContain('回答を準備しています');
-    await waitFor(() => expect(screen.queryByTestId('origin-thinking')).toBeNull());
-    expect(within(stage).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('thinking');
-    // ステージをタップすると会話に戻り、1行表示が最小化形として出る。
-    // 作業自体は継続する（応答保留のまま）。
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    // 待ちの段階は上部中央の常駐オリンの吹き出しが一文で出す。
+    // 全体画面ステージと会話内の1行表示はどちらも出ない。
+    const bubble = await screen.findByTestId('origin-orin-bubble');
+    expect(bubble.textContent).toContain('回答を準備しています');
     expect(screen.queryByTestId('origin-stage')).toBeNull();
-    expect(await screen.findByTestId('origin-thinking')).toBeTruthy();
+    expect(screen.queryByTestId('origin-thinking')).toBeNull();
+    expect(screen.queryByTestId('origin-research-progress')).toBeNull();
+    // 状態はヘッダーの常駐オリン本体も表す（吹き出しは文のみ）。
+    const headerCat = within(screen.getByTestId('origin-header-orin')).getByTestId('origin-cat-state');
+    expect(headerCat.getAttribute('data-state')).toBe('thinking');
+  });
+
+  it('hides the bubble while the work sheet is open and shows it again when the sheet closes', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、待ち状態を維持する */ }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートと吹き出しの確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByTestId('origin-orin-bubble')).toBeTruthy();
+    // オリ ンタップで「いまの作業」シートが開く従来動作は維持し、
+    // その間は吹き出しを隠す。
+    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-bubble')).toBeNull());
+    fireEvent.click(within(screen.getByTestId('origin-work-sheet')).getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
+    expect(await screen.findByTestId('origin-orin-bubble')).toBeTruthy();
+  });
+
+  it('shows the completion cue in the bubble after the answer lands, then fades out', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestPath(input) === '/api/chat') {
+        return new Response(JSON.stringify({
+          content: '吹き出し確認の回答',
+          routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '完了の合図を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('吹き出し確認の回答')).toBeTruthy();
+    // 完了の合図は headerDoneCue（2,600ms）の間だけ吹き出しに出て、
+    // その後フェードして消える。
+    await waitFor(() => expect(screen.getByTestId('origin-orin-bubble').textContent).toContain('できました'));
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-bubble')).toBeNull(), { timeout: 5000 });
+  });
+
+  it('shows the existing failure text in the bubble when the send fails', async () => {
+    const fetchMock = vi.fn(async () => { throw new Error('network down'); });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '失敗の合図を確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    // 失敗時は既存の失敗文を、失敗キュー（2,600ms）の間だけ
+    // 吹き出しに出す。
+    await waitFor(() => expect(screen.getByTestId('origin-orin-bubble').textContent).toContain('エラーが発生しました'));
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-bubble')).toBeNull(), { timeout: 5000 });
   });
 });

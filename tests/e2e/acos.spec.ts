@@ -73,7 +73,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(await page.locator('script[src]').evaluateAll((scripts) => scripts.every((script) => new URL((script as HTMLScriptElement).src).origin === window.location.origin))).toBe(true);
   });
 
-  test('shows the full-screen Orin stage while waiting for an answer (PR-δ1)', async ({ page }) => {
+  test('shows the Orin speech bubble under the header while waiting for an answer (2026-11-13 revision)', async ({ page }) => {
     await page.route('**/api/chat', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
@@ -81,12 +81,15 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
-    // PR-δ1：200msを超える待ちは全体画面ステージが担う。段階テキストは
-    // ステージ側に出て、会話内の1行表示は二重表示防止で抑制される。
-    const stage = page.getByTestId('origin-stage');
-    await expect(stage).toBeVisible();
-    await expect(stage).toContainText('回答を準備しています');
-    await expect(stage).toBeHidden({ timeout: 15_000 });
+    // 待ち表示の仕様修正（2026-11-13）：全体画面ステージは使わず、
+    // 上部中央の常駐オリンの吹き出しが段階を一文で出す。会話内の
+    // 1行表示も出ない。
+    const bubble = page.getByTestId('origin-orin-bubble');
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toContainText('回答を準備しています');
+    await expect(page.getByTestId('origin-stage')).toHaveCount(0);
+    await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
+    await expect(bubble).toBeHidden({ timeout: 15_000 });
   });
 
   test('protects Japanese IME composition and keeps the composer available after answering', async ({ page }) => {
