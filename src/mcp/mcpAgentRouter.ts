@@ -9,6 +9,7 @@ import { executeOriginMcpToolRound, McpAgentExecutionError, type McpAgentProvide
 import { McpManagementError } from "./mcpConnections.js";
 import type { McpManagementDependencies } from "./mcpManagementRouter.js";
 import type { McpAgentSessionFactory } from "./mcpNodeIntegration.js";
+import { isMcpEnabled } from "./mcpKillSwitch.js";
 
 type McpChatBody = OriginChatBody & {
   connectionId?: unknown;
@@ -52,6 +53,15 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
   router.post("/api/mcp/chat", async (req, res) => {
     const requestId = `origin-mcp-${now()}-${randomUUID()}`;
     try {
+      // Kill-switch gate at the consumption point (PR-1c): when MCP is not
+      // explicitly enabled, fail closed before authentication or session
+      // creation so no credential lookup or external connection is ever
+      // attempted. The response reuses this router's existing unavailable
+      // shape instead of introducing a new one.
+      if (!isMcpEnabled(env)) {
+        return res.status(503).json({ ok: false, code: "MCP_AGENT_UNAVAILABLE", retryable: false, requestId });
+      }
+
       const principal = await deps.authenticate(req);
       if (!principal) return res.status(401).json({ ok: false, code: "MCP_AUTH_REQUIRED", retryable: false, requestId });
 
