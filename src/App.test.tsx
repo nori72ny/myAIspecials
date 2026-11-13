@@ -331,15 +331,16 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'コード' }));
     expect(onOpenCoding).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
-    fireEvent.click(screen.getByRole('menuitem', { name: '作る' }));
-    expect(onOpenCreative).toHaveBeenCalledOnce();
-
     // 「詳細・作業状況」は 2026-11-09 の画面構成再編で廃止したため、
     // メニューには現れない（SCREEN_NECESSITY_REVIEW_2026-11-09.md）。
+    // 「作る」もオーナー決定（2026-11-12）で「+」メニューから隠したため
+    // 現れない。機能自体は残し、会話で明示した依頼から開く経路は
+    // 後方の Chat brief のテスト（onOpenCreative）が担保する。
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(screen.queryByRole('menuitem', { name: '詳細・作業状況' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Details & status' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: '作る' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Create a deliverable' })).toBeNull();
   });
 
   describe('Research mode inside chat', () => {
