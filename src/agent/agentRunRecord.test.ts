@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUN_APPROVAL_LAPSE_MS,
   AGENT_RUN_RECORD_STATUSES,
+  MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCES,
   assertAgentRunStatusTransition,
   canTransitionAgentRunStatus,
   isAgentRunTerminalStatus,
@@ -14,6 +19,7 @@ import {
   normalizeAgentRunStepsState,
   validateCreateAgentRunInput,
   type AgentRunPlanStep,
+  type AgentRunStepState,
   type CreateAgentRunInput,
 } from './agentRunRecord.js';
 
@@ -170,6 +176,70 @@ describe('agent run component validation', () => {
     expect(() => normalizeAgentRunGoal("password = 'hunter2' please")).toThrow('AGENT_RUN_SECRET_CONTENT_BLOCKED');
     expect(normalizeAgentRunPriority(undefined)).toBe(0);
     expect(() => normalizeAgentRunPriority(101)).toThrow('AGENT_RUN_PRIORITY_INVALID');
+  });
+});
+
+describe('agent run step live detail (PR-L1)', () => {
+  const baseStep: AgentRunStepState = { id: 'task-1', status: 'completed', attempts: 1 };
+
+  it('round-trips a well-formed live detail unchanged', () => {
+    const liveDetail = {
+      startedAt: now - 12_000,
+      finishedAt: now,
+      query: '富士山の高さ',
+      sources: [
+        { title: '富士山の高さと登山情報', url: 'https://example.jp/fuji/', domain: 'example.jp', excerpt: '富士山は標高3,776m。' },
+      ],
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+  });
+
+  it('truncates the query, the source count and source text to the live caps', () => {
+    const liveDetail = {
+      query: 'q'.repeat(250),
+      sources: Array.from({ length: 5 }, () => ({
+        title: 't'.repeat(130),
+        url: `https://example.jp/${'u'.repeat(600)}`,
+        excerpt: 'e'.repeat(200),
+      })),
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.query).toHaveLength(MAX_AGENT_RUN_LIVE_QUERY_LENGTH);
+    expect(step?.liveDetail?.sources).toHaveLength(MAX_AGENT_RUN_LIVE_SOURCES);
+    expect(step?.liveDetail?.sources?.[0]?.title).toHaveLength(MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH);
+    expect(step?.liveDetail?.sources?.[0]?.url).toHaveLength(MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH);
+    expect(step?.liveDetail?.sources?.[0]?.excerpt).toHaveLength(MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH);
+  });
+
+  it('drops malformed live detail instead of rejecting the step state (fail-soft)', () => {
+    const [a] = normalizeAgentRunStepsState([
+      { ...baseStep, liveDetail: 'not-an-object' } as unknown as AgentRunStepState,
+    ]);
+    expect(a?.status).toBe('completed');
+    expect(a?.liveDetail).toBeUndefined();
+    const [b] = normalizeAgentRunStepsState([
+      {
+        ...baseStep,
+        liveDetail: {
+          sources: [
+            { title: 42, url: 'https://example.jp/1' },
+            { title: 'ok', url: 'https://example.jp/2' },
+          ],
+        },
+      } as unknown as AgentRunStepState,
+    ]);
+    expect(b?.liveDetail?.sources).toEqual([{ title: 'ok', url: 'https://example.jp/2' }]);
+    const [c] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: { startedAt: -5, query: '   ' } }]);
+    expect(c?.liveDetail).toBeUndefined();
+  });
+
+  it('reads pre-L1 step state (no live detail) unchanged', () => {
+    const legacy: AgentRunStepState[] = [
+      { id: 'task-1', status: 'completed', attempts: 2, summary: 'completed:web_search_grounding' },
+      { id: 'task-2', status: 'queued', attempts: 0 },
+    ];
+    expect(normalizeAgentRunStepsState(legacy)).toEqual(legacy);
   });
 });
 

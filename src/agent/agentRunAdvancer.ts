@@ -6,7 +6,19 @@ import { saveCheckpoint } from './checkpointManager.js';
 import { assertCanReportCompleted } from './taskExecutionGate.js';
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask } from './taskGraphExecutor.js';
-import type { AgentRunQuotaLedger, AgentRunRecord, AgentRunStepState, AgentRunStore } from './agentRunRecord.js';
+import {
+  MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCES,
+  MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
+  MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH,
+  type AgentRunQuotaLedger,
+  type AgentRunRecord,
+  type AgentRunStepLiveDetail,
+  type AgentRunStepState,
+  type AgentRunStore,
+} from './agentRunRecord.js';
+import { containsLikelySecret } from './safeFilePolicy.js';
 import {
   AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE,
   addAgentRunQuotaCharge,
@@ -119,6 +131,84 @@ export function textualArtifactOf(toolName: ToolName, artifact: string): string 
     } catch { return undefined; }
   }
   return undefined;
+}
+
+/**
+ * Extracts the live-view sources from a research step's artifact JSON
+ * (agent live view PR-L1, design §5.2). Fail-soft by construction: an
+ * unparseable artifact or an unexpected shape yields fewer (or no)
+ * sources, never an exception. Only public page material is taken —
+ * title, URL, domain and the excerpt the search pipeline returned,
+ * each truncated to the record caps — and any string that trips the
+ * likely-secret screen is dropped (the field, or the whole source when
+ * its title or URL trips) so the caller's progress write can never be
+ * blocked by a page excerpt.
+ */
+function liveSourcesFromArtifact(artifact: string | undefined): NonNullable<AgentRunStepLiveDetail['sources']> {
+  if (!artifact) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+  const rawSources = (parsed as { sources?: unknown }).sources;
+  if (!Array.isArray(rawSources)) return [];
+  const sources: NonNullable<AgentRunStepLiveDetail['sources']> = [];
+  for (const raw of rawSources) {
+    if (sources.length >= MAX_AGENT_RUN_LIVE_SOURCES) break;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue;
+    const candidate = raw as { title?: unknown; url?: unknown; domain?: unknown; excerpt?: unknown };
+    if (typeof candidate.title !== 'string' || typeof candidate.url !== 'string') continue;
+    const title = candidate.title.trim();
+    const url = candidate.url.trim();
+    if (!title || !url || containsLikelySecret(title) || containsLikelySecret(url)) continue;
+    const source: NonNullable<AgentRunStepLiveDetail['sources']>[number] = {
+      title: title.slice(0, MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH),
+      url: url.slice(0, MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH),
+    };
+    if (typeof candidate.domain === 'string' && candidate.domain.trim() && !containsLikelySecret(candidate.domain)) {
+      source.domain = candidate.domain.trim();
+    }
+    if (typeof candidate.excerpt === 'string' && candidate.excerpt.trim() && !containsLikelySecret(candidate.excerpt)) {
+      source.excerpt = candidate.excerpt.trim().slice(0, MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH);
+    }
+    sources.push(source);
+  }
+  return sources;
+}
+
+/**
+ * Builds the live-view detail for one executed step (agent live view
+ * PR-L1, design §5.2). Strictly fail-soft: any problem drops the whole
+ * detail (returning undefined) rather than the step's progress write.
+ * Timestamps are recorded for every step; the query and sources only
+ * for research steps — the query actually executed and the pages it
+ * actually returned. Prompts, credentials and tool internals never
+ * enter the record through here.
+ */
+export function buildStepLiveDetail(input: {
+  toolName: ToolName;
+  params: ToolParams;
+  artifact: string | undefined;
+  startedAt: number;
+  finishedAt: number;
+}): AgentRunStepLiveDetail | undefined {
+  try {
+    const detail: AgentRunStepLiveDetail = { startedAt: input.startedAt, finishedAt: input.finishedAt };
+    if (input.toolName === 'web_search_grounding') {
+      const query = typeof input.params.query === 'string' ? input.params.query.trim() : '';
+      if (query && !containsLikelySecret(query)) {
+        detail.query = query.slice(0, MAX_AGENT_RUN_LIVE_QUERY_LENGTH);
+      }
+      const sources = liveSourcesFromArtifact(input.artifact);
+      if (sources.length > 0) detail.sources = sources;
+    }
+    return detail;
+  } catch {
+    return undefined;
+  }
 }
 
 export type AgentRunToolRunner = (name: ToolName, input: ToolParams) => Promise<ToolResult>;
@@ -428,6 +518,7 @@ export async function advanceAgentRun(
       }
       const resolved = resolveStepParams(step, previousText);
       const stepParams = 'params' in resolved ? resolved.params : step.params;
+      const stepStartedAt = now();
       const execution = await executeNextTask(graph, async () => {
         if ('error' in resolved) return { ok: false, message: resolved.error };
         return runTool(step.toolName, stepParams);
@@ -444,6 +535,17 @@ export async function advanceAgentRun(
           : executionRecord.toolFailureMessage !== undefined
             ? toolFailureCodeFromMessage(executionRecord.toolFailureMessage)
             : 'ARTIFACT_VERIFICATION_FAILED';
+      // Live-view detail (PR-L1): built fail-soft from what this step
+      // actually did, and written with the same progress update as the
+      // step state itself — a live-detail problem can never cost the
+      // run its progress write.
+      const liveDetail = buildStepLiveDetail({
+        toolName: step.toolName,
+        params: stepParams,
+        artifact: executionRecord?.artifact,
+        startedAt: stepStartedAt,
+        finishedAt: now(),
+      });
       stepsState[index] = {
         id: `task-${index + 1}`,
         status: executionRecord?.status ?? 'failed',
@@ -451,6 +553,7 @@ export async function advanceAgentRun(
         ...(executionRecord?.status === 'completed'
           ? { artifactRef: `task-${index + 1}`, summary: `completed:${step.toolName}` }
           : { errorCode: failureCode }),
+        ...(liveDetail ? { liveDetail } : {}),
       };
       // Quota journaling (PR 1-D): a step that actually executed spent
       // its declared charge even when verification later fails (providers
