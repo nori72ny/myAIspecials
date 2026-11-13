@@ -303,6 +303,20 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   流用する。どちらも無ければ null。
 // - 「確認質問」等の節の項目は assumptions（前提・未確認事項）へ入れる。
 //   締め節に紛れた見出しのない末尾質問も assumptions へ振り分ける。
+//
+// 第3回本番失敗（2026-11-14）への対応（fix-3）:
+// - 行全体が1つの【…】だけからなる行は、括弧内が分類できた場合に限り
+//   節見出しとして扱う（【提案の要点】→ 要約、【前提・仮定】→ 前提）。
+//   分類できない【…】は従来どおり本文行のまま。
+// - 要約の要点は、主たる要約節で3点に満たない場合に限り、他の要約節の
+//   箇条書き・散文と、節化されなかった導入の【要点】ブロックの残りの文で
+//   逐語補給する（生成・言い換えはしない）。
+// - 導入からタイトルが得られない場合は、要約節の見出し文＋「のご提案」を
+//   タイトルとする。それも無い場合は従来どおり null。
+// - 締め節が散文のみで次のステップが空の場合、締めの本文を文単位で
+//   切り出し、依頼事項に使われた文と質問文を除いた残りを次のステップ
+//   とする（計画セクション流用の後段の受け皿）。
+// - 定型文・タイトルの生成では、見出し文中の【…】／（…）注記を除く。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -360,6 +374,15 @@ function classifyFreeformHeading(
     if (rule.pattern.test(heading)) return { kind: rule.kind, role: rule.role };
   }
   return null;
+}
+
+/** 見出し文中の【…】／（…）注記を取り除く（定型文・タイトル生成用）。 */
+function stripHeadingAnnotations(heading: string): string {
+  return heading
+    .replace(/【[^】]*】/g, '')
+    .replace(/（[^）]*）/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .trim();
 }
 
 /** 見出しだけが単独行になったラベル（確認質問／次のステップ等）の完全一致判定用。 */
@@ -538,6 +561,18 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         if (classified) heading = { ...classified, text: label };
       }
     }
+    if (!heading) {
+      // 行全体が1つの【…】だけからなる行は、括弧内が分類できた場合に限り
+      // 節見出しとして扱う（【提案の要点】→要約、【前提・仮定】→前提）。
+      // 【注意】【参考】等の分類できない【…】は従来どおり本文行に落とす
+      // ため、通常文の誤爆にはつながらない。
+      const bracket = plain.match(/^【([^】]+)】$/);
+      if (bracket) {
+        const inner = bracket[1].replace(/[：:]$/, '').trim();
+        const classified = classifyFreeformHeading(inner);
+        if (classified) heading = { ...classified, text: inner };
+      }
+    }
     if (heading) {
       startSection(heading.kind, heading.role, heading.text);
       continue;
@@ -566,6 +601,8 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     (section) => section.leadLines.length > 0 || section.bullets.length > 0,
   );
   if (contentSections.length < 3) return null;
+
+  const summarySection = contentSections.find((section) => section.kind === 'summary');
 
   // タイトル: 先頭行が短く（40字以内）「。」を含まない場合は、その行自体を
   // タイトルとして独立させる（タイトル行と次の文が連結されて壊れるのを防ぐ）。
@@ -600,12 +637,20 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     title = firstSentence.replace(/。$/, '').trim();
     subtitle = introBody.slice(firstSentence.length).replace(/。$/, '').trim();
   }
+  if (title === '') {
+    // タイトルのフォールバック: 導入が空（冒頭が【提案の要点】等の節から
+    // 始まる形）でタイトルが得られない場合に限り、要約節の見出し文
+    // （注記を除いた本体）＋「のご提案」をタイトルとする。
+    if (summarySection) {
+      const core = stripHeadingAnnotations(summarySection.heading);
+      if (core !== '') title = `${core}のご提案`;
+    }
+  }
   if (title === '') return null;
 
   // 要約: 要点は要約節の箇条書きから作る。3点未満しかない場合は、その節の
   // 散文を文単位で逐語切り出しして補う（1文80字を超える文は要点として
   // 採用しない）。それでも3点に満たなければ作らない。
-  const summarySection = contentSections.find((section) => section.kind === 'summary');
   if (!summarySection) return null;
   let summaryPoints = summarySection.bullets
     .map((entry) => stripEmphasis(entry))
@@ -619,6 +664,57 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       if (summaryPoints.length >= 3) break;
       summaryPoints = [...summaryPoints, sentence];
       usedProsePoints = true;
+    }
+  }
+  if (summaryPoints.length < 3) {
+    // 補給: 要約の実体が複数の要約節に分かれている形（冒頭の【提案の要点】
+    // 節＋「サービス概要」節など）では、他の要約節の箇条書き・散文から
+    // 逐語で補う。材料はすべて要約として分類された節の原文に限る。
+    for (const other of contentSections) {
+      if (summaryPoints.length >= 3) break;
+      if (other === summarySection || other.kind !== 'summary') continue;
+      for (const entry of other.bullets) {
+        if (summaryPoints.length >= 3) break;
+        const point = stripEmphasis(entry);
+        if (point !== '' && !summaryPoints.includes(point)) summaryPoints.push(point);
+      }
+      if (summaryPoints.length >= 3) break;
+      const otherProse = splitSentences(
+        other.leadLines.map((entry) => stripEmphasis(entry)).join(''),
+      ).filter((sentence) => [...sentence].length <= 80);
+      for (const sentence of otherProse) {
+        if (summaryPoints.length >= 3) break;
+        if (!summaryPoints.includes(sentence)) {
+          summaryPoints.push(sentence);
+          usedProsePoints = true;
+        }
+      }
+    }
+  }
+  if (summaryPoints.length < 3) {
+    // 補給（最終段）: 【提案の要点】＋同一行の散文のように、要点ブロックが
+    // 節化されず導入に残った形では、導入の残りの文から逐語で補う。
+    // タイトル・見出し文に使われた第1文は材料にしない。
+    const firstIntroRaw = introLines.length > 0 ? stripEmphasis(introLines[0]) : '';
+    const bracketLead = firstIntroRaw.match(/^【([^】]+)】/);
+    if (bracketLead && classifyFreeformHeading(bracketLead[1])?.kind === 'summary') {
+      const introSource = introLines
+        .map((entry) => stripEmphasis(entry))
+        .join('')
+        .replace(/^【[^】]*】/, '');
+      const candidates = splitSentences(introSource).filter(
+        (sentence) =>
+          [...sentence].length <= 80 &&
+          sentence.replace(/。$/, '') !== title &&
+          sentence !== introFirstSentence,
+      );
+      for (const sentence of candidates) {
+        if (summaryPoints.length >= 3) break;
+        if (!summaryPoints.includes(sentence)) {
+          summaryPoints.push(sentence);
+          usedProsePoints = true;
+        }
+      }
     }
   }
   if (summaryPoints.length < 3) return null;
@@ -642,7 +738,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       }
     }
     if (message === '') {
-      const core = section.heading.replace(/（[^）]*）\s*$/, '').trim();
+      const core = stripHeadingAnnotations(section.heading);
       message = `${core}は次のとおりです。`;
     }
     return {
@@ -685,6 +781,19 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         .map((entry) => stripEmphasis(entry))
         .filter((entry) => entry !== '');
     }
+  }
+  if (nextSteps.length === 0 && closingSection) {
+    // 締め節が散文のみの形への受け皿: 締めの本文を文単位で切り出し、
+    // 依頼事項に使われた文と質問文を除いた残りを次のステップとする
+    // （逐語切り出しのみで、生成・言い換えはしない）。
+    const askSentences = new Set(splitSentences(ask));
+    nextSteps = splitSentences(
+      closingSection.leadLines.map((entry) => stripEmphasis(entry)).join(''),
+    )
+      .filter(
+        (sentence) => !askSentences.has(sentence) && !FREEFORM_QUESTION_PATTERN.test(sentence),
+      )
+      .slice(0, 4);
   }
   if (nextSteps.length === 0) return null;
 
