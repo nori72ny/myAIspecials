@@ -279,15 +279,22 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   各セクションは任意のリード文＋箇条書き、末尾に「確認質問」のような質問節。
 //
 // 変換規則（すべて決定的・純関数）:
-// - セクション見出しは「連番であること＋役割キーワード一致＋40字以内＋
-//   コロン（：/:）を含まないこと」を全て満たす行だけを採用する。番号付きの
-//   箇条書き等を誤検出しないための歯止めで、条件を満たさない番号行は通常の
-//   箇条書きとして扱う。
-// - 役割への対応付けは見出し文のキーワードで行う（FREEFORM_KIND_RULES、上から優先）。
-// - タイトルは導入文の第1文、要約の見出し文も導入文の第1文（要約セクションに
-//   リード文があればそちらを優先）とする。残りの導入文は副題にする。
-// - 要約の要点は3点に切り詰める（4点目以降は費用・比較等の他セクションと
-//   重なる前提の、形式側の件数合わせ）。3点未満しかなければ null。
+// - セクション見出しは「連番であること＋40字以内＋コロン（：/:）を含まない
+//   こと」を満たす番号行を採用する。役割キーワードへの一致は受理条件にせず、
+//   一致しない見出しは other として保持する（1語の語彙ミスで後続セクション
+//   まで連鎖的に失うのを防ぐため）。誤爆は複合条件で抑える: 導入文がある
+//   こと、中身のある節が3件以上あること、要約と締めの核が揃うこと。
+// - markdown 見出しも取り込む（H1 はタイトル候補、H2 は先行番号を剥がして
+//   見出し候補）。markdown 表は箇条書きへ決定的に変換し、結論文の候補には
+//   しない。回答全体が単一のコードフェンスで囲われている場合は外枠を剥がす。
+// - 役割への対応付けは見出し文のキーワードで行う（FREEFORM_KIND_RULES、
+//   上から優先）。分類は括弧内の補足語を除いた見出し本体を優先する。
+// - タイトルは、導入の先頭行が短く「。」を含まない場合はその行自体を
+//   独立させ、それ以外は導入文の第1文とする。残りの導入文は副題にする
+//   （「Bottom line：」等のラベルは混ぜない）。
+// - 要約の要点は要約節の箇条書きを3点に切り詰める。3点未満しかない場合は
+//   その節の散文を文単位で逐語切り出しして補い（1文80字超は採用しない）、
+//   それでも3点未満なら null。
 // - 役割セクションの箇条書きは設計トークンの上限（4件）に切り詰める。
 // - 役割セクションの結論文（message）は、リード文 → 結論文らしい最初の箇条書き
 //   （その場合は箇条書きから外す）→ 見出し文からの定型文（「〜は次のとおりです。」）
@@ -295,6 +302,7 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 // - 締め（closing）の節が無い場合は、計画セクションの箇条書きを次のステップに
 //   流用する。どちらも無ければ null。
 // - 「確認質問」等の節の項目は assumptions（前提・未確認事項）へ入れる。
+//   締め節に紛れた見出しのない末尾質問も assumptions へ振り分ける。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -308,6 +316,8 @@ interface FreeformSection {
   leadLines: string[];
   /** 箇条書きの原文（出現順、強調記法を含む）。 */
   bullets: string[];
+  /** markdown 表の行（出現順）。後段で決定的に箇条書きへ変換する。 */
+  tableLines: string[];
 }
 
 /** 自由形式の見出し文 → 役割。配列の上から順に照合し、最初に一致したものを採る。 */
@@ -317,12 +327,14 @@ const FREEFORM_KIND_RULES: ReadonlyArray<{
   role?: string;
 }> = [
   { pattern: /確認質問|確認事項|質問事項|前提|未確認/, kind: 'assumptions' },
+  // 事例は「（簡易サマリー）」等の補足語で要約に誤分類されないよう、要約より先に照合する。
+  { pattern: /事例|導入実績|ケーススタディ/, kind: 'role', role: 'other' },
   { pattern: /要約|サマリー|要点|概要/, kind: 'summary' },
   { pattern: /次のステップ|次ステップ|締め/, kind: 'closing' },
   { pattern: /課題|問題|現状|悩み/, kind: 'role', role: 'challenge' },
   { pattern: /費用対効果|費用|価格|料金|コスト|ROI/, kind: 'role', role: 'cost' },
   { pattern: /計画|ステップ|スケジュール|進め方|ロードマップ/, kind: 'role', role: 'plan' },
-  { pattern: /価値|メリット|ベネフィット|強み|効果/, kind: 'role', role: 'value' },
+  { pattern: /価値|メリット|ベネフィット|強み|効果|特長|特徴/, kind: 'role', role: 'value' },
   { pattern: /比較|競合/, kind: 'role', role: 'other' },
   {
     pattern: /解決|ソリューション|機能|提案内容|提供内容|サービス内容|アプローチ/,
@@ -334,6 +346,16 @@ const FREEFORM_KIND_RULES: ReadonlyArray<{
 function classifyFreeformHeading(
   heading: string,
 ): { kind: FreeformSectionKind; role?: string } | null {
+  // 括弧内の補足語（「（簡易サマリー）」「（参考例）」等）で本体の分類が
+  // 上書きされないよう、まず括弧を除いた見出し本体で照合し、一致しない
+  // 場合に限り見出し文全体でも照合する。
+  const core = heading
+    .replace(/（[^）]*）/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .trim();
+  for (const rule of FREEFORM_KIND_RULES) {
+    if (core !== '' && rule.pattern.test(core)) return { kind: rule.kind, role: rule.role };
+  }
   for (const rule of FREEFORM_KIND_RULES) {
     if (rule.pattern.test(heading)) return { kind: rule.kind, role: rule.role };
   }
@@ -359,18 +381,89 @@ function toHalfWidthDigits(text: string): string {
   return text.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
 }
 
+/**
+ * 回答全体が単一のコードフェンスで囲われている場合だけ、その外枠を剥がす
+ * （Gemma 系モデルが回答全体を ```markdown ... ``` で囲って返す癖への対応）。
+ * 内部に別のフェンスを含む場合は「単一のフェンス」とみなさず何もしない。
+ */
+function stripWholeTextCodeFence(markdown: string): string {
+  const lines = markdown.trim().split('\n');
+  if (lines.length < 3) return markdown;
+  if (!/^\s*```/.test(lines[0])) return markdown;
+  if (lines[lines.length - 1].trim() !== '```') return markdown;
+  const inner = lines.slice(1, -1);
+  if (inner.some((line) => /^\s*```/.test(line))) return markdown;
+  return inner.join('\n');
+}
+
+/** 散文を文（。区切り）単位に分割する。切り出しのみで、生成・言い換えはしない。 */
+function splitSentences(text: string): string[] {
+  return (text.match(/[^。]+。?/g) ?? [])
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence !== '' && sentence !== '。');
+}
+
+/** 導入文の先頭にある「Bottom line：」等のラベルを取り除く（本文は残す）。 */
+function stripLeadingLabel(text: string): string {
+  return text.replace(/^\s*Bottom line\s*[：:]\s*/i, '');
+}
+
+/** 質問文の判定（締め節へ紛れた末尾質問を前提・未確認事項へ振り分けるため）。 */
+const FREEFORM_QUESTION_PATTERN =
+  /[？?]\s*$|教えてください|お聞かせください|ご教示ください|でしょうか/;
+
+/** markdown 表の1行をセル文字列の配列にする。 */
+function parseTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => stripEmphasis(cell));
+}
+
+function isTableSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((cell) => /^:?-+:?$/.test(cell));
+}
+
+/**
+ * markdown 表を決定的に箇条書きへ変換する（lead = 第1セル、detail = 残りセルを
+ * 「：」で連結）。区切り行（---）は除き、区切り行がある表では先頭のヘッダ行
+ * （列名）もデータではないため除く。表の行は結論文の候補には決してならない。
+ */
+function tableLinesToBullets(tableLines: string[]): string[] {
+  const rows = tableLines
+    .map(parseTableRow)
+    .filter((cells) => cells.some((cell) => cell !== ''));
+  const hasSeparator = rows.some(isTableSeparatorRow);
+  const bullets: string[] = [];
+  rows.forEach((cells, index) => {
+    if (isTableSeparatorRow(cells)) return;
+    if (hasSeparator && index === 0) return;
+    const [lead, ...rest] = cells;
+    if (!lead) return;
+    bullets.push(rest.length > 0 ? `${lead}：${rest.join('：')}` : lead);
+  });
+  return bullets;
+}
+
 function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput | null {
   if (typeof markdown !== 'string' || markdown.trim() === '') return null;
 
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  const source = stripWholeTextCodeFence(markdown);
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
   const introLines: string[] = [];
   const sections: FreeformSection[] = [];
   let current: FreeformSection | null = null;
   let expectedNumber = 1;
   let inFence = false;
+  // markdown 見出しで節が作られた文書は骨格形式の試みとみなし、締めの
+  // 代替（計画セクションの流用）を適用しない（strict の必須アンカーを
+  // フォールバック側で緩めないため）。
+  let usedMarkdownHeadings = false;
 
   const startSection = (kind: FreeformSectionKind, role: string | undefined, heading: string) => {
-    current = { kind, role, heading, leadLines: [], bullets: [] };
+    current = { kind, role, heading, leadLines: [], bullets: [], tableLines: [] };
     sections.push(current);
   };
 
@@ -381,21 +474,54 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       continue;
     }
     if (inFence) continue;
-    // Markdown 見出し行は厳格パーサーの領域。フォールバックでは混ぜない。
+
+    // markdown 見出し: H1 はタイトル候補として導入へ、H2 は先行番号を剥がして
+    // セクション見出し候補として取り込む（strict で読めた場合はそちらが優先
+    // されるため、ここに来るのは strict で読めなかった回答だけ）。
+    const mdH1 = line.match(/^#\s+(.+)$/);
+    if (mdH1) {
+      introLines.push(mdH1[1].replace(/\s+#+\s*$/, '').trim());
+      continue;
+    }
+    const mdH2 = line.match(/^##\s+(.+)$/);
+    if (mdH2) {
+      const headingText = stripEmphasis(mdH2[1].replace(/\s+#+\s*$/, '').trim())
+        .replace(/^\d{1,2}\s*[.．)）]\s*/, '')
+        .trim();
+      if (headingText !== '' && [...headingText].length <= 40 && !/[：:]/.test(headingText)) {
+        const classified = classifyFreeformHeading(headingText);
+        startSection(classified?.kind ?? 'role', classified?.role ?? 'other', headingText);
+        usedMarkdownHeadings = true;
+      }
+      continue;
+    }
     if (/^\s*#/.test(line)) continue;
 
     const text = line.trim();
     if (text === '') continue;
     const plain = stripEmphasis(text);
 
+    // markdown 表の行はセクションに貯め、後段で箇条書きへ変換する。
+    // 本文行（leadLines）には入れないため、結論文の候補にはならない。
+    if (text.startsWith('|')) {
+      if (current) current.tableLines.push(text);
+      continue;
+    }
+
     // 見出し判定（番号付き → 太字単独行 → ラベル完全一致、の順）。
     let heading: { kind: FreeformSectionKind; role?: string; text: string } | null = null;
     const numbered = toHalfWidthDigits(plain).match(/^(\d{1,2})\s*[.．)）]\s*(.+)$/);
     if (numbered && Number.parseInt(numbered[1], 10) === expectedNumber) {
       const headingText = numbered[2].trim();
-      const classified = classifyFreeformHeading(headingText);
-      if (classified && [...headingText].length <= 40 && !/[：:]/.test(headingText)) {
-        heading = { ...classified, text: headingText };
+      if ([...headingText].length <= 40 && !/[：:]/.test(headingText)) {
+        // 分類できることは受理条件にしない（1語の語彙ミスで連番が崩壊し、
+        // 後続セクションまで連鎖的に失う構造的な弱さへの対策）。分類できない
+        // 見出しは other として保持し、構造条件（導入・節数・中身の有無・
+        // 要約と締めの核）は後段の判定で担保する。
+        const classified = classifyFreeformHeading(headingText);
+        heading = classified
+          ? { ...classified, text: headingText }
+          : { kind: 'role', role: 'other', text: headingText };
         expectedNumber += 1;
       }
     }
@@ -427,31 +553,83 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     else introLines.push(text);
   }
 
-  // タイトル: 導入文の第1文（【…】のマーカーは除く）。残りは副題。
-  const introBody = introLines
-    .map((entry) => stripEmphasis(entry))
-    .join('')
-    .replace(/^【[^】]*】/, '');
-  const firstSentenceMatch = introBody.match(/^[^。]*。/);
-  const firstSentence = firstSentenceMatch ? firstSentenceMatch[0] : introBody;
-  const title = firstSentence.replace(/。$/, '').trim();
-  if (title === '') return null;
-  const subtitle = introBody.slice(firstSentence.length).replace(/。$/, '').trim();
+  // markdown 表は箇条書きへ変換してから、構造条件を判定する。
+  for (const section of sections) {
+    if (section.tableLines.length > 0) {
+      section.bullets.push(...tableLinesToBullets(section.tableLines));
+    }
+  }
+  // 見出しだけで中身のない節は落とす。残った節が3件未満なら、見出し構造が
+  // 成立していないものとして作らない（番号付き手順リスト等の誤爆防止の
+  // 複合条件: 導入文＋節3件以上＋各節に中身があること）。
+  const contentSections = sections.filter(
+    (section) => section.leadLines.length > 0 || section.bullets.length > 0,
+  );
+  if (contentSections.length < 3) return null;
 
-  // 要約: 要点系セクションの箇条書きを3点に切り詰める。3点未満は作らない。
-  const summarySection = sections.find((section) => section.kind === 'summary');
+  // タイトル: 先頭行が短く（40字以内）「。」を含まない場合は、その行自体を
+  // タイトルとして独立させる（タイトル行と次の文が連結されて壊れるのを防ぐ）。
+  // それ以外は従来どおり導入文の第1文をタイトルとし、残りを副題にする。
+  // 「Bottom line：」等のラベルはタイトルにも副題にも混ぜず、本文として扱う。
+  const introTexts = introLines.map((entry) => stripEmphasis(entry));
+  if (introTexts.length > 0) {
+    introTexts[0] = introTexts[0].replace(/^【[^】]*】/, '');
+  }
+  let title = '';
+  let subtitle = '';
+  let introFirstSentence = '';
+  const firstIntroLine = introTexts[0] ?? '';
+  const restIntroText = introTexts.slice(1).join('');
+  if (
+    firstIntroLine !== '' &&
+    [...firstIntroLine].length <= 40 &&
+    !firstIntroLine.includes('。') &&
+    restIntroText !== ''
+  ) {
+    title = firstIntroLine.trim();
+    const restFirstSentenceMatch = restIntroText.match(/^[^。]*。/);
+    introFirstSentence = stripLeadingLabel(
+      restFirstSentenceMatch ? restFirstSentenceMatch[0] : restIntroText,
+    );
+    subtitle = stripLeadingLabel(restIntroText).replace(/。$/, '').trim();
+  } else {
+    const introBody = introTexts.join('');
+    const firstSentenceMatch = introBody.match(/^[^。]*。/);
+    const firstSentence = firstSentenceMatch ? firstSentenceMatch[0] : introBody;
+    introFirstSentence = firstSentence;
+    title = firstSentence.replace(/。$/, '').trim();
+    subtitle = introBody.slice(firstSentence.length).replace(/。$/, '').trim();
+  }
+  if (title === '') return null;
+
+  // 要約: 要点は要約節の箇条書きから作る。3点未満しかない場合は、その節の
+  // 散文を文単位で逐語切り出しして補う（1文80字を超える文は要点として
+  // 採用しない）。それでも3点に満たなければ作らない。
+  const summarySection = contentSections.find((section) => section.kind === 'summary');
   if (!summarySection) return null;
-  const summaryPoints = summarySection.bullets
+  let summaryPoints = summarySection.bullets
     .map((entry) => stripEmphasis(entry))
     .filter((entry) => entry !== '');
+  let usedProsePoints = false;
+  if (summaryPoints.length < 3) {
+    const proseSentences = splitSentences(
+      summarySection.leadLines.map((entry) => stripEmphasis(entry)).join(''),
+    ).filter((sentence) => [...sentence].length <= 80);
+    for (const sentence of proseSentences) {
+      if (summaryPoints.length >= 3) break;
+      summaryPoints = [...summaryPoints, sentence];
+      usedProsePoints = true;
+    }
+  }
   if (summaryPoints.length < 3) return null;
-  const summaryHeadline =
-    summarySection.leadLines.length > 0
+  const summaryHeadline = usedProsePoints
+    ? introFirstSentence.trim()
+    : summarySection.leadLines.length > 0
       ? stripEmphasis(summarySection.leadLines[0])
-      : firstSentence.trim();
+      : introFirstSentence.trim();
 
   // 役割セクション: 結論文を決め、箇条書きを上限4件に切り詰める。
-  const roleSections = sections.filter((section) => section.kind === 'role');
+  const roleSections = contentSections.filter((section) => section.kind === 'role');
   if (roleSections.length === 0) return null;
   const builtSections: ProposalDeckSectionInput[] = roleSections.map((section) => {
     let message = section.leadLines.length > 0 ? stripEmphasis(section.leadLines[0]) : '';
@@ -477,7 +655,8 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   // 締め: 締め節があればそこから、無ければ計画セクションの箇条書きを流用する。
   let ask = '';
   let nextSteps: string[] = [];
-  const closingSection = sections.find((section) => section.kind === 'closing');
+  const closingQuestions: string[] = [];
+  const closingSection = contentSections.find((section) => section.kind === 'closing');
   if (closingSection) {
     const absorb = (raw: string, isBullet: boolean) => {
       const body = stripEmphasis(raw);
@@ -487,13 +666,19 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         if (ask === '') ask = askMatch[1].trim();
         return;
       }
+      // 見出しのない末尾質問は、締めの依頼事項や次のステップに混ぜず、
+      // 前提・未確認事項へ振り分ける。
+      if (FREEFORM_QUESTION_PATTERN.test(body)) {
+        closingQuestions.push(body);
+        return;
+      }
       if (isBullet) nextSteps.push(body);
       else if (ask === '') ask = body;
     };
     for (const entry of closingSection.leadLines) absorb(entry, false);
     for (const entry of closingSection.bullets) absorb(entry, true);
   }
-  if (nextSteps.length === 0) {
+  if (nextSteps.length === 0 && !usedMarkdownHeadings) {
     const planSection = roleSections.find((section) => section.role === 'plan');
     if (planSection) {
       nextSteps = planSection.bullets
@@ -505,11 +690,12 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
 
   // 前提・未確認事項: 確認質問等の節の項目をすべて集める。
   const assumptions: string[] = [];
-  for (const section of sections) {
+  for (const section of contentSections) {
     if (section.kind !== 'assumptions') continue;
     for (const entry of section.bullets) assumptions.push(stripEmphasis(entry));
     for (const entry of section.leadLines) assumptions.push(stripEmphasis(entry));
   }
+  for (const question of closingQuestions) assumptions.push(question);
 
   const input: ProposalDeckInput = {
     title,
