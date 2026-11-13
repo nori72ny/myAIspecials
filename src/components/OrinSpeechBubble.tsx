@@ -1,25 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
+import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
+import type { OriginLanguage } from '../i18n';
 
 /**
- * 常駐オリンの吹き出し（待ち表示の仕様修正、2026-11-13 22:03 ノリ指示。
- * 設計正本：~/workspace/origin-fix/ORIN_WAITING_DISPLAY_REVISION_2026-11-13.md）。
+ * オリンの作業中プレゼンス（2026-11-14 ノリ指示、Muse アプリの
+ * 作業中表示のスクリーンショットで確定）。
  *
- * 全体画面ステージ（PR-δ1）は本番の待ち表示から外し、代わりに画面
- * 上部中央の常駐オリンが吹き出しで今の段階を一文で伝える。会話画面は
- * 切り替わらず、会話内の1行待ち表示もこの吹き出しに一本化する
- * （二重表示にしない）。
+ * 作業中は、ヘッダーの小さい常駐オリンに代えて、画面上部中央に
+ * 大きなオリン（台座リング付き・約104px）を会話の上に重ねて出し、
+ * 真下に名前「オリン」、その下に現在の作業を平易な一文で示す
+ * 濃色ピルを出す。旧来の白枠吹き出し（2026-11-13、PR #1249）は
+ * この表示に置き換え、二重表示にしない。
  *
- * 文言は新しいものを作らず既存の正本（waitingText／researchStageText／
- * imagePhaseText）を使う。段階→文の対応は resolveOrinBubbleText の
- * 1表に集約し、旧ステージの対応表と同じ優先順位を保つ。表記は1行
- * 表示側の既存文（末尾の「…」付き）に寄せる。
+ * 状態文の正本は従来どおり：段階→文の対応は resolveOrinBubbleText
+ * の1表に集約し、文そのものは App 側で既存正本（waitingText／
+ * researchStageText／imagePhaseText／完了・失敗キュー）から組み
+ * 立てられたものをそのまま使う。表示条件（作業中だけ出す・回答が
+ * 流れ始めたら引っ込む・完了／失敗キューは既存の尺だけ出す・
+ * 「いまの作業」シートが開いている間は隠す）も App 側の従来判定
+ * （bubbleText）がそのまま担う。
  *
- * 動きはフェードイン／アウトのみ。prefers-reduced-motion では
- * フェード自体を無くす（即時表示・即時消去）。
+ * 姿は App 側の状態集約（headerCatState）をそのまま流用する：
+ * working 状態では既存の動画アセットで動き、それ以外は状態別の
+ * 静止画。prefers-reduced-motion では動画を使わず静止画にし、
+ * 出現／消去のフェードと拡縮も無くす（即時表示・即時消去）。
+ * ヘッダーの常駐オリンの静かな呼吸の上限はここには適用しない
+ * （これは作業中だけの表示）。
  */
 
-/** 吹き出しのフェード（イン／アウト共通）の尺。 */
+/** プレゼンスの出現／消去トランジションの尺。 */
 export const ORIN_BUBBLE_FADE_MS = 180;
+
+/** 大きなオリンの絵の寸法（px）。台座の外径はこの約1.08倍になる。 */
+export const ORIN_OVERLAY_CAT_SIZE_PX = 96;
+/** 台座込みの外径（px）。絵96px＋片側リング4px＝104px。 */
+export const ORIN_OVERLAY_PEDESTAL_SIZE_PX = 104;
 
 export interface OrinBubbleSignals {
   imagePhase: 'designing' | 'drawing' | 'checking' | null;
@@ -35,7 +50,7 @@ export interface OrinBubbleTexts {
 }
 
 /**
- * 段階→吹き出し文の対応表。旧ステージ（resolveOrinStageDisplay）と
+ * 段階→状態文の対応表。旧ステージ（resolveOrinStageDisplay）と
  * 同じ優先順位：画像生成 → 調査 → ストリーム段階 → 送信中。
  * 各段階の文そのものは App 側で既存正本から組み立てられたものを
  * そのまま使う（この表は文を作らない）。
@@ -68,27 +83,46 @@ function usePrefersReducedMotion(): boolean {
 }
 
 export interface OrinSpeechBubbleProps {
-  /** 表示する一文。null の間は吹き出しを出さない。 */
+  /** 表示する状態文。null の間はプレゼンスを出さない。 */
   text: string | null;
+  /** オリンの姿（App 側の状態集約 headerCatState をそのまま渡す）。 */
+  state: OriginCatStateKind;
+  /** 名前のロケール（ja: オリン / en: Orin）。 */
+  language: OriginLanguage;
+  /** タップで「いまの作業」シートを開く（ヘッダーのオリンと同じ動作）。 */
+  onOpenWorkSheet: () => void;
+  /** 「いまの作業」シートが開いている間は即時に隠す。 */
+  hidden?: boolean;
 }
 
-export default function OrinSpeechBubble({ text }: OrinSpeechBubbleProps) {
+interface RenderedPresence {
+  text: string;
+  state: OriginCatStateKind;
+}
+
+export default function OrinSpeechBubble({ text, state, language, onOpenWorkSheet, hidden = false }: OrinSpeechBubbleProps) {
   const reduced = usePrefersReducedMotion();
-  const [renderedText, setRenderedText] = useState<string | null>(null);
+  const [rendered, setRendered] = useState<RenderedPresence | null>(null);
   const [revealed, setRevealed] = useState(false);
-  const renderedRef = useRef<string | null>(null);
-  renderedRef.current = renderedText;
+  const renderedRef = useRef<RenderedPresence | null>(null);
+  renderedRef.current = rendered;
 
   useEffect(() => {
+    if (hidden) {
+      // シートが開いたら競合させない：フェードを待たず即時に隠す。
+      setRendered(null);
+      setRevealed(false);
+      return;
+    }
     if (text !== null) {
       const wasHidden = renderedRef.current === null;
-      setRenderedText(text);
+      setRendered({ text, state });
       if (!wasHidden || reduced) {
         // 段階の切り替わりでは点滅させない。reduced-motion では即時表示。
         setRevealed(true);
         return;
       }
-      // 出現時のみフェードインする。
+      // 出現時のみフェード＋わずかな拡縮で出す。
       setRevealed(false);
       const frame = window.requestAnimationFrame(() => setRevealed(true));
       return () => window.cancelAnimationFrame(frame);
@@ -97,25 +131,36 @@ export default function OrinSpeechBubble({ text }: OrinSpeechBubbleProps) {
     // 消去はフェードアウトのあとにアンマウントする。
     setRevealed(false);
     if (reduced) {
-      setRenderedText(null);
+      setRendered(null);
       return;
     }
-    const timer = window.setTimeout(() => setRenderedText(null), ORIN_BUBBLE_FADE_MS);
+    const timer = window.setTimeout(() => setRendered(null), ORIN_BUBBLE_FADE_MS);
     return () => window.clearTimeout(timer);
-  }, [text, reduced]);
+  }, [text, state, reduced, hidden]);
 
-  if (renderedText === null) return null;
+  if (hidden || rendered === null) return null;
 
+  const ja = language !== 'en';
   return (
     <div
-      className="origin-orin-bubble"
-      data-testid="origin-orin-bubble"
+      className={`origin-orin-overlay${revealed ? ' is-visible' : ''}`}
+      data-testid="origin-orin-overlay"
       style={{ opacity: revealed ? 1 : 0 }}
     >
-      <div className="origin-orin-bubble-body" role="status" aria-live="polite">
-        <span className="origin-orin-bubble-tail" aria-hidden="true" />
-        {renderedText}
-      </div>
+      <button
+        type="button"
+        className="origin-orin-overlay__tap"
+        onClick={onOpenWorkSheet}
+        aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
+      >
+        <OriginCatState state={rendered.state} size={ORIN_OVERLAY_CAT_SIZE_PX} pedestal />
+        <span className="origin-orin-overlay__name" data-testid="origin-orin-overlay-name">
+          {ja ? 'オリン' : 'Orin'}
+        </span>
+        <span className="origin-orin-overlay__pill" data-testid="origin-orin-overlay-status" role="status" aria-live="polite">
+          {rendered.text}
+        </span>
+      </button>
     </div>
   );
 }
