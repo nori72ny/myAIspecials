@@ -111,6 +111,7 @@ describe("executeOriginProviderWithFailover", () => {
       modelId: ORIGIN_OPENROUTER_FREE_MODEL,
       outcome: "succeeded",
       transportRequestCount: 1,
+      durationMs: expect.any(Number),
     }]);
     expect(cloudflareExecute).not.toHaveBeenCalled();
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -132,12 +133,14 @@ describe("executeOriginProviderWithFailover", () => {
         outcome: "availability-error",
         errorCode: "PROVIDER_RATE_LIMITED",
         transportRequestCount: 1,
+        durationMs: expect.any(Number),
       },
       {
         providerId: "cloudflare-workers-ai-free",
         modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
         outcome: "succeeded",
         transportRequestCount: 4,
+        durationMs: expect.any(Number),
       },
     ]);
     const cloudflareRequest = cloudflareExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
@@ -165,6 +168,7 @@ describe("executeOriginProviderWithFailover", () => {
         outcome: "availability-error",
         errorCode: "PROVIDER_RATE_LIMITED",
         transportRequestCount: 1,
+        durationMs: expect.any(Number),
       },
       {
         providerId: "cloudflare-workers-ai-free",
@@ -193,6 +197,7 @@ describe("executeOriginProviderWithFailover", () => {
         outcome: "availability-error",
         errorCode: "PROVIDER_RATE_LIMITED",
         transportRequestCount: 1,
+        durationMs: expect.any(Number),
       },
       {
         providerId: "cloudflare-workers-ai-free",
@@ -391,12 +396,14 @@ describe("primary attempt budget", () => {
         outcome: "availability-error",
         errorCode: "PROVIDER_TIMEOUT",
         transportRequestCount: 0,
+        durationMs: expect.any(Number),
       },
       {
         providerId: "cloudflare-workers-ai-free",
         modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
         outcome: "succeeded",
         transportRequestCount: 4,
+        durationMs: expect.any(Number),
       },
     ]);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -567,6 +574,24 @@ describe("chat total time budget", () => {
     expect(signals).toHaveLength(1);
     expect(signals[0]?.aborted).toBe(true);
   });
+
+  it("applies no third-route reserve while the Groq route is not configured: the second route keeps the full remaining budget (PKG-4 PR-1)", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const startedAt = Date.now();
+    const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+    }).catch((caught: unknown) => caught);
+    const elapsedMs = Date.now() - startedAt;
+    expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
+    // enabledEnv carries no GROQ_API_KEY, so no reserve is held back: the second
+    // route waits out the whole remaining budget (~300ms) instead of being cut
+    // immediately by the 10s reserve, and its attempt records that duration.
+    expect(elapsedMs).toBeGreaterThanOrEqual(250);
+    expect(elapsedMs).toBeLessThan(1_500);
+    const attempts = (error as OriginProviderError).diagnostic?.failoverAttempts;
+    expect(attempts?.[1]?.durationMs).toBeGreaterThanOrEqual(250);
+  });
 });
 
 describe("primary circuit breaker", () => {
@@ -601,6 +626,7 @@ describe("primary circuit breaker", () => {
         modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
         outcome: "succeeded",
         transportRequestCount: 4,
+        durationMs: expect.any(Number),
       },
     ]);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(second, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
