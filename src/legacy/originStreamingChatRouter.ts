@@ -14,6 +14,13 @@ import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
 import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
+  buildProposalDeckChatArtifact,
+  isProposalDeckChatRequest,
+  PROPOSAL_DECK_FAILURE_NOTE,
+  PROPOSAL_DECK_SKELETON_INSTRUCTION,
+} from "./originProposalDeckChat.js";
+import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
+import {
   detectSensitiveConversation,
   isOriginWeatherRequest,
   originClientPolicy,
@@ -109,6 +116,13 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     try {
       const intentInput = originIntentInputFromContext(contextResult.window.messages);
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType);
+      // PR-3a: proposal/presentation requests additionally carry the fixed
+      // deck skeleton in the (routes 1-2) system instruction so the single
+      // ordinary generation can be converted into a deck afterwards. The
+      // compact Groq instruction is deliberately left untouched (its
+      // 2,000-3,000 character budget is a hard contract); a route-3 answer
+      // simply will not match the skeleton and produces no file.
+      const deckRequested = isProposalDeckChatRequest(requestIntent, intentInput);
       const workPlan = buildOriginAgentWorkPlan(requestIntent);
       const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
       const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage);
@@ -128,7 +142,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           workPlan,
           resolvedPlan,
           originAnswerQualityInstruction(answerQualityPolicy),
-        ),
+        ) + (deckRequested ? `\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}` : ""),
         groqSystemInstruction: originGroqRouteSystemInstruction(),
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
@@ -170,6 +184,26 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // count truncation rates, and the completion event carries the flag so
       // the client keeps the displayed partial text and appends the explicit
       // incomplete notice instead of treating the answer as finished.
+      // PR-3a: for a proposal-deck request, convert the finished answer into
+      // a PPTX artifact deterministically (skeleton parse → build → self-check
+      // → render; no extra model call, $0). On any failure no file is attached
+      // and a short note rides as a final delta instead, so the user can tell
+      // the file was not produced. The artifact payload matches the
+      // Supervisor/parseOriginArtifacts contract verbatim and is added as the
+      // last key of the completion event; non-deck completions stay
+      // byte-identical to before.
+      let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
+      let deckFailureCode: string | undefined;
+      let deckViolationCodes: readonly string[] | undefined;
+      if (deckRequested) {
+        const outcome = buildProposalDeckChatArtifact(result.text);
+        if (outcome.status === "created") {
+          deckArtifact = outcome.artifact;
+        } else {
+          deckFailureCode = outcome.failureCode;
+          deckViolationCodes = outcome.violationCodes;
+        }
+      }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
@@ -177,7 +211,13 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
         truncated: result.truncated === true,
+        proposalDeck: deckRequested ? (deckArtifact ? "created" : "failed") : "not-requested",
+        ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
+        ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
       });
+      if (deckRequested && !deckArtifact) {
+        res.write(`data: ${JSON.stringify({ type: "delta", text: PROPOSAL_DECK_FAILURE_NOTE })}\n\n`);
+      }
       res.write(`data: ${JSON.stringify({
         type: "complete",
         modelId: planningResult.plan.modelId,
@@ -185,6 +225,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: result.routingEvidence.fallbackUsed,
         ...(result.truncated === true ? { truncated: true } : {}),
+        ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");
       return;
