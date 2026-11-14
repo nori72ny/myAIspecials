@@ -556,6 +556,37 @@ describe("classifyOriginDomainTier", () => {
     expect(classifyOriginDomainTier("")).toBe("general");
     expect(classifyOriginDomainTier("::not-a-domain::")).toBe("general");
   });
+
+  it("keeps vendor bare hosts and product surfaces official (I-2)", () => {
+    expect(classifyOriginDomainTier("google.com")).toBe("official");
+    expect(classifyOriginDomainTier("www.google.com")).toBe("official");
+    expect(classifyOriginDomainTier("store.google.com")).toBe("official");
+    expect(classifyOriginDomainTier("support.google.com")).toBe("official");
+    expect(classifyOriginDomainTier("apple.com")).toBe("official");
+    expect(classifyOriginDomainTier("support.apple.com")).toBe("official");
+    expect(classifyOriginDomainTier("shop.samsung.com")).toBe("official");
+    expect(classifyOriginDomainTier("help.openai.com")).toBe("official");
+    expect(classifyOriginDomainTier("support.mozilla.org")).toBe("official");
+  });
+
+  it("does not let developer / cloud / docs subdomains inherit the vendor's official tier (I-2)", () => {
+    // Production fixture (2026-11-15): both hosts below carried the top
+    // tier into a price packet whose question they did not answer.
+    expect(classifyOriginDomainTier("developers.google.com")).toBe("general");
+    expect(classifyOriginDomainTier("cloud.google.com")).toBe("general");
+    expect(classifyOriginDomainTier("developer.apple.com")).toBe("general");
+    expect(classifyOriginDomainTier("docs.microsoft.com")).toBe("general");
+    expect(classifyOriginDomainTier("learn.microsoft.com")).toBe("general");
+    expect(classifyOriginDomainTier("store.google.com.evil.com")).toBe("general");
+  });
+
+  it("keeps public-sector suffixes official without matching lookalikes", () => {
+    expect(classifyOriginDomainTier("go.jp")).toBe("official");
+    expect(classifyOriginDomainTier("kantei.go.jp")).toBe("official");
+    expect(classifyOriginDomainTier("city.example.lg.jp")).toBe("official");
+    expect(classifyOriginDomainTier("fakego.jp")).toBe("general");
+    expect(classifyOriginDomainTier("go.jp.evil.com")).toBe("general");
+  });
 });
 
 describe("searchTavilySources", () => {
@@ -596,6 +627,133 @@ describe("searchTavilySources", () => {
     expect(body.topic).toBe("general");
     expect(body.time_range).toBe("month");
     expect(body.include_answer).toBe(false);
+  });
+
+  it("requests 10 results by default (I-3) and honors an explicit override", async () => {
+    const fixture = {
+      results: [
+        {
+          title: "iPhone 17 - Apple",
+          url: "https://www.apple.com/jp/iphone-17/",
+          content: "iPhone 17の価格は128,800円から。",
+          score: 0.91,
+        },
+      ],
+    };
+    const { fetchImpl, calls } = routedFetch([
+      { match: "api.tavily.com/search", respond: () => fixture },
+    ]);
+    await searchTavilySources("iPhone 最新 価格", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: "month",
+    });
+    const defaultBody = JSON.parse(calls[0]?.init?.body ?? "{}") as Record<string, unknown>;
+    expect(defaultBody.max_results).toBe(10);
+    await searchTavilySources("iPhone 最新 価格", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: "month",
+      maxResults: 3,
+    });
+    const overrideBody = JSON.parse(calls[1]?.init?.body ?? "{}") as Record<string, unknown>;
+    expect(overrideBody.max_results).toBe(3);
+  });
+
+  // Production fixture (2026-11-15, recon §1): for the price question
+  // "Google Pixel 10の価格を教えてください" the packet contained only
+  // these two vendor pages — a structured-data doc and a botnet article —
+  // and no price information at all.
+  const PIXEL_OFF_TOPIC_RESULTS = [
+    {
+      title: "構造化データのマークアップについて | Google 検索セントラル",
+      url: "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data",
+      content: "構造化データを追加すると、検索結果にリッチリザルトを表示できます。schema.org の語彙でページの意味を Google に伝え、検索エンジンが内容を理解しやすくします。",
+      score: 0.82,
+    },
+    {
+      title: "Google Cloud が XCPE ボットネットの拡散を観測",
+      url: "https://cloud.google.com/blog/topics/threat-intelligence/xcpe-botnet",
+      content: "感染した端末を踏み台にする大規模なボットネットの活動を観測しました。クラウドの監視体制と防御策について解説します。",
+      score: 0.77,
+    },
+  ];
+  const PIXEL_ON_TOPIC_RESULTS = [
+    {
+      title: "Google Pixel 10 - Google ストア",
+      url: "https://store.google.com/jp/product/pixel_10",
+      content: "Google Pixel 10 の価格は124,800円から。公式ストアで購入できます。",
+      score: 0.93,
+      published_date: "2026-11-01T00:00:00.000Z",
+    },
+    {
+      title: "Google Pixel 10 の価格・スペック比較",
+      url: "https://kakaku.com/item/google-pixel-10/",
+      content: "Google Pixel 10 の最安価格とスペックを掲載。価格推移も確認できます。",
+      score: 0.88,
+      published_date: "2026-11-03T00:00:00.000Z",
+    },
+  ];
+
+  it("screens out the measured off-topic vendor pages for a price query (I-1)", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({ results: [...PIXEL_OFF_TOPIC_RESULTS, ...PIXEL_ON_TOPIC_RESULTS] }),
+      },
+    ]);
+    const outcome = await searchTavilySources("Google Pixel 10の価格", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: "month",
+    });
+    expect(outcome.sources).toHaveLength(2);
+    expect(outcome.sources[0]?.domain).toBe("store.google.com");
+    expect(outcome.sources[0]?.authorityTier).toBe("official");
+    expect(outcome.sources[1]?.domain).toBe("kakaku.com");
+    expect(outcome.screenedOutCount).toBe(2);
+    expect(outcome.creditsUsed).toBe(1);
+  });
+
+  it("returns zero sources and counts every drop when all candidates are off-topic (I-1)", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({ results: PIXEL_OFF_TOPIC_RESULTS }),
+      },
+    ]);
+    const outcome = await searchTavilySources("Google Pixel 10の価格", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: "month",
+    });
+    expect(outcome.sources).toEqual([]);
+    expect(outcome.screenedOutCount).toBe(2);
+  });
+
+  it("does not screen when no topic term can be extracted from the query (I-1)", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({
+          results: [
+            { title: "無関係なページ", url: "https://example.com/x", content: "トピック語を含まない抜粋。", score: 0.5 },
+          ],
+        }),
+      },
+    ]);
+    const outcome = await searchTavilySources("あの その", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: null,
+    });
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.screenedOutCount).toBe(0);
   });
 });
 

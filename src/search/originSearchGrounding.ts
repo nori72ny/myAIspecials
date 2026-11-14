@@ -49,6 +49,7 @@ import {
   type OriginMarketQuote,
   type OriginSearchFetch,
   type OriginSearchSource,
+  type OriginSourceAuthorityTier,
   type OriginWeatherForecast,
 } from "./originSearchProviders.js";
 
@@ -101,6 +102,52 @@ export interface OriginSearchGroundingFreshnessStats {
   droppedUndatedCount: number;
 }
 
+/**
+ * Observation of the pre-gate candidate set (recon 2026-11-15, I-8).
+ * Counts and codes only — no titles, excerpts, or URLs — in the same
+ * style as the freshness stats above, so a thin or off-topic packet can
+ * be attributed after the fact (provider sparsity vs freshness drops vs
+ * relevance-screen drops) instead of guessed at. Present on outcomes of
+ * the generic route pipeline; the dedicated weather / market outcomes
+ * and the early cap / no-route returns have no candidate set to observe
+ * and omit it.
+ */
+export interface OriginSearchCandidateStats {
+  /** Candidates that reached the freshness gate (post relevance screen). */
+  totalCount: number;
+  domainCounts: Readonly<Record<string, number>>;
+  tierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+  /** Dropped by the relevance screen before the gate (Tavily route). */
+  droppedByScreenCount: number;
+  /** Dropped by the freshness gate (stale + undated). */
+  droppedByFreshnessCount: number;
+}
+
+function summarizeCandidateStats(
+  candidates: readonly OriginSearchSource[],
+  droppedByScreenCount: number,
+  freshness: OriginSearchGroundingFreshnessStats,
+): OriginSearchCandidateStats {
+  const domainCounts: Record<string, number> = {};
+  const tierCounts: Record<OriginSourceAuthorityTier, number> = {
+    official: 0,
+    "major-news": 0,
+    specialist: 0,
+    general: 0,
+  };
+  for (const candidate of candidates) {
+    if (candidate.domain) domainCounts[candidate.domain] = (domainCounts[candidate.domain] ?? 0) + 1;
+    tierCounts[candidate.authorityTier] += 1;
+  }
+  return {
+    totalCount: candidates.length,
+    domainCounts,
+    tierCounts,
+    droppedByScreenCount,
+    droppedByFreshnessCount: freshness.droppedStaleCount + freshness.droppedUndatedCount,
+  };
+}
+
 export type OriginSearchGroundingOutcome =
   | {
       kind: "grounded";
@@ -110,12 +157,14 @@ export type OriginSearchGroundingOutcome =
       retrievedAt: string;
       freshness: OriginSearchGroundingFreshnessStats;
       freshnessVerified: boolean;
+      candidateStats?: OriginSearchCandidateStats;
     }
   | {
       kind: "unavailable";
       questionType: Exclude<OriginSearchQuestionType, "no_search">;
       reason: "no-sources" | "no-fresh-sources" | "provider-error" | "monthly-cap-reached";
       freshness: OriginSearchGroundingFreshnessStats;
+      candidateStats?: OriginSearchCandidateStats;
     }
   | { kind: "not-applicable"; reason: "no-search-needed" | "no-route-enabled" };
 
@@ -254,6 +303,26 @@ export function selectOriginSearchSources<T extends OriginSearchSource>(
 interface RouteResult {
   sources: OriginSearchSource[];
   errored: boolean;
+  /**
+   * Candidates the route's relevance screen dropped before the gate
+   * (Tavily route only). Absent on a cache hit: the cached set is
+   * already the post-screen candidate set, so there is nothing new
+   * to count.
+   */
+  screenedOutCount?: number;
+}
+
+/**
+ * Cache-save condition for candidate sets (recon 2026-11-15, I-6): a
+ * set that came back empty — the provider found nothing usable, or the
+ * relevance screen dropped every candidate — is never cached. Pinning
+ * it for the TTL would repeat the same failure on every identical
+ * re-ask inside the window instead of letting retrieval retry. A
+ * non-empty ("normal") set is cached exactly as before, preserving the
+ * quota-saving effect of the cache.
+ */
+function cacheableCandidateSet(sources: readonly OriginSearchSource[]): boolean {
+  return sources.length > 0;
 }
 
 async function cachedCandidates(
@@ -261,12 +330,13 @@ async function cachedCandidates(
   cacheKey: string,
   ttlMs: number,
   load: () => Promise<OriginSearchSource[]>,
+  shouldCache: (sources: readonly OriginSearchSource[]) => boolean = () => true,
 ): Promise<RouteResult> {
   const cached = deps.cache.get<OriginSearchSource[]>(cacheKey, deps.now());
   if (cached) return { sources: cached, errored: false };
   try {
     const sources = await load();
-    deps.cache.set(cacheKey, sources, ttlMs, deps.now());
+    if (shouldCache(sources)) deps.cache.set(cacheKey, sources, ttlMs, deps.now());
     return { sources, errored: false };
   } catch {
     return { sources: [], errored: true };
@@ -281,28 +351,45 @@ async function runTavilyRoute(
   timeoutMs: number,
 ): Promise<RouteResult> {
   const cacheKey = `cand:tavily:${topic}:${timeRange ?? "none"}:${query.toLowerCase()}`;
-  return cachedCandidates(deps, cacheKey, ORIGIN_SEARCH_CACHE_TTL_MS.search, async () => {
-    const outcome = await searchTavilySources(query, {
-      fetchImpl: deps.fetchImpl,
-      timeoutMs,
-      apiKey: tavilyApiKey(deps),
-      topic,
-      timeRange,
-    });
-    deps.counter.record("tavily", outcome.creditsUsed, deps.now());
-    return outcome.sources;
-  });
+  let screenedOutCount = 0;
+  const result = await cachedCandidates(
+    deps,
+    cacheKey,
+    ORIGIN_SEARCH_CACHE_TTL_MS.search,
+    async () => {
+      const outcome = await searchTavilySources(query, {
+        fetchImpl: deps.fetchImpl,
+        timeoutMs,
+        apiKey: tavilyApiKey(deps),
+        topic,
+        timeRange,
+      });
+      deps.counter.record("tavily", outcome.creditsUsed, deps.now());
+      screenedOutCount = outcome.screenedOutCount;
+      return outcome.sources;
+    },
+    cacheableCandidateSet,
+  );
+  return { ...result, screenedOutCount };
 }
 
 async function runGdeltRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
-  return cachedCandidates(deps, `cand:gdelt:${query.toLowerCase()}`, ORIGIN_SEARCH_CACHE_TTL_MS.news, () =>
-    searchGdeltHeadlines(query, { fetchImpl: deps.fetchImpl, timeoutMs }),
+  return cachedCandidates(
+    deps,
+    `cand:gdelt:${query.toLowerCase()}`,
+    ORIGIN_SEARCH_CACHE_TTL_MS.news,
+    () => searchGdeltHeadlines(query, { fetchImpl: deps.fetchImpl, timeoutMs }),
+    cacheableCandidateSet,
   );
 }
 
 async function runWikipediaRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
-  return cachedCandidates(deps, `cand:wikipedia:${query.toLowerCase()}`, ORIGIN_SEARCH_CACHE_TTL_MS.search, () =>
-    searchWikipediaSources(query, { fetchImpl: deps.fetchImpl, timeoutMs }),
+  return cachedCandidates(
+    deps,
+    `cand:wikipedia:${query.toLowerCase()}`,
+    ORIGIN_SEARCH_CACHE_TTL_MS.search,
+    () => searchWikipediaSources(query, { fetchImpl: deps.fetchImpl, timeoutMs }),
+    cacheableCandidateSet,
   );
 }
 
@@ -459,6 +546,8 @@ export async function executeOriginSearchGrounding(
     candidates = fallback.sources;
   }
 
+  const droppedByScreenCount = results.reduce((sum, result) => sum + (result.screenedOutCount ?? 0), 0);
+
   if (candidates.length === 0) {
     const allErrored = results.every((result) => result.errored);
     return {
@@ -466,12 +555,19 @@ export async function executeOriginSearchGrounding(
       questionType,
       reason: allErrored ? "provider-error" : "no-sources",
       freshness: emptyStats,
+      candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, emptyStats),
     };
   }
 
   const { kept, stats } = evaluateOriginSourceFreshness(candidates, requirement, questionType, startedAtMs);
   if (kept.length === 0) {
-    return { kind: "unavailable", questionType, reason: "no-fresh-sources", freshness: stats };
+    return {
+      kind: "unavailable",
+      questionType,
+      reason: "no-fresh-sources",
+      freshness: stats,
+      candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, stats),
+    };
   }
 
   let selected = selectOriginSearchSources(kept);
@@ -512,6 +608,7 @@ export async function executeOriginSearchGrounding(
     retrievedAt,
     freshness: stats,
     freshnessVerified: stats.verifiedFreshCount > 0,
+    candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, stats),
   };
 }
 

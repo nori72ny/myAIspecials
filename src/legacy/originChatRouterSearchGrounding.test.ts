@@ -160,14 +160,14 @@ describe("createOriginChatRouter with search grounding (default research composi
         respond: () => ({
           results: [
             {
-              title: "GPT-5.1 - OpenAI",
+              title: "ChatGPT 最新モデル GPT-5.1 - OpenAI",
               url: "https://openai.com/news/gpt-51",
               content: longExcerpt("GPT-5.1が公開された。"),
               score: 0.9,
               published_date: "2026-11-05T00:00:00.000Z",
             },
             {
-              title: "GPT-5.1解説 - ITmedia",
+              title: "ChatGPT 最新モデル GPT-5.1 解説 - ITmedia",
               url: "https://www.itmedia.co.jp/news/gpt51",
               content: longExcerpt("2026年10月に公開されたGPT-5.1の解説記事。"),
               score: 0.8,
