@@ -144,9 +144,11 @@ describe("chat router records path", () => {
     expect(response.body.routing.synthesisStatus).toBe("records-validation-failed");
     expect(response.body.routing.synthesisFailureCode).toBe("NO_ACCEPTED_RECORDS");
     expect(response.body.routing.synthesisPath).toBeUndefined();
-    // One execution only: the records path never falls back into the
-    // text path (which would have retried).
-    expect(synthesis).toHaveBeenCalledTimes(1);
+    // Two executions: the records execution, then the select-only
+    // selection layer (§8) inside the records path. The second call is
+    // NOT a fall back into the text path (which would have retried) —
+    // the text path never runs for a records-selected request.
+    expect(synthesis).toHaveBeenCalledTimes(2);
   });
 
   it("leaves the text path fully in charge when the kill switch is OFF (default)", async () => {
@@ -239,7 +241,9 @@ describe("research router records path", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
-    expect(synthesis).toHaveBeenCalledTimes(1);
+    // Two executions: records, then the selection layer (§8) inside
+    // the records path — not a fall back into the text path.
+    expect(synthesis).toHaveBeenCalledTimes(2);
   });
 
   it("leaves the text path fully in charge when the kill switch is OFF (default)", async () => {
