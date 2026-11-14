@@ -499,7 +499,8 @@ describe("createOriginChatRouter", () => {
       freeOnly: true,
       cost: 0,
     }));
-    expect(synthesisMock).toHaveBeenCalledTimes(1);
+    // 初回＋フィードバック付き再試行1回（再試行も検証で落ち、失敗コードは初回のまま）
+    expect(synthesisMock).toHaveBeenCalledTimes(2);
     expect(executeMock).not.toHaveBeenCalled();
   });
 

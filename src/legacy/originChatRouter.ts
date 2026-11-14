@@ -23,7 +23,7 @@ import {
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
-import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits } from "../research/groundedResearchSynthesisV12.js";
+import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -262,6 +262,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const researchRequestedOutputs = researchIntent?.requestedOutputs ?? [];
     const researchNeedsDownstreamDeliverable = researchRequestedOutputs.some((output) => ["presentation", "document", "spreadsheet", "chart", "image", "application", "website", "dashboard"].includes(output));
     if (groundedResearchRequired) {
+      // Grounded-stage start, recorded for the synthesis retry time gate
+      // (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2.4): the retry may fire only
+      // while the stage is still inside its elapsed-time budget.
+      const groundedStartedAt = now();
       emitResearchPhase("searching");
       let researchResult: OriginResearchResult;
       try {
@@ -309,7 +313,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         if (synthesisPlan.ok === true) {
           const synthesisStartedAt = now();
           try {
-            const synthesisResult = await researchSynthesis({
+            const synthesisRequest: OriginProviderExecutionRequest = {
               plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
               messages: [{
                 role: "user",
@@ -324,14 +328,42 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language, researchRequestedOutputs)
                 + "\n\n"
                 + originCurrentDateInstruction(now(), grounded.language),
-            });
-            assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
+            };
+            const initialSynthesisResult = await researchSynthesis(synthesisRequest);
+            assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
             // Adoption gate (synthesis salvage, §3): the unchanged citation
             // validator decides; on an UNCITED_FACTUAL_UNIT-only failure the
             // salvage helper may remove the uncited unit lines and re-run
             // the same validator. Adopted text — salvaged or not — has
             // passed the identical gate.
-            const adoption = adoptGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
+            const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, grounded.sources);
+            // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): when
+            // the adoption gate still rejects the synthesis, the shared
+            // helper may make exactly one corrective retry — the failed
+            // text returned as a draft plus scan-based feedback — inside
+            // its time gate and kill switch. It returns the final verdict
+            // and the execution result to consume; when the retry also
+            // fails, the initial verdict stands unchanged.
+            const retryOutcome = await executeGroundedResearchSynthesisWithRetry(researchSynthesis, {
+              initialRequest: synthesisRequest,
+              initialResult: initialSynthesisResult,
+              initialAdoption,
+              sources: grounded.sources,
+              language: grounded.language,
+              elapsedMs: Math.max(0, now() - groundedStartedAt),
+              enabled: isGroundedResearchSynthesisRetryEnabled(env),
+              assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+              onRetryAttempt: (info) => console.info("[origin-chat] research synthesis retry attempted", {
+                requestId,
+                synthesisRetryAttempted: true,
+                ...info,
+              }),
+            });
+            const adoption = retryOutcome.adoption;
+            // The execution result the rest of this branch consumes: the
+            // retry's when a retry ran and was adopted, otherwise the
+            // initial one.
+            const synthesisResult = retryOutcome.result;
             if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
                 ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
@@ -378,11 +410,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 // only — no answer text, unit text, or question text. The
                 // unit diagnostics describe the ORIGINAL synthesis text, so
                 // uncitedUnits - removedUnits shows how close the text was.
+                // After a feedback retry, the adopted text came from the
+                // retry execution, so the diagnostics describe its text.
                 const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
                 console.info("[origin-chat] research synthesis completed", {
                   requestId,
                   synthesisSalvaged: true,
                   synthesisSalvageRemovedUnits: adoption.removedUnits,
+                  ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
                   totalFactualUnits: unitDiagnostics.totalFactualUnits,
                   citedUnits: unitDiagnostics.citedUnits,
                   uncitedUnits: unitDiagnostics.uncitedUnits,
@@ -435,9 +470,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 ),
                 routing: {
                   model: synthesisPlan.plan.providerLabel,
-                  reason: grounded.language === "en"
-                    ? "Synthesized retrieved public evidence with one verified zero-cost model execution."
-                    : "取得済み公開証拠を、検証済み$0モデル1回だけで統合しました。",
+                  reason: retryOutcome.retried
+                    ? grounded.language === "en"
+                      ? "Synthesized retrieved public evidence with verified zero-cost model executions: the initial run plus one validation-feedback retry."
+                      : "取得済み公開証拠を、検証済み$0モデルの2回実行（初回と検証フィードバックによる再試行）で統合しました。"
+                    : grounded.language === "en"
+                      ? "Synthesized retrieved public evidence with one verified zero-cost model execution."
+                      : "取得済み公開証拠を、検証済み$0モデル1回だけで統合しました。",
                   score: null,
                   timeMs: Math.max(0, now() - synthesisStartedAt),
                   cost: synthesisResult.actualCostUsd,
@@ -459,6 +498,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   synthesisStatus: "citation-validated",
                   synthesisSourceCount: adoption.usedSourceIds.length,
                   ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
+                  ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
                   providerDataPolicy: synthesisResult.providerDataPolicy,
                   providerRouting: synthesisResult.routingEvidence,
                   usage: synthesisResult.usage,
@@ -490,7 +530,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             // Discard diagnostics (counts only): how many factual units the
             // synthesis had, how many were uncited, and whether the uncited
             // ones were source-list-like lines rather than body sentences.
-            const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
+            // After a feedback retry, the retry outcome is recorded too —
+            // its failure code, the retry text's unit counts, or the reason
+            // an eligible retry did not fire — plus the initial dispatch
+            // duration, so the retry time gate can be calibrated later
+            // (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2.6).
+            const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(initialSynthesisResult.text);
             console.warn("[origin-chat] research synthesis discarded", {
               requestId,
               code: adoption.failureCode,
@@ -498,6 +543,27 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               citedUnits: unitDiagnostics.citedUnits,
               uncitedUnits: unitDiagnostics.uncitedUnits,
               uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
+              ...(initialSynthesisResult.attempts
+                ? { synthesisInitialDurationMs: initialSynthesisResult.attempts.reduce((sum, attempt) => sum + (attempt.durationMs ?? 0), 0) }
+                : {}),
+              ...(retryOutcome.retried
+                ? {
+                    synthesisRetryAttempted: true,
+                    ...(retryOutcome.retryFailureCode ? { synthesisRetryFailureCode: retryOutcome.retryFailureCode } : {}),
+                    ...(retryOutcome.retryError ? { synthesisRetryError: true } : {}),
+                    ...(retryOutcome.retryUnitDiagnostics
+                      ? {
+                          retryTotalFactualUnits: retryOutcome.retryUnitDiagnostics.totalFactualUnits,
+                          retryCitedUnits: retryOutcome.retryUnitDiagnostics.citedUnits,
+                          retryUncitedUnits: retryOutcome.retryUnitDiagnostics.uncitedUnits,
+                          retryUncitedUnitsWithUrlLike: retryOutcome.retryUnitDiagnostics.uncitedUnitsWithUrlLike,
+                        }
+                      : {}),
+                  }
+                : {}),
+              ...(retryOutcome.retrySkipped
+                ? { synthesisRetrySkipped: retryOutcome.retrySkipped, synthesisRetryElapsedMs: retryOutcome.elapsedMs }
+                : {}),
             });
           } catch (error) {
             synthesisStatus = "provider-failed";

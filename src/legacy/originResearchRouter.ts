@@ -9,6 +9,8 @@ import {
   buildGroundedResearchSynthesisInstruction,
   buildGroundedResearchSynthesisPrompt,
   diagnoseGroundedResearchSynthesisUnits,
+  executeGroundedResearchSynthesisWithRetry,
+  isGroundedResearchSynthesisRetryEnabled,
 } from "../research/groundedResearchSynthesisV12.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
@@ -247,6 +249,10 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
       )
     : researchCurrentInformation);
   router.post("/api/chat", async (req, res, next) => {
+    // Handler start, recorded for the synthesis retry time gate
+    // (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2.4). This router has no injected
+    // wall clock of its own, so the catalog clock doubles as the timer.
+    const handlerStartedAt = catalogNow();
     const body = (req.body ?? {}) as OriginChatBody;
     const messages = validateOriginChatMessages(body.messages);
     if (!messages || messages[messages.length - 1].role !== "user") return next();
@@ -304,7 +310,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
       );
       if (synthesisPlan.ok === true) {
         try {
-          const synthesisResult = await researchSynthesis({
+          const synthesisRequest: OriginProviderExecutionRequest = {
             plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
             messages: [{
               role: "user",
@@ -316,25 +322,56 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               ),
             }],
             systemInstruction: buildGroundedResearchSynthesisInstruction(language),
-          });
-          assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
+          };
+          const initialSynthesisResult = await researchSynthesis(synthesisRequest);
+          assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
           // Same adoption gate as the chat router (synthesis salvage, §3):
           // the unchanged citation validator decides; an
           // UNCITED_FACTUAL_UNIT-only failure may be salvaged by removing
           // the uncited unit lines and re-running the same validator.
-          const adoption = adoptGroundedResearchSynthesis(synthesisResult.text, safeSources);
+          const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, safeSources);
+          // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): the
+          // same shared helper as the chat router makes at most one
+          // corrective retry when the adoption gate still rejects the
+          // synthesis; on a retry failure the initial verdict stands.
+          const retryOutcome = await executeGroundedResearchSynthesisWithRetry(researchSynthesis, {
+            initialRequest: synthesisRequest,
+            initialResult: initialSynthesisResult,
+            initialAdoption,
+            sources: safeSources,
+            language,
+            elapsedMs: Math.max(0, catalogNow() - handlerStartedAt),
+            enabled: isGroundedResearchSynthesisRetryEnabled(env),
+            assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+            onRetryAttempt: (info) => console.info("[origin-research] research synthesis retry attempted", {
+              synthesisRetryAttempted: true,
+              ...info,
+            }),
+          });
+          const adoption = retryOutcome.adoption;
+          // The execution result the rest of this branch consumes: the
+          // retry's when a retry ran and was adopted, otherwise the
+          // initial one.
+          const synthesisResult = retryOutcome.result;
           if (adoption.adopted === true) {
             const synthesizedContent = adoption.text;
-            const synthesizedReason = language === "ja"
-              ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの1回実行で統合しました。引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。"
-              : "Retrieved public evidence was synthesized with one verified zero-cost model execution. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified.";
+            const synthesizedReason = retryOutcome.retried
+              ? language === "ja"
+                ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの2回実行（初回と検証フィードバックによる再試行）で統合しました。引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。"
+                : "Retrieved public evidence was synthesized with verified zero-cost model executions: the initial run plus one validation-feedback retry. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified."
+              : language === "ja"
+                ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの1回実行で統合しました。引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。"
+                : "Retrieved public evidence was synthesized with one verified zero-cost model execution. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified.";
             if (adoption.salvaged) {
               // Completion log for a salvaged adoption (§3.7): counts only.
-              // The unit diagnostics describe the ORIGINAL synthesis text.
+              // The unit diagnostics describe the ORIGINAL synthesis text;
+              // after a feedback retry, the adopted text came from the
+              // retry execution, so the diagnostics describe its text.
               const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
               console.info("[origin-research] research synthesis completed", {
                 synthesisSalvaged: true,
                 synthesisSalvageRemovedUnits: adoption.removedUnits,
+                ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
                 totalFactualUnits: unitDiagnostics.totalFactualUnits,
                 citedUnits: unitDiagnostics.citedUnits,
                 uncitedUnits: unitDiagnostics.uncitedUnits,
@@ -357,6 +394,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 synthesisStatus: "citation-validated",
                 synthesisSourceCount: adoption.usedSourceIds.length,
                 ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
+                ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
                 sourceCount: safeSources.length,
               },
               research: {
@@ -371,6 +409,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                   status: "citation-validated",
                   sourceCount: adoption.usedSourceIds.length,
                   ...(adoption.salvaged ? { salvaged: true, salvageRemovedUnits: adoption.removedUnits } : {}),
+                  ...(retryOutcome.retried ? { retried: true } : {}),
                 },
               },
             });
@@ -387,14 +426,37 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               ...(adoption.remainingUncitedUnits !== undefined ? { remainingUncitedUnits: adoption.remainingUncitedUnits } : {}),
             });
           }
-          // Discard diagnostics (counts only), same fields as the chat router.
-          const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
+          // Discard diagnostics (counts only), same fields as the chat
+          // router, including the feedback-retry outcome and the initial
+          // dispatch duration (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2.6).
+          const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(initialSynthesisResult.text);
           console.warn("[origin-research] research synthesis discarded", {
             code: adoption.failureCode,
             totalFactualUnits: unitDiagnostics.totalFactualUnits,
             citedUnits: unitDiagnostics.citedUnits,
             uncitedUnits: unitDiagnostics.uncitedUnits,
             uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
+            ...(initialSynthesisResult.attempts
+              ? { synthesisInitialDurationMs: initialSynthesisResult.attempts.reduce((sum, attempt) => sum + (attempt.durationMs ?? 0), 0) }
+              : {}),
+            ...(retryOutcome.retried
+              ? {
+                  synthesisRetryAttempted: true,
+                  ...(retryOutcome.retryFailureCode ? { synthesisRetryFailureCode: retryOutcome.retryFailureCode } : {}),
+                  ...(retryOutcome.retryError ? { synthesisRetryError: true } : {}),
+                  ...(retryOutcome.retryUnitDiagnostics
+                    ? {
+                        retryTotalFactualUnits: retryOutcome.retryUnitDiagnostics.totalFactualUnits,
+                        retryCitedUnits: retryOutcome.retryUnitDiagnostics.citedUnits,
+                        retryUncitedUnits: retryOutcome.retryUnitDiagnostics.uncitedUnits,
+                        retryUncitedUnitsWithUrlLike: retryOutcome.retryUnitDiagnostics.uncitedUnitsWithUrlLike,
+                      }
+                    : {}),
+                }
+              : {}),
+            ...(retryOutcome.retrySkipped
+              ? { synthesisRetrySkipped: retryOutcome.retrySkipped, synthesisRetryElapsedMs: retryOutcome.elapsedMs }
+              : {}),
           });
         } catch (error) {
           synthesisStatus = "provider-failed";
