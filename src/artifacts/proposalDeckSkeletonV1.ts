@@ -364,6 +364,20 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   という従来の線引きを維持し、パーサーでは直さない（FIX6-3 は不採用）。
 //   指示側（FIX6-4）で、回答は構成案ではなく資料そのものの本文であること
 //   と、要約は見出しだけの行＋その下に箇条書き3点以上、を追加した。
+//
+// 第7回本番失敗（2026-11-14、2ef75481）への対応（fix-7）:
+// - 受理・分類・要約の段はすべて通過したが、締めの文（確認質問・調整
+//   可否・依頼）が見出しを持たず、最後の計画節のリード行に吸収されて
+//   締め節自体が存在せず、nextSteps の受け皿が3段とも届かなかった。
+//   FIX7-1: 締め節が無い場合に限り、最後の節のリード行の末尾にある
+//   質問形・依頼形の散文ブロックを切り出して締め節として扱う（本文中の
+//   文には触れない）。あわせて締め散文が計画節の結論文へ混入する問題も
+//   解消する。FIX7-2: 計画節の箇条書き受け皿の条件から「ask が空」を
+//   外し、締め節が実在すれば ask の有無を問わず開く（締め節の実在と
+//   nextSteps が空の条件は維持）。FIX7-3: 受け皿の参照先を、箇条書きを
+//   持つ最初の plan 節へ変更する（無ければ従来どおり最初の plan 節）。
+// - 締めの痕跡が皆無の文書でも受け皿を開く案（CAND-E）は不採用。
+//   締めが無いのに締めを全面流用しないという従来の線引きは維持する。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -495,6 +509,15 @@ function stripLeadingLabel(text: string): string {
 /** 質問文の判定（締め節へ紛れた末尾質問を前提・未確認事項へ振り分けるため）。 */
 const FREEFORM_QUESTION_PATTERN =
   /[？?]\s*$|教えてください|お聞かせください|ご教示ください|でしょうか/;
+
+/**
+ * 締めブロックの開始行の判定（fix-7、FIX7-1）: 質問文（？／でしょうか等）に
+ * 加え、依頼形の文（お伝えください／ご指定ください／お知らせください／
+ * ご連絡ください等）も、見出しのない末尾の締めの開始とみなす。対象は
+ * 「締め節が無い文書の、最後の節のリード行」だけに限る。
+ */
+const FREEFORM_CLOSING_BLOCK_START =
+  /[？?]\s*$|でしょうか|教えてください|お聞かせください|ご教示ください|お伝えください|ご指定ください|お知らせください|ご連絡ください/;
 
 /** markdown 表の1行をセル文字列の配列にする。 */
 function parseTableRow(line: string): string[] {
@@ -721,6 +744,33 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     }
     demotedSections.push(section);
   }
+  // fix-7（FIX7-1）: 締めとして分類された節が文書内に無い場合に限り、
+  // 最後の節のリード行の末尾にある質問形・依頼形の散文ブロックを切り出し、
+  // 見出しのない締め節として扱う。本番形状#7 では締めの文（確認質問・
+  // 調整可否・依頼の3文）が見出しを持たず、最後の計画節のリード行に
+  // 吸収されて締め節自体が存在しなかった。切り出しは最後の節の末尾
+  // ブロックに限定し、本文中の文には触れない（逐語切り出しのみ）。
+  // あわせて、締め散文が最後の節の結論文に混入する副次効果も解消される。
+  if (!demotedSections.some((section) => section.kind === 'closing')) {
+    const lastSection = demotedSections[demotedSections.length - 1];
+    if (lastSection) {
+      const startIndex = lastSection.leadLines.findIndex((line) =>
+        FREEFORM_CLOSING_BLOCK_START.test(stripEmphasis(line)),
+      );
+      if (startIndex >= 0) {
+        const carvedLines = lastSection.leadLines.slice(startIndex);
+        lastSection.leadLines = lastSection.leadLines.slice(0, startIndex);
+        demotedSections.push({
+          kind: 'closing',
+          heading: '',
+          fromNumberedHeading: false,
+          leadLines: carvedLines,
+          bullets: [],
+          tableLines: [],
+        });
+      }
+    }
+  }
   // 見出しだけで中身のない節は落とす。残った節が3件未満なら、見出し構造が
   // 成立していないものとして作らない（番号付き手順リスト等の誤爆防止の
   // 複合条件: 導入文＋節3件以上＋各節に中身があること）。
@@ -907,11 +957,23 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   // 計画から締めを捏造しない」ことであり、締め節が文書内に実在する場合の
   // 流用は捏造ではなく材料の流用である（fix-3／fix-4 の受け皿拡張と同じ
   // 性質）。締め節が実在しない markdown 文書では従来どおり開かない。
+  // fix-7（FIX7-2）: ask（相手への依頼事項）と nextSteps（こちら側の
+  // 次の行動）は別物であり、ask が埋まっていることは計画材料の流用の
+  // 障害にならないため、受け皿の条件から ask が空であることを外した
+  // （締め節の実在と nextSteps が空であることは維持）。FIX7-1 で切り
+  // 出した締め節も「実在する締め節」として数える。
+  // fix-7（FIX7-3）: 受け皿の参照先は「箇条書きを持つ最初の plan 節」
+  // とする。見出しがステップを名乗る plan 節がリードのみで先に現れ、
+  // 実際のステップ箇条書きを持つ同名の plan 節が後続する形（本番
+  // 形状#7）で、材料のない節を引いてしまう問題への対策。箇条書きを
+  // 持つ plan 節が無ければ従来どおり最初の plan 節を引く。
   if (
     nextSteps.length === 0 &&
-    (!usedMarkdownHeadings || (closingSection !== undefined && ask === ''))
+    (!usedMarkdownHeadings || closingSection !== undefined)
   ) {
-    const planSection = roleSections.find((section) => section.role === 'plan');
+    const planSection =
+      roleSections.find((section) => section.role === 'plan' && section.bullets.length > 0) ??
+      roleSections.find((section) => section.role === 'plan');
     if (planSection) {
       nextSteps = planSection.bullets
         .map((entry) => stripEmphasis(entry))
