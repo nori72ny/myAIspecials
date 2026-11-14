@@ -268,7 +268,8 @@ describe("originResearchRouter", () => {
     }));
     const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: iphoneQuery }] });
     expect(response.status).toBe(200);
-    expect(synthesis).toHaveBeenCalledTimes(1);
+    // 初回＋フィードバック付き再試行1回（再試行も検証で落ち、失敗コードは初回のまま）
+    expect(synthesis).toHaveBeenCalledTimes(2);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.content).not.toContain("99,800円です");
     expect(response.body.research.synthesis).toEqual({ status: "citation-validation-failed", failureCode: "UNKNOWN_CITATION" });
