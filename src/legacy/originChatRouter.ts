@@ -23,7 +23,7 @@ import {
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
-import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
+import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt } from "../research/groundedResearchSynthesisV12.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -326,8 +326,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 + originCurrentDateInstruction(now(), grounded.language),
             });
             assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
-            const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
-            if (citationValidation.ok === true) {
+            // Adoption gate (synthesis salvage, §3): the unchanged citation
+            // validator decides; on an UNCITED_FACTUAL_UNIT-only failure the
+            // salvage helper may remove the uncited unit lines and re-run
+            // the same validator. Adopted text — salvaged or not — has
+            // passed the identical gate.
+            const adoption = adoptGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
+            if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
                 ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
                 : "取得済みHTTPS証拠パケットとの引用構造一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
@@ -341,13 +346,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? "Retrieved sources contain structured-value differences that require human review."
                   : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
               }
-              let supervisorArtifacts = generateOriginSupervisorArtifactsV2([], lastUserMessage, synthesisResult.text);
+              let supervisorArtifacts = generateOriginSupervisorArtifactsV2([], lastUserMessage, adoption.text);
               let artifactFailureCode: string | undefined;
               try {
                 supervisorArtifacts = generateOriginSupervisorArtifactsV2(
                   researchRequestedOutputs,
                   lastUserMessage,
-                  synthesisResult.text,
+                  adoption.text,
                 );
               } catch (error) {
                 artifactFailureCode = error instanceof Error && /^SUPERVISOR_[A-Z0-9_]+$/.test(error.message)
@@ -368,8 +373,17 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? `Some requested downstream outputs were not generated: ${supervisorArtifacts.pendingOutputs.join(", ") || "artifact generation blocked"}.`
                   : `一部の後段成果物は生成していません：${supervisorArtifacts.pendingOutputs.join("、") || "成果物生成を安全停止"}。`);
               }
+              if (adoption.salvaged) {
+                // Completion log for a salvaged adoption (§3.7): counts
+                // only — no answer text, unit text, or question text.
+                console.info("[origin-chat] research synthesis completed", {
+                  requestId,
+                  synthesisSalvaged: true,
+                  synthesisSalvageRemovedUnits: adoption.removedUnits,
+                });
+              }
               return res.json({
-                content: synthesisResult.text,
+                content: adoption.text,
                 artifacts: supervisorArtifacts.artifacts,
                 supervisor: {
                   version: ORIGIN_SUPERVISOR_VERSION_V2,
@@ -403,7 +417,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ],
                 },
                 answer: answerEnvelope(
-                  synthesisResult.text,
+                  adoption.text,
                   grounded.language,
                   "not-run",
                   verificationReason,
@@ -436,7 +450,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   conflictCount: grounded.conflicts,
                   ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
                   synthesisStatus: "citation-validated",
-                  synthesisSourceCount: citationValidation.usedSourceIds.length,
+                  synthesisSourceCount: adoption.usedSourceIds.length,
+                  ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
                   providerDataPolicy: synthesisResult.providerDataPolicy,
                   providerRouting: synthesisResult.routingEvidence,
                   usage: synthesisResult.usage,
@@ -453,8 +468,18 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               });
             }
             synthesisStatus = "citation-validation-failed";
-            synthesisFailureCode = citationValidation.code;
-            console.warn("[origin-chat] research synthesis discarded", { requestId, code: citationValidation.code });
+            // The discard keeps the FIRST validation failure code (§3.7);
+            // a salvage abort is recorded separately, counts and code only.
+            synthesisFailureCode = adoption.failureCode;
+            if (adoption.salvageAttempted) {
+              console.warn("[origin-chat] research synthesis salvage aborted", {
+                requestId,
+                salvageAttempted: true,
+                salvageRemovedUnits: adoption.salvageRemovedUnits,
+                ...(adoption.salvageAbortCode ? { salvageAbortCode: adoption.salvageAbortCode } : {}),
+              });
+            }
+            console.warn("[origin-chat] research synthesis discarded", { requestId, code: adoption.failureCode });
           } catch (error) {
             synthesisStatus = "provider-failed";
             synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
