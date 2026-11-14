@@ -67,14 +67,18 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
     await waitForVisualSurface(page);
 
-    // ヘッダーの印はリボンのOの小画像から、明るい円形台座付きの猫に
-    // 置き換わった（オーナー指示 2026-11-09：猫を見えやすく・大きく）。
-    const headerCat = page.locator('.origin-header [data-testid="origin-cat-pedestal"]');
-    await expect(headerCat).toBeVisible();
-    const headerCatImage = headerCat.locator('img[data-testid="origin-cat-state"]');
-    await expect(headerCatImage).toBeVisible();
-    expect(await headerCatImage.getAttribute('src')).toContain('origin-cat.webp');
-    const headerCatStyle = await headerCat.evaluate((element) => {
+    // オリンはヘッダーに置かず、上部中央に浮く浮遊プレゼンスに
+    // 一本化した（オーナー指示 2026-11-14 08:59）。ホームでも
+    // 明るい円形台座付きの大きな猫が名前とともに常駐する。
+    await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
+    const presence = page.getByTestId('origin-orin-presence');
+    await expect(presence).toBeVisible();
+    const presenceCat = presence.locator('[data-testid="origin-cat-pedestal"]');
+    await expect(presenceCat).toBeVisible();
+    const presenceCatImage = presenceCat.locator('img[data-testid="origin-cat-state"]');
+    await expect(presenceCatImage).toBeVisible();
+    expect(await presenceCatImage.getAttribute('src')).toContain('origin-cat.webp');
+    const presenceCatStyle = await presenceCat.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
         width: style.width,
@@ -82,12 +86,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // PR-β（設計正本 §9）でヘッダーの猫は上部中央常駐となり、指定範囲
-    // 32〜36px のうち 34px に拡大した。猫34px＋台座のリング2px×2で、
-    // 台座の外径は38pxになる（枠線は border-box の内側）。
-    expect(headerCatStyle.width).toBe('38px');
-    expect(headerCatStyle.height).toBe('38px');
-    expect(headerCatStyle.borderRadius).toBe('999px');
+    // 猫96px＋台座のリング4px×2で、台座の外径は104pxになる
+    // （枠線は border-box の内側）。待機・作業で大きさは変わらない。
+    expect(presenceCatStyle.width).toBe('104px');
+    expect(presenceCatStyle.height).toBe('104px');
+    expect(presenceCatStyle.borderRadius).toBe('999px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
@@ -121,7 +124,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(historyOnTop).toBe(true);
   });
 
-  test('captures the Orin working presence shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
+  test('captures the Orin floating presence shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => {
@@ -132,16 +135,18 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
-    // 作業中表示（2026-11-14）：待ちの主表示は上部中央の大きな
+    // 作業中表示（2026-11-14）：待ちの主表示は上部中央に浮く大きな
     // オリン＋名前＋状態ピル（reduced-motion ではフェードなしで
     // 出る）。全体画面ステージは出ない。
-    const overlay = page.getByTestId('origin-orin-overlay');
-    await expect(overlay).toBeVisible();
-    await expect(overlay).toContainText('回答を準備しています');
-    await expect(page.getByTestId('origin-orin-overlay-name')).toHaveText('オリン');
+    const presence = page.getByTestId('origin-orin-presence');
+    await expect(presence).toBeVisible();
+    await expect(presence).toContainText('回答を準備しています');
+    await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('オリン');
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
-    await expect(overlay).toBeHidden({ timeout: 15_000 });
+    // 回答が終わるとピルだけが消え、姿は残る。
+    await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
+    await expect(presence).toBeVisible();
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 

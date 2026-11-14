@@ -171,8 +171,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
     const header = document.querySelector('.origin-header') as HTMLElement;
-    // 履歴・設定に加え、上部中央の常駐オリン（いまの作業シート）で3つ。
-    expect(within(header).getAllByRole('button')).toHaveLength(3);
+    // ヘッダーのボタンは履歴・設定の2つだけ。オリンはヘッダーに
+    // 置かず、上部中央の浮遊プレゼンスに一本化した（2026-11-14 08:59）。
+    expect(within(header).getAllByRole('button')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: '新規対話を開始' })).toBeNull();
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
@@ -425,18 +426,19 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '時間のかかる調査' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
 
-      const overlay = await screen.findByTestId('origin-orin-overlay');
-      expect(overlay.textContent).toContain('公開情報を探しています');
+      const presence = await screen.findByTestId('origin-orin-presence');
+      expect(presence.textContent).toContain('公開情報を探しています');
       expect(screen.queryByTestId('origin-thinking')).toBeNull();
       expect(screen.queryByTestId('origin-research-progress')).toBeNull();
-      // 作業中表示（2026-11-14）：調査の段階は上部中央の大きな
+      // 作業中表示（2026-11-14）：調査の段階は上部中央に浮く大きな
       // オリンの状態ピルが一文で表し、会話内に1行表示は置かない。
       // 旧吹き出しは出ない。
       expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
-      const overlayCat = within(overlay).getByTestId('origin-cat-state');
-      expect(overlayCat.getAttribute('data-state')).toBe('searching');
-      // プレゼンスが出ている間、ヘッダーの常駐オリンは隠れる。
-      expect(within(screen.getByTestId('origin-header-orin')).queryByTestId('origin-cat-state')).toBeNull();
+      const presenceCat = within(presence).getByTestId('origin-cat-state');
+      expect(presenceCat.getAttribute('data-state')).toBe('searching');
+      // ヘッダーにオリンは置かない（浮遊プレゼンスに一本化）。
+      expect(screen.queryByTestId('origin-header-orin')).toBeNull();
+      expect(document.querySelector('.origin-header [data-testid="origin-cat-state"]')).toBeNull();
 
       resolveResearch(researchResponse());
       expect(await screen.findByRole('heading', { name: '確認できた内容' })).toBeTruthy();
@@ -2201,7 +2203,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     // 作業中表示（2026-11-14）：段階テキストは上部中央の大きな
     // オリンの状態ピルに出る。全体画面ステージと会話内の1行
     // 表示は使わない（二重表示にしない）。
-    await waitFor(() => expect(screen.getByTestId('origin-orin-overlay').textContent).toContain('最新の情報を調べています'));
+    await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('最新の情報を調べています'));
     expect(screen.queryByTestId('origin-stage')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
@@ -2210,16 +2212,18 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('料金の公式ページ');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('example.org');
     push({ type: 'phase', phase: 'composing' });
-    await waitFor(() => expect(screen.getByTestId('origin-orin-overlay').textContent).toContain('回答をまとめています'));
+    await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('回答をまとめています'));
     push({ type: 'delta', text: '検証済みの調査回答です。' });
     push({ type: 'complete' });
     push('[DONE]');
     streamController.close();
     await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('origin-stream-sources')).toBeNull());
-    // 本文が流れ始めたらプレゼンスの作業表示は引っ込み、完了の合図
-    // （「できました」、headerDoneCue の2,600ms）をはさんで消える。
-    await waitFor(() => expect(screen.queryByTestId('origin-orin-overlay')).toBeNull(), { timeout: 5000 });
+    // 本文が流れ始めたらピルは引っ込み、完了の合図
+    // （「できました」、headerDoneCue の2,600ms）をはさんでピルだけが
+    // 消える。浮遊プレゼンスの姿はそのまま残る（小さくならない）。
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
+    expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -2499,7 +2503,7 @@ describe('chat send queue while a response is generating', () => {
 describe('cat visibility on the top screen and while generating (owner request 2026-11-09)', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-  it('shows the cat on a bright pedestal in the home hero and in the header', () => {
+  it('shows the cat on a bright pedestal in the home hero and in the floating presence', () => {
     render(<App language="ja" />);
     const hero = screen.getByTestId('origin-core-logo');
     const heroCat = within(hero).getByTestId('origin-cat-state');
@@ -2507,7 +2511,7 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(heroCat.getAttribute('src')).toBe('/brand/origin-cat.webp');
     expect(within(hero).getByTestId('origin-cat-pedestal')).toBeTruthy();
     expect(hero.textContent).not.toContain('◈');
-    // ヒーローとヘッダーの2か所に、台座付きの猫が常時表示される。
+    // ヒーローと浮遊プレゼンスの2か所に、台座付きの猫が常時表示される。
     const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
     expect(brandCats).toHaveLength(2);
     for (const cat of brandCats) {
@@ -2521,20 +2525,21 @@ describe('cat visibility on the top screen and while generating (owner request 2
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '生成中の表示を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    const overlay = await screen.findByTestId('origin-orin-overlay');
+    const presence = await screen.findByTestId('origin-orin-presence');
     // 作業中表示（2026-11-14）：会話内の1行表示は廃止し、段階は
-    // 上部中央の大きなオリンの状態ピルが一文で表す。名前も出る。
-    expect(overlay.textContent).toContain('回答を準備しています');
-    expect(within(overlay).getByTestId('origin-orin-overlay-name').textContent).toBe('オリン');
+    // 上部中央に浮く大きなオリンの状態ピルが一文で表す。名前も出る。
+    expect(presence.textContent).toContain('回答を準備しています');
+    expect(within(presence).getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     // 状態はプレゼンスの大きなオリンが表す（静止画・細リング台座）。
-    const overlayCat = within(overlay).getByTestId('origin-cat-state');
-    expect(overlayCat.tagName).toBe('IMG');
-    expect(overlayCat.getAttribute('data-state')).toBe('thinking');
-    expect(overlayCat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
-    // ヘッダーの常駐オリンはプレゼンス表示中は隠れる（二重表示なし）。
-    expect(within(screen.getByTestId('origin-header-orin')).queryByTestId('origin-cat-state')).toBeNull();
+    const presenceCat = within(presence).getByTestId('origin-cat-state');
+    expect(presenceCat.tagName).toBe('IMG');
+    expect(presenceCat.getAttribute('data-state')).toBe('thinking');
+    expect(presenceCat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    // ヘッダーにオリンは置かない（浮遊プレゼンスに一本化）。
+    expect(screen.queryByTestId('origin-header-orin')).toBeNull();
+    expect(document.querySelector('.origin-header [data-testid="origin-cat-state"]')).toBeNull();
   });
 });
 
@@ -2542,7 +2547,7 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('opens from the header cat and reports that nothing is in progress', () => {
+  it('opens from the floating presence and reports that nothing is in progress', () => {
     render(<App language="ja" />);
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     const sheet = screen.getByTestId('origin-work-sheet');
@@ -2561,7 +2566,7 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await screen.findByTestId('origin-orin-overlay');
+    await screen.findByTestId('origin-orin-presence');
 
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     const sheet = screen.getByTestId('origin-work-sheet');
@@ -2583,7 +2588,7 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
   });
 });
 
-describe('Orin working presence (owner request 2026-11-14)', () => {
+describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -2593,17 +2598,36 @@ describe('Orin working presence (owner request 2026-11-14)', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '吹き出しの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    // 待ちの段階は上部中央の大きなオリンの状態ピルが一文で出す。
+    // 待ちの段階は上部中央に浮く大きなオリンの状態ピルが一文で出す。
     // 全体画面ステージと会話内の1行表示はどちらも出ない。
-    const overlay = await screen.findByTestId('origin-orin-overlay');
-    expect(overlay.textContent).toContain('回答を準備しています');
+    const presence = await screen.findByTestId('origin-orin-presence');
+    expect(presence.textContent).toContain('回答を準備しています');
     expect(screen.queryByTestId('origin-stage')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     expect(screen.queryByTestId('origin-research-progress')).toBeNull();
-    // 状態はプレゼンスの大きなオリンが表し、ヘッダーの常駐オリンは隠れる。
-    const overlayCat = within(overlay).getByTestId('origin-cat-state');
-    expect(overlayCat.getAttribute('data-state')).toBe('thinking');
-    expect(within(screen.getByTestId('origin-header-orin')).queryByTestId('origin-cat-state')).toBeNull();
+    // 状態はプレゼンスの大きなオリンが表し、ヘッダーにオリンは置かない。
+    const presenceCat = within(presence).getByTestId('origin-cat-state');
+    expect(presenceCat.getAttribute('data-state')).toBe('thinking');
+    expect(screen.queryByTestId('origin-header-orin')).toBeNull();
+    expect(document.querySelector('.origin-header [data-testid="origin-cat-state"]')).toBeNull();
+  });
+
+  it('keeps exactly one work-sheet control (the floating presence tap target) in idle and working states', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、生成中表示を維持する */ }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    // 待機中：「いまの作業を表示」は浮遊プレゼンスのタップ対象ただ1つ
+    // （ヘッダー側の同名ボタンは廃止した。PR #1253 のマージ結果で
+    // 起きた同名操作の二重化に対する回帰テスト）。
+    expect(screen.queryByTestId('origin-header-orin')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'いまの作業を表示' })).toHaveLength(1);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '単一操作の確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await screen.findByTestId('origin-orin-presence-status');
+    // 作業中もただ1つで、それはプレゼンスの中にある。
+    const controls = screen.getAllByRole('button', { name: 'いまの作業を表示' });
+    expect(controls).toHaveLength(1);
+    expect(screen.getByTestId('origin-orin-presence').contains(controls[0])).toBe(true);
   });
 
   it('hides the presence while the work sheet is open and shows it again when the sheet closes', async () => {
@@ -2612,18 +2636,18 @@ describe('Orin working presence (owner request 2026-11-14)', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートとプレゼンスの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    expect(await screen.findByTestId('origin-orin-overlay')).toBeTruthy();
+    expect(await screen.findByTestId('origin-orin-presence')).toBeTruthy();
     // プレゼンスのタップで「いまの作業」シートが開く動作を維持し、
     // その間はプレゼンスを隠す（シートが上に重なる）。
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
-    expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
+    expect(screen.queryByTestId('origin-orin-presence')).toBeNull();
     fireEvent.click(within(screen.getByTestId('origin-work-sheet')).getByRole('button', { name: '閉じる' }));
     expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
-    expect(await screen.findByTestId('origin-orin-overlay')).toBeTruthy();
+    expect(await screen.findByTestId('origin-orin-presence')).toBeTruthy();
   });
 
-  it('shows the completion cue in the presence pill after the answer lands, then fades out', async () => {
+  it('shows the completion cue in the presence pill after the answer lands, then only the pill fades out', async () => {
     const model = 'google/gemma-4-31b-it:free';
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (requestPath(input) === '/api/chat') {
@@ -2640,9 +2664,14 @@ describe('Orin working presence (owner request 2026-11-14)', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     expect(await screen.findByText('吹き出し確認の回答')).toBeTruthy();
     // 完了の合図は headerDoneCue（2,600ms）の間だけピルに出て、
-    // その後フェードして消える。
-    await waitFor(() => expect(screen.getByTestId('origin-orin-overlay').textContent).toContain('できました'));
-    await waitFor(() => expect(screen.queryByTestId('origin-orin-overlay')).toBeNull(), { timeout: 5000 });
+    // その後ピルだけがフェードして消える。姿は同じ大きさで残る
+    // （回答後に小さなヘッダーアイコンへ縮まない）。
+    await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
+    const presence = screen.getByTestId('origin-orin-presence');
+    expect(within(presence).getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
+    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('96px');
+    expect((within(presence).getByTestId('origin-cat-pedestal') as HTMLElement).style.width).toBe('104px');
   });
 
   it('shows the existing failure text in the presence pill when the send fails', async () => {
@@ -2652,8 +2681,9 @@ describe('Orin working presence (owner request 2026-11-14)', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '失敗の合図を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     // 失敗時は既存の失敗文を、失敗キュー（2,600ms）の間だけ
-    // ピルに出す。
-    await waitFor(() => expect(screen.getByTestId('origin-orin-overlay').textContent).toContain('エラーが発生しました'));
-    await waitFor(() => expect(screen.queryByTestId('origin-orin-overlay')).toBeNull(), { timeout: 5000 });
+    // ピルに出す。キューの後はピルだけが消え、姿は残る。
+    await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('エラーが発生しました'));
+    await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
+    expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
   });
 });
