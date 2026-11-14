@@ -23,7 +23,7 @@ import {
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
-import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt } from "../research/groundedResearchSynthesisV12.js";
+import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits } from "../research/groundedResearchSynthesisV12.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -375,11 +375,18 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               }
               if (adoption.salvaged) {
                 // Completion log for a salvaged adoption (§3.7): counts
-                // only — no answer text, unit text, or question text.
+                // only — no answer text, unit text, or question text. The
+                // unit diagnostics describe the ORIGINAL synthesis text, so
+                // uncitedUnits - removedUnits shows how close the text was.
+                const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
                 console.info("[origin-chat] research synthesis completed", {
                   requestId,
                   synthesisSalvaged: true,
                   synthesisSalvageRemovedUnits: adoption.removedUnits,
+                  totalFactualUnits: unitDiagnostics.totalFactualUnits,
+                  citedUnits: unitDiagnostics.citedUnits,
+                  uncitedUnits: unitDiagnostics.uncitedUnits,
+                  uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
                 });
               }
               return res.json({
@@ -477,9 +484,21 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 salvageAttempted: true,
                 salvageRemovedUnits: adoption.salvageRemovedUnits,
                 ...(adoption.salvageAbortCode ? { salvageAbortCode: adoption.salvageAbortCode } : {}),
+                ...(adoption.remainingUncitedUnits !== undefined ? { remainingUncitedUnits: adoption.remainingUncitedUnits } : {}),
               });
             }
-            console.warn("[origin-chat] research synthesis discarded", { requestId, code: adoption.failureCode });
+            // Discard diagnostics (counts only): how many factual units the
+            // synthesis had, how many were uncited, and whether the uncited
+            // ones were source-list-like lines rather than body sentences.
+            const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
+            console.warn("[origin-chat] research synthesis discarded", {
+              requestId,
+              code: adoption.failureCode,
+              totalFactualUnits: unitDiagnostics.totalFactualUnits,
+              citedUnits: unitDiagnostics.citedUnits,
+              uncitedUnits: unitDiagnostics.uncitedUnits,
+              uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
+            });
           } catch (error) {
             synthesisStatus = "provider-failed";
             synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";

@@ -8,6 +8,7 @@ import {
   adoptGroundedResearchSynthesis,
   buildGroundedResearchSynthesisInstruction,
   buildGroundedResearchSynthesisPrompt,
+  diagnoseGroundedResearchSynthesisUnits,
 } from "../research/groundedResearchSynthesisV12.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
@@ -329,9 +330,15 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               : "Retrieved public evidence was synthesized with one verified zero-cost model execution. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified.";
             if (adoption.salvaged) {
               // Completion log for a salvaged adoption (§3.7): counts only.
+              // The unit diagnostics describe the ORIGINAL synthesis text.
+              const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
               console.info("[origin-research] research synthesis completed", {
                 synthesisSalvaged: true,
                 synthesisSalvageRemovedUnits: adoption.removedUnits,
+                totalFactualUnits: unitDiagnostics.totalFactualUnits,
+                citedUnits: unitDiagnostics.citedUnits,
+                uncitedUnits: unitDiagnostics.uncitedUnits,
+                uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
               });
             }
             return res.status(200).json({
@@ -377,9 +384,18 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
               salvageAttempted: true,
               salvageRemovedUnits: adoption.salvageRemovedUnits,
               ...(adoption.salvageAbortCode ? { salvageAbortCode: adoption.salvageAbortCode } : {}),
+              ...(adoption.remainingUncitedUnits !== undefined ? { remainingUncitedUnits: adoption.remainingUncitedUnits } : {}),
             });
           }
-          console.warn("[origin-research] research synthesis discarded", { code: adoption.failureCode });
+          // Discard diagnostics (counts only), same fields as the chat router.
+          const unitDiagnostics = diagnoseGroundedResearchSynthesisUnits(synthesisResult.text);
+          console.warn("[origin-research] research synthesis discarded", {
+            code: adoption.failureCode,
+            totalFactualUnits: unitDiagnostics.totalFactualUnits,
+            citedUnits: unitDiagnostics.citedUnits,
+            uncitedUnits: unitDiagnostics.uncitedUnits,
+            uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
+          });
         } catch (error) {
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
