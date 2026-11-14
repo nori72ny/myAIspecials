@@ -6,6 +6,7 @@ import type {
 } from './proposalDeckV1.js';
 import {
   checkProposalDeck,
+  extractNumericTokens,
   type ProposalDeckViolationCode,
 } from './proposalDeckSelfCheckV1.js';
 
@@ -167,5 +168,87 @@ describe('checkProposalDeck', () => {
     const result = checkProposalDeck(broken);
     expect(result.ok).toBe(false);
     expect(result.violations.length).toBeGreaterThan(0);
+  });
+});
+
+describe('extractNumericTokens', () => {
+  it('normalizes full-width digits, thousands separators and trailing zeros', () => {
+    expect(extractNumericTokens('初期費用は５０万円')).toEqual(['50']);
+    expect(extractNumericTokens('予算は1,250,000円')).toEqual(['1250000']);
+    expect(extractNumericTokens('第１０２回大会')).toEqual(['102']);
+    expect(extractNumericTokens('割合は3.50です')).toEqual(['3.5']);
+    expect(extractNumericTokens('2026-11-12')).toEqual(['2026', '11', '12']);
+    expect(extractNumericTokens('数値なし')).toEqual([]);
+  });
+});
+
+describe('checkProposalDeck numeric token preservation', () => {
+  // validDeck() の全テキストに現れる数値の多重集合と一致する原文テキスト群。
+  const exactSourceTexts = [
+    '2026-11-12',
+    '月40時間',
+    '月40時間',
+    '月40時間',
+    '月40時間',
+    '3か月',
+    '週10時間',
+    '週10時間',
+    '週10時間',
+    '年間120万円',
+    '利用人数は20名',
+  ];
+
+  function numericCodes(sourceTexts: readonly string[]): ProposalDeckViolationCode[] {
+    return checkProposalDeck(validDeck(), { numericSourceTexts: sourceTexts })
+      .violations.map((violation) => violation.code)
+      .filter((code) => code === 'NUMERIC_TOKEN_NOT_PRESERVED');
+  }
+
+  it('passes when every source number is preserved with the same multiplicity', () => {
+    const result = checkProposalDeck(validDeck(), {
+      numericSourceTexts: exactSourceTexts,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it('fails when a source number is dropped from the deck', () => {
+    const result = checkProposalDeck(validDeck(), {
+      numericSourceTexts: [...exactSourceTexts, '初期費用は50万円'],
+    });
+    expect(result.ok).toBe(false);
+    const violation = result.violations.find(
+      (entry) => entry.code === 'NUMERIC_TOKEN_NOT_PRESERVED',
+    );
+    expect(violation?.message).toContain('50');
+  });
+
+  it('fails when a deck number is altered (drop + fabrication pair)', () => {
+    const altered = exactSourceTexts.map((text) =>
+      text === '年間120万円' ? '年間60万円' : text,
+    );
+    expect(numericCodes(altered)).toEqual([
+      'NUMERIC_TOKEN_NOT_PRESERVED',
+      'NUMERIC_TOKEN_NOT_PRESERVED',
+    ]);
+  });
+
+  it('fails when the deck contains a number absent from the source', () => {
+    const withoutValue = exactSourceTexts.filter((text) => text !== '年間120万円');
+    expect(numericCodes(withoutValue)).toEqual(['NUMERIC_TOKEN_NOT_PRESERVED']);
+  });
+
+  it('treats full-width source numbers as preserved', () => {
+    const fullWidth = exactSourceTexts.map((text) =>
+      text === '年間120万円' ? '年間１２０万円' : text,
+    );
+    const result = checkProposalDeck(validDeck(), {
+      numericSourceTexts: fullWidth,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not run the numeric check without the option (backward compatible)', () => {
+    expect(codes(validDeck())).not.toContain('NUMERIC_TOKEN_NOT_PRESERVED');
   });
 });

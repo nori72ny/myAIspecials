@@ -200,7 +200,16 @@ describe('parseProposalDeckSkeleton free-form fallback', () => {
     expect(parseProposalDeckSkeleton(UNRELATED_NUMBERED_LIST)).toBeNull();
     expect(buildProposalDeckChatArtifact('構成案だけの自由文の回答です。')).toEqual({
       status: 'failed',
-      failureCode: 'PROPOSAL_DECK_SKELETON_NOT_MATCHED',
+      failureCode: 'PROPOSAL_DECK_PARSE_NO_HEADINGS',
+      failureShape: {
+        totalChars: 15,
+        markdownHeadingCount: 0,
+        numberedHeadingCount: 0,
+        bracketStandaloneLineCount: 0,
+        boldLabelLineCount: 0,
+        bulletLineCount: 0,
+        tableRowCount: 0,
+      },
     });
   });
 
