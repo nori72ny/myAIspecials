@@ -301,9 +301,11 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   その節の散文を文単位で逐語切り出しして補い（1文80字超は採用しない）、
 //   それでも3点未満なら null。
 // - 役割セクションの箇条書きは設計トークンの上限（4件）に切り詰める。
-// - 役割セクションの結論文（message）は、リード文 → 結論文らしい最初の箇条書き
-//   （その場合は箇条書きから外す）→ 見出し文からの定型文（「〜は次のとおりです。」）
-//   の順で決める。事実の捏造はせず、見出しの言い換えに留める。
+// - 役割セクションの結論文（message）は、リード文の中の最初の主張文
+//   （fix-11 で主張文優先に変更。従来は先頭行を無条件に採用していた）
+//   → 結論文らしい最初の箇条書き（その場合は箇条書きから外す）
+//   → 見出し文からの定型文（「〜は次のとおりです。」）の順で決める。
+//   事実の捏造はせず、見出しの言い換えに留める。
 // - 締め（closing）の節が無い場合は、計画セクションの箇条書きを次のステップに
 //   流用する。fix-6 以降は、締め節が実在しても質問だけで実質空の場合にも
 //   同じ流用を開く（締め節が無い markdown 文書では開かない）。どちらも
@@ -1022,7 +1024,20 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   const roleSections = contentSections.filter((section) => section.kind === 'role');
   if (roleSections.length === 0) return null;
   const builtSections: ProposalDeckSectionInput[] = roleSections.map((section) => {
-    let message = section.leadLines.length > 0 ? stripEmphasis(section.leadLines[0]) : '';
+    // fix-11（FIX11-2）: リード行は先頭行を無条件に採用せず、主張文
+    // （自己チェックの isAssertion と同じ規則 = isAssertionSentence）を
+    // 満たす最初の行を結論文にする。体言止めのリード行をそのまま
+    // 見出し文にすると自己チェック（HEADLINE_NOT_ASSERTION）と
+    // 不整合になるためである。主張文のリード行が1行も無い節は、
+    // 従来どおり次段（最初の箇条書き → 定型文）へそのまま落ちる。
+    let message = '';
+    for (const leadLine of section.leadLines) {
+      const candidate = stripEmphasis(leadLine);
+      if (isAssertionSentence(candidate)) {
+        message = candidate;
+        break;
+      }
+    }
     let bulletTexts = section.bullets.slice();
     if (message === '' && bulletTexts.length > 0) {
       const first = stripEmphasis(bulletTexts[0]);
