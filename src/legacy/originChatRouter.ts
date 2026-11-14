@@ -346,7 +346,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? "Retrieved sources contain structured-value differences that require human review."
                   : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
               }
-              let supervisorArtifacts = generateOriginSupervisorArtifactsV2([], lastUserMessage, adoption.text);
+              let supervisorArtifacts: ReturnType<typeof generateOriginSupervisorArtifactsV2>;
               let artifactFailureCode: string | undefined;
               try {
                 supervisorArtifacts = generateOriginSupervisorArtifactsV2(
