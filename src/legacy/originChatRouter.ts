@@ -24,6 +24,7 @@ import {
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
+import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -312,7 +313,173 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         );
         if (synthesisPlan.ok === true) {
           const synthesisStartedAt = now();
-          try {
+          // Records path (SYNTHESIS_RECORDS_DESIGN_2026-11-14 §14.3,
+          // R-PR-3): when no output form was requested (§7.4 keeps
+          // supervisor-artifact and inline-form requests on the text
+          // path), the shared records helper is offered the synthesis.
+          // With the kill switch OFF it reports not-attempted and the
+          // text path below runs exactly as before. With it ON, the
+          // records outcome settles this branch: adoption returns the
+          // rendered answer, and any records failure falls through to
+          // the partial answer (fail-closed, §12) — the text path is
+          // never run for a records-selected request.
+          let recordsSettled = false;
+          if (researchRequestedOutputs.length === 0) {
+            try {
+              const recordsOutcome = await executeGroundedResearchRecordsSynthesis(researchSynthesis, {
+                plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
+                query: lastUserMessage,
+                sources: grounded.sources,
+                language: grounded.language,
+                enabled: isGroundedResearchRecordsEnabled(env),
+                assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+              });
+              if (recordsOutcome.attempted) {
+                recordsSettled = true;
+                if (recordsOutcome.adopted === true && recordsOutcome.text !== undefined && recordsOutcome.result !== undefined) {
+                  const recordsText = recordsOutcome.text;
+                  const recordsResult = recordsOutcome.result;
+                  console.info("[origin-chat] research records completed", {
+                    requestId,
+                    synthesisPath: "records",
+                    ...recordsOutcome.metrics,
+                  });
+                  const verificationReason = grounded.language === "en"
+                    ? "The answer was assembled deterministically from records whose quotes were verified verbatim against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
+                    : "取得済みHTTPS証拠パケットに対して逐語検証を通ったレコードだけから、アプリ側で決定的に組み立てました。主張の真偽や媒体の権威性を独立検証したものではありません。";
+                  const limitations = [
+                    grounded.language === "en"
+                      ? "Every claim in the answer is backed by a verbatim quote checked against the retrieved packet, but claim truth, completeness, and publisher authority were not independently verified."
+                      : "回答の各主張は、取得済みパケットと逐語照合した引用で裏付けられていますが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
+                  ];
+                  if (grounded.conflicts > 0) {
+                    limitations.push(grounded.language === "en"
+                      ? "Retrieved sources contain structured-value differences that require human review."
+                      : "取得ソース間に構造化値の差異があり、人による確認が必要です。");
+                  }
+                  let supervisorArtifacts: ReturnType<typeof generateOriginSupervisorArtifactsV2>;
+                  let artifactFailureCode: string | undefined;
+                  try {
+                    supervisorArtifacts = generateOriginSupervisorArtifactsV2(
+                      researchRequestedOutputs,
+                      lastUserMessage,
+                      recordsText,
+                    );
+                  } catch (error) {
+                    artifactFailureCode = error instanceof Error && /^SUPERVISOR_[A-Z0-9_]+$/.test(error.message)
+                      ? error.message
+                      : "SUPERVISOR_ARTIFACT_GENERATION_FAILED";
+                    supervisorArtifacts = {
+                      version: ORIGIN_SUPERVISOR_VERSION_V2,
+                      status: "partial",
+                      artifacts: [],
+                      richOutputs: [],
+                      completedOutputs: [],
+                      pendingOutputs: [],
+                    };
+                  }
+                  return res.json({
+                    content: recordsText,
+                    artifacts: supervisorArtifacts.artifacts,
+                    supervisor: {
+                      version: ORIGIN_SUPERVISOR_VERSION_V2,
+                      status: supervisorArtifacts.status,
+                      freeOnly: true,
+                      costUsd: 0,
+                      paidFallbackUsed: false,
+                      automaticProviderRetries: 0,
+                      steps: [
+                        {
+                          id: "research",
+                          status: "completed",
+                          evidenceCount: grounded.sourceCount,
+                          provider: grounded.provider,
+                        },
+                        {
+                          id: "synthesis",
+                          status: "completed",
+                          citationValidated: true,
+                          providerAttempts: providerAttemptCount(recordsResult),
+                          providerTransportRequests: recordsResult.transportRequestCount,
+                        },
+                        {
+                          id: "artifact",
+                          status: supervisorArtifacts.status,
+                          artifactCount: supervisorArtifacts.artifacts.length,
+                          completedOutputs: supervisorArtifacts.completedOutputs,
+                          pendingOutputs: supervisorArtifacts.pendingOutputs,
+                          ...(artifactFailureCode ? { failureCode: artifactFailureCode } : {}),
+                        },
+                      ],
+                    },
+                    answer: answerEnvelope(
+                      recordsText,
+                      grounded.language,
+                      "not-run",
+                      verificationReason,
+                      grounded.evidence,
+                      limitations,
+                      grounded.nextActions,
+                      supervisorArtifacts.richOutputs,
+                    ),
+                    routing: {
+                      model: synthesisPlan.plan.providerLabel,
+                      reason: grounded.language === "en"
+                        ? "Synthesized retrieved public evidence with one verified zero-cost model execution in records form, rendered deterministically by the app."
+                        : "取得済み公開証拠を、検証済み$0モデル1回実行のレコード形式で取得し、アプリ側で決定的に組み立てました。",
+                      score: null,
+                      timeMs: Math.max(0, now() - synthesisStartedAt),
+                      cost: recordsResult.actualCostUsd,
+                      providerId: synthesisPlan.plan.providerId,
+                      modelId: synthesisPlan.plan.modelId,
+                      taskType: synthesisPlan.plan.taskType,
+                      actualCostUsd: recordsResult.actualCostUsd,
+                      costEvidenceStatus: "NOT_MEASURED",
+                      estimatedCostUsd: synthesisPlan.plan.estimatedCostUsd,
+                      freeOnly: true,
+                      traceId: requestId,
+                      verificationStatus: "not-run",
+                      answerMode: "research",
+                      verificationLevel: "evidence-required",
+                      sourceCount: grounded.sourceCount,
+                      researchProvider: grounded.provider,
+                      conflictCount: grounded.conflicts,
+                      ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
+                      synthesisStatus: "records-validated",
+                      synthesisPath: "records",
+                      synthesisSourceCount: recordsOutcome.usedSourceIds.length,
+                      providerDataPolicy: recordsResult.providerDataPolicy,
+                      providerRouting: recordsResult.routingEvidence,
+                      usage: recordsResult.usage,
+                      providerAttempts: providerAttemptCount(recordsResult),
+                      ...(recordsResult.attempts ? { providerRouteAttempts: recordsResult.attempts } : {}),
+                      requestedOutputs: researchRequestedOutputs,
+                      supervisorMode: researchRequestedOutputs.length > 0 ? ORIGIN_SUPERVISOR_VERSION_V2 : "research-only",
+                      supervisorStatus: supervisorArtifacts.status,
+                      generatedOutputs: supervisorArtifacts.completedOutputs,
+                      pendingOutputs: supervisorArtifacts.pendingOutputs,
+                      ...(artifactFailureCode ? { artifactFailureCode } : {}),
+                      downstreamDeliverablePending: supervisorArtifacts.pendingOutputs.length > 0 || Boolean(artifactFailureCode),
+                    },
+                  });
+                }
+                synthesisStatus = "records-validation-failed";
+                synthesisFailureCode = recordsOutcome.failureCode;
+                console.warn("[origin-chat] research records discarded", {
+                  requestId,
+                  synthesisPath: "records",
+                  code: recordsOutcome.failureCode,
+                  ...recordsOutcome.metrics,
+                });
+              }
+            } catch (error) {
+              recordsSettled = true;
+              synthesisStatus = "provider-failed";
+              synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+              console.warn("[origin-chat] research records unavailable; source-list fallback retained", { requestId, code: synthesisFailureCode });
+            }
+          }
+          if (!recordsSettled) try {
             const synthesisRequest: OriginProviderExecutionRequest = {
               plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
               messages: [{

@@ -12,6 +12,7 @@ import {
   executeGroundedResearchSynthesisWithRetry,
   isGroundedResearchSynthesisRetryEnabled,
 } from "../research/groundedResearchSynthesisV12.js";
+import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
@@ -309,7 +310,87 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
         { freeModelCatalog: options.freeModelCatalog, nowMs: catalogNow() },
       );
       if (synthesisPlan.ok === true) {
+        // Records path (SYNTHESIS_RECORDS_DESIGN_2026-11-14 §14.3,
+        // R-PR-3): the shared records helper is offered the synthesis.
+        // With the kill switch OFF it reports not-attempted and the
+        // text path below runs exactly as before. With it ON, the
+        // records outcome settles this branch: adoption returns the
+        // rendered answer, and any records failure degrades to the
+        // extractive report (fail-closed, §12) — the text path is
+        // never run for a records-selected request. This router has
+        // no downstream artifact stage, so §7.4's output-form route
+        // selection does not apply here.
+        let recordsSettled = false;
         try {
+          const recordsOutcome = await executeGroundedResearchRecordsSynthesis(researchSynthesis, {
+            plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
+            query,
+            sources: safeSources,
+            language,
+            enabled: isGroundedResearchRecordsEnabled(env),
+            assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+          });
+          if (recordsOutcome.attempted) {
+            recordsSettled = true;
+            if (recordsOutcome.adopted === true && recordsOutcome.text !== undefined && recordsOutcome.result !== undefined) {
+              const recordsText = recordsOutcome.text;
+              const recordsResult = recordsOutcome.result;
+              console.info("[origin-research] research records completed", {
+                synthesisPath: "records",
+                ...recordsOutcome.metrics,
+              });
+              const recordsReason = language === "ja"
+                ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの1回実行でレコード形式で取得し、逐語検証を通ったレコードだけから決定的に組み立てました。主張の真偽・網羅性・媒体の権威性は独立検証していません。"
+                : "Retrieved public evidence was obtained in records form with one verified zero-cost model execution and assembled deterministically from records whose quotes passed verbatim checks. Claim truth, completeness, and publisher authority were not independently verified.";
+              return res.status(200).json({
+                status: 200,
+                content: recordsText,
+                answer: envelope(recordsText, language, "not-run", recordsReason, extractProvidedOriginEvidence(recordsText)),
+                routing: {
+                  model: synthesisPlan.plan.providerLabel,
+                  provider: result.searchProvider ?? "DuckDuckGo",
+                  cost: recordsResult.actualCostUsd,
+                  actualCostUsd: recordsResult.actualCostUsd,
+                  costEvidenceStatus: "NOT_MEASURED",
+                  freeOnly: true,
+                  verificationStatus: "not-run",
+                  answerMode: "research",
+                  synthesisStatus: "records-validated",
+                  synthesisPath: "records",
+                  synthesisSourceCount: recordsOutcome.usedSourceIds.length,
+                  sourceCount: safeSources.length,
+                },
+                research: {
+                  source: result.searchProvider ?? "DuckDuckGo",
+                  sources: result.sources,
+                  report,
+                  sourceAssessments,
+                  comparison,
+                  fallback: result.fallback,
+                  ...(result.grounding ? { grounding: result.grounding } : {}),
+                  synthesis: {
+                    status: "records-validated",
+                    path: "records",
+                    sourceCount: recordsOutcome.usedSourceIds.length,
+                  },
+                },
+              });
+            }
+            synthesisStatus = "records-validation-failed";
+            synthesisFailureCode = recordsOutcome.failureCode;
+            console.warn("[origin-research] research records discarded", {
+              synthesisPath: "records",
+              code: recordsOutcome.failureCode,
+              ...recordsOutcome.metrics,
+            });
+          }
+        } catch (error) {
+          recordsSettled = true;
+          synthesisStatus = "provider-failed";
+          synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
+          console.warn("[origin-research] research records unavailable; extractive report retained", { code: synthesisFailureCode });
+        }
+        if (!recordsSettled) try {
           const synthesisRequest: OriginProviderExecutionRequest = {
             plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
             messages: [{
