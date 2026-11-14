@@ -5,9 +5,9 @@ import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPo
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import {
+  adoptGroundedResearchSynthesis,
   buildGroundedResearchSynthesisInstruction,
   buildGroundedResearchSynthesisPrompt,
-  validateGroundedResearchSynthesis,
 } from "../research/groundedResearchSynthesisV12.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
@@ -317,12 +317,23 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             systemInstruction: buildGroundedResearchSynthesisInstruction(language),
           });
           assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
-          const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, safeSources);
-          if (citationValidation.ok === true) {
-            const synthesizedContent = synthesisResult.text;
+          // Same adoption gate as the chat router (synthesis salvage, §3):
+          // the unchanged citation validator decides; an
+          // UNCITED_FACTUAL_UNIT-only failure may be salvaged by removing
+          // the uncited unit lines and re-running the same validator.
+          const adoption = adoptGroundedResearchSynthesis(synthesisResult.text, safeSources);
+          if (adoption.adopted === true) {
+            const synthesizedContent = adoption.text;
             const synthesizedReason = language === "ja"
               ? "無料公開Web検索で取得した証拠を、検証済み$0モデルの1回実行で統合しました。引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。"
               : "Retrieved public evidence was synthesized with one verified zero-cost model execution. Citation structure was validated against the retrieved sources; claim truth, completeness, and publisher authority were not independently verified.";
+            if (adoption.salvaged) {
+              // Completion log for a salvaged adoption (§3.7): counts only.
+              console.info("[origin-research] research synthesis completed", {
+                synthesisSalvaged: true,
+                synthesisSalvageRemovedUnits: adoption.removedUnits,
+              });
+            }
             return res.status(200).json({
               status: 200,
               content: synthesizedContent,
@@ -337,7 +348,8 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 verificationStatus: "not-run",
                 answerMode: "research",
                 synthesisStatus: "citation-validated",
-                synthesisSourceCount: citationValidation.usedSourceIds.length,
+                synthesisSourceCount: adoption.usedSourceIds.length,
+                ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
                 sourceCount: safeSources.length,
               },
               research: {
@@ -348,13 +360,26 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 comparison,
                 fallback: result.fallback,
                 ...(result.grounding ? { grounding: result.grounding } : {}),
-                synthesis: { status: "citation-validated", sourceCount: citationValidation.usedSourceIds.length },
+                synthesis: {
+                  status: "citation-validated",
+                  sourceCount: adoption.usedSourceIds.length,
+                  ...(adoption.salvaged ? { salvaged: true, salvageRemovedUnits: adoption.removedUnits } : {}),
+                },
               },
             });
           }
           synthesisStatus = "citation-validation-failed";
-          synthesisFailureCode = citationValidation.code;
-          console.warn("[origin-research] research synthesis discarded", { code: citationValidation.code });
+          // The discard keeps the FIRST validation failure code (§3.7);
+          // a salvage abort is recorded separately, counts and code only.
+          synthesisFailureCode = adoption.failureCode;
+          if (adoption.salvageAttempted) {
+            console.warn("[origin-research] research synthesis salvage aborted", {
+              salvageAttempted: true,
+              salvageRemovedUnits: adoption.salvageRemovedUnits,
+              ...(adoption.salvageAbortCode ? { salvageAbortCode: adoption.salvageAbortCode } : {}),
+            });
+          }
+          console.warn("[origin-research] research synthesis discarded", { code: adoption.failureCode });
         } catch (error) {
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";

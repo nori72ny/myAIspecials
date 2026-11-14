@@ -138,13 +138,25 @@ describe("synthesis-discard fallback hygiene", () => {
     expectHygienicFallback(response.body, "INSUFFICIENT_SOURCE_COVERAGE");
   });
 
-  it("uses the hygienic partial answer when a factual line lacks a citation (UNCITED_FACTUAL_UNIT)", async () => {
+  it("adopts the salvaged synthesis when a single factual line lacks a citation (UNCITED_FACTUAL_UNIT, salvageable shape)", async () => {
+    // Salvage adjudication (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §3): this
+    // shape — two cited units and one uncited unit — meets the salvage
+    // conditions exactly, so the uncited line is removed and the rest is
+    // adopted as citation-validated instead of falling back. The UNCITED
+    // fallback shape itself is still covered by the abort case in
+    // originChatRouterSynthesisSalvage.test.ts (S15) and by the other
+    // discard cases in this file.
+    const citedLines = "内閣総理大臣は高市早苗氏です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)\n記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)";
     const response = await request(createApp(synthesisReturning(
-      "内閣総理大臣は高市早苗氏です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)\n記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)\nこれは引用のない補足文です",
+      citedLines + "\nこれは引用のない補足文です",
     ))).post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
     expect(response.status).toBe(200);
-    expectHygienicFallback(response.body, "UNCITED_FACTUAL_UNIT");
+    expect(response.body.content).toBe(citedLines);
+    expect(response.body.content).not.toContain("これは引用のない補足文です");
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.synthesisSalvaged).toBe(true);
+    expect(response.body.routing.synthesisSalvageRemovedUnits).toBe(1);
   });
 
   it("uses the hygienic partial answer when a number is not in the cited evidence (UNSUPPORTED_NUMERIC_TOKEN)", async () => {
