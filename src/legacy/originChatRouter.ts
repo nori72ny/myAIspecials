@@ -24,7 +24,7 @@ import {
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
-import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
@@ -310,7 +310,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   researchRequestedOutputs,
                 ),
               }],
-              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language, researchRequestedOutputs),
+              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language, researchRequestedOutputs)
+                + "\n\n"
+                + originCurrentDateInstruction(now(), grounded.language),
             });
             assertOriginZeroCostExecutionResultWithFailover(synthesisResult, synthesisPlan.plan.modelId);
             const citationValidation = validateGroundedResearchSynthesis(synthesisResult.text, grounded.sources);
@@ -539,8 +541,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const startedAt = now();
     try {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required });
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)), groqSystemInstruction: originGroqRouteSystemInstruction() };
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en"), groqSystemInstruction: originGroqRouteSystemInstruction() };
       const result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
+      // Output-side assertion gate (S-PR-1): this direct path carries no
+      // search grounding for the request, so a current-form assertion
+      // about a volatile fact in the finished text is replaced with the
+      // honest could-not-confirm form before anything downstream (evidence
+      // extraction, envelope, response body) can see the raw text.
+      const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
+      if (assertionGate.replaced) console.info("[origin-chat] ungrounded current assertion replaced", { requestId });
+      const answerText = assertionGate.text;
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
@@ -555,10 +565,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           : "This answer reached the length limit and ends partway through (it is incomplete). Send \"continue\" if you need the rest.");
         nextActions.push(answerLanguage === "ja" ? "「続き」と送ると、この回答の続きを依頼できます。" : "Send \"continue\" to ask for the rest of this answer.");
       }
-      const evidence = extractProvidedOriginEvidence(result.text); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
+      const evidence = extractProvidedOriginEvidence(answerText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
-      return res.json({ content: result.text, answer: answerEnvelope(result.text, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}) } });
+      return res.json({ content: answerText, answer: answerEnvelope(answerText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}) } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const failureDiagnostic = buildOriginProviderFailureDiagnostic(error);

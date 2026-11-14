@@ -12,7 +12,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
-import { originChatSystemInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
   buildProposalDeckChatArtifact,
   isProposalDeckChatRequest,
@@ -142,7 +142,9 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           workPlan,
           resolvedPlan,
           originAnswerQualityInstruction(answerQualityPolicy),
-        ) + (deckRequested ? `\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}` : ""),
+        )
+          + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
+          + (deckRequested ? `\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}` : ""),
         groqSystemInstruction: originGroqRouteSystemInstruction(),
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
@@ -155,28 +157,58 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         streamRelease: reviewDecision.required ? "hold-until-verified" : "incremental",
       };
 
+      // Assertion gate arming (S-PR-1 output side): when the question
+      // touches a volatile fact, streamed deltas are buffered instead of
+      // forwarded, so the deterministic gate can reject an ungrounded
+      // current-form assertion before any of it reaches the client. A
+      // passing answer is flushed in order once the stream completes;
+      // questions outside the volatile set keep the original progressive
+      // forwarding untouched.
+      const assertionGateArmed = originAnswerNeedsAssertionGate(lastUserMessage);
+      const bufferedDeltas: string[] = [];
+      const emitDelta = (delta: string) => {
+        if (!downstreamStarted) {
+          downstreamStarted = true;
+          res.status(200);
+          res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+          res.setHeader("Cache-Control", "no-store, no-transform");
+          res.setHeader("X-Accel-Buffering", "no");
+          res.setHeader("X-Origin-Free-Only", "true");
+          res.setHeader("X-Origin-Cost-Evidence", "NOT_MEASURED");
+          res.setHeader("X-Origin-Model-Id", planningResult.plan.modelId);
+          res.setHeader("X-Origin-Stream-Source", "upstream");
+          res.setHeader("X-Origin-Stream-Protocol", "origin-verified-sse-v1");
+          res.flushHeaders?.();
+        }
+        providerDeltaCount += 1;
+        res.write(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`);
+      };
+
       const result = await streamExecute(providerRequest, {
         onDelta: (delta) => {
           if (!delta) return;
-          if (!downstreamStarted) {
-            downstreamStarted = true;
-            res.status(200);
-            res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-            res.setHeader("Cache-Control", "no-store, no-transform");
-            res.setHeader("X-Accel-Buffering", "no");
-            res.setHeader("X-Origin-Free-Only", "true");
-            res.setHeader("X-Origin-Cost-Evidence", "NOT_MEASURED");
-            res.setHeader("X-Origin-Model-Id", planningResult.plan.modelId);
-            res.setHeader("X-Origin-Stream-Source", "upstream");
-            res.setHeader("X-Origin-Stream-Protocol", "origin-verified-sse-v1");
-            res.flushHeaders?.();
+          if (assertionGateArmed) {
+            bufferedDeltas.push(delta);
+            return;
           }
-          providerDeltaCount += 1;
-          res.write(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`);
+          emitDelta(delta);
         },
       });
 
-      if (!downstreamStarted || !result.text.trim()) {
+      if (!result.text.trim()) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      }
+      let assertionGateReplaced = false;
+      if (assertionGateArmed) {
+        const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
+        assertionGateReplaced = assertionGate.replaced;
+        if (assertionGate.replaced) {
+          emitDelta(assertionGate.text);
+        } else {
+          for (const buffered of bufferedDeltas) emitDelta(buffered);
+        }
+      }
+      if (!downstreamStarted) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
       }
       // A truncated result (PKG-2) is a completed exchange with an incomplete
@@ -211,6 +243,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
         truncated: result.truncated === true,
+        ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         proposalDeck: deckRequested ? (deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
@@ -224,7 +257,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         servedModel: result.routingEvidence.servedModel,
         costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: result.routingEvidence.fallbackUsed,
-        ...(result.truncated === true ? { truncated: true } : {}),
+        ...(result.truncated === true && !assertionGateReplaced ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");

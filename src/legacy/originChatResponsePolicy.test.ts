@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOriginUngroundedAssertionGate,
+  detectOriginUngroundedCurrentAssertion,
   ORIGIN_REQUEST_CONTEXTS,
+  originAnswerNeedsAssertionGate,
   originChatSystemInstruction,
+  originCurrentDateInstruction,
   originGroqRouteSystemInstruction,
   originIntentAwarenessInstruction,
+  ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA,
   requiresOriginGroundedResearch,
   requiresOriginCurrentInformation,
   requiresOriginFutureReleaseInformation,
@@ -147,6 +152,93 @@ describe("originChatResponsePolicy", () => {
   ])("keeps non-factual request out of grounded research: %s", (message) => {
     expect(requiresOriginCurrentInformation(message)).toBe(false);
     expect(requiresOriginGroundedResearch(message)).toBe(false);
+  });
+
+  // S-PR-1 regression (F+G freshness regression 2026-11-13, fatal 6): the
+  // exact phrasings that were answered from stale memory with confident
+  // current-form assertions. Under the unified determination every one of
+  // them must now route to search.
+  it.each([
+    ["現在の日本の内閣総理大臣は誰ですか？"],
+    ["日銀の政策金利は今いくつですか？いつ決まったものですか？"],
+    ["最新の有効求人倍率を教えてください。いつの分ですか？"],
+    ["最新の完全失業率を教えてください。いつの分ですか？"],
+    ["日本の総人口の最新の推計値と、その基準日を教えてください"],
+    ["箱根駅伝の直近の優勝校はどこですか？"],
+  ])("routes the F+G fatal phrasing to search (S-PR-1): %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+  });
+
+  // S-PR-1 negative regressions: pure arithmetic over supplied values and
+  // timeless historical facts must NOT route to search (the H-01 / G-01
+  // self-destruct pattern, where the grounding layer shredded directly
+  // answerable questions over unrelated retrieved values).
+  it.each([
+    ["税抜12,800円の商品を3個買うと、消費税10%込みでいくらになりますか？"],
+    ["消費税が導入された当初の税率は何%でしたか？"],
+  ])("keeps arithmetic and timeless facts off search (S-PR-1): %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(false);
+    expect(requiresOriginGroundedResearch(message)).toBe(false);
+  });
+});
+
+describe("originCurrentDateInstruction (S-PR-1)", () => {
+  it("injects today's date in Asia/Tokyo, not UTC", () => {
+    // 2026-11-13T16:30:00Z is already 2026-11-14 01:30 in Tokyo.
+    const instruction = originCurrentDateInstruction(Date.parse("2026-11-13T16:30:00Z"), "ja");
+    expect(instruction).toContain("2026年11月14日");
+    expect(instruction).toContain("（2026年11月14日時点）");
+    expect(instruction).not.toContain("2026年11月13日");
+  });
+
+  it("carries the ISO date and the as-of form for English", () => {
+    const instruction = originCurrentDateInstruction(Date.parse("2026-11-13T16:30:00Z"), "en");
+    expect(instruction).toContain("2026-11-14");
+    expect(instruction).toContain("(as of 2026-11-14)");
+  });
+});
+
+describe("ungrounded current-assertion gate (S-PR-1)", () => {
+  it("arms only for volatile-fact questions that are not pinned to the past", () => {
+    expect(originAnswerNeedsAssertionGate("日本の内閣総理大臣は誰ですか？")).toBe(true);
+    expect(originAnswerNeedsAssertionGate("ドル円レートの仕組みを教えてください")).toBe(true);
+    expect(originAnswerNeedsAssertionGate("消費税が導入された当初の税率は何%でしたか？")).toBe(false);
+    expect(originAnswerNeedsAssertionGate("日本の首都はどこですか？")).toBe(false);
+  });
+
+  it("detects the F-01 shape: a currentness cue joined to a volatile topic", () => {
+    const answer = "現在の日本の内閣総理大臣は石破茂（いしば しげる）氏です。\n（2024年11月時点）";
+    expect(detectOriginUngroundedCurrentAssertion("日本の内閣総理大臣は誰ですか？", answer)).toBe(true);
+  });
+
+  it("detects an undated volatile value stated in the present tense", () => {
+    const answer = "日本の総人口は約1億2,395万人です。高齢化が進んでいます。";
+    expect(detectOriginUngroundedCurrentAssertion("日本の総人口はどれくらいですか？", answer)).toBe(true);
+  });
+
+  it("passes an answer that dates its volatile values", () => {
+    const answer = "日本の総人口は、2024年4月時点で約1億2,395万人と推計されています。";
+    expect(detectOriginUngroundedCurrentAssertion("日本の総人口はどれくらいですか？", answer)).toBe(false);
+  });
+
+  it("passes answers on non-volatile questions untouched", () => {
+    const answer = "現在の日本の首都は東京です。";
+    expect(detectOriginUngroundedCurrentAssertion("日本の首都はどこですか？", answer)).toBe(false);
+  });
+
+  it("passes timeless explanations that mention a topic without stating a value", () => {
+    const answer = "日本の内閣総理大臣は国会で指名され、天皇に任命されます。";
+    expect(detectOriginUngroundedCurrentAssertion("日本の内閣総理大臣はどうやって決まりますか？", answer)).toBe(false);
+  });
+
+  it("replaces an ungrounded assertion with the could-not-confirm form, and never touches grounded answers", () => {
+    const question = "日本の内閣総理大臣は誰ですか？";
+    const stale = "現在の日本の内閣総理大臣は石破茂氏です。";
+    const applied = applyOriginUngroundedAssertionGate(question, stale, false);
+    expect(applied.replaced).toBe(true);
+    expect(applied.text).toBe(ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA);
+    expect(applyOriginUngroundedAssertionGate(question, stale, true)).toEqual({ text: stale, replaced: false });
   });
 
   it.each([
