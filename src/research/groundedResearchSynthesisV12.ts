@@ -426,6 +426,65 @@ export function validateGroundedResearchSynthesis(
 }
 
 // ---------------------------------------------------------------------------
+// Unit diagnostics (counts only).
+//
+// Production measurement after the salvage shipped (2026-11-14) showed
+// syntheses still discarded with UNCITED_FACTUAL_UNIT after the salvage had
+// removed its maximum of three units and aborted on the same code — so the
+// texts carry four or more uncited units — but the logs could not say how
+// many units a text had, how many were uncited, or whether the uncited
+// units were source-list-like lines (carrying a URL or domain) rather than
+// body sentences. This function returns exactly those counts so the
+// discard / salvage-abort / salvaged-adoption logs can record them.
+//
+// The counts share the validator's own machinery — factualUnits() for unit
+// extraction and the CITATION_PATTERN test the validator applies per unit —
+// so they cannot drift from the gate's notion of a unit or of a cited unit.
+// A unit counts as "cited" when the citation token the validator looks for
+// is present; whether that citation is otherwise valid (known ID, matching
+// URL, coverage) remains the validator's own earlier stages. Counts only:
+// no unit text, titles, or URLs are returned.
+
+export interface GroundedResearchSynthesisUnitDiagnostics {
+  totalFactualUnits: number;
+  citedUnits: number;
+  uncitedUnits: number;
+  /** Uncited units carrying a URL or a domain-like token (source-list-like lines). */
+  uncitedUnitsWithUrlLike: number;
+}
+
+/**
+ * Heuristic for "looks like a source-list line": a bare http(s) URL, or a
+ * dotted host-like token whose final label is alphabetic (kantei.go.jp,
+ * ja.wikipedia.org). Decimals and versions do not match because their final
+ * segment is numeric. This only classifies counts for logging; it never
+ * affects validation.
+ */
+const URL_LIKE_PATTERN = /https?:\/\/[^\s)]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/i;
+
+export function diagnoseGroundedResearchSynthesisUnits(
+  text: string,
+): GroundedResearchSynthesisUnitDiagnostics {
+  const units = factualUnits(text);
+  let citedUnits = 0;
+  let uncitedUnitsWithUrlLike = 0;
+  for (const unit of units) {
+    CITATION_PATTERN.lastIndex = 0;
+    if (CITATION_PATTERN.test(unit)) {
+      citedUnits += 1;
+    } else if (URL_LIKE_PATTERN.test(unit)) {
+      uncitedUnitsWithUrlLike += 1;
+    }
+  }
+  return {
+    totalFactualUnits: units.length,
+    citedUnits,
+    uncitedUnits: units.length - citedUnits,
+    uncitedUnitsWithUrlLike,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // UNCITED_FACTUAL_UNIT salvage (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §3).
 //
 // The validator above is the only adoption gate and is NOT modified by this
@@ -467,6 +526,8 @@ export type GroundedResearchSynthesisAdoption =
       salvageAttempted: boolean;
       salvageRemovedUnits: number;
       salvageAbortCode?: GroundedResearchSynthesisValidationCode;
+      /** Uncited factual units still present when the salvage aborted (counts only). */
+      remainingUncitedUnits?: number;
     };
 
 type SynthesisTextLineKind = "blank" | "heading" | "label" | "unit" | "other";
@@ -536,17 +597,6 @@ export function adoptGroundedResearchSynthesis(
     // failure keeps the existing discard path untouched.
     return { adopted: false, failureCode: initial.code, salvageAttempted: false, salvageRemovedUnits: 0 };
   }
-  const abort = (
-    salvageRemovedUnits: number,
-    salvageAbortCode?: GroundedResearchSynthesisValidationCode,
-  ): GroundedResearchSynthesisAdoption => ({
-    adopted: false,
-    failureCode: initial.code,
-    salvageAttempted: true,
-    salvageRemovedUnits,
-    ...(salvageAbortCode ? { salvageAbortCode } : {}),
-  });
-
   let lines = classifySynthesisTextLines(text.replace(/\r\n/g, "\n").trim());
   const totalUnits = lines.filter((line) => line.kind === "unit").length;
   const firstUnitLine = lines.find((line) => line.kind === "unit");
@@ -565,6 +615,22 @@ export function adoptGroundedResearchSynthesis(
       }
     }
   }
+  // Defined after `lines` exists so an abort can also report how many
+  // uncited units the removals still left behind (counts only, via the
+  // shared diagnostics above; 0 when the final text itself validated).
+  const abort = (
+    salvageRemovedUnits: number,
+    salvageAbortCode?: GroundedResearchSynthesisValidationCode,
+  ): GroundedResearchSynthesisAdoption => ({
+    adopted: false,
+    failureCode: initial.code,
+    salvageAttempted: true,
+    salvageRemovedUnits,
+    ...(salvageAbortCode ? { salvageAbortCode } : {}),
+    remainingUncitedUnits: diagnoseGroundedResearchSynthesisUnits(
+      lines.map((line) => line.raw).join("\n"),
+    ).uncitedUnits,
+  });
   let removed = 0;
   let firstUnitRemoved = false;
 
