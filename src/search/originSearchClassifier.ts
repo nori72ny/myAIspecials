@@ -84,6 +84,23 @@ return /(?:この|以下|次の|上記).{0,24}(?:文章|文|資料|内容|テキ
 || /\b(?:summari[sz]e|shorten|rewrite|translate|proofread)\b.{0,48}\b(?:this|following|provided|above)\b/is.test(message);
 }
 
+/**
+* Supplied numeric values for the calculation route: an amount or percentage
+* the user provided ("12,800円", "10%") or a multiplication of two numbers
+* ("500 × 3"). The message is normalized in a single linear pass first —
+* NFKC folds full-width digits / ， / ％ to their half-width forms, then
+* thousands separators between digits are dropped — so the patterns below
+* only ever face a plain digit run followed by a unit, with no overlapping
+* quantifiers. The previous single pattern (one digit, then a digit/comma
+* run, then the unit) let a long digit run be split between its two
+* character classes in O(n) ways and backtracked polynomially when no unit
+* followed (CodeQL js/polynomial-redos, alert #928).
+*/
+function hasSuppliedCalculationValue(message: string): boolean {
+const normalized = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
+return /\d+(?:円|%|パーセント)/.test(normalized) || /\d\s*(?:×|\*)\s*\d/.test(normalized);
+}
+
 function isDeterministicCalculation(message: string): boolean {
 if (FRESHNESS_MARKER.test(message)) return false;
 const hasDigits = /[0-9０-９]/.test(message);
@@ -97,7 +114,7 @@ if (hasDigits && asksCalculation) return true;
 // monetary amount or percentage AND a result-amount cue are both required,
 // so a bare "いくらですか" about a product (no supplied values) still
 // routes to price_spec below.
-const hasSuppliedValue = /(?:[0-9０-９][0-9０-９,，]*(?:円|%|％|パーセント)|[0-9０-９]\s*(?:×|＊|\*)\s*[0-9０-９])/.test(message);
+const hasSuppliedValue = hasSuppliedCalculationValue(message);
 const asksResultAmount = /(?:いくらになります|いくらになる|合計でいくら|総額はいくら)/.test(message);
 return hasDigits && hasSuppliedValue && asksResultAmount;
 }

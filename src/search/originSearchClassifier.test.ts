@@ -104,6 +104,23 @@ describe("classifyOriginSearchQuestion", () => {
     expect(result.rule).toBe("deterministic-calculation");
   });
 
+  it("classifies pathological digit/comma runs without super-linear backtracking (CodeQL #928)", () => {
+    // The supplied-value pattern used to backtrack polynomially on a long
+    // digit/comma run that never reaches a unit. Completion and outcome are
+    // asserted here, not wall-clock time.
+    const noUnit = classifyOriginSearchQuestion(`${"0,".repeat(2500)}の商品はいくらになりますか？`);
+    expect(noUnit.type).toBe("no_search");
+    expect(noUnit.rule).not.toBe("deterministic-calculation");
+    // A long digit run that does end in a unit is still supplied-value
+    // arithmetic, at both pathological and moderate (grouped) lengths.
+    const longAmount = classifyOriginSearchQuestion(`${"9".repeat(5000)}円の10%はいくらになりますか？`);
+    expect(longAmount.type).toBe("no_search");
+    expect(longAmount.rule).toBe("deterministic-calculation");
+    const grouped = classifyOriginSearchQuestion("1,234,567,890円の10%はいくらになりますか？");
+    expect(grouped.type).toBe("no_search");
+    expect(grouped.rule).toBe("deterministic-calculation");
+  });
+
   it("classifies a question pinned to a past point as stable (G-01 shape)", () => {
     const result = classifyOriginSearchQuestion("消費税が導入された当初の税率は何%でしたか？");
     expect(result.type).toBe("stable");
