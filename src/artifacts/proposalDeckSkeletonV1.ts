@@ -67,7 +67,7 @@ export const PROPOSAL_DECK_SKELETON_INSTRUCTION = [
   '守ること:',
   '- 要約の要点は必ず3点にします。要約は見出しだけで済ませず、要点を箇条書きで書いてください。',
   '- 要約の見出しは、見出しだけの行にしてください。見出しと同じ行に本文を続けず、要点は見出しの下に箇条書きで3点以上書いてください。',
-  '- 回答全体が資料そのものの本文です。「構成案」や、資料の構成についての説明・前置きを本文に書かないでください。',
+  '- 回答全体が資料そのものの本文です。「構成案」や、資料の構成についての説明・前置きを本文に書かないでください。「表紙」「タイトル」「内容」のようなスライド自体の説明ではなく、各スライドに載る本文そのものを書いてください。',
   '- 次のステップには、具体的なステップを箇条書きで書いてください。',
   '- 見出しに【Assumption】などのタグや、（前提）（サンプル）といった注記を付けないでください。数値が仮定の場合は、その旨を本文中に明記してください。',
   '- 各セクションの箇条書きは4件まで、1件は見出しと補足を合わせて60字以内にします。',
@@ -409,6 +409,31 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   ガードの全面撤廃（FIX9-2）は、締め必須の固定判断4件と衝突する
 //   ため不採用。コアゲート（中身のある節3件以上・要約3点・nextSteps
 //   非空・タイトル規則）は一切緩めていない。
+//
+// 第10回本番失敗（2026-11-15、2d8dc6a6、fix-9 デプロイ後）への対応（fix-10）:
+// - fix-9 は通過したが、ステップ材料の在り処が plan 節から cost 節
+//   （複合見出し「料金プランと導入の流れ」の従属側）へ移り、文書内に
+//   plan 節が1つも無いため、受け皿は参照先自体を欠いて nextSteps === 0
+//   になった（壁10-A）。前面に出た連番の順序不一致（拒否2件）は、
+//   不一致行も降格で全件回収されるため材料の喪失はゼロであり、実測で
+//   原因から除外した（連番カウンタの意味論は変更しない、FIX10-1 は
+//   不採用）。FIX10-2': 箇条書きの出典を節が保持する（FIX9-2' の
+//   demotedBulletCount の拡張）。各節に「番号付き行に由来する箇条
+//   書き」の原文リスト（numberedBullets）を追加し、(i) FIX6-2 の降格で
+//   入った項目と、(ii) 連番不一致等で見出しにならず箇条書きに落ちた
+//   番号付き行の、両方を記録する。受け皿の新段は、既存の全段（計画節
+//   の箇条書き流用・締め散文の切り出し・計画散文の流用）が空振りし、
+//   かつ締め節が存在しない場合に限り、最後の役割節について、見出し
+//   （注記を除いた本体）が「流れ」または「手順」を含み、かつ
+//   numberedBullets が2件以上あるときに開く。材料はその節の
+//   numberedBullets だけであり、説明文の箇条書き・表由来の箇条書きは
+//   混ぜない。参照先を最後の役割節に限定しない広い版（FIX10-2）と、
+//   分類側の対策（FIX10-3a／3b）は、誤爆の余地と静かな内容汚染の
+//   実測のため不採用。FIX10-4（補助）: 骨格指示の構成案禁止を具体化
+//   した（「表紙」「タイトル」「内容」のようなスライドの説明では
+//   なく、スライドに載る本文そのものを書くこと）。コアゲート
+//   （中身のある節3件以上・要約3点・nextSteps 非空・タイトル規則）は
+//   一切緩めていない。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -428,6 +453,13 @@ interface FreeformSection {
   tableLines: string[];
   /** 箇条書きのうち FIX6-2 の降格で入った項目の件数（FIX9-2' の出典条件用）。 */
   demotedBulletCount: number;
+  /**
+   * 箇条書きのうち番号付き行に由来する項目の原文（出現順、FIX10-2' の
+   * 出典条件用）。FIX6-2 の降格で入った項目と、連番不一致等で見出しに
+   * ならず箇条書きに落ちた番号付き行の両方を記録する。通常の箇条書きと
+   * 表由来の箇条書きは含めない。
+   */
+  numberedBullets: string[];
 }
 
 /** 自由形式の見出し文 → 役割。配列の上から順に照合し、最初に一致したものを採る。 */
@@ -625,6 +657,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       bullets: [],
       tableLines: [],
       demotedBulletCount: 0,
+      numberedBullets: [],
     };
     sections.push(current);
   };
@@ -779,7 +812,14 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     const bullet = text.match(BULLET_LINE);
     if (bullet) {
       // 見出しより前の箇条書きは、帰属先がないため拾わない。
-      if (current) current.bullets.push(bullet[1]);
+      if (current) {
+        current.bullets.push(bullet[1]);
+        // fix-10（FIX10-2'）: 番号付き行が見出しにならず箇条書きに落ちた
+        // 場合（連番不一致・受理条件の不成立等）は、番号付き行由来の
+        // 項目として出典も記録する。通常の箇条書き記号（- ＊ +）で
+        // 始まる行は記録しない。
+        if (/^\d+[.)]\s/.test(text)) current.numberedBullets.push(bullet[1]);
+      }
       continue;
     }
     if (current) current.leadLines.push(text);
@@ -812,6 +852,9 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       // fix-9（FIX9-2'）: 降格で入った項目は「文書自身が番号付き手順
       // リストとして明示した材料」であるため、帰属先の節が出典を数える。
       target.demotedBulletCount += 1;
+      // fix-10（FIX10-2'）: 降格で入った項目は番号付き行由来の箇条書き
+      // として原文リストにも記録する（出典条件は FIX9-2' と同じ線）。
+      target.numberedBullets.push(section.heading);
       continue;
     }
     demotedSections.push(section);
@@ -840,6 +883,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
           bullets: [],
           tableLines: [],
           demotedBulletCount: 0,
+          numberedBullets: [],
         });
       }
     }
@@ -1090,6 +1134,29 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
           (sentence) => !askSentences.has(sentence) && !FREEFORM_QUESTION_PATTERN.test(sentence),
         )
         .slice(0, 4);
+    }
+  }
+  // fix-10（FIX10-2'）: 既存の全段が空振りし、締め節が存在しない場合に
+  // 限り、最後の役割節へ限定した受け皿を開く。開条件は三重に絞る:
+  // (1) 位置条件 — 参照先は最後の役割節だけ（文書の締めに最も近い節）。
+  // (2) 見出しシグナル — 見出し（注記を除いた本体）が「流れ」または
+  // 「手順」を含むこと（手順を掲げる節であることの文書自身の表明）。
+  // (3) 出典条件 — その節の箇条書きに番号付き行由来の項目
+  // （numberedBullets）が2件以上あること。通常の箇条書き（W33 型）や
+  // 表由来の箇条書き（W28 型）は出典条件を満たさず開かない。材料は
+  // numberedBullets だけであり、説明文の箇条書き・表由来の箇条書きは
+  // 締めに混ぜない（FIX10-3b の実測が示した静かな内容汚染への対策）。
+  // 本番形状#10 では、ステップが複合見出しの cost 節に埋まって plan 節
+  // が文書内に皆無であり、既存段は参照先自体を欠いていた（壁10-A）。
+  if (nextSteps.length === 0 && closingSection === undefined) {
+    const lastRoleSection = roleSections[roleSections.length - 1];
+    if (lastRoleSection && lastRoleSection.numberedBullets.length >= 2) {
+      const headingCore = stripHeadingAnnotations(lastRoleSection.heading);
+      if (headingCore.includes('流れ') || headingCore.includes('手順')) {
+        nextSteps = lastRoleSection.numberedBullets
+          .map((entry) => stripEmphasis(entry))
+          .filter((entry) => entry !== '');
+      }
     }
   }
   if (nextSteps.length === 0) return null;
