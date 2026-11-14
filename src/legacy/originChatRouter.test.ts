@@ -196,7 +196,7 @@ describe("createOriginChatRouter", () => {
       .send({ messages: [{ role: "user", content: "今日のニュースを教えてください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
     expect(response.body.content).not.toContain("現在確認できた公開情報の要点です。");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
@@ -485,7 +485,7 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "最新情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/one");
     expect(response.body.content).toContain("https://example.org/two");
     expect(response.body.content).not.toContain("公開情報その1です。");
@@ -533,7 +533,7 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
     expect(response.body.content).not.toContain("現在確認できた公開情報です。");
     expect(response.body.routing).toEqual(expect.objectContaining({
@@ -600,10 +600,14 @@ describe("createOriginChatRouter", () => {
     expect(response.body.content).not.toContain("お問い合わせ");
     expect(response.body.content).not.toContain("無料ダウンロード");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
-    // The fallback states its own limit first, keeps the cross-check notes,
-    // and cites the source compactly (title, domain, URL).
-    expect(response.body.content).toContain("要約した回答を作成できなかったため、出典の一覧だけをお伝えします");
-    expect(response.body.content).toContain("## 照合メモ");
+    // The fallback states its own limit first, shows the confirmed scope
+    // as a title-only attribution, and cites the source compactly (title,
+    // domain, URL). The internal cross-check section (照合メモ) never
+    // appears in the user-facing body (synthesis-hygiene).
+    expect(response.body.content).toContain("要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします");
+    expect(response.body.content).not.toContain("照合メモ");
+    expect(response.body.content).toContain("## 確認できた範囲");
+    expect(response.body.content).toContain("では『法律で退職は何日前までに伝えられるべき?』と示されています");
     expect(response.body.content).toContain("法律で退職は何日前までに伝えられるべき？");
     expect(response.body.content).toContain("example.com");
     expect(response.body.content).toContain("https://example.com/retirement-law");
@@ -640,7 +644,7 @@ describe("createOriginChatRouter", () => {
     )).post("/api/chat").send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
     expect(response.body.content).not.toContain("現在確認できた公開情報です。");
     expect(response.body.routing).toEqual(expect.objectContaining({

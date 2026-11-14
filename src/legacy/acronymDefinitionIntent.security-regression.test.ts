@@ -94,7 +94,7 @@ describe("stable acronym definition intent", () => {
       freeOnly: true,
       cost: 0,
     }));
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/aio-current");
     expect(response.body.content).not.toContain("AIOに関する現在の公開情報です。");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
