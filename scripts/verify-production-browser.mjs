@@ -19,7 +19,7 @@ async function evaluateAcrossOnePwaClaim(page, operation) {
   } catch (error) {
     if (!String(error).includes("Execution context was destroyed")) throw error;
     await page.waitForLoadState("domcontentloaded", { timeout: 10_000 });
-    await page.getByTestId("origin-core-logo").waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByTestId("origin-orin-presence").waitFor({ state: "visible", timeout: 15_000 });
     return operation();
   }
 }
@@ -29,7 +29,9 @@ async function verifyPwa(browser, baseUrl) {
   const page = await context.newPage();
   try {
     await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.getByTestId("origin-core-logo").waitFor({ state: "visible", timeout: 15_000 });
+    // Load anchor: the floating Orin presence is the app's only resident
+    // character element (the home hero logo was removed in PR #1258).
+    await page.getByTestId("origin-orin-presence").waitFor({ state: "visible", timeout: 15_000 });
     const manifestHref = await page.locator('link[rel="manifest"]').getAttribute("href");
     assert.ok(manifestHref, "Production page must expose a web app manifest.");
     const manifestResponse = await context.request.get(new URL(manifestHref, baseUrl).toString(), { failOnStatusCode: true });
@@ -115,7 +117,7 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
 
   try {
     await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.getByTestId("origin-core-logo").waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByTestId("origin-orin-presence").waitFor({ state: "visible", timeout: 15_000 });
 
     const firstPrompt = "本番履歴復元テスト-ORIGIN-20260908";
     await page.getByTestId("origin-home-request").fill(firstPrompt);
