@@ -4,7 +4,8 @@ import AxeBuilder from '@axe-core/playwright';
 test.describe('ORIGIN Personal 2.0 critical journey', () => {
   test('renders a focused core identity and a compact single-row command bar without starter-card noise', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
+    await expect(page.getByTestId('origin-orin-presence')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('header').getByText('ORIGIN', { exact: true })).toBeVisible();
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
@@ -679,7 +680,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
   test('reflows the Personal 2.0 workspace at mobile width without horizontal overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await expect(page.getByTestId('origin-core-logo')).toBeVisible();
+    await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   });

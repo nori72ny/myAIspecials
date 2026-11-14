@@ -26,7 +26,7 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/');
 
-    await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     await expect(page.getByTestId('origin-home-request')).toBeVisible();

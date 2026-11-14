@@ -123,26 +123,25 @@ test.describe('mobile composer layout', () => {
     const scrollBottom = await scrollViewportBottom(page);
     const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
 
-    const logo = page.getByTestId('origin-core-logo');
     const heading = page.locator('.origin-app main h1').first();
     const description = page.locator('.origin-app main h1 + p').first();
     const composer = page.locator('.origin-composer');
 
-    await expect(logo).toBeVisible();
+    await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
     await expect(heading).toBeVisible();
     await expect(description).toBeVisible();
     await expect(composer).toBeVisible();
 
-    const logoBox = await logo.boundingBox();
+    const headingBox = await heading.boundingBox();
     const descriptionBox = await description.boundingBox();
     const composerBox = await composer.boundingBox();
 
-    expect(logoBox).not.toBeNull();
+    expect(headingBox).not.toBeNull();
     expect(descriptionBox).not.toBeNull();
     expect(composerBox).not.toBeNull();
 
-    expect(logoBox!.y).toBeGreaterThan(80);
-    expect(logoBox!.y).toBeLessThan(viewport.height * 0.55);
+    expect(headingBox!.y).toBeGreaterThan(80);
+    expect(headingBox!.y).toBeLessThan(viewport.height * 0.55);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThan(composerBox!.y);
     expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(viewport.height * 0.30);
     expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);
