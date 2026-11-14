@@ -22,7 +22,7 @@ import {
   ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA,
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
-import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, validateGroundedResearchSynthesis } from "../research/groundedResearchSynthesisV12.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
@@ -99,27 +99,16 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   // excerpts are full extracted pages, navigation and advertising
   // boilerplate included, and presenting them verbatim made the search
   // results themselves pose as the answer (chat 100-question inspection
-  // batch 1, A-02 / B-01 / B-05). The fallback therefore states plainly
-  // that no summarized answer is available and lists compact citations
-  // only (id, title, domain, URL). Excerpts stay available to the
-  // synthesis stage as evidence; they are not user-facing text.
-  const sourceList = sources.map((source, index) => {
-    const id = `S${index + 1}`;
-    let domain = source.domain ?? "";
-    if (!domain) {
-      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
-    }
-    return isEnglish
-      ? (domain ? `- ${id}: ${source.title} (${domain})\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`)
-      : (domain ? `- ${id}: ${source.title}（${domain}）\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`);
-  });
-  const conflictText = grounded.conflicts.length === 0
-    ? (isEnglish ? "No structured-value mismatch was detected in the retrieved evidence." : "取得した証拠では、構造化値の不一致は検出されませんでした。")
-    : grounded.conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" / ")} (${conflict.sourceIds.join(", ")})`).join("\n");
-
-  const content = isEnglish
-    ? `I retrieved ${sources.length} public source(s), but a summarized answer could not be produced, so only the source list follows. Please check the sources for the details.\n\n## Cross-check notes\n${conflictText}\n\n## Sources\n${sourceList.join("\n")}`
-    : `公開情報を${sources.length}件取得しましたが、要約した回答を作成できなかったため、出典の一覧だけをお伝えします。内容は各出典でご確認ください。\n\n## 照合メモ\n${conflictText}\n\n## 出典\n${sourceList.join("\n")}`;
+  // batch 1, A-02 / B-01 / B-05).
+  // Synthesis-hygiene shape: the fallback states plainly that no
+  // summarized answer is available, then shows the confirmed scope as
+  // attributions built only from source titles (top three) plus the
+  // compact source list (id, title, domain, URL). The internal
+  // cross-check breakdown (照合メモ) never appears in the user-facing
+  // body — it stays in logs and routing metadata. Excerpts stay
+  // available to the synthesis stage as evidence; they are not
+  // user-facing text.
+  const content = buildGroundedResearchPartialAnswer(sources, isEnglish ? "en" : "ja");
   const reason = isEnglish
     ? `Grounded Research retrieved ${grounded.sourceCount} public sources without a paid fallback.`
     : `Grounded Researchで公開情報を${grounded.sourceCount}件取得し、有料fallbackを使わず整理しました。`;
@@ -141,8 +130,8 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     })),
     limitations: [
       isEnglish
-        ? "Only the retrieved source list is shown; source article text is not reproduced. This is not an independent determination of factual truth or publisher authority."
-        : "取得した出典の一覧のみを表示し、出典記事の本文は転載していません。事実の最終確定や媒体の権威性を独立判定したものではありません。",
+        ? "Only the confirmed scope taken from source titles and the source list are shown; source article text is not reproduced. This is not an independent determination of factual truth or publisher authority."
+        : "出典のタイトルから確認できる範囲と出典の一覧のみを表示し、出典記事の本文は転載していません。事実の最終確定や媒体の権威性を独立判定したものではありません。",
     ],
     nextActions: grounded.conflicts.length > 0
       ? [isEnglish ? "Review the conflicting values against primary sources before making an important decision." : "重要な判断前に、不一致がある値を一次情報で再確認してください。"]
@@ -285,6 +274,28 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       emitResearchSources(safeOriginResearchSources(researchResult.sources));
       emitResearchPhase("composing");
       const grounded = groundedResearchAnswer(lastUserMessage, researchResult);
+      if (grounded.sourceCount === 0) {
+        // Failure classification (synthesis-hygiene): record why this
+        // request fail-closed to the could-not-confirm answer, without
+        // logging any message or answer text. monthly-cap-reached means
+        // the search was deliberately not executed (SEARCH_NOT_TRIGGERED);
+        // an executor/grounding provider failure is PROVIDER_FAILED; a
+        // completed search with no usable sources is SEARCH_NO_RESULTS.
+        // Assertion-gate replacements on the non-grounded paths log
+        // GATE_REPLACED at their own sites.
+        const groundingFailure = researchResult.groundingFailure;
+        const failClosedReasonCode = researchResult.failure || groundingFailure === "provider-error"
+          ? "PROVIDER_FAILED"
+          : groundingFailure === "monthly-cap-reached"
+            ? "SEARCH_NOT_TRIGGERED"
+            : "SEARCH_NO_RESULTS";
+        console.warn("[origin-chat] grounded answer fail-closed", {
+          requestId,
+          reasonCode: failClosedReasonCode,
+          ...(groundingFailure ? { groundingFailure } : {}),
+          ...(researchResult.failure ? { failureStage: researchResult.failure.stage, failureCode: researchResult.failure.code } : {}),
+        });
+      }
       let synthesisStatus = "not-run";
       let synthesisFailureCode: string | undefined;
 
@@ -549,7 +560,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // honest could-not-confirm form before anything downstream (evidence
       // extraction, envelope, response body) can see the raw text.
       const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
-      if (assertionGate.replaced) console.info("[origin-chat] ungrounded current assertion replaced", { requestId });
+      if (assertionGate.replaced) console.info("[origin-chat] ungrounded current assertion replaced", { requestId, reasonCode: "GATE_REPLACED" });
       const answerText = assertionGate.text;
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even

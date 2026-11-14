@@ -41,6 +41,25 @@ function domainOf(source: OriginResearchSource): string {
   catch { return "unknown"; }
 }
 
+/** Title as it may appear in user-facing text: whitespace collapsed, bounded. */
+function displayTitle(source: OriginResearchSource): string {
+  const title = source.title.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 200);
+  return title || domainOf(source);
+}
+
+function retrievedDateLabel(value: string | undefined, language: "ja" | "en"): string | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  const date = new Date(ms);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return language === "ja"
+    ? `${year}年${month}月${day}日`
+    : `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function scoreSource(source: OriginResearchSource, domainOccurrenceCount: number): number {
   let score = source.evidenceLevel === "page-verified" ? 55 : 30;
   if (source.freshness === "recent") score += 15;
@@ -131,9 +150,20 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
   const conflicts = detectConflicts(bounded);
   const confidence = confidenceFor(bounded);
   const compactQuery = query.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 400);
+  // Answer-body hygiene (PKG-9 rule, extended by the synthesis-hygiene
+  // change): this report is rendered to users as the research answer body
+  // (詳しく調べる), so it never pastes retrieved page text. Excerpts are
+  // full extracted pages for number-critical question types — navigation
+  // and advertising boilerplate included — and quoting them made the raw
+  // search dump pose as the answer. The confirmed scope is therefore
+  // stated as attributions built from source titles only, the evidence
+  // section carries retrieval metadata only, and the internal cross-check
+  // breakdown (values per topic) stays in the structured `conflicts`
+  // field instead of a user-facing 照合メモ section. Excerpts remain
+  // available to the synthesis stage as evidence-packet data.
   const summaryLines = bounded.map((source, index) => {
-    const excerpt = source.excerpt.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 360);
-    return `- ${excerpt} [S${index + 1}](${source.url})`;
+    const assessment = assessments[index];
+    return `- ${assessment.id}（${assessment.domain}）では『${displayTitle(source)}』と示されています ${assessment.citation}`;
   });
   const evidenceLines = bounded.map((source, index) => {
     const assessment = assessments[index];
@@ -144,11 +174,11 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
       : assessment.sourceAuthority === "secondary-reference"
         ? "二次参照（百科事典）"
         : "権威性未分類";
-    return `### ${assessment.id}: ${source.title}\n${source.excerpt}\n\n出典: ${assessment.citation}\n取得状態: ${evidenceLabel} / 更新時期: ${freshnessLabel} / 出典区分: ${authorityLabel} / 取得証拠スコア: ${assessment.score}/100`;
+    return `### ${assessment.id}: ${displayTitle(source)}\n\n出典: ${assessment.citation}\n取得状態: ${evidenceLabel} / 更新時期: ${freshnessLabel} / 出典区分: ${authorityLabel} / 取得証拠スコア: ${assessment.score}/100`;
   });
-  const conflictLines = conflicts.length === 0
+  const conflictNote = conflicts.length === 0
     ? "取得した証拠から、価格・バージョン・割合の明示的な不一致は検出されませんでした。意味上の一致までは判定していません。"
-    : conflicts.map((conflict) => `- ${conflict.topic}: ${conflict.values.join(" / ")} (${conflict.sourceIds.join(", ")})`).join("\n");
+    : "取得した出典の間で、価格・バージョン・割合のいずれかに値の食い違いが見られます。重要な判断の前に、一次情報でご確認ください。";
 
   return {
     version: "1.1",
@@ -159,6 +189,57 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
     semanticConflictDetection: "conservative-structured-only",
     sources: assessments,
     conflicts,
-    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n## 照合メモ\n${conflictLines}\n\n※ 「公式ドメイン一致」は、ユーザーが明示した公式ソース条件とホスト名が一致したことだけを示します。内容の真偽や媒体の権威性そのものを独立検証した意味ではありません。取得証拠の強さも、質問への最終的な正しさを保証しません。`,
+    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n${conflictNote}\n\n※ 「公式ドメイン一致」は、ユーザーが明示した公式ソース条件とホスト名が一致したことだけを示します。内容の真偽や媒体の権威性そのものを独立検証した意味ではありません。取得証拠の強さも、質問への最終的な正しさを保証しません。`,
   };
+}
+
+/**
+ * Partial-answer fallback body for the chat research path, used when the
+ * bounded synthesis stage did not produce an adoptable answer (provider
+ * failure, citation-validation failure, plan unavailable, or synthesis
+ * disabled) but usable sources were retrieved. The shape is identical no
+ * matter why synthesis was not adopted:
+ * - an honest lead stating that no summarized answer could be produced;
+ * - a "confirmed scope" section attributing each of the top sources (at
+ *   most three) by title and domain — the only facts used are the ones
+ *   the title itself states, quoted verbatim, plus the retrieval date
+ *   when known;
+ * - the compact source list (id, title, domain, URL).
+ * Retrieved page text and the internal cross-check breakdown never
+ * appear in this body; they stay in logs and structured payload fields.
+ */
+export function buildGroundedResearchPartialAnswer(
+  sources: readonly OriginResearchSource[],
+  language: "ja" | "en",
+): string {
+  const bounded = sources.slice(0, 8);
+  if (bounded.length === 0) return "";
+  const domainForList = (source: OriginResearchSource): string => {
+    let domain = source.domain ?? "";
+    if (!domain) {
+      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+    }
+    return domain;
+  };
+  const confirmedLines = bounded.slice(0, 3).map((source, index) => {
+    const id = `S${index + 1}`;
+    const domain = domainForList(source);
+    const title = displayTitle(source);
+    const retrieved = retrievedDateLabel(source.retrievedAt, language);
+    if (language === "en") {
+      return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;
+    }
+    return `- ${id}${domain ? `（${domain}）` : ""}では『${title}』と示されています。${retrieved ? `（取得日: ${retrieved}）` : ""}`;
+  });
+  const sourceList = bounded.map((source, index) => {
+    const id = `S${index + 1}`;
+    const domain = domainForList(source);
+    return language === "en"
+      ? (domain ? `- ${id}: ${source.title} (${domain})\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`)
+      : (domain ? `- ${id}: ${source.title}（${domain}）\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`);
+  });
+  if (language === "en") {
+    return `I retrieved ${bounded.length} public source(s), but a summarized answer could not be produced, so the confirmed scope and the source list follow. Please check the sources for the details.\n\n## What could be confirmed\n${confirmedLines.join("\n")}\n\n## Sources\n${sourceList.join("\n")}`;
+  }
+  return `公開情報を${bounded.length}件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。\n\n## 確認できた範囲\n${confirmedLines.join("\n")}\n\n## 出典\n${sourceList.join("\n")}`;
 }

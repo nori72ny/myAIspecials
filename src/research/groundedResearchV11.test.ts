@@ -70,4 +70,20 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.conflicts).toEqual([]);
     expect(result.report).toContain("意味上の一致までは判定していません");
   });
+
+  it("keeps retrieved page text and the cross-check breakdown out of the user-facing report (synthesis-hygiene)", () => {
+    const result = buildGroundedResearchReport("調査依頼", [
+      source({ title: "Page A", url: "https://a.example/a", domain: "a.example", excerpt: "価格 1,000円 ナビゲーション広告文" }),
+      source({ title: "Page B", url: "https://b.example/b", domain: "b.example", excerpt: "価格 1,200円 フッター案内文" }),
+    ]);
+    // Conflict detection still runs on the structured fields; only the
+    // user-facing rendering changed.
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.report).not.toContain("照合メモ");
+    expect(result.report).not.toContain("ナビゲーション広告文");
+    expect(result.report).not.toContain("フッター案内文");
+    expect(result.report).not.toContain("1,000円 / 1,200円");
+    expect(result.report).toContain("S1（a.example）では『Page A』と示されています");
+    expect(result.report).toContain("値の食い違いが見られます");
+  });
 });

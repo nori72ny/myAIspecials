@@ -240,7 +240,7 @@ describe("createOriginChatRouter with search grounding (default research composi
     expect(response.body.routing.searchGrounding).toEqual(expect.objectContaining({
       questionType: "policy",
     }));
-    expect(response.body.content).toContain("出典の一覧だけをお伝えします");
+    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("mhlw.go.jp");
     expect(response.body.content).not.toContain("1,177円");
     expect(response.body.content).not.toContain("全国加重平均");

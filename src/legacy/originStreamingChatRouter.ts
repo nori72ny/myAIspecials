@@ -247,6 +247,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         providerDeltaCount,
         truncated: result.truncated === true,
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
+        ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
         proposalDeck: deckRequested ? (deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),

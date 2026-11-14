@@ -85,12 +85,19 @@ describe("groundedResearchSynthesisV12", () => {
     expect(ja).toContain("決めつけず");
     expect(ja).toContain("出典一覧");
     expect(ja).toContain("少なくとも2件の異なる出典");
+    // Sentence-level citation attachment and the one-relevant-source rule
+    // (synthesis-hygiene): a single-citation answer must not be produced
+    // when the packet holds more sources.
+    expect(ja).toContain("事実を述べる文そのものに付けてください");
+    expect(ja).toContain("もう1件の関連出典を文脈として併せて引用");
 
     const en = buildGroundedResearchSynthesisInstruction("en");
     expect(en).toContain("time basis of the information");
     expect(en).toContain("present both sides side by side");
     expect(en).toContain("End with a source list");
     expect(en).toContain("cite at least two different sources");
+    expect(en).toContain("Attach each citation to the sentence that states the fact itself");
+    expect(en).toContain("cite one more related source from the packet as context");
   });
 
   it("accepts a synthesis that states the packet publication date verbatim", () => {
