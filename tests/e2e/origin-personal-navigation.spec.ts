@@ -74,7 +74,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await expect(page).toHaveTitle('ORIGIN Personal');
     await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
-    await expect(page.getByTestId('origin-core-logo')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('origin-home-request')).toBeEditable();
     await expect(page.getByRole('navigation', { name: 'Mode' })).toHaveCount(0);
@@ -277,8 +277,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
           homeComposer: rect('.origin-app .origin-home-composer'),
           composer: rect('.origin-app .origin-composer'),
           input: rect('[data-testid="origin-home-request"]'),
-          logo: rect('.origin-app main [data-testid="origin-core-logo"]'),
-          description: rect('.origin-app main [data-testid="origin-core-logo"] + h1 + p'),
+          heading: rect('.origin-app main .origin-home-intro > h1'),
+          description: rect('.origin-app main .origin-home-intro > h1 + p'),
         };
       });
 
@@ -286,7 +286,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.app, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
-      expect(metrics.logo, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.heading, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.documentScrollWidth, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.width);
       expect(metrics.documentClientHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height + 1);
@@ -298,8 +298,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       console.log('MOBILE_HOME_LAYOUT_METRICS', JSON.stringify(metrics));
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.18);
-      expect(metrics.logo!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height * 0.40);
+      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.18);
+      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height * 0.40);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
     });
@@ -323,19 +323,19 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       return Number.isFinite(value) ? value : 0;
     });
     const composerBox = await page.locator('.origin-app .origin-composer').boundingBox();
-    const logoBox = await page.getByTestId('origin-core-logo').boundingBox();
-    const descriptionBox = await page.locator('.origin-app main [data-testid="origin-core-logo"] + h1 + p').boundingBox();
+    const headingBox = await page.locator('.origin-app main .origin-home-intro > h1').boundingBox();
+    const descriptionBox = await page.locator('.origin-app main .origin-home-intro > h1 + p').boundingBox();
 
     expect(scrollBox).not.toBeNull();
     expect(composerBox).not.toBeNull();
-    expect(logoBox).not.toBeNull();
+    expect(headingBox).not.toBeNull();
     expect(descriptionBox).not.toBeNull();
 
     const scrollBottom = scrollBox!.y + scrollBox!.height;
     expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - scrollPaddingBottom - 1);
     expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - scrollPaddingBottom + 1);
     expect(composerBox!.y).toBeGreaterThanOrEqual(viewport.height * 0.55);
-    expect(logoBox!.y).toBeLessThan(viewport.height * 0.5);
+    expect(headingBox!.y).toBeLessThan(viewport.height * 0.5);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThanOrEqual(composerBox!.y);
   });
 

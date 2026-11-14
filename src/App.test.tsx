@@ -2503,20 +2503,16 @@ describe('chat send queue while a response is generating', () => {
 describe('cat visibility on the top screen and while generating (owner request 2026-11-09)', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-  it('shows the cat on a bright pedestal in the home hero and in the floating presence', () => {
+  it('shows the cat only in the floating presence on the home screen (hero removed, owner spec 2026-11-14)', () => {
     render(<App language="ja" />);
-    const hero = screen.getByTestId('origin-core-logo');
-    const heroCat = within(hero).getByTestId('origin-cat-state');
-    expect(heroCat.tagName).toBe('IMG');
-    expect(heroCat.getAttribute('src')).toBe('/brand/origin-cat.webp');
-    expect(within(hero).getByTestId('origin-cat-pedestal')).toBeTruthy();
-    expect(hero.textContent).not.toContain('◈');
-    // ヒーローと浮遊プレゼンスの2か所に、台座付きの猫が常時表示される。
+    // 初期画面のヒーロー猫は、上部中央に常駐する浮遊プレゼンスと二重に見えるため廃止（2026-11-14）。
+    expect(screen.queryByTestId('origin-core-logo')).toBeNull();
+    // 猫は浮遊プレゼンスの1か所だけに、台座付きで常時表示される。
     const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
-    expect(brandCats).toHaveLength(2);
-    for (const cat of brandCats) {
-      expect(cat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
-    }
+    expect(brandCats).toHaveLength(1);
+    expect(brandCats[0].tagName).toBe('IMG');
+    expect(brandCats[0].closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    expect(brandCats[0].closest('[data-testid="origin-orin-presence"]')).not.toBeNull();
   });
 
   it('shows the waiting stage in the Orin working presence while generating (PR-β, revised 2026-11-14)', async () => {
