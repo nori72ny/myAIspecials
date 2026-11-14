@@ -391,6 +391,24 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   飛ばし、節構成は一切変えない。レベル3の無条件取り込み（FIX8-2）は、
 //   混合文書で小見出しが独立した節に化けて内容配分が変わるため不採用。
 //   レベル4以降は対象に含めない。strict パーサーは変更しない。
+//
+// 第9回本番失敗（2026-11-14、dc53da12、fix-8 デプロイ後）への対応（fix-9）:
+// - fix-8 の担当範囲（見出しレベル）は完全に通過し、受理拒否ゼロ・6節が
+//   成立した。ただし文書内に締め節が無く、「導入フロー」が plan に分類
+//   されないため計画節も存在せず、締め材料の受け皿が三段とも空振りして
+//   nextSteps === 0 で null になった（壁9-A、二層の重なり）。ステップ
+//   材料そのものは、番号付き行が FIX6-2 の降格で「導入フロー」節の
+//   箇条書き4件として回収済みだった。FIX9-1b: 分類の plan パターンへ
+//   観測された語「導入フロー」だけを明示追加する（「フロー」一般は
+//   キャッシュフロー等への波及のため追加しない）。FIX9-2': 計画節の
+//   箇条書き流用の開条件を材料の出典で限定する——参照先の plan 節の
+//   箇条書きに FIX6-2 の降格由来の項目（文書自身が番号付き手順リストと
+//   して明示した項目）が1件以上含まれる場合に限り、締め節の無い
+//   markdown 文書でも受け皿を開く。通常の箇条書きや表由来の箇条書き
+//   しかない文書では従来どおり開かない（W28 の固定を維持）。受け皿
+//   ガードの全面撤廃（FIX9-2）は、締め必須の固定判断4件と衝突する
+//   ため不採用。コアゲート（中身のある節3件以上・要約3点・nextSteps
+//   非空・タイトル規則）は一切緩めていない。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -408,6 +426,8 @@ interface FreeformSection {
   bullets: string[];
   /** markdown 表の行（出現順）。後段で決定的に箇条書きへ変換する。 */
   tableLines: string[];
+  /** 箇条書きのうち FIX6-2 の降格で入った項目の件数（FIX9-2' の出典条件用）。 */
+  demotedBulletCount: number;
 }
 
 /** 自由形式の見出し文 → 役割。配列の上から順に照合し、最初に一致したものを採る。 */
@@ -423,7 +443,10 @@ const FREEFORM_KIND_RULES: ReadonlyArray<{
   { pattern: /次のステップ|次ステップ|締め/, kind: 'closing' },
   { pattern: /課題|問題|現状|悩み/, kind: 'role', role: 'challenge' },
   { pattern: /費用対効果|投資対効果|費用|価格|料金|コスト|ROI/, kind: 'role', role: 'cost' },
-  { pattern: /計画|ステップ|スケジュール|進め方|ロードマップ/, kind: 'role', role: 'plan' },
+  // fix-9（FIX9-1b）: 観測された語「導入フロー」だけを明示追加する。
+  // 「フロー」一般を追加すると「キャッシュフロー」「ワークフロー」等の
+  // 見出しまで plan に分類される波及があるため、広い版（FIX9-1a）は採らない。
+  { pattern: /計画|ステップ|スケジュール|進め方|ロードマップ|導入フロー/, kind: 'role', role: 'plan' },
   { pattern: /価値|メリット|ベネフィット|強み|効果|特長|特徴/, kind: 'role', role: 'value' },
   { pattern: /比較|競合/, kind: 'role', role: 'other' },
   {
@@ -593,7 +616,16 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     heading: string,
     fromNumberedHeading = false,
   ) => {
-    current = { kind, role, heading, fromNumberedHeading, leadLines: [], bullets: [], tableLines: [] };
+    current = {
+      kind,
+      role,
+      heading,
+      fromNumberedHeading,
+      leadLines: [],
+      bullets: [],
+      tableLines: [],
+      demotedBulletCount: 0,
+    };
     sections.push(current);
   };
 
@@ -775,7 +807,11 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       section.bullets.length === 0 &&
       section.tableLines.length === 0;
     if (isEmptyNumberedMicroSection && demotedSections.length > 0) {
-      demotedSections[demotedSections.length - 1].bullets.push(section.heading);
+      const target = demotedSections[demotedSections.length - 1];
+      target.bullets.push(section.heading);
+      // fix-9（FIX9-2'）: 降格で入った項目は「文書自身が番号付き手順
+      // リストとして明示した材料」であるため、帰属先の節が出典を数える。
+      target.demotedBulletCount += 1;
       continue;
     }
     demotedSections.push(section);
@@ -803,6 +839,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
           leadLines: carvedLines,
           bullets: [],
           tableLines: [],
+          demotedBulletCount: 0,
         });
       }
     }
@@ -1003,18 +1040,26 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   // 実際のステップ箇条書きを持つ同名の plan 節が後続する形（本番
   // 形状#7）で、材料のない節を引いてしまう問題への対策。箇条書きを
   // 持つ plan 節が無ければ従来どおり最初の plan 節を引く。
+  // fix-9（FIX9-2'）: 締め節が無い markdown 文書でも、参照先の plan 節の
+  // 箇条書きに FIX6-2 の降格由来の項目が1件以上含まれる場合に限り、受け皿
+  // を開く。降格由来の項目は、文書自身が番号付き手順リストとして明示した
+  // 材料であり、「締めが無いのに締めを捏造しない」という線はそれ以外の
+  // 材料（通常の箇条書き、表由来の箇条書き）では維持する。受け皿ガードの
+  // 全面撤廃（FIX9-2）は、締め必須の固定判断と衝突するため採らない。
+  // 参照先の決定は FIX7-3 のまま（箇条書きを持つ最初の plan 節）。
+  const planTraySection =
+    roleSections.find((section) => section.role === 'plan' && section.bullets.length > 0) ??
+    roleSections.find((section) => section.role === 'plan');
   if (
     nextSteps.length === 0 &&
-    (!usedMarkdownHeadings || closingSection !== undefined)
+    planTraySection &&
+    (!usedMarkdownHeadings ||
+      closingSection !== undefined ||
+      planTraySection.demotedBulletCount > 0)
   ) {
-    const planSection =
-      roleSections.find((section) => section.role === 'plan' && section.bullets.length > 0) ??
-      roleSections.find((section) => section.role === 'plan');
-    if (planSection) {
-      nextSteps = planSection.bullets
-        .map((entry) => stripEmphasis(entry))
-        .filter((entry) => entry !== '');
-    }
+    nextSteps = planTraySection.bullets
+      .map((entry) => stripEmphasis(entry))
+      .filter((entry) => entry !== '');
   }
   if (nextSteps.length === 0 && closingSection) {
     // 締め節が散文のみの形への受け皿: 締めの本文を文単位で切り出し、
