@@ -209,6 +209,10 @@ describe('parseProposalDeckSkeleton free-form fallback', () => {
         boldLabelLineCount: 0,
         bulletLineCount: 0,
         tableRowCount: 0,
+        rejectedHeadingCount: 0,
+        rejectedHeadingTooLongCount: 0,
+        rejectedHeadingColonCount: 0,
+        rejectedHeadingSequenceMismatchCount: 0,
       },
     });
   });
