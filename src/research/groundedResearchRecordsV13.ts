@@ -166,7 +166,12 @@ interface UnitSpan {
   end: number;
 }
 
-function splitEvidenceSpans(text: string): UnitSpan[] {
+/**
+ * Shared with the deck records module (`proposalDeckRecordsV1`, design
+ * DECK_RECORDS_REDESIGN_2026-11-15 §14): the §3.2 boundary rules live
+ * here exactly once, and material segmentation reuses these spans.
+ */
+export function splitEvidenceSpans(text: string): UnitSpan[] {
   const spans: UnitSpan[] = [];
   let depth = 0;
   let start = 0;
@@ -209,7 +214,8 @@ function splitEvidenceSpans(text: string): UnitSpan[] {
   return spans;
 }
 
-function spanText(text: string, span: UnitSpan): string {
+/** Shared with the deck records module (see `splitEvidenceSpans`). */
+export function spanText(text: string, span: UnitSpan): string {
   return text.slice(span.start, span.end).trim();
 }
 
@@ -573,8 +579,14 @@ export interface GroundedResearchRecordsEvaluation extends GroundedResearchRecor
   parse: GroundedResearchRecordsParseResult;
 }
 
-/** Same normalization as V12's `normalizedEvidenceText` (design §6.2). */
-function normalizedRecordsText(value: string): string {
+/**
+ * Same normalization as V12's `normalizedEvidenceText` (design §6.2).
+ * Shared with the deck records module (`proposalDeckRecordsV1`, design
+ * DECK_RECORDS_REDESIGN_2026-11-15 §2.2): form-only normalization —
+ * NFKC, lowercasing, whitespace and comma-class characters removed.
+ * Values are never converted or rounded into equivalence.
+ */
+export function normalizedRecordsText(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/[\s,，]/g, "");
 }
 
