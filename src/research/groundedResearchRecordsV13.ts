@@ -4,7 +4,10 @@ import type {
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient.js";
 import { buildGroundedResearchReport, type GroundedResearchConflict } from "./groundedResearchV11.js";
-import { groundedResearchPacketDateForms } from "./groundedResearchSynthesisV12.js";
+import {
+  groundedResearchPacketDateForms,
+  GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS,
+} from "./groundedResearchSynthesisV12.js";
 
 /**
  * Records-based grounded research synthesis (V13) — packet layer.
@@ -17,10 +20,13 @@ import { groundedResearchPacketDateForms } from "./groundedResearchSynthesisV12.
  * §4/§6), R-PR-3 (the records system instruction and prompt (§5), the
  * deterministic renderer and post-render check (§7/§6.5), the kill
  * switch (§14.3), and the shared records execution helper the two
- * routers call (§11/§14.1)), and R-PR-4 (the select-only extraction
- * layer, §4.4/§8, inside the shared helper). The routers reach the
- * records path only when the kill switch is ON; with it OFF the V12
- * text path runs exactly as before.
+ * routers call (§11/§14.1)), R-PR-4 (the select-only extraction
+ * layer, §4.4/§8, inside the shared helper), and R-PR-5 (the
+ * per-record fresh retry with route advancement and merge, §10,
+ * inside the shared helper between the records verdict and the
+ * selection layer). The routers reach the records path only when
+ * the kill switch is ON; with it OFF the V12 text path runs exactly
+ * as before.
  *
  * Core invariant (design §3): the packet built here is the exact set the
  * validator will later judge against — the sources shown to the model, the
@@ -1359,12 +1365,147 @@ async function attemptGroundedResearchSelection(
   };
 }
 
+// ---------------------------------------------------------------------------
+// R-PR-5: the per-record fresh retry (design §10)
+// ---------------------------------------------------------------------------
+
+/** Why an otherwise eligible fresh retry did not fire (design §11). */
+export type GroundedResearchRecordsRetrySkipReason =
+  | "disabled"
+  | "time-budget"
+  | "no-next-route";
+
+/**
+ * Merges two independently validated accepted-record lists (design
+ * §10): the first attempt's records keep their order and win every
+ * duplicate — the duplicate key is §6.1 step 8's (source, quote start
+ * offset) — and the retry's non-duplicate records follow in their own
+ * order. Coverage is re-judged over the merged set by the caller.
+ */
+export function mergeGroundedResearchAcceptedRecords(
+  first: readonly GroundedResearchAcceptedRecord[],
+  second: readonly GroundedResearchAcceptedRecord[],
+): GroundedResearchAcceptedRecord[] {
+  const seen = new Set(first.map((record) => `${record.sourceId}:${record.quoteStart}`));
+  const merged = [...first];
+  for (const record of second) {
+    const key = `${record.sourceId}:${record.quoteStart}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(record);
+  }
+  return merged;
+}
+
+interface GroundedResearchRecordsRetryAttempt {
+  /** A retry execution was invoked (the callback returned or threw). */
+  attempted: boolean;
+  /** Why the retry did not fire; null when it fired. */
+  skipped: GroundedResearchRecordsRetrySkipReason | null;
+  /** The retry execution ran on the advanced route (a result came back). */
+  routeAdvanced: boolean;
+  /** The retry execution or its $0 assertion threw (contained). */
+  executionFailed: boolean;
+  /** The retry execution result, when an execution produced one. */
+  result?: OriginProviderExecutionResult;
+  /** Attempts-duration sum of the retry result (0 when none). */
+  durationMs: number;
+  /** Parse + validation of the retry output, when an execution produced one. */
+  evaluation?: GroundedResearchRecordsEvaluation;
+  /** First-attempt and retry survivors merged (§10); present with `evaluation`. */
+  mergedAccepted: GroundedResearchAcceptedRecord[];
+  /** Coverage re-judged over the merged set (§6.4 over §10's merge). */
+  mergedCoverageSatisfied: boolean;
+}
+
+/**
+ * One fresh re-execution of the records request (design §10). The
+ * retry input is the initial request itself — same packet, same
+ * instruction; the failed records, their failure codes, and the
+ * rejection counts are never sent (a clean regeneration, not a
+ * correction). Route advancement is the callback's contract: the
+ * routers' `executeRetry` derives the next route's plan from the
+ * initial result and executes on that route, returning null when no
+ * next route exists (the initial execution already reached the final
+ * route, or the next route is not configured / cannot be derived) —
+ * recorded here as the no-next-route skip, with no execution spent.
+ * When no callback is wired the layer is disabled and never fires.
+ *
+ * Every failure is contained, exactly like the selection layer: an
+ * execution error or a $0 assertion failure is a layer failure,
+ * never a throw — the initial verdict stands and the caller proceeds
+ * to the selection layer. The initial execution's error propagation
+ * (the records stage's standing contract) is unchanged.
+ */
+async function attemptGroundedResearchRecordsRetry(
+  options: GroundedResearchRecordsExecutionOptions,
+  request: OriginProviderExecutionRequest,
+  firstResult: OriginProviderExecutionResult,
+  packet: GroundedResearchRecordsPacket,
+  firstEvaluation: GroundedResearchRecordsEvaluation,
+): Promise<GroundedResearchRecordsRetryAttempt> {
+  const base = {
+    attempted: false,
+    routeAdvanced: false,
+    executionFailed: false,
+    durationMs: 0,
+    mergedAccepted: [] as GroundedResearchAcceptedRecord[],
+    mergedCoverageSatisfied: false,
+  };
+  if (!options.executeRetry) {
+    return { ...base, skipped: "disabled" };
+  }
+  // Time gate (design §10): the same 50-second budget from the
+  // grounded stage's start as the text path's retry. The gate is
+  // evaluated only when the caller wired the clock pair; both
+  // routers always do.
+  if (options.startedAtMs !== undefined && options.now !== undefined) {
+    const elapsedMs = Math.max(0, options.now() - options.startedAtMs);
+    if (elapsedMs > GROUNDED_RESEARCH_SYNTHESIS_RETRY_TIME_GATE_MS) {
+      return { ...base, skipped: "time-budget" };
+    }
+  }
+  let retryResult: OriginProviderExecutionResult | null;
+  try {
+    retryResult = await options.executeRetry(request, firstResult);
+  } catch {
+    return { ...base, attempted: true, skipped: null, executionFailed: true };
+  }
+  if (retryResult === null) {
+    return { ...base, skipped: "no-next-route" };
+  }
+  try {
+    options.assertZeroCost(retryResult);
+  } catch {
+    // The execution demonstrably ran on the advanced route; only the
+    // caller's $0 assertion rejected its result.
+    return { ...base, attempted: true, skipped: null, routeAdvanced: true, executionFailed: true };
+  }
+  const durationMs = retryResult.attempts?.reduce((sum, attempt) => sum + (attempt.durationMs ?? 0), 0) ?? 0;
+  const evaluation = evaluateGroundedResearchRecords(retryResult.text, packet);
+  const mergedAccepted = mergeGroundedResearchAcceptedRecords(firstEvaluation.accepted, evaluation.accepted);
+  const mergedCoverageSatisfied = mergedAccepted.length > 0
+    && new Set(mergedAccepted.map((record) => record.sourceId)).size >= Math.min(2, packet.sources.length);
+  return {
+    attempted: true,
+    skipped: null,
+    routeAdvanced: true,
+    executionFailed: false,
+    result: retryResult,
+    durationMs,
+    evaluation,
+    mergedAccepted,
+    mergedCoverageSatisfied,
+  };
+}
+
 /**
  * Stage metrics for the records path (design §11): counts and codes
  * only — never the question, answer text, quotes, titles, or URLs. The
  * routers log this object verbatim on their completed/discarded lines.
- * Stages owned by later PRs (slot, retry) are absent until those PRs
- * land; the selection stage (§8) is present since R-PR-4.
+ * Stages owned by later PRs (slot) are absent until those PRs land;
+ * the selection stage (§8) is present since R-PR-4 and the fresh
+ * retry stage (§10) since R-PR-5.
  */
 export interface GroundedResearchRecordsStageMetrics {
   /** Packet stage: sources after pre-selection (§3.1). */
@@ -1373,7 +1514,7 @@ export interface GroundedResearchRecordsStageMetrics {
   totalEvidenceUnits: number;
   /** Packet stage: total verbatim numeric-list entries (§3.3). */
   numericTokenCount: number;
-  /** Generation stage: model executions performed (records + selection; at most 2 until R-PR-5). */
+  /** Generation stage: model executions performed (records + retry + selection; at most 3). */
   executionCount: number;
   /** Generation stage: sum of the execution attempts' durations. */
   synthesisDurationMs: number;
@@ -1411,8 +1552,32 @@ export interface GroundedResearchRecordsStageMetrics {
   selectionCitedSourceCount: number;
   /** Selection stage: outcome code of the layer; null when not attempted. */
   selectionCode: GroundedResearchSelectionCode | null;
+  /** Retry stage (§10/§11): a fresh re-execution was invoked. */
+  retryAttempted: boolean;
+  /** Retry stage: why an eligible retry did not fire; null when it fired. */
+  retrySkipped: GroundedResearchRecordsRetrySkipReason | null;
+  /** Retry stage: the retry execution ran on the advanced route. */
+  retryRouteAdvanced: boolean;
+  /** Retry stage: the retry execution or its $0 assertion failed (contained). */
+  retryExecutionFailed: boolean;
+  /** Retry stage: which form the retry output was interpreted as. */
+  retryFormatKind: GroundedResearchRecordsFormatKind | null;
+  /** Retry stage: records the retry-output parser returned (after the cap). */
+  retryParsedRecordCount: number;
+  /** Retry stage: records present in the retry output before the cap. */
+  retryTotalRecordCount: number;
+  /** Retry stage: usable retry records dropped by the §4.1 cap. */
+  retryTruncatedRecordCount: number;
+  /** Retry stage: text-form blocks of the retry output dropped while parsing. */
+  retryMalformedRecordCount: number;
+  /** Retry stage: per-code rejection counts of the retry output (§6.1). */
+  retryRejectionCounts: Record<GroundedResearchRecordRejectionCode, number>;
+  /** Retry stage: records of the retry output that passed every per-record step. */
+  retryAcceptedRecordCount: number;
+  /** Retry stage: survivors after merging the initial and retry records (§10). */
+  mergedAcceptedRecordCount: number;
   /** Arrival stage: the final form this request took. */
-  finalForm: "records" | "selection" | "partial";
+  finalForm: "records" | "records-after-retry" | "selection" | "partial";
 }
 
 export type GroundedResearchRecordsFailureCode =
@@ -1448,6 +1613,29 @@ export interface GroundedResearchRecordsExecutionOptions {
   enabled: boolean;
   /** The caller's $0 assertion, applied to the execution result exactly as on the text path. Throws on violation. */
   assertZeroCost: (result: OriginProviderExecutionResult) => void;
+  /**
+   * Route-advanced re-executor for the fresh retry (design §10).
+   * Called with the initial records request and the initial execution
+   * result; derives the plan of the route AFTER the one the initial
+   * execution actually used and executes the request on that route.
+   * Returns null when no next route exists — the initial execution
+   * already reached the final route, or the next route is not
+   * configured / its plan cannot be derived — which the helper
+   * records as the no-next-route skip without spending an execution.
+   * When not supplied, the retry layer is disabled and never fires.
+   */
+  executeRetry?: (
+    request: OriginProviderExecutionRequest,
+    firstResult: OriginProviderExecutionResult,
+  ) => Promise<OriginProviderExecutionResult | null>;
+  /**
+   * Grounded-stage start timestamp for the retry time gate (design
+   * §10), on the same clock as `now`. The gate is evaluated only
+   * when both are supplied; both routers always supply them.
+   */
+  startedAtMs?: number;
+  /** Clock for the retry time gate; see `startedAtMs`. */
+  now?: () => number;
 }
 
 /**
@@ -1455,14 +1643,15 @@ export interface GroundedResearchRecordsExecutionOptions {
  * R-PR-3): packet construction, one model execution on the caller's
  * plan, per-record validation with the coverage re-check, deterministic
  * rendering, and the post-render check. Layer order inside the records
- * path (design §12) as of R-PR-4: records → selection → partial
- * answer. The slot layer precedes the records stage and the fresh
- * retry (§10) slots in between the records verdict and the selection
- * layer, both in later PRs.
+ * path (design §12): records → fresh retry (§10, R-PR-5) → selection
+ * (§8, R-PR-4) → partial answer. The slot layer precedes the records
+ * stage and lands in a later PR.
  *
- * Execution errors and $0 assertion failures are NOT contained: they
- * throw to the caller, whose existing provider-failure handling applies
- * — exactly the text path's treatment of its initial execution.
+ * Execution errors and $0 assertion failures of the INITIAL execution
+ * are NOT contained: they throw to the caller, whose existing
+ * provider-failure handling applies — exactly the text path's
+ * treatment of its initial execution. The retry and selection layers
+ * contain their own failures instead (design §10/§8).
  */
 export async function executeGroundedResearchRecordsSynthesis(
   execute: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>,
@@ -1506,6 +1695,29 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionSelectedUnitCount: 0,
     selectionCitedSourceCount: 0,
     selectionCode: null,
+    retryAttempted: false,
+    retrySkipped: null,
+    retryRouteAdvanced: false,
+    retryExecutionFailed: false,
+    retryFormatKind: null,
+    retryParsedRecordCount: 0,
+    retryTotalRecordCount: 0,
+    retryTruncatedRecordCount: 0,
+    retryMalformedRecordCount: 0,
+    retryRejectionCounts: {
+      INVALID_RECORD_FORMAT: 0,
+      UNKNOWN_EVIDENCE_ID: 0,
+      SRC_EVIDENCE_MISMATCH: 0,
+      QUOTE_NOT_SUBSTRING: 0,
+      QUOTE_DOES_NOT_COVER_EVIDENCE: 0,
+      NUMERIC_NOT_IN_QUOTE: 0,
+      NAME_NOT_IN_QUOTE: 0,
+      TEXT_MULTI_SENTENCE: 0,
+      TEXT_HAS_BACK_REFERENCE: 0,
+      DUPLICATE_RECORD: 0,
+    },
+    retryAcceptedRecordCount: 0,
+    mergedAcceptedRecordCount: 0,
     finalForm: "partial",
   };
   if (packet.sources.length === 0) {
@@ -1575,22 +1787,75 @@ export async function executeGroundedResearchRecordsSynthesis(
     recordsRenderCheckFailed = true;
   }
 
-  // --- R-PR-5 insertion boundary -------------------------------------
-  // Design §12 layer order: records → fresh retry (§10) → selection.
-  // The fresh retry lands between the records verdict above and the
-  // selection layer below; the selection attempt is a separate unit so
-  // the retry can be inserted at this boundary without touching it.
-  // --------------------------------------------------------------------
+  // Fresh retry (design §10): only the two verdicts the design makes
+  // eligible — no surviving record, or coverage not satisfied — may
+  // fire it. A render-check failure is not retried: the records were
+  // valid, so a clean regeneration has nothing to repair. The main
+  // stage metrics keep the INITIAL evaluation's values throughout
+  // (the V12 retry precedent: the first verdict's record stands);
+  // everything the retry produced is recorded in the retry fields.
+  let stageMetrics = metrics;
+  let stageFailureCode = recordsFailureCode;
+  let stageRenderCheckFailed = recordsRenderCheckFailed;
+  if (recordsFailureCode === "NO_ACCEPTED_RECORDS" || recordsFailureCode === "INSUFFICIENT_SOURCE_COVERAGE") {
+    const retry = await attemptGroundedResearchRecordsRetry(options, request, result, packet, evaluation);
+    stageMetrics = {
+      ...metrics,
+      executionCount: metrics.executionCount + (retry.attempted ? 1 : 0),
+      synthesisDurationMs: metrics.synthesisDurationMs + retry.durationMs,
+      retryAttempted: retry.attempted,
+      retrySkipped: retry.skipped,
+      retryRouteAdvanced: retry.routeAdvanced,
+      retryExecutionFailed: retry.executionFailed,
+      retryFormatKind: retry.evaluation?.parse.format ?? null,
+      retryParsedRecordCount: retry.evaluation?.parse.records.length ?? 0,
+      retryTotalRecordCount: retry.evaluation?.parse.totalRecords ?? 0,
+      retryTruncatedRecordCount: retry.evaluation?.parse.truncatedRecords ?? 0,
+      retryMalformedRecordCount: retry.evaluation?.parse.malformedRecords ?? 0,
+      retryRejectionCounts: retry.evaluation?.rejectionCounts ?? metrics.retryRejectionCounts,
+      retryAcceptedRecordCount: retry.evaluation?.accepted.length ?? 0,
+      mergedAcceptedRecordCount: retry.evaluation ? retry.mergedAccepted.length : 0,
+    };
+    if (retry.evaluation) {
+      if (retry.mergedAccepted.length > 0 && retry.mergedCoverageSatisfied) {
+        const rendered = renderGroundedResearchRecordsAnswer(retry.mergedAccepted, packet, options.language);
+        const renderCheck = checkGroundedResearchRenderedAnswer(rendered, packet, retry.mergedAccepted);
+        if (renderCheck.ok && retry.result !== undefined) {
+          return {
+            attempted: true,
+            adopted: true,
+            text: rendered,
+            usedSourceIds: [...new Set(retry.mergedAccepted.map((record) => record.sourceId))],
+            // The consumed result is the retry execution's: it
+            // completed the adopted answer (the selection layer's
+            // and the V12 retry helper's rule).
+            result: retry.result,
+            metrics: { ...stageMetrics, renderedRecordCount: retry.mergedAccepted.length, finalForm: "records-after-retry" },
+          };
+        }
+        stageFailureCode = "RENDER_CHECK_FAILED";
+        stageRenderCheckFailed = true;
+      } else {
+        // The merged set still fails: the standing failure code is
+        // re-judged over the merged set (records may now exist even
+        // when the initial verdict was NO_ACCEPTED_RECORDS).
+        stageFailureCode = retry.mergedAccepted.length === 0
+          ? "NO_ACCEPTED_RECORDS"
+          : "INSUFFICIENT_SOURCE_COVERAGE";
+      }
+    }
+  }
 
-  // Selection layer (design §8): fires only on the three records-stage
-  // failures above. EMPTY_RECORDS_PACKET returned earlier — with no
-  // units in the packet there is nothing to select.
+  // Selection layer (design §8): fires only on the records-stage
+  // failures above (as re-judged after the retry). EMPTY_RECORDS_PACKET
+  // returned earlier — with no units in the packet there is nothing
+  // to select.
   const selection = await attemptGroundedResearchSelection(execute, options, packet, conflicts);
   const selectionMetrics: GroundedResearchRecordsStageMetrics = {
-    ...metrics,
-    executionCount: 2,
-    synthesisDurationMs: metrics.synthesisDurationMs + selection.durationMs,
-    renderCheckFailed: recordsRenderCheckFailed || selection.renderCheckFailed,
+    ...stageMetrics,
+    executionCount: stageMetrics.executionCount + 1,
+    synthesisDurationMs: stageMetrics.synthesisDurationMs + selection.durationMs,
+    renderCheckFailed: stageRenderCheckFailed || selection.renderCheckFailed,
     selectionAttempted: true,
     selectionSelectedUnitCount: selection.selectedUnitCount,
     selectionCitedSourceCount: selection.citedSourceCount,
@@ -1609,14 +1874,15 @@ export async function executeGroundedResearchRecordsSynthesis(
     };
   }
   // The selection layer also failed: the records stage's failure code
-  // stands (the selection outcome is recorded in the metrics only,
-  // design §11) and the caller falls back to the partial answer.
+  // (as re-judged after the retry) stands — the selection outcome is
+  // recorded in the metrics only, design §11 — and the caller falls
+  // back to the partial answer.
   return {
     attempted: true,
     adopted: false,
     usedSourceIds: [],
     result,
-    failureCode: recordsFailureCode,
+    failureCode: stageFailureCode,
     metrics: selectionMetrics,
   };
 }

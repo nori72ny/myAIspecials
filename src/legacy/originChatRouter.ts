@@ -14,6 +14,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutor } from "./originRecordsRetryRoute.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import {
   createDefaultOriginResearchExecutor,
@@ -332,7 +333,18 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 sources: grounded.sources,
                 language: grounded.language,
                 enabled: isGroundedResearchRecordsEnabled(env),
-                assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+                // The records assertion dispatches per result shape:
+                // the retry's bare route-2/route-3 results are verified
+                // by their own route's assertion (R-PR-5); composites
+                // and bare route-1 results keep the standing assertion.
+                assertZeroCost: (result) => assertGroundedResearchRecordsZeroCost(result, synthesisPlan.plan.modelId),
+                // Fresh retry (§10): re-execute the records request on
+                // the route after the one that served the initial
+                // result; the time gate runs on this router's grounded
+                // clock pair (groundedStartedAt / now).
+                executeRetry: createGroundedResearchRecordsRetryExecutor({ env, nowMs: catalogNow() }),
+                startedAtMs: groundedStartedAt,
+                now,
               });
               if (recordsOutcome.attempted) {
                 recordsSettled = true;
