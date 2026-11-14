@@ -18,6 +18,7 @@ import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutor } from "./originRecordsRetryRoute.js";
 import {
   createDefaultOriginResearchExecutor,
   type OriginSearchGroundingDeps,
@@ -328,7 +329,18 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             sources: safeSources,
             language,
             enabled: isGroundedResearchRecordsEnabled(env),
-            assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
+            // The records assertion dispatches per result shape: the
+            // retry's bare route-2/route-3 results are verified by
+            // their own route's assertion (R-PR-5); composites and
+            // bare route-1 results keep the standing assertion.
+            assertZeroCost: (result) => assertGroundedResearchRecordsZeroCost(result, synthesisPlan.plan.modelId),
+            // Fresh retry (§10): re-execute the records request on the
+            // route after the one that served the initial result; the
+            // time gate runs on this router's catalog clock pair
+            // (handlerStartedAt / catalogNow).
+            executeRetry: createGroundedResearchRecordsRetryExecutor({ env, nowMs: catalogNow() }),
+            startedAtMs: handlerStartedAt,
+            now: catalogNow,
           });
           if (recordsOutcome.attempted) {
             recordsSettled = true;
