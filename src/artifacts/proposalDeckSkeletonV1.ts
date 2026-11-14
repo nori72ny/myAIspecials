@@ -378,6 +378,19 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   持つ最初の plan 節へ変更する（無ければ従来どおり最初の plan 節）。
 // - 締めの痕跡が皆無の文書でも受け皿を開く案（CAND-E）は不採用。
 //   締めが無いのに締めを全面流用しないという従来の線引きは維持する。
+//
+// 第8回本番失敗（2026-11-14、9703341c）への対応（fix-8）:
+// - 見出しがすべてレベル3（###）で書かれた回答では、strict／フォール
+//   バックともレベル3を見出しとして認識せず、節が一切成立せずに
+//   contentSections < 3 で null になっていた（材料自体は見出しの下に
+//   正しく配置されていた）。FIX8-1: レベル2見出し行が文書内に1つも
+//   無い場合に限り、レベル3見出しをレベル2と同格の節見出し候補として
+//   取り込む（受理判定・分類はレベル2と同一の経路を通し、
+//   usedMarkdownHeadings の扱いもレベル2と同じにする）。レベル2が
+//   存在する文書ではレベル3は従来どおり節内の小見出しとして読み
+//   飛ばし、節構成は一切変えない。レベル3の無条件取り込み（FIX8-2）は、
+//   混合文書で小見出しが独立した節に化けて内容配分が変わるため不採用。
+//   レベル4以降は対象に含めない。strict パーサーは変更しない。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -568,6 +581,11 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   // 代替（計画セクションの流用）を適用しない（strict の必須アンカーを
   // フォールバック側で緩めないため）。
   let usedMarkdownHeadings = false;
+  // fix-8（FIX8-1）: レベル2見出し行が文書内に1つも無い場合に限り、
+  // レベル3見出しをレベル2と同格に昇格させる。判定は行単位の事前走査で
+  // 行うため、コードフェンス内の ## 行があると昇格は抑制される（開かない
+  // 側に倒れる保守的な挙動であり、安全側の誤りとして許容する）。
+  const promoteLevel3Headings = !lines.some((line) => /^##\s+\S/.test(line));
 
   const startSection = (
     kind: FreeformSectionKind,
@@ -577,6 +595,23 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   ) => {
     current = { kind, role, heading, fromNumberedHeading, leadLines: [], bullets: [], tableLines: [] };
     sections.push(current);
+  };
+
+  // markdown 見出し（レベル2、および fix-8 で昇格したレベル3）を節見出し
+  // 候補として取り込む共通経路。先行番号を剥がし、受理判定（fix-5、
+  // FIX5-1: 40字以内・コロンなしは、注記を含む見出し文全体ではなく注記を
+  // 除いた見出し本体に対して行う）を通過した場合に節を開始する。見出し文
+  // の保持・分類は従来どおり注記を含む原文で行う。
+  const acceptMarkdownHeading = (rawHeading: string) => {
+    const headingText = stripEmphasis(rawHeading.replace(/\s+#+\s*$/, '').trim())
+      .replace(/^\d{1,2}\s*[.．)）]\s*/, '')
+      .trim();
+    const headingCore = stripHeadingAnnotations(headingText);
+    if (headingCore !== '' && [...headingCore].length <= 40 && !/[：:]/.test(headingCore)) {
+      const classified = classifyFreeformHeading(headingText);
+      startSection(classified?.kind ?? 'role', classified?.role ?? 'other', headingText);
+      usedMarkdownHeadings = true;
+    }
   };
 
   let lineIndex = -1;
@@ -599,19 +634,20 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     }
     const mdH2 = line.match(/^##\s+(.+)$/);
     if (mdH2) {
-      const headingText = stripEmphasis(mdH2[1].replace(/\s+#+\s*$/, '').trim())
-        .replace(/^\d{1,2}\s*[.．)）]\s*/, '')
-        .trim();
-      // fix-5（FIX5-1）: 受理判定（40字以内・コロンなし）は、注記を含む
-      // 見出し文全体ではなく、注記を除いた見出し本体に対して行う。
-      // 見出し文の保持・分類は従来どおり注記を含む原文で行う。
-      const headingCore = stripHeadingAnnotations(headingText);
-      if (headingCore !== '' && [...headingCore].length <= 40 && !/[：:]/.test(headingCore)) {
-        const classified = classifyFreeformHeading(headingText);
-        startSection(classified?.kind ?? 'role', classified?.role ?? 'other', headingText);
-        usedMarkdownHeadings = true;
-      }
+      acceptMarkdownHeading(mdH2[1]);
       continue;
+    }
+    // fix-8（FIX8-1）: レベル2見出し行が文書内に無い場合に限り、レベル3
+    // 見出しをレベル2と同格の節見出し候補として取り込む（受理・分類・
+    // usedMarkdownHeadings の扱いはレベル2と同一の経路）。レベル2が存在
+    // する文書では、この分岐に入らずレベル3は従来どおり読み飛ばされる
+    // （節内の小見出しとして親節に残る）。レベル4以降は対象外。
+    if (promoteLevel3Headings) {
+      const mdH3 = line.match(/^###\s+(.+)$/);
+      if (mdH3) {
+        acceptMarkdownHeading(mdH3[1]);
+        continue;
+      }
     }
     if (/^\s*#/.test(line)) continue;
 
