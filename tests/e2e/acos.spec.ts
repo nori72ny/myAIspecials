@@ -73,26 +73,35 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(await page.locator('script[src]').evaluateAll((scripts) => scripts.every((script) => new URL((script as HTMLScriptElement).src).origin === window.location.origin))).toBe(true);
   });
 
-  test('shows the Orin working presence at the top center while waiting for an answer (2026-11-14 revision)', async ({ page }) => {
+  test('shows the Orin floating presence at the top center while waiting for an answer (2026-11-14 revision)', async ({ page }) => {
     await page.route('**/api/chat', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
     });
     await page.goto('/');
+    // 待機中から浮遊プレゼンスは上部中央に出ている（姿＋名前のみ、
+    // 状態ピルは作業中だけ）。画面に固定され、ヘッダーにオリンは
+    // 置かない（2026-11-14 08:59 の浮遊化）。
+    const presence = page.getByTestId('origin-orin-presence');
+    await expect(presence).toBeVisible();
+    await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('オリン');
+    await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0);
+    await expect(presence).toHaveCSS('position', 'fixed');
+    await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
     // 作業中表示（2026-11-14）：全体画面ステージは使わず、上部
-    // 中央の大きなオリン＋名前＋状態ピルが段階を一文で出す。
-    // 会話内の1行表示も出ない。ヘッダーの常駐オリンは隠れる。
-    const overlay = page.getByTestId('origin-orin-overlay');
-    await expect(overlay).toBeVisible();
-    await expect(overlay).toContainText('回答を準備しています');
-    await expect(page.getByTestId('origin-orin-overlay-name')).toHaveText('オリン');
+    // 中央に浮く大きなオリン＋名前＋状態ピルが段階を一文で出す。
+    // 会話内の1行表示も出ない。
+    await expect(presence).toContainText('回答を準備しています');
+    await expect(page.getByTestId('origin-orin-presence-status')).toBeVisible();
     await expect(page.getByTestId('origin-orin-bubble')).toHaveCount(0);
-    await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
-    await expect(overlay).toBeHidden({ timeout: 15_000 });
+    // 回答が終わるとピルだけが消え、姿は同じ大きさで残る
+    // （小さなヘッダーアイコンへは縮まない）。
+    await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
+    await expect(presence).toBeVisible();
   });
 
   test('protects Japanese IME composition and keeps the composer available after answering', async ({ page }) => {
