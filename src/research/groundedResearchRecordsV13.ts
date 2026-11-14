@@ -2153,13 +2153,11 @@ export async function executeGroundedResearchRecordsSynthesis(
       // failure, rejected records, or unmet coverage all leave the
       // slot sentence standing alone — and neither the retry nor the
       // selection layer fires after a slot adoption.
-      let supportAttempted = false;
       let supportResult: OriginProviderExecutionResult | undefined;
       let supportEvaluation: GroundedResearchRecordsEvaluation | undefined;
       let supportRecords: GroundedResearchAcceptedRecord[] = [];
       let supportDurationMs = 0;
       try {
-        supportAttempted = true;
         supportResult = await execute(request);
         options.assertZeroCost(supportResult);
         supportDurationMs = supportResult.attempts?.reduce((sum, attempt) => sum + (attempt.durationMs ?? 0), 0) ?? 0;
@@ -2175,7 +2173,7 @@ export async function executeGroundedResearchRecordsSynthesis(
       }
       const slotMetrics: GroundedResearchRecordsStageMetrics = {
         ...baseMetrics,
-        executionCount: 1 + (supportAttempted ? 1 : 0),
+        executionCount: 2,
         synthesisDurationMs: slotDurationMs + supportDurationMs,
         zeroCostAsserted: true,
         formatKind: supportEvaluation?.parse.format ?? null,
