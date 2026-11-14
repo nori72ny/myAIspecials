@@ -66,6 +66,8 @@ export const PROPOSAL_DECK_SKELETON_INSTRUCTION = [
   '',
   '守ること:',
   '- 要約の要点は必ず3点にします。要約は見出しだけで済ませず、要点を箇条書きで書いてください。',
+  '- 要約の見出しは、見出しだけの行にしてください。見出しと同じ行に本文を続けず、要点は見出しの下に箇条書きで3点以上書いてください。',
+  '- 回答全体が資料そのものの本文です。「構成案」や、資料の構成についての説明・前置きを本文に書かないでください。',
   '- 次のステップには、具体的なステップを箇条書きで書いてください。',
   '- 見出しに【Assumption】などのタグや、（前提）（サンプル）といった注記を付けないでください。数値が仮定の場合は、その旨を本文中に明記してください。',
   '- 各セクションの箇条書きは4件まで、1件は見出しと補足を合わせて60字以内にします。',
@@ -303,7 +305,9 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   （その場合は箇条書きから外す）→ 見出し文からの定型文（「〜は次のとおりです。」）
 //   の順で決める。事実の捏造はせず、見出しの言い換えに留める。
 // - 締め（closing）の節が無い場合は、計画セクションの箇条書きを次のステップに
-//   流用する。どちらも無ければ null。
+//   流用する。fix-6 以降は、締め節が実在しても質問だけで実質空の場合にも
+//   同じ流用を開く（締め節が無い markdown 文書では開かない）。どちらも
+//   無ければ null。
 // - 「確認質問」等の節の項目は assumptions（前提・未確認事項）へ入れる。
 //   締め節に紛れた見出しのない末尾質問も assumptions へ振り分ける。
 //
@@ -345,6 +349,21 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   箇条書きに降格）と markdown 見出しの読み飛ばし（中身が直前の節へ
 //   吸収される）を招いていた。核条件（中身のある節3件以上・要約3点・
 //   nextSteps 非空・タイトル規則）は一切緩めていない。
+//
+// 第6回本番失敗（2026-11-14、c2120e1c）への対応（fix-6）:
+// - 節は markdown 見出しで正しく読めるようになったが、(a) §6 のステップ
+//   番号行が見出しとして受理されて計画節が空になり、(b) 締めが質問だけの
+//   場合に計画節からの受け皿が usedMarkdownHeadings ガードで両段とも
+//   塞がれていた。FIX6-2: 番号付き見出しから作られた中身のない微小節は、
+//   節として落とさず見出し文を直前の節の箇条書きへ降格させる（ステップが
+//   計画節の箇条書きとして復元され、連番に一致して見出し化した締め質問も
+//   締め節に戻って前提・未確認事項へ振り分け直される）。FIX6-1: 締め節が
+//   実在し、質問の振り分け後に ask も nextSteps も空の場合に限り、計画節
+//   の箇条書き受け皿を markdown 文書でも開く（ガード自体は維持）。
+// - 要約の材料不足（§1 の散文1文のみ）は、材料不足の形は null が現行仕様
+//   という従来の線引きを維持し、パーサーでは直さない（FIX6-3 は不採用）。
+//   指示側（FIX6-4）で、回答は構成案ではなく資料そのものの本文であること
+//   と、要約は見出しだけの行＋その下に箇条書き3点以上、を追加した。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -354,6 +373,8 @@ interface FreeformSection {
   role?: string;
   /** 強調記法を除いた見出し文。 */
   heading: string;
+  /** 番号付き見出しから作られた節かどうか（FIX6-2 の降格判定用）。 */
+  fromNumberedHeading: boolean;
   /** 箇条書きでない本文行（出現順）。 */
   leadLines: string[];
   /** 箇条書きの原文（出現順、強調記法を含む）。 */
@@ -525,8 +546,13 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
   // フォールバック側で緩めないため）。
   let usedMarkdownHeadings = false;
 
-  const startSection = (kind: FreeformSectionKind, role: string | undefined, heading: string) => {
-    current = { kind, role, heading, leadLines: [], bullets: [], tableLines: [] };
+  const startSection = (
+    kind: FreeformSectionKind,
+    role: string | undefined,
+    heading: string,
+    fromNumberedHeading = false,
+  ) => {
+    current = { kind, role, heading, fromNumberedHeading, leadLines: [], bullets: [], tableLines: [] };
     sections.push(current);
   };
 
@@ -579,6 +605,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
 
     // 見出し判定（番号付き → 太字単独行 → ラベル完全一致、の順）。
     let heading: { kind: FreeformSectionKind; role?: string; text: string } | null = null;
+    let headingFromNumbered = false;
     const numbered = toHalfWidthDigits(plain).match(/^(\d{1,2})\s*[.．)）]\s*(.+)$/);
     if (numbered && Number.parseInt(numbered[1], 10) === expectedNumber) {
       const headingText = numbered[2].trim();
@@ -594,6 +621,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
         heading = classified
           ? { ...classified, text: headingText }
           : { kind: 'role', role: 'other', text: headingText };
+        headingFromNumbered = true;
         expectedNumber += 1;
       }
     }
@@ -653,7 +681,7 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       }
     }
     if (heading) {
-      startSection(heading.kind, heading.role, heading.text);
+      startSection(heading.kind, heading.role, heading.text, headingFromNumbered);
       continue;
     }
 
@@ -673,10 +701,30 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       section.bullets.push(...tableLinesToBullets(section.tableLines));
     }
   }
+  // fix-6（FIX6-2）: 番号付き見出しから作られた節のうち、中身（本文・
+  // 箇条書き・表）が完全に無い微小節は、節として落とすのではなく、その
+  // 見出し文を直前の節の箇条書きへ降格させる。節内の番号付き手順リスト
+  // （導入ステップ等）が見出しとして受理されると、所属する節が空になり
+  // 項目の実体ごと消えてしまうことへの対策で、材料は見出し文の逐語である
+  // （生成・言い換えはしない）。本文や箇条書きを持つ正規の節には触れない。
+  // 直前の節が無い微小節は従来どおり落とす（後段の節数条件で弾かれる）。
+  const demotedSections: FreeformSection[] = [];
+  for (const section of sections) {
+    const isEmptyNumberedMicroSection =
+      section.fromNumberedHeading &&
+      section.leadLines.length === 0 &&
+      section.bullets.length === 0 &&
+      section.tableLines.length === 0;
+    if (isEmptyNumberedMicroSection && demotedSections.length > 0) {
+      demotedSections[demotedSections.length - 1].bullets.push(section.heading);
+      continue;
+    }
+    demotedSections.push(section);
+  }
   // 見出しだけで中身のない節は落とす。残った節が3件未満なら、見出し構造が
   // 成立していないものとして作らない（番号付き手順リスト等の誤爆防止の
   // 複合条件: 導入文＋節3件以上＋各節に中身があること）。
-  const contentSections = sections.filter(
+  const contentSections = demotedSections.filter(
     (section) => section.leadLines.length > 0 || section.bullets.length > 0,
   );
   if (contentSections.length < 3) return null;
@@ -853,7 +901,16 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     for (const entry of closingSection.leadLines) absorb(entry, false);
     for (const entry of closingSection.bullets) absorb(entry, true);
   }
-  if (nextSteps.length === 0 && !usedMarkdownHeadings) {
+  // fix-6（FIX6-1）: 締め節が実在し、質問の振り分け後に依頼事項も次の
+  // ステップも空である場合は、計画セクションの箇条書き流用を markdown
+  // 文書でも開く。usedMarkdownHeadings ガードの目的は「締めが無いのに
+  // 計画から締めを捏造しない」ことであり、締め節が文書内に実在する場合の
+  // 流用は捏造ではなく材料の流用である（fix-3／fix-4 の受け皿拡張と同じ
+  // 性質）。締め節が実在しない markdown 文書では従来どおり開かない。
+  if (
+    nextSteps.length === 0 &&
+    (!usedMarkdownHeadings || (closingSection !== undefined && ask === ''))
+  ) {
     const planSection = roleSections.find((section) => section.role === 'plan');
     if (planSection) {
       nextSteps = planSection.bullets
