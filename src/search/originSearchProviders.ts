@@ -106,6 +106,32 @@ const OFFICIAL_DOMAINS: ReadonlySet<string> = new Set([
   "apple.com", "microsoft.com", "google.com", "openai.com", "anthropic.com",
   "github.com", "samsung.com", "sony.com", "nintendo.co.jp", "mozilla.org",
 ]);
+/**
+ * Vendor domains are official only on their product surfaces (recon
+ * 2026-11-15, C3 / I-2): the bare host, plus subdomains whose first label
+ * names a sales / product / support surface (store.google.com,
+ * support.apple.com, ...). Every other subdomain — developers.,
+ * cloud., docs., and any future sibling — is NOT the product's official
+ * page for a price or policy question and must not inherit the top tier:
+ * with suffix matching, developers.google.com (a structured-data doc)
+ * and cloud.google.com (a botnet article) both ranked as "official"
+ * (weight 4) ahead of every on-topic source in a production price
+ * packet. Public-sector suffixes (go.jp / lg.jp) keep suffix matching
+ * via OFFICIAL_DOMAIN_SUFFIXES: every host under them is a government
+ * surface by construction.
+ */
+const OFFICIAL_VENDOR_SUBDOMAIN_LABELS: ReadonlySet<string> = new Set([
+  "store", "shop", "support", "help",
+]);
+
+function isOfficialDomain(domain: string): boolean {
+  if (OFFICIAL_DOMAINS.has(domain)) return true;
+  const firstDot = domain.indexOf(".");
+  if (firstDot <= 0) return false;
+  const label = domain.slice(0, firstDot);
+  const rest = domain.slice(firstDot + 1);
+  return OFFICIAL_VENDOR_SUBDOMAIN_LABELS.has(label) && OFFICIAL_DOMAINS.has(rest);
+}
 const MAJOR_NEWS_DOMAINS: ReadonlySet<string> = new Set([
   "nhk.or.jp", "asahi.com", "mainichi.jp", "yomiuri.co.jp", "nikkei.com",
   "sankei.com", "jiji.com", "tokyo-np.co.jp", "chunichi.co.jp", "nishinippon.co.jp",
@@ -131,7 +157,7 @@ export function classifyOriginDomainTier(domain: string): OriginSourceAuthorityT
   // treated as part of wikipedia.org (callers pass URL-parsed hostnames, and
   // unparseable input arrives here as "" and falls through to "general").
   if (matchesDomainSet(normalized, ENCYCLOPEDIA_DOMAINS)) return "specialist";
-  if (matchesDomainSet(normalized, OFFICIAL_DOMAINS)) return "official";
+  if (isOfficialDomain(normalized)) return "official";
   if (OFFICIAL_DOMAIN_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`))) return "official";
   if (matchesDomainSet(normalized, MAJOR_NEWS_DOMAINS)) return "major-news";
   if (matchesDomainSet(normalized, SPECIALIST_DOMAINS)) return "specialist";
@@ -506,8 +532,12 @@ interface WikipediaSearchResponse {
 }
 
 /*
- * Relevance screen for Wikipedia candidates (Wikipedia results only — no
- * other provider passes through here).
+ * Relevance screen, shared by the Wikipedia and Tavily routes (the
+ * predicate below is provider-neutral; each route applies it to its own
+ * candidates). It was built for Wikipedia first, where the failure mode
+ * was measured in production; the Tavily route gained the same screen
+ * in 2026-11-15 (recon I-1) after a price question's packet filled with
+ * vendor-domain pages that merely shared common words with the query.
  *
  * Wikipedia full-text search ranks by relevance, but its hits are not
  * guaranteed on-topic for a long, goal-shaped query: a popular article
@@ -545,32 +575,32 @@ interface WikipediaSearchResponse {
  * term with the query is dropped too; that fails closed into the same
  * Tavily fallback, which is the safe direction.
  */
-const WIKIPEDIA_TOPIC_GENERIC_LATIN_TERMS: ReadonlySet<string> = new Set([
+const TOPIC_GENERIC_LATIN_TERMS: ReadonlySet<string> = new Set([
   "the", "and", "for", "from", "with", "about", "please", "explain", "summary", "summarize",
   "research", "source", "sources", "official", "help", "support", "latest", "recent", "current",
   "information", "news", "updates", "short", "brief", "using", "based", "method", "how",
 ]);
 
-const WIKIPEDIA_TOPIC_GENERIC_JAPANESE_TERMS: ReadonlySet<string> = new Set([
+const TOPIC_GENERIC_JAPANESE_TERMS: ReadonlySet<string> = new Set([
   "公式", "ヘルプ", "サポート", "出典", "情報", "公開情報", "最新", "現在", "説明", "方法", "確認",
   "調査", "要約", "短く", "簡単", "詳しく", "最新情報", "複数", "ソース", "複数ソース",
 ]);
 
-function wikipediaTopicTerms(query: string): string[] {
+function searchTopicTerms(query: string): string[] {
   const normalized = query.normalize("NFKC").toLowerCase();
   const terms: string[] = [];
   for (const match of normalized.matchAll(/[a-z0-9][a-z0-9._-]{1,}/g)) {
     const value = match[0].replace(/^www\./, "");
-    if (!WIKIPEDIA_TOPIC_GENERIC_LATIN_TERMS.has(value) && !terms.includes(value)) terms.push(value);
+    if (!TOPIC_GENERIC_LATIN_TERMS.has(value) && !terms.includes(value)) terms.push(value);
   }
   for (const match of normalized.matchAll(/[ァ-ヶー一-龠]{2,}/g)) {
     const value = match[0];
-    if (!WIKIPEDIA_TOPIC_GENERIC_JAPANESE_TERMS.has(value) && !terms.includes(value)) terms.push(value);
+    if (!TOPIC_GENERIC_JAPANESE_TERMS.has(value) && !terms.includes(value)) terms.push(value);
   }
   return terms.slice(0, 18);
 }
 
-function wikipediaCandidateMatchesTopic(title: string, excerpt: string, topicTerms: readonly string[]): boolean {
+function searchCandidateMatchesTopic(title: string, excerpt: string, topicTerms: readonly string[]): boolean {
   if (topicTerms.length === 0) return true;
   // Aboutness first: at least one topic term must appear in the title.
   // Excerpt-only matches passed production hits that merely mention the
@@ -594,7 +624,7 @@ export async function searchWikipediaSources(
   const language = deps.language ?? (/[ぁ-んァ-ヶ一-龠]/.test(query) ? "ja" : "en");
   const origin = `https://${language}.wikipedia.org`;
   const headers = { "User-Agent": USER_AGENT };
-  const topicTerms = wikipediaTopicTerms(query);
+  const topicTerms = searchTopicTerms(query);
   // Search with the topic terms only (see the relevance-screen note
   // above): the raw, goal-shaped query ranks unrelated articles first.
   // When no topic term can be extracted the query is sent unchanged.
@@ -608,10 +638,10 @@ export async function searchWikipediaSources(
     const title = stripHtml(page.title) || key;
     const excerpt = stripHtml(page.excerpt) || stripHtml(page.description);
     if (!key || !title || !excerpt) continue;
-    // Relevance screen (Wikipedia candidates only): an off-topic hit is
-    // dropped before its metadata fetch, so it can neither win source
-    // selection nor consume the route's one same-domain slot.
-    if (!wikipediaCandidateMatchesTopic(title, excerpt, topicTerms)) continue;
+    // Relevance screen: an off-topic hit is dropped before its metadata
+    // fetch, so it can neither win source selection nor consume the
+    // route's one same-domain slot.
+    if (!searchCandidateMatchesTopic(title, excerpt, topicTerms)) continue;
     let url = `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
     let publishedAt: string | undefined;
     try {
@@ -670,6 +700,12 @@ export interface TavilySearchOutcome {
   sources: OriginSearchSource[];
   /** Basic search is exactly 1 credit (verified pricing, 2026-11-07). */
   creditsUsed: number;
+  /**
+   * Candidates that passed the basic shape checks but were dropped by
+   * the relevance screen (see searchCandidateMatchesTopic). Count only —
+   * the dropped titles / excerpts are never retained.
+   */
+  screenedOutCount: number;
 }
 
 export async function searchTavilySources(
@@ -685,7 +721,12 @@ export async function searchTavilySources(
     query,
     topic: deps.topic,
     search_depth: "basic",
-    max_results: deps.maxResults ?? 5,
+    // 10 candidates per request (recon 2026-11-15, I-3): a basic search
+    // costs 1 credit per request regardless of the result count, so a
+    // wider candidate pool is free — and the freshness gate plus the
+    // relevance screen below need material to drop from. Selection
+    // still caps the packet at MAX_SELECTED_SOURCES downstream.
+    max_results: deps.maxResults ?? 10,
     include_answer: false,
     include_raw_content: false,
     include_images: false,
@@ -700,18 +741,34 @@ export async function searchTavilySources(
     body: JSON.stringify(body),
   });
   const results = Array.isArray(payload.results) ? payload.results : [];
+  // Relevance screen (recon 2026-11-15, I-1): the same deterministic
+  // topic-term predicate the Wikipedia route uses. Tavily candidates
+  // previously had no aboutness check at all, so a page that merely
+  // shares common words with the query (a vendor's developer doc or
+  // cloud-infrastructure article for a product price question) could
+  // take a packet slot — and, on a vendor domain, the top slot. When no
+  // topic term can be extracted the predicate is a no-op, exactly like
+  // the Wikipedia route; when every candidate is screened out the
+  // caller sees zero sources and the grounding layer fails closed.
+  const topicTerms = searchTopicTerms(query);
   const sources: OriginSearchSource[] = [];
+  let screenedOutCount = 0;
   for (const result of results) {
     const url = typeof result.url === "string" ? result.url : "";
     const title = stripHtml(result.title);
     if (!url || !title || !isSafeHttpsUrl(url)) continue;
+    const excerpt = stripHtml(result.content).slice(0, 1500);
+    if (!searchCandidateMatchesTopic(title, excerpt, topicTerms)) {
+      screenedOutCount += 1;
+      continue;
+    }
     const publishedAt = typeof result.published_date === "string" && Number.isFinite(Date.parse(result.published_date))
       ? new Date(result.published_date).toISOString()
       : undefined;
     sources.push({
       title,
       url,
-      excerpt: stripHtml(result.content).slice(0, 1500),
+      excerpt,
       publishedAt,
       providerId: "tavily",
       domain: originDomainOf(url),
@@ -720,7 +777,7 @@ export async function searchTavilySources(
       providerScore: typeof result.score === "number" ? result.score : undefined,
     });
   }
-  return { sources, creditsUsed: 1 };
+  return { sources, creditsUsed: 1, screenedOutCount };
 }
 
 export interface TavilyExtractOutcome {
