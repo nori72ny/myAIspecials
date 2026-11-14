@@ -282,7 +282,8 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //
 // 変換規則（すべて決定的・純関数）:
 // - セクション見出しは「連番であること＋40字以内＋コロン（：/:）を含まない
-//   こと」を満たす番号行を採用する。役割キーワードへの一致は受理条件にせず、
+//   こと」を満たす番号行を採用する。40字・コロンの判定は、注記を除いた
+//   見出し本体に対して行う（第5回対応 FIX5-1）。役割キーワードへの一致は受理条件にせず、
 //   一致しない見出しは other として保持する（1語の語彙ミスで後続セクション
 //   まで連鎖的に失うのを防ぐため）。誤爆は複合条件で抑える: 導入文がある
 //   こと、中身のある節が3件以上あること、要約と締めの核が揃うこと。
@@ -334,6 +335,16 @@ export function parseProposalDeckSkeleton(markdown: string): ProposalDeckInput |
 //   汚染への対策。他の規則の注記依存の照合は維持する）。あわせて cost
 //   規則に「投資対効果」を明示追加する（「効果」に先に一致して価値に
 //   誤分類されていた）。
+//
+// 第5回本番失敗（2026-11-14、bebf30f5）への対応（fix-5）:
+// - 見出しの受理判定（40字以内・コロンなし）を、注記（（…）／【…】）を
+//   含む見出し文全体ではなく、注記を除いた見出し本体に対して行う
+//   （FIX5-1、番号付き見出しと markdown 見出しの両経路）。第4回までの
+//   注記対策は分類段（FIX4-3）にだけ入っており、受理段では節見出しが
+//   注記ごと拒否され、連番の凍結（最初の見出しの拒否で後続節がすべて
+//   箇条書きに降格）と markdown 見出しの読み飛ばし（中身が直前の節へ
+//   吸収される）を招いていた。核条件（中身のある節3件以上・要約3点・
+//   nextSteps 非空・タイトル規則）は一切緩めていない。
 // ---------------------------------------------------------------------------
 
 type FreeformSectionKind = 'summary' | 'closing' | 'assumptions' | 'role';
@@ -542,7 +553,11 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
       const headingText = stripEmphasis(mdH2[1].replace(/\s+#+\s*$/, '').trim())
         .replace(/^\d{1,2}\s*[.．)）]\s*/, '')
         .trim();
-      if (headingText !== '' && [...headingText].length <= 40 && !/[：:]/.test(headingText)) {
+      // fix-5（FIX5-1）: 受理判定（40字以内・コロンなし）は、注記を含む
+      // 見出し文全体ではなく、注記を除いた見出し本体に対して行う。
+      // 見出し文の保持・分類は従来どおり注記を含む原文で行う。
+      const headingCore = stripHeadingAnnotations(headingText);
+      if (headingCore !== '' && [...headingCore].length <= 40 && !/[：:]/.test(headingCore)) {
         const classified = classifyFreeformHeading(headingText);
         startSection(classified?.kind ?? 'role', classified?.role ?? 'other', headingText);
         usedMarkdownHeadings = true;
@@ -567,7 +582,10 @@ function parseFreeformProposalDeckFallback(markdown: string): ProposalDeckInput 
     const numbered = toHalfWidthDigits(plain).match(/^(\d{1,2})\s*[.．)）]\s*(.+)$/);
     if (numbered && Number.parseInt(numbered[1], 10) === expectedNumber) {
       const headingText = numbered[2].trim();
-      if ([...headingText].length <= 40 && !/[：:]/.test(headingText)) {
+      // fix-5（FIX5-1）: 受理判定は注記を除いた見出し本体に対して行う
+      // （markdown 見出し経路と同じ）。本体が空（注記だけの見出し）は受理しない。
+      const headingCore = stripHeadingAnnotations(headingText);
+      if (headingCore !== '' && [...headingCore].length <= 40 && !/[：:]/.test(headingCore)) {
         // 分類できることは受理条件にしない（1語の語彙ミスで連番が崩壊し、
         // 後続セクションまで連鎖的に失う構造的な弱さへの対策）。分類できない
         // 見出しは other として保持し、構造条件（導入・節数・中身の有無・

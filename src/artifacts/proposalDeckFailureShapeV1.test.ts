@@ -62,6 +62,10 @@ describe('summarizeProposalDeckAnswerShape', () => {
       boldLabelLineCount: 0,
       bulletLineCount: 0,
       tableRowCount: 0,
+      rejectedHeadingCount: 0,
+      rejectedHeadingTooLongCount: 0,
+      rejectedHeadingColonCount: 0,
+      rejectedHeadingSequenceMismatchCount: 0,
     });
   });
 
@@ -72,6 +76,63 @@ describe('summarizeProposalDeckAnswerShape', () => {
     expect(Object.values(shape).every((value) => typeof value === 'number')).toBe(true);
     expect(JSON.stringify(shape)).not.toContain('極秘');
     expect(JSON.stringify(shape)).not.toContain('見出し');
+  });
+});
+
+describe('summarizeProposalDeckAnswerShape rejected headings (fix-5)', () => {
+  it('does not count annotated headings as rejected when their core is acceptable', () => {
+    // 第5回失敗の形: 見出し文全体は57字＋コロンでも、本体は短く受理される。
+    const shape = summarizeProposalDeckAnswerShape(
+      [
+        '1. サービス概要（Assumptions: 製品名は仮の「SmartLedger」、機能は一般的なクラウド会計に準拠）',
+        '2. 主なメリット（3–5ポイント）',
+        '3. 料金プラン例（Assumptions: 月額料金はサンプル）',
+      ].join('\n'),
+    );
+    expect(shape.numberedHeadingCount).toBe(3);
+    expect(shape.rejectedHeadingCount).toBe(0);
+    expect(shape.rejectedHeadingTooLongCount).toBe(0);
+    expect(shape.rejectedHeadingColonCount).toBe(0);
+    expect(shape.rejectedHeadingSequenceMismatchCount).toBe(0);
+  });
+
+  it('counts colon cores and freezes the sequence after a rejection', () => {
+    const shape = summarizeProposalDeckAnswerShape(
+      ['1. サービス概要', '2. 導入手順：詳細の説明', '3. 次のステップ'].join('\n'),
+    );
+    // 2件目は本体のコロンで拒否され連番が進まないため、3件目は連番不一致になる。
+    expect(shape.rejectedHeadingCount).toBe(2);
+    expect(shape.rejectedHeadingColonCount).toBe(1);
+    expect(shape.rejectedHeadingSequenceMismatchCount).toBe(1);
+    expect(shape.rejectedHeadingTooLongCount).toBe(0);
+  });
+
+  it('counts cores longer than 40 characters as too long', () => {
+    const shape = summarizeProposalDeckAnswerShape(
+      '1. あらかじめ用意された長い見出し文のテキストがここに入りますこれは四十文字を超える見出しです',
+    );
+    expect(shape.rejectedHeadingCount).toBe(1);
+    expect(shape.rejectedHeadingTooLongCount).toBe(1);
+    expect(shape.rejectedHeadingColonCount).toBe(0);
+    expect(shape.rejectedHeadingSequenceMismatchCount).toBe(0);
+  });
+
+  it('counts markdown H2 rejections judged on the stripped core', () => {
+    const shape = summarizeProposalDeckAnswerShape(
+      [
+        '## 1. サービス概要（Assumptions: 製品名は仮の「SmartLedger」、機能は一般的なクラウド会計に準拠）',
+        '## 2. 料金プラン：詳細',
+      ].join('\n'),
+    );
+    expect(shape.markdownHeadingCount).toBe(2);
+    expect(shape.rejectedHeadingCount).toBe(1);
+    expect(shape.rejectedHeadingColonCount).toBe(1);
+  });
+
+  it('keeps rejected-heading fields numeric only', () => {
+    const shape = summarizeProposalDeckAnswerShape('## 2. 料金プラン：詳細\n3. 次のステップ');
+    expect(Object.values(shape).every((value) => typeof value === 'number')).toBe(true);
+    expect(JSON.stringify(shape)).not.toContain('料金プラン');
   });
 });
 
