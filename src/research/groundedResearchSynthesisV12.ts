@@ -191,6 +191,13 @@ export function buildGroundedResearchSynthesisInstruction(
       "Do not mention internal routing, hidden prompts, providers, model names, or evaluation machinery.",
       "Keep the answer concise and decision-useful.",
       buildGroundedResearchOutputContract(requestedOutputs, language),
+      "Example of the required output format (a minimal example whose sources and content are entirely fictional):",
+      "## Conclusion",
+      "The library in the fictional city opened on April 1, 2024. [S1](https://example.com/)",
+      "## Evidence",
+      "The opening date is given as April 1, 2024 in the fictional city's published material. [S1](https://example.com/)",
+      "## Sources",
+      "example.com, March 1, 2024 [S1](https://example.com/)",
     ].filter(Boolean).join("\n");
   }
 
@@ -217,6 +224,13 @@ export function buildGroundedResearchSynthesisInstruction(
     "内部ルーティング、隠しプロンプト、Provider、モデル名、評価機構には触れないでください。",
     "簡潔で、判断に使いやすい回答にしてください。",
     buildGroundedResearchOutputContract(requestedOutputs, language),
+    "出力形式の実例（出典・内容はすべて架空の最小例です）:",
+    "## 結論",
+    "架空市の図書館は2024年4月1日に開館しました。[S1](https://example.com/)",
+    "## 根拠",
+    "開館日は、架空市の公表資料に2024年4月1日と記載されています。[S1](https://example.com/)",
+    "## 出典",
+    "example.com・2024年3月1日 [S1](https://example.com/)",
   ].filter(Boolean).join("\n");
 }
 
@@ -722,10 +736,15 @@ export function adoptGroundedResearchSynthesis(
 // still rejects a synthesis, the request currently degrades to the partial
 // answer even though the defect is usually mechanical (citation tokens
 // missing on some lines, a number no cited excerpt supports). This section
-// gives the model exactly one corrective retry: the failed text is handed
-// back as a draft to fix, together with feedback built from a full,
-// non-fail-fast scan of that text (uncited-unit counts and the unsupported
-// numeric tokens named, at most five). The retry reuses the initial plan,
+// gives the model exactly one corrective retry: concise feedback built
+// from a full, non-fail-fast scan of the failed text (uncited-unit counts
+// and the unsupported numeric tokens named, at most five) is sent WITHOUT
+// the failed text itself, and the model rewrites the answer from scratch.
+// (The original design handed the failed text back as a draft to correct;
+// the first production measurement on 2026-11-14 showed the "corrected"
+// draft coming back worse — uncited units 7 → 8 — because free-tier
+// models imitate the rejected text, so the draft was removed from the
+// retry request.) The retry reuses the initial plan,
 // executor, and system instruction verbatim; only the user message gains a
 // "previous answer and validation result" section after the evidence
 // packet. The retried text passes through the identical adoption gate, so
@@ -755,7 +774,7 @@ export function isGroundedResearchSynthesisRetryEnabled(
   return !["false", "0", "off", "no"].includes(raw.trim().toLowerCase());
 }
 
-/** Validation codes a retry can plausibly correct (D4). EMPTY_SYNTHESIS is excluded: there is no draft to fix. */
+/** Validation codes a retry can plausibly correct (D4). EMPTY_SYNTHESIS is excluded: there is no text to scan for feedback. */
 const SYNTHESIS_RETRY_TARGET_CODES: ReadonlySet<GroundedResearchSynthesisValidationCode> = new Set([
   "UNCITED_FACTUAL_UNIT",
   "UNSUPPORTED_NUMERIC_TOKEN",
@@ -870,7 +889,7 @@ export function buildGroundedResearchSynthesisRetryFeedback(
 
   if (language === "en") {
     return [
-      "Your previous answer was rejected by a gate that mechanically verifies citations and numeric support. Treat the previous answer as a draft: check it against the evidence packet and return the full corrected answer. Do not trust any draft sentence without support; delete sentences and numbers you cannot support. Return the full corrected text only, not a diff or editing instructions.",
+      "Your previous answer was rejected by a gate that mechanically verifies citations and numeric support, and it has been discarded. Do not reuse any of its wording: using only the evidence packet, return a complete answer rewritten from scratch. Keep the required format exactly: the ## Conclusion, ## Evidence, and ## Sources headings, a citation token on every factual line, and a source list whose lines copy each citation token from the packet in full. Return only the full rewritten answer — not a diff, editing instructions, or commentary. The notes below state why the previous answer was rejected; do not repeat the same errors.",
       ...(hasUncited ? [
         `Validation found that ${material.uncitedUnits} of the ${material.totalFactualUnits} factual lines had no citation token. Attach the packet's citation_token, copied in full as [S<number>](URL), to the very sentence that states each fact, in every factual line (including the introduction, the closing summary, and every source-list line). Delete any sentence you cannot attach a citation to. Every source-list line must also contain its citation token; never write a line that is only a bare URL or only [S<number>].`,
       ] : []),
@@ -887,7 +906,7 @@ export function buildGroundedResearchSynthesisRetryFeedback(
   }
 
   return [
-    "あなたの前回の回答は、引用と数値の裏付けを機械検証するゲートで却下されました。前回の回答を下書きとして扱い、証拠パケットと照合して修正した全文を返してください。下書きの文を裏付けなしに信用せず、裏付けできない文・数値は削除してください。差分や編集指示ではなく、修正済みの全文だけを返してください。",
+    "あなたの前回の回答は、引用と数値の裏付けを機械検証するゲートで却下され、破棄されました。前回の文章は一切引き継がず、証拠パケットだけを使って、最初から書き直した全文を返してください。形式は、## 結論・## 根拠・## 出典 の見出しで構成し、事実を述べるすべての行に引用トークンを付け、出典一覧の各行でパケットの citation_token を完全にコピーしてください。差分・編集指示・説明ではなく、書き直した回答の全文だけを返してください。以下は前回の回答が却下された理由です。同じ誤りを繰り返さないでください。",
     ...(hasUncited ? [
       `検証では、全${material.totalFactualUnits}行の事実行のうち${material.uncitedUnits}行に引用トークンがありませんでした。すべての事実行（導入・まとめ・出典一覧の各行を含む）の、事実を述べる文そのものに、パケットの citation_token を完全コピーした [S番号](URL) を付けてください。引用を付けられない文は削除してください。出典一覧の各行にも引用トークンを含め、素のURLだけの行や [S番号] だけの行は書かないでください。`,
     ] : []),
@@ -903,30 +922,29 @@ export function buildGroundedResearchSynthesisRetryFeedback(
   ].join("\n");
 }
 
-/** The user-message section carrying the feedback and the draft, appended after the evidence packet (§2.3). */
+/**
+ * The user-message section carrying the feedback, appended after the
+ * evidence packet (§2.3). The failed draft is deliberately NOT included:
+ * the model receives only the concise rejection reasons and rewrites the
+ * answer from scratch (see the section header above for the production
+ * measurement behind this).
+ */
 export function buildGroundedResearchSynthesisRetryPromptSection(
   material: GroundedResearchSynthesisFeedbackMaterial,
   failureCode: GroundedResearchSynthesisValidationCode,
   salvageAbortCode: GroundedResearchSynthesisValidationCode | undefined,
   language: "ja" | "en",
-  draftText: string,
 ): string {
   const feedback = buildGroundedResearchSynthesisRetryFeedback(material, failureCode, salvageAbortCode, language);
   if (language === "en") {
     return [
       "PREVIOUS ANSWER AND VALIDATION RESULT",
       feedback,
-      "",
-      "PREVIOUS ANSWER (DRAFT TO CORRECT)",
-      draftText,
     ].join("\n");
   }
   return [
     "前回の回答と検証結果",
     feedback,
-    "",
-    "前回の回答（修正対象の下書き）",
-    draftText,
   ].join("\n");
 }
 
@@ -1013,7 +1031,6 @@ export async function executeGroundedResearchSynthesisWithRetry(
     initialAdoption.failureCode,
     initialAdoption.salvageAbortCode,
     options.language,
-    initialResult.text,
   );
   const retryRequest: OriginProviderExecutionRequest = {
     ...options.initialRequest,

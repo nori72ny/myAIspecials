@@ -17,10 +17,13 @@ import {
 
 /**
  * Permanent fixtures for the feedback retry
- * (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): one corrective retry — the failed
- * synthesis returned as a draft plus scan-based feedback — between the
+ * (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): one corrective retry — scan-based
+ * rejection reasons only, WITHOUT the failed synthesis itself — between the
  * unchanged adoption gate (validator + salvage) and the partial-answer
- * fallback. The gate itself is never modified by the retry.
+ * fallback. The gate itself is never modified by the retry. (The original
+ * Method B handed the failed text back as a draft to correct; production
+ * measurement showed the "corrected" draft returning worse, so the draft
+ * was removed and the model now rewrites from scratch.)
  */
 
 function source(partial: Partial<OriginResearchSource> & Pick<OriginResearchSource, "title" | "url" | "excerpt">): OriginResearchSource {
@@ -135,7 +138,7 @@ describe("executeGroundedResearchSynthesisWithRetry", () => {
     }));
   });
 
-  it("builds the retry request from the initial one: same plan, identical system instruction, feedback + draft appended to the user message", async () => {
+  it("builds the retry request from the initial one: same plan, identical system instruction, feedback appended to the user message", async () => {
     const execute = vi.fn().mockResolvedValue(executionResult(VALID_TEXT));
     await executeGroundedResearchSynthesisWithRetry(execute, retryOptions(FAILING_TEXT));
 
@@ -152,9 +155,24 @@ describe("executeGroundedResearchSynthesisWithRetry", () => {
     expect(content).toContain("全6行の事実行のうち4行に引用トークンがありませんでした");
     expect(content).toContain("2025年");
     expect(content).toContain("逐語で含まれていません");
-    // The failed text itself is present as the draft to correct.
-    expect(content).toContain("前回の回答（修正対象の下書き）");
-    expect(content).toContain("補足文その4です");
+    // The feedback orders a from-scratch rewrite, not a draft correction.
+    expect(content).toContain("破棄されました");
+    expect(content).toContain("最初から書き直した全文を返してください");
+  });
+
+  it("never sends the failed draft back: no line of the rejected text appears in the retry request", async () => {
+    const execute = vi.fn().mockResolvedValue(executionResult(VALID_TEXT));
+    await executeGroundedResearchSynthesisWithRetry(execute, retryOptions(FAILING_TEXT));
+
+    const content = (execute.mock.calls[0]?.[0] as OriginProviderExecutionRequest).messages[0]?.content ?? "";
+    // Every line of the rejected synthesis — cited, uncited, and the
+    // numeric-defect line alike — must be absent; only the scan's counts
+    // and named tokens cross over into the feedback.
+    for (const line of FAILING_TEXT.split("\n")) {
+      expect(content).not.toContain(line);
+    }
+    expect(content).not.toContain("下書き");
+    expect(content).not.toContain("修正対象");
   });
 
   it("keeps the initial verdict when the retry also fails validation", async () => {
@@ -236,7 +254,7 @@ describe("executeGroundedResearchSynthesisWithRetry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("does not retry a non-target failure (EMPTY_SYNTHESIS has no draft to fix)", async () => {
+  it("does not retry a non-target failure (EMPTY_SYNTHESIS has no text to scan)", async () => {
     const execute = vi.fn().mockResolvedValue(executionResult(VALID_TEXT));
     const outcome = await executeGroundedResearchSynthesisWithRetry(execute, retryOptions(""));
     expect(outcome.retried).toBe(false);
@@ -279,7 +297,10 @@ describe("executeGroundedResearchSynthesisWithRetry", () => {
     expect(content).toContain("PREVIOUS ANSWER AND VALIDATION RESULT");
     expect(content).toContain("had no citation token");
     expect(content).toContain("2025年");
-    expect(content).toContain("PREVIOUS ANSWER (DRAFT TO CORRECT)");
+    // English feedback also orders a from-scratch rewrite and carries no draft.
+    expect(content).toContain("rewritten from scratch");
+    expect(content).not.toContain("DRAFT TO CORRECT");
+    expect(content).not.toContain("補足文その4です");
   });
 });
 
@@ -317,5 +338,26 @@ describe("synthesis instruction source-list form (candidate A)", () => {
     expect(en).toContain("under a ## Sources heading");
     expect(en).toContain("Copy every citation token exactly and in full");
     expect(en).toContain("only a bare URL");
+  });
+});
+
+describe("synthesis instruction few-shot example", () => {
+  it("appends a clearly fictional worked example to the Japanese instruction", () => {
+    const ja = buildGroundedResearchSynthesisInstruction("ja");
+    expect(ja).toContain("出力形式の実例（出典・内容はすべて架空の最小例です）");
+    expect(ja).toContain("## 結論\n架空市の図書館は2024年4月1日に開館しました。[S1](https://example.com/)");
+    expect(ja).toContain("## 根拠\n開館日は、架空市の公表資料に2024年4月1日と記載されています。[S1](https://example.com/)");
+    expect(ja).toContain("## 出典\nexample.com・2024年3月1日 [S1](https://example.com/)");
+    // The example is an addition at the tail: every pre-existing required
+    // substring of the instruction is unchanged.
+    expect(ja).toContain("citation_token を一字も変えず完全にコピーしてください");
+  });
+
+  it("appends a clearly fictional worked example to the English instruction", () => {
+    const en = buildGroundedResearchSynthesisInstruction("en");
+    expect(en).toContain("entirely fictional");
+    expect(en).toContain("## Conclusion\nThe library in the fictional city opened on April 1, 2024. [S1](https://example.com/)");
+    expect(en).toContain("## Sources\nexample.com, March 1, 2024 [S1](https://example.com/)");
+    expect(en).toContain("Copy every citation token exactly and in full");
   });
 });

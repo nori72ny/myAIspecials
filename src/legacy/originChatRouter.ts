@@ -339,8 +339,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, grounded.sources);
             // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): when
             // the adoption gate still rejects the synthesis, the shared
-            // helper may make exactly one corrective retry — the failed
-            // text returned as a draft plus scan-based feedback — inside
+            // helper may make exactly one corrective retry — scan-based
+            // rejection reasons only, never the failed draft itself, so
+            // the model rewrites from scratch — inside
             // its time gate and kill switch. It returns the final verdict
             // and the execution result to consume; when the retry also
             // fails, the initial verdict stands unchanged.

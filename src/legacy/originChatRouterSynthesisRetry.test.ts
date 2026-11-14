@@ -138,7 +138,8 @@ describe("chat router synthesis feedback retry", () => {
     expect(calls[1]?.[0].plan).toBe(calls[0]?.[0].plan);
     expect(calls[1]?.[0].systemInstruction).toBe(calls[0]?.[0].systemInstruction);
     expect(calls[1]?.[0].messages[0].content).toContain("前回の回答と検証結果");
-    expect(calls[1]?.[0].messages[0].content).toContain("補足文その4です");
+    // The failed draft itself is never sent back — only the feedback.
+    expect(calls[1]?.[0].messages[0].content).not.toContain("補足文その4です");
     expect(calls[0]?.[0].messages[0].content).not.toContain("前回の回答と検証結果");
   });
 
@@ -227,10 +228,15 @@ describe("research router synthesis feedback retry", () => {
     expect(response.body.routing.synthesisRetried).toBe(true);
     expect(response.body.research.synthesis).toEqual({ status: "citation-validated", sourceCount: 2, retried: true });
     expect(synthesis).toHaveBeenCalledTimes(2);
-    // The feedback names the unsupported price token from the first text.
+    // The feedback names the unsupported price token from the first text,
+    // in the scan's normalized form (thousands separator removed). The
+    // failed draft sentence itself is not sent back. (Before the draft was
+    // removed from the retry request, this assertion passed via the draft
+    // text, which contained the comma form "99,800円".)
     const retryContent = synthesis.mock.calls[1]?.[0].messages[0].content as string;
     expect(retryContent).toContain("前回の回答と検証結果");
-    expect(retryContent).toContain("99,800円");
+    expect(retryContent).toContain("99800円");
+    expect(retryContent).not.toContain("iPhone 18 Proは99,800円です");
   });
 
   it("degrades to the extractive report when the retry also fails", async () => {
