@@ -1166,7 +1166,7 @@ const RECORDS_CLAIM_NEGATION_PATTERN = /ない|ません|ありません|では�
 function recordsClaimSkeleton(normalizedClaim: string): string {
   return normalizedClaim
     .replace(/[ぁ-ゟ]/g, "")
-    .replace(/[、。,.・:;!！?？「」『』()[\]【】<>〈〉《》"'"…—~〜/|]/g, "");
+    .replace(/[、。,.・:;!！?？「」『』()[\]【】<>〈〉《》"'…—~〜/|]/g, "");
 }
 
 function recordsClaimSkeletonBigrams(skeleton: string): ReadonlySet<string> {
