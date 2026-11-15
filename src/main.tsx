@@ -254,7 +254,7 @@ function PersonalReleaseRoot() {
 
   return <>
     <FocusModeController />
-    <SplashScreen durationMs={420} oncePerSession />
+    <SplashScreen ready={isHydrated} oncePerSession />
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
