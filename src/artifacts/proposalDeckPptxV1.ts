@@ -151,7 +151,7 @@ function textOf(value: unknown): string {
 
 interface NormBullet { lead: string; detail: string }
 interface NormVisual { kind: ProposalDeckVisualKind; title: string; colorHex: string | null }
-interface NormSection { message: string; bullets: NormBullet[]; visual: NormVisual | null }
+interface NormSection { topic: string; message: string; bullets: NormBullet[]; visual: NormVisual | null }
 interface NormDeck {
   title: string;
   subtitle: string;
@@ -191,7 +191,12 @@ function normalizeDeck(input: ProposalDeck): NormDeck {
         colorHex,
       };
     }
-    return { message: textOf(section.message), bullets, visual };
+    return {
+      topic: typeof section.topic === 'string' ? section.topic : '',
+      message: textOf(section.message),
+      bullets,
+      visual,
+    };
   });
 
   return {
@@ -218,16 +223,31 @@ function background(id: number): string {
   return shapeXml(id, 'Background', 0, 0, SLIDE_W, SLIDE_H, { fill: PAPER });
 }
 
-/** コンテンツ系スライド共通の見出し（結論の文＋アクセントルール）。 */
-function headlineShapes(idStart: number, message: string): { shapes: string[]; nextId: number } {
-  const shapes = [
-    background(idStart),
-    textBoxXml(idStart + 1, 'Headline', MARGIN_X, HEADLINE_Y, CONTENT_W, HEADLINE_H, [
+/**
+ * コンテンツ系スライド共通の見出し。題目（topic）がある節は、設計
+ * §6.2 の2段見出しにする: 見出し位置の上に topic（小さめ・slate）を
+ * 1行置き、その直下に message を現行の見出し位置（28pt・ink）に置く。
+ * topic が無い節は従来どおり message のみで、出力は変更前と同一になる
+ * （旧経路の deck の描画は変えない）。
+ */
+const TOPIC_Y = 140000;
+const TOPIC_H = 300000;
+
+function headlineShapes(idStart: number, message: string, topic = ''): { shapes: string[]; nextId: number } {
+  const shapes = [background(idStart)];
+  let next = idStart + 1;
+  if (topic) {
+    shapes.push(textBoxXml(next++, 'Topic', MARGIN_X, TOPIC_Y, CONTENT_W, TOPIC_H, [
+      { runs: [{ text: topic, size: SMALL_SZ, color: SLATE }] },
+    ]));
+  }
+  shapes.push(
+    textBoxXml(next++, 'Headline', MARGIN_X, HEADLINE_Y, CONTENT_W, HEADLINE_H, [
       { runs: [{ text: message, size: HEADLINE_SZ, color: INK, bold: true }] },
     ]),
-    shapeXml(idStart + 2, 'HeadlineRule', MARGIN_X, RULE_Y, 685800, 45720, { fill: ACCENT }),
-  ];
-  return { shapes, nextId: idStart + 3 };
+    shapeXml(next++, 'HeadlineRule', MARGIN_X, RULE_Y, 685800, 45720, { fill: ACCENT }),
+  );
+  return { shapes, nextId: next };
 }
 
 function coverSlide(deck: NormDeck): string {
@@ -277,7 +297,7 @@ function bulletParas(bullets: NormBullet[], size: number, spcAft: number): ParaS
 }
 
 function bodySlide(section: NormSection): string {
-  const { shapes, nextId } = headlineShapes(2, section.message);
+  const { shapes, nextId } = headlineShapes(2, section.message, section.topic);
   shapes.push(textBoxXml(nextId, 'Bullets', MARGIN_X, BODY_Y, CONTENT_W, 3900000,
     bulletParas(section.bullets, BODY_SZ, 600)));
   return slideXml(shapes);
@@ -353,7 +373,7 @@ function stepsVisual(idStart: number, section: NormSection, visual: NormVisual, 
 }
 
 function visualSlide(section: NormSection, visual: NormVisual): string {
-  const { shapes, nextId } = headlineShapes(2, section.message);
+  const { shapes, nextId } = headlineShapes(2, section.message, section.topic);
   let id = nextId;
   let frameY = BODY_Y;
   if (visual.title) {
