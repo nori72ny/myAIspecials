@@ -13,6 +13,10 @@ import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersist
 import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
+import '@fontsource/m-plus-rounded-1c/400.css';
+import '@fontsource/m-plus-rounded-1c/500.css';
+import '@fontsource/m-plus-rounded-1c/700.css';
+import '@fontsource/m-plus-rounded-1c/800.css';
 import './index.css';
 import './ultra-optics.css';
 import './audit-2026-priority.css';
