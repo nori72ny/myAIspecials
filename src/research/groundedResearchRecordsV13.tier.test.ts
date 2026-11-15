@@ -243,7 +243,7 @@ describe("slot tier-weighted agreement (R-PR-8c, design §8c)", () => {
   it("judges the stale candidate's agreement insufficient against official opposition (F-01 shape)", () => {
     const packet = buildGroundedResearchRecordsPacket(f01Sources());
     const evaluation = evaluateGroundedResearchFactSlot(
-      JSON.stringify({ answer: "石破茂", src: "S2", quote: PM_ASSERT_ISHIBA }),
+      JSON.stringify({ fields: { holder: { value: "石破茂", src: "S2", quote: PM_ASSERT_ISHIBA } } }),
       packet,
       PM_ENTRY,
     );
@@ -284,7 +284,7 @@ describe("slot tier-weighted agreement (R-PR-8c, design §8c)", () => {
       }),
     ]);
     const evaluation = evaluateGroundedResearchFactSlot(
-      JSON.stringify({ answer: "高市早苗", src: "S1", quote: PM_ASSERT_TAKAICHI }),
+      JSON.stringify({ fields: { holder: { value: "高市早苗", src: "S1", quote: PM_ASSERT_TAKAICHI } } }),
       packet,
       PM_ENTRY,
     );
@@ -309,7 +309,7 @@ describe("slot tier-weighted agreement (R-PR-8c, design §8c)", () => {
       }),
     ]);
     const evaluation = evaluateGroundedResearchFactSlot(
-      JSON.stringify({ answer: "高市早苗", src: "S1", quote: PM_ASSERT_TAKAICHI }),
+      JSON.stringify({ fields: { holder: { value: "高市早苗", src: "S1", quote: PM_ASSERT_TAKAICHI } } }),
       packet,
       PM_ENTRY,
     );
@@ -344,7 +344,7 @@ describe("slot tier-weighted agreement (R-PR-8c, design §8c)", () => {
       }),
     ]);
     const evaluation = evaluateGroundedResearchFactSlot(
-      JSON.stringify({ answer: "119,800円", src: "S2", quote: "iPhone 18は119,800円で販売されています。" }),
+      JSON.stringify({ fields: { amount: { value: "119,800円", src: "S2", quote: "iPhone 18は119,800円で販売されています。" } } }),
       packet,
       PRICE_ENTRY,
     );
@@ -384,7 +384,7 @@ describe("slot tier-weighted agreement (R-PR-8c, design §8c)", () => {
       }),
     ]);
     const evaluation = evaluateGroundedResearchFactSlot(
-      JSON.stringify({ answer: "124,800円", src: "S1", quote: "iPhone 18の価格は124,800円です。" }),
+      JSON.stringify({ fields: { amount: { value: "124,800円", src: "S1", quote: "iPhone 18の価格は124,800円です。" } } }),
       packet,
       PRICE_ENTRY,
     );
@@ -415,7 +415,7 @@ const SELECTION_INSTRUCTION_JA = buildGroundedResearchSelectionInstruction("ja")
 
 describe("helper: F-01 shape end to end (R-PR-8c)", () => {
   it("falls through the slot on the stale candidate and adopts records grounded in the official source", async () => {
-    const slotJson = JSON.stringify({ answer: "石破茂", src: "S2", quote: PM_ASSERT_ISHIBA });
+    const slotJson = JSON.stringify({ fields: { holder: { value: "石破茂", src: "S2", quote: PM_ASSERT_ISHIBA } } });
     const recordsJson = JSON.stringify({
       records: [
         { evidence: ["E1_1"], quote: PM_ASSERT_TAKAICHI, text: "現在の内閣総理大臣は高市早苗です。" },

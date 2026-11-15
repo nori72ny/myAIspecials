@@ -249,7 +249,7 @@ function pmSources(): OriginResearchSource[] {
 
 describe("verbatim-rate observation: slot form (R-PR-8e)", () => {
   it("counts the supporting records plus the slot pseudo-record", async () => {
-    const slotJson = JSON.stringify({ answer: "高市早苗", src: "S1", quote: PM_UNIT_1 });
+    const slotJson = JSON.stringify({ fields: { holder: { value: "高市早苗", src: "S1", quote: PM_UNIT_1 } } });
     const recordsJson = JSON.stringify({
       records: [
         { evidence: ["E1_1"], quote: PM_UNIT_1, text: "現在の内閣総理大臣は高市早苗です。" },
