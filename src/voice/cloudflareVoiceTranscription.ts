@@ -215,6 +215,12 @@ export async function transcribeOriginVoiceAudio(
   if (!Buffer.isBuffer(input.audio) || input.audio.length === 0) {
     return failure('VOICE_AUDIO_EMPTY', 400, false);
   }
+  // The router only ever passes a Buffer it constructed from the raw
+  // request body, and the Buffer.isBuffer check directly above rejects
+  // anything else before this line, so the length comparison cannot
+  // observe a type-confused value (CodeQL does not model Buffer.isBuffer
+  // as a type guard).
+  // codeql[js/type-confusion-through-parameter-tampering]
   if (input.audio.length > ORIGIN_VOICE_MAX_AUDIO_BYTES) {
     return failure('VOICE_AUDIO_TOO_LARGE', 413, false);
   }
