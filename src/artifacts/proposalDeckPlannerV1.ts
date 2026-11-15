@@ -43,6 +43,8 @@ export class ProposalDeckBuildError extends Error {
 /** ビルダーへの入力。未検証の構造化データを受けるため、各フィールドは任意で緩く受ける。 */
 export interface ProposalDeckSectionInput {
   role?: string;
+  /** 題目（トピックラベル）。任意。主張文判定の対象にしない（資料レコード再設計 §6.1、D-PR-4）。 */
+  topic?: string;
   message?: string;
   bullets?: Array<{ lead?: string; detail?: string }>;
   visual?: { kind?: string; title?: string; colorToken?: string };
@@ -135,6 +137,8 @@ function buildSection(input: ProposalDeckSectionInput, index: number): ProposalD
     message,
     bullets,
   };
+  const topic = trimmed(input?.topic);
+  if (topic !== '') section.topic = topic;
   const visual = buildVisual(input?.visual, `${path}.visual`);
   if (visual !== undefined) section.visual = visual;
   return section;

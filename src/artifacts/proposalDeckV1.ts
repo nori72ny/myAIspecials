@@ -46,6 +46,13 @@ export interface ProposalDeckBullet {
 
 export interface ProposalDeckSection {
   role: ProposalDeckSectionRole;
+  /**
+   * 題目（トピックラベル）。任意。例:「現状の課題」。
+   * 主張文ではないため、主張文判定（見出しが結論文か）の対象にしない。
+   * 資料レコード再設計 §6.1 の2フィールド化として D-PR-4 で追加した。
+   * 描画（題目＋主張文の2段見出し）は D-PR-5 の担当。
+   */
+  topic?: string;
   /** ラベルではなく結論の文（例:「導入で月40時間を削減できます」）。 */
   message: string;
   bullets: ProposalDeckBullet[];
