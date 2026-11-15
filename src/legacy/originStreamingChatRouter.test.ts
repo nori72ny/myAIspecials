@@ -301,24 +301,41 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).not.toHaveBeenCalled();
   });
 
-  // S-PR-1 output-side assertion gate: a volatile-fact question with no
-  // freshness marker reaches this router directly. An answer asserting a
-  // stale value in current form must never reach the client — the buffered
-  // deltas are replaced by the could-not-confirm form.
-  it("replaces an ungrounded current assertion on a volatile-fact question (S-PR-1)", async () => {
-    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
-      handlers.onDelta("現在の日本の内閣総理大臣は");
-      handlers.onDelta("石破茂氏です。");
-      return result("現在の日本の内閣総理大臣は石破茂氏です。");
-    }) as unknown as OriginProviderStreamExecutor;
+  // R-PR-9b: current-officeholder questions are a high-risk category
+  // and now route to grounded research even without a freshness marker,
+  // so they delegate like the explicit-research shapes above instead of
+  // reaching the streaming path.
+  it("delegates a current-officeholder question to the grounded path (R-PR-9b)", async () => {
+    const streamExecute = vi.fn() as unknown as OriginProviderStreamExecutor;
     const response = await request(appWith(streamExecute))
       .post("/api/chat")
       .set("Accept", "text/event-stream")
       .send({ messages: [{ role: "user", content: "日本の内閣総理大臣は誰ですか？" }] });
+    expect(response.status).toBe(418);
+    expect(response.body).toEqual({ delegated: true });
+    expect(streamExecute).not.toHaveBeenCalled();
+  });
+
+  // S-PR-1 output-side assertion gate: a volatile-fact question with no
+  // freshness marker reaches this router directly. An answer asserting a
+  // stale value in current form must never reach the client — the buffered
+  // deltas are replaced by the could-not-confirm form. (The specimen is a
+  // volatile statistic that still takes the direct path; the original
+  // officeholder specimen is delegated since R-PR-9b, see above.)
+  it("replaces an ungrounded current assertion on a volatile-fact question (S-PR-1)", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("現在の有効求人倍率は");
+      handlers.onDelta("1.25倍です。");
+      return result("現在の有効求人倍率は1.25倍です。");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "有効求人倍率はいくつですか？" }] });
 
     expect(response.status).toBe(200);
     expect(response.text).toContain("現在の情報は確認できなかったため");
-    expect(response.text).not.toContain("石破茂");
+    expect(response.text).not.toContain("1.25");
     expect(response.text).toContain(`"type":"complete"`);
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });

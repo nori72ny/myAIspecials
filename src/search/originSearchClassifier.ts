@@ -142,6 +142,100 @@ const PRICE_SIGNAL =
 const PRODUCT_SIGNAL =
 /(?:最新|新型|モデル|発売|iphone|ipad|macbook|mac\b|galaxy|pixel|xperia|airpods|apple\s*watch|switch|playstation|ps5|surface|thinkpad|windows|android|chatgpt|gemini|claude|製品|機種|スマホ|パソコン|ノートpc)/i;
 
+/* ------------------------------------------------------------------ */
+/* High-risk categories (R-PR-9b, RPR9_DESIGN_2026-11-15 §R9-B)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * High-risk factual categories whose values the model must never assert
+ * from memory: tax / public institutions, medical / health standards,
+ * product prices / specs, and current officeholders. The R-PR-8
+ * re-measurement fatals (B-04/B-06/B-10/E-09) all fell through the fixed
+ * signal vocabulary above — B-04 into `stable` via the concept marker
+ * 「仕組み」, the other three into the default `no_search` — and were
+ * answered on the normal path with wrong institutional values.
+ *
+ * Detection is deliberately NOT a bare vocabulary patch: a category
+ * fires only on a deterministic signal combination — a category name
+ * (institution / standard / role / product-category pattern) TOGETHER
+ * with a factual-demand marker (a mechanism / limit / standard /
+ * amount / age / schedule request, an interrogative numeric unit, a
+ * model-number token, or a who-is-the-officeholder shape). Bare names
+ * alone do not fire, so definition questions (「ふるさと納税とは」),
+ * history questions, basics / how-to requests (「確定申告の基本」) and
+ * everyday uses (a recipe using 塩分) keep their existing routes. For
+ * institutional categories the design explicitly counts explanation
+ * requests (仕組み・目安・基準・上限・期間) as grounded targets: the
+ * mechanism explanation is exactly where the wrong values appeared.
+ */
+export type OriginHighRiskCategory =
+| "tax_institution"
+| "medical_standard"
+| "product_price_spec"
+| "incumbent_role";
+
+const TAX_INSTITUTION_NAME =
+/(?:ふるさと納税|確定申告|年末調整|医療費控除|住宅ローン控除|新\s?nisa|\bnisa\b|ideco|つみたて投資枠|成長投資枠|投資枠|国民年金|厚生年金|基礎年金|老齢年金|障害年金|遺族年金|公的年金|年金|健康保険|介護保険|雇用保険|労災保険|社会保険|児童手当|児童扶養手当|出産育児一時金|高額療養費|育児休業給付|失業給付|雇用調整助成金|マイナンバー制度|インボイス制度|消費税|所得税|住民税|固定資産税|相続税|贈与税|法人税|税金|税制|生活保護)/i;
+const TAX_INSTITUTION_FACT_MARKER =
+/(?:仕組み|目安|基準|上限|下限|自己負担|控除|対象|条件|期間|期限|いくら|どれくらい|どのくらい|何歳|何円|何パーセント|いつから|いつまで|枠|支給|受給|金額|年額|月額|割合)/;
+
+const MEDICAL_STANDARD_NAME =
+/(?:予防接種|ワクチン|定期接種|食事摂取基準|摂取基準|塩分|食塩|ナトリウム|血圧|血糖値|コレステロール|中性脂肪|尿酸値|\bbmi\b|タンパク質|食物繊維|カルシウム|鉄分|ビタミン|健康診断|特定健診|妊婦健診|乳幼児健診)/i;
+const MEDICAL_STANDARD_FACT_MARKER =
+/(?:目安|基準|上限|下限|どれくらい|どのくらい|何g|何グラム|何mg|何kcal|何ml|何リットル|何μg|いつから|いつ頃|何歳から|何か月から|何ヶ月から|何回|スケジュール|時期|推奨|必要量|適量|正常値)/;
+const NUMERIC_UNIT_QUESTION =
+/(?:何g|何グラム|何mg|何kcal|何ml|何リットル|何μg|何ミリグラム|何キロカロリー)/;
+const INTAKE_CONTEXT =
+/(?:摂取|飲む|食べる|食事|栄養|水分|健康)/;
+
+const INCUMBENT_ROLE_NAME =
+/(?:内閣総理大臣|総理大臣|首相|総理|大統領|副大統領|知事|市長|町長|村長|国王|女王|教皇|事務総長|総裁|議長|大臣)/;
+const INCUMBENT_PERSON_MARKER =
+/(?:誰|名前|氏名|現職|現在の|今の|何という)/;
+const INCUMBENT_PAST_EXCLUSION =
+/(?:初代|歴代|元首相|元大統領|元知事|元総理|前首相|前大統領|前知事)/;
+
+const PRODUCT_CATEGORY_NAME =
+/(?:掃除機|冷蔵庫|洗濯機|テレビ|エアコン|電子レンジ|炊飯器|食洗機|ドライヤー|プリンター|モニター|ディスプレイ|キーボード|イヤホン|ヘッドホン|スピーカー|カメラ|レンズ|自動車|バイク|自転車|腕時計|ゲーム機|給湯器|加湿器|空気清浄機|除湿機|扇風機|ヒーター|プロジェクター|ドローン|電動歯ブラシ|シェーバー)/;
+/* ReDoS-safe by construction (CodeQL js/polynomial-redos, PR #1294):
+   disjoint character classes AND every run length-bounded to real
+   model-token sizes. An unbounded letter run followed by a required
+   digit rescans quadratically on long digit-less letter strings, and
+   a trailing [\w-]* can partition a digit run multiple ways — both
+   shapes are banned here. Substring detection is enough —
+   "WH-1000XM5" matches via "WH-1", "1000XM5" via "XM5" / "0XM". */
+const MODEL_NUMBER_TOKEN =
+/(?:[a-z]{2,16}-\d|[a-z]{2,16}\d|\d{1,10}[a-z]{2,16})/i;
+const MODEL_NUMBER_LABEL =
+/(?:型番|型式|品番)/;
+
+export function detectOriginHighRiskCategory(message: string): OriginHighRiskCategory | null {
+const text = (message?? "").normalize("NFKC");
+if (TAX_INSTITUTION_NAME.test(text) && TAX_INSTITUTION_FACT_MARKER.test(text)) {
+return "tax_institution";
+}
+if (
+(MEDICAL_STANDARD_NAME.test(text) && MEDICAL_STANDARD_FACT_MARKER.test(text))
+|| (NUMERIC_UNIT_QUESTION.test(text) && INTAKE_CONTEXT.test(text) && MEDICAL_STANDARD_FACT_MARKER.test(text))
+) {
+return "medical_standard";
+}
+if (
+PRICE_SIGNAL.test(text)
+&& (PRODUCT_CATEGORY_NAME.test(text) || MODEL_NUMBER_TOKEN.test(text) || MODEL_NUMBER_LABEL.test(text))
+) {
+return "product_price_spec";
+}
+if (
+INCUMBENT_ROLE_NAME.test(text)
+&& INCUMBENT_PERSON_MARKER.test(text)
+&& !INCUMBENT_PAST_EXCLUSION.test(text)
+) {
+return "incumbent_role";
+}
+return null;
+}
+
 export function classifyOriginSearchQuestion(message: string): OriginSearchClassification {
 const text = (message?? "").normalize("NFKC").trim();
 const done = (
@@ -185,6 +279,21 @@ if (NEWS_SIGNAL.test(text) &&!hasConceptMarker) return done("news", "news-signal
 if (POLICY_SIGNAL.test(text) &&!hasConceptMarker) return done("policy", "policy-signal");
 if (isStablePricingConcept(text)) return done("stable", "pricing-concept");
 if (PRICE_SIGNAL.test(text) && PRODUCT_SIGNAL.test(text)) return done("price_spec", "price-with-product");
+// High-risk categories (R-PR-9b): placed after the transform /
+// calculation / historical guards and after every established signal
+// route, but BEFORE the two fall-throughs that produced the R-PR-8
+// fatals — the concept-definition `stable` (B-04's 「仕組み」 shape) and
+// the default `no_search` (B-06/B-10/E-09). A category match inverts
+// the default for institutional / numeric facts: they go to the
+// grounded path with the matching freshness profile (policy for
+// institutions and health standards, price_spec for product prices,
+// fresh_general for current officeholders) instead of being asserted
+// from model memory on the normal path.
+const highRiskCategory = detectOriginHighRiskCategory(text);
+if (highRiskCategory === "tax_institution") return done("policy", "high-risk-tax-institution");
+if (highRiskCategory === "medical_standard") return done("policy", "high-risk-medical-standard");
+if (highRiskCategory === "product_price_spec") return done("price_spec", "high-risk-product-price-spec");
+if (highRiskCategory === "incumbent_role") return done("fresh_general", "high-risk-incumbent-role");
 if (hasConceptMarker &&!hasFreshnessMarker) return done("stable", "concept-definition");
 if (/(?:百科|ウィキペディア|wikipedia)/i.test(text)) return done("stable", "encyclopedia-request");
 if (hasFreshnessMarker) return done("fresh_general", "freshness-marker");

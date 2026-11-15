@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyOriginSearchQuestion,
+  detectOriginHighRiskCategory,
   extractOriginMarketInstruments,
   extractOriginWeatherPlace,
   minimizeOriginSearchQuery,
@@ -157,6 +158,115 @@ describe("classifyOriginSearchQuestion", () => {
   it("keeps ordinary chat off the search path", () => {
     expect(classifyOriginSearchQuestion("猫の短い詩を書いてください").type).toBe("no_search");
     expect(classifyOriginSearchQuestion("").type).toBe("no_search");
+  });
+});
+
+// R-PR-9b (RPR9_DESIGN_2026-11-15 §R9-B): the four R-PR-8 fatals were
+// institutional / numeric facts that fell through the fixed signal
+// vocabulary — B-04 into `stable` via the concept marker 「仕組み」, the
+// other three into the default `no_search` — and were asserted from
+// model memory on the normal path. High-risk categories (tax / public
+// institutions, medical / health standards, product prices / specs,
+// current officeholders) now invert that default when a category name
+// combines with a deterministic factual-demand signal.
+describe("high-risk category routing (R-PR-9b)", () => {
+  it("routes the four R-PR-8 fatal questions to the grounded path", () => {
+    const b04 = classifyOriginSearchQuestion("ふるさと納税の仕組みを、自己負担と上限の考え方を含めて説明してください。");
+    expect(b04.type).toBe("policy");
+    expect(b04.rule).toBe("high-risk-tax-institution");
+    const b06 = classifyOriginSearchQuestion("大人が1日にとる塩分の目安はどれくらいですか？");
+    expect(b06.type).toBe("policy");
+    expect(b06.rule).toBe("high-risk-medical-standard");
+    const b10 = classifyOriginSearchQuestion("赤ちゃんの予防接種は、いつ頃から始まりますか？");
+    expect(b10.type).toBe("policy");
+    expect(b10.rule).toBe("high-risk-medical-standard");
+    const e09 = classifyOriginSearchQuestion("2024年に始まった新しいNISAの年間投資枠と、生涯の上限を教えてください。");
+    expect(e09.type).toBe("policy");
+    expect(e09.rule).toBe("high-risk-tax-institution");
+  });
+
+  it.each([
+    ["ふるさと納税の控除の上限額を教えてください"],
+    ["ふるさと納税で、自己負担は結局いくらになりますか？"],
+    ["新NISAの成長投資枠の年間の上限はいくらですか？"],
+    ["iDeCoの掛金は月額いくらまで出せますか？"],
+    ["年金の受給開始年齢は何歳から選べますか？"],
+    ["確定申告の期限はいつまでですか？"],
+    ["医療費控除の対象になる費用を教えてください"],
+    ["健康保険の仕組みを教えてください"],
+    ["所得税の仕組みを教えてください"],
+  ])("routes tax / institution paraphrase to policy: %s", (message) => {
+    const result = classifyOriginSearchQuestion(message);
+    expect(result.type).toBe("policy");
+    expect(result.rule).toBe("high-risk-tax-institution");
+  });
+
+  it.each([
+    ["塩分は1日何グラムまでが目安ですか？"],
+    ["食塩の摂取基準を教えてください"],
+    ["赤ちゃんのワクチン接種のスケジュールを教えてください"],
+    ["予防接種は何歳から受けられますか？"],
+    ["血圧の正常値の目安はどれくらいですか？"],
+    ["タンパク質の1日の推奨量はどれくらいですか？"],
+    ["水分は1日に何リットル飲むのが目安ですか？"],
+  ])("routes medical / health-standard paraphrase to policy: %s", (message) => {
+    const result = classifyOriginSearchQuestion(message);
+    expect(result.type).toBe("policy");
+    expect(result.rule).toBe("high-risk-medical-standard");
+  });
+
+  it.each([
+    ["WH-1000XM5の価格を教えてください"],
+    ["掃除機の価格と消費電力を教えてください"],
+    ["冷蔵庫の容量と価格を比較したいです"],
+  ])("routes product price questions the product vocabulary missed to price_spec: %s", (message) => {
+    const result = classifyOriginSearchQuestion(message);
+    expect(result.type).toBe("price_spec");
+    expect(result.rule).toBe("high-risk-product-price-spec");
+  });
+
+  it.each([
+    ["日本の総理大臣は誰ですか？"],
+    ["アメリカの大統領は誰ですか？"],
+    ["日銀の総裁は誰ですか？"],
+    ["東京都知事の名前を教えてください"],
+  ])("routes current-officeholder questions to fresh_general: %s", (message) => {
+    const result = classifyOriginSearchQuestion(message);
+    expect(result.type).toBe("fresh_general");
+    expect(result.rule).toBe("high-risk-incumbent-role");
+  });
+
+  it("detects the category behind each fatal shape", () => {
+    expect(detectOriginHighRiskCategory("ふるさと納税の仕組みを、自己負担と上限の考え方を含めて説明してください。")).toBe("tax_institution");
+    expect(detectOriginHighRiskCategory("大人が1日にとる塩分の目安はどれくらいですか？")).toBe("medical_standard");
+    expect(detectOriginHighRiskCategory("WH-1000XM5の価格を教えてください")).toBe("product_price_spec");
+    expect(detectOriginHighRiskCategory("日本の総理大臣は誰ですか？")).toBe("incumbent_role");
+    expect(detectOriginHighRiskCategory("猫の短い詩を書いてください")).toBeNull();
+  });
+
+  // The category gate must not swallow the shapes the earlier layers
+  // deliberately keep off search: definitions and history stay stable,
+  // basics / how-to and everyday uses stay on the normal chat path, and
+  // the calculation / historical guards keep precedence.
+  it.each([
+    ["ふるさと納税とは何ですか？", "stable"],
+    ["予防接種の歴史を教えてください", "stable"],
+    ["消費税が導入された当初の税率は何%でしたか？", "stable"],
+    ["今さら聞けない、確定申告の基本を教えてください", "no_search"],
+    ["塩分の多い料理のレシピを教えてください", "no_search"],
+    ["血圧が高いときの対処法を教えてください", "no_search"],
+    ["初代のアメリカ大統領は誰ですか？", "no_search"],
+    ["首相になる方法を教えてください", "no_search"],
+    ["大統領の権限とは何ですか？", "stable"],
+    ["日本の首都はどこですか？", "no_search"],
+  ])("keeps non-factual / timeless shape off the high-risk route: %s", (message, expected) => {
+    expect(classifyOriginSearchQuestion(message).type).toBe(expected);
+  });
+
+  it("keeps supplied-value arithmetic ahead of the category gate", () => {
+    const result = classifyOriginSearchQuestion("税抜12,800円の商品を3個買うと、消費税10%込みでいくらになりますか？");
+    expect(result.type).toBe("no_search");
+    expect(result.rule).toBe("deterministic-calculation");
   });
 });
 

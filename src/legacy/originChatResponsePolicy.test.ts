@@ -181,6 +181,39 @@ describe("originChatResponsePolicy", () => {
     expect(requiresOriginCurrentInformation(message)).toBe(false);
     expect(requiresOriginGroundedResearch(message)).toBe(false);
   });
+
+  // R-PR-9b regression (R-PR-8 re-measurement fatals B-04/B-06/B-10/
+  // E-09): institutional / numeric facts that fell through BOTH fixed
+  // vocabularies — the search classifier's and this policy's — and were
+  // asserted from model memory. The classifier's high-risk category
+  // gate (RPR9_DESIGN_2026-11-15 §R9-B) now routes them to grounded
+  // research through the unified determination.
+  it.each([
+    ["ふるさと納税の仕組みを、自己負担と上限の考え方を含めて説明してください。"],
+    ["大人が1日にとる塩分の目安はどれくらいですか？"],
+    ["赤ちゃんの予防接種は、いつ頃から始まりますか？"],
+    ["2024年に始まった新しいNISAの年間投資枠と、生涯の上限を教えてください。"],
+    ["塩分は1日何グラムまでが目安ですか？"],
+    ["予防接種は何歳から受けられますか？"],
+    ["健康保険の仕組みを教えてください"],
+    ["掃除機の価格を教えてください"],
+    ["日銀の総裁は誰ですか？"],
+  ])("routes the R-PR-8 fatal shape to grounded research (R-PR-9b): %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+  });
+
+  // The category gate must not pull definitions, recipes or advice
+  // shapes into grounded research.
+  it.each([
+    ["ふるさと納税とは何ですか？"],
+    ["塩分の多い料理のレシピを教えてください"],
+    ["血圧が高いときの対処法を教えてください"],
+    ["今さら聞けない、確定申告の基本を教えてください"],
+  ])("keeps non-factual category-adjacent shapes off grounded research (R-PR-9b): %s", (message) => {
+    expect(requiresOriginCurrentInformation(message)).toBe(false);
+    expect(requiresOriginGroundedResearch(message)).toBe(false);
+  });
 });
 
 describe("originCurrentDateInstruction (S-PR-1)", () => {
