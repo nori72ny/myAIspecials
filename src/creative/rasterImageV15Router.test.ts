@@ -173,6 +173,54 @@ function stubSuccessfulCloudflarePipeline(
   return fetchMock;
 }
 
+// Same pipeline shape as stubSuccessfulCloudflarePipeline, but every
+// inference call reports its own Neurons — the generation model via the
+// cf-ai-neurons response header (its primary report channel) and the
+// semantic critic via result.usage.neurons — so Stage 5 reconciliation
+// is carried by the per-request reports and the aggregate poll is
+// skipped.
+function stubPerRequestReportedPipeline(
+  state: { usedNeurons: number; imageRuns: number },
+  image: Uint8Array,
+) {
+  const fetchMock = vi.fn(async (url: string) => {
+    const target = String(url);
+    if (target.includes('/workers/account-settings')) return cfEnvelope({ default_usage_model: 'bundled' });
+    if (target.includes('/subscriptions')) return cfEnvelope([]);
+    if (target.includes('/ai/models/schema')) return cfEnvelope({ input: {}, output: {} });
+    if (target.includes('/graphql')) {
+      return json({
+        data: {
+          viewer: {
+            accounts: [{
+              aiInferenceAdaptiveGroups: [{ count: 1, sum: { totalNeurons: state.usedNeurons } }],
+            }],
+          },
+        },
+      });
+    }
+    if (target.includes('/ai/run/@cf/black-forest-labs/flux-2-klein-4b')) {
+      state.imageRuns += 1;
+      state.usedNeurons += 140;
+      return new Response(JSON.stringify({
+        success: true,
+        result: Buffer.from(image).toString('base64'),
+        errors: [],
+        messages: [],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'cf-ai-neurons': '10' },
+      });
+    }
+    if (target.includes('/ai/run/@cf/moondream/')) {
+      return cfEnvelope({ answer: DEFECT_FREE_CRITIC_ANSWER, usage: { neurons: 5 } });
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
 describe('rasterImageV15Router', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -629,6 +677,51 @@ describe('rasterImageV15Router', () => {
       .toBe(`raster-${(response.headers['x-origin-visual-sha256'] ?? '').slice(0, 24)}`);
     expect(clientRasterContractFailures(response.headers, response.body)).toEqual([]);
     // Two candidates are the standard policy for every prompt.
+    expect(state.imageRuns).toBe(2);
+  });
+
+  it('reports the observed Neurons totals in usage headers on aggregate-carried delivery', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    stubSuccessfulCloudflarePipeline(state, pngBytes(768, 1024));
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 })
+      .buffer(true)
+      .parse(parseBinaryBody);
+
+    expect(response.status).toBe(200);
+    // The stub's calls report no usage of their own, so delivery is
+    // carried by the aggregate delta: the before total is the baseline
+    // read (100) and the after total is the aggregate observed once both
+    // generation runs landed (100 + 2 x 140). The reported header stays
+    // absent — no call reported a usable number, and an unobserved value
+    // is never estimated into the header.
+    expect(response.headers['x-origin-cf-neurons-used-before']).toBe('100');
+    expect(response.headers['x-origin-cf-neurons-used-after']).toBe('380');
+    expect(response.headers['x-origin-cf-neurons-reported']).toBeUndefined();
+  });
+
+  it('reports the per-request Neurons total and omits the unobserved aggregate on reported delivery', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    const state = { usedNeurons: 100, imageRuns: 0 };
+    stubPerRequestReportedPipeline(state, pngBytes(768, 1024));
+
+    const response = await request(app(CF_ENV))
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: '静かな湖と朝焼け', width: 768, height: 1024 })
+      .buffer(true)
+      .parse(parseBinaryBody);
+
+    expect(response.status).toBe(200);
+    // Every call reported its own usage (2 generations x 10 + 2 critic
+    // calls x 5 = 30), so delivery is carried by the per-request reports
+    // and the aggregate poll is skipped: the reported total is present,
+    // the after total stays absent rather than being estimated.
+    expect(response.headers['x-origin-cf-neurons-used-before']).toBe('100');
+    expect(response.headers['x-origin-cf-neurons-reported']).toBe('30');
+    expect(response.headers['x-origin-cf-neurons-used-after']).toBeUndefined();
     expect(state.imageRuns).toBe(2);
   });
 

@@ -342,6 +342,23 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
       res.setHeader('X-Origin-Free-Only', 'true');
       res.setHeader('X-Origin-Paid-Fallback', 'false');
       res.setHeader('X-Origin-Secret-Delivery', 'server-only');
+      // Neurons usage evidence, in the same three values the free-proof
+      // pipeline's usage record carries (and the batch-1 measurement read
+      // from the JSON success shape before the binary delivery contract):
+      // the day's measured total before this request, the aggregate total
+      // observed after it, and the total the request's own inference
+      // calls reported for themselves. A value the pipeline could not
+      // observe stays absent rather than being estimated: used-after is
+      // null when delivery was carried by the per-request reports (the
+      // aggregate poll is skipped then), and reported is null when at
+      // least one call reported nothing usable.
+      res.setHeader('X-Origin-Cf-Neurons-Used-Before', String(delivery.usage.usedBeforeNeurons));
+      if (delivery.usage.usedAfterNeurons !== null) {
+        res.setHeader('X-Origin-Cf-Neurons-Used-After', String(delivery.usage.usedAfterNeurons));
+      }
+      if (delivery.usage.reportedNeurons !== null) {
+        res.setHeader('X-Origin-Cf-Neurons-Reported', String(delivery.usage.reportedNeurons));
+      }
       return res.status(200).send(result.bytes);
     } catch (error) {
       if (error instanceof CloudflareRasterUsageReconciliationErrorV15) {
