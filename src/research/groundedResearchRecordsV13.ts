@@ -1779,7 +1779,7 @@ export interface GroundedResearchFactSlotEvaluation {
   agreementSourceCount: number;
   /** Source ids of the agreeing sources, in packet order. */
   supportSourceIds: string[];
-  /** A different same-kind candidate value appears in a packet excerpt (§9.2). */
+  /** A different same-kind value is stated as the answer in a packet excerpt (§9.2, R-PR-8b). */
   conflictDetected: boolean;
   /** Why the candidate was not adopted; null when it is adoptable. */
   code: GroundedResearchFactSlotFailureCode | null;
@@ -1788,22 +1788,48 @@ export interface GroundedResearchFactSlotEvaluation {
 const SLOT_NAME_STOPLIST = new Set(["内閣", "総理", "首相", "大臣", "日本", "現在", "歴代", "初代", "次期", "元職"]);
 
 /**
- * Person-name candidates stated next to the office in an excerpt
- * (design §9.2's conflict material): the deterministic shapes in
- * which Japanese text names an incumbent — NAMEは、第N代総理大臣… /
- * 総理大臣はNAME氏… / 首相のNAME氏 / NAME首相 — plus the English
- * "Prime Minister <Name>" shape. Role words themselves are filtered
- * out; extraction is deliberately narrow, and a false candidate only
- * ever costs a fall-through, never a wrong adoption.
+ * Prefixes that turn an office mention into a reference to a
+ * different (former or deputy) holder: an office word immediately
+ * preceded by one of these does not state its name as the answer.
  */
-function slotRoleAdjacentNames(text: string): string[] {
+const SLOT_NON_INCUMBENT_OFFICE_PREFIXES = new Set(["前", "元", "副"]);
+
+/**
+ * Person names an excerpt STATES AS THE ANSWER — the incumbent —
+ * (design §9.2's conflict material, redefined by R-PR-8b). Only
+ * assertion shapes count: NAMEは、第N代総理大臣… (appointment /
+ * incumbency assertion), 総理大臣はNAME… (the office holder is
+ * NAME), 首相のNAME氏 (appositive identification, honorific
+ * required so a bare noun phrase cannot pose as a name), and the
+ * English "Prime Minister <Name>" shape. Two mention shapes the
+ * R-PR-6 rule also read are deliberately NOT extracted any more:
+ * a name merely referred to with the title in running text
+ * (NAME首相は…) and a name attached to a former/deputy office
+ * (前首相のNAME氏, guarded by the prefix check) — the R-PR-7
+ * measurement showed a former holder's name appearing in an
+ * excerpt in exactly those shapes vetoing a three-source agreement
+ * (RPR7 adjudication item 3). Role words themselves are filtered
+ * out; extraction is deliberately narrow, and a false candidate
+ * only ever costs a fall-through, never a wrong adoption.
+ */
+function slotStatedIncumbentNames(text: string): string[] {
   const names = new Set<string>();
   const clean = (raw: string): string => raw.replace(/(氏|さん)$/u, "").trim();
+  const officePrecededByNonIncumbentPrefix = (match: RegExpMatchArray): boolean =>
+    SLOT_NON_INCUMBENT_OFFICE_PREFIXES.has(text[(match.index ?? 0) - 1] ?? "");
   for (const match of text.matchAll(/([一-鿿々]{2,5})(?:氏|さん)?は、第?\d*代?(?:内閣総理大臣|総理大臣|首相)/gu)) names.add(clean(match[1]!));
-  for (const match of text.matchAll(/(?:内閣総理大臣|総理大臣|首相)は([一-鿿々]{2,5})/gu)) names.add(clean(match[1]!));
-  for (const match of text.matchAll(/(?:内閣総理大臣|総理大臣|首相)の([一-鿿々]{2,5})(?:氏|さん)?/gu)) names.add(clean(match[1]!));
-  for (const match of text.matchAll(/([一-鿿々]{2,5})(?:内閣総理大臣|総理大臣|首相)(?:は|が|、|。|氏)/gu)) names.add(clean(match[1]!));
-  for (const match of text.matchAll(/(?:prime minister|pm)(?:\s+of\s+japan)?\s+(?:is\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})/g)) names.add(match[1]!);
+  for (const match of text.matchAll(/(?:内閣総理大臣|総理大臣|首相)は([一-鿿々]{2,5})/gu)) {
+    if (officePrecededByNonIncumbentPrefix(match)) continue;
+    names.add(clean(match[1]!));
+  }
+  for (const match of text.matchAll(/(?:内閣総理大臣|総理大臣|首相)の([一-鿿々]{2,5})(?:氏|さん)/gu)) {
+    if (officePrecededByNonIncumbentPrefix(match)) continue;
+    names.add(clean(match[1]!));
+  }
+  for (const match of text.matchAll(/(?:prime minister|pm)(?:\s+of\s+japan)?\s+(?:is\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})/g)) {
+    if (/(?:former|ex-)\s*$/i.test(text.slice(0, match.index ?? 0))) continue;
+    names.add(match[1]!);
+  }
   return [...names].filter(
     (name) => name.length >= 2 && !SLOT_NAME_STOPLIST.has(name) && !/(総理|首相|大臣|内閣)/u.test(name),
   );
@@ -1817,6 +1843,20 @@ function slotCurrencyTokens(text: string): string[] {
 }
 
 /**
+ * The one price an excerpt STATES AS ITS ANSWER, in the R-PR-8b
+ * sense: the excerpt's single distinct currency value, or null when
+ * it states none or several. A price list (other models, storage
+ * tiers, fees) cannot be attributed to the asked product
+ * deterministically, so such an excerpt states no single answer and
+ * never competes; an excerpt stating exactly one amount states that
+ * amount, and a different one is a genuine competitor.
+ */
+function slotStatedPrice(text: string): string | null {
+  const distinct = [...new Set(slotCurrencyTokens(text))];
+  return distinct.length === 1 ? distinct[0]! : null;
+}
+
+/**
  * Deterministic adoption judgement for one slot candidate (design
  * §9.2), in the fixed order: (a) the claimed source exists in the
  * packet; (b) the quote is a verbatim substring of that source's
@@ -1824,9 +1864,12 @@ function slotCurrencyTokens(text: string): string[] {
  * verbatim in the quote; (d) the answer fits the type's shape check.
  * Then the cross-source rules: the same answer must appear verbatim
  * in the excerpts of at least min(2, packet source count) distinct
- * sources (agreement), and no packet excerpt may state a different
- * candidate value of the same kind (conflict) — on conflict the
- * layer never picks a winner. The model's answer is never rewritten;
+ * sources (agreement), and no packet excerpt may state a DIFFERENT
+ * value as its answer (conflict, redefined by R-PR-8b: the slot's
+ * own extraction applied per excerpt — assertion shapes for names,
+ * the single stated amount for prices; a value merely appearing in
+ * an excerpt's text is not a competitor) — on conflict the layer
+ * never picks a winner. The model's answer is never rewritten;
  * every failure is a fall-through code, not a request failure (§12).
  */
 export function evaluateGroundedResearchFactSlot(
@@ -1871,12 +1914,13 @@ export function evaluateGroundedResearchFactSlot(
   let conflictDetected = false;
   if (entry.answerKind === "price") {
     const answerTokens = new Set(slotCurrencyTokens(candidate.answer));
-    conflictDetected = packet.sources.some((packetSource) =>
-      slotCurrencyTokens(packetSource.excerpt).some((token) => !answerTokens.has(token)),
-    );
+    conflictDetected = packet.sources.some((packetSource) => {
+      const stated = slotStatedPrice(packetSource.excerpt);
+      return stated !== null && !answerTokens.has(stated);
+    });
   } else {
     conflictDetected = packet.sources.some((packetSource) =>
-      slotRoleAdjacentNames(packetSource.excerpt).some(
+      slotStatedIncumbentNames(packetSource.excerpt).some(
         (name) => normalizedRecordsText(name) !== normalizedAnswer,
       ),
     );
@@ -1915,7 +1959,10 @@ export function renderGroundedResearchFactSlotSentence(
  * The slot as an adopted "record" for the post-render check (§6.5):
  * its quote is the verified slot quote extended with the source's
  * packet date forms, so the check's numeric arm covers the template
- * sentence's base date and answer exactly.
+ * sentence's base date and answer exactly. The R-PR-8b evidence line
+ * also renders the agreement count, so the count — a real number
+ * the evaluation counted deterministically over the packet — is
+ * appended as well, on the same principle as the date forms.
  */
 function slotAsAcceptedRecord(
   evaluation: GroundedResearchFactSlotEvaluation,
@@ -1927,7 +1974,7 @@ function slotAsAcceptedRecord(
     sourceId: source.id,
     sourceIndex: source.index,
     evidenceIds: [],
-    quote: `${candidate.quote} ${[...source.publishedDateForms, ...source.retrievedDateForms].join(" ")}`,
+    quote: `${candidate.quote} ${[...source.publishedDateForms, ...source.retrievedDateForms].join(" ")} ${evaluation.agreementSourceCount}`,
     text: sentence,
     quoteStart: normalizedRecordsText(source.excerpt).indexOf(normalizedRecordsText(candidate.quote)),
   };
@@ -1940,9 +1987,22 @@ function slotAsAcceptedRecord(
  * when supporting records were adopted — by the records rendering
  * (bullets + the full source list); with no supporting records, the
  * source list alone follows.
+ *
+ * Between the headline and the tail sits the evidence block
+ * (R-PR-8b, RPR8_DESIGN_2026-11-15 §8b "一致の証拠化"): the verified
+ * quote itself, verbatim (whitespace compacted to one line, the
+ * same treatment the packet applies to excerpts), and — when at
+ * least two sources agree — the agreement count, so the reader can
+ * check the answer against its source and see how many sources
+ * state the same answer. Every evidence line carries the verified
+ * source's citation token, which the post-render check (§6.5)
+ * requires of every body line; the quote's numerics are covered by
+ * the slot pseudo-record's quote and the count by its appended
+ * agreement count (see slotAsAcceptedRecord).
  */
 export function renderGroundedResearchFactSlotAnswer(
   sentence: string,
+  evaluation: GroundedResearchFactSlotEvaluation,
   source: GroundedResearchRecordsPacketSource,
   supportRecords: readonly GroundedResearchAcceptedRecord[],
   packet: GroundedResearchRecordsPacket,
@@ -1950,7 +2010,25 @@ export function renderGroundedResearchFactSlotAnswer(
 ): string {
   const headline = `${sentence} [${source.id}](${source.url})`;
   const tail = renderGroundedResearchRecordsAnswer(supportRecords, packet, language).replace(/^\n/u, "");
-  return `${headline}\n\n${tail}`;
+  const candidate = evaluation.candidate;
+  if (candidate === null) {
+    return `${headline}\n\n${tail}`;
+  }
+  const citation = `[${source.id}](${source.url})`;
+  const quote = candidate.quote.replace(/\s+/g, " ").trim();
+  const evidenceLines = [
+    language === "ja"
+      ? `根拠の引用文：「${quote}」 ${citation}`
+      : `Supporting quote: "${quote}" ${citation}`,
+  ];
+  if (evaluation.agreementSourceCount >= 2) {
+    evidenceLines.push(
+      language === "ja"
+        ? `この答えは、${evaluation.agreementSourceCount}件の出典で一致しています。 ${citation}`
+        : `This answer is consistent across ${evaluation.agreementSourceCount} sources. ${citation}`,
+    );
+  }
+  return `${headline}\n\n${evidenceLines.join("\n")}\n\n${tail}`;
 }
 
 interface GroundedResearchFactSlotAttempt {
@@ -2349,7 +2427,7 @@ export async function executeGroundedResearchRecordsSynthesis(
         slotAgreementSourceCount,
         slotCode,
       };
-      const rendered = renderGroundedResearchFactSlotAnswer(slot.sentence, slotSource, supportRecords, packet, options.language);
+      const rendered = renderGroundedResearchFactSlotAnswer(slot.sentence, slot.evaluation, slotSource, supportRecords, packet, options.language);
       const renderCheck = checkGroundedResearchRenderedAnswer(rendered, packet, [
         ...supportRecords,
         slotAsAcceptedRecord(slot.evaluation, slotSource, slot.sentence),
