@@ -27,6 +27,7 @@ import OriginWorkSheet, { type OriginWorkSheetItem } from './components/OriginWo
 import OrinFloatingPresence, { resolveOrinBubbleText } from './components/OrinFloatingPresence';
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
+import { ingestCompletedChatTurn } from './services/activeContextDecisionIngestion';
 import { ResearchMessageView, ResearchReaderOverlay } from './components/personal/ResearchReportView';
 import { recoveryEstimateSentence } from './utils/recoveryEstimate';
 
@@ -2388,6 +2389,18 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           content: `${message.content}\n\n${language === 'en' ? TRUNCATED_ANSWER_NOTICE_EN : TRUNCATED_ANSWER_NOTICE}`,
         } : {}),
       } : message));
+      // Personalization Stage 1 (P1-2): hand the completed turn to the
+      // on-device memory ingestion. This point is reached only after the
+      // answer passed every verification gate and was delivered, and it is
+      // shared by the streaming and JSON response paths, so both feed the
+      // same ingestion entry. Ingestion is fire-and-forget, performs no
+      // network requests, and is fail-safe by design, so it can never
+      // affect the chat exchange.
+      void ingestCompletedChatTurn({
+        userText: text,
+        answerText: StreamArtifactParser.parse(fullText).conversationalText,
+        userMessageId: userMessage.id,
+      });
     } catch (error) {
       if ((error as DOMException).name !== 'AbortError') {
         // Cause-split failure display (PKG-2): the busy notice is only for
