@@ -283,6 +283,49 @@ describe("executeGroundedResearchRecordsSynthesis fresh retry (R-PR-5)", () => {
     expect(executeRetry.mock.calls[0]?.[1]).toBe(calls[0]?.result);
   });
 
+  it("records the derivation stage when the callback reports a detailed skip (R-PR-8d)", async () => {
+    const { execute } = recordingExecute(FABRICATED_RECORDS_JSON, SELECTION_JSON);
+    const executeRetry = vi.fn(async () => ({
+      skipDetail: "cloudflare-plan-failed:FREE_MODEL_EVIDENCE_STALE" as const,
+    }));
+    const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ executeRetry }));
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.metrics).toMatchObject({
+      executionCount: 2,
+      finalForm: "selection",
+      retryAttempted: false,
+      retrySkipped: "no-next-route",
+      retrySkipDetail: "cloudflare-plan-failed:FREE_MODEL_EVIDENCE_STALE",
+      retryRouteAdvanced: false,
+    });
+    expect(executeRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves retrySkipDetail null for a bare-null callback and for a fired retry (R-PR-8d)", async () => {
+    const bareNull = recordingExecute(FABRICATED_RECORDS_JSON, SELECTION_JSON);
+    const bareNullOutcome = await executeGroundedResearchRecordsSynthesis(
+      bareNull.execute,
+      helperOptions({ executeRetry: vi.fn(async () => null) }),
+    );
+    expect(bareNullOutcome.metrics).toMatchObject({
+      retrySkipped: "no-next-route",
+      retrySkipDetail: null,
+    });
+
+    const fired = recordingExecute(FABRICATED_RECORDS_JSON, SELECTION_JSON);
+    const firedOutcome = await executeGroundedResearchRecordsSynthesis(
+      fired.execute,
+      helperOptions({ executeRetry: vi.fn(async () => retryExecutionResult(PM_RECORDS_JSON)) }),
+    );
+    expect(firedOutcome.adopted).toBe(true);
+    expect(firedOutcome.metrics).toMatchObject({
+      finalForm: "records-after-retry",
+      retryAttempted: true,
+      retrySkipped: null,
+      retrySkipDetail: null,
+    });
+  });
+
   it("contains a retry execution error and proceeds to the selection layer", async () => {
     const { execute } = recordingExecute(FABRICATED_RECORDS_JSON, SELECTION_JSON);
     const executeRetry = vi.fn(async (): Promise<OriginProviderExecutionResult | null> => {

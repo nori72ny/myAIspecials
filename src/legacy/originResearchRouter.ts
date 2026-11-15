@@ -18,7 +18,7 @@ import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
 import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
-import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutor } from "./originRecordsRetryRoute.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
 import {
   createDefaultOriginResearchExecutor,
   type OriginSearchGroundingDeps,
@@ -337,8 +337,10 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             // Fresh retry (§10): re-execute the records request on the
             // route after the one that served the initial result; the
             // time gate runs on this router's catalog clock pair
-            // (handlerStartedAt / catalogNow).
-            executeRetry: createGroundedResearchRecordsRetryExecutor({ env, nowMs: catalogNow() }),
+            // (handlerStartedAt / catalogNow). The detailed executor
+            // (R-PR-8d) names the derivation stage when no next route
+            // exists, recorded as retrySkipDetail.
+            executeRetry: createGroundedResearchRecordsRetryExecutorWithDetail({ env, nowMs: catalogNow() }),
             startedAtMs: handlerStartedAt,
             now: catalogNow,
           });
