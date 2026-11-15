@@ -1,4 +1,5 @@
 import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation.js';
+import { checkPersonalMemoryText, checkPersonalMemoryTexts } from './personalMemoryGuard.js';
 
 // ---------------------------------------------------------------------------
 // Personal memory storage foundation (Personalization Stage 1, PR P1-1).
@@ -116,7 +117,7 @@ export interface PersonalMemoryUsage {
   nearLimit: boolean;
 }
 
-export type UpsertRejectionReason = 'inferred-paused-at-limit';
+export type UpsertRejectionReason = 'inferred-paused-at-limit' | 'blocked-sensitive-content';
 
 export interface UpsertResult {
   saved: boolean;
@@ -443,6 +444,12 @@ export async function upsertProfileItem(userId: string, item: OriginProfileItem)
   const safeUserId = sanitizeUserId(userId);
   if (!isProfileItem(item)) throw new Error("Invalid profile item.");
   const store = await readStore(safeUserId);
+  // Pre-save guard (design §9.2/§5.3, added in PR P1-2): credentials,
+  // card numbers, phone numbers, birth dates and similar values are never
+  // stored, whichever caller submits the item.
+  if (checkPersonalMemoryText(item.text).blocked) {
+    return { saved: false, reason: 'blocked-sensitive-content', usage: computeUsage(store) };
+  }
   const index = store.profile.findIndex((existing) => existing.id === item.id);
   if (index >= 0) store.profile[index] = item;
   else store.profile.push(item);
@@ -454,6 +461,12 @@ export async function upsertMemoryItem(userId: string, item: OriginMemoryItem): 
   const safeUserId = sanitizeUserId(userId);
   if (!isMemoryItem(item)) throw new Error("Invalid memory item.");
   const store = await readStore(safeUserId);
+  // Pre-save guard (design §9.2/§5.3, added in PR P1-2): every persisted
+  // field of the item (text, detail, source quote) passes the same
+  // deterministic check; a match anywhere keeps the item out of the store.
+  if (checkPersonalMemoryTexts([item.text, item.detail ?? '', item.source.quote]).blocked) {
+    return { saved: false, reason: 'blocked-sensitive-content', usage: computeUsage(store) };
+  }
   const index = store.memory.findIndex((existing) => existing.id === item.id);
   if (index < 0 && item.origin === 'inferred') {
     const usage = computeUsage(store);
