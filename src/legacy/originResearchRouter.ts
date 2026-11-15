@@ -3,7 +3,7 @@ import { createOriginAnswerEnvelope, type OriginAnswerEnvelope } from "../lib/or
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
-import { buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import {
   adoptGroundedResearchSynthesis,
   buildGroundedResearchSynthesisInstruction,
@@ -12,10 +12,10 @@ import {
   executeGroundedResearchSynthesisWithRetry,
   isGroundedResearchSynthesisRetryEnabled,
 } from "../research/groundedResearchSynthesisV12.js";
-import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
+import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
-import { researchCurrentInformation, type OriginResearchResult } from "./originResearchSource.js";
+import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
 import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
@@ -228,6 +228,50 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
   });
   if (result.ok === false) throw new Error(result.code);
   return result.value;
+}
+
+/**
+ * Total-length ceiling for the records-validation failure body
+ * (R-PR-9a): defense in depth so this fallback can never again grow
+ * into a dump, whatever the retrieved titles contain.
+ */
+export const RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS = 4_000;
+
+/**
+ * Answer body for a records-validation failure on this router
+ * (R-PR-9a, RPR9_DESIGN_2026-11-15 §2 R9-A): the same deterministic
+ * partial answer the chat router falls back to — an honest lead
+ * stating that no summarized answer could be produced, the confirmed
+ * scope built from source titles, and the compact source list —
+ * instead of the extractive report plus the full-excerpt
+ * concatenation (the F-12 dump). The records outcome exposes no
+ * verified material on failure, so the body is built from retrieval
+ * facts only and pastes no source text; nothing is completed by
+ * invention. Defense in depth: no single line (the largest unit an
+ * evidence quote could occupy in this body) exceeds the records
+ * packet excerpt cap, and the whole body is capped at
+ * RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS, truncated at a line
+ * boundary with an explicit omission note.
+ */
+export function buildResearchRecordsValidationFailureAnswer(
+  sources: readonly OriginResearchSource[],
+  language: "ja" | "en",
+): string {
+  const partial = buildGroundedResearchPartialAnswer(sources, language);
+  const cappedLines = partial.split("\n").map((line) =>
+    line.length <= RECORDS_PACKET_EXCERPT_CHARS
+      ? line
+      : `${line.slice(0, RECORDS_PACKET_EXCERPT_CHARS - 1)}…`,
+  );
+  let content = cappedLines.join("\n");
+  if (content.length > RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS) {
+    const note = language === "ja" ? "（出典一覧の一部を省略しました）" : "(Part of the source list was omitted.)";
+    const budget = RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS - note.length - 1;
+    const head = content.slice(0, budget);
+    const lastBreak = head.lastIndexOf("\n");
+    content = `${lastBreak > 0 ? head.slice(0, lastBreak) : head}\n${note}`;
+  }
+  return content;
 }
 
 export function createOriginResearchRouter(options: OriginResearchRouterOptions = {}) {
@@ -567,9 +611,24 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     const sourceContent = language === "ja"
       ? `無料の公開Web検索を実行しました。検索結果は複数の公開Webソースから取得しています。\n\n${comparisonContent(comparison, "ja")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔出典: [${sourceLabel(source)}](${source.url})〕\n証拠レベル: ${source.evidenceLevel === "page-verified" ? "ページ確認済み" : "検索スニペットのみ"}\n取得日時: ${source.retrievedAt}\n鮮度: ${freshnessLabel(source.freshness, "ja")}\n${sourceNatureLabel(sourceAssessments[index], "ja")}${source.rank ? `\n検索順位: ${source.rank}` : ""}${source.revisionTimestamp ? `\n最終更新: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`
       : `I ran a free public web search and retrieved multiple public web sources.\n\n${comparisonContent(comparison, "en")}\n\n${result.sources.map((source, index) => `### ${source.title}\n${source.excerpt}\n\n〔Source: [${sourceLabel(source)}](${source.url})〕\nEvidence level: ${source.evidenceLevel === "page-verified" ? "Page verified" : "Search snippet only"}\nRetrieved at: ${source.retrievedAt}\nFreshness: ${freshnessLabel(source.freshness, "en")}\n${sourceNatureLabel(sourceAssessments[index], "en")}${source.rank ? `\nSearch rank: ${source.rank}` : ""}${source.revisionTimestamp ? `\nLatest revision: ${source.revisionTimestamp}` : ""}`).join("\n\n")}`;
-    const content = `${report.markdown}\n\n${sourceContent}`;
+    // R-PR-9a (RPR9_DESIGN_2026-11-15 §2 R9-A): a records-validation
+    // failure — reachable only with the records kill switch ON —
+    // no longer degrades to the extractive dump; it returns the
+    // deterministic partial answer, unified with the chat router's
+    // fallback. Every other status reaching this return (synthesis
+    // disabled / not run / plan unavailable / citation-validation
+    // failure / provider failure, i.e. all switch-OFF behaviour)
+    // keeps the historical extractive body byte-for-byte.
+    const recordsFailureAnswer = synthesisStatus === "records-validation-failed"
+      ? buildResearchRecordsValidationFailureAnswer(safeSources, language)
+      : undefined;
+    const content = recordsFailureAnswer ?? `${report.markdown}\n\n${sourceContent}`;
     const evidence = extractProvidedOriginEvidence(content);
-    const reason = language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
+    const reason = recordsFailureAnswer !== undefined
+      ? language === "ja"
+        ? "無料公開Web検索で取得した証拠をレコード形式で検証しましたが、検証を通ったレコードが不足し、検証済みの回答を組み立てられませんでした。要約した回答は作成せず、確認できた範囲と出典の一覧のみを示しています。主張の真偽・網羅性・媒体の権威性は独立検証していません。"
+        : "Retrieved public evidence was checked in records form, but too few records passed verification to assemble a verified answer. No summarized answer was produced; only the confirmed scope and the source list are shown. Claim truth, completeness, and publisher authority were not independently verified."
+      : language === "ja" ? "無料公開Web検索が実行され、取得した複数ソースを回答に添付しました。証拠レベルを各ソースに明示しています。独立AIレビューは実行していません。" : "The free public web search executed and attached multiple retrieved sources. Evidence level is explicit for each source. No independent AI review was performed.";
     return res.status(200).json({ status: 200, content, answer: envelope(content, language, "not-run", reason, evidence), routing: { model: "ORIGIN 無料公開Web検索", provider: result.searchProvider ?? "DuckDuckGo", cost: 0, actualCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, verificationStatus: "not-run", synthesisStatus }, research: { source: result.searchProvider ?? "DuckDuckGo", sources: result.sources, report, sourceAssessments, comparison, fallback: result.fallback, ...(result.grounding ? { grounding: result.grounding } : {}), synthesis: { status: synthesisStatus, ...(synthesisFailureCode ? { failureCode: synthesisFailureCode } : {}) } } });
   });
   return router;
