@@ -197,8 +197,15 @@ const INCUMBENT_PAST_EXCLUSION =
 
 const PRODUCT_CATEGORY_NAME =
 /(?:掃除機|冷蔵庫|洗濯機|テレビ|エアコン|電子レンジ|炊飯器|食洗機|ドライヤー|プリンター|モニター|ディスプレイ|キーボード|イヤホン|ヘッドホン|スピーカー|カメラ|レンズ|自動車|バイク|自転車|腕時計|ゲーム機|給湯器|加湿器|空気清浄機|除湿機|扇風機|ヒーター|プロジェクター|ドローン|電動歯ブラシ|シェーバー)/;
+/* ReDoS-safe by construction (CodeQL js/polynomial-redos, PR #1294):
+   disjoint character classes AND every run length-bounded to real
+   model-token sizes. An unbounded letter run followed by a required
+   digit rescans quadratically on long digit-less letter strings, and
+   a trailing [\w-]* can partition a digit run multiple ways — both
+   shapes are banned here. Substring detection is enough —
+   "WH-1000XM5" matches via "WH-1", "1000XM5" via "XM5" / "0XM". */
 const MODEL_NUMBER_TOKEN =
-/(?:[a-z]{2,}[-\s]?\d[\w-]*|\d+[a-z]{2,}[\w-]*)/i;
+/(?:[a-z]{2,16}-\d|[a-z]{2,16}\d|\d{1,10}[a-z]{2,16})/i;
 const MODEL_NUMBER_LABEL =
 /(?:型番|型式|品番)/;
 
