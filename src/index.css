@@ -625,11 +625,20 @@ button:first-child:has(svg):not(.origin-primary-button) * {
     padding-bottom: 0 !important;
   }
   .origin-app main .origin-home-composer {
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+  /* The conversation composer sits in the .safe-area-bottom footer below
+     the scroll viewport. Give it the same 24px floor as the home composer
+     on mobile: in standalone PWA contexts env(safe-area-inset-bottom) can
+     resolve to 0, and the base 1rem floor left the composer frame inside
+     the Android gesture-bar zone, where its bottom edge looked cut off.
+     Desktop keeps the base .safe-area-bottom rule. */
+  .origin-app main > .safe-area-bottom {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
 }
 @media (max-width: 639px) and (max-height: 680px) {
   .origin-app main .origin-home-composer {
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
 }

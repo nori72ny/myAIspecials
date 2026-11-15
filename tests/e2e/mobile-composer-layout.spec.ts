@@ -26,6 +26,13 @@ async function bottomSafeAreaInset(page: Page): Promise<number> {
   });
 }
 
+// The home composer's frame never sits closer than this to the scroll
+// viewport's bottom edge: its bottom padding is
+// max(24px, env(safe-area-inset-bottom, 0px)), so the frame clears the
+// Android gesture bar in standalone PWAs where env() resolves to 0
+// (owner report, 2026-11-16). Larger real insets still win via max().
+const COMPOSER_BOTTOM_FLOOR_PX = 24;
+
 test.describe('mobile composer layout', () => {
   test('keeps the first-screen composer low, wide, and visually quiet at 390px', async ({ page }) => {
     const viewport = { width: 390, height: 844 };
@@ -33,7 +40,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
+    const bottomOffset = Math.max(COMPOSER_BOTTOM_FLOOR_PX, safeAreaBottom) + await scrollViewportBottomPadding(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -92,7 +99,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
+    const bottomOffset = Math.max(COMPOSER_BOTTOM_FLOOR_PX, safeAreaBottom) + await scrollViewportBottomPadding(page);
 
     const composer = page.locator('.origin-composer');
     const input = page.getByTestId('origin-home-request');
@@ -121,7 +128,7 @@ test.describe('mobile composer layout', () => {
     await page.goto('/');
     const safeAreaBottom = await bottomSafeAreaInset(page);
     const scrollBottom = await scrollViewportBottom(page);
-    const bottomOffset = safeAreaBottom + await scrollViewportBottomPadding(page);
+    const bottomOffset = Math.max(COMPOSER_BOTTOM_FLOOR_PX, safeAreaBottom) + await scrollViewportBottomPadding(page);
 
     const heading = page.locator('.origin-app main h1').first();
     const description = page.locator('.origin-app main h1 + p').first();
