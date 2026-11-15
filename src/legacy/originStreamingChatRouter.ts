@@ -19,6 +19,13 @@ import {
   PROPOSAL_DECK_FAILURE_NOTE,
   PROPOSAL_DECK_SKELETON_INSTRUCTION,
 } from "./originProposalDeckChat.js";
+import {
+  buildDeckRecordsChatArtifact,
+  isDeckRecordsEnabled,
+  planDeckRecordsRequest,
+  type DeckRecordsRequestPlan,
+  type DeckRecordsStageMetrics,
+} from "./originProposalDeckRecordsChat.js";
 import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureShapeV1.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
@@ -124,6 +131,24 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // 2,000-3,000 character budget is a hard contract); a route-3 answer
       // simply will not match the skeleton and produces no file.
       const deckRequested = isProposalDeckChatRequest(requestIntent, intentInput);
+      // D-PR-6: with the deck-records kill switch ON, a proposal-deck
+      // request takes the records path instead of the skeleton path.
+      // The plan is computed before generation (mode detection; for
+      // mode A the deterministic placement is already attempted) and
+      // decides which instruction the generation carries: the draft
+      // instruction (mode B), the placement instruction plus the
+      // material list (mode A, deterministic placement insufficient),
+      // or none (mode A, deterministic placement already satisfied —
+      // the generated text is then not used for the deck at all).
+      // With the switch OFF the plan is null and everything below is
+      // byte-identical to the pre-D-PR-6 behavior.
+      const deckRecordsPlan: DeckRecordsRequestPlan | null =
+        deckRequested && isDeckRecordsEnabled(env)
+          ? planDeckRecordsRequest(lastUserMessage)
+          : null;
+      const deckInstruction = deckRecordsPlan
+        ? deckRecordsPlan.instruction
+        : PROPOSAL_DECK_SKELETON_INSTRUCTION;
       const workPlan = buildOriginAgentWorkPlan(requestIntent);
       const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
       const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage);
@@ -145,7 +170,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           originAnswerQualityInstruction(answerQualityPolicy),
         )
           + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
-          + (deckRequested ? `\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}` : ""),
+          + (deckRequested && deckInstruction ? `\n\n${deckInstruction}` : ""),
         groqSystemInstruction: originGroqRouteSystemInstruction(),
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
@@ -188,7 +213,12 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       const result = await streamExecute(providerRequest, {
         onDelta: (delta) => {
           if (!delta) return;
-          if (assertionGateArmed) {
+          // D-PR-6: on the records path the raw generation (a tag
+          // draft or a placement plan) is never shown as-is; deltas
+          // are buffered like the assertion-gate ones and replaced
+          // after completion by the deterministic chat rendering
+          // (design §5, §13-5 (a): hold until complete).
+          if (assertionGateArmed || deckRecordsPlan) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -200,7 +230,37 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
       }
       let assertionGateReplaced = false;
-      if (assertionGateArmed) {
+      // PR-3a / D-PR-6 deck outcomes, filled by whichever deck path
+      // runs below and consumed by the completion log and event.
+      let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
+      let deckFailureCode: string | undefined;
+      let deckViolationCodes: readonly string[] | undefined;
+      let deckFailureShape: ProposalDeckAnswerShape | undefined;
+      let deckRecordsMetrics: DeckRecordsStageMetrics | undefined;
+      if (deckRecordsPlan) {
+        // D-PR-6 records path: assemble → convert → render from the
+        // finished generation (mode B draft / mode A placement) or
+        // from the pre-generation deterministic assembly (mode A).
+        // The chat body is the deterministic rendering of the
+        // assembled document (or the insufficiency / failure text),
+        // emitted as a single delta in place of the buffered raw
+        // generation. On failure of the new path there is no fallback
+        // to the skeleton path (fail-closed, adjudication §13-2 (a)).
+        const outcome = buildDeckRecordsChatArtifact({
+          requestText: lastUserMessage,
+          answerText: result.text,
+          plan: deckRecordsPlan,
+          durationMs: Math.max(0, now() - startedAt),
+        });
+        deckRecordsMetrics = outcome.metrics;
+        if (outcome.status === "created") {
+          deckArtifact = outcome.artifact;
+        } else if (outcome.status === "failed") {
+          deckFailureCode = outcome.failureCode;
+          deckViolationCodes = outcome.violationCodes;
+        }
+        emitDelta(outcome.chatText);
+      } else if (assertionGateArmed) {
         const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
         assertionGateReplaced = assertionGate.replaced;
         if (assertionGate.replaced) {
@@ -224,12 +284,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // the file was not produced. The artifact payload matches the
       // Supervisor/parseOriginArtifacts contract verbatim and is added as the
       // last key of the completion event; non-deck completions stay
-      // byte-identical to before.
-      let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
-      let deckFailureCode: string | undefined;
-      let deckViolationCodes: readonly string[] | undefined;
-      let deckFailureShape: ProposalDeckAnswerShape | undefined;
-      if (deckRequested) {
+      // byte-identical to before. D-PR-6: this skeleton path runs only
+      // when the deck-records kill switch is OFF; the records path
+      // above already filled the same outcome fields when it is ON.
+      if (deckRequested && !deckRecordsPlan) {
         const outcome = buildProposalDeckChatArtifact(result.text);
         if (outcome.status === "created") {
           deckArtifact = outcome.artifact;
@@ -248,12 +306,13 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         truncated: result.truncated === true,
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
-        proposalDeck: deckRequested ? (deckArtifact ? "created" : "failed") : "not-requested",
+        proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
         ...(deckFailureShape ? { proposalDeckFailureShape: deckFailureShape } : {}),
+        ...(deckRecordsMetrics ? { proposalDeckRecords: deckRecordsMetrics } : {}),
       });
-      if (deckRequested && !deckArtifact) {
+      if (deckRequested && !deckArtifact && !deckRecordsPlan) {
         res.write(`data: ${JSON.stringify({ type: "delta", text: PROPOSAL_DECK_FAILURE_NOTE })}\n\n`);
       }
       res.write(`data: ${JSON.stringify({
