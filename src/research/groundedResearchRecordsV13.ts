@@ -1120,6 +1120,134 @@ export function buildGroundedResearchRecordsPrompt(
 }
 
 /**
+ * Similarity bar for the semantic duplicate layer (R-PR-9e): two
+ * claims whose content-skeleton bigram Dice coefficient reaches this
+ * value state the same claim, provided the numeric and negation
+ * guards below also pass. The value sits between the measured
+ * paraphrase pairs of the R-PR-8 measurement (A-02: 0.909, B-01:
+ * 0.923) and the highest measured distinct-fact pair sharing the same
+ * dates (0.750), with the wider margin on the keep side — dropping a
+ * distinct fact is worse than missing a paraphrase, which only
+ * preserves the pre-9e status quo.
+ */
+const RECORDS_CLAIM_SEMANTIC_DUPLICATE_THRESHOLD = 0.85;
+
+/**
+ * Minimum content-skeleton bigram count on BOTH claims before the
+ * semantic layer may fire. Very short claims have too little content
+ * mass for a stable similarity judgement (and most sentence-final
+ * negations skeletonize away to almost nothing), so they are judged
+ * by the exact key only.
+ */
+const RECORDS_CLAIM_SKELETON_MIN_BIGRAMS = 4;
+
+/**
+ * Sentence-level negation markers, matched against the normalized
+ * claim text. The content skeleton strips hiragana, which removes
+ * most negation endings (ない / ません / ではない …) from the
+ * similarity view — an affirmative claim and its negation can share
+ * an identical skeleton. The semantic layer therefore refuses to
+ * judge a pair whose negation presence differs, so a contradiction
+ * is never hidden by deduplication.
+ */
+const RECORDS_CLAIM_NEGATION_PATTERN = /ない|ません|ありません|ではない|ではありません|なかった|ずに/;
+
+/**
+ * Content skeleton of a normalized claim (R-PR-9e): hiragana and
+ * punctuation removed, leaving kanji / katakana / Latin / digit
+ * content characters. Japanese function mass (particles, copula and
+ * verb endings, hearsay auxiliaries such as とされています vs
+ * する必要があります) is hiragana, so two phrasings of one claim
+ * differ mostly there, while the content words that distinguish one
+ * fact from another survive. Similarity over the full text cannot
+ * separate the measured paraphrase pairs from distinct facts that
+ * share long numeric strings (dates); the skeleton can.
+ */
+function recordsClaimSkeleton(normalizedClaim: string): string {
+  return normalizedClaim
+    .replace(/[ぁ-ゟ]/g, "")
+    .replace(/[、。,.・:;!！?？「」『』()[\]【】<>〈〉《》"'"…—~〜/|]/g, "");
+}
+
+function recordsClaimSkeletonBigrams(skeleton: string): ReadonlySet<string> {
+  const grams = new Set<string>();
+  for (let i = 0; i + 2 <= skeleton.length; i += 1) grams.add(skeleton.slice(i, i + 2));
+  return grams;
+}
+
+/**
+ * Numeric compatibility for the semantic layer (R-PR-9e, design's
+ * absolute rule): claims carrying numeric tokens are the same claim
+ * only when their numbers do not contradict. Operationalized on the
+ * appearance-ordered token sequences of `recordsNumericTokens`:
+ * both sides empty is compatible; exactly one side empty is NOT
+ * (a claim without numbers cannot have "matching numbers" with one
+ * that has them — the refinement keeps its own bullet); otherwise
+ * the shorter sequence must be a subsequence of the longer, so an
+ * inserted qualifier (the era year （令和9年）of the B-01 pair) is
+ * compatible while any substituted value (10% vs 8%, 360万 vs 240万)
+ * is not. Token values are compared as extracted — never converted
+ * or rounded into equivalence.
+ */
+function recordsNumericSequencesCompatible(
+  a: readonly string[],
+  b: readonly string[],
+): boolean {
+  if (a.length === 0 || b.length === 0) return a.length === b.length;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  let matched = 0;
+  for (const token of longer) {
+    if (token === shorter[matched]) matched += 1;
+  }
+  return matched === shorter.length;
+}
+
+/** Precomputed per-claim features for the semantic duplicate layer. */
+interface RecordsClaimDuplicateFeatures {
+  skeletonBigrams: ReadonlySet<string>;
+  numericTokens: string[];
+  negated: boolean;
+}
+
+function recordsClaimDuplicateFeatures(text: string): RecordsClaimDuplicateFeatures {
+  const normalized = normalizedRecordsText(text);
+  return {
+    skeletonBigrams: recordsClaimSkeletonBigrams(recordsClaimSkeleton(normalized)),
+    numericTokens: recordsNumericTokens(text),
+    negated: RECORDS_CLAIM_NEGATION_PATTERN.test(normalized),
+  };
+}
+
+/**
+ * Semantic duplicate judgement (R-PR-9e): a deterministic, model-free
+ * approximation layered UNDER the exact-key dedup — it only ever
+ * merges claims the exact key missed, never un-merges. All three
+ * guards must pass: negation symmetry, numeric compatibility, and a
+ * content-skeleton bigram Dice coefficient at or above the threshold
+ * with enough skeleton mass on both sides.
+ */
+function recordsClaimsAreSemanticDuplicates(
+  a: RecordsClaimDuplicateFeatures,
+  b: RecordsClaimDuplicateFeatures,
+): boolean {
+  if (a.negated !== b.negated) return false;
+  if (!recordsNumericSequencesCompatible(a.numericTokens, b.numericTokens)) return false;
+  if (
+    a.skeletonBigrams.size < RECORDS_CLAIM_SKELETON_MIN_BIGRAMS ||
+    b.skeletonBigrams.size < RECORDS_CLAIM_SKELETON_MIN_BIGRAMS
+  ) {
+    return false;
+  }
+  let shared = 0;
+  for (const gram of a.skeletonBigrams) if (b.skeletonBigrams.has(gram)) shared += 1;
+  return (
+    (2 * shared) / (a.skeletonBigrams.size + b.skeletonBigrams.size) >=
+    RECORDS_CLAIM_SEMANTIC_DUPLICATE_THRESHOLD
+  );
+}
+
+/**
  * Deterministic rendering of the adopted records (design §7). The body
  * is the accepted records in the order the model returned them, each as
  * one bullet carrying the citation token the app derives from the
@@ -1131,7 +1259,9 @@ export function buildGroundedResearchRecordsPrompt(
  * renderGroundedResearchFactSlotAnswer; this renderer itself emits
  * no heading other than the source list's. Records whose normalized
  * claim text is identical are rendered once, with their citations
- * merged onto the surviving bullet (R-PR-8a).
+ * merged onto the surviving bullet (R-PR-8a); records the exact key
+ * misses but the semantic layer judges the same claim are merged the
+ * same way (R-PR-9e).
  */
 export function renderGroundedResearchRecordsAnswer(
   accepted: readonly GroundedResearchAcceptedRecord[],
@@ -1148,19 +1278,38 @@ export function renderGroundedResearchRecordsAnswer(
   // sentence punctuation: punctuation-only differences (two sources
   // punctuating the same sentence differently) are the same claim.
   // The key is display-only — validation keeps using the unmodified
-  // normalization. Paraphrase-level duplication is out of scope by
-  // design. The post-render check (§6.5) tolerates several packet
-  // citations on one body line.
-  const bodyEntries: { text: string; citations: string[] }[] = [];
+  // normalization. The post-render check (§6.5) tolerates several
+  // packet citations on one body line.
+  //
+  // Semantic layer (R-PR-9e): a record the exact key misses is also
+  // merged onto the first surviving entry the semantic judgement
+  // (recordsClaimsAreSemanticDuplicates) calls the same claim — the
+  // paraphrase-level duplication the R-PR-8 measurement observed in
+  // A-02 / B-01, where the same assertion arrived in two phrasings
+  // under different source tags. The layer is display-only like the
+  // key it extends: validation, coverage and every other gate keep
+  // operating on the un-merged record set.
+  const bodyEntries: {
+    text: string;
+    citations: string[];
+    features: RecordsClaimDuplicateFeatures;
+  }[] = [];
   const bodyIndexByClaim = new Map<string, number>();
   for (const record of accepted) {
     const source = sourceById.get(record.sourceId);
     const citation = `[${record.sourceId}](${source?.url ?? ""})`;
     const claimKey = normalizedRecordsText(record.text).replace(/、/g, "").replace(/[。.]$/u, "");
-    const existingIndex = bodyIndexByClaim.get(claimKey);
+    const features = recordsClaimDuplicateFeatures(record.text);
+    let existingIndex = bodyIndexByClaim.get(claimKey);
+    if (existingIndex === undefined) {
+      const semanticIndex = bodyEntries.findIndex((entry) =>
+        recordsClaimsAreSemanticDuplicates(entry.features, features),
+      );
+      if (semanticIndex >= 0) existingIndex = semanticIndex;
+    }
     if (existingIndex === undefined) {
       bodyIndexByClaim.set(claimKey, bodyEntries.length);
-      bodyEntries.push({ text: record.text, citations: [citation] });
+      bodyEntries.push({ text: record.text, citations: [citation], features });
     } else {
       const entry = bodyEntries[existingIndex];
       if (entry && !entry.citations.includes(citation)) entry.citations.push(citation);
