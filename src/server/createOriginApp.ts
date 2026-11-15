@@ -25,6 +25,7 @@ import { createRasterImageV15Router } from "../creative/rasterImageV15Router.js"
 import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Router.js";
 import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
+import { createOriginVoiceTranscribeRouter } from "../voice/originVoiceTranscribeRouter.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -48,6 +49,21 @@ export function createOriginApp(
   app.use("/api/creative/v1.5", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["GET", "POST"]));
   app.use("/api/creative/v1.6", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
   app.use("/api/generate-image", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(Date.now, ["POST"]));
+  // Voice transcription takes a raw audio body, not JSON, so the JSON-only
+  // Origin gate cannot front it; the router enforces the same same-origin
+  // rule itself. It still gets the shared chat rate limiter, and its raw
+  // body parser (2 MB cap) is isolated from the 64kb JSON boundary below,
+  // in the same style as the reference-image edit mounts.
+  app.use("/api/voice", createOriginChatRateLimiter(Date.now, ["POST"]));
+  app.use("/api/voice/transcribe", express.raw({ limit: "2mb", type: ["audio/*", "application/octet-stream"] }));
+  const voiceBodyErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+    if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+      res.status(413).json({ ok: false, code: "VOICE_AUDIO_TOO_LARGE", message: "音声が大きすぎます。60秒以内で録音してください。", retryable: false, freeOnly: true, paidFallbackUsed: false, secretDelivery: "server-only" });
+      return;
+    }
+    next(error);
+  };
+  app.use("/api/voice/transcribe", voiceBodyErrorHandler);
   // /api/agent/v3 is rate limited inside createAgentOrchestratorV3Router
   // itself, so the limiter sits in the same file as the route definitions.
   // Reference-image edits are explicitly isolated from the normal 64kb JSON boundary.
@@ -69,6 +85,12 @@ export function createOriginApp(
   const agentWriteLockStore = createAgentRunWriteLockStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
+  // The voice router is mounted before the agent routers on purpose: the
+  // legacy agent router applies the JSON-only Origin gate router-wide, so
+  // any router mounted after it would never see a raw-audio POST (it is
+  // rejected 415 first). The voice route is a single exact path and the
+  // router enforces the same-origin rule itself.
+  app.use(createOriginVoiceTranscribeRouter(env));
   app.use(createAgentOrchestratorV3Router(env, agentRunConsumptionStore, {
     codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
     runStore: agentRunStore,
