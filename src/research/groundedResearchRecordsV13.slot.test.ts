@@ -294,7 +294,10 @@ describe("evaluateGroundedResearchFactSlot (design §9.2)", () => {
     expect(evaluation.agreementSourceCount).toBe(2);
   });
 
-  it("falls through on a conflicting price in another source", () => {
+  it("adopts when another source names a different model's price alongside the same price (R-PR-8b)", () => {
+    // R-PR-8b: a source that states several amounts (the asked
+    // product's price among them) states no single competing answer;
+    // the R-PR-6 rule conflicted on the other model's amount alone.
     const packet = buildGroundedResearchRecordsPacket([
       priceSources()[0]!,
       makeSource({
@@ -310,7 +313,70 @@ describe("evaluateGroundedResearchFactSlot (design §9.2)", () => {
       packet,
       PRICE_ENTRY,
     );
+    expect(evaluation.code).toBeNull();
+    expect(evaluation.conflictDetected).toBe(false);
+    expect(evaluation.agreementSourceCount).toBe(2);
+  });
+
+  it("falls through when a source states a single, different price as its answer (R-PR-8b)", () => {
+    const packet = buildGroundedResearchRecordsPacket([
+      ...priceSources(),
+      makeSource({
+        title: "価格改定の報道",
+        url: "https://news.example.jp/iphone-price",
+        domain: "news.example.jp",
+        excerpt: "iPhone 18 Proの価格は199,800円に改定されたと報じられています。",
+        retrievedAt: "2026-11-07T00:00:00.000Z",
+      }),
+    ]);
+    const evaluation = evaluateGroundedResearchFactSlot(
+      JSON.stringify({ answer: "219,800円", src: "S1", quote: PRICE_UNIT_1 }),
+      packet,
+      PRICE_ENTRY,
+    );
     expect(evaluation.code).toBe("SLOT_SOURCE_CONFLICT");
+    expect(evaluation.conflictDetected).toBe(true);
+    expect(evaluation.agreementSourceCount).toBe(2);
+  });
+
+  it("adopts the prime minister on three-source agreement when a former holder is only mentioned (R-PR-8b)", () => {
+    // The production shape behind R-PR-8b: the former holder's name
+    // appears in an excerpt only as a former-office reference
+    // (前首相の石破茂氏) and as a title reference in running text
+    // (石破茂首相の在任中) — never stated as the answer — while
+    // three sources carry the incumbent's name.
+    const packet = buildGroundedResearchRecordsPacket([
+      ...pmSources(),
+      makeSource({
+        title: "政権交代の記録",
+        url: "https://news.example.co.jp/seiken",
+        domain: "news.example.co.jp",
+        excerpt: "内閣総理大臣は高市早苗氏である。前首相の石破茂氏は退任後、講演活動を続けている。石破茂首相の在任中には、物価高対策が議論された。",
+      }),
+    ]);
+    const evaluation = evaluateGroundedResearchFactSlot(adoptable, packet, PM_ENTRY);
+    expect(evaluation.code).toBeNull();
+    expect(evaluation.conflictDetected).toBe(false);
+    expect(evaluation.agreementSourceCount).toBe(3);
+    expect(evaluation.supportSourceIds).toEqual(["S1", "S2", "S3"]);
+  });
+
+  it("still falls through when another source identifies a different person as the prime minister (R-PR-8b)", () => {
+    // Appositive identification (首相のNAME氏) IS an answer-position
+    // statement, unlike a former-office reference.
+    const packet = buildGroundedResearchRecordsPacket([
+      pmSources()[0]!,
+      makeSource({
+        title: "首相ニュース",
+        url: "https://news.example.co.jp/pm",
+        domain: "news.example.co.jp",
+        excerpt: "首相の石破茂氏は、記者会見で経済対策を説明した。高市早苗氏は自由民主党の総裁を務めている。",
+      }),
+    ]);
+    const evaluation = evaluateGroundedResearchFactSlot(adoptable, packet, PM_ENTRY);
+    expect(evaluation.code).toBe("SLOT_SOURCE_CONFLICT");
+    expect(evaluation.conflictDetected).toBe(true);
+    expect(evaluation.agreementSourceCount).toBe(2);
   });
 
   it("adopts the price candidate when both sources agree on the amount", () => {
@@ -388,10 +454,16 @@ describe("slot rendering (design §9.3)", () => {
     expect(sentence).toBe("As of 2026-11-14, the Prime Minister of Japan is Sanae Takaichi.");
   });
 
-  it("renders the slot paragraph with its citation, then the full source list", () => {
+  it("renders the slot paragraph, the evidence block (quote + agreement count), then the source list (R-PR-8b)", () => {
     const packet = pmPacket();
+    const evaluation = evaluateGroundedResearchFactSlot(
+      JSON.stringify({ answer: "高市早苗", src: "S1", quote: PM_UNIT_1 }),
+      packet,
+      PM_ENTRY,
+    );
     const rendered = renderGroundedResearchFactSlotAnswer(
       "2026年11月14日時点で、内閣総理大臣は高市早苗です。",
+      evaluation,
       packet.sources[0]!,
       [],
       packet,
@@ -400,8 +472,39 @@ describe("slot rendering (design §9.3)", () => {
     expect(rendered).toBe([
       "2026年11月14日時点で、内閣総理大臣は高市早苗です。 [S1](https://www.kantei.example.go.jp/souri/)",
       "",
+      "根拠の引用文：「高市早苗は、第105代内閣総理大臣に指名された。」 [S1](https://www.kantei.example.go.jp/souri/)",
+      "この答えは、2件の出典で一致しています。 [S1](https://www.kantei.example.go.jp/souri/)",
+      "",
       ...PM_SOURCE_LIST,
     ].join("\n"));
+  });
+
+  it("renders the en evidence block with the quote and no agreement line for a single source (R-PR-8b)", () => {
+    const packet = buildGroundedResearchRecordsPacket([
+      makeSource({
+        title: "PM news",
+        url: "https://news.example.com/pm",
+        domain: "news.example.com",
+        excerpt: "Sanae Takaichi is the Prime Minister of Japan. She leads the cabinet.",
+      }),
+    ]);
+    const evaluation = evaluateGroundedResearchFactSlot(
+      JSON.stringify({ answer: "Sanae Takaichi", src: "S1", quote: "Sanae Takaichi is the Prime Minister of Japan." }),
+      packet,
+      PM_ENTRY,
+    );
+    expect(evaluation.agreementSourceCount).toBe(1);
+    const rendered = renderGroundedResearchFactSlotAnswer(
+      "As of 2026-11-14, the Prime Minister of Japan is Sanae Takaichi.",
+      evaluation,
+      packet.sources[0]!,
+      [],
+      packet,
+      "en",
+    );
+    expect(rendered).toContain("As of 2026-11-14, the Prime Minister of Japan is Sanae Takaichi. [S1](https://news.example.com/pm)");
+    expect(rendered).toContain("Supporting quote: \"Sanae Takaichi is the Prime Minister of Japan.\" [S1](https://news.example.com/pm)");
+    expect(rendered).not.toContain("consistent across");
   });
 });
 
@@ -469,6 +572,10 @@ const FABRICATED_RECORDS_JSON = JSON.stringify({
 });
 const SELECTION_JSON = "{\"select\":[\"E1_1\",\"E2_1\"]}";
 const SLOT_HEADLINE = "2026年11月14日時点で、内閣総理大臣は高市早苗です。 [S1](https://www.kantei.example.go.jp/souri/)";
+const PM_EVIDENCE_LINES = [
+  `根拠の引用文：「${PM_UNIT_1}」 [S1](https://www.kantei.example.go.jp/souri/)`,
+  "この答えは、2件の出典で一致しています。 [S1](https://www.kantei.example.go.jp/souri/)",
+];
 const EXPECTED_PM_RENDER = [
   "- 現在の内閣総理大臣は高市早苗です。 [S1](https://www.kantei.example.go.jp/souri/)",
   "- 2026年11月時点でも内閣総理大臣は高市早苗氏です。 [S2](https://news.example.co.jp/pm)",
@@ -482,7 +589,7 @@ describe("executeGroundedResearchRecordsSynthesis slot layer (design §9/§11/§
     const executeRetry = vi.fn(async () => executionResult(PM_RECORDS_JSON, 777));
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ executeRetry }));
     expect(outcome.adopted).toBe(true);
-    expect(outcome.text).toBe(`${SLOT_HEADLINE}\n\n${EXPECTED_PM_RENDER}`);
+    expect(outcome.text).toBe(`${SLOT_HEADLINE}\n\n${PM_EVIDENCE_LINES.join("\n")}\n\n${EXPECTED_PM_RENDER}`);
     expect(outcome.usedSourceIds).toEqual(["S1", "S2"]);
     // The consumed result is the supporting records execution's.
     expect(outcome.result?.text).toBe(PM_RECORDS_JSON);
@@ -509,7 +616,7 @@ describe("executeGroundedResearchRecordsSynthesis slot layer (design §9/§11/§
     const execute = layeredExecute({ slot: PM_SLOT_JSON, records: FABRICATED_RECORDS_JSON });
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions());
     expect(outcome.adopted).toBe(true);
-    expect(outcome.text).toBe([SLOT_HEADLINE, "", ...PM_SOURCE_LIST].join("\n"));
+    expect(outcome.text).toBe([SLOT_HEADLINE, "", ...PM_EVIDENCE_LINES, "", ...PM_SOURCE_LIST].join("\n"));
     // No support was adopted, so the consumed result is the slot's.
     expect(outcome.result?.text).toBe(PM_SLOT_JSON);
     expect(outcome.metrics).toMatchObject({
@@ -521,11 +628,36 @@ describe("executeGroundedResearchRecordsSynthesis slot layer (design §9/§11/§
     });
   });
 
+  it("adopts the slot on three-source agreement with a mention-only former holder, rendering quote and count (R-PR-8b)", async () => {
+    const execute = layeredExecute({ slot: PM_SLOT_JSON, records: FABRICATED_RECORDS_JSON });
+    const sources = [
+      ...pmSources(),
+      makeSource({
+        title: "政権交代の記録",
+        url: "https://news.example.co.jp/seiken",
+        domain: "news.example.co.jp",
+        excerpt: "内閣総理大臣は高市早苗氏である。前首相の石破茂氏は退任後、講演活動を続けている。石破茂首相の在任中には、物価高対策が議論された。",
+      }),
+    ];
+    const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ sources }));
+    // Adoption implies the post-render check passed on the new
+    // evidence block (quote numerics + agreement count covered).
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.text).toContain(`根拠の引用文：「${PM_UNIT_1}」 [S1](https://www.kantei.example.go.jp/souri/)`);
+    expect(outcome.text).toContain("この答えは、3件の出典で一致しています。 [S1](https://www.kantei.example.go.jp/souri/)");
+    expect(outcome.metrics).toMatchObject({
+      slotAttempted: true,
+      slotAgreementSourceCount: 3,
+      slotCode: "SLOT_ADOPTED",
+      finalForm: "slot",
+    });
+  });
+
   it("keeps the slot sentence standing alone when the supporting execution fails", async () => {
     const execute = layeredExecute({ slot: PM_SLOT_JSON });
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions());
     expect(outcome.adopted).toBe(true);
-    expect(outcome.text).toBe([SLOT_HEADLINE, "", ...PM_SOURCE_LIST].join("\n"));
+    expect(outcome.text).toBe([SLOT_HEADLINE, "", ...PM_EVIDENCE_LINES, "", ...PM_SOURCE_LIST].join("\n"));
     expect(outcome.metrics).toMatchObject({ executionCount: 2, finalForm: "slot" });
   });
 
