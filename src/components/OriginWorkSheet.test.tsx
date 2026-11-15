@@ -1,7 +1,10 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import OriginWorkSheet, { type OriginWorkSheetItem } from './OriginWorkSheet';
+import OriginWorkSheet, { ORIN_PROFILE_ART_SIZE_PX, type OriginWorkSheetItem } from './OriginWorkSheet';
+import { ORIGIN_CAT_STILL_SRC } from './OriginCatState';
 
 afterEach(() => {
   cleanup();
@@ -60,5 +63,48 @@ describe('OriginWorkSheet', () => {
       { id: 'agent', title: 'エージェントの作業', status: 'done', action: 'agent' },
     ], { onOpenAgent: vi.fn() });
     expect(screen.queryByTestId('origin-work-sheet-agent-link')).toBeNull();
+  });
+
+  it('shows the Orin profile header above the work list (profile card, 2026-11-15)', () => {
+    renderSheet([]);
+    const sheet = screen.getByTestId('origin-work-sheet');
+    // 大きなオリンは待機の静止画で、名前とひとこと紹介が付く。
+    const art = within(sheet).getByTestId('origin-cat-state');
+    expect(art.tagName).toBe('IMG');
+    expect(art.getAttribute('data-state')).toBe('waiting');
+    expect(art.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.waiting);
+    expect((art as HTMLElement).style.width).toBe(`${ORIN_PROFILE_ART_SIZE_PX}px`);
+    expect(within(sheet).getByTestId('origin-orin-profile-name').textContent).toBe('オリン');
+    expect(within(sheet).getByTestId('origin-orin-profile-intro').textContent).toContain('こんにちは、オリンです');
+    // 「いまの作業」の見出しはプロフィールの下に残る。
+    expect(sheet.textContent).toContain('いまの作業');
+    expect(sheet.getAttribute('aria-label')).toBe('オリンのプロフィール');
+  });
+
+  it('closes from the × button, the backdrop, and the Escape key', () => {
+    const onClose = vi.fn();
+    renderSheet([], { onClose });
+    fireEvent.click(within(screen.getByTestId('origin-work-sheet')).getByRole('button', { name: '閉じる' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId('origin-work-sheet-backdrop'));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(3);
+    // Esc 以外のキーでは閉じない。
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it('pins the profile card CSS: one overlay, bottom sheet by default, centered card from 640px', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
+    expect(css).toContain('.origin-orin-profile {');
+    expect(css).toContain('.origin-orin-profile__card {');
+    // カードの重なりはプレゼンス（z-15）より上、ヘッダー（z-50）より下。
+    expect(css).toContain('z-index: 40;');
+    // 狭い画面は下から出るシート（flex-end）、640px以上は中央カード。
+    expect(css).toContain('align-items: flex-end;');
+    const wide = css.slice(css.indexOf('@media (min-width: 640px)', css.indexOf('.origin-orin-profile {')));
+    expect(wide).toContain('.origin-orin-profile__card');
+    expect(wide).toContain('border-radius: 24px;');
   });
 });

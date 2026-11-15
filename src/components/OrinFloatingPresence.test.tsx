@@ -75,13 +75,14 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     vi.useRealTimers();
   });
 
-  it('floats even while idle: art and name are present, the pill is not, and the old displays never render', () => {
+  it('floats even while idle: the art is present, the pill and the name are not, and the old displays never render', () => {
     renderPresence();
     const presence = screen.getByTestId('origin-orin-presence');
     expect(screen.queryByTestId('origin-orin-overlay')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
-    // 名前は待機中も円の真下に「オリン」。
-    expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
+    // 姿の下の名前テキストは出さない（2026-11-15 ノリ指示で削除。
+    // 名前はプロフィールカードの中にだけ出す）。
+    expect(screen.queryByTestId('origin-orin-presence-name')).toBeNull();
     // 状態ピルは作業中だけ。待機中は出ない。
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
     // 大きなオリン：絵96px・台座外径104px（作業中と同じ大きさ）。
@@ -98,9 +99,18 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(pedestal.classList.contains('origin-cat-breathe')).toBe(true);
   });
 
-  it('uses the English name for the English locale', () => {
+  it('renders no name under the art in the English locale either', () => {
     renderPresence({ language: 'en' });
-    expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('Orin');
+    expect(screen.queryByTestId('origin-orin-presence-name')).toBeNull();
+    expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
+  });
+
+  it('plays the one-shot joy motion on the art when the tap joy signal fires', () => {
+    const { props, rerender } = renderPresence();
+    // 合図が無ければ喜ぶ動きは付かない。
+    expect(screen.getByTestId('origin-cat-pedestal').parentElement?.classList.contains('origin-cat-joy')).toBe(false);
+    rerender(<OrinFloatingPresence {...props} joySignal={1} />);
+    expect(screen.getByTestId('origin-cat-pedestal').parentElement?.classList.contains('origin-cat-joy')).toBe(true);
   });
 
   it('shows the status pill only while working, at the same art size as idle', () => {
@@ -108,9 +118,8 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     const idlePedestal = screen.getByTestId('origin-cat-pedestal');
     expect((idlePedestal as HTMLElement).style.width).toBe('104px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
-    // ピルは段階文をそのまま出す。名前も残る。
+    // ピルは段階文をそのまま出す。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
-    expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
     // 作業中も大きさは変わらない（絵96px・台座104px）。
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
@@ -146,9 +155,8 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(screen.queryByTestId('origin-orin-presence-status')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_PRESENCE_FADE_MS); });
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    // 姿と名前は残り、大きさも待機・作業と同じ（小さくならない）。
+    // 姿は残り、大きさも待機・作業と同じ（小さくならない）。
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
-    expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     const pedestal = screen.getByTestId('origin-cat-pedestal');
@@ -171,7 +179,7 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
   });
 
-  it('stays hidden while the work sheet is open (hidden prop), even with a status text', () => {
+  it('stays hidden while the hidden prop is set, even with a status text', () => {
     renderPresence({ text: '回答を準備しています…', state: 'thinking', hidden: true });
     expect(screen.queryByTestId('origin-orin-presence')).toBeNull();
   });
@@ -190,25 +198,28 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('pins the presence CSS: fixed on screen, z-index below the work sheet, conversation clearance', () => {
+  it('pins the presence CSS: fixed on screen, z-index below the profile card, conversation clearance', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).not.toContain('.origin-orin-bubble');
     expect(css).not.toContain('.origin-orin-overlay');
     expect(css).toContain('.origin-orin-presence {');
     expect(css).toContain('.origin-orin-presence__pill {');
+    // 名前ラベルのスタイルは名前ごと削除した（2026-11-15 ノリ指示）。
+    expect(css).not.toContain('.origin-orin-presence__name');
     // スクロールで動かないよう position: fixed で画面に固定する。
     expect(css).toContain('position: fixed;');
     // ヘッダー（60px／小画面58px）の下＋8pxの位置。
     expect(css).toContain('top: calc(60px + env(safe-area-inset-top, 0px) + 8px);');
     expect(css).toContain('top: calc(58px + env(safe-area-inset-top, 0px) + 8px);');
-    // 作業シート（backdrop z-20／panel z-30）より下、会話より上。
+    // プロフィールカード（overlay z-40）より下、会話より上。
     expect(css).toContain('z-index: 15;');
     // タップできるのはプレゼンス自身のタップ対象だけ。
     expect(css).toContain('pointer-events: none;');
     expect(css).toContain('pointer-events: auto;');
     // 待機中に最初のメッセージがプレゼンスに隠れないよう、会話列に
-    // 上部の余白を確保する。
+    // 上部の余白を確保する。名前を消した分、従来の156pxから
+    // プレゼンスの実高（約122px）に合わせて131pxへ詰めた。
     expect(css).toContain('.origin-conversation-log');
-    expect(css).toContain('padding-top: 156px !important;');
+    expect(css).toContain('padding-top: 131px !important;');
   });
 });

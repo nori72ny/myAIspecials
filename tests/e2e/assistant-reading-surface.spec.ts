@@ -136,12 +136,13 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
     // 作業中表示（2026-11-14）：待ちの主表示は上部中央に浮く大きな
-    // オリン＋名前＋状態ピル（reduced-motion ではフェードなしで
-    // 出る）。全体画面ステージは出ない。
+    // オリン＋状態ピル（reduced-motion ではフェードなしで
+    // 出る）。全体画面ステージは出ない。常駐の名前テキストは
+    // 2026-11-15 のオーナー指示で削除済み（カード内表示は残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(presence).toContainText('回答を準備しています');
-    await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('オリン');
+    await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
     // 回答が終わるとピルだけが消え、姿は残る。

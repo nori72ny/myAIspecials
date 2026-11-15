@@ -2523,9 +2523,10 @@ describe('cat visibility on the top screen and while generating (owner request 2
     fireEvent.click(screen.getByTestId('start-request-button'));
     const presence = await screen.findByTestId('origin-orin-presence');
     // 作業中表示（2026-11-14）：会話内の1行表示は廃止し、段階は
-    // 上部中央に浮く大きなオリンの状態ピルが一文で表す。名前も出る。
+    // 上部中央に浮く大きなオリンの状態ピルが一文で表す。姿の下の
+    // 名前テキストは出さない（2026-11-15 ノリ指示で削除）。
     expect(presence.textContent).toContain('回答を準備しています');
-    expect(within(presence).getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
+    expect(within(presence).queryByTestId('origin-orin-presence-name')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     // 状態はプレゼンスの大きなオリンが表す（静止画・細リング台座）。
@@ -2626,19 +2627,23 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect(screen.getByTestId('origin-orin-presence').contains(controls[0])).toBe(true);
   });
 
-  it('hides the presence while the work sheet is open and shows it again when the sheet closes', async () => {
+  it('keeps the presence visible with a joy motion while the profile card is open (2026-11-15 revision)', async () => {
     const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、待ち状態を維持する */ }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App language="ja" />);
-    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'シートとプレゼンスの確認' } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'カードとプレゼンスの確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     expect(await screen.findByTestId('origin-orin-presence')).toBeTruthy();
-    // プレゼンスのタップで「いまの作業」シートが開く動作を維持し、
-    // その間はプレゼンスを隠す（シートが上に重なる）。
+    // 旧仕様（PR-β）は上から開くシートと重なるためプレゼンスを隠して
+    // いたが、新仕様（2026-11-15、Muse アプリのアバタータップ式）は
+    // 中央カード／下部シートで重ならないため、プレゼンスは残したまま
+    // タップの「喜ぶ」動きを見せる。
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-    expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
-    expect(screen.queryByTestId('origin-orin-presence')).toBeNull();
-    fireEvent.click(within(screen.getByTestId('origin-work-sheet')).getByRole('button', { name: '閉じる' }));
+    const card = screen.getByTestId('origin-work-sheet');
+    expect(within(card).getByTestId('origin-orin-profile-name').textContent).toBe('オリン');
+    const presence = screen.getByTestId('origin-orin-presence');
+    expect(presence.querySelector('.origin-cat-joy')).not.toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: '閉じる' }));
     expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
     expect(await screen.findByTestId('origin-orin-presence')).toBeTruthy();
   });
@@ -2665,7 +2670,6 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
-    expect(within(presence).getByTestId('origin-orin-presence-name').textContent).toBe('オリン');
     expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('96px');
     expect((within(presence).getByTestId('origin-cat-pedestal') as HTMLElement).style.width).toBe('104px');
   });
