@@ -138,6 +138,14 @@ describe('transcribeOriginVoiceAudio', () => {
       .resolves.toMatchObject({ ok: false, code: 'VOICE_AUDIO_TOO_LARGE', httpStatus: 413 });
     await expect(transcribeOriginVoiceAudio({ audio: AUDIO, declaredDurationMs: 60_001 }, base))
       .resolves.toMatchObject({ ok: false, code: 'VOICE_AUDIO_TOO_LONG', httpStatus: 400 });
+    // A declared duration that is not a finite non-negative number is
+    // invalid input, never coerced (parameter type confusion guard).
+    await expect(transcribeOriginVoiceAudio({ audio: AUDIO, declaredDurationMs: ['45000'] as unknown as number }, base))
+      .resolves.toMatchObject({ ok: false, code: 'VOICE_DURATION_INVALID', httpStatus: 400 });
+    await expect(transcribeOriginVoiceAudio({ audio: AUDIO, declaredDurationMs: Number.NaN }, base))
+      .resolves.toMatchObject({ ok: false, code: 'VOICE_DURATION_INVALID', httpStatus: 400 });
+    await expect(transcribeOriginVoiceAudio({ audio: AUDIO, declaredDurationMs: -1 }, base))
+      .resolves.toMatchObject({ ok: false, code: 'VOICE_DURATION_INVALID', httpStatus: 400 });
     expect(calls).toHaveLength(0);
   });
 

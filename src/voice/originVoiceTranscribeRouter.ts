@@ -71,8 +71,13 @@ function originAllowed(req: Request, env: NodeJS.ProcessEnv): boolean {
 }
 
 function parseDeclaredDurationMs(req: Request): { ok: true; value: number | null } | { ok: false } {
-  const raw = req.get('x-origin-audio-duration-ms');
-  if (raw === undefined) return { ok: true, value: null };
+  const headerValue = req.headers['x-origin-audio-duration-ms'];
+  if (headerValue === undefined) return { ok: true, value: null };
+  // A repeated header arrives as an array, not a string. The declared
+  // duration must be one string value; anything else is invalid input,
+  // never coerced (CodeQL js/type-confusion-through-parameter-tampering).
+  if (typeof headerValue !== 'string') return { ok: false };
+  const raw = headerValue;
   if (!/^\d{1,9}$/.test(raw.trim())) return { ok: false };
   const value = Number(raw.trim());
   return Number.isSafeInteger(value) && value >= 0 ? { ok: true, value } : { ok: false };

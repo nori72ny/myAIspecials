@@ -111,6 +111,7 @@ export type OriginVoiceTranscriptionFailureCode =
   | 'VOICE_AUDIO_EMPTY'
   | 'VOICE_AUDIO_TOO_LARGE'
   | 'VOICE_AUDIO_TOO_LONG'
+  | 'VOICE_DURATION_INVALID'
   | OriginCloudflareVoiceModelCatalogFailureCode
   | 'CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED'
   | 'CLOUDFLARE_DAILY_USAGE_UNVERIFIED'
@@ -220,6 +221,14 @@ export async function transcribeOriginVoiceAudio(
   if (
     input.declaredDurationMs !== undefined
     && input.declaredDurationMs !== null
+    && (typeof input.declaredDurationMs !== 'number'
+      || !Number.isFinite(input.declaredDurationMs)
+      || input.declaredDurationMs < 0)
+  ) {
+    return failure('VOICE_DURATION_INVALID', 400, false);
+  }
+  if (
+    typeof input.declaredDurationMs === 'number'
     && input.declaredDurationMs > ORIGIN_VOICE_MAX_DURATION_MS
   ) {
     return failure('VOICE_AUDIO_TOO_LONG', 400, false);
