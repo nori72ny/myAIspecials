@@ -111,6 +111,31 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
       .toBe(buildGroundedResearchPartialAnswer(iphoneSources, "en"));
   });
 
+  it("returns the deterministic partial answer when the records helper throws (provider-failed, R-PR-9d)", async () => {
+    // The deferred 9a item: when the records helper itself throws,
+    // the branch settles as provider-failed — and before R-PR-9d
+    // that state still degraded to the extractive dump. It is a
+    // records-path failure, so it now takes the same partial answer
+    // as a records-validation failure. (A provider failure of the
+    // TEXT synthesis keeps the extractive body; that switch-OFF
+    // behaviour stays pinned in originResearchRouter.test.ts.)
+    const synthesis = vi.fn().mockRejectedValue(new Error("provider exploded"));
+    const response = await request(createApp(synthesis as unknown as OriginResearchSynthesisExecutor, iphoneSources))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: iphoneQuery }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.research.synthesis).toEqual({ status: "provider-failed", failureCode: "PROVIDER_INTERNAL_ERROR" });
+    expect(response.body.routing.synthesisStatus).toBe("provider-failed");
+    expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
+    expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
+    expect(response.body.content).not.toContain("iPhone 18 Proは219,800円で、2026年9月18日に発売されます。");
+    expect(response.body.content).not.toContain("証拠比較");
+    // The records execution threw once and the branch settled: the
+    // text path never ran for a records-selected request.
+    expect(synthesis).toHaveBeenCalledTimes(1);
+  });
+
   it("caps any single line at the records packet excerpt cap and the whole body at the ceiling", () => {
     const longTitleSources: OriginResearchSource[] = Array.from({ length: 8 }, (_, i) => ({
       title: `出典${i + 1} ${"あ".repeat(1200)}`,

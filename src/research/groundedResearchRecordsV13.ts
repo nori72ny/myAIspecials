@@ -55,7 +55,15 @@ import {
  * backed by its own (src, quote), all fields required — with the
  * field definitions data-driven in the slots module, and adds the
  * four high-risk fact types (new NISA limits, hometown-tax
- * self-burden, salt intake targets, vaccination start timing). The routers reach the records
+ * self-burden, salt intake targets, vaccination start timing).
+ * R-PR-9d (RPR9_DESIGN_2026-11-15 §2 R9-D) adds the formation-side
+ * recomposition stage at the selection layer's position: the
+ * records stage's accepted records are retained on the outcome
+ * instead of being discarded when every layer fails, and — pooled
+ * with the selection layer's surviving units, which now serve as
+ * material supply — are recomposed deterministically (heading,
+ * packet-order sentences, evidence block) under the same coverage
+ * bar and post-render check. The routers reach the records
  * path only when the kill switch is ON; with it OFF the V12 text
  * path runs exactly as before.
  *
@@ -1534,6 +1542,13 @@ interface GroundedResearchSelectionAttempt {
   durationMs: number;
   /** Units surviving the deterministic cleanup. */
   selectedUnitCount: number;
+  /**
+   * The surviving units themselves, exposed as material for the
+   * recomposition stage (R-PR-9d): when this layer does not adopt,
+   * its survivors are no longer discarded but pooled with the
+   * retained accepted records.
+   */
+  selectedUnits: GroundedResearchEvidenceUnit[];
   /** Distinct packet sources the surviving selection cites. */
   citedSourceCount: number;
   /** Candidates dropped by the claim shape gate (R-PR-8a). */
@@ -1581,6 +1596,7 @@ async function attemptGroundedResearchSelection(
       usedSourceIds: [],
       durationMs: 0,
       selectedUnitCount: 0,
+      selectedUnits: [],
       citedSourceCount: 0,
       shapeDroppedIdCount: 0,
       tierDroppedIdCount: 0,
@@ -1597,6 +1613,7 @@ async function attemptGroundedResearchSelection(
     result: selectionResult,
     durationMs,
     selectedUnitCount: evaluation.selectedUnits.length,
+    selectedUnits: evaluation.selectedUnits,
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     tierDroppedIdCount: evaluation.tierDroppedIdCount,
@@ -1625,12 +1642,109 @@ async function attemptGroundedResearchSelection(
     result: selectionResult,
     durationMs,
     selectedUnitCount: evaluation.selectedUnits.length,
+    selectedUnits: evaluation.selectedUnits,
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     tierDroppedIdCount: evaluation.tierDroppedIdCount,
     ...countGroundedResearchRecordsNumericTokens(selectionRecords),
     renderCheckFailed: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// R-PR-9d: the recomposition stage (RPR9_DESIGN_2026-11-15 §2 R9-D)
+// ---------------------------------------------------------------------------
+
+/** Outcome code of the recomposition stage as a whole, for the stage metrics. */
+export type GroundedResearchRecompositionCode =
+  | "RECOMPOSITION_ADOPTED"
+  | "RECOMPOSITION_NO_MATERIAL"
+  | "RECOMPOSITION_INSUFFICIENT_COVERAGE"
+  | "RECOMPOSITION_RENDER_CHECK_FAILED";
+
+/**
+ * Pools the verified material the earlier layers produced into one
+ * recomposition material set (R-PR-9d): the records stage's retained
+ * accepted records (already merged with the retry's survivors when a
+ * retry ran) first, then the selection layer's surviving units —
+ * viewed as records through the same conversion the selection
+ * renderer uses — with the §10 merge key (source, quote start
+ * offset) dropping material the records already cover. A unit whose
+ * quote start could not be located keeps its own key so distinct
+ * units never collapse into one another. The pool is ordered
+ * deterministically — packet source order, then quote position —
+ * so the recomposed answer never depends on the order any model
+ * happened to return its material in.
+ */
+function buildGroundedResearchRecompositionMaterial(
+  retained: readonly GroundedResearchAcceptedRecord[],
+  selectedUnits: readonly GroundedResearchEvidenceUnit[],
+  packet: GroundedResearchRecordsPacket,
+): GroundedResearchAcceptedRecord[] {
+  const byKey = new Map<string, GroundedResearchAcceptedRecord>();
+  for (const record of retained) {
+    byKey.set(`${record.sourceId}:${record.quoteStart}`, record);
+  }
+  for (const record of selectionUnitsAsRecords(selectedUnits, packet)) {
+    const key = record.quoteStart >= 0
+      ? `${record.sourceId}:${record.quoteStart}`
+      : `unit:${record.evidenceIds[0] ?? record.sourceId}`;
+    if (!byKey.has(key)) byKey.set(key, record);
+  }
+  const material = [...byKey.values()];
+  material.sort((a, b) => {
+    if (a.sourceIndex !== b.sourceIndex) return a.sourceIndex - b.sourceIndex;
+    const aStart = a.quoteStart < 0 ? Number.MAX_SAFE_INTEGER : a.quoteStart;
+    const bStart = b.quoteStart < 0 ? Number.MAX_SAFE_INTEGER : b.quoteStart;
+    return aStart - bStart;
+  });
+  return material;
+}
+
+/**
+ * Deterministic recomposition of pooled verified material
+ * (R-PR-9d): a heading, the material's claim sentences as bullets in
+ * pool order (the records renderer's claim dedup and citation merge
+ * apply unchanged, via the shared renderer), an evidence block with
+ * the verbatim quote behind each record whose quote is not already
+ * its own sentence (selection units are verbatim sentences, so
+ * their quotes would only duplicate the body), and the full source
+ * list. Nothing is generated: every sentence and every quote is
+ * material a validator already passed.
+ */
+export function renderGroundedResearchRecomposedAnswer(
+  material: readonly GroundedResearchAcceptedRecord[],
+  packet: GroundedResearchRecordsPacket,
+  language: "ja" | "en",
+): string {
+  const sourceById = new Map(packet.sources.map((source) => [source.id, source]));
+  const base = renderGroundedResearchRecordsAnswer(material, packet, language);
+  const listHeading = language === "en" ? "## Sources" : "## 出典";
+  const splitAt = base.lastIndexOf(`\n\n${listHeading}\n`);
+  const bodyPart = splitAt >= 0 ? base.slice(0, splitAt) : base;
+  const listPart = splitAt >= 0 ? base.slice(splitAt + 2) : null;
+  const heading = language === "en" ? "## What could be confirmed" : "## 確認できた内容";
+  const seenQuotes = new Set<string>();
+  const evidenceLines: string[] = [];
+  for (const record of material) {
+    const quote = record.quote.replace(/\s+/g, " ").trim();
+    if (!quote || quote === record.text.replace(/\s+/g, " ").trim()) continue;
+    const key = `${record.sourceId}:${quote}`;
+    if (seenQuotes.has(key)) continue;
+    seenQuotes.add(key);
+    const source = sourceById.get(record.sourceId);
+    const citation = `[${record.sourceId}](${source?.url ?? ""})`;
+    evidenceLines.push(language === "ja"
+      ? `根拠の引用文：「${quote}」 ${citation}`
+      : `Supporting quote: "${quote}" ${citation}`);
+  }
+  return [
+    heading,
+    "",
+    bodyPart,
+    ...(evidenceLines.length > 0 ? ["", ...evidenceLines] : []),
+    ...(listPart !== null ? ["", listPart] : []),
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -2595,6 +2709,7 @@ async function attemptGroundedResearchFactSlot(
  * routers log this object verbatim on their completed/discarded lines.
  * The slot stage (§9) is present since R-PR-6, the selection stage
  * (§8) since R-PR-4, and the fresh retry stage (§10) since R-PR-5.
+ * The recomposition stage is present since R-PR-9d.
  * The adopted-answer numeric counts (verbatim-rate observation) are
  * present since R-PR-8e.
  */
@@ -2651,6 +2766,12 @@ export interface GroundedResearchRecordsStageMetrics {
   selectionTierDroppedCount: number;
   /** Selection stage: outcome code of the layer; null when not attempted. */
   selectionCode: GroundedResearchSelectionCode | null;
+  /** Recomposition stage (R-PR-9d): the stage ran (the selection layer did not adopt). */
+  recompositionAttempted: boolean;
+  /** Recomposition stage: verified material pooled from the retained records and the selection survivors. */
+  recompositionMaterialCount: number;
+  /** Recomposition stage: outcome code of the stage; null when not attempted. */
+  recompositionCode: GroundedResearchRecompositionCode | null;
   /** Retry stage (§10/§11): a fresh re-execution was invoked. */
   retryAttempted: boolean;
   /** Retry stage: why an eligible retry did not fire; null when it fired. */
@@ -2690,7 +2811,7 @@ export interface GroundedResearchRecordsStageMetrics {
   /** Slot stage: adoption / fall-through code of the layer; null when not attempted. */
   slotCode: GroundedResearchFactSlotCode | null;
   /** Arrival stage: the final form this request took. */
-  finalForm: "slot" | "records" | "records-after-retry" | "selection" | "partial";
+  finalForm: "slot" | "records" | "records-after-retry" | "selection" | "recomposition" | "partial";
 }
 
 export type GroundedResearchRecordsFailureCode =
@@ -2711,6 +2832,17 @@ export interface GroundedResearchRecordsExecutionOutcome {
   result?: OriginProviderExecutionResult;
   /** Why the records path did not adopt, when attempted and not adopted. */
   failureCode?: GroundedResearchRecordsFailureCode;
+  /**
+   * Verified records retained when the records path did not adopt
+   * (R-PR-9d, RPR9_DESIGN_2026-11-15 §2 R9-D): the records stage's
+   * survivors, merged with the fresh retry's when a retry ran. They
+   * are never discarded on total failure — the recomposition stage
+   * pools them inside the helper, and they ride the outcome so the
+   * caller can see exactly which verified material survived. Absent
+   * on adopted outcomes (their material is in `text`) and when the
+   * path was not attempted.
+   */
+  acceptedRecords?: GroundedResearchAcceptedRecord[];
   /** Stage metrics (counts/codes only), when attempted. */
   metrics?: GroundedResearchRecordsStageMetrics;
 }
@@ -2760,7 +2892,14 @@ export interface GroundedResearchRecordsExecutionOptions {
  * plan, per-record validation with the coverage re-check, deterministic
  * rendering, and the post-render check. Layer order inside the records
  * path (design §12): slot (§9, R-PR-6) → records → fresh retry (§10,
- * R-PR-5) → selection (§8, R-PR-4) → partial answer.
+ * R-PR-5) → selection (§8, R-PR-4) → recomposition (R-PR-9d) →
+ * partial answer. The recomposition stage pools the verified
+ * material the earlier layers produced — the records stage's
+ * accepted records, retained on the outcome instead of discarded,
+ * and the selection layer's surviving units as material supply —
+ * and, when the pool satisfies the same coverage bar, recomposes
+ * the answer deterministically under the same post-render check.
+ * It spends no execution, so the three-execution cap stands.
  *
  * Execution-count adjudication (R-PR-6): a slot attempt spends one
  * execution. When the slot adopts, a supporting records generation
@@ -2823,6 +2962,9 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionShapeDroppedCount: 0,
     selectionTierDroppedCount: 0,
     selectionCode: null,
+    recompositionAttempted: false,
+    recompositionMaterialCount: 0,
+    recompositionCode: null,
     retryAttempted: false,
     retrySkipped: null,
     retrySkipDetail: null,
@@ -3046,6 +3188,12 @@ export async function executeGroundedResearchRecordsSynthesis(
   let stageMetrics = metrics;
   let stageFailureCode = recordsFailureCode;
   let stageRenderCheckFailed = recordsRenderCheckFailed;
+  // Retained verified material (R-PR-9d): the records stage's
+  // survivors, replaced by the merged set when a retry ran. They are
+  // pooled by the recomposition stage below and ride the outcome on
+  // total failure — never discarded.
+  let retainedAccepted: GroundedResearchAcceptedRecord[] = evaluation.accepted;
+  let retryResult: OriginProviderExecutionResult | undefined;
   if (!slotAttempted && (recordsFailureCode === "NO_ACCEPTED_RECORDS" || recordsFailureCode === "INSUFFICIENT_SOURCE_COVERAGE")) {
     const retry = await attemptGroundedResearchRecordsRetry(options, request, result, packet, evaluation);
     stageMetrics = {
@@ -3067,6 +3215,8 @@ export async function executeGroundedResearchRecordsSynthesis(
       mergedAcceptedRecordCount: retry.evaluation ? retry.mergedAccepted.length : 0,
     };
     if (retry.evaluation) {
+      retainedAccepted = retry.mergedAccepted;
+      retryResult = retry.result;
       if (retry.mergedAccepted.length > 0 && retry.mergedCoverageSatisfied) {
         const rendered = renderGroundedResearchRecordsAnswer(retry.mergedAccepted, packet, options.language);
         const renderCheck = checkGroundedResearchRenderedAnswer(rendered, packet, retry.mergedAccepted);
@@ -3135,16 +3285,74 @@ export async function executeGroundedResearchRecordsSynthesis(
       metrics: { ...selectionMetrics, renderedRecordCount: selection.selectedUnitCount, finalForm: "selection" },
     };
   }
-  // The selection layer also failed: the records stage's failure code
-  // (as re-judged after the retry) stands — the selection outcome is
-  // recorded in the metrics only, design §11 — and the caller falls
-  // back to the partial answer.
+  // Recomposition stage (R-PR-9d, RPR9_DESIGN_2026-11-15 §2 R9-D):
+  // the selection layer did not adopt, so the verified material the
+  // earlier layers produced is pooled — the retained accepted
+  // records and the selection layer's surviving units, whose role
+  // is now material supply — and re-judged under the same coverage
+  // bar (min(2, packet sources); no relaxation). When the pool
+  // satisfies coverage, the answer is recomposed deterministically
+  // (heading, packet-order sentences, evidence block) and must pass
+  // the same post-render check (§6.5) before adoption. The stage
+  // spends no execution, so the §10 cap of three stands.
+  const recompositionMaterial = buildGroundedResearchRecompositionMaterial(
+    retainedAccepted,
+    selection.selectedUnits,
+    packet,
+  );
+  let recompositionCode: GroundedResearchRecompositionCode = "RECOMPOSITION_NO_MATERIAL";
+  let recompositionRenderCheckFailed = false;
+  if (recompositionMaterial.length > 0) {
+    const recompositionCitedSourceCount = new Set(recompositionMaterial.map((record) => record.sourceId)).size;
+    if (recompositionCitedSourceCount < Math.min(2, packet.sources.length)) {
+      recompositionCode = "RECOMPOSITION_INSUFFICIENT_COVERAGE";
+    } else {
+      const recomposed = renderGroundedResearchRecomposedAnswer(recompositionMaterial, packet, options.language);
+      const recompositionCheck = checkGroundedResearchRenderedAnswer(recomposed, packet, recompositionMaterial);
+      if (recompositionCheck.ok) {
+        return {
+          attempted: true,
+          adopted: true,
+          text: recomposed,
+          usedSourceIds: [...new Set(recompositionMaterial.map((record) => record.sourceId))],
+          // The consumed result is the last execution whose material
+          // the recomposition consumed: the selection execution when
+          // it produced one, else the retry's, else the initial one.
+          result: selection.result ?? retryResult ?? result,
+          metrics: {
+            ...selectionMetrics,
+            recompositionAttempted: true,
+            recompositionMaterialCount: recompositionMaterial.length,
+            recompositionCode: "RECOMPOSITION_ADOPTED",
+            renderedRecordCount: recompositionMaterial.length,
+            ...countGroundedResearchRecordsNumericTokens(recompositionMaterial),
+            finalForm: "recomposition",
+          },
+        };
+      }
+      recompositionCode = "RECOMPOSITION_RENDER_CHECK_FAILED";
+      recompositionRenderCheckFailed = true;
+    }
+  }
+  // Every layer failed: the records stage's failure code (as
+  // re-judged after the retry) stands — the selection and
+  // recomposition outcomes are recorded in the metrics only, design
+  // §11 — the caller falls back to the partial answer, and the
+  // retained accepted records ride the outcome instead of being
+  // discarded (R-PR-9d).
   return {
     attempted: true,
     adopted: false,
     usedSourceIds: [],
     result,
     failureCode: stageFailureCode,
-    metrics: selectionMetrics,
+    acceptedRecords: retainedAccepted,
+    metrics: {
+      ...selectionMetrics,
+      renderCheckFailed: selectionMetrics.renderCheckFailed || recompositionRenderCheckFailed,
+      recompositionAttempted: true,
+      recompositionMaterialCount: recompositionMaterial.length,
+      recompositionCode,
+    },
   };
 }
