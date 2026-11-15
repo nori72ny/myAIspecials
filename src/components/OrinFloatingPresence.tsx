@@ -10,10 +10,11 @@ import type { OriginLanguage } from '../i18n';
  * position: fixed で画面に固定され、ページをスクロールしても
  * 動かない。待機中も作業中も同じ大きさ（台座リング付き104px）で、
  * 回答が終わっても小さいヘッダーアイコンには縮まない（ヘッダー
- * 中央のオリンは廃止し、このプレゼンスに一本化した）。名前
- * 「オリン」は常に姿の真下に出し、現在の作業を平易な一文で示す
- * 濃色ピルは作業中だけ姿の下に出す。完了・失敗の合図が終われば
- * 消えるのはピルだけで、姿と名前は残る。
+ * 中央のオリンは廃止し、このプレゼンスに一本化した）。現在の
+ * 作業を平易な一文で示す濃色ピルは作業中だけ姿の下に出す。
+ * 完了・失敗の合図が終われば消えるのはピルだけで、姿は残る。
+ * 姿の下の名前テキストは出さない（2026-11-15 ノリ指示で削除。
+ * 名前はタップで開くプロフィールカードの中にだけ出す）。
  *
  * 状態文の正本は従来どおり：段階→文の対応は resolveOrinBubbleText
  * の1表に集約し、文そのものは App 側で既存正本（waitingText／
@@ -29,10 +30,14 @@ import type { OriginLanguage } from '../i18n';
  * prefers-reduced-motion では動画を使わず静止画にし、呼吸も
  * ピルのフェードも無くす（即時表示・即時消去）。
  *
- * タップで小さく頷いて「いまの作業」シートを開く（頷きの合図は
- * App 側の nodSignal）。シートが開いている間はプレゼンス自体を
- * 隠す。「いまの作業を表示」という名前の操作はこのプレゼンスの
- * タップ対象ただ1つだけ（ヘッダー側の同名ボタンは廃止した）。
+ * タップで小さく喜ぶ動き（跳ねる＋頷く、合図は App 側の
+ * joySignal）をして、オリンのプロフィールカードを開く
+ * （2026-11-15、Muse アプリのアバタータップと同じ考え方）。
+ * カードは中央モーダル／下部シートのどちらでもプレゼンスと
+ * 重ならないため、カードが開いている間もプレゼンスは隠さない
+ * （喜ぶ動きを見せるため）。「いまの作業を表示」という名前の
+ * 操作はこのプレゼンスのタップ対象ただ1つだけ（ヘッダー側の
+ * 同名ボタンは廃止した）。
  */
 
 /** ピルの出現／消去トランジションの尺。 */
@@ -96,15 +101,15 @@ export interface OrinFloatingPresenceProps {
   state: OriginCatStateKind;
   /** 名前のロケール（ja: オリン / en: Orin）。 */
   language: OriginLanguage;
-  /** タップで「いまの作業」シートを開く。 */
+  /** タップでオリンのプロフィールカードを開く。 */
   onOpenWorkSheet: () => void;
-  /** 「いまの作業」シートが開いている間はプレゼンス自体を隠す。 */
+  /** プレゼンス自体を隠す（カード表示中は使わない。汎用の非表示指定）。 */
   hidden?: boolean;
-  /** タップ時の一回性の頷きの合図（App 側で数える）。 */
-  nodSignal?: number;
+  /** タップ時の一回性の「喜ぶ」動きの合図（App 側で数える）。 */
+  joySignal?: number;
 }
 
-export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, nodSignal = 0 }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0 }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -113,7 +118,7 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
 
   useEffect(() => {
     if (hidden) {
-      // シートが開いたら競合させない：フェードを待たずピルもろとも隠す
+      // 非表示にされたら競合させない：フェードを待たずピルもろとも隠す
       // （コンポーネント自体が null を返すため、ここでは状態だけ戻す）。
       setPillText(null);
       setPillRevealed(false);
@@ -133,7 +138,7 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
       return () => window.cancelAnimationFrame(frame);
     }
     if (pillTextRef.current === null) return;
-    // 完了・失敗の合図が終わったら、消えるのはピルだけ。姿と名前は
+    // 完了・失敗の合図が終わったら、消えるのはピルだけ。姿は
     // そのまま残し、大きさも変えない。
     setPillRevealed(false);
     if (reduced) {
@@ -158,11 +163,8 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
         onClick={onOpenWorkSheet}
         aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
       >
-        <span key={nodSignal} className={nodSignal > 0 ? 'origin-cat-nod inline-flex' : 'inline-flex'}>
+        <span key={joySignal} className={joySignal > 0 ? 'origin-cat-joy inline-flex' : 'inline-flex'}>
           <OriginCatState state={state} size={ORIN_PRESENCE_CAT_SIZE_PX} pedestal breathing={breathing} />
-        </span>
-        <span className="origin-orin-presence__name" data-testid="origin-orin-presence-name">
-          {ja ? 'オリン' : 'Orin'}
         </span>
         {pillText !== null && (
           <span

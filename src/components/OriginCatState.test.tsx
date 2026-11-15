@@ -7,6 +7,7 @@ import OriginCatState, {
   ORIGIN_CAT_IDLE_MOTION_MAX_SCALE,
   ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
   ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
+  ORIGIN_CAT_JOY_DURATION_MS,
   ORIGIN_CAT_STILL_SRC,
   ORIGIN_CAT_WORKING_VIDEO_SRC,
 } from './OriginCatState';
@@ -153,7 +154,12 @@ describe('OriginCatState', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).toContain('@keyframes origin-cat-breathe');
     expect(css).toContain(`origin-cat-breathe ${ORIGIN_CAT_IDLE_MOTION_PERIOD_MS}ms`);
-    expect(css).toContain('@keyframes origin-cat-nod');
+    // タップ時の動きは旧来の頷き（nod）から「喜ぶ」動き（joy）へ
+    // 置き換えた（プロフィールカード表示、2026-11-15）。尺は従来と
+    // 同じ 700ms 級に収める。
+    expect(css).toContain('@keyframes origin-cat-joy');
+    expect(css).toContain(`origin-cat-joy ${ORIGIN_CAT_JOY_DURATION_MS}ms`);
+    expect(ORIGIN_CAT_JOY_DURATION_MS).toBe(700);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 });

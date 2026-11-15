@@ -52,8 +52,12 @@ export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
 export const ORIGIN_CAT_IDLE_MOTION_PERIOD_MS = 6000;
 export const ORIGIN_CAT_IDLE_MOTION_MAX_SCALE = 1.025;
 export const ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX = 1;
-/** タップ時などの一回性の小さな頷きの長さ（ループさせない）。 */
-export const ORIGIN_CAT_NOD_DURATION_MS = 700;
+/**
+ * タップ時の一回性の「喜ぶ」動き（小さく跳ねる＋頷く）の長さ
+ * （ループさせない）。旧来の頷き（nod）と同じ 700ms 級に収め、
+ * 拡大も控えめにする（プロフィールカード表示、2026-11-15）。
+ */
+export const ORIGIN_CAT_JOY_DURATION_MS = 700;
 
 export const ORIGIN_CAT_WORKING_VIDEO_SRC = '/brand/origin-cat-working.mp4';
 

@@ -131,8 +131,10 @@
    canon §7 / D-5). Idle breathing stays inside the caps declared in
    OriginCatState.tsx: period 6000ms (>= 3000ms), scale <= 1.025
    (<= 3%), vertical shift <= 1px (<= 2px), plus one brief blink-like
-   dip per cycle. The tap nod is a single 700ms one-shot, never a
-   loop. prefers-reduced-motion stops both (the component also drops
+   dip per cycle. The tap joy motion (small hop plus a nod, played
+   when the profile card opens, 2026-11-15) is a single 700ms
+   one-shot inside the same modest caps, never a loop.
+   prefers-reduced-motion stops both (the component also drops
    the classes in that case). */
 .origin-cat-breathe {
   animation: origin-cat-breathe 6000ms ease-in-out infinite;
@@ -145,17 +147,19 @@
   79% { transform: scale(1.012) translateY(0) scaleY(0.985); }
   82% { transform: scale(1.015) translateY(0); }
 }
-.origin-cat-nod {
-  animation: origin-cat-nod 700ms ease-in-out 1;
+.origin-cat-joy {
+  animation: origin-cat-joy 700ms ease-in-out 1;
   transform-origin: 50% 62%;
 }
-@keyframes origin-cat-nod {
+@keyframes origin-cat-joy {
   0%, 100% { transform: translateY(0) scale(1); }
-  35% { transform: translateY(2px) scale(0.98); }
+  28% { transform: translateY(-3px) scale(1.02); }
+  50% { transform: translateY(0) scale(1); }
+  72% { transform: translateY(2px) scale(0.98); }
 }
 @media (prefers-reduced-motion: reduce) {
   .origin-cat-breathe,
-  .origin-cat-nod {
+  .origin-cat-joy {
     animation: none;
   }
 }
@@ -558,19 +562,20 @@
    (position: fixed) so page scroll never moves it, at the same size
    (104px pedestal) in idle and working states alike — it does not
    shrink back to a small header icon when an answer completes. The
-   name sits under the circle in both states; the dark status pill
-   appears under the name only while work is in flight, and on
-   completion only the pill fades away.
+   dark status pill appears under the circle only while work is in
+   flight, and on completion only the pill fades away. No name text
+   sits under the circle (removed by owner request, 2026-11-15;
+   the name appears inside the profile card instead).
    Position: top = header height (60px, 58px on small screens) plus
    the top safe-area inset plus an 8px gap, so the circle hangs just
    below the header bar and renders above the scrolling conversation.
    z-index 15 sits above the conversation and the composer (neither
-   carries an explicit z-index) and below the work-sheet backdrop
-   (z-20) and panel (z-30), the header (z-50), the artifact workspace
-   (z-50) and the image panel (z-80): the sheet opens from the top and
-   covers this presence, and the component also hides immediately
-   while the sheet is open. The presence itself is pointer-events:
-   none; only its own tap target (circle + name + pill) accepts taps,
+   carries an explicit z-index) and below the Orin profile card
+   overlay (z-40), the header (z-50), the artifact workspace
+   (z-50) and the image panel (z-80): the card opens over this
+   presence, which stays visible underneath so the tap joy motion
+   can play (profile card revision, 2026-11-15). The presence itself is pointer-events:
+   none; only its own tap target (circle + pill) accepts taps,
    so the conversation behind it stays scrollable. Width is capped by
    the viewport so it cannot overflow at 320px. The pill's motion is
    a gentle opacity fade plus a slight scale on entry, driven by the
@@ -611,13 +616,6 @@
   outline-offset: 2px;
   border-radius: 24px;
 }
-.origin-orin-presence__name {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
 .origin-orin-presence__pill {
   max-width: min(88vw, 20rem);
   padding: 6px 12px;
@@ -644,16 +642,83 @@
   }
 }
 
+/* Orin profile card (owner request 2026-11-15, Muse-app style avatar
+   tap). Tapping the resident Orin opens this card: Orin's profile
+   (large art, name, one-line introduction) plus the same "current
+   work" list the old top sheet carried. The content is identical on
+   every device; only the form factor changes at the 640px breakpoint
+   (the app's sm breakpoint): below it the card is a bottom sheet,
+   at or above it a centered modal card. The overlay is fixed over
+   the viewport at z-index 40 — above the presence (z-15) so the
+   backdrop catches taps, below the header (z-50). The presence
+   stays visible behind the lightly dimmed backdrop so the tap joy
+   motion can play. Entry motion is a short fade plus a small rise;
+   prefers-reduced-motion removes it. */
+.origin-orin-profile {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.origin-orin-profile__backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgb(15 23 42 / 28%);
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-profile__card {
+  position: relative;
+  width: 100%;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -12px 32px rgb(15 23 42 / 18%);
+  animation: origin-orin-profile-in 220ms ease-out;
+}
+@media (min-width: 640px) {
+  .origin-orin-profile {
+    align-items: center;
+    padding: 24px;
+  }
+  .origin-orin-profile__card {
+    max-width: 26rem;
+    border-bottom: 1px solid var(--border-default);
+    border-radius: 24px;
+    box-shadow: 0 16px 40px rgb(15 23 42 / 20%);
+  }
+}
+@keyframes origin-orin-profile-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-orin-profile__card {
+    animation: none;
+  }
+}
+
 /* Conversation clearance for the floating presence: the presence
-   block (8px gap + 4px tap padding + 104px pedestal + 6px gap +
-   ~19px name + 6px tap padding, about 147px below the header) must
-   not cover the first message while idle, so the conversation
-   column starts 156px below the scroll area's content top;
-   scrolling then slides messages under the presence. The
-   high-specificity selectors mirror the small-screen first-child
-   rule above, which would otherwise override this padding on
-   narrow screens. */
+   block (8px gap + 4px tap padding + 104px pedestal + 6px tap
+   padding, about 122px below the header) must not cover the first
+   message while idle, so the conversation column starts 131px
+   below the scroll area's content top; scrolling then slides
+   messages under the presence. The block shrank when the name
+   text under the art was removed (owner request, 2026-11-15);
+   the earlier value was 156px with the name. The high-specificity
+   selectors mirror the small-screen first-child rule above, which
+   would otherwise override this padding on narrow screens. */
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-conversation-log,
 .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-conversation-log {
-  padding-top: 156px !important;
+  padding-top: 131px !important;
 }

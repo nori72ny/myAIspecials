@@ -1,15 +1,25 @@
+import { useEffect } from 'react';
 import { X } from 'lucide-react';
+import OriginCatState from './OriginCatState';
 import type { OriginLanguage } from '../i18n';
 
 /**
- * 「いまの作業」シート（PR-β、設計正本 §9、2026-11-13）。
+ * オリンのプロフィールカード（2026-11-15、ノリ指示）。
  *
- * ヘッダー上部中央の常駐オリンをタップすると上から開く、現在の
- * 作業の一覧。載せるのは平易な項目タイトル＋状態（進行中／完了）
- * ＋最小限の進み具合だけで、詳細・ログ・技術用語は出さない
- * （作業工程表示ルール 2026-11-09）。詳しい作業内容は各画面側の
- * 表示（エージェント画面の実況パネルなど）に寄せ、ここは全体の
- * 要約に徹する。
+ * 画面上部中央の常駐オリンをタップすると開く。Muse アプリの
+ * アバタータップと同じ考え方で、オリンのプロフィール（大きな姿・
+ * 名前・ひとこと紹介）と「いまの作業」の一覧を1枚のカードに載せる。
+ * 「いまの作業」は従来の上部シート（PR-β、2026-11-13）が載せていた
+ * 内容そのまま：平易な項目タイトル＋状態（進行中／完了）＋最小限の
+ * 進み具合だけで、詳細・ログ・技術用語は出さない（作業工程表示
+ * ルール 2026-11-09）。詳しい作業内容は各画面側の表示（エージェント
+ * 画面の実況パネルなど）に寄せ、ここは全体の要約に徹する。
+ *
+ * 内容と項目は全デバイスで完全に同一にし、表示形態だけを変える：
+ * 広い画面（640px以上）では中央のカード型モーダル、狭い画面では
+ * 下から出るシート型。切り替えは origin-top-ui.css の
+ * .origin-orin-profile 側（ブレークポイント 640px）が担う。
+ * 閉じる操作は×ボタン・カード外タップ・Escキーの3つ。
  */
 export interface OriginWorkSheetItem {
   id: string;
@@ -30,36 +40,60 @@ export interface OriginWorkSheetProps {
   onOpenAgent?: () => void;
 }
 
+/** カードに大きく出すオリンの姿の寸法（px）。台座込みの外径はその約1.08倍。 */
+export const ORIN_PROFILE_ART_SIZE_PX = 128;
+
 export default function OriginWorkSheet({ open, items, language, onClose, onOpenAgent }: OriginWorkSheetProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
   const ja = language !== 'en';
   return (
-    <>
+    <div className="origin-orin-profile">
       <button
         type="button"
         data-testid="origin-work-sheet-backdrop"
         aria-label={ja ? '閉じる' : 'Close'}
         onClick={onClose}
-        className="absolute inset-0 z-20 h-full w-full cursor-default"
+        className="origin-orin-profile__backdrop"
       />
-      <div className="absolute inset-x-0 top-14 z-30 mx-auto w-full max-w-md px-3">
-        <section
-          data-testid="origin-work-sheet"
-          role="dialog"
-          aria-label={ja ? 'いまの作業' : 'Current work'}
-          className="origin-surface rounded-2xl border border-[var(--border-default)] p-4 shadow-lg"
+      <section
+        data-testid="origin-work-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={ja ? 'オリンのプロフィール' : "Orin's profile"}
+        className="origin-orin-profile__card origin-surface"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={ja ? '閉じる' : 'Close'}
+          className="origin-secondary-button absolute right-3 top-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px]"
         >
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="m-0 text-sm font-black">{ja ? 'いまの作業' : 'Current work'}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={ja ? '閉じる' : 'Close'}
-              className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px]"
-            >
-              <X aria-hidden="true" size={17} strokeWidth={2.1} />
-            </button>
-          </div>
+          <X aria-hidden="true" size={17} strokeWidth={2.1} />
+        </button>
+        <div className="flex flex-col items-center px-2 text-center">
+          <span data-testid="origin-orin-profile-art" className="inline-flex">
+            <OriginCatState state="waiting" size={ORIN_PROFILE_ART_SIZE_PX} pedestal />
+          </span>
+          <h2 data-testid="origin-orin-profile-name" className="m-0 mt-3 text-xl font-black">
+            {ja ? 'オリン' : 'Orin'}
+          </h2>
+          <p data-testid="origin-orin-profile-intro" className="m-0 mt-2 max-w-xs text-sm leading-6">
+            {ja
+              ? 'こんにちは、オリンです。調べものや資料づくりなど、やりたいことを伝えてください。'
+              : "Hi, I'm Orin. Tell me what you'd like to do — looking things up, making documents, and more."}
+          </p>
+        </div>
+        <div className="mt-5 border-t border-[var(--border-default)] pt-4">
+          <h3 className="m-0 text-sm font-black">{ja ? 'いまの作業' : 'Current work'}</h3>
           {items.length === 0 ? (
             <p className="mb-1 mt-3 text-sm">{ja ? 'いまは作業していません' : 'Nothing is in progress right now'}</p>
           ) : (
@@ -96,8 +130,8 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
               })}
             </ul>
           )}
-        </section>
-      </div>
-    </>
+        </div>
+      </section>
+    </div>
   );
 }
