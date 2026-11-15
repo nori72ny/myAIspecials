@@ -72,6 +72,20 @@ export function readPersonalizationEnabled(): boolean {
   return stored?.personalizationEnabled !== false;
 }
 
+/**
+ * Reads the persisted UI language straight from the persisted settings, for
+ * non-React callers (the chat bridge labels the personal context block it
+ * assembles with it, design §6.2). Defaults to Japanese when nothing valid
+ * is stored, matching DEFAULT_PERSONAL_SETTINGS.
+ */
+export function readPersonalLanguage(): 'ja' | 'en' {
+  const stored = SafeStorage.get<StoredPersonalSettings>(
+    PERSONAL_SETTINGS_STORAGE_KEY,
+    isStoredPersonalSettings,
+  );
+  return stored?.language === 'en' ? 'en' : 'ja';
+}
+
 export function usePersonalSettings() {
   const [settings, setSettings] = useState<Settings>(() => (
     toPersonalSettings(
