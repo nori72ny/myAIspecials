@@ -104,9 +104,11 @@
 [data-testid="origin-core-logo"] {
   margin-bottom: 14px !important;
 }
-/* Bright pedestal disc: the cat artwork is dark navy on a baked-in black
-   background, so it sits on a light disc with a ring and shadow to stay
-   clearly visible on both light and dark themes. */
+/* Bright pedestal disc: originally made for cat artwork in dark navy on
+   a baked-in black background, so the cat sits on a light disc with a
+   ring and shadow to stay clearly visible on both light and dark
+   themes. The 2026-11-15 redesign (PR-delta2) gives the artwork a
+   baked-in cream background; the disc treatment is unchanged. */
 .origin-cat-pedestal {
   display: inline-flex;
   align-items: center;
