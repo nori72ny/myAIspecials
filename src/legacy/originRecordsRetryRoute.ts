@@ -28,6 +28,7 @@ import {
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID,
   ORIGIN_GROQ_FREE_PROVIDER_ID,
   ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
+  type OriginExecutionPlanFailureCode,
 } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginCloudflareFreeModelEvidence } from "../lib/orchestration/OriginCloudflareFreeModelCatalog.js";
 import type { OriginGroqFreeModelEvidence } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
@@ -102,6 +103,100 @@ export interface GroundedResearchRecordsRetryRouteDeps {
 }
 
 /**
+ * Which derivation stage produced a no-next-route skip (R-PR-8d,
+ * RPR8_DESIGN_2026-11-15 §8d). Until this PR every stage below
+ * collapsed into the records helper's single "no-next-route" skip
+ * reason, so a production log line could not distinguish a request
+ * the final route had already served (a legitimate skip — no next
+ * route exists) from a derivation that failed on an earlier route.
+ * The plan-failure variants carry the route-plan builder's failure
+ * code after the colon (FREE_MODEL_EVIDENCE_STALE /
+ * FREE_MODEL_CATALOG_INVALID in practice).
+ */
+export type GroundedResearchRecordsRetrySkipDetail =
+  | "route-unidentifiable"
+  | "final-route"
+  | "cloudflare-not-enabled"
+  | "cloudflare-not-credentialed"
+  | "groq-not-configured"
+  | `cloudflare-plan-failed:${OriginExecutionPlanFailureCode}`
+  | `groq-plan-failed:${OriginExecutionPlanFailureCode}`;
+
+/**
+ * The detailed no-next-route outcome: instead of a bare null, the
+ * detailed executor returns this carrier naming the stage that
+ * produced the skip. The records helper records the detail in its
+ * stage metrics next to the standing "no-next-route" reason
+ * (R-PR-8d); every other consumer keeps the bare-null contract.
+ */
+export interface GroundedResearchRecordsRetrySkip {
+  skipDetail: GroundedResearchRecordsRetrySkipDetail;
+}
+
+type GroundedResearchRecordsRetryDerivation =
+  | { kind: "executed"; result: OriginProviderExecutionResult }
+  | { kind: "skipped"; skipDetail: GroundedResearchRecordsRetrySkipDetail };
+
+/**
+ * The derivation both executor factories share: identify the serving
+ * route, derive the NEXT route's plan, and execute the same request
+ * on that route. Each early exit names its stage (R-PR-8d) instead of
+ * collapsing into a bare null; execution errors propagate to the
+ * caller, which contains them in the retry layer (design §10).
+ */
+async function deriveGroundedResearchRecordsRetryExecution(
+  deps: GroundedResearchRecordsRetryRouteDeps,
+  request: OriginProviderExecutionRequest,
+  firstResult: OriginProviderExecutionResult,
+): Promise<GroundedResearchRecordsRetryDerivation> {
+  const route = identifyGroundedResearchServingRoute(firstResult);
+  if (route === null) return { kind: "skipped", skipDetail: "route-unidentifiable" };
+  if (route === 3) return { kind: "skipped", skipDetail: "final-route" };
+  if (route === 1) {
+    if (!isOriginCloudflareFailoverEnabled(deps.env)) {
+      return { kind: "skipped", skipDetail: "cloudflare-not-enabled" };
+    }
+    if (!resolveOriginCloudflareCredentials(deps.env)) {
+      return { kind: "skipped", skipDetail: "cloudflare-not-credentialed" };
+    }
+    const planResult = buildOriginCloudflareRoutePlan(
+      { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+      { cloudflareFreeModelCatalog: deps.cloudflareCatalog, nowMs: deps.nowMs },
+    );
+    if (planResult.ok === false) return { kind: "skipped", skipDetail: `cloudflare-plan-failed:${planResult.code}` };
+    const execute = deps.cloudflareExecute ?? executeOriginCloudflareProvider;
+    const result = await execute(
+      { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+      deps.env,
+      deps.fetchImpl ?? fetch,
+      { catalog: deps.cloudflareCatalog, nowMs: deps.nowMs },
+    );
+    return { kind: "executed", result };
+  }
+  if (!isOriginGroqRouteConfigured(deps.env)) {
+    return { kind: "skipped", skipDetail: "groq-not-configured" };
+  }
+  const planResult = buildOriginGroqRoutePlan(
+    { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+    { groqFreeModelCatalog: deps.groqCatalog, nowMs: deps.nowMs },
+  );
+  if (planResult.ok === false) return { kind: "skipped", skipDetail: `groq-plan-failed:${planResult.code}` };
+  const execute = deps.groqExecute ?? executeOriginGroqProvider;
+  const result = await execute(
+    {
+      plan: planResult.plan,
+      messages: request.messages,
+      systemInstruction: request.systemInstruction,
+      groqSystemInstruction: request.groqSystemInstruction,
+    },
+    deps.env,
+    deps.fetchImpl ?? fetch,
+    { catalog: deps.groqCatalog, nowMs: deps.nowMs },
+  );
+  return { kind: "executed", result };
+}
+
+/**
  * Builds the records helper's `executeRetry` callback: given the
  * initial records request and its result, derive the NEXT route's
  * plan from the request's plan and execute the same request on that
@@ -121,43 +216,29 @@ export function createGroundedResearchRecordsRetryExecutor(
   firstResult: OriginProviderExecutionResult,
 ) => Promise<OriginProviderExecutionResult | null> {
   return async (request, firstResult) => {
-    const route = identifyGroundedResearchServingRoute(firstResult);
-    if (route === null || route === 3) return null;
-    if (route === 1) {
-      if (!isOriginCloudflareFailoverEnabled(deps.env) || !resolveOriginCloudflareCredentials(deps.env)) {
-        return null;
-      }
-      const planResult = buildOriginCloudflareRoutePlan(
-        { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
-        { cloudflareFreeModelCatalog: deps.cloudflareCatalog, nowMs: deps.nowMs },
-      );
-      if (!planResult.ok) return null;
-      const execute = deps.cloudflareExecute ?? executeOriginCloudflareProvider;
-      return execute(
-        { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
-        deps.env,
-        deps.fetchImpl ?? fetch,
-        { catalog: deps.cloudflareCatalog, nowMs: deps.nowMs },
-      );
-    }
-    if (!isOriginGroqRouteConfigured(deps.env)) return null;
-    const planResult = buildOriginGroqRoutePlan(
-      { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
-      { groqFreeModelCatalog: deps.groqCatalog, nowMs: deps.nowMs },
-    );
-    if (!planResult.ok) return null;
-    const execute = deps.groqExecute ?? executeOriginGroqProvider;
-    return execute(
-      {
-        plan: planResult.plan,
-        messages: request.messages,
-        systemInstruction: request.systemInstruction,
-        groqSystemInstruction: request.groqSystemInstruction,
-      },
-      deps.env,
-      deps.fetchImpl ?? fetch,
-      { catalog: deps.groqCatalog, nowMs: deps.nowMs },
-    );
+    const derivation = await deriveGroundedResearchRecordsRetryExecution(deps, request, firstResult);
+    return derivation.kind === "executed" ? derivation.result : null;
+  };
+}
+
+/**
+ * The detailed variant the grounded routers wire (R-PR-8d): same
+ * derivation and execution as
+ * `createGroundedResearchRecordsRetryExecutor`, but a no-next-route
+ * outcome returns the skip carrier naming the derivation stage
+ * instead of a bare null, so the records helper can record WHICH
+ * stage skipped in its stage metrics. Execution errors propagate
+ * exactly as in the bare variant.
+ */
+export function createGroundedResearchRecordsRetryExecutorWithDetail(
+  deps: GroundedResearchRecordsRetryRouteDeps,
+): (
+  request: OriginProviderExecutionRequest,
+  firstResult: OriginProviderExecutionResult,
+) => Promise<OriginProviderExecutionResult | GroundedResearchRecordsRetrySkip> {
+  return async (request, firstResult) => {
+    const derivation = await deriveGroundedResearchRecordsRetryExecution(deps, request, firstResult);
+    return derivation.kind === "executed" ? derivation.result : { skipDetail: derivation.skipDetail };
   };
 }
 

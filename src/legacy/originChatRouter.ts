@@ -14,7 +14,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
-import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutor } from "./originRecordsRetryRoute.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import {
   createDefaultOriginResearchExecutor,
@@ -341,8 +341,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 // Fresh retry (§10): re-execute the records request on
                 // the route after the one that served the initial
                 // result; the time gate runs on this router's grounded
-                // clock pair (groundedStartedAt / now).
-                executeRetry: createGroundedResearchRecordsRetryExecutor({ env, nowMs: catalogNow() }),
+                // clock pair (groundedStartedAt / now). The detailed
+                // executor (R-PR-8d) names the derivation stage when
+                // no next route exists, recorded as retrySkipDetail.
+                executeRetry: createGroundedResearchRecordsRetryExecutorWithDetail({ env, nowMs: catalogNow() }),
                 startedAtMs: groundedStartedAt,
                 now,
               });

@@ -3,6 +3,10 @@ import type {
   OriginProviderExecutionRequest,
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient.js";
+import type {
+  GroundedResearchRecordsRetrySkip,
+  GroundedResearchRecordsRetrySkipDetail,
+} from "../legacy/originRecordsRetryRoute.js";
 import {
   ORIGIN_TIER_WEIGHT,
   type OriginSourceAuthorityTier,
@@ -1657,6 +1661,12 @@ interface GroundedResearchRecordsRetryAttempt {
   attempted: boolean;
   /** Why the retry did not fire; null when it fired. */
   skipped: GroundedResearchRecordsRetrySkipReason | null;
+  /**
+   * Which derivation stage produced a no-next-route skip (R-PR-8d);
+   * present only when the callback reported the detailed skip —
+   * null for bare-null callbacks and for every other outcome.
+   */
+  skipDetail: GroundedResearchRecordsRetrySkipDetail | null;
   /** The retry execution ran on the advanced route (a result came back). */
   routeAdvanced: boolean;
   /** The retry execution or its $0 assertion threw (contained). */
@@ -1684,6 +1694,9 @@ interface GroundedResearchRecordsRetryAttempt {
  * next route exists (the initial execution already reached the final
  * route, or the next route is not configured / cannot be derived) —
  * recorded here as the no-next-route skip, with no execution spent.
+ * The callback may instead return the detailed skip carrier
+ * (R-PR-8d), naming the derivation stage that produced the skip; the
+ * standing reason is unchanged and the stage lands in the metrics.
  * When no callback is wired the layer is disabled and never fires.
  *
  * Every failure is contained, exactly like the selection layer: an
@@ -1701,6 +1714,7 @@ async function attemptGroundedResearchRecordsRetry(
 ): Promise<GroundedResearchRecordsRetryAttempt> {
   const base = {
     attempted: false,
+    skipDetail: null as GroundedResearchRecordsRetrySkipDetail | null,
     routeAdvanced: false,
     executionFailed: false,
     durationMs: 0,
@@ -1720,15 +1734,21 @@ async function attemptGroundedResearchRecordsRetry(
       return { ...base, skipped: "time-budget" };
     }
   }
-  let retryResult: OriginProviderExecutionResult | null;
+  let retryOutcome: OriginProviderExecutionResult | GroundedResearchRecordsRetrySkip | null;
   try {
-    retryResult = await options.executeRetry(request, firstResult);
+    retryOutcome = await options.executeRetry(request, firstResult);
   } catch {
     return { ...base, attempted: true, skipped: null, executionFailed: true };
   }
-  if (retryResult === null) {
+  if (retryOutcome === null) {
     return { ...base, skipped: "no-next-route" };
   }
+  if ("skipDetail" in retryOutcome) {
+    // Detailed skip (R-PR-8d): the standing reason stays
+    // "no-next-route"; the detail names the derivation stage.
+    return { ...base, skipped: "no-next-route", skipDetail: retryOutcome.skipDetail };
+  }
+  const retryResult: OriginProviderExecutionResult = retryOutcome;
   try {
     options.assertZeroCost(retryResult);
   } catch {
@@ -1744,6 +1764,7 @@ async function attemptGroundedResearchRecordsRetry(
   return {
     attempted: true,
     skipped: null,
+    skipDetail: null,
     routeAdvanced: true,
     executionFailed: false,
     result: retryResult,
@@ -2431,6 +2452,12 @@ export interface GroundedResearchRecordsStageMetrics {
   retryAttempted: boolean;
   /** Retry stage: why an eligible retry did not fire; null when it fired. */
   retrySkipped: GroundedResearchRecordsRetrySkipReason | null;
+  /**
+   * Retry stage: which derivation stage produced a no-next-route
+   * skip (R-PR-8d); null when the retry fired, was disabled or
+   * time-gated, or the callback reported a bare null.
+   */
+  retrySkipDetail: GroundedResearchRecordsRetrySkipDetail | null;
   /** Retry stage: the retry execution ran on the advanced route. */
   retryRouteAdvanced: boolean;
   /** Retry stage: the retry execution or its $0 assertion failed (contained). */
@@ -2505,12 +2532,15 @@ export interface GroundedResearchRecordsExecutionOptions {
    * already reached the final route, or the next route is not
    * configured / its plan cannot be derived — which the helper
    * records as the no-next-route skip without spending an execution.
-   * When not supplied, the retry layer is disabled and never fires.
+   * The detailed skip carrier (R-PR-8d) may be returned instead of a
+   * bare null to name the derivation stage in the metrics; the
+   * recorded skip reason is the same either way. When not supplied,
+   * the retry layer is disabled and never fires.
    */
   executeRetry?: (
     request: OriginProviderExecutionRequest,
     firstResult: OriginProviderExecutionResult,
-  ) => Promise<OriginProviderExecutionResult | null>;
+  ) => Promise<OriginProviderExecutionResult | GroundedResearchRecordsRetrySkip | null>;
   /**
    * Grounded-stage start timestamp for the retry time gate (design
    * §10), on the same clock as `now`. The gate is evaluated only
@@ -2592,6 +2622,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionCode: null,
     retryAttempted: false,
     retrySkipped: null,
+    retrySkipDetail: null,
     retryRouteAdvanced: false,
     retryExecutionFailed: false,
     retryFormatKind: null,
@@ -2820,6 +2851,7 @@ export async function executeGroundedResearchRecordsSynthesis(
       synthesisDurationMs: metrics.synthesisDurationMs + retry.durationMs,
       retryAttempted: retry.attempted,
       retrySkipped: retry.skipped,
+      retrySkipDetail: retry.skipDetail,
       retryRouteAdvanced: retry.routeAdvanced,
       retryExecutionFailed: retry.executionFailed,
       retryFormatKind: retry.evaluation?.parse.format ?? null,
