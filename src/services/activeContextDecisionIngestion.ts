@@ -1,6 +1,5 @@
-import { saveDecisionNode, setActiveContextUserId } from './activeContextGraph';
+import { resolveActiveContextUserId, saveDecisionNode } from './activeContextGraph';
 
-const USER_ID_STORAGE_KEY = 'origin-active-context-user-id:v1';
 const INSTALL_FLAG = '__originActiveContextDecisionIngestionInstalled';
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_ANSWER_CHARS = 6_000;
@@ -36,18 +35,6 @@ function hasMarker(value: string, markers: string[]): boolean {
 
 function containsSensitiveInput(value: string): boolean {
   return SENSITIVE_MARKERS.some((pattern) => pattern.test(value));
-}
-
-function getOrCreateUserId(): string {
-  try {
-    const existing = window.localStorage.getItem(USER_ID_STORAGE_KEY)?.trim();
-    if (existing) return existing;
-    const generated = `origin-user-${window.crypto.randomUUID()}`;
-    window.localStorage.setItem(USER_ID_STORAGE_KEY, generated);
-    return generated;
-  } catch {
-    return 'origin-anonymous-local';
-  }
 }
 
 function cleanText(value: string, maxChars: number): string {
@@ -103,8 +90,9 @@ async function ingestChatResponse(request: Request, response: Response): Promise
     const answer = cleanText(payload.content, MAX_ANSWER_CHARS);
     if (!shouldPersist(prompt, answer)) return;
 
-    const userId = getOrCreateUserId();
-    setActiveContextUserId(userId);
+    // User id generation is unified in the storage layer (design §5.2); the
+    // resolver also marks the id active for context retrieval.
+    const userId = resolveActiveContextUserId();
     const decisionData = extractDecisionData(prompt, answer);
 
     // Intentionally fire-and-forget: memory persistence must never block or alter chat UX.
