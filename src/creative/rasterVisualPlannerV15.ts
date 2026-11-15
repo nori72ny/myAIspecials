@@ -1,4 +1,5 @@
 import { resolveRasterVisualTemplateV15 } from './rasterVisualTemplatesV15.js';
+import { WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16 } from './worldClassImagePromptCompilerV16.js';
 export type RasterVisualPurposeV15 =
   | 'photograph'
   | 'illustration'
@@ -191,6 +192,22 @@ function cameraFor(purpose: RasterVisualPurposeV15): string[] {
   return ['camera treatment appropriate to the requested visual style'];
 }
 
+// Copyright policy (owner policy, adopted 2026-11-16): the compiled
+// prompt carries the originality constraint from the prompt compiler's
+// profile-constraint set, plus a purpose-specific line where the
+// imitation risk concentrates — marks and logos must be original
+// designs, and commercial work must keep branding generic.
+function originalityConstraintsFor(purpose: RasterVisualPurposeV15): string[] {
+  const constraints = [WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16];
+  if (purpose === 'logo' || purpose === 'icon') {
+    constraints.push('The mark must be an original design created for this request: never reproduce, redraw, or approximate an existing logo, emblem, mascot, or trademarked symbol.');
+  }
+  if (purpose === 'product' || purpose === 'advertisement') {
+    constraints.push('Keep all product branding generic and original: do not reproduce real brand logos, labels, or trademarked packaging designs.');
+  }
+  return constraints;
+}
+
 function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiledPrompt' | 'negativePrompt'>): string {
   const exactTextInstruction = plan.exactText.length
     ? `Critical text will be rendered later by ORIGIN deterministic typography: ${plan.exactText.map((value) => `"${value}"`).join(', ')}. Reserve a clean high-contrast typography-safe region, but do not render this critical text yourself. Do not invent additional words or logos and avoid drawing conflicting copy.`
@@ -205,6 +222,7 @@ function compiledPrompt(input: string, plan: Omit<RasterVisualPlanV15, 'compiled
     `Lighting: ${plan.lighting.join('; ')}.`,
     `Camera/rendering: ${plan.camera.join('; ')}.`,
     exactTextInstruction,
+    `Originality: ${originalityConstraintsFor(plan.purpose).join(' ')}`,
     'Prioritize instruction following, coherent geometry, natural anatomy where applicable, realistic contact and shadows, clean edges, and a deliberate professional finish.',
   ].join('\n');
 }
@@ -252,6 +270,9 @@ export function planRasterVisualRequestV15(
     'inconsistent lighting',
     'watermark',
     'signature',
+    'copyrighted characters',
+    'existing brand logos',
+    'trademarked mascots',
     'generic AI robot imagery unless explicitly requested',
     'excessive neon unless explicitly requested',
     'busy composition',

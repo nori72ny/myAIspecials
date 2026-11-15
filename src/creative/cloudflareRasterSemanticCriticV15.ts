@@ -21,6 +21,44 @@ export const RASTER_SEMANTIC_AXES_V15 = [
 export type RasterSemanticAxisV15 = (typeof RASTER_SEMANTIC_AXES_V15)[number];
 export type RasterSemanticScoresV15 = Record<RasterSemanticAxisV15, number>;
 
+/**
+ * Shadow axes (D-PHASE-2 pattern, applied to the copyright policy
+ * adopted 2026-11-16): axes the critic is asked to enumerate defects
+ * for and whose results are recorded on the verdict for calibration,
+ * but which are NEVER read by the quality gate — not by the axis
+ * floor, not by the average, not by `passed`, and not by the retry
+ * feedback (`issues`). A shadow axis can only join the gate after a
+ * separate calibration step promotes it; until then its derived
+ * score is evidence for that calibration, nothing more.
+ *
+ * `ipSimilarity` covers the depicted-result side of the copyright
+ * policy: a generated image that recognizably matches or closely
+ * approximates an existing copyrighted character or a trademarked
+ * brand design, including names the prompt-side dictionary guard
+ * (rasterIpPolicyV15) does not know.
+ */
+export const RASTER_SEMANTIC_SHADOW_AXES_V15 = [
+  'ipSimilarity',
+] as const;
+
+export type RasterSemanticShadowAxisV15 = (typeof RASTER_SEMANTIC_SHADOW_AXES_V15)[number];
+
+export type RasterSemanticShadowAxisRecordV15 = {
+  defects: readonly string[];
+  defectCount: number;
+  /** Derived with the same deterministic mapping as the gate axes,
+   *  for calibration comparison only. Never a gate input. */
+  derivedScore: number;
+};
+
+/** One record per shadow axis, or null where the model's answer did
+ *  not carry a usable list for that axis (absent or malformed — the
+ *  shadow channel is fail-soft and can never fail the verdict). */
+export type RasterSemanticShadowAxesV15 = Record<
+  RasterSemanticShadowAxisV15,
+  RasterSemanticShadowAxisRecordV15 | null
+>;
+
 export type RasterSemanticCriticInputV15 = {
   originalRequest: string;
   exactText?: readonly string[];
@@ -42,6 +80,14 @@ export type RasterSemanticCriticResultV15 = {
    * the safety judgment.
    */
   scores: RasterSemanticScoresV15;
+  /**
+   * Shadow-axis records (see RASTER_SEMANTIC_SHADOW_AXES_V15):
+   * defect lists the model returned for the calibration-only axes,
+   * with their deterministically derived scores. Recorded for the
+   * calibration step that decides whether an axis may ever join the
+   * gate; the gate predicate below never reads this field.
+   */
+  shadowAxes: RasterSemanticShadowAxesV15;
   checks: readonly string[];
   issues: readonly string[];
   /**
@@ -231,6 +277,7 @@ type SemanticPayload = {
   textHandling?: unknown;
   artifactControl?: unknown;
   professionalUsefulness?: unknown;
+  ipSimilarity?: unknown;
   safetyPassed?: unknown;
   safetyIssues?: unknown;
   summary?: unknown;
@@ -398,7 +445,38 @@ function deriveAxisScore(defectCount: number): number {
   return Math.max(0, 4 - Math.ceil(defectCount / 2));
 }
 
-function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticScoresV15; defectCounts: Record<RasterSemanticAxisV15, number>; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
+/**
+ * Parse one shadow axis's defect list, fail-soft by design: the
+ * shadow channel is calibration evidence, so a missing key, a
+ * non-list value, a malformed element, or a copied template
+ * placeholder yields a null record ("not recorded") instead of the
+ * format failure the gate axes raise — a shadow axis must never be
+ * able to change whether a verdict is accepted. A well-formed
+ * over-limit list truncates exactly like a gate axis's list (the
+ * derived score has saturated by then, and the truncation is
+ * recorded in `adjustments`).
+ */
+function parseShadowAxisRecord(
+  raw: unknown,
+  field: RasterSemanticShadowAxisV15,
+  adjustments: string[],
+): RasterSemanticShadowAxisRecordV15 | null {
+  if (raw === undefined || !Array.isArray(raw)) return null;
+  const valid = raw
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (valid.length !== raw.length) return null;
+  if (valid.some(defect => defect.toLowerCase().includes(AXIS_DEFECT_PLACEHOLDER_PHRASE))) return null;
+  let defects = valid;
+  if (valid.length > MAX_ISSUE_ENTRIES) {
+    adjustments.push(`${field}-truncated-from-${valid.length}-to-${MAX_ISSUE_ENTRIES}`);
+    defects = valid.slice(0, MAX_ISSUE_ENTRIES);
+  }
+  return { defects, defectCount: defects.length, derivedScore: deriveAxisScore(defects.length) };
+}
+
+function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticScoresV15; defectCounts: Record<RasterSemanticAxisV15, number>; shadowAxes: RasterSemanticShadowAxesV15; safetyPassed: boolean; safetyIssues: string[]; issues: string[]; summary: string; adjustments: string[] } {
   if (!answer || answer.length > MAX_ANSWER_CHARS) throw responseInvalid('answer-empty-or-over-limit', answer.length);
   const parsed = parseSemanticJson(answer) as SemanticPayload;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -452,7 +530,17 @@ function parseSemanticPayloadChecked(answer: string): { scores: RasterSemanticSc
     scores[axis] = deriveAxisScore(axisDefects[axis].length);
     for (const defect of axisDefects[axis]) issues.push(`${axis}: ${defect}`);
   }
-  return { scores, defectCounts, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
+
+  // Shadow axes are parsed after the gate axes, from the same answer,
+  // but into a separate record: their defects are NOT flattened into
+  // `issues` (which feeds the caller's retry prompt), their counts are
+  // NOT part of `defectCounts`, and nothing downstream of this parser
+  // may let them reach the gate predicate. Recording only.
+  const shadowAxes = {} as RasterSemanticShadowAxesV15;
+  for (const axis of RASTER_SEMANTIC_SHADOW_AXES_V15) {
+    shadowAxes[axis] = parseShadowAxisRecord(parsed[axis], axis, adjustments);
+  }
+  return { scores, defectCounts, shadowAxes, safetyPassed: parsed.safetyPassed, safetyIssues, issues, summary, adjustments };
 }
 
 /**
@@ -493,6 +581,7 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     'Counting check: whenever the image contains a structure with countable repeated elements — roof tiers, floors, windows, columns, stairs, wheels, people — actually count them and compare against what the request and the real-world object require (for example, a five-story pagoda has exactly five roof tiers). A wrong count is a concrete defect: name it in the list of the axis it belongs to, with the counted and expected numbers.',
     'Reflection check: whenever a mirror, water surface, glass, or other reflective surface is visible, compare the reflection against its source: left-right reversal must hold, the same person or object must be present and corresponding, with consistent position and scale. Any contradiction is a concrete defect for the list of the axis it belongs to.',
     'Text check: read every piece of visible text in the image — signs, labels, book spines, screens, logos. Misspelled, garbled, or meaningless character strings are concrete defects: quote them in the textHandling list.',
+    'Similarity check (recorded-only axis ipSimilarity): independently of the seven axes above, list a defect in the ipSimilarity list only when a depicted character, mascot, logo, emblem, product packaging, or design recognizably matches or closely approximates a specific existing copyrighted character or a trademarked brand design — name the character, work, or brand it matches. Generic subjects in a broadly common style are NOT defects here: an original cat character, a generic cola bottle carrying no real brand logo, or a landscape in a generally anime-like style leaves the ipSimilarity list empty. This list is recorded for calibration only; it never changes the seven axis lists or the safety judgment.',
     'Calibration: each axis list is the complete record of what your hunt found on that axis. If you found a concrete defect on an axis, it must appear in that axis\'s list, phrased as what is wrong and where — never mention a defect in the summary while leaving its axis list empty. Report observed facts only, not how good the image feels overall.',
     'Independently inspect visible output safety. Set safetyPassed=false if the image visibly contains sexualized minors, explicit sexual content, graphic gore, hateful/extremist propaganda, actionable self-harm depiction, or clearly dangerous instructional imagery. Otherwise set safetyPassed=true.',
     'When safetyPassed=false, safetyIssues must list concise concrete visible safety reasons. When safetyPassed=true, safetyIssues must be an empty array.',
@@ -520,7 +609,7 @@ function questionFor(input: RasterSemanticCriticInputV15, formatReminder = false
     // error (axis-defect-placeholder) instead of accepting it as an
     // observed defect.
     'Return ONLY valid compact JSON with exactly these keys, following the type template below. There is no sample answer: the template shows the required types only — every axis value must be an array of the defect strings you observed on that axis (empty when you observed none), never a number, and every placeholder must be replaced with your own words:',
-    '{"promptAdherence":["<defect you actually observed on this axis>"],"composition":[],"subjectIntegrity":[],"styleExecution":[],"textHandling":[],"artifactControl":[],"professionalUsefulness":[],"safetyPassed":true,"safetyIssues":[],"summary":"<FORMAT TEMPLATE ONLY: your own one-sentence verdict, or an empty string>"}',
+    '{"promptAdherence":["<defect you actually observed on this axis>"],"composition":[],"subjectIntegrity":[],"styleExecution":[],"textHandling":[],"artifactControl":[],"professionalUsefulness":[],"ipSimilarity":[],"safetyPassed":true,"safetyIssues":[],"summary":"<FORMAT TEMPLATE ONLY: your own one-sentence verdict, or an empty string>"}',
     'Judge this image alone: these instructions contain no sample verdict, and the placeholders above are type labels, not content. Returning a number for any axis is a format error.',
     // Restated as the very last instruction: the answer must be the JSON
     // object and nothing else, so no inspection narrative may precede or
@@ -697,6 +786,27 @@ export async function critiqueCloudflareRasterSemanticV15(
     }
   }
   const { parsed, reportedNeurons } = outcome;
+  // Shadow-axis recording (calibration evidence only): when the model
+  // returned a usable shadow list, log its counts and derived scores —
+  // numbers and axis names only, never the defect texts — so the
+  // calibration step can find the records in production logs. This
+  // record is written whether the verdict passes or fails, and the
+  // gate computation below does not read it.
+  if (RASTER_SEMANTIC_SHADOW_AXES_V15.some(axis => parsed.shadowAxes[axis] !== null)) {
+    const shadowDefectCounts: Record<string, number> = {};
+    const shadowDerivedScores: Record<string, number> = {};
+    for (const axis of RASTER_SEMANTIC_SHADOW_AXES_V15) {
+      const record = parsed.shadowAxes[axis];
+      if (record) {
+        shadowDefectCounts[axis] = record.defectCount;
+        shadowDerivedScores[axis] = record.derivedScore;
+      }
+    }
+    console.error('[raster-semantic-critic] shadow axes recorded', {
+      shadowDefectCounts,
+      shadowDerivedScores,
+    });
+  }
   // Quality gate — the predicate is unchanged from the diag16 realignment
   // (2026-11-10, §7 A+D), but it now reads derived scores:
   //   passed = safetyPassed && average >= 3.5 && every axis >= 3,
@@ -767,6 +877,7 @@ export async function critiqueCloudflareRasterSemanticV15(
     score: Math.round((average / 4) * 100),
     model: CLOUDFLARE_RASTER_SEMANTIC_MODEL_V15,
     scores: parsed.scores,
+    shadowAxes: parsed.shadowAxes,
     checks,
     issues: uniqueIssues,
     adjustments: parsed.adjustments,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { compileWorldClassImagePromptV16 } from './worldClassImagePromptCompilerV16';
+import {
+  compileWorldClassImagePromptV16,
+  WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16,
+} from './worldClassImagePromptCompilerV16';
 
 describe('compileWorldClassImagePromptV16', () => {
   it('classifies text-heavy commercial work and preserves exact copy intent', () => {
@@ -37,5 +40,12 @@ describe('compileWorldClassImagePromptV16', () => {
     const plan = compileWorldClassImagePromptV16(raw, false);
     expect(plan.prompt.indexOf(raw)).toBeLessThan(plan.prompt.indexOf('EXECUTION CONSTRAINTS:'));
     expect(plan.prompt).toContain('Do not add unrequested subjects');
+  });
+
+  it('carries the originality constraint in every profile (copyright policy, 2026-11-16)', () => {
+    const plan = compileWorldClassImagePromptV16('青い陶器の花瓶を白背景で中央に配置', false);
+    expect(plan.prompt).toContain('Create only original imagery');
+    expect(plan.prompt).toContain('existing copyrighted character');
+    expect(plan.prompt).toContain(WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16);
   });
 });
