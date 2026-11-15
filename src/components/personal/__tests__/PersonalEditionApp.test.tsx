@@ -199,7 +199,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
 
   it('hydrates messages and shows the Artifact layer only after artifacts arrive', () => {
     const { rerender } = render(<PersonalEditionApp settings={DEFAULT_PERSONAL_SETTINGS} messages={[]} artifacts={[]} />);
-    expect(screen.queryByRole('tab', { name: '作成物' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '成果物' })).toBeNull();
 
     const restoredMessages = [{ id: 'u-restored', role: 'user' as const, content: '再読込後の相談' }];
     const restoredArtifacts = [{ id: 'a-restored', type: 'markdown' as const, title: '復元資料', language: 'markdown', content: '# 復元', isComplete: true }];
@@ -209,7 +209,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(props.messages).toEqual(restoredMessages);
     expect(props.artifacts).toEqual(restoredArtifacts);
     // 作成物への導線はモバイルタブに出る（表示だけの帯は置かない）。
-    expect(screen.getByRole('tab', { name: '作成物' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '成果物' })).toBeTruthy();
   });
 
   it('reopens the latest artifact through the mobile Conversation / Artifact tabs', () => {
@@ -218,7 +218,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
 
     const tabs = screen.getByRole('tablist', { name: 'モバイルChat表示' });
     const conversation = screen.getByRole('tab', { name: '会話' });
-    const artifact = screen.getByRole('tab', { name: '作成物' });
+    const artifact = screen.getByRole('tab', { name: '成果物' });
     expect(tabs).toBeTruthy();
     expect(conversation.getAttribute('aria-selected')).toBe('true');
 
@@ -233,18 +233,18 @@ describe('PersonalEditionApp single-surface wrapper', () => {
   it('keeps the Chat Artifact layer out of the Code workspace; the Create panel stays on the chat surface', async () => {
     const artifacts = [{ id: 'a-1', type: 'markdown' as const, title: '作成物', language: 'markdown', content: '# A', isComplete: true }];
     render(<PersonalEditionApp artifacts={artifacts} />);
-    expect(screen.getByRole('tab', { name: '作成物' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '成果物' })).toBeTruthy();
 
     runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
-    expect(screen.queryByRole('tab', { name: '作成物' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: '成果物' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
 
     // 作るパネルはチャット画面の上に開くため、チャットの成果物レイヤーは
     // 残ったままになる（専用画面時代とは異なる、統合後の仕様）。
     runAppAction('onOpenCreative');
     expect(await screen.findByRole('complementary', { name: 'Creative Panel' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: '作成物' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '成果物' })).toBeTruthy();
   });
 
   it('never renders the abolished Project details panel and keeps artifacts reachable from the chat surface', async () => {
@@ -268,7 +268,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('button', { name: '詳細を開く' })).toBeNull();
     expect(screen.queryByRole('button', { name: '詳細を閉じる' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: '作成物' }));
+    fireEvent.click(screen.getByRole('tab', { name: '成果物' }));
     expect(screen.getByRole('complementary', { name: '作成物ワークスペース' }).textContent).toContain('Project artifact');
   });
 

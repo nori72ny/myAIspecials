@@ -53,9 +53,9 @@ const HISTORY_DATE = new Intl.DateTimeFormat('ja-JP', {
 });
 
 function historyStorageMessage(status: 'unavailable' | 'quota' | 'failed'): string {
-  if (status === 'quota') return '端末の保存容量が不足しているため、この作成物は履歴に保存できませんでした。';
+  if (status === 'quota') return '端末の空き容量が足りないため、この成果物は履歴に保存できませんでした。';
   if (status === 'unavailable') return 'この環境では端末内の作成履歴を利用できません。生成と保存は引き続き利用できます。';
-  return '端末内の作成履歴を更新できませんでした。生成済み作成物はそのまま保存できます。';
+  return '端末内の作成履歴を更新できませんでした。生成済みの成果物はそのまま保存できます。';
 }
 
 export default function CreativePanelV15({ initialRequest = '', onClose, onArtifactCreated }: CreativePanelV15Props) {
@@ -106,7 +106,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
   const canPreparePng = artifact !== null && !busy && !pngBusy && !historyBusyId;
   const verificationText = status === 'ready'
     ? '利用できます'
-    : status === 'loading' ? '準備を確認中…' : '現在利用できません';
+    : status === 'loading' ? '使えるか確認しています…' : '今は使えません';
 
   const applyArtifact = (nextArtifact: VerifiedCreativeArtifactV15) => {
     setArtifact(nextArtifact);
@@ -130,7 +130,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
     if (result.status === 'saved') {
       setHistoryStatus('ready');
       setHistory((current) => [result.entry, ...current.filter(entry => entry.id !== result.entry.id)].slice(0, 12));
-      setHistoryNotice('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
+      setHistoryNotice('この端末の履歴に保存しました。SVGは、ページを読み直した後もこの端末から開けます。');
       return;
     }
     if (result.status === 'unavailable') setHistoryStatus('unavailable');
@@ -173,7 +173,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
       const pngBlob = await rasterizeVerifiedSvgToPng(artifact.blob, artifact.preset);
       setPngUrl(URL.createObjectURL(pngBlob));
     } catch {
-      setError('PNGの端末内変換に失敗しました。SVGはそのまま保存できます。');
+      setError('PNGへの変換に失敗しました。SVGのままなら保存できます。');
     } finally {
       setPngBusy(false);
     }
@@ -186,7 +186,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
     setHistoryNotice('');
     try {
       if (!(await verifyVisualBlobSha256V15(entry.svgBlob, entry.sha256))) {
-        setHistoryNotice('履歴の整合性を確認できなかったため、この作成物は開きませんでした。');
+        setHistoryNotice('履歴の内容を確認できなかったため、この成果物は開きませんでした。');
         return;
       }
       applyArtifact({
@@ -203,7 +203,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
       });
       setHistoryNotice('端末内履歴から確認済みの画像を開きました。');
     } catch {
-      setHistoryNotice('履歴の整合性を確認できなかったため、この作成物は開きませんでした。');
+      setHistoryNotice('履歴の内容を確認できなかったため、この成果物は開きませんでした。');
     } finally {
       setHistoryBusyId('');
     }
@@ -273,11 +273,11 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
                 <div className="max-w-sm text-center opacity-80">
                   <div className="origin-surface mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-[var(--border-default)] shadow-sm" aria-hidden="true"><Sparkles className="h-6 w-6" /></div>
                   <p className="text-sm font-bold">まだ作成されていません</p>
-                  <p className="mt-1 text-xs leading-5">内容を整えて「画像を作成」を押すと、確認済みの画像だけをここに表示します。</p>
+                  <p className="mt-1 text-xs leading-5">内容を書いて「画像を作成」を押すと、品質を確認した画像だけをここに表示します。</p>
                 </div>
               )}
             </div>
-            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"><strong>確認済み</strong></p>}
+            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"><strong>品質を確認済み</strong></p>}
           </section>
         </div>
 

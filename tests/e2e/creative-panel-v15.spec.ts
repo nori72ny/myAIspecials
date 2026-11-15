@@ -97,7 +97,7 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
       await expect(titleInput).toHaveValue(title);
       await page.getByText('詳細設定', { exact: true }).click();
       await page.getByLabel('サブタイトル', { exact: true }).fill('200円/人 → 100円/人');
-      await page.getByLabel('フッター', { exact: true }).fill('評価用の架空料金');
+      await page.getByLabel('一番下の文字', { exact: true }).fill('評価用の架空料金');
       expect(await titleInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('16px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       const request = page.waitForRequest('**/api/creative/v1.5/generate');
@@ -139,8 +139,8 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByRole('img', { name: '作成した画像: モバイルCreative' })).toBeVisible();
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
-    // 確認表示は「確認済み」の一言に圧縮され、検証の詳細は出ない。
-    await expect(page.getByText('確認済み', { exact: true })).toBeVisible();
+    // 確認表示は「品質を確認済み」の一言に圧縮され、検証の詳細は出ない。
+    await expect(page.getByText('品質を確認済み', { exact: true })).toBeVisible();
     await expect(page.getByText('検証の詳細', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 
@@ -194,7 +194,7 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     // 編集して再作成できる（作る画面の編集機能の移植先）。
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('creative-panel')).toHaveCount(0);
-    await page.getByRole('tab', { name: '作成物', exact: true }).click();
+    await page.getByRole('tab', { name: '成果物', exact: true }).click();
     const editor = page.getByRole('region', { name: 'デザインを編集' });
     await expect(editor).toBeVisible();
     await expect(editor.getByRole('textbox', { name: 'タイトル', exact: true })).toHaveValue('編集Creative');
@@ -224,7 +224,7 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     // 作成物ストリップ（region「作成物」）は削除されたため、登録の証跡は
     // モバイル表示切替の「作成物」タブが現れることで確認する（保存自体の
     // 証拠は直後の IndexedDB 照合が担う）。
-    await expect(page.getByRole('tab', { name: '作成物', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: '成果物', exact: true })).toBeVisible();
     // リロード前に、成果物がアプリのスナップショットへ実際に保存された
     // ことを確認する（保存はデバウンスされるため、保存完了を待つ）。
     await expect.poll(() => page.evaluate(async () => {
@@ -249,7 +249,7 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByTestId('origin-home-request')).toBeVisible();
     // 復元された証跡も、削除された作成物ストリップではなく「作成物」
     // タブの出現で確認する。
-    await expect(page.getByRole('tab', { name: '作成物', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: '成果物', exact: true })).toBeVisible();
     await page.getByTestId('origin-home-request').fill('Creativeワークスペースで新商品のSNSカードを作って');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByTestId('creative-panel')).toBeVisible();

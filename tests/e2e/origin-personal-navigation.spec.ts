@@ -15,7 +15,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.locator('html')).toHaveAttribute('data-origin-storage-state', 'ready');
       await page.getByTestId('origin-home-request').fill('開発の進め方を説明してください');
       await page.getByTestId('start-request-button').click();
-      const detail = page.getByRole('button', { name: '実務レベルに深掘り', exact: true });
+      const detail = page.getByRole('button', { name: '実務向けに詳しく', exact: true });
       await expect(detail).toBeVisible();
       await page.getByTestId('origin-chat-request').fill('まだ送信しないメモ');
       await expect(detail).toHaveCount(0);
@@ -45,9 +45,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
-    await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
+    await page.getByText('実行に使うキー', { exact: true }).click();
+    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
+    await expect(page.getByLabel('作りたいもの・直したいこと', { exact: true })).toBeEditable();
     await expect(page.getByText('Grounded execution evidence', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
     await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
@@ -55,8 +55,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
+    await page.getByText('実行に使うキー', { exact: true }).click();
+    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
     await page.reload();
     // リロード（新規ロード）では必ずトップ画面から始まる（オーナー指示
     // 2026-11-09）ため、Codeへはアプリ内メニューから入り直して確認する。
@@ -64,9 +64,9 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await page.getByText('実行に必要な認証', { exact: true }).click();
-    await expect(page.getByLabel('Coding認証キー')).toBeVisible();
-    await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();
+    await page.getByText('実行に使うキー', { exact: true }).click();
+    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
+    await expect(page.getByRole('button', { name: '作成・修正を始める', exact: true })).toBeDisabled();
   });
 
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
@@ -183,28 +183,28 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       // リサーチは専用画面へ遷移せず、チャット内のモードになる
       // （画面構成の見直し 2026-11-09）。旧検証（workspace=research への
       // 遷移・専用見出し・専用入力欄・「会話に戻る」）は、モード表示と
-      // チャット入力欄の継続利用、解除での復帰に置き換える。
+      // チャット入力欄の継続利用、「モードをやめる」での復帰に置き換える。
       await expect(page).not.toHaveURL(/workspace=/);
       await expect(page.getByTestId('research-mode')).toBeVisible();
       await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
       await expect(input).toBeEditable();
       await noOverflow();
-      await page.getByRole('button', { name: '解除', exact: true }).click();
+      await page.getByRole('button', { name: 'モードをやめる', exact: true }).click();
       await expect(page.getByTestId('research-mode')).toBeHidden();
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: 'エージェントに任せる', exact: true }).click();
       await expect(page).toHaveURL(/workspace=agent/);
       await expect(page.getByRole('heading', { name: 'エージェントに任せる' })).toBeVisible();
-      await expect(page.getByLabel('達成したいこと', { exact: true })).toBeEditable();
+      await expect(page.getByLabel('任せたいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
       await expect(page).toHaveURL(/workspace=coding/);
-      await expect(page.getByRole('heading', { name: 'コードの変更を依頼' })).toBeVisible();
-      await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
+      await expect(page.getByRole('heading', { name: 'コードを作る・直す' })).toBeVisible();
+      await expect(page.getByLabel('作りたいもの・直したいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
@@ -412,7 +412,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer.getByRole('list')).toContainText('根拠A');
     await expect(answer.getByRole('table')).toBeVisible();
     await expect(answer.getByRole('img')).toHaveCount(0);
-    await expect(answer.getByRole('note')).toContainText('外部画像は自動表示しません');
+    await expect(answer.getByRole('note')).toContainText('外部画像は自動では表示しません');
     // UI監査 #1：回答ごとの検証バッジ（「詳細」）は削除済み。
     await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     const typography = await answer.evaluate((element) => {
@@ -498,7 +498,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('混雑時の安全案内を確認');
     await page.getByTestId('start-request-button').click();
 
-    await expect(page.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeVisible();
+    await expect(page.getByText('今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。')).toBeVisible();
     await expect(page.getByTestId('response-verification-details')).toHaveCount(0);
     expect(attempts).toBe(1);
   });
@@ -524,7 +524,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await page.getByRole('button', { name: '設定を閉じる', exact: true }).click();
     await expect(answer).toBeVisible();
-    await expect(page.getByRole('button', { name: '新規対話を開始' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '新しい会話を始める' })).toBeVisible();
   });
 
   test('keeps the pristine mobile header minimal and reveals New conversation only after use', async ({ page }) => {
@@ -544,7 +544,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(header.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence')).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(1);
-    await expect(page.getByRole('button', { name: '新規対話を開始' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '新しい会話を始める' })).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
     for (const button of [history, settings]) {
       const box = await button.boundingBox();
@@ -557,7 +557,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('会話を開始');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByRole('article', { name: 'ORIGINの回答' }).getByText('確認しました。', { exact: true })).toBeVisible();
-    const newConversation = page.getByRole('button', { name: '新規対話を開始' });
+    const newConversation = page.getByRole('button', { name: '新しい会話を始める' });
     await expect(newConversation).toBeVisible();
     // 使用後は新規対話ボタンが加わり3つ（オリンはヘッダー外の浮遊プレゼンスのまま）。
     await expect(header.getByRole('button')).toHaveCount(3);

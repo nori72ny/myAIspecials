@@ -60,7 +60,7 @@ describe('ResearchReportView (chat-integrated research result)', () => {
 
     expect(screen.getByText('Unsafe')).toBeTruthy();
     expect(screen.queryByRole('link', { name: '原文を開く' })).toBeNull();
-    expect(screen.getByText(/HTTPS URLとして確認できない/)).toBeTruthy();
+    expect(screen.getByText(/リンク先の安全性を確認できなかったため/)).toBeTruthy();
   });
 
   it('shows structured disagreements between sources', () => {

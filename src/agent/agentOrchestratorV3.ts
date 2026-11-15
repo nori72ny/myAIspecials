@@ -196,7 +196,7 @@ function generatedParams(toolName: ToolName, goal: string, options?: { contentFr
       content = '日付,商品,数量,単価,売上\n2026-10-01,サンプル商品A,2,1500,=C2*D2\n2026-10-02,サンプル商品B,1,2800,=C3*D3\n合計,,,,=SUM(E2:E3)\n';
     }
     if (!content) {
-      const title = normalized.slice(0, 80).replace(/[。.!！?？]+$/u, '') || '作成物のたたき台';
+      const title = normalized.slice(0, 80).replace(/[。.!！?？]+$/u, '') || '成果物のたたき台';
       content = `# ${title}\n\n## 目的\n${normalized}\n\n## 前提\n- 詳細指定がないため、一般的な実務用途を想定した初版です。\n- 数値・固有情報は、確認できるまでサンプルまたは仮置きとして扱います。\n\n## たたき台\n- 目的に沿った基本構成を用意しました。\n- 実データや運用条件に合わせて調整してください。\n`;
     }
     return { path, content };

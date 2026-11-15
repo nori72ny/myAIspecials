@@ -95,9 +95,9 @@ export default function CreativeArtifactEditorV15({ artifact, onRegenerated }: C
     <section aria-label="デザインを編集" className="origin-surface mb-4 rounded-2xl border border-[var(--border-default)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-black">デザインを編集</h3>
-        <span className="text-xs font-semibold" role="status">{status === 'ready' ? '利用できます' : status === 'loading' ? '準備を確認中…' : '現在利用できません'}</span>
+        <span className="text-xs font-semibold" role="status">{status === 'ready' ? '利用できます' : status === 'loading' ? '使えるか確認しています…' : '今は使えません'}</span>
       </div>
-      <p className="mt-1 text-xs leading-5 opacity-70">タイトル・内容・種類・レイアウト・色を変えて、確認済みの画像を作り直せます。</p>
+      <p className="mt-1 text-xs leading-5 opacity-70">タイトル・内容・種類・レイアウト・色を変えて、品質を確認した画像を作り直せます。</p>
       <div className="mt-3">
         <CreativeDraftFieldsV15 idPrefix={`creative-artifact-${artifact.id}`} draft={draft} onChange={setDraft} disabled={busy} />
       </div>

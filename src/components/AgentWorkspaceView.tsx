@@ -92,14 +92,14 @@ function authorizationHeaders(credential: string): HeadersInit {
 
 function toolLabel(tool: AgentTool): string {
   const labels: Record<AgentTool, string> = {
-    document_generator: '文書作成',
-    code_interpreter: 'コード作成・確認',
-    image_prompt_compiler: '画像の指示づくり',
-    web_search_grounding: 'ウェブ調査',
-    repository_explorer: 'ファイル一覧の確認',
-    file_reader: 'ファイルの読み取り',
-    file_writer: 'ファイルの作成・編集',
-    verification_runner: 'テスト・動作確認',
+    document_generator: '文書を作る',
+    code_interpreter: 'コードを作って確認する',
+    image_prompt_compiler: '画像を作るための指示文を作る',
+    web_search_grounding: 'ウェブで調べる',
+    repository_explorer: 'ファイルの一覧を見る',
+    file_reader: 'ファイルを読む',
+    file_writer: 'ファイルを作る・直す',
+    verification_runner: 'テストと動作確認',
   };
   return labels[tool];
 }
@@ -150,13 +150,13 @@ function checkpointStatusLabel(status: string): string {
 }
 
 function phaseLabel(phase: Phase): string {
-  if (phase === 'planning') return '計画を準備中';
+  if (phase === 'planning') return '計画を作っています';
   if (phase === 'awaiting_approval') return '承認待ち';
-  if (phase === 'executing') return '実行・検証中';
+  if (phase === 'executing') return '実行しています';
   if (phase === 'completed') return '完了';
-  if (phase === 'failed') return '安全に停止';
+  if (phase === 'failed') return '止まりました';
   if (phase === 'held') return '保留中';
-  if (phase === 'recorded') return '記録済み・実行中';
+  if (phase === 'recorded') return '実行中';
   return '待機中';
 }
 
@@ -176,7 +176,7 @@ export default function AgentWorkspaceView() {
   // callback (then by polling once driving hands over at the caps).
   const [liveSession, setLiveSession] = useState<LiveSession | null>(null);
   const [liveRunView, setLiveRunView] = useState<AgentRunView | null>(null);
-  const [artifact, setArtifact] = useState('実行が完了すると、確認済みの結果がここに表示されます。');
+  const [artifact, setArtifact] = useState('終わると、結果がここに表示されます。');
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -280,7 +280,7 @@ export default function AgentWorkspaceView() {
     setLiveSession(null);
     setLiveRunView(null);
     setPhase('planning');
-    setLog(['エージェント: 実行計画を準備しています。']);
+    setLog(['実行計画を作っています。']);
     setArtifact('計画を作成しています…');
     try {
       const response = await fetch('/api/agent/v3/plan', {
@@ -316,14 +316,14 @@ export default function AgentWorkspaceView() {
         '# 実行計画',
         '',
         `依頼: ${next.goal}`,
-        `機能: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
+        `行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
-        '実行には、この計画の内容に限定した承認が必要です。',
-        '承認はこの実行内容だけに有効で、再利用はできません。',
+        '承認は、この計画に書かれた内容だけに必要です。',
+        'この承認は今回の実行だけに有効で、使い回しはできません。',
       ].join('\n'));
-      setLog((current) => [...current, `計画を作成しました。実行する機能: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}。まだツールは実行していません。`]);
+      setLog((current) => [...current, `計画を作成しました。行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}。まだ作業は始めていません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -358,7 +358,7 @@ export default function AgentWorkspaceView() {
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase('executing');
-    setLog((current) => [...current, `承認対象: ${plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`, credential ? '実行前の安全確認を取得しています。' : 'このブラウザで承認し、実行前の安全確認を取得しています。']);
+    setLog((current) => [...current, `承認対象: ${plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`, credential ? '実行前の安全確認をしています。' : 'このブラウザで承認し、実行前の安全確認をしています。']);
     // Single-step plans keep the legacy {toolName, params} wire shape; the
     // server canonicalizes both shapes to the same signed operation.
     const operationBody = plan.steps.length === 1
@@ -401,11 +401,11 @@ export default function AgentWorkspaceView() {
       );
       if (creation === 'store_unavailable') {
         setPhase('failed');
-        setArtifact('実行は開始していません。タスクの記録が利用できないため、安全に停止しました。');
-        setLog((current) => [...current, 'タスクの記録が利用できないため、安全に停止しました。実行は開始していません。']);
+        setArtifact('実行は始めていません。作業の記録が使えないため、止まりました。');
+        setLog((current) => [...current, '作業の記録が使えないため、止まりました。実行は始めていません。']);
         return;
       }
-      setLog((current) => [...current, '実行を記録しました。進み具合はタスクボードにも表示されます。']);
+      setLog((current) => [...current, '実行を記録しました。進み具合は下の「これまでの作業」にも表示されます。']);
       // Live view (PR-L2): from here the 「いまの作業」 panel follows
       // this run. Driving uses the small per-advance budget so each
       // advance returns after a step or two, and every response's run
@@ -420,35 +420,35 @@ export default function AgentWorkspaceView() {
         setArtifact(outcome.artifact ?? '実行が完了しました。');
         if (outcome.artifact) await persistCheckpoint(localRunCheckpoint(plan.runId, outcome.artifact));
         setPhase('completed');
-        setLog((current) => [...current, '機能の実行と確認が完了しました。', outcome.artifact ? '結果を端末内に保存しました。' : '']);
+        setLog((current) => [...current, '作業の実行と確認が完了しました。', outcome.artifact ? '結果を端末内に保存しました。' : '']);
         setPlan(null);
         return;
       }
       if (outcome.kind === 'held') {
         setPhase('held');
-        setArtifact('実行は保留中です。無料枠が回復したら、下のタスクボードから再開できます。');
-        setLog((current) => [...current, '無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。']);
+        setArtifact('実行は保留中です。無料枠が回復したら、下の「これまでの作業」から再開できます。');
+        setLog((current) => [...current, '無料枠の上限に達したため、実行を保留にしました。記録は残っているので、下の「これまでの作業」から再開できます。']);
         setPlan(null);
         return;
       }
       if (outcome.kind === 'recorded') {
         setPhase('recorded');
-        setArtifact('実行は記録され、続行しています。この画面での見守りはここまでです。進み具合は下のタスクボードで確認できます。');
-        setLog((current) => [...current, '実行は記録済みで続行しています。進み具合はタスクボードで確認できます。']);
+        setArtifact('実行は記録され、続いています。この画面での見守りはここまでです。進み具合は下の「これまでの作業」で確認できます。');
+        setLog((current) => [...current, '実行は記録済みで続行しています。進み具合は下の「これまでの作業」で確認できます。']);
         setPlan(null);
         return;
       }
       if (outcome.kind === 'store_unavailable') {
         setPhase('failed');
-        setArtifact('タスクの記録が利用できなくなったため、安全に停止しました。記録の状態はタスクボードで確認できます。');
-        setLog((current) => [...current, 'タスクの記録が利用できなくなったため、安全に停止しました。']);
+        setArtifact('作業の記録が使えなくなったため、止まりました。記録の状態は下の「これまでの作業」で確認できます。');
+        setLog((current) => [...current, '作業の記録が使えなくなったため、止まりました。']);
         return;
       }
       // outcome.kind === 'failed': the server's reason code stays off
       // screen; the log line is the plain-language mapping (design §4.6).
       console.error('Agent run failed:', outcome.code ?? 'AGENT_RUN_FAILED');
       setPhase('failed');
-      setLog((current) => [...current, '実行が完了できませんでした。タスクボードの記録もあわせてご確認ください。']);
+      setLog((current) => [...current, '実行が完了できませんでした。下の「これまでの作業」も確認してください。']);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -467,13 +467,13 @@ export default function AgentWorkspaceView() {
     setLiveSession(null);
     setLiveRunView(null);
     setPhase('idle');
-    setLog((current) => [...current, '計画をリセットしました。未承認の操作は実行していません。']);
+    setLog((current) => [...current, '計画を最初に戻しました。承認されていない操作は実行していません。']);
     if (credentialInputRef.current) credentialInputRef.current.value = '';
   };
 
   const restoreLocalCheckpoint = (checkpoint: CheckpointState) => {
     setArtifact(checkpoint.artifact);
-    setLog((current) => [...current, '端末内に保存した結果を表示しました（サーバーの状態は変わりません）。']);
+    setLog((current) => [...current, 'この端末に保存した結果を表示しました（サーバー側の状態は変わりません）。']);
   };
 
   const ready = (capability?.ready === true || capability?.browserApprovalEnabled === true)
@@ -504,16 +504,16 @@ export default function AgentWorkspaceView() {
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-origin-muted">計画を確認してから、選択した機能を実行し、結果を確認します。</p>
+        <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。</p>
 
-        <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">達成したいこと</label>
+        <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">任せたいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
           disabled={phase === 'planning' || Boolean(plan) || phase === 'executing'}
-          placeholder="例: この要件を整理して、実行可能な文書案を作ってください。"
+          placeholder="例：このテーマを調べて要点をまとめ、文書案を作ってください"
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand disabled:cursor-not-allowed disabled:opacity-70" />
 
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-origin-muted">{checkingCapability ? 'エージェント機能を確認中…' : ready ? 'エージェントを利用できます' : 'エージェントは現在利用できません'}</span>
+          <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
             <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
@@ -524,31 +524,31 @@ export default function AgentWorkspaceView() {
 
         <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
-          {phase === 'planning' ? '計画中…' : '実行計画を作る'}
+          {phase === 'planning' ? '計画を作っています…' : '実行計画を作る'}
         </button>
 
         {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-black">実行の流れ</h2>
-            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">未実行 · 承認待ち</span>
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">まだ実行していません · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 text-sm">{plan.plan.map((step, index) => <li key={step.id} className="flex gap-2">
             <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[11px] font-black text-origin-brand">{index + 1}</span>
             <span>{step.title}</span>
           </li>)}</ol>
 
-          <p className="mt-4 block text-xs font-bold text-origin-muted">実行する機能</p>
-          <div aria-label="実行する機能" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
+          <p className="mt-4 block text-xs font-bold text-origin-muted">行う作業</p>
+          <div aria-label="行う作業" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
-          <p className="mt-1 text-xs leading-5 text-origin-muted">実行する機能は、この計画の内容と一致するよう確認されます。依頼内容を変える場合は計画を破棄して作り直します。</p>
-          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">この操作には、対象の場所や内容などの具体的な指定が不足しています。依頼文を具体化して計画を作り直してください。</p>}
+          <p className="mt-1 text-xs leading-5 text-origin-muted">承認すると、上に表示された作業だけを行います。内容を変えたいときは、計画をやめて作り直してください。</p>
+          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
 
           <details className="mt-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
-            <p className="mb-2 text-xs leading-5 text-origin-muted">通常は空欄のままで問題ありません。「承認して実行」を押すと、このブラウザ上で計画を確認したものとして承認されます。管理者キーを入力した場合は管理者用の承認経路を使います。キーはブラウザーに保存しません。</p>
-            <input ref={credentialInputRef} id="execution-credential" aria-label="実行認証キー" type="password" autoComplete="off" spellCheck={false}
-              placeholder="実行認証キー（任意）"
+            <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者キー（必要な場合だけ）</summary>
+            <p className="mb-2 text-xs leading-5 text-origin-muted">通常は使いません。管理者から指示された場合だけ入力してください。キーは保存されません。</p>
+            <input ref={credentialInputRef} id="execution-credential" aria-label="管理者キー" type="password" autoComplete="off" spellCheck={false}
+              placeholder="管理者キー"
               className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
           </details>
 
@@ -557,12 +557,12 @@ export default function AgentWorkspaceView() {
               className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
               承認して実行
             </button>
-            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画を破棄</button>
+            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画をやめる</button>
           </div>
         </section>}
 
         <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-xs leading-5 text-origin-muted" aria-label="実行履歴">
-          {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '実行の経過はここに表示されます。'}
+          {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '進み具合はここに表示されます。'}
         </div>
       </aside>
 
@@ -585,13 +585,13 @@ export default function AgentWorkspaceView() {
         </div>
 
         <section className="border-t border-origin-border p-4">
-          <h3 className="text-sm font-black">端末内に保存した結果</h3>
+          <h3 className="text-sm font-black">この端末に保存した結果</h3>
           {restoring ? <p className="mt-2 text-xs text-origin-muted">読み込み中…</p> : checkpoints.length === 0
-            ? <p className="mt-2 text-xs text-origin-muted">確認済みの実行が完了するとここに保存されます。</p>
+            ? <p className="mt-2 text-xs text-origin-muted">終わった作業の結果がここに保存されます。</p>
             : <div className="mt-2 flex flex-wrap gap-2">{checkpoints.slice().reverse().slice(0, 8).map((item) =>
               <button type="button" key={item.checkpointId} onClick={() => restoreLocalCheckpoint(item)}
                 className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">
-                v{item.version} · {checkpointStatusLabel(item.status)}
+                {checkpointStatusLabel(item.status)}
               </button>)}</div>}
         </section>
       </main>

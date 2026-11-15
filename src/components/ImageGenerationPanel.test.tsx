@@ -89,7 +89,7 @@ describe('ImageGenerationPanel', () => {
     fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
     expect(onGenerate).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert').textContent).toContain('画像の内容を入力してください');
+    expect(screen.getByRole('alert').textContent).toContain('作りたい画像の内容を書いてください');
   });
 
   it('closes on Escape', () => {

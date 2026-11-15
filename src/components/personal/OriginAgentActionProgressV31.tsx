@@ -24,11 +24,11 @@ type OriginAgentActionProgressV31Props = {
 };
 
 const STEPS: readonly ActionStep[] = [
-  { id: 'plan', label: 'Plan', detail: '対象と実行条件を確認' },
-  { id: 'execute', label: 'Execute', detail: 'コードを確認・変更' },
-  { id: 'test', label: 'Test', detail: '検査と必要な修復' },
-  { id: 'verify', label: 'Verify', detail: '検証結果を確定' },
-  { id: 'deliver', label: 'Deliver', detail: '結果と変更内容を提示' },
+  { id: 'plan', label: '計画', detail: '何を作る・直すか確認' },
+  { id: 'execute', label: '作成・変更', detail: 'コードを作成・変更' },
+  { id: 'test', label: '確認', detail: '確認と、必要な修正' },
+  { id: 'verify', label: '最終確認', detail: '結果をまとめる' },
+  { id: 'deliver', label: '結果表示', detail: '結果と変更内容を表示' },
 ];
 
 function currentStep(status: OriginAgentJobStatusV31 | null): ActionStepId | null {
@@ -74,7 +74,7 @@ export default function OriginAgentActionProgressV31({ status }: OriginAgentActi
   if (!status) return null;
 
   return <details className="rounded-2xl border border-origin-border bg-origin-surface/70 px-4">
-    <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">実行詳細</summary>
+    <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">進み具合</summary>
     <ol className="grid gap-2 pb-3 sm:grid-cols-5" aria-label="Agent action steps">
       {STEPS.map(step => {
         const state = stepState(status, step.id);
@@ -87,6 +87,6 @@ export default function OriginAgentActionProgressV31({ status }: OriginAgentActi
         </li>;
       })}
     </ol>
-    <p className="pb-4 text-[11px] leading-5 text-origin-muted">進捗率・残り時間・内部思考は推測しません。取得済みの実行状態だけを表示します。</p>
+    <p className="pb-4 text-[11px] leading-5 text-origin-muted">分かった状態だけを表示します。進み具合や残り時間は推測しません。</p>
   </details>;
 }

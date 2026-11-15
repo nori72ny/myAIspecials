@@ -287,7 +287,7 @@ export const searchOriginLocalSnapshot = (query: string, sessions: readonly Conv
   const results: OriginLocalSearchResult[] = [];
   sessions.forEach((session) => {
     const source = `${session.title}\n${session.messages.map((message) => message.content).join('\n')}`;
-    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: session.messages.at(-1)?.content.slice(0, 160) || '会話セッション', session });
+    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: session.messages.at(-1)?.content.slice(0, 160) || '会話', session });
   });
   artifacts.forEach((artifact) => {
     const revisions = artifact.revisions?.map((revision) => revision.content).join('\n') || '';
@@ -473,7 +473,7 @@ export class StreamArtifactParser {
       conversationalText += normalized.slice(cursor, matchIndex);
       const rawLang = (match[1] || 'text').trim().toLowerCase();
       const rawTitle = (match[2] || '').trim();
-      const fallbackTitle = rawLang === 'html' ? `Webページ ${artifactIndex + 1}` : rawLang === 'markdown' || rawLang === 'md' ? `文書 ${artifactIndex + 1}` : rawLang === 'mermaid' ? `図解 ${artifactIndex + 1}` : `作成物 ${artifactIndex + 1}`;
+      const fallbackTitle = rawLang === 'html' ? `Webページ ${artifactIndex + 1}` : rawLang === 'markdown' || rawLang === 'md' ? `文書 ${artifactIndex + 1}` : rawLang === 'mermaid' ? `図解 ${artifactIndex + 1}` : `成果物 ${artifactIndex + 1}`;
       const sanitizedTitle = rawTitle.slice(0, 100).replace(/[\x00-\x1F\x7F\u202A-\u202E\u2066-\u2069]/g, '').trim();
       const contentStart = matchIndex + match[0].length - (match[0].startsWith('\n') ? 1 : 0);
       const closeFenceRegex = /(?:^|\n)```[ \t]*(?:\n|$)/g;
@@ -590,11 +590,11 @@ const isVerifiedFallbackServing = (servedModel: unknown, fallbackUsed: unknown):
   && ORIGIN_VERIFIED_FALLBACK_FREE_MODELS.includes(servedModel);
 const SAFE_WAITING_PROVIDER_CODES = new Set(['PROVIDER_POLICY_VIOLATION', 'PROVIDER_COST_UNVERIFIED', 'PROVIDER_ROUTING_UNVERIFIED', 'FREE_MODEL_EVIDENCE_STALE', 'FREE_MODEL_CATALOG_INVALID']);
 const TRANSIENT_PROVIDER_CODES = new Set(['PROVIDER_RATE_LIMITED', 'PROVIDER_TIMEOUT', 'PROVIDER_UNAVAILABLE', 'PROVIDER_INTERNAL_ERROR']);
-const SAFE_WAITING_MESSAGE = '無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。';
-const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
+const SAFE_WAITING_MESSAGE = '無料で使えることを確認できなかったため、回答を表示できませんでした。しばらくしてから、もう一度お試しください。';
+const MODEL_BUSY_MESSAGE = "今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。";
 const formatDiagnostic = (code, status) => " (code: " + (code || "UNKNOWN") + ", status: " + (status ?? "---") + ")";
 const MODEL_BUSY_MESSAGE_EN = 'The free AI service is temporarily busy. Your input is preserved; please try again in a moment.';
-const RATE_LIMIT_MESSAGE = '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。';
+const RATE_LIMIT_MESSAGE = '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力した内容は残っています。';
 const RATE_LIMIT_MESSAGE_EN = 'The free AI usage limit has been reached. Your input is preserved; please wait a moment and try again.';
 /**
  * Failure notices split by cause (PKG-2, audit UX N1). The send handler's
@@ -606,13 +606,13 @@ const RATE_LIMIT_MESSAGE_EN = 'The free AI usage limit has been reached. Your in
  * transient provider state (the handled !response.ok branch), never for
  * exceptions thrown while talking to or reading from the server.
  */
-const NETWORK_FAILURE_MESSAGE = '通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。';
+const NETWORK_FAILURE_MESSAGE = '通信が切れてしまい、回答を受け取れませんでした。入力した内容は残っています。接続を確認して、もう一度お試しください。';
 const NETWORK_FAILURE_MESSAGE_EN = 'The connection was interrupted, so the answer could not be received. Your input is preserved; please check your connection and try again.';
-const INCOMPLETE_STREAM_MESSAGE = '回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const INCOMPLETE_STREAM_MESSAGE = '回答の受信が途中で終わってしまったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。';
 const INCOMPLETE_STREAM_MESSAGE_EN = 'The answer stopped arriving partway through, so it cannot be shown. Your input is preserved; please try again.';
-const INVALID_RESPONSE_MESSAGE = '受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const INVALID_RESPONSE_MESSAGE = '受け取った回答を確認できなかったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。';
 const INVALID_RESPONSE_MESSAGE_EN = 'The response that arrived could not be verified, so it was not shown. Your input is preserved; please try again.';
-const UNEXPECTED_FAILURE_MESSAGE = '予期しない問題が発生し、回答を表示できませんでした。入力内容は保持しています。もう一度お試しください。';
+const UNEXPECTED_FAILURE_MESSAGE = '問題が起きて、回答を表示できませんでした。入力した内容は残っています。もう一度お試しください。';
 const UNEXPECTED_FAILURE_MESSAGE_EN = 'An unexpected problem occurred, so the answer cannot be shown. Your input is preserved; please try again.';
 
 /** Classifies a send-handler exception into its display cause (PKG-2). */
@@ -642,7 +642,7 @@ export const chatSendFailureMessage = (kind: ChatSendFailureKind, language: 'ja'
  * wording states the incompleteness plainly and offers the way forward,
  * without internal vocabulary (no token counts, no route names).
  */
-export const TRUNCATED_ANSWER_NOTICE = '（この回答は長さの上限に達したため、途中で終わっています。「続き」と送ると、続きを依頼できます。）';
+export const TRUNCATED_ANSWER_NOTICE = '（この回答は長さの上限で途中で終わっています。「続き」と送ると、続きを書きます。）';
 export const TRUNCATED_ANSWER_NOTICE_EN = '(This answer reached the length limit and ends partway through. Send "continue" to ask for the rest.)';
 
 type OriginChatFailurePayload = {
@@ -782,76 +782,76 @@ async function fetchOriginRasterImage(
  */
 const RASTER_GENERATION_FAILURE_MESSAGES: Record<string, { ja: string; en: string }> = {
   RASTER_GENERATION_DISABLED_ZERO_COST_POLICY: {
-    ja: 'リクエスト単位で費用0円を事前保証できないため、AI画像生成は停止しています。',
-    en: 'AI image generation is stopped because $0.00 cost cannot be guaranteed per request in advance.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   RASTER_STRUCTURAL_CRITIC_REJECTED: {
-    ja: '生成された画像が品質チェックを通過しなかったため、配信しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
-    en: 'The generated image did not pass the quality check, so it was not delivered. Try again with a slightly different subject or composition.',
+    ja: 'できた画像が品質チェックを通らなかったため、表示しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
+    en: 'The image did not pass the quality check, so it was not shown. Try again with a slightly different subject or composition.',
   },
   RASTER_SEMANTIC_CRITIC_REJECTED: {
-    ja: '生成された画像が品質チェックを通過しなかったため、配信しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
-    en: 'The generated image did not pass the quality check, so it was not delivered. Try again with a slightly different subject or composition.',
+    ja: 'できた画像が品質チェックを通らなかったため、表示しませんでした。被写体や構図を少し変えて、もう一度お試しください。',
+    en: 'The image did not pass the quality check, so it was not shown. Try again with a slightly different subject or composition.',
   },
   SENSITIVE_INPUT_BLOCKED: {
-    ja: '機密・個人情報の可能性があるため、外部の画像生成へ送信しませんでした。内容を見直して、もう一度お試しください。',
-    en: 'The request may contain confidential or personal information, so it was not sent to the external image generator. Please review the content and try again.',
+    ja: '機密情報や個人情報が含まれる可能性があるため、外部へ送りませんでした。内容を見直して、もう一度お試しください。',
+    en: 'The request may contain confidential or personal information, so it was not sent outside. Please review the content and try again.',
   },
   CLOUDFLARE_WORKERS_AI_NOT_CONFIGURED: {
-    ja: '無料の画像生成経路がまだ構成されていないため、生成できませんでした。',
-    en: 'The free image generation route is not configured yet, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_MODEL_NOT_PRICED_FOR_FREE_PROOF: {
-    ja: '画像モデルの無料条件を確認できないため、生成しませんでした。',
-    en: 'The image model’s free terms could not be verified, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_WORKERS_AI_MODEL_UNVERIFIED: {
-    ja: '画像モデルの無料条件を確認できないため、生成しませんでした。',
-    en: 'The image model’s free terms could not be verified, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED: {
-    ja: '有料プランが必要な構成が検出されたため、生成しませんでした。',
-    en: 'A configuration that requires a paid plan was detected, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_MODEL_REQUIRES_PAID_PLAN: {
-    ja: '有料プランが必要な構成が検出されたため、生成しませんでした。',
-    en: 'A configuration that requires a paid plan was detected, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_WORKERS_PLAN_UNVERIFIED: {
-    ja: '無料プランであることを確認できないため、生成しませんでした。',
-    en: 'The free plan could not be confirmed, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_BILLING_READ_REQUIRED: {
-    ja: '無料プランであることを確認できないため、生成しませんでした。',
-    en: 'The free plan could not be confirmed, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_WORKERS_AI_PERMISSION_REQUIRED: {
-    ja: '画像生成に必要な権限を確認できないため、生成しませんでした。',
-    en: 'The permissions required for image generation could not be confirmed, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   RASTER_PRICING_EVIDENCE_STALE: {
-    ja: '無料条件の確認情報が古くなっているため、生成しませんでした。',
-    en: 'The evidence for the free terms is out of date, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   RASTER_PRICING_EVIDENCE_INVALID: {
-    ja: '無料条件の確認情報が正しくないため、生成しませんでした。',
-    en: 'The evidence for the free terms is invalid, so nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT: {
-    ja: '本日の無料枠の残量が足りないため、生成しませんでした。',
-    en: 'Today’s remaining free allocation is not enough for this request, so nothing was generated.',
+    ja: '今日の無料枠が残り少ないため、生成できませんでした。',
+    en: 'Today’s free allocation is nearly used up, so nothing was generated.',
   },
   CLOUDFLARE_FREE_ALLOCATION_EXHAUSTED: {
-    ja: '本日の無料枠を使い切っているため、生成しませんでした。',
+    ja: '今日の無料枠を使い切ったため、生成できませんでした。',
     en: 'Today’s free allocation has been used up, so nothing was generated.',
   },
   CLOUDFLARE_DAILY_USAGE_UNVERIFIED: {
-    ja: '本日の利用量を確認できないため、無料であることを証明できず生成しませんでした。',
-    en: 'Today’s usage could not be checked, so $0.00 cost could not be proven and nothing was generated.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
   CLOUDFLARE_USAGE_RECONCILIATION_FAILED: {
-    ja: '生成後の利用量の照合で無料であることを確認できなかったため、画像を配信しませんでした。',
-    en: 'Post-generation usage reconciliation could not confirm $0.00 cost, so the image was not delivered.',
+    ja: '無料で使えることを確認できなかったため、生成しませんでした。時間をおいて、もう一度お試しください。',
+    en: 'Nothing was generated, because free use could not be confirmed. Please wait a while and try again.',
   },
 };
 
@@ -1011,13 +1011,13 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, displaySessions, searchableArtifacts), [deferredQuery, displaySessions, searchableArtifacts]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
-    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と作成物履歴" className="origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や作成物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] p-0 text-lg">×</button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話' : '会話') : '作成物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid max-h-72 gap-2 overflow-auto">{displaySessions.length ? displaySessions.map((session, index) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{session.id === currentSessionId ? '現在の会話' : '会話'} · {session.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{session.messages.at(-1)?.content.slice(0, 160) || '会話セッション'}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">復元できる過去セッションはまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入力すると、この端末の履歴を検索します。</p></>}</section>}
+    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] p-0 text-lg">×</button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話' : '会話') : '成果物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid max-h-72 gap-2 overflow-auto">{displaySessions.length ? displaySessions.map((session, index) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{session.id === currentSessionId ? '現在の会話' : '会話'} · {session.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{session.messages.at(-1)?.content.slice(0, 160) || '会話'}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
   </>;
 };
 
 const KnowledgeMap: React.FC<{ sessions: readonly ConversationSession[]; currentMessages?: readonly ConversationMessage[]; onRestoreSession?: (session: ConversationSession) => void }> = ({ sessions, currentMessages = [], onRestoreSession }) => <HistoryDrawer sessions={sessions} currentMessages={currentMessages} onRestoreSession={onRestoreSession} />;
 
-const ArtifactVisualDiffInspector: React.FC<{ diff: ArtifactVisualDiff }> = ({ diff }) => <section data-testid="artifact-visual-diff" aria-label="作成物の変更箇所" className="origin-surface-muted h-full overflow-auto rounded-2xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="m-0 text-base font-bold">最新と1つ前の版の変更</h3><p className="origin-muted m-0 mt-1 text-[13px]">端末内に保存した作成物の版だけを比較しています。</p></div><div className="flex gap-2 text-[13px] font-mono"><span className="rounded-[10px] bg-emerald-500/15 px-2 py-1 text-emerald-600 dark:text-emerald-300">+ {diff.added}</span><span data-testid="artifact-diff-removed-count" className="rounded-[10px] bg-red-500/15 px-2 py-1 text-red-600 dark:text-red-300">− {diff.removed}</span></div></div><p data-testid="artifact-visual-diff-summary" className="origin-muted mt-3 text-[13px]">HTML要素 {diff.htmlChanges}件・CSS/スタイル {diff.cssChanges}件の変更</p>{diff.lines.length ? <pre className="m-0 mt-3 whitespace-pre-wrap break-words rounded-2xl bg-black/10 p-3 font-mono text-[13px] leading-6">{diff.lines.map((line, index) => <span key={`${line.kind}-${index}`} className={line.kind === 'added' ? 'block rounded-[10px] bg-emerald-500/15 px-2 text-emerald-600 dark:text-emerald-300' : 'block rounded-[10px] bg-red-500/15 px-2 text-red-600 dark:text-red-300'}>{line.kind === 'added' ? '+ ' : '− '}{line.value}</span>)}</pre> : <p className="origin-muted mt-5 text-base">構造・スタイル上の変更はありません。</p>}</section>;
+const ArtifactVisualDiffInspector: React.FC<{ diff: ArtifactVisualDiff }> = ({ diff }) => <section data-testid="artifact-visual-diff" aria-label="成果物の変更箇所" className="origin-surface-muted h-full overflow-auto rounded-2xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="m-0 text-base font-bold">最新と1つ前の版の変更</h3><p className="origin-muted m-0 mt-1 text-[13px]">この端末に保存した成果物の版だけを比べています。</p></div><div className="flex gap-2 text-[13px] font-mono"><span className="rounded-[10px] bg-emerald-500/15 px-2 py-1 text-emerald-600 dark:text-emerald-300">+ {diff.added}</span><span data-testid="artifact-diff-removed-count" className="rounded-[10px] bg-red-500/15 px-2 py-1 text-red-600 dark:text-red-300">− {diff.removed}</span></div></div><p data-testid="artifact-visual-diff-summary" className="origin-muted mt-3 text-[13px]">HTML要素 {diff.htmlChanges}件・CSS/スタイル {diff.cssChanges}件の変更</p>{diff.lines.length ? <pre className="m-0 mt-3 whitespace-pre-wrap break-words rounded-2xl bg-black/10 p-3 font-mono text-[13px] leading-6">{diff.lines.map((line, index) => <span key={`${line.kind}-${index}`} className={line.kind === 'added' ? 'block rounded-[10px] bg-emerald-500/15 px-2 text-emerald-600 dark:text-emerald-300' : 'block rounded-[10px] bg-red-500/15 px-2 text-red-600 dark:text-red-300'}>{line.kind === 'added' ? '+ ' : '− '}{line.value}</span>)}</pre> : <p className="origin-muted mt-5 text-base">構造やスタイルの変更はありません。</p>}</section>;
 
 export type OriginDesignTheme = 'minimal' | 'luxury' | 'glass';
 export const ORIGIN_ARTIFACT_SANDBOX_PERMISSIONS = 'allow-scripts' as const;
@@ -1293,7 +1293,7 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   };
   const previewWidth = previewViewport === '375' ? '375px' : previewViewport === '768' ? '768px' : '100%';
   const codePanel = isDirectEditing
-    ? <div className="flex h-full min-h-0 flex-col gap-3"><label htmlFor="artifact-code-editor" className="text-[13px] font-semibold">{language === 'ja' ? '作成物のコードを直接編集' : 'Edit artifact source'}</label><textarea ref={codeEditorRef} id="artifact-code-editor" data-testid="artifact-code-editor" aria-label={language === 'ja' ? '作成物のコードを直接編集' : 'Edit artifact source'} aria-invalid={!syntaxResult.valid} aria-describedby="artifact-code-syntax-status" value={workingContent} onChange={updateCodeEditor} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); commitCodeRevision(); } }} spellCheck={false} className="origin-surface min-h-48 flex-1 resize-none rounded-2xl border border-[var(--border-default)] p-3 font-mono text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-[var(--accent-glow)]" /><div id="artifact-code-syntax-status" data-testid="artifact-code-syntax-status" role={syntaxResult.valid ? 'status' : 'alert'} className={`text-[13px] ${syntaxResult.valid ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{syntaxResult.valid ? language === 'ja' ? '✓ 構文を確認済み。閉じタグは自動補完されます。' : '✓ Syntax verified. Closing tags are completed automatically.' : language === 'ja' ? `${syntaxResult.issue.line}行 ${syntaxResult.issue.column}列: ${syntaxResult.issue.message}` : `Line ${syntaxResult.issue.line}, column ${syntaxResult.issue.column}: ${syntaxResult.issue.message}`}</div><button type="button" data-testid="artifact-code-apply" disabled={!syntaxResult.valid} onClick={commitCodeRevision} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '確認して編集を完了' : 'Validate and finish editing'}</button></div>
+    ? <div className="flex h-full min-h-0 flex-col gap-3"><label htmlFor="artifact-code-editor" className="text-[13px] font-semibold">{language === 'ja' ? '成果物のコードを直接編集' : 'Edit artifact source'}</label><textarea ref={codeEditorRef} id="artifact-code-editor" data-testid="artifact-code-editor" aria-label={language === 'ja' ? '成果物のコードを直接編集' : 'Edit artifact source'} aria-invalid={!syntaxResult.valid} aria-describedby="artifact-code-syntax-status" value={workingContent} onChange={updateCodeEditor} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); commitCodeRevision(); } }} spellCheck={false} className="origin-surface min-h-48 flex-1 resize-none rounded-2xl border border-[var(--border-default)] p-3 font-mono text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-[var(--accent-glow)]" /><div id="artifact-code-syntax-status" data-testid="artifact-code-syntax-status" role={syntaxResult.valid ? 'status' : 'alert'} className={`text-[13px] ${syntaxResult.valid ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{syntaxResult.valid ? language === 'ja' ? '✓ 構文は問題ありません。閉じタグは自動で補われます。' : '✓ Syntax looks fine. Closing tags are filled in automatically.' : language === 'ja' ? `${syntaxResult.issue.line}行 ${syntaxResult.issue.column}列: ${syntaxResult.issue.message}` : `Line ${syntaxResult.issue.line}, column ${syntaxResult.issue.column}: ${syntaxResult.issue.message}`}</div><button type="button" data-testid="artifact-code-apply" disabled={!syntaxResult.valid} onClick={commitCodeRevision} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '確認して編集を完了' : 'Validate and finish editing'}</button></div>
     : <pre className="m-0 whitespace-pre-wrap break-all font-mono text-[13px] leading-6">{workingContent}</pre>;
   const previewFrame = activeTab === 'preview' && isSandboxRenderable
     ? <div data-testid="responsive-preview-stage" className="flex h-full min-w-full items-start justify-center overflow-auto"><iframe ref={previewRef} title={t.previewTitle} aria-label={t.previewTitle} key={sandboxSrcDoc} src="/origin-artifact-sandbox.html" data-origin-srcdoc={sandboxSrcDoc} sandbox={ORIGIN_ARTIFACT_SANDBOX_PERMISSIONS} referrerPolicy="no-referrer" onLoad={(event) => { event.currentTarget.setAttribute('data-origin-loaded', 'true'); event.currentTarget.contentWindow?.postMessage({ source: 'ORIGIN_SANDBOX_INIT', html: sandboxSrcDoc }, '*'); postArtifactTheme(); if (isPresentation) postPresentationCommand('presentation-start'); }} style={{ width: previewWidth }} className="origin-surface h-full shrink-0 rounded-2xl transition-[width] duration-200 ease-out motion-reduce:transition-none" /></div>
@@ -1312,17 +1312,17 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
       <div className="artifact-workspace__title min-w-0 flex items-center gap-2"><h2 className="truncate text-base font-semibold">{artifact.title}</h2>{priorRevision && <span className="origin-muted shrink-0 text-[12px]">更新あり</span>}</div>
       <div className="artifact-workspace__controls">
         <div className="artifact-workspace__view-controls">{isRenderable && isDirectEditing && <div role="group" aria-label={t.displayMode} className="flex items-center gap-1"><button type="button" aria-label={t.showPreview} aria-pressed={activeTab === 'preview'} onClick={() => { if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); }} className={`min-h-11 rounded-lg px-3 text-[13px] font-semibold ${activeTab === 'preview' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{language === 'ja' ? '表示' : 'Preview'}</button><button type="button" aria-label={t.showCode} aria-pressed={activeTab === 'code'} onClick={() => setActiveTab('code')} className={`min-h-11 rounded-lg px-3 text-[13px] font-medium ${activeTab === 'code' ? 'origin-primary-button' : 'origin-secondary-button'}`}>{language === 'ja' ? 'コード' : 'Code'}</button></div>}</div>
-        <div className="artifact-workspace__actions"><div data-testid="artifact-action-bar" role="group" aria-label="作成物の主要操作" className="flex items-center gap-1"><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { if (isDirectEditing) { commitCodeRevision(); return; } setIsDirectEditing(true); setActiveTab(isSandboxRenderable ? 'preview' : 'code'); }} className={`min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : language === 'ja' ? '編集' : 'Edit'}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold">📥 {language === 'ja' ? '保存' : 'Save'}</button><div className="relative"><button type="button" data-testid="artifact-action-details" aria-label="作成物の詳細操作を開く" aria-expanded={isDetailsMenuOpen} onClick={() => { setIsDetailsMenuOpen((current) => !current); setIsExportMenuOpen(false); }} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold">⋯</button>{isDetailsMenuOpen && <div data-testid="artifact-details-menu" role="menu" aria-label="作成物の詳細操作" className="origin-surface absolute right-0 top-12 z-50 grid max-h-[70vh] min-w-44 gap-0.5 overflow-y-auto rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">{isRenderable && !isDirectEditing && <button type="button" data-testid={activeTab === 'code' ? 'artifact-show-preview' : 'artifact-show-code'} role="menuitem" aria-label={activeTab === 'code' ? t.showPreview : t.showCode} onClick={() => { setActiveTab(activeTab === 'code' ? 'preview' : 'code'); setIsDetailsMenuOpen(false); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">⌘ {activeTab === 'code' ? (language === 'ja' ? 'プレビューに戻る' : 'Back to preview') : (language === 'ja' ? 'コードを見る' : 'View code')}</button>}{isSandboxRenderable && <div className="grid gap-1 border-b border-[var(--border-default)] pb-1.5">
+        <div className="artifact-workspace__actions"><div data-testid="artifact-action-bar" role="group" aria-label="成果物の主要操作" className="flex items-center gap-1"><button type="button" data-testid="artifact-action-edit" aria-label={t.editArtifact} aria-pressed={isDirectEditing} onClick={() => { if (isDirectEditing) { commitCodeRevision(); return; } setIsDirectEditing(true); setActiveTab(isSandboxRenderable ? 'preview' : 'code'); }} className={`min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold ${isDirectEditing ? 'origin-primary-button' : 'origin-secondary-button'}`}>✏️ {isDirectEditing ? t.finishEditing : language === 'ja' ? '編集' : 'Edit'}</button><button type="button" data-testid="artifact-action-save" aria-label={t.downloadArtifact} onClick={downloadArtifact} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold">📥 {language === 'ja' ? '保存' : 'Save'}</button><div className="relative"><button type="button" data-testid="artifact-action-details" aria-label="成果物の詳細操作を開く" aria-expanded={isDetailsMenuOpen} onClick={() => { setIsDetailsMenuOpen((current) => !current); setIsExportMenuOpen(false); }} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold">⋯</button>{isDetailsMenuOpen && <div data-testid="artifact-details-menu" role="menu" aria-label="成果物の詳細操作" className="origin-surface absolute right-0 top-12 z-50 grid max-h-[70vh] min-w-44 gap-0.5 overflow-y-auto rounded-xl border border-[var(--border-default)] p-1.5 shadow-xl">{isRenderable && !isDirectEditing && <button type="button" data-testid={activeTab === 'code' ? 'artifact-show-preview' : 'artifact-show-code'} role="menuitem" aria-label={activeTab === 'code' ? t.showPreview : t.showCode} onClick={() => { setActiveTab(activeTab === 'code' ? 'preview' : 'code'); setIsDetailsMenuOpen(false); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">⌘ {activeTab === 'code' ? (language === 'ja' ? 'プレビューに戻る' : 'Back to preview') : (language === 'ja' ? 'コードを見る' : 'View code')}</button>}{isSandboxRenderable && <div className="grid gap-1 border-b border-[var(--border-default)] pb-1.5">
   <p className="origin-muted px-3 pt-1 text-[11px] font-semibold">{language === 'ja' ? '表示サイズ' : 'Preview size'}</p>
   <button type="button" data-testid="preview-viewport-375" role="menuitem" aria-label={t.phoneViewport} aria-pressed={previewViewport === '375'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('375'); setIsDetailsMenuOpen(false); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📱 375px</button>
   <button type="button" data-testid="preview-viewport-768" role="menuitem" aria-label={t.tabletViewport} aria-pressed={previewViewport === '768'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('768'); setIsDetailsMenuOpen(false); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📱 768px</button>
   <button type="button" data-testid="preview-viewport-fluid" role="menuitem" aria-label={t.fluidViewport} aria-pressed={previewViewport === 'fluid'} onClick={() => { setIsPresentation(false); if (!isDirectEditing || syntaxResult.valid) setActiveTab('preview'); setPreviewViewport('fluid'); setIsDetailsMenuOpen(false); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">💻 100%</button>
-</div>}<button type="button" data-testid="artifact-action-copy" role="menuitem" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-share" role="menuitem" aria-label={t.shareArtifact} onClick={() => { setIsDetailsMenuOpen(false); void shareArtifact(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📲 {shared ? language === 'ja' ? '共有済み' : 'Shared' : language === 'ja' ? '共有' : 'Share'}</button>{priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" role="menuitem" aria-label="最新と1つ前の版の変更箇所を見る" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); setIsDetailsMenuOpen(false); }} className={`min-h-11 min-w-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 {isDiffInspectorOpen ? '変更箇所を閉じる' : '変更箇所を見る'}</button>}<div className="relative"><button type="button" data-testid="artifact-action-export-menu" role="menuitem" aria-label="別の形式で保存" aria-expanded={isExportMenuOpen} onClick={() => setIsExportMenuOpen((current) => !current)} className="min-h-11 min-w-11 w-full rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">別の形式で保存</button>{isExportMenuOpen && <div data-testid="artifact-export-menu" role="menu" aria-label="作成物の保存形式" className="grid min-w-36 gap-1 rounded-xl border border-[var(--border-default)] p-1">{([{ key: 'html', label: 'HTML' }, { key: 'svg', label: 'SVG' }, { key: 'png', label: 'PNG' }, { key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }] as const).map((option) => <button key={option.key} type="button" data-testid={`artifact-export-${option.key}`} role="menuitem" onClick={() => void downloadArtifactFormat(option.key)} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{option.label}</button>)}</div>}</div><button type="button" data-testid="artifact-action-bundle" role="menuitem" aria-label={language === 'ja' ? 'すべてをZIPで保存' : 'Save all as ZIP'} aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-wait disabled:opacity-60 dark:hover:bg-white/10" disabled={isBundling}>📦 {isBundling ? (language === 'ja' ? '準備中' : 'Preparing') : (language === 'ja' ? 'すべてをZIPで保存' : 'Save all as ZIP')}</button>{isSandboxRenderable && <button type="button" data-testid="presentation-mode-toggle" role="menuitem" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => { setIsDetailsMenuOpen(false); void togglePresentation(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">▣ {isPresentation ? t.exitPresentation : t.presentation}</button>}<button type="button" role="menuitem" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => { setIsDetailsMenuOpen(false); void toggleFullscreen(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button>{priorRevision && <button type="button" data-testid="artifact-restore-previous" role="menuitem" aria-label="1つ前の版をこの版に戻す" onClick={restorePreviousVersion} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">↶ この版に戻す</button>}</div>}</div></div><button type="button" data-testid="artifact-close-workspace" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">✕</button></div>
+</div>}<button type="button" data-testid="artifact-action-copy" role="menuitem" aria-label={t.copyArtifact} onClick={() => void copyText(workingContent).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2_000); })} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📋 {copied ? t.copied : t.copy}</button><button type="button" data-testid="artifact-action-share" role="menuitem" aria-label={t.shareArtifact} onClick={() => { setIsDetailsMenuOpen(false); void shareArtifact(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">📲 {shared ? language === 'ja' ? '共有済み' : 'Shared' : language === 'ja' ? '共有' : 'Share'}</button>{priorRevision && <button type="button" data-testid="artifact-visual-diff-toggle" role="menuitem" aria-label="最新と1つ前の版の変更箇所を見る" aria-pressed={isDiffInspectorOpen} onClick={() => { setIsDirectEditing(false); setIsDiffInspectorOpen((current) => !current); setIsDetailsMenuOpen(false); }} className={`min-h-11 min-w-11 rounded-[10px] px-3 text-left text-[13px] font-semibold ${isDiffInspectorOpen ? 'origin-primary-button' : 'origin-secondary-button'}`}>🔍 {isDiffInspectorOpen ? '変更箇所を閉じる' : '変更箇所を見る'}</button>}<div className="relative"><button type="button" data-testid="artifact-action-export-menu" role="menuitem" aria-label="別の形式で保存" aria-expanded={isExportMenuOpen} onClick={() => setIsExportMenuOpen((current) => !current)} className="min-h-11 min-w-11 w-full rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">別の形式で保存</button>{isExportMenuOpen && <div data-testid="artifact-export-menu" role="menu" aria-label="成果物の保存形式" className="grid min-w-36 gap-1 rounded-xl border border-[var(--border-default)] p-1">{([{ key: 'html', label: 'HTML' }, { key: 'svg', label: 'SVG' }, { key: 'png', label: 'PNG' }, { key: 'markdown', label: 'Markdown' }, { key: 'json', label: 'JSON' }] as const).map((option) => <button key={option.key} type="button" data-testid={`artifact-export-${option.key}`} role="menuitem" onClick={() => void downloadArtifactFormat(option.key)} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{option.label}</button>)}</div>}</div><button type="button" data-testid="artifact-action-bundle" role="menuitem" aria-label={language === 'ja' ? 'すべてをZIPで保存' : 'Save all as ZIP'} aria-busy={isBundling} onClick={() => void downloadArtifactBundle()} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-wait disabled:opacity-60 dark:hover:bg-white/10" disabled={isBundling}>📦 {isBundling ? (language === 'ja' ? '準備中' : 'Preparing') : (language === 'ja' ? 'すべてをZIPで保存' : 'Save all as ZIP')}</button>{isSandboxRenderable && <button type="button" data-testid="presentation-mode-toggle" role="menuitem" aria-label={isPresentation ? t.exitPresentation : t.presentation} aria-pressed={isPresentation} onClick={() => { setIsDetailsMenuOpen(false); void togglePresentation(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">▣ {isPresentation ? t.exitPresentation : t.presentation}</button>}<button type="button" role="menuitem" aria-label={isFullscreen ? t.exitFullscreenLabel : t.openFullscreen} aria-pressed={isFullscreen} onClick={() => { setIsDetailsMenuOpen(false); void toggleFullscreen(); }} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">{isFullscreen ? t.exitFullscreen : t.fullscreen}</button>{priorRevision && <button type="button" data-testid="artifact-restore-previous" role="menuitem" aria-label="1つ前の版をこの版に戻す" onClick={restorePreviousVersion} className="min-h-11 min-w-11 rounded-lg px-3 text-left text-[13px] font-medium transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">↶ この版に戻す</button>}</div>}</div></div><button type="button" data-testid="artifact-close-workspace" aria-label={t.closeWorkspace} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">✕</button></div>
       </div>
-      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isDirectEditing && isSandboxRenderable && activeTab === 'preview' && <p data-testid="artifact-direct-touch-status" role="status" className="origin-safe-note mt-2 rounded-[10px] px-3 py-2 text-[13px] font-semibold">{language === 'ja' ? '編集モード：プレビュー上の文字を直接変更できます。ソースを編集する場合は「コード」を開いてください。' : 'Edit mode: change text directly in the preview. Open Code to edit the source.'}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-[13px] text-amber-600 dark:text-amber-300">オフライン中: 端末内の作成物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-[13px] text-[var(--danger)]">パッケージを作成できませんでした。</p>}{exportError && <p role="alert" className="text-[13px] text-[var(--danger)]">この形式でのローカル書き出しを完了できませんでした。</p>}
+      {isPresentation && <p className="sr-only" role="status">{t.presentationKeyboardHint}</p>}{isDirectEditing && isSandboxRenderable && activeTab === 'preview' && <p data-testid="artifact-direct-touch-status" role="status" className="origin-safe-note mt-2 rounded-[10px] px-3 py-2 text-[13px] font-semibold">{language === 'ja' ? '編集モード: プレビュー上の文字をそのまま書き換えられます。ソースを直すときは「コード」を開いてください。' : 'Edit mode: rewrite text right in the preview. Open Code to fix the source.'}</p>}{isOffline && <p data-testid="artifact-offline-status" role="status" className="text-[13px] text-amber-600 dark:text-amber-300">オフライン中: 端末内の成果物は閲覧・編集・保存できます。</p>}{bundleError && <p role="alert" className="text-[13px] text-[var(--danger)]">すべての成果物をZIPで保存できませんでした。</p>}{exportError && <p role="alert" className="text-[13px] text-[var(--danger)]">この形式では保存できませんでした。</p>}
     </div>
     <div className="origin-code-panel relative min-h-0 flex-1 overflow-auto p-4">{artifact.creative && onArtifactRevision && <CreativeArtifactEditorV15 artifact={artifact} onRegenerated={onArtifactRevision} />}{isDiffInspectorOpen && visualDiff && priorRevision ? <ArtifactVisualDiffInspector diff={visualDiff} /> : previewFrame}{sandboxError && <div data-testid="sandbox-runtime-boundary" role="alert" className="absolute inset-6 flex flex-col justify-center rounded-2xl border border-red-400/60 bg-[var(--bg-surface)]/95 p-5 shadow-2xl backdrop-blur"><p className="p-3 my-2 bg-red-950/80 border border-red-500/50 rounded-lg text-red-200 text-sm font-mono shadow-lg relative z-50 block w-full">{t.sandboxRuntimeError}</p><p className="mt-2 break-words font-mono text-[13px]">{sandboxError}</p><p className="origin-muted mt-3 text-[13px]">{t.sandboxRuntimeDetail}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" data-testid="restore-last-known-good" disabled={!lastKnownGood} title={!lastKnownGood ? t.noLastKnownGood : undefined} onClick={restoreLastKnownGood} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-bold disabled:cursor-not-allowed disabled:opacity-50">{t.restoreLastKnownGood}</button><button type="button" onClick={() => setSandboxError(null)} className="origin-secondary-button min-h-11 min-w-11 rounded-[10px] px-4 text-[13px] font-semibold">{t.close}</button></div></div>}</div>
-    {isStreaming && !artifact.isComplete && onSteer && <form data-testid="artifact-live-steering" aria-label="作成物の方向修正" onSubmit={(event) => { event.preventDefault(); const direction = steeringPrompt.trim(); if (!direction) return; setSteeringPrompt(''); onSteer(direction); }} className="safe-area-bottom origin-surface-muted shrink-0 px-3 pt-3"><label htmlFor="artifact-live-steering-input" className="mb-2 block text-[13px] font-semibold text-[var(--accent-primary)]">⚡ {language === 'ja' ? '方向修正' : 'Adjust direction'}</label><div className="flex items-center gap-2"><input id="artifact-live-steering-input" data-testid="artifact-live-steering-input" aria-label={language === 'ja' ? '作成物の方向修正' : 'Adjust artifact direction'} value={steeringPrompt} onChange={(event) => setSteeringPrompt(event.target.value)} onKeyDown={(event) => { if ((event.nativeEvent.isComposing || event.keyCode === 229) && event.key === 'Enter') event.preventDefault(); }} placeholder={language === 'ja' ? '例：配色を落ち着いたネイビーに' : 'Example: use a calmer navy palette'} maxLength={1200} className="origin-input min-h-11 min-w-0 flex-1 rounded-[10px] border border-[var(--border-default)] bg-transparent px-3 text-base" /><button type="submit" data-testid="artifact-live-steering-submit" disabled={!steeringPrompt.trim()} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold disabled:opacity-50">{language === 'ja' ? '反映' : 'Apply'}</button></div></form>}
+    {isStreaming && !artifact.isComplete && onSteer && <form data-testid="artifact-live-steering" aria-label="成果物の修正を指示" onSubmit={(event) => { event.preventDefault(); const direction = steeringPrompt.trim(); if (!direction) return; setSteeringPrompt(''); onSteer(direction); }} className="safe-area-bottom origin-surface-muted shrink-0 px-3 pt-3"><label htmlFor="artifact-live-steering-input" className="mb-2 block text-[13px] font-semibold text-[var(--accent-primary)]">⚡ {language === 'ja' ? '修正を指示' : 'Request a change'}</label><div className="flex items-center gap-2"><input id="artifact-live-steering-input" data-testid="artifact-live-steering-input" aria-label={language === 'ja' ? '成果物の修正を指示' : 'Request changes to the artifact'} value={steeringPrompt} onChange={(event) => setSteeringPrompt(event.target.value)} onKeyDown={(event) => { if ((event.nativeEvent.isComposing || event.keyCode === 229) && event.key === 'Enter') event.preventDefault(); }} placeholder={language === 'ja' ? '例：配色を落ち着いたネイビーに' : 'Example: use a calmer navy palette'} maxLength={1200} className="origin-input min-h-11 min-w-0 flex-1 rounded-[10px] border border-[var(--border-default)] bg-transparent px-3 text-base" /><button type="submit" data-testid="artifact-live-steering-submit" disabled={!steeringPrompt.trim()} className="origin-primary-button min-h-11 min-w-11 rounded-[10px] px-3 text-[13px] font-semibold disabled:opacity-50">{language === 'ja' ? '反映' : 'Apply'}</button></div></form>}
   </aside>;
 };
 
@@ -1598,8 +1598,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (!fileList?.length) return;
     if (imageEditTarget) {
       setAttachmentError(language === 'en'
-        ? 'Image edit mode uses the selected verified source image only. Cancel image edit mode before attaching another file.'
-        : '画像編集モードでは選択した検証済み元画像だけを使います。別ファイルを添付する場合は、先に画像編集を解除してください。');
+        ? 'Image edit mode uses only the original image you selected. Exit image edit mode before attaching another file.'
+        : '画像編集モードでは、選んだ元の画像だけを使います。別のファイルを添付するときは、先に画像編集モードをやめてください。');
       setIsSafeWaiting(false);
       return;
     }
@@ -1686,14 +1686,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         setQueueNotice(t.queueOfflineNotice.replace('{count}', String(nextQueue.length)));
         return;
       }
-      setAttachmentError('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。');
+      setAttachmentError('オフライン中は新しい回答を作れません。端末内の履歴・成果物は、閲覧・編集・保存・ZIP保存を続けて使えます。');
       return;
     }
     if (imageEditTarget && sendAttachments.length > 0) {
       pendingImageRequestRef.current = null;
       setAttachmentError(language === 'en'
-        ? 'Image edit mode uses the selected verified source image only. Remove additional attachments or cancel image edit mode first.'
-        : '画像編集モードでは、選択した検証済み元画像だけを使います。追加ファイルを外すか、画像編集を解除してください。');
+        ? 'Image edit mode uses only the original image you selected. Remove the additional files or exit image edit mode first.'
+        : '画像編集モードでは、選んだ元の画像だけを使います。追加ファイルを外すか、画像編集モードをやめてください。');
       return;
     }
     const privacyInput = [
@@ -1725,8 +1725,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     ) {
       const codingGoal = text.trim();
       const handoffMessage = language === 'en'
-        ? 'I moved this request to the Coding workspace. Repository changes start only after dedicated Coding authorization; this path does not publish to Git or deploy.'
-        : 'この依頼をCodingワークスペースへ引き継ぎました。リポジトリ変更は専用Coding認証後に開始し、この経路ではGit公開・デプロイを行いません。';
+        ? 'I moved this request to the code screen. Check the content there before starting.'
+        : 'コード画面に内容を引き継ぎました。画面で内容を確認してから始めます。';
       updateMessages((current) => [
         ...current,
         { id: nextMessageId('u'), role: 'user', content: codingGoal },
@@ -1773,7 +1773,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
-    const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '方向修正' : 'Direction update'}: ${text.trim()}` : text.trim();
+    const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '修正を指示' : 'Change requested'}: ${text.trim()}` : text.trim();
     const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
     const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
@@ -1833,8 +1833,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           if (!referenceBlob) {
             pendingImageRequestRef.current = null;
             appendFailure(language === 'en'
-              ? 'The verified source image is no longer available locally, so ORIGIN did not create an unrelated replacement.'
-              : '検証済みの元画像を端末内から取得できなかったため、元画像と無関係な代替生成は行いませんでした。');
+              ? 'The original image could not be loaded from this device, so no substitute image was created.'
+              : '元の画像を端末から読み込めなかったため、別の画像で代用はしませんでした。');
             return;
           }
           const preparedReference = await prepareRasterReferenceDataUrlV15(referenceBlob);
@@ -1879,8 +1879,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
             updateMessages((current) => [...current, {
               id: nextMessageId('a'), role: 'assistant',
               content: language === 'en'
-                ? 'Created an image locally in your browser (not an AI-generated image). Its contents were checked before showing it here.'
-                : 'ブラウザー内で画像を作成しました（AIモデルによる画像生成ではありません）。内容を確認済みです。',
+                ? 'Created the image in your browser (this is not an AI-generated image).'
+                : 'ブラウザーの中で画像を作りました（AIによる生成ではありません）。',
               deliveryState: 'verified', image,
             }]);
             return;
@@ -1919,8 +1919,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
                 id: nextMessageId('a'),
                 role: 'assistant',
                 content: language === 'en'
-                  ? `Before I generate it, I need ${questions.length === 1 ? 'one detail' : 'a few details'}:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
-                  : `画像を作る前に、仕上がりを大きく左右する点だけ確認します。\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
+                  ? `Before I make the image, let me ask ${questions.length === 1 ? 'one question' : 'a few questions'} about the points that most affect the result:\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
+                  : `画像を作る前に、仕上がりに大きく関わる点だけ聞きます。\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
                 deliveryState: 'verified',
               }]);
               return;
@@ -1998,8 +1998,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         if (referenceAssetId && actualSha === referenceAssetId.toLowerCase()) {
           pendingImageRequestRef.current = null;
           appendFailure(language === 'en'
-            ? 'The image model returned the unchanged source image, so ORIGIN withheld it instead of claiming the edit succeeded.'
-            : '画像モデルが元画像と同一の結果を返したため、編集成功とは扱わず表示を停止しました。もう一度編集してください。');
+            ? 'The edited image was identical to the original, so it was not shown. Please try editing it again.'
+            : '編集結果が元の画像と変わらなかったため、表示を止めました。もう一度編集してください。');
           return;
         }
 
@@ -2007,8 +2007,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         if (!baseTechnicalQuality.passed) {
           pendingImageRequestRef.current = null;
           appendFailure(language === 'en'
-            ? 'The generated image failed ORIGIN’s technical quality inspection, so it was withheld. Please try generating it again.'
-            : '生成画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
+            ? 'The image did not pass the quality check, so it was neither shown nor saved. Please try again.'
+            : 'できた画像が品質チェックを通らなかったため、表示も保存もせずに破棄しました。もう一度お試しください。');
           return;
         }
 
@@ -2051,8 +2051,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           if (!finalTechnicalQuality.passed) {
             pendingImageRequestRef.current = null;
             appendFailure(language === 'en'
-              ? 'The finished image failed ORIGIN’s technical quality inspection, so it was withheld. Please try again.'
-              : '文字合成後の画像がORIGINの技術品質検査に合格しなかったため、表示・保存せず破棄しました。もう一度生成してください。');
+              ? 'The image with text added did not pass the quality check, so it was neither shown nor saved. Please try again.'
+              : '文字を入れた後の画像が品質チェックを通らなかったため、表示も保存もせずに破棄しました。もう一度お試しください。');
             return;
           }
         }
@@ -2581,8 +2581,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     const editPrompt = buildRasterGuidedEditPrompt(sourcePrompt);
     if (!editPrompt) {
       setAttachmentError(language === 'en'
-        ? 'The original visual request could not be recovered from local visual memory.'
-        : '元画像の依頼内容を端末内のVisual Memoryから復元できませんでした。');
+        ? 'The content of the original image could not be read back from this device.'
+        : '元の画像の内容をこの端末から読み戻せませんでした。');
       setIsSafeWaiting(true);
       return;
     }
@@ -2619,8 +2619,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     }
     if (!sourcePrompt) {
       setAttachmentError(language === 'en'
-        ? 'The original visual request could not be recovered from local visual memory.'
-        : '元画像の依頼内容を端末内のVisual Memoryから復元できませんでした。');
+        ? 'The content of the original image could not be read back from this device.'
+        : '元の画像の内容をこの端末から読み戻せませんでした。');
       setIsSafeWaiting(true);
       return;
     }
@@ -2660,7 +2660,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, []);
-  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{researchMode && <div data-testid="research-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '詳しく調べるモード · 送ると出典付きで調査します' : 'Deep research mode · your message runs a sourced investigation'}</span><button type="button" onClick={() => setResearchMode(false)} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Turn off'}</button></div>}{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '画像編集モード · 変えたいところを入力してください' : 'Image edit mode · describe what to change'}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '解除' : 'Cancel'}</button></div>}{isOffline && <p data-testid="origin-offline-status" role="status" className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.offlineNotice}</p>}<p role="status" aria-live="polite" className="sr-only">{queueNotice}</p>{queuedRequests.length > 0 && <div data-testid="origin-send-queue" aria-label={t.queueLabel} className="mb-2 flex flex-wrap items-center gap-2 text-[13px]"><span className="font-semibold text-[var(--accent-primary)]">{t.queueLabel}</span>{queuedRequests.map((item) => { const summary = queuedRequestSummary(item); return <span key={item.id} data-testid="origin-send-queue-chip" className="origin-surface-muted flex max-w-full items-center gap-1.5 rounded-[10px] py-1 pl-2.5 pr-1"><span className="min-w-0 truncate">{summary}</span>{item.attachments.length > 0 && <span aria-label={t.attachedFiles} className="shrink-0">📎{item.attachments.length}</span>}<button type="button" data-testid="origin-send-queue-send-now" aria-label={`${t.queueSendNow}: ${summary}`} title={t.queueSendNow} disabled={isLoading || isOffline} onClick={() => sendQueuedRequestNow(item)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">▶</button><button type="button" data-testid="origin-send-queue-remove" aria-label={`${t.queueRemove}: ${summary}`} title={t.queueRemove} onClick={() => removeQueuedRequest(item.id)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold">✕</button></span>; })}</div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={researchMode ? (language === 'ja' ? '調べたいことを入力してください' : 'What should ORIGIN look into?') : imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} className="origin-input max-h-[176px] min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
+  const composer = <><input ref={fileInputRef} type="file" multiple aria-label={t.attachFile} className="sr-only" accept="image/*,text/*,.md,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.svg,.xml,.yml,.yaml" onChange={(event) => { void attachFiles(event.target.files); event.target.value = ''; }} />{researchMode && <div data-testid="research-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '詳しく調べるモード · 送ると、出典つきで調べます' : 'Research mode · your message is researched with sources'}</span><button type="button" onClick={() => setResearchMode(false)} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? 'モードをやめる' : 'Exit mode'}</button></div>}{imageEditTarget && <div data-testid="image-edit-mode" role="status" className="origin-surface-muted mb-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-[13px]"><span className="min-w-0 truncate font-semibold">{language === 'ja' ? '画像編集モード · 変えたいところを書いてください' : 'Image edit mode · describe what to change'}</span><button type="button" onClick={cancelImageEdit} className="origin-secondary-button min-h-11 shrink-0 rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? 'モードをやめる' : 'Exit mode'}</button></div>}{isOffline && <p data-testid="origin-offline-status" role="status" className="origin-muted mb-1.5 text-center text-[11px] leading-4">{t.offlineNotice}</p>}<p role="status" aria-live="polite" className="sr-only">{queueNotice}</p>{queuedRequests.length > 0 && <div data-testid="origin-send-queue" aria-label={t.queueLabel} className="mb-2 flex flex-wrap items-center gap-2 text-[13px]"><span className="font-semibold text-[var(--accent-primary)]">{t.queueLabel}</span>{queuedRequests.map((item) => { const summary = queuedRequestSummary(item); return <span key={item.id} data-testid="origin-send-queue-chip" className="origin-surface-muted flex max-w-full items-center gap-1.5 rounded-[10px] py-1 pl-2.5 pr-1"><span className="min-w-0 truncate">{summary}</span>{item.attachments.length > 0 && <span aria-label={t.attachedFiles} className="shrink-0">📎{item.attachments.length}</span>}<button type="button" data-testid="origin-send-queue-send-now" aria-label={`${t.queueSendNow}: ${summary}`} title={t.queueSendNow} disabled={isLoading || isOffline} onClick={() => sendQueuedRequestNow(item)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">▶</button><button type="button" data-testid="origin-send-queue-remove" aria-label={`${t.queueRemove}: ${summary}`} title={t.queueRemove} onClick={() => removeQueuedRequest(item.id)} className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-2 text-[13px] font-semibold">✕</button></span>; })}</div>}<div onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} className={`origin-composer origin-surface flex items-end gap-1 rounded-[24px] border p-1.5 shadow-lg shadow-black/5 transition sm:p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-glow)] ${messages.length ? 'origin-composer--compact' : ''} ${isDragging ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}><ComposerV12 ref={textareaRef} aria-label={messages.length ? t.sendRequest : t.startRequest} aria-describedby="origin-chat-guidance" data-testid={messages.length ? 'origin-chat-request' : 'origin-home-request'} value={inputText} onChange={(event) => setInputText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }} placeholder={researchMode ? (language === 'ja' ? '調べたいことを書いてください' : 'What should ORIGIN look into?') : imageEditTarget ? (language === 'ja' ? '例：背景だけを深いネイビーに変更して' : 'Example: change only the background to deep navy') : messages.length ? t.chatPlaceholder : t.homePlaceholder} rows={1} className="origin-input max-h-[176px] min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-3 text-base leading-7 focus:outline-none sm:px-3" /><details ref={composerMenuRef} data-testid="origin-add-menu" className="origin-add-menu relative shrink-0">
   <summary data-testid="origin-add-menu-toggle" onClick={(event) => { event.preventDefault(); const details = event.currentTarget.parentElement; if (details instanceof HTMLDetailsElement) details.open = !details.open; }} aria-label={language === 'ja' ? '追加メニュー' : 'Add menu'} className="inline-flex h-11 min-h-11 w-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-full text-2xl leading-none transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] dark:hover:bg-white/10">＋</summary>
   <div role="menu" aria-label={language === 'ja' ? '追加機能' : 'Additional tools'} className="origin-add-menu__panel absolute bottom-14 right-0 z-50 grid min-w-64 gap-1 p-2">
     <button type="button" role="menuitem" aria-label={language === 'ja' ? '画像生成' : 'Generate image'} aria-describedby="origin-add-menu-image-description" disabled={Boolean(imageEditTarget) || isLoading || isOffline} onClick={(event) => { closeComposerMenu(event.currentTarget); setIsImageGenerationPanelOpen(true); }} className="origin-add-menu__item flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10"><ImagePlus aria-hidden="true" size={20} strokeWidth={2} className="origin-add-menu__icon" /><span className="origin-add-menu__text"><span className="origin-add-menu__label">{language === 'ja' ? '画像生成' : 'Generate image'}</span><span id="origin-add-menu-image-description" className="origin-add-menu__description">{t.addMenuImageDescription}</span></span></button>

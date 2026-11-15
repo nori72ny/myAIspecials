@@ -84,7 +84,7 @@ describe('AgentLivePanel (PR-L2)', () => {
     };
     render(<AgentLivePanel steps={steps} runView={view} statusHint="completed" catState="done" />);
     expect(screen.getByText('作業が完了しました')).toBeTruthy();
-    expect(screen.getByText('ウェブ調査')).toBeTruthy();
+    expect(screen.getByText('ウェブで調べる')).toBeTruthy();
     expect(screen.queryByText('ほかに見たページ')).toBeNull();
     expect(screen.queryByRole('link', { name: '原文を開く' })).toBeNull();
   });

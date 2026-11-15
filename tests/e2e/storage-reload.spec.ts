@@ -101,7 +101,7 @@ test('continues in memory after a read failure without overwriting durable histo
   });
   await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: 'メモリ上で回答を継続します。' }));
   await page.reload();
-  await expect(page.getByTestId('origin-storage-status')).toContainText('メモリ上で継続');
+  await expect(page.getByTestId('origin-storage-status')).toContainText('メモリ上だけで続けています');
   await page.getByTestId('origin-home-request').fill('メモリで継続');
   await page.getByTestId('start-request-button').click();
   await expect(page.getByText('メモリ上で回答を継続します。', { exact: true })).toBeVisible();

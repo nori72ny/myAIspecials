@@ -172,7 +172,7 @@ describe('SettingsModal appearance and history actions', () => {
         onClose={vi.fn()}
         settings={DEFAULT_PERSONAL_SETTINGS}
         updateSettings={updateSettings}
-        messageCount={2}
+        savedConversationCount={2}
       />,
     );
 
@@ -192,7 +192,7 @@ describe('SettingsModal appearance and history actions', () => {
         onClose={vi.fn()}
         settings={DEFAULT_PERSONAL_SETTINGS}
         updateSettings={vi.fn()}
-        messageCount={3}
+        savedConversationCount={3}
         onExportHistory={onExportHistory}
         onResetHistory={onResetHistory}
       />,
@@ -200,10 +200,10 @@ describe('SettingsModal appearance and history actions', () => {
 
     await screen.findByText('0123456789ab…');
     expect(screen.getByText('このブラウザーの会話は現在 3 件です。')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '書き出す' }));
-    fireEvent.click(screen.getByRole('button', { name: '初期化' }));
+    fireEvent.click(screen.getByRole('button', { name: '現在の会話を書き出す' }));
+    fireEvent.click(screen.getByRole('button', { name: '新しく始める' }));
     expect(onExportHistory).toHaveBeenCalledOnce();
     expect(onResetHistory).toHaveBeenCalledOnce();
-    expect(screen.getByText('会話履歴を初期化しました。')).toBeTruthy();
+    expect(screen.getByText('現在の会話を履歴に保存し、新しい会話を始めました。')).toBeTruthy();
   });
 });

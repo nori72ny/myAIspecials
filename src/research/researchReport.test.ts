@@ -54,9 +54,9 @@ describe('researchReport model', () => {
 
   it('maps failure codes to the established user-facing messages', () => {
     expect(researchFailureMessage('SENSITIVE_INPUT_BLOCKED', undefined, 'ja')).toContain('外部情報源への送信を停止');
-    expect(researchFailureMessage('RESEARCH_SOURCE_CONSTRAINT_UNMET', undefined, 'ja')).toContain('無関係な出典では補完していません');
-    expect(researchFailureMessage('RESEARCH_SOURCE_UNAVAILABLE', undefined, 'ja')).toContain('未確認内容で補完していません');
-    expect(researchFailureMessage('INVALID_RESEARCH_QUERY', undefined, 'ja')).toBe('調査内容を1〜1200文字で入力してください。');
+    expect(researchFailureMessage('RESEARCH_SOURCE_CONSTRAINT_UNMET', undefined, 'ja')).toContain('質問に合う根拠が見つかりませんでした');
+    expect(researchFailureMessage('RESEARCH_SOURCE_UNAVAILABLE', undefined, 'ja')).toContain('確かめられる情報が見つかりませんでした');
+    expect(researchFailureMessage('INVALID_RESEARCH_QUERY', undefined, 'ja')).toBe('調査内容は1〜1200文字で書いてください。');
     expect(researchFailureMessage(undefined, undefined, 'ja')).toContain('調査を完了できませんでした');
   });
 
@@ -75,21 +75,21 @@ describe('researchReport model', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...validPayload, freeOnly: false, costUsd: 1, paidFallbackUsed: true, report: 'must not render' }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
 
     const outcome = await fetchGroundedResearch('query', 'ja');
-    expect(outcome.ok === false && outcome.message).toContain('応答を検証できなかったため、安全に停止');
+    expect(outcome.ok === false && outcome.message).toContain('調査の結果を確認できなかったため、表示を止めました');
   });
 
   it('maps an API failure code instead of showing the raw payload', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, code: 'RESEARCH_SOURCE_CONSTRAINT_UNMET' }), { status: 422, headers: { 'Content-Type': 'application/json' } })));
 
     const outcome = await fetchGroundedResearch('Google公式ヘルプだけで説明して', 'ja');
-    expect(outcome.ok === false && outcome.message).toContain('指定された公式情報源またはドメイン');
+    expect(outcome.ok === false && outcome.message).toContain('指定された公式サイトなどからは');
   });
 
   it('reports a connection failure without inventing content', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network down'); }));
 
     const outcome = await fetchGroundedResearch('query', 'ja');
-    expect(outcome.ok === false && outcome.message).toContain('調査APIへ接続できませんでした');
+    expect(outcome.ok === false && outcome.message).toContain('調査の接続に失敗しました');
   });
 
   it('lets AbortError propagate so the caller can stop silently', async () => {

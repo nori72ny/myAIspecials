@@ -180,7 +180,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.getByTestId('origin-home-request').fill('無料条件の安全待機表示を確認');
     await page.getByTestId('start-request-button').click();
     const safeWaiting = page.getByTestId('origin-safe-waiting-state');
-    await expect(safeWaiting).toContainText('無料専用ポリシーに適合する応答を確認できない');
+    await expect(safeWaiting).toContainText('無料で使えることを確認できなかったため、回答を表示できませんでした');
     await expect(safeWaiting).not.toContainText('$0.00');
     await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
