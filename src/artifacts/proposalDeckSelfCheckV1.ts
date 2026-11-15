@@ -38,11 +38,14 @@ export interface ProposalDeckSelfCheckResult {
 /**
  * 見出しが結論文（主張文）かの決定的判定。
  * 「。」で終わる文、または述語で終わる文を合格とし、名詞止めのラベル（例「現状の課題」）を不合格とする。
+ * 資料レコード再設計のゲート4（proposalDeckAssemblyV1）からも土台として
+ * 参照するため export する。判定規則自体は変更しない（新経路側の
+ * 受動形の追加は proposalDeckAssemblyV1 の isDeckAssertionSentence 側で行う）。
  */
 const ASSERTION_ENDING =
   /(です|ます|した|します|できる|できます|なります|あります|います|高い|大きい|小さい|多い|少ない|必要です|可能です|有効です)$/;
 
-function isAssertion(message: string): boolean {
+export function isAssertion(message: string): boolean {
   const text = typeof message === 'string' ? message.trim() : '';
   if (text === '') return false;
   if (text.endsWith('。')) return true;
@@ -52,7 +55,8 @@ function isAssertion(message: string): boolean {
 const PLACEHOLDER_BRACKET = /\[.+?\]/;
 const PLACEHOLDER_TBD = /TBD/i;
 
-function hasPlaceholder(text: string): boolean {
+/** プレースホルダー（[項目]・〇・××・TBD）の残存判定。ゲート3（proposalDeckAssemblyV1）と規則を共有するため export する。 */
+export function hasPlaceholder(text: string): boolean {
   if (typeof text !== 'string') return false;
   return (
     PLACEHOLDER_BRACKET.test(text) ||
