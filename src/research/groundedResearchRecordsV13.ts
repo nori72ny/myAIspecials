@@ -923,6 +923,32 @@ export function validateGroundedResearchRecords(
 }
 
 /**
+ * Verbatim-rate observation (R-PR-8e, RPR8_DESIGN_2026-11-15 §8e):
+ * aggregates, over a set of records, the numeric tokens of their
+ * texts and how many of those tokens appear verbatim in the record's
+ * own quote — exactly the §6.1 step 5 judgment, counted. Pure
+ * observation for the stage metrics: nothing here feeds back into
+ * validation, coverage, or adoption, so the rate the production logs
+ * yield is the validator's own verdict, re-counted over whichever
+ * record set formed the adopted answer (validated records, the
+ * merged retry set, selection pseudo-records, or the slot's support
+ * records plus its pseudo-record).
+ */
+function countGroundedResearchRecordsNumericTokens(
+  records: readonly GroundedResearchAcceptedRecord[],
+): { adoptedNumericTokenCount: number; adoptedNumericVerbatimCount: number } {
+  let adoptedNumericTokenCount = 0;
+  let adoptedNumericVerbatimCount = 0;
+  for (const record of records) {
+    const tokens = recordsNumericTokens(record.text);
+    const normalizedQuote = normalizedRecordsText(record.quote);
+    adoptedNumericTokenCount += tokens.length;
+    adoptedNumericVerbatimCount += tokens.filter((token) => normalizedQuote.includes(token)).length;
+  }
+  return { adoptedNumericTokenCount, adoptedNumericVerbatimCount };
+}
+
+/**
  * Parse + validate in one call: the records-path counterpart of V12's
  * validate entry point, taking the raw model output and the packet
  * (design §6 preamble).
@@ -1501,6 +1527,10 @@ interface GroundedResearchSelectionAttempt {
   shapeDroppedIdCount: number;
   /** Candidates dropped by the tier/freshness gate (R-PR-8c). */
   tierDroppedIdCount: number;
+  /** Verbatim-rate observation (R-PR-8e): numeric tokens of the adopted selection's pseudo-records; 0 unless adopted. */
+  adoptedNumericTokenCount: number;
+  /** Verbatim-rate observation (R-PR-8e): of those, the tokens appearing verbatim in their pseudo-record's quote. */
+  adoptedNumericVerbatimCount: number;
   /** The post-render check failed on the selection rendering. */
   renderCheckFailed: boolean;
 }
@@ -1541,6 +1571,8 @@ async function attemptGroundedResearchSelection(
       citedSourceCount: 0,
       shapeDroppedIdCount: 0,
       tierDroppedIdCount: 0,
+      adoptedNumericTokenCount: 0,
+      adoptedNumericVerbatimCount: 0,
       renderCheckFailed: false,
     };
   }
@@ -1555,16 +1587,19 @@ async function attemptGroundedResearchSelection(
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     tierDroppedIdCount: evaluation.tierDroppedIdCount,
+    adoptedNumericTokenCount: 0,
+    adoptedNumericVerbatimCount: 0,
     renderCheckFailed: false,
   };
   if (!evaluation.adopted) {
     return { ...base, code: evaluation.code ?? "SELECTION_NO_UNITS" };
   }
   const rendered = renderGroundedResearchSelectionAnswer(evaluation.selectedUnits, packet, options.language);
+  const selectionRecords = selectionUnitsAsRecords(evaluation.selectedUnits, packet);
   const renderCheck = checkGroundedResearchRenderedAnswer(
     rendered,
     packet,
-    selectionUnitsAsRecords(evaluation.selectedUnits, packet),
+    selectionRecords,
   );
   if (!renderCheck.ok) {
     return { ...base, code: "SELECTION_RENDER_CHECK_FAILED", renderCheckFailed: true };
@@ -1580,6 +1615,7 @@ async function attemptGroundedResearchSelection(
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     tierDroppedIdCount: evaluation.tierDroppedIdCount,
+    ...countGroundedResearchRecordsNumericTokens(selectionRecords),
     renderCheckFailed: false,
   };
 }
@@ -2335,6 +2371,8 @@ async function attemptGroundedResearchFactSlot(
  * routers log this object verbatim on their completed/discarded lines.
  * The slot stage (§9) is present since R-PR-6, the selection stage
  * (§8) since R-PR-4, and the fresh retry stage (§10) since R-PR-5.
+ * The adopted-answer numeric counts (verbatim-rate observation) are
+ * present since R-PR-8e.
  */
 export interface GroundedResearchRecordsStageMetrics {
   /** Packet stage: sources after pre-selection (§3.1). */
@@ -2373,6 +2411,10 @@ export interface GroundedResearchRecordsStageMetrics {
   renderedRecordCount: number;
   /** Render stage: the post-render check (§6.5) failed on a rendering that was not adopted. */
   renderCheckFailed: boolean;
+  /** Verbatim-rate observation (R-PR-8e): numeric tokens across the texts of the records forming the adopted answer; 0 when nothing was adopted. The verbatim rate is the next field divided by this one. */
+  adoptedNumericTokenCount: number;
+  /** Verbatim-rate observation (R-PR-8e): of adoptedNumericTokenCount, the tokens appearing verbatim in their own record's quote (§6.1 step 5, aggregated). */
+  adoptedNumericVerbatimCount: number;
   /** Selection stage (§8/§11): the select-only layer was attempted. */
   selectionAttempted: boolean;
   /** Selection stage: units surviving the deterministic cleanup (existence, dedupe, cap). */
@@ -2540,6 +2582,8 @@ export async function executeGroundedResearchRecordsSynthesis(
     coverageSatisfied: false,
     renderedRecordCount: 0,
     renderCheckFailed: false,
+    adoptedNumericTokenCount: 0,
+    adoptedNumericVerbatimCount: 0,
     selectionAttempted: false,
     selectionSelectedUnitCount: 0,
     selectionCitedSourceCount: 0,
@@ -2662,10 +2706,11 @@ export async function executeGroundedResearchRecordsSynthesis(
         slotCode,
       };
       const rendered = renderGroundedResearchFactSlotAnswer(slot.sentence, slot.evaluation, slotSource, supportRecords, packet, options.language);
-      const renderCheck = checkGroundedResearchRenderedAnswer(rendered, packet, [
+      const slotRecords: GroundedResearchAcceptedRecord[] = [
         ...supportRecords,
         slotAsAcceptedRecord(slot.evaluation, slotSource, slot.sentence),
-      ]);
+      ];
+      const renderCheck = checkGroundedResearchRenderedAnswer(rendered, packet, slotRecords);
       if (renderCheck.ok) {
         return {
           attempted: true,
@@ -2680,7 +2725,7 @@ export async function executeGroundedResearchRecordsSynthesis(
           // supporting records execution when it produced the
           // support, otherwise the slot execution itself.
           result: supportRecords.length > 0 ? supportResult : slot.result,
-          metrics: { ...slotMetrics, finalForm: "slot" },
+          metrics: { ...slotMetrics, ...countGroundedResearchRecordsNumericTokens(slotRecords), finalForm: "slot" },
         };
       }
       // The slot rendering failed the post-render check: the slot is
@@ -2741,7 +2786,12 @@ export async function executeGroundedResearchRecordsSynthesis(
         text: rendered,
         usedSourceIds: [...new Set(evaluation.accepted.map((record) => record.sourceId))],
         result,
-        metrics: { ...metrics, renderedRecordCount: evaluation.accepted.length, finalForm: "records" },
+        metrics: {
+          ...metrics,
+          renderedRecordCount: evaluation.accepted.length,
+          ...countGroundedResearchRecordsNumericTokens(evaluation.accepted),
+          finalForm: "records",
+        },
       };
     }
     recordsFailureCode = "RENDER_CHECK_FAILED";
@@ -2795,7 +2845,12 @@ export async function executeGroundedResearchRecordsSynthesis(
             // completed the adopted answer (the selection layer's
             // and the V12 retry helper's rule).
             result: retry.result,
-            metrics: { ...stageMetrics, renderedRecordCount: retry.mergedAccepted.length, finalForm: "records-after-retry" },
+            metrics: {
+              ...stageMetrics,
+              renderedRecordCount: retry.mergedAccepted.length,
+              ...countGroundedResearchRecordsNumericTokens(retry.mergedAccepted),
+              finalForm: "records-after-retry",
+            },
           };
         }
         stageFailureCode = "RENDER_CHECK_FAILED";
@@ -2827,6 +2882,11 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionShapeDroppedCount: selection.shapeDroppedIdCount,
     selectionTierDroppedCount: selection.tierDroppedIdCount,
     selectionCode: selection.code,
+    // On this path the records/retry stages did not adopt, so their
+    // counts stand at 0 and the selection attempt's counts (0 unless
+    // the selection adopted) are the request's adopted counts.
+    adoptedNumericTokenCount: selection.adoptedNumericTokenCount,
+    adoptedNumericVerbatimCount: selection.adoptedNumericVerbatimCount,
   };
   if (selection.adopted && selection.text !== undefined && selection.result !== undefined) {
     return {
