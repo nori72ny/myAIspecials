@@ -62,12 +62,25 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(details.open).toBe(false);
 
     const closeButton = screen.getByTestId('close-settings-button');
-    const clearHistoryButton = screen.getByText('新しく始める');
+    // The "About you" section (PR P1-3) sits right after the history
+    // section, so its clear-all button is now the last focusable control
+    // before the closed technical-information <details>.
+    const lastButton = screen.getByTestId('personal-clear-all-button');
     closeButton.focus();
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
 
-    expect(document.activeElement).toBe(clearHistoryButton);
+    expect(document.activeElement).toBe(lastButton);
     expect(document.activeElement).not.toBe(insideButtons[insideButtons.length - 1]);
+  });
+
+  it('renders the About you section right after the history section', async () => {
+    await renderModal();
+    const scrollRegion = screen.getByTestId('settings-scroll-region');
+    const headings = Array.from(scrollRegion.querySelectorAll('h3')).map((heading) => heading.textContent);
+    const historyIndex = headings.findIndex((text) => text?.includes('会話履歴'));
+    const personalIndex = headings.findIndex((text) => text?.includes('あなたについて'));
+    expect(historyIndex).toBeGreaterThanOrEqual(0);
+    expect(personalIndex).toBe(historyIndex + 1);
   });
 
   it('wraps focus to a button inside an open <details>', async () => {

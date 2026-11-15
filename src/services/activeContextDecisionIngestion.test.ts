@@ -456,3 +456,52 @@ describe('bridge compatibility', () => {
     expect(context).toContain('"decision"');
   });
 });
+
+// --- Master toggle gate (design §7.2/§7.4, wired in PR P1-3) ---------------------
+
+describe('personalization master toggle gate', () => {
+  const TURN = {
+    userText: '覚えておいて、私は自宅にPCを持っていません',
+    answerText: PLAIN_ANSWER,
+  };
+
+  it('extracts nothing while the toggle is off, and resumes when it is back on', async () => {
+    const { graph, ingestion } = await loadModules();
+    window.localStorage.setItem('origin_personal_settings', JSON.stringify({
+      language: 'ja', selectedTheme: 'light', personalizationEnabled: false,
+    }));
+    await ingestion.ingestCompletedChatTurn(TURN);
+    expect(await storedItems(graph)).toHaveLength(0);
+
+    window.localStorage.setItem('origin_personal_settings', JSON.stringify({
+      language: 'ja', selectedTheme: 'light', personalizationEnabled: true,
+    }));
+    await ingestion.ingestCompletedChatTurn(TURN);
+    const items = await storedItems(graph);
+    expect(items).toHaveLength(1);
+    expect(items[0].origin).toBe('explicit');
+  });
+
+  it('extracts when no settings are stored yet (default is on)', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn(TURN);
+    expect(await storedItems(graph)).toHaveLength(1);
+  });
+
+  it('keeps already stored items untouched while the toggle is off', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn(TURN);
+    expect(await storedItems(graph)).toHaveLength(1);
+
+    window.localStorage.setItem('origin_personal_settings', JSON.stringify({
+      language: 'ja', selectedTheme: 'light', personalizationEnabled: false,
+    }));
+    await ingestion.ingestCompletedChatTurn({
+      userText: '今後は予算10万円以内で進めます',
+      answerText: PLAIN_ANSWER,
+    });
+    const items = await storedItems(graph);
+    expect(items).toHaveLength(1);
+    expect(items[0].text).toContain('自宅にPCを持っていません');
+  });
+});
