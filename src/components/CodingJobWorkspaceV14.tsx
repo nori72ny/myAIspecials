@@ -80,44 +80,44 @@ type CapabilityResponse = {
 
 const ACTIVE = new Set<CodingJobStatus>(['queued', 'leased', 'running', 'repairing']);
 const STATUS_LABELS: Record<CodingJobStatus, string> = {
-  queued: '受付済み',
-  leased: '実行準備中',
-  running: 'コードを変更中',
-  repairing: '修正中',
-  verified: '検証済み',
-  blocked: '実行停止',
-  failed: '失敗',
-  cancelled: '取消済み',
+  queued: '受け付けました',
+  leased: '準備中',
+  running: 'コードを作成・変更中',
+  repairing: '直しています',
+  verified: '終わりました（確認済み）',
+  blocked: '止まりました',
+  failed: '失敗しました',
+  cancelled: '取り消しました',
 };
 const STATUS_DETAILS: Record<CodingJobStatus, string> = {
-  queued: '依頼を受け付けました。ワーカーの処理開始を待っています。',
-  leased: 'ワーカーが依頼を受け取りました。実行を準備しています。',
-  running: 'コードの確認・変更を実行しています。検証結果が届くまでお待ちください。',
-  repairing: '検証で見つかった問題を修正しています。',
-  verified: 'ジョブは検証済みとして終了しました。各検査と変更内容は下の結果で確認できます。',
-  blocked: '安全条件または実行条件を満たせず停止しました。実施できた検査だけを表示します。',
-  failed: '処理が失敗して終了しました。完了していない工程を成功として扱いません。',
-  cancelled: '依頼は取り消されました。取り消し前にどこまで実行されたかは、この状態だけでは分かりません。',
+  queued: '受け付けました。始まるまでお待ちください。',
+  leased: '始める準備をしています。',
+  running: 'コードを確認しながら、作成・変更しています。終わるまでお待ちください。',
+  repairing: '確認で見つかった問題を直しています。',
+  verified: '終わりました。変更したファイルと確認結果は下で見られます。',
+  blocked: '必要な条件がそろわず、止まりました。できた確認だけを表示します。',
+  failed: '途中で失敗しました。終わっていない作業を完了とは表示しません。',
+  cancelled: '取り消しました。取り消す前にどこまで進んだかは、ここだけでは分かりません。',
 };
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  CODING_JOB_AUTHENTICATION_REQUIRED: 'Coding専用の認証キーが必要です。認証欄を確認してください。',
-  CODING_JOB_DISPATCH_TOKEN_INVALID: 'ワーカーの起動用認証がGitHubに受け付けられませんでした。管理側で認証設定の確認が必要です。',
-  CODING_JOB_DISPATCH_PERMISSION_DENIED: 'GitHubがワーカーの起動を拒否しました。管理側で起動権限の確認が必要です。',
-  CODING_JOB_DISPATCH_WORKFLOW_INACCESSIBLE: '起動対象のワーカーにアクセスできません。管理側でワークフローとアクセス範囲の確認が必要です。',
-  CODING_JOB_DISPATCH_REF_INVALID: 'ワーカーの起動条件が受け付けられませんでした。管理側で対象ブランチと入力条件の確認が必要です。',
-  CODING_JOB_DISPATCH_RATE_LIMITED: 'GitHubの利用制限によりワーカーを起動できませんでした。時間をおいてからお試しください。',
-  CODING_JOB_DISPATCH_UNAVAILABLE: 'ワーカーの起動要求が届いたか確認できませんでした。自動で再送はしていません。',
-  CODING_JOB_DISPATCH_REJECTED: 'ワーカーの起動要求が受け付けられませんでした。管理側で確認が必要です。',
-  CODING_UI_CREATE_UNAVAILABLE: '通信が途切れ、依頼が受け付けられたか確認できませんでした。重複を避けるため、自動で再送はしていません。',
-  CODING_UI_STATUS_UNAVAILABLE: '最新の状態を取得できませんでした。表示中の結果は最後に取得した内容です。',
-  CODING_UI_CANCEL_UNAVAILABLE: '取り消しの結果を確認できませんでした。依頼が停止したとは限りません。',
+  CODING_JOB_AUTHENTICATION_REQUIRED: '実行キーを入力してください。',
+  CODING_JOB_DISPATCH_TOKEN_INVALID: '作業を始めるための設定を確認できなかったため、開始できませんでした。時間をおいて、もう一度お試しください。',
+  CODING_JOB_DISPATCH_PERMISSION_DENIED: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
+  CODING_JOB_DISPATCH_WORKFLOW_INACCESSIBLE: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
+  CODING_JOB_DISPATCH_REF_INVALID: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
+  CODING_JOB_DISPATCH_RATE_LIMITED: '利用が集中しているため、今は始められません。時間をおいてお試しください。',
+  CODING_JOB_DISPATCH_UNAVAILABLE: '開始できたか確認できませんでした。二重に始めないため、自動ではもう一度送っていません。',
+  CODING_JOB_DISPATCH_REJECTED: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
+  CODING_UI_CREATE_UNAVAILABLE: '通信が途切れたため、受け付けられたか確認できませんでした。二重送信を避けるため、自動ではもう一度送っていません。',
+  CODING_UI_STATUS_UNAVAILABLE: '最新の状態を取得できませんでした。表示しているのは、最後に取得できた内容です。',
+  CODING_UI_CANCEL_UNAVAILABLE: '取り消せたか確認できませんでした。止まっていない場合があります。',
 };
 
 function ErrorNotice({ code }: { code: string }) {
   return <div role="alert" className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs leading-5 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
-    <p className="font-semibold">{ERROR_MESSAGES[code] ?? '処理を完了できませんでした。確認用のエラーコードを詳細に表示しています。'}</p>
-    <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">エラーの詳細</summary><code className="block break-all">{code}</code></details>
+    <p className="font-semibold">{ERROR_MESSAGES[code] ?? '処理を完了できませんでした。サポート用コードを表示しています。'}</p>
+    <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">サポート用コード</summary><p className="mb-1">問い合わせるときは、このコードもお伝えください。</p><code className="block break-all">{code}</code></details>
   </div>;
 }
 
@@ -151,7 +151,7 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
         : 'border-origin-brand-border bg-origin-brand-soft text-origin-brand';
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${tone}`}>
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
-    {cancelRequested && ACTIVE.has(status) ? '取り消しを確認中' : STATUS_LABELS[status]}
+    {cancelRequested && ACTIVE.has(status) ? '取り消しています' : STATUS_LABELS[status]}
   </span>;
 }
 
@@ -315,37 +315,38 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
   const ready = capability?.ready === true;
 
-  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="Coding Job Workspace">
+  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="コード">
     <div className="mx-auto max-w-4xl space-y-4">
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
-          <h1 className="text-xl font-black">コードの変更を依頼</h1>
-          <p className="mt-1 text-sm leading-6 text-origin-muted">変更したいことを伝えると、確認・編集・検証まで進めます。</p>
+          <h1 className="text-xl font-black">コードを作る・直す</h1>
+          <p className="mt-1 text-sm leading-6 text-origin-muted">作りたいものや直したいことを書いてください。内容を確認し、作成・修正と動作確認まで進めます。</p>
         </div>
         
       </header>
 
       <section className="origin-workspace rounded-2xl p-4">
-        <label htmlFor="coding-goal" className="block text-sm font-bold">変更したいこと</label>
+        <label htmlFor="coding-goal" className="block text-sm font-bold">作りたいもの・直したいこと</label>
         <textarea
           id="coding-goal"
           value={goal}
           onChange={event => setGoal(event.target.value)}
           maxLength={4000}
-          placeholder="例: ログイン画面の入力チェックを修正し、関連テストも追加してください。"
+          placeholder="例：家計簿アプリを作ってください。金額を入力すると、月ごとの合計を表示したいです。"
           className="mt-2 min-h-32 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
         />
+        <p className="mt-1 text-xs leading-5 text-origin-muted">新しいものを作る場合も、今あるコードを直す場合も、ここに書いてください。</p>
         <div className="mt-1 text-right text-[10px] text-origin-muted">{goal.length}/4000</div>
 
-        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-origin-muted">実行に必要な認証</summary><p className="mb-2 text-xs leading-5 text-origin-muted">コード変更を実行するときだけ必要です。入力内容は端末へ保存しません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
+        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-origin-muted">実行に使うキー</summary><p className="mb-2 text-xs leading-5 text-origin-muted">始める前に必要です。入力したキーは保存されません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
         <input
           ref={credentialInputRef}
           id="coding-operator-key"
-          aria-label="Coding認証キー"
+          aria-label="実行キーを入力"
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Coding operator key"
+          placeholder="実行キーを入力"
           className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm outline-none focus:ring-2 focus:ring-origin-brand"
         /></details>
 
@@ -354,27 +355,27 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           onClick={() => void startJob()}
           disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
           aria-describedby="coding-run-status"
-          title={!ready ? '実行環境が利用可能になるまで開始できません' : !goal.trim() ? '変更したいことを入力してください' : job && ACTIVE.has(job.status) ? '現在のジョブが完了するまで新規依頼は開始できません' : undefined}
+          title={!ready ? '今は利用できないため、始められません' : !goal.trim() ? '作りたいもの・直したいことを入力してください' : job && ACTIVE.has(job.status) ? '今の作業が終わるまで、新しい依頼は始められません' : undefined}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? '処理中…' : job && ACTIVE.has(job.status) ? '実行中' : '変更を依頼する'}
+          {busy ? '始めています…' : job && ACTIVE.has(job.status) ? '実行中' : '作成・修正を始める'}
         </button>
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-origin-muted">{checkingCapability ? '実行基盤を確認中…' : ready ? '実行基盤を確認済み' : '現在は実行できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? '認証キー入力後に実行できます' : '利用できません'}</span>
+          <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : '今は利用できません'}</span>
+          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-origin-border pt-2 text-xs" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
-          <summary className="min-h-11 cursor-pointer py-3 font-semibold">詳しい実行情報</summary>
-          <p className="leading-5 text-origin-muted">認証情報は端末へ保存せず、実行中に必要な範囲だけで利用します。</p>
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">実行の詳しい情報</summary>
+          <p className="leading-5 text-origin-muted">認証情報は端末に保存せず、実行中に必要な範囲だけで使います。</p>
 
           <div className="mt-3 rounded-xl border border-origin-border p-3">
-            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境の設定</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '設定確認済み' : '設定を確認できません'}</span></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '準備できています' : '準備を確認できません'}</span></div>
           </div>
         </details>
 
-        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">現在はコード変更を実行できません。安全に実行できる条件が揃うまで、新しい変更は開始しません。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
         {error && <ErrorNotice code={error} />}
       </section>
 
@@ -383,10 +384,10 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           <StatusBadge status={job.status} cancelRequested={job.cancelRequested} />
           {ACTIVE.has(job.status) && <button type="button" onClick={() => void cancelJob()} disabled={job.cancelRequested || busy} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{job.cancelRequested ? '取り消しを確認中…' : '依頼を取り消す'}</button>}
         </div>
-        <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しを要求しました。停止の確認を待っています。' : STATUS_DETAILS[job.status]}</p>
+        <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しています。止まったか確認しています。' : STATUS_DETAILS[job.status]}</p>
         <details className="mt-2 border-t border-origin-border pt-2 text-xs">
-          <summary className="min-h-11 cursor-pointer py-3 font-semibold">ジョブ情報</summary>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">Job</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">Updated</dt><dd>{formatTime(job.updatedAt)}</dd></dl>
+          <summary className="min-h-11 cursor-pointer py-3 font-semibold">依頼の情報</summary>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">依頼番号</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">更新時刻</dt><dd>{formatTime(job.updatedAt)}</dd></dl>
         </details>
       </section>}
 

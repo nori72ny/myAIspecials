@@ -17,18 +17,18 @@ describe('OriginAgentActionProgressV31', () => {
     ]);
 
     render(<OriginAgentActionProgressV31 status={null} />);
-    expect(screen.queryByText('実行詳細')).toBeNull();
+    expect(screen.queryByText('進み具合')).toBeNull();
     expect(screen.queryByRole('list', { name: 'Agent action steps' })).toBeNull();
   });
 
   it('keeps workflow stages inside one progressive-disclosure control', () => {
     render(<OriginAgentActionProgressV31 status="running" />);
 
-    expect(screen.getByText('実行詳細')).toBeTruthy();
+    expect(screen.getByText('進み具合')).toBeTruthy();
     const steps = screen.getByRole('list', { name: 'Agent action steps' });
-    const plan = within(steps).getByText('Plan').closest('li');
-    const execute = within(steps).getByText('Execute').closest('li');
-    const test = within(steps).getByText('Test').closest('li');
+    const plan = within(steps).getByText('計画').closest('li');
+    const execute = within(steps).getByText('作成・変更').closest('li');
+    const test = within(steps).getByText('確認').closest('li');
     expect(plan?.textContent).toContain('完了');
     expect(execute?.getAttribute('aria-current')).toBe('step');
     expect(execute?.textContent).toContain('進行中');

@@ -8,7 +8,7 @@ interface Props {
   onClose: () => void;
   settings: Settings;
   updateSettings: (settings: Settings) => void;
-  messageCount?: number;
+  savedConversationCount?: number;
   onExportHistory?: () => void;
   onImportHistory?: (file: File) => Promise<void>;
   onResetHistory?: () => void;
@@ -21,7 +21,7 @@ export default function SettingsModal({
   onClose,
   settings,
   updateSettings,
-  messageCount = 0,
+  savedConversationCount = 0,
   onExportHistory,
   onImportHistory,
   onResetHistory,
@@ -55,7 +55,7 @@ export default function SettingsModal({
         onClose={onClose}
         settings={settings}
         updateSettings={updateSettings}
-        messageCount={messageCount}
+        savedConversationCount={savedConversationCount}
         onExportHistory={onExportHistory}
         onImportHistory={onImportHistory}
         onResetHistory={onResetHistory}

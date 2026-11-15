@@ -66,7 +66,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page).toHaveURL(/workspace=coding/);
     await page.getByText('実行に必要な認証', { exact: true }).click();
     await expect(page.getByLabel('Coding認証キー')).toBeVisible();
-    await expect(page.getByRole('button', { name: '変更を依頼する', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '作成・修正を始める', exact: true })).toBeDisabled();
   });
 
   test('shows the truthful first-release workspace without legacy navigation or sample data', async ({ page }) => {
@@ -196,14 +196,14 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await page.getByRole('menuitem', { name: 'エージェントに任せる', exact: true }).click();
       await expect(page).toHaveURL(/workspace=agent/);
       await expect(page.getByRole('heading', { name: 'エージェントに任せる' })).toBeVisible();
-      await expect(page.getByLabel('達成したいこと', { exact: true })).toBeEditable();
+      await expect(page.getByLabel('任せたいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
       await expect(page).toHaveURL(/workspace=coding/);
-      await expect(page.getByRole('heading', { name: 'コードの変更を依頼' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'コードを作る・直す' })).toBeVisible();
       await expect(page.getByLabel('変更したいこと', { exact: true })).toBeEditable();
       await noOverflow();
       await page.getByRole('button', { name: '会話に戻る', exact: true }).click();

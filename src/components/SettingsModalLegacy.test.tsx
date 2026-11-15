@@ -62,7 +62,7 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(details.open).toBe(false);
 
     const closeButton = screen.getByTestId('close-settings-button');
-    const clearHistoryButton = screen.getByText('初期化');
+    const clearHistoryButton = screen.getByText('新しく始める');
     closeButton.focus();
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
 

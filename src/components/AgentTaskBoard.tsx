@@ -42,16 +42,16 @@ import { driveAgentRun } from '../agent/agentRunClient';
  */
 
 const TOOL_LABELS: Record<string, string> = {
-  document_generator: '文書作成',
-  code_interpreter: 'コード作成・確認',
-  image_prompt_compiler: '画像の指示づくり',
-  web_search_grounding: 'ウェブ調査',
-  repository_explorer: 'ファイル一覧の確認',
-  file_reader: 'ファイルの読み取り',
-  file_writer: 'ファイルの作成・編集',
-  verification_runner: 'テスト・動作確認',
+  document_generator: '文書を作る',
+  code_interpreter: 'コードを作って確認する',
+  image_prompt_compiler: '画像を作るための指示文を作る',
+  web_search_grounding: 'ウェブで調べる',
+  repository_explorer: 'ファイルの一覧を見る',
+  file_reader: 'ファイルを読む',
+  file_writer: 'ファイルを作る・直す',
+  verification_runner: 'テストと動作確認',
 };
-const toolLabel = (name: string | null | undefined): string => (name ? TOOL_LABELS[name] ?? '作業ステップ' : '作業ステップ');
+const toolLabel = (name: string | null | undefined): string => (name ? TOOL_LABELS[name] ?? '作業' : '作業');
 
 const RUN_STATUS_LABELS: Record<string, string> = {
   planning: '計画中',
@@ -83,7 +83,7 @@ const HOLD_REASON_LABELS: Record<string, string> = {
   condition_wait: '条件が整うのを待っています',
   dependency_wait: '他の作業の完了を待っています',
   user_paused: '手動で保留にしています',
-  driver_unavailable: '進める担当がいないため',
+  driver_unavailable: '今は進められないため',
 };
 
 const GROUP_DEFS: Array<{ key: string; title: string; statuses: string[] }> = [
@@ -299,7 +299,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const load = async (authOverride?: BoardAuth) => {
     const resolved = authOverride ?? resolveAuth();
     if (!resolved) {
-      setNotice('タスクを表示するには、管理者キーを入力するか、この画面で計画を作成してください。');
+      setNotice('作業を表示するには、管理者キーを入力するか、上の画面で計画を作ってください。');
       return;
     }
     setAuth(resolved);
@@ -380,7 +380,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const startResume = async (run: RunView) => {
     const resolved = auth ?? resolveAuth();
     if (!resolved) {
-      setNotice('タスクを表示するには、管理者キーを入力するか、この画面で計画を作成してください。');
+      setNotice('作業を表示するには、管理者キーを入力するか、上の画面で計画を作ってください。');
       return;
     }
     setAuth(resolved);
@@ -520,7 +520,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
           const planStep = planSteps[index];
           const state = run.stepsState[index];
           return <li key={planStep ? `${index}-${planStep.toolName}` : state?.id ?? index} className="flex items-center justify-between gap-3">
-            <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業ステップ'}</span>
+            <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業'}</span>
             <span className="text-xs text-origin-muted">
               {state ? STEP_STATUS_LABELS[state.status] ?? '未実行' : '未実行'}
               {state && state.attempts > 1 ? ` · ${state.attempts}回試行` : ''}
@@ -529,7 +529,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         })}
       </ol> : <p className="text-sm text-origin-muted">計画はまだありません。</p>}
       {hasWriteStep && (run.status === 'queued' || run.status === 'running') && (
-        <p className="mt-2 text-xs leading-5 text-origin-muted">ファイルの作成・編集は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
+        <p className="mt-2 text-xs leading-5 text-origin-muted">ファイルを作る・直す作業は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
       )}
       {run.hold && <div className="mt-2 space-y-1 text-xs leading-5 text-origin-muted">
         <p>保留の理由: {HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'}</p>
@@ -624,32 +624,32 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     items: (runs ?? []).filter((run) => group.statuses.includes(run.status)),
   })).filter((group) => group.items.length > 0);
 
-  return <section className="origin-workspace rounded-2xl p-4" aria-label="タスク">
+  return <section className="origin-workspace rounded-2xl p-4" aria-label="これまでの作業">
     <div className="flex items-center justify-between gap-3">
       <div>
-        <h2 className="text-base font-black">タスク</h2>
+        <h2 className="text-base font-black">これまでの作業</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
         className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50">
-        {loadState === 'loading' ? '読み込み中…' : runs ? '更新' : 'タスクを表示'}
+        {loadState === 'loading' ? '読み込み中…' : runs ? '更新' : '作業を表示'}
       </button>
     </div>
-    <p className="mt-1 text-sm leading-6 text-origin-muted">保留中の仕事や、これまでの仕事の進み具合を確認できます。再開するときは、新しい計画を確認して承認します。</p>
+    <p className="mt-1 text-sm leading-6 text-origin-muted">止まっている作業と、これまでの作業の進み具合を見られます。再開するときは、新しい計画を確認してから承認します。</p>
 
     <details className="mt-2">
-      <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者用の実行認証キー（任意）</summary>
-      <p className="mb-2 text-xs leading-5 text-origin-muted">管理者キーを入力すると、管理者として作成されたタスクを表示・操作できます。キーはブラウザーに保存しません。空欄の場合は、この画面で作成した計画に紐づくタスクが対象になります。</p>
-      <input ref={credentialInputRef} aria-label="タスク用の実行認証キー" type="password" autoComplete="off" spellCheck={false}
-        placeholder="実行認証キー（任意）"
+      <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者キー（必要な場合だけ）</summary>
+      <p className="mb-2 text-xs leading-5 text-origin-muted">管理者キーを入力すると、管理者として作成された作業を表示・操作できます。キーはブラウザーに保存しません。空欄の場合は、この画面で作成した計画に紐づく作業が対象になります。</p>
+      <input ref={credentialInputRef} aria-label="作業用の管理者キー" type="password" autoComplete="off" spellCheck={false}
+        placeholder="管理者キー"
         className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
     </details>
 
     {notice && <p role="status" className="mt-2 text-xs leading-5 text-origin-muted">{notice}</p>}
-    {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">タスクの記録は現在利用できません。</p>}
-    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">認証できませんでした。キーを確認してください。</p>}
-    {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">タスクを読み込めませんでした。</p>}
+    {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
+    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
+    {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">作業を読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
-      <p className="mt-2 text-sm text-origin-muted">表示できるタスクはありません。</p>
+      <p className="mt-2 text-sm text-origin-muted">表示できる作業はありません。</p>
     )}
     {grouped.map((group) => (
       <div key={group.key} className="mt-4">

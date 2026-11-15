@@ -54,9 +54,9 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
-    expect(await screen.findByText(/管理者キーを入力するか、この画面で計画を作成してください/)).toBeTruthy();
+    expect(await screen.findByText(/管理者キーを入力するか、上の画面で計画を作ってください/)).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -89,8 +89,8 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
     expect(await screen.findByRole('heading', { name: /承認待ち/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: /実行中/ })).toBeTruthy();
@@ -129,7 +129,7 @@ describe('AgentTaskBoard', () => {
 
     render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
 
-    expect(await screen.findByText('タスクの記録は現在利用できません。')).toBeTruthy();
+    expect(await screen.findByText('作業の記録を今は利用できません。')).toBeTruthy();
   });
 
   it('shows step details and the one-at-a-time write note for a queued write plan', async () => {
@@ -148,8 +148,8 @@ describe('AgentTaskBoard', () => {
     await screen.findByText('調査レポートを作ってください');
     fireEvent.click(screen.getByRole('button', { name: '詳細' }));
 
-    expect(await screen.findByText(/1\. ウェブ調査/)).toBeTruthy();
-    expect(screen.getByText(/2\. ファイルの作成・編集/)).toBeTruthy();
+    expect(await screen.findByText(/1\. ウェブで調べる/)).toBeTruthy();
+    expect(screen.getByText(/2\. ファイルを作る・直す/)).toBeTruthy();
     expect(screen.getByText(/書き込みと重ならないよう、1件ずつ順番に実行されます/)).toBeTruthy();
   });
 
@@ -173,8 +173,8 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
     await screen.findByText('調査レポートを作ってください');
 
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }));
@@ -224,8 +224,8 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
     expect(await screen.findByText('実行待ち')).toBeTruthy();
     // The bounded loop drives through the 202 and, once the run
@@ -260,8 +260,8 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('タスク用の実行認証キー'), { target: { value: 'owner-key' } });
-    fireEvent.click(screen.getByRole('button', { name: 'タスクを表示' }));
+    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
     await screen.findByText('調査レポートを作ってください');
     await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 50); }); });
 
@@ -332,7 +332,7 @@ describe('AgentTaskBoard', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '再開する' })); });
     expect(await screen.findByText('計画が前回から変わっています。内容を確認してから承認してください。')).toBeTruthy();
-    expect(screen.getByText('追加: テスト・動作確認')).toBeTruthy();
+    expect(screen.getByText('追加: テストと動作確認')).toBeTruthy();
     expect(screen.getByText('再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。')).toBeTruthy();
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して再開する' })); });

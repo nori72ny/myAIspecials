@@ -39,7 +39,7 @@ const LABELS = {
     recording: '録画中…',
     loading: '画像を読み込んでいます…',
     loadError: 'この画像は動画化できませんでした',
-    note: '端末内だけで処理します（外部送信なし・約6秒）',
+    note: 'この端末の中だけで処理します（外へは送りません・約6秒）',
   },
   en: {
     title: 'Animate image',
@@ -50,7 +50,7 @@ const LABELS = {
     recording: 'Recording…',
     loading: 'Loading image…',
     loadError: 'This image could not be animated',
-    note: 'Processed on this device only (nothing is uploaded, about 6 seconds)',
+    note: 'Processed only on this device (nothing is sent outside, about 6 seconds)',
   },
 } as const;
 

@@ -199,10 +199,10 @@ describe('CreativePanelV15', () => {
     const download = screen.getByRole('link', { name: 'SVG保存' }) as HTMLAnchorElement;
     expect(download.getAttribute('download')).toBe('日本語-portrait.svg');
     // 確認表示は「確認済み」の一言に圧縮し、検証の詳細は出さない（棚卸し）。
-    expect(screen.getByText('確認済み')).toBeTruthy();
+    expect(screen.getByText('品質を確認済み')).toBeTruthy();
     expect(screen.queryByText('検証の詳細')).toBeNull();
     expect(screen.queryByText(/SHA-256/)).toBeNull();
-    await screen.findByText('端末内履歴に保存しました。SVGは再読み込み後もこの端末から開けます。');
+    await screen.findByText('この端末の履歴に保存しました。SVGは、ページを読み直した後もこの端末から開けます。');
 
     expect(verifyVisualBlobSha256V15).toHaveBeenCalledWith(expect.any(Blob), 'a'.repeat(64));
     expect(saveCreativeHistoryV15).toHaveBeenCalledWith(expect.objectContaining({
@@ -333,7 +333,7 @@ describe('CreativePanelV15', () => {
     await screen.findByRole('link', { name: 'SVG保存' });
     fireEvent.click(screen.getByRole('button', { name: 'PNGを作成' }));
 
-    await screen.findByText('PNGの端末内変換に失敗しました。SVGはそのまま保存できます。');
+    await screen.findByText('PNGへの変換に失敗しました。SVGのままなら保存できます。');
     expect(screen.getByRole('link', { name: 'SVG保存' })).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'PNG保存' })).toBeNull();
   });
@@ -343,7 +343,7 @@ describe('CreativePanelV15', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CreativePanelV15 onClose={() => undefined} />);
-    await screen.findByText('現在利用できません');
+    await screen.findByText('今は使えません');
     fireEvent.change(screen.getByLabelText('タイトル'), { target: { value: '日本語' } });
     expect((screen.getByRole('button', { name: '画像を作成' }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);

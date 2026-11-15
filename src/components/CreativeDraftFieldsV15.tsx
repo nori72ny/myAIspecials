@@ -44,7 +44,7 @@ export default function CreativeDraftFieldsV15({ draft, onChange, disabled = fal
 
       <label className={labelClass} htmlFor={`${idPrefix}-body`}>内容
         <textarea id={`${idPrefix}-body`} aria-label="内容" value={draft.body} maxLength={2200} rows={6} disabled={disabled}
-          placeholder="伝えたい内容を書きます"
+          placeholder="伝えたい内容を書いてください"
           onChange={(event) => update('body', event.target.value)}
           className={`${inputClass} resize-y p-3 leading-6`} />
       </label>
@@ -73,8 +73,8 @@ export default function CreativeDraftFieldsV15({ draft, onChange, disabled = fal
           <label className={detailLabelClass}>サブタイトル
             <input aria-label="サブタイトル" value={draft.subtitle} maxLength={320} disabled={disabled} onChange={(event) => update('subtitle', event.target.value)} className={`${inputClass} min-h-11`} />
           </label>
-          <label className={detailLabelClass}>フッター
-            <input aria-label="フッター" value={draft.footer} maxLength={240} disabled={disabled} onChange={(event) => update('footer', event.target.value)} className={`${inputClass} min-h-11`} />
+          <label className={detailLabelClass}>一番下の文字
+            <input aria-label="一番下の文字" value={draft.footer} maxLength={240} disabled={disabled} onChange={(event) => update('footer', event.target.value)} className={`${inputClass} min-h-11`} />
           </label>
 
           <fieldset className="rounded-2xl border border-[var(--border-default)] p-3">

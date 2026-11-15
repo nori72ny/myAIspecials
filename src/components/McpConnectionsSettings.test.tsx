@@ -7,14 +7,14 @@ const unauthenticated = { configured: true, authenticated: false };
 const connection = { id: '11111111-1111-1111-1111-111111111111', serverId: 'docs', version: 1, status: 'registered', checkedAt: null };
 const json = (body: unknown, ok = true) => ({ ok, json: async () => body });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-function open() { render(<McpConnectionsSettings language="ja" />); fireEvent.click(screen.getByRole('button', { name: '外部サービス接続' })); }
+function open() { render(<McpConnectionsSettings language="ja" />); fireEvent.click(screen.getByRole('button', { name: '外部サービス連携' })); }
 
 describe('MCP settings', () => {
   it('loads only when expanded and shows configuration state honestly', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ configured: false, authenticated: false })); vi.stubGlobal('fetch', fetch);
     render(<McpConnectionsSettings language="ja" />); expect(fetch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '外部サービス接続' }));
-    expect(await screen.findByText(/外部サービス接続は準備中/)).toBeTruthy(); expect(screen.queryByRole('button', { name: '登録' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '外部サービス連携' }));
+    expect(await screen.findByText(/外部サービス連携は準備中/)).toBeTruthy(); expect(screen.queryByRole('button', { name: '登録' })).toBeNull();
   });
   it('shows an owner login form only when MCP is configured but the verified session is missing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(unauthenticated))); open();

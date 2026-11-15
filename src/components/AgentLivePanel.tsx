@@ -24,14 +24,14 @@ type LiveStep = { toolName: string; params: Record<string, unknown> };
 export type AgentLiveStatusHint = 'active' | 'completed' | 'failed' | 'held';
 
 const TOOL_LABELS: Record<string, string> = {
-  document_generator: '文書作成',
-  code_interpreter: 'コード作成・確認',
-  image_prompt_compiler: '画像の指示づくり',
-  web_search_grounding: 'ウェブ調査',
-  repository_explorer: 'ファイル一覧の確認',
-  file_reader: 'ファイルの読み取り',
-  file_writer: 'ファイルの作成・編集',
-  verification_runner: 'テスト・動作確認',
+  document_generator: '文書を作る',
+  code_interpreter: 'コードを作って確認する',
+  image_prompt_compiler: '画像を作るための指示文を作る',
+  web_search_grounding: 'ウェブで調べる',
+  repository_explorer: 'ファイルの一覧を見る',
+  file_reader: 'ファイルを読む',
+  file_writer: 'ファイルを作る・直す',
+  verification_runner: 'テストと動作確認',
 };
 
 function liveToolLabel(toolName: string): string {
@@ -42,13 +42,13 @@ function liveToolLabel(toolName: string): string {
 function liveActivityLabel(toolName: string): string {
   const activities: Record<string, string> = {
     document_generator: '文書を作っています',
-    code_interpreter: 'コードを作成・確認しています',
-    image_prompt_compiler: '画像の指示を作っています',
-    web_search_grounding: 'ウェブ調査をしています',
-    repository_explorer: 'ファイル一覧を確認しています',
+    code_interpreter: 'コードを作って確認しています',
+    image_prompt_compiler: '画像を作るための指示文を作っています',
+    web_search_grounding: 'ウェブで調べています',
+    repository_explorer: 'ファイルの一覧を見ています',
     file_reader: 'ファイルを読んでいます',
     file_writer: 'ファイルを作っています',
-    verification_runner: 'テスト・動作確認をしています',
+    verification_runner: 'テストと動作確認をしています',
   };
   return activities[toolName] ?? '作業を進めています';
 }

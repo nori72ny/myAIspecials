@@ -92,8 +92,8 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
     <details className="mt-2">
       <summary className="origin-muted inline-flex min-h-11 cursor-pointer list-none items-center text-xs font-semibold">{isEn ? 'About source labels' : '出典の表記について'}</summary>
       <p className="origin-muted mt-1 text-xs leading-5">{isEn
-        ? '"Page verified" means the source page text itself could be read during the research. Source confidence does not guarantee the whole answer is correct.'
-        : '「本文確認済み」は、調べたときに元のページ本文を読めた出典です。出典の確かさは、回答全体の正しさを保証するものではありません。'}</p>
+        ? '"Page verified" means the full text of the source page could be read during the research. Source confidence does not guarantee that the whole answer is correct.'
+        : '「本文確認済み」は、調べたときに元のページの中身まで読めた出典です。出典の確かさは、回答全体が正しいことを保証するものではありません。'}</p>
     </details>
 
     <div className="mt-3 space-y-3">{result.sources.map(source => {
@@ -104,7 +104,7 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
         <p className="origin-muted mt-1 text-xs">{source.domain} · {freshnessLabel(source, language)} · {source.evidenceLevel === 'page-verified' ? (isEn ? 'Page verified' : '本文確認済み') : (isEn ? 'Search snippet' : '検索結果の要約')}</p>
         {href
           ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center break-all text-sm font-semibold text-[var(--accent-primary)] underline">{isEn ? 'Open original' : '原文を開く'}</a>
-          : <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'Link disabled: the URL could not be confirmed as a safe HTTPS address.' : '安全なHTTPS URLとして確認できないためリンクを無効化しました。'}</p>}
+          : <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'The link was disabled because its safety could not be confirmed.' : 'リンク先の安全性を確認できなかったため、リンクを無効にしました。'}</p>}
       </article>;
     })}</div>
 

@@ -7,8 +7,8 @@ type ToolSummary = { alias: string; name: string; fingerprint: string; descripti
 type ToolReview = { version: number; tools: ToolSummary[]; selected: string[] };
 const copy = {
   ja: {
-    title: '外部サービス接続', help: '許可されたサービスを登録し、接続を確認できます。', loading: '確認しています…',
-    setup: '外部サービス接続は準備中です。認証と保存先の設定が完了すると利用できます。',
+    title: '外部サービス連携', help: '許可されたサービスを登録し、接続を確認できます。', loading: '確認しています…',
+    setup: '外部サービス連携は準備中です。認証と保存先の設定が終わると使えます。',
     login: '接続を管理するには、オーナー認証が必要です。', loginHelp: 'オーナーアカウントでログインします。パスワードは保存されません。',
     email: 'メールアドレス', password: 'パスワード', signIn: 'ログイン', restore: 'セッションを復元', logout: 'ログアウト',
     signedIn: 'ログインしました。', restored: 'セッションを復元しました。', signedOut: 'ログアウトしました。',
@@ -20,13 +20,13 @@ const copy = {
     saved: '接続を登録しました。', removed: '接続を解除しました。', verified: '接続を確認しました。',
     failed: '接続を確認できませんでした。認証連携やサービスの状態を確認してください。', registered: '未確認', checked: '接続確認済み',
     unavailable: '接続確認に失敗', notice: '接続確認ではサービス内のデータを変更しません。', unknown: 'サービス',
-    reviewTools: 'ツール権限', toolsHelp: '実行を許可するツールだけ選択してください。ツール定義が変わると以前の許可は無効になります。',
+    reviewTools: 'ツール権限', toolsHelp: '実行を許可するツールだけを選んでください。ツールの定義が変わると、以前の許可は無効になります。',
     saveTools: '権限を保存', noTools: '利用可能なツールはありません。', grantsSaved: 'ツール権限を保存しました。',
     catalogChanged: 'ツール定義が更新されました。再読み込みして確認してください。',
   },
   en: {
     title: 'External services', help: 'Register an approved service and check its connection.', loading: 'Checking…',
-    setup: 'External connections are being prepared. Authentication and storage must be configured first.',
+    setup: 'External service connections are being prepared. They become available once authentication and storage are set up.',
     login: 'Owner authentication is required to manage connections.', loginHelp: 'Sign in with the approved owner account. Your password is never stored.',
     email: 'Email address', password: 'Password', signIn: 'Sign in', restore: 'Restore session', logout: 'Sign out',
     signedIn: 'Signed in.', restored: 'Session restored.', signedOut: 'Signed out.',

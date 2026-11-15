@@ -257,10 +257,10 @@ function PersonalReleaseRoot() {
     <SplashScreen durationMs={420} oncePerSession />
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={(session) => { const next = session.messages.map((message) => ({ ...message })); dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} messageCount={messages.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} />
     </SettingsErrorBoundary>
     {updateReady && <p role="status" className="origin-pwa-update-notice">{t.pwaUpdateNotice}</p>}
-    {(!isHydrated || storageHealth !== 'ready') && <p data-testid="origin-storage-status" role="status" className="sr-only">{!isHydrated ? '端末内ストレージを準備しています。' : '端末内ストレージへ保存できないため、このセッションはメモリ上で継続しています。'}</p>}
+    {(!isHydrated || storageHealth !== 'ready') && <p data-testid="origin-storage-status" role="status" className="sr-only">{!isHydrated ? 'この端末への保存を準備しています。' : 'この端末に保存できないため、このセッションはメモリ上だけで続けています。'}</p>}
   </>;
 }
 

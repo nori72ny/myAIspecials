@@ -79,14 +79,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
 
-    await screen.findByText('未実行 · 承認待ち');
-    expect(screen.getByText(/まだツールは実行していません/)).toBeTruthy();
-    expect(screen.getByLabelText('実行する機能').textContent).toContain('文書作成');
-    expect((screen.getByLabelText('達成したいこと') as HTMLTextAreaElement).disabled).toBe(true);
+    await screen.findByText('まだ実行していません · 承認待ち');
+    expect(screen.getByText(/まだ作業は始めていません/)).toBeTruthy();
+    expect(screen.getByLabelText('行う作業').textContent).toContain('文書を作る');
+    expect((screen.getByLabelText('任せたいこと') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
@@ -133,12 +133,12 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
 
-    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して実行' })); });
 
     await waitFor(() => expect(screen.getByRole('heading', { name: '完成した文書' })).toBeTruthy());
@@ -202,14 +202,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: goal } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: goal } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
-    expect(screen.getByLabelText('実行する機能').textContent).toContain('コード作成・確認');
+    await screen.findByText('まだ実行していません · 承認待ち');
+    expect(screen.getByLabelText('行う作業').textContent).toContain('コードを作って確認する');
     expect(screen.queryByRole('combobox')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     await screen.findByText('// verified analysis');
   });
@@ -225,11 +225,11 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
-    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'wrong-key' } });
+    await screen.findByText('まだ実行していません · 承認待ち');
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'wrong-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByText('処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。');
@@ -274,10 +274,10 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     // No credential is typed anywhere: the browser approval path must be used.
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
@@ -330,10 +330,10 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByRole('heading', { name: '継続駆動で完成した文書' }, { timeout: 5000 });
@@ -353,13 +353,13 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('タスクの記録が利用できないため、安全に停止しました。実行は開始していません。');
+    await screen.findByText('作業の記録が使えないため、止まりました。実行は始めていません。');
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     // No advance, and no fallback to the stateless execute endpoint.
     expect(urls.some((url) => url.endsWith('/advance'))).toBe(false);
@@ -383,13 +383,13 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。');
+    await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、下の「これまでの作業」から再開できます。');
     expect(screen.getByText('保留中')).toBeTruthy();
     // PR-L2: the live panel shows its own cat next to the panel
     // headline, so the phase cat is scoped to the status row.
@@ -415,19 +415,19 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
 
     vi.useFakeTimers();
     try {
       fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
-      for (let i = 0; i < 25 && !screen.queryByText('記録済み・実行中'); i += 1) {
+      for (let i = 0; i < 25 && !screen.queryByText('実行中'); i += 1) {
         await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
       }
-      expect(screen.getByText('記録済み・実行中')).toBeTruthy();
-      expect(screen.getByText('実行は記録済みで続行しています。進み具合はタスクボードで確認できます。')).toBeTruthy();
+      expect(screen.getByText('実行中')).toBeTruthy();
+      expect(screen.getByText('実行は記録済みで続行しています。進み具合は下の「これまでの作業」で確認できます。')).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
@@ -452,14 +452,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
-    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    await screen.findByText('まだ実行していません · 承認待ち');
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('タスクの記録が利用できないため、安全に停止しました。実行は開始していません。');
+    await screen.findByText('作業の記録が使えないため、止まりました。実行は始めていません。');
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     // No advance, and no fallback to the stateless execute endpoint.
     expect(urls.some((url) => url.endsWith('/advance'))).toBe(false);
@@ -485,14 +485,14 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
-    fireEvent.change(screen.getByLabelText('実行認証キー'), { target: { value: 'owner-agent-key' } });
+    await screen.findByText('まだ実行していません · 承認待ち');
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
-    await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、タスクボードから再開できます。');
+    await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、下の「これまでの作業」から再開できます。');
     expect(screen.getByText('保留中')).toBeTruthy();
     expect(saveCheckpointToIndexedDB).not.toHaveBeenCalled();
   });
@@ -575,10 +575,10 @@ describe('AgentWorkspaceView v3', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '富士山について調べてまとめてください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '富士山について調べてまとめてください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     // Mid-drive (between the two advances): the first advance's run
@@ -625,11 +625,11 @@ describe('catStateForPhase', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentWorkspaceView />);
-    await screen.findByText('エージェントを利用できます');
-    fireEvent.change(screen.getByLabelText('達成したいこと'), { target: { value: '文書案を作ってください' } });
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
 
-    await screen.findByText('未実行 · 承認待ち');
+    await screen.findByText('まだ実行していません · 承認待ち');
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.getAttribute('data-state')).toBe('waiting');
     expect(cat.tagName).toBe('IMG');

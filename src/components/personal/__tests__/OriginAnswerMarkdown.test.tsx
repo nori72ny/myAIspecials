@@ -22,13 +22,13 @@ describe('OriginAnswerMarkdown', () => {
 
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByRole('note').textContent).toContain('外部画像は自動表示しません');
+    expect(screen.getByRole('note').textContent).toContain('外部画像は自動では表示しません');
   });
 
   it('does not auto-load Pollinations image URLs from Markdown', () => {
     const { container } = render(<OriginAnswerMarkdown language="ja" content="![external](https://image.pollinations.ai/prompt/test)" />);
     expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByRole('note').textContent).toContain('外部画像は自動表示しません');
+    expect(screen.getByRole('note').textContent).toContain('外部画像は自動では表示しません');
   });
 
   it('opens answer links without giving the destination opener access', () => {
@@ -42,16 +42,16 @@ describe('OriginAnswerMarkdown', () => {
     const onRefine = vi.fn();
     render(<OriginAnswerMarkdown language="ja" content="回答本文" onRefine={onRefine} />);
 
-    for (const label of ['実務レベルに深掘り', '具体例を追加', '実行プランにする', '要点だけ']) {
+    for (const label of ['実務向けに詳しく', '具体例を足す', '実行プランにする', '要点だけ']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
 
-    fireEvent.click(screen.getByRole('button', { name: '実務レベルに深掘り' }));
+    fireEvent.click(screen.getByRole('button', { name: '実務向けに詳しく' }));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('判断基準'));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('検証方法'));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('開発なら'));
 
-    fireEvent.click(screen.getByRole('button', { name: '具体例を追加' }));
+    fireEvent.click(screen.getByRole('button', { name: '具体例を足す' }));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('仮定や例示は明示'));
     expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('架空の事例を実績として扱わない'));
 
@@ -63,7 +63,7 @@ describe('OriginAnswerMarkdown', () => {
   it('keeps the English deepening prompt specific to research, coding, planning, and unknowns', () => {
     const onRefine = vi.fn();
     render(<OriginAnswerMarkdown language="en" content="Answer" onRefine={onRefine} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Professional depth' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More depth for practical work' }));
     const prompt = String(onRefine.mock.calls[0]?.[0] ?? '');
     for (const phrase of ['decision criteria', 'verification', 'research', 'coding', 'planning', 'Do not add filler']) {
       expect(prompt).toContain(phrase);

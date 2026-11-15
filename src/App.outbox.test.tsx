@@ -74,7 +74,7 @@ describe('chat send outbox (offline persistence and auto-send)', () => {
 
     await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
     expect(within(screen.getByTestId('origin-send-queue')).getByText('圏外の依頼')).toBeTruthy();
-    expect(screen.getByText('オフラインのため送信待ちに保存しました。送信待ちは1件です。接続が戻ると自動で送信します。')).toBeTruthy();
+    expect(screen.getByText('オフラインのため送信待ちに保存しました。送信待ちは 1 件です。接続が戻ると自動で送ります。')).toBeTruthy();
     expect([...outboxStore.entries.values()].map((entry) => entry.text)).toEqual(['圏外の依頼']);
     expect(chatCalls(fetchMock)).toHaveLength(0);
     expect((screen.getByTestId('origin-home-request') as HTMLTextAreaElement).value).toBe('');

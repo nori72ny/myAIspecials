@@ -137,7 +137,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(screen.getByTestId(id).className).toContain('min-h-11');
       expect(screen.getByTestId(id).className).toContain('min-w-11');
     }
-    expect(screen.getByRole('button', { name: '画面を直接クリックして編集' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '成果物を編集' })).toBeTruthy();
     expect(screen.getByTestId('artifact-action-edit').textContent).toBe('✏️ 編集');
     expect(screen.getByTestId('artifact-action-save').textContent).toBe('📥 保存');
     expect(screen.queryByTestId('artifact-action-copy')).toBeNull();
@@ -322,7 +322,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     // 有効になる（画面構成の見直し 2026-11-09、オーナー承認）。
     expect(screen.getByTestId('research-mode')).toBeTruthy();
     expect(menu.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: '解除' }));
+    fireEvent.click(screen.getByRole('button', { name: 'モードをやめる' }));
     expect(screen.queryByTestId('research-mode')).toBeNull();
 
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
@@ -404,7 +404,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
       // モードを解除すれば、同じ会話の続きは通常チャットとして送れる
       // （レポートが会話に残るため、続けて質問できる）。
-      fireEvent.click(screen.getByRole('button', { name: '解除' }));
+      fireEvent.click(screen.getByRole('button', { name: 'モードをやめる' }));
       const composer = screen.getByTestId('origin-chat-request');
       fireEvent.change(composer, { target: { value: 'ありがとう、続きを教えて' } });
       fireEvent.click(screen.getByTestId('send-request-button'));
@@ -459,7 +459,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'sensitive test' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
 
-      expect(await screen.findByText('機微情報の可能性があるため、外部情報源への送信を停止しました。')).toBeTruthy();
+      expect(await screen.findByText('機密性の高い情報の可能性があるため、外部情報源への送信を停止しました。')).toBeTruthy();
       expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
       expect(screen.queryByTestId('origin-research-progress')).toBeNull();
     });
@@ -478,7 +478,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: 'query' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
 
-      expect(await screen.findByText('調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。')).toBeTruthy();
+      expect(await screen.findByText('調査の結果を確認できなかったため、表示を止めました。')).toBeTruthy();
       expect(screen.queryByText('must not render')).toBeNull();
       expect(screen.queryByText('Primary source')).toBeNull();
     });
@@ -619,7 +619,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
       const alert = await screen.findByRole('alert');
-      expect(alert.textContent).toContain('利用量の照合で無料であることを確認できなかったため');
+      expect(alert.textContent).toContain('無料で使えることを確認できなかったため、生成しませんでした');
       expect(alert.textContent).not.toContain('CLOUDFLARE_USAGE_RECONCILIATION_FAILED');
     } finally {
       vi.unstubAllGlobals();
@@ -654,10 +654,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
   });
 
   it('maps free-proof failure codes to user-facing reasons and leaves unknown codes unmapped', () => {
-    expect(rasterGenerationFailureMessage('CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT', 'ja')).toContain('無料枠の残量が足りないため');
-    expect(rasterGenerationFailureMessage('CLOUDFLARE_DAILY_USAGE_UNVERIFIED', 'ja')).toContain('利用量を確認できないため');
-    expect(rasterGenerationFailureMessage('CLOUDFLARE_USAGE_RECONCILIATION_FAILED', 'en')).toContain('could not confirm $0.00 cost');
-    expect(rasterGenerationFailureMessage('RASTER_PRICING_EVIDENCE_STALE', 'ja')).toContain('確認情報が古くなっているため');
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_FREE_ALLOCATION_INSUFFICIENT', 'ja')).toContain('今日の無料枠が残り少ないため');
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_DAILY_USAGE_UNVERIFIED', 'ja')).toContain('無料で使えることを確認できなかったため');
+    expect(rasterGenerationFailureMessage('CLOUDFLARE_USAGE_RECONCILIATION_FAILED', 'en')).toContain('free use could not be confirmed');
+    expect(rasterGenerationFailureMessage('RASTER_PRICING_EVIDENCE_STALE', 'ja')).toContain('無料で使えることを確認できなかったため');
     expect(rasterGenerationFailureMessage('PROVIDER_UNAVAILABLE', 'ja')).toBeNull();
     expect(rasterGenerationFailureMessage(undefined, 'ja')).toBeNull();
   });
@@ -669,12 +669,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'en')).toContain('Try again');
     expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'en')).not.toContain('品質ゲート');
     expect(rasterGenerationFailureMessage('RASTER_STRUCTURAL_CRITIC_REJECTED', 'en')).toContain('did not pass the quality check');
-    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'ja')).toContain('品質チェックを通過しなかったため');
+    expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'ja')).toContain('品質チェックを通らなかったため');
     expect(rasterGenerationFailureMessage('RASTER_SEMANTIC_CRITIC_REJECTED', 'ja')).toContain('もう一度お試しください');
     // Sensitive-input block: translated in both languages.
-    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'en')).toContain('was not sent to the external image generator');
+    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'en')).toContain('was not sent outside');
     expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'en')).not.toContain('機密');
-    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'ja')).toContain('外部の画像生成へ送信しませんでした');
+    expect(rasterGenerationFailureMessage('SENSITIVE_INPUT_BLOCKED', 'ja')).toContain('外部へ送りませんでした');
   });
 
   it('classifies send failures by cause so only real congestion reads as busy (PKG-2)', () => {
@@ -754,7 +754,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const frame = screen.getByTitle('プレビュー') as HTMLIFrameElement;
     act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'ready', timestamp: Date.now() } })));
     act(() => window.dispatchEvent(new MessageEvent('message', { origin: 'null', source: frame.contentWindow, data: { source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'broken widget' } })));
-    expect(screen.getByTestId('sandbox-runtime-boundary').textContent).toContain('Sandbox内で実行時エラーを検知しました。');
+    expect(screen.getByTestId('sandbox-runtime-boundary').textContent).toContain('プレビューでエラーが起きました。');
     fireEvent.click(screen.getByTestId('restore-last-known-good'));
     expect(screen.queryByTestId('sandbox-runtime-boundary')).toBeNull();
     expect((screen.getByTitle('プレビュー') as HTMLIFrameElement).getAttribute('data-origin-srcdoc')!).toContain('Ready');
@@ -859,7 +859,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('artifact-action-edit').getAttribute('aria-pressed')).toBe('true');
     expect(revisions).toHaveLength(0);
     fireEvent.change(editor, { target: { value: '<main><section>Validated</section></main>', selectionStart: 40 } });
-    expect(screen.getByTestId('artifact-code-syntax-status').textContent).toContain('構文を確認済み');
+    expect(screen.getByTestId('artifact-code-syntax-status').textContent).toContain('構文は問題ありません');
     fireEvent.click(screen.getByTestId('artifact-code-apply'));
     expect(revisions).toHaveLength(1);
     expect(revisions[0].content).toBe('<main><section>Validated</section></main>');
@@ -949,11 +949,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" messages={[{
       id: 'error-1',
       role: 'assistant',
-      content: '無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。',
+      content: '今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。',
       deliveryState: 'error',
     }]} />);
 
-    expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy();
+    expect(screen.getByText('今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。')).toBeTruthy();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
   });
 
@@ -1013,7 +1013,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     await waitFor(() => expect(onOpenCoding).toHaveBeenCalledWith(goal));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Codingワークスペースへ引き継ぎました/)).toBeTruthy();
+    expect(screen.getByText(/コード画面に内容を引き継ぎました/)).toBeTruthy();
     vi.unstubAllGlobals();
   });
 
@@ -1478,7 +1478,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '夕焼けの海の画像を作ってください' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText(/技術品質検査に合格しなかったため/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/品質チェックを通らなかったため/)).toBeTruthy());
     expect(screen.queryByAltText('ORIGINが生成した画像')).toBeNull();
 
     Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
@@ -1614,7 +1614,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '安全な回答を依頼' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('無料専用ポリシーに適合する応答を確認できないため、回答は表示せず安全待機中です。時間をおいて再試行してください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料で使えることを確認できなかったため、回答を表示できませんでした。しばらくしてから、もう一度お試しください。')).toBeTruthy());
     expect(screen.getByTestId('origin-safe-waiting-state').getAttribute('aria-live')).toBe('assertive');
     expect(screen.queryByText('表示してはいけない応答')).toBeNull();
     vi.unstubAllGlobals();
@@ -1631,7 +1631,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '混雑時の動作を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1651,7 +1651,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
 
     await waitFor(() => expect(screen.getByText((content) => content.startsWith(
-      '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。回復の目安は',
+      '無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力した内容は残っています。回復の目安は',
     ) && /回復の目安は(明日)?\d+時\d+分頃です。$/.test(content))).toBeTruthy());
     vi.unstubAllGlobals();
   });
@@ -1685,7 +1685,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '上限到達時の再試行' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力内容は保持しています。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('無料AIの利用上限に達しました。少し時間をおいてから、再試行してください。入力した内容は残っています。')).toBeTruthy());
     expect(screen.queryByText('エラーが発生しました。再度お試しください。')).toBeNull();
     const retryButton = screen.getByTestId('chat-retry-button');
     fireEvent.click(retryButton);
@@ -1773,7 +1773,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '通信障害時も再試行しない' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
 
-    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力した内容は残っています。接続を確認して、もう一度お試しください。')).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('タイムアウト後に表示してはいけない回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
@@ -1789,8 +1789,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     // A dropped connection is not congestion (PKG-2): the notice names the
     // network, and the busy wording must not appear.
-    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力内容は保持しています。接続を確認して、もう一度お試しください。')).toBeTruthy());
-    expect(screen.queryByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeNull();
+    await waitFor(() => expect(screen.getByText('通信が切れてしまい、回答を受け取れませんでした。入力した内容は残っています。接続を確認して、もう一度お試しください。')).toBeTruthy());
+    expect(screen.queryByText('今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。')).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -1851,7 +1851,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '詳しく説明してください' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
       await waitFor(() => expect(container.textContent).toContain('途中で終わる部分回答です'));
-      await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限に達したため、途中で終わっています'));
+      await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限で途中で終わっています'));
       expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     } finally {
       frame.mockRestore();
@@ -1868,7 +1868,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '詳しく説明してください' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(container.textContent).toContain('部分回答の本文です'));
-    await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限に達したため、途中で終わっています'));
+    await waitFor(() => expect(container.textContent).toContain('この回答は長さの上限で途中で終わっています'));
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -2022,7 +2022,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByText('フォールバック経由の検証済みSSE回答')).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId('response-announcement')).toBeTruthy());
     expect(screen.queryByTestId('origin-safe-waiting-state')).toBeNull();
-    expect(screen.queryByText('無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。')).toBeNull();
+    expect(screen.queryByText('今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。')).toBeNull();
     vi.unstubAllGlobals();
   });
 
@@ -2064,7 +2064,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '未検証フォールバックを拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った回答を確認できなかったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない未検証フォールバック回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -2091,7 +2091,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       const view = render(<App language="ja" />);
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '矛盾した証拠を拒否' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
-      await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('受け取った回答を確認できなかったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
       expect(screen.queryByText('表示してはいけない矛盾した証拠の回答')).toBeNull();
       view.unmount();
       vi.unstubAllGlobals();
@@ -2114,7 +2114,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '費用証拠不備を拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った回答を確認できなかったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない費用証拠不備の回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -2163,7 +2163,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '旧形式のSSEを拒否' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('受け取った応答の形式を確認できなかったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('受け取った回答を確認できなかったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('表示してはいけない旧形式の回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -2180,7 +2180,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断を検証' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     // An incomplete stream is named as such (PKG-2), not as congestion.
-    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
@@ -2208,7 +2208,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
     await waitFor(() => expect(screen.getByTestId('origin-stream-sources')).toBeTruthy());
-    expect(screen.getByTestId('origin-stream-sources').textContent).toContain('集まった出典');
+    expect(screen.getByTestId('origin-stream-sources').textContent).toContain('確認した出典');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('料金の公式ページ');
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('example.org');
     push({ type: 'phase', phase: 'composing' });
@@ -2242,7 +2242,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '切断された調査' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByText('保存してはいけない途中回答')).toBeNull();
     expect(screen.queryByTestId('origin-stream-sources')).toBeNull();
     vi.unstubAllGlobals();
@@ -2263,7 +2263,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     render(<App language="ja" />);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '失敗する調査' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
-    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力内容は保持しています。もう一度お試しください。')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
     vi.unstubAllGlobals();
   });
@@ -2294,7 +2294,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByTestId('start-request-button'));
       await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
       expect(within(screen.getByTestId('origin-send-queue')).getByText('オフライン要求')).toBeTruthy();
-      expect(screen.getByText('オフラインのため送信待ちに保存しました。送信待ちは1件です。接続が戻ると自動で送信します。')).toBeTruthy();
+      expect(screen.getByText('オフラインのため送信待ちに保存しました。送信待ちは 1 件です。接続が戻ると自動で送ります。')).toBeTruthy();
       expect(screen.queryByText('オフライン中は新規AI応答を停止しています。端末内の履歴・作成物は閲覧、直接編集、保存、パッケージ化を継続できます。')).toBeNull();
     } finally {
       if (online) Object.defineProperty(window.navigator, 'onLine', online);
@@ -2382,13 +2382,13 @@ describe('chat send queue while a response is generating', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() => expect(screen.getByTestId('origin-send-queue')).toBeTruthy());
     expect(within(screen.getByTestId('origin-send-queue')).getByText('二番目の依頼')).toBeTruthy();
-    expect(screen.getByText('受け付けました。送信待ちは1件です。現在の回答の完了後に送信します。')).toBeTruthy();
+    expect(screen.getByText('受け付けました。送信待ちは 1 件です。今の回答が終わったら送ります。')).toBeTruthy();
     expect(chatCalls(fetchMock)).toHaveLength(1);
 
     fireEvent.change(composer, { target: { value: '三番目の依頼' } });
     fireEvent.click(screen.getByTestId('queue-send-button'));
     await waitFor(() => expect(screen.getAllByTestId('origin-send-queue-chip')).toHaveLength(2));
-    expect(screen.getByText('受け付けました。送信待ちは2件です。現在の回答の完了後に送信します。')).toBeTruthy();
+    expect(screen.getByText('受け付けました。送信待ちは 2 件です。今の回答が終わったら送ります。')).toBeTruthy();
     expect(chatCalls(fetchMock)).toHaveLength(1);
 
     gate.resolve(jsonChatResponse('最初の回答'));

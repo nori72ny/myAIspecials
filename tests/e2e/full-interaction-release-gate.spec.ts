@@ -106,7 +106,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       const surfaces = [
         { menuLabel: null, heading: '今日は何をしますか？' },
         { menuLabel: 'エージェントに任せる', heading: 'エージェントに任せる' },
-        { menuLabel: 'コード', heading: 'コードの変更を依頼' },
+        { menuLabel: 'コード', heading: 'コードを作る・直す' },
         // 「作る」はオーナー決定（2026-11-12）で「+」メニューから隠したため、
         // メニュー経由の対象面には含めない（パネル自体の検証は
         // creative-panel-v15.spec.ts が会話経由の経路で担う）。

@@ -77,11 +77,11 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
     event.preventDefault();
     const value = prompt.normalize('NFKC').trim();
     if (!value) {
-      setError(language === 'ja' ? '画像の内容を入力してください。' : 'Enter what you want to create.');
+      setError(language === 'ja' ? '作りたい画像の内容を書いてください。' : 'Write what you want the image to show.');
       return;
     }
     if (value.length > 2_000) {
-      setError(language === 'ja' ? 'プロンプトは2,000文字以内にしてください。' : 'Keep the prompt within 2,000 characters.');
+      setError(language === 'ja' ? '作りたい画像は2,000文字以内にしてください。' : 'Keep the image description within 2,000 characters.');
       return;
     }
     onGenerate(value, dimensions.width, dimensions.height);
@@ -101,9 +101,8 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
       <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="origin-image-panel-title" data-testid="origin-image-generation-panel" className="origin-surface origin-sheet-safe-area-bottom max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--border-default)] p-4 shadow-2xl sm:rounded-3xl sm:p-6">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="origin-muted m-0 text-xs font-semibold uppercase tracking-[0.16em]">ORIGIN · IMAGE STUDIO</p>
             <h2 id="origin-image-panel-title" className="m-0 mt-1 text-lg font-semibold">{ja ? '画像を生成' : 'Generate an image'}</h2>
-            <p className="origin-muted m-0 mt-1 text-sm">{ja ? '内容を入力してください。縦横比・解像度は詳細設定で変更できます。' : 'Enter a prompt. Aspect ratio and resolution live under Advanced settings.'}</p>
+            <p className="origin-muted m-0 mt-1 text-sm">{ja ? '作りたい画像の内容を書いてください。縦横比や解像度は「詳細設定」で変えられます。' : 'Write what you want the image to show. Aspect ratio and resolution can be changed under “Advanced settings.”'}</p>
           </div>
           <button type="button" aria-label={ja ? '閉じる' : 'Close'} onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 min-w-11 items-center justify-center rounded-full text-xl">×</button>
         </header>

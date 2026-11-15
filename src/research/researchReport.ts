@@ -163,16 +163,16 @@ export function researchConfidenceLabel(value: ResearchReportResult['confidence'
 
 export function researchFailureMessage(code: string | undefined, message: string | undefined, language: ResearchLanguage): string {
   if (language === 'en') {
-    if (code === 'SENSITIVE_INPUT_BLOCKED') return 'The request may contain sensitive information, so nothing was sent to external sources.';
-    if (code === 'RESEARCH_SOURCE_CONSTRAINT_UNMET') return 'No supporting evidence could be confirmed from the specified official sources or domains. Unrelated sources were not used as a substitute.';
-    if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return 'No verifiable information related to the question could be obtained from free public sources. Nothing unconfirmed was filled in.';
-    if (code === 'INVALID_RESEARCH_QUERY') return 'Enter a research question of 1–1200 characters.';
+    if (code === 'SENSITIVE_INPUT_BLOCKED') return 'The request may contain highly confidential information, so nothing was sent to external sources.';
+    if (code === 'RESEARCH_SOURCE_CONSTRAINT_UNMET') return 'No evidence matching the question could be found from the specified official sites or similar sources.';
+    if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return 'No verifiable information could be found in free public sources.';
+    if (code === 'INVALID_RESEARCH_QUERY') return 'Write your research question in 1–1200 characters.';
     return message || 'The research could not be completed. Nothing unconfirmed is shown.';
   }
-  if (code === 'SENSITIVE_INPUT_BLOCKED') return '機微情報の可能性があるため、外部情報源への送信を停止しました。';
-  if (code === 'RESEARCH_SOURCE_CONSTRAINT_UNMET') return '指定された公式情報源またはドメインから、質問に関連する根拠を確認できませんでした。無関係な出典では補完していません。';
-  if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return '無料の公開情報源から質問に関連する確認可能な情報を取得できませんでした。未確認内容で補完していません。';
-  if (code === 'INVALID_RESEARCH_QUERY') return '調査内容を1〜1200文字で入力してください。';
+  if (code === 'SENSITIVE_INPUT_BLOCKED') return '機密性の高い情報の可能性があるため、外部情報源への送信を停止しました。';
+  if (code === 'RESEARCH_SOURCE_CONSTRAINT_UNMET') return '指定された公式サイトなどからは、質問に合う根拠が見つかりませんでした。';
+  if (code === 'RESEARCH_SOURCE_UNAVAILABLE') return '無料で使える公開情報からは、確かめられる情報が見つかりませんでした。';
+  if (code === 'INVALID_RESEARCH_QUERY') return '調査内容は1〜1200文字で書いてください。';
   return message || '調査を完了できませんでした。確認できていない内容は表示していません。';
 }
 
@@ -196,7 +196,7 @@ export async function fetchGroundedResearch(query: string, language: ResearchLan
     });
   } catch (error) {
     if ((error as DOMException | null)?.name === 'AbortError') throw error;
-    return { ok: false, message: language === 'en' ? 'Could not reach the research service. Nothing unconfirmed was filled in.' : '調査APIへ接続できませんでした。未確認内容で補完していません。' };
+    return { ok: false, message: language === 'en' ? 'Could not reach the research service.'  : '調査の接続に失敗しました。' };
   }
   const data = await response.json().catch(() => null) as unknown;
   if (!response.ok) {
@@ -204,7 +204,7 @@ export async function fetchGroundedResearch(query: string, language: ResearchLan
     return { ok: false, message: researchFailureMessage(failure.code, failure.message, language) };
   }
   if (!isResearchReportResult(data)) {
-    return { ok: false, message: language === 'en' ? 'The research response could not be verified, so it was withheld for safety. Nothing unconfirmed is shown.' : '調査APIの応答を検証できなかったため、安全に停止しました。未確認内容は表示していません。' };
+    return { ok: false, message: language === 'en' ? 'The research results could not be checked, so nothing is shown.'  : '調査の結果を確認できなかったため、表示を止めました。' };
   }
   return { ok: true, result: data };
 }

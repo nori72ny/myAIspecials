@@ -37,11 +37,11 @@ describe('OriginCodingWorkspaceV31', () => {
     render(<OriginCodingWorkspaceV31 result={result} state="available" changedPaths={['src/example.ts']} />);
 
     const tabs = screen.getByRole('tablist', { name: 'Coding workspace views' });
-    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Files', 'Diff', 'Tests']);
+    expect(within(tabs).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['ファイル', '変更内容', '確認結果']);
     expect(screen.queryByText(/Terminal/i)).toBeNull();
     expect(screen.queryByText(/Checkpoint/i)).toBeNull();
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: 'Diff' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByRole('tab', { name: '変更内容' }).getAttribute('aria-selected')).toBe('true');
     });
   });
 
@@ -54,14 +54,14 @@ describe('OriginCodingWorkspaceV31', () => {
     let panel = screen.getByRole('tabpanel');
     expect(panel.textContent).toContain('export const value = 2;');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Files' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'ファイル' }));
     panel = screen.getByRole('tabpanel');
     expect(panel.textContent).toContain('src/example.ts');
     expect(panel.textContent).not.toContain('export const value = 1;');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Tests' }));
+    fireEvent.click(screen.getByRole('tab', { name: '確認結果' }));
     panel = screen.getByRole('tabpanel');
-    expect(within(panel).getAllByText('PASS')).toHaveLength(4);
+    expect(within(panel).getAllByText('問題なし')).toHaveLength(4);
     expect(screen.queryByText('100%')).toBeNull();
     expect(screen.queryByRole('progressbar')).toBeNull();
   });
@@ -70,6 +70,6 @@ describe('OriginCodingWorkspaceV31', () => {
     render(<OriginCodingWorkspaceV31 result={null} state="unavailable" changedPaths={['src/path-only.ts']} />);
 
     expect(screen.queryByText('src/path-only.ts')).not.toBeNull();
-    expect(screen.queryByText(/サーバーが返した changed paths のみ表示します/)).not.toBeNull();
+    expect(screen.queryByText(/変更したファイル名だけを表示します/)).not.toBeNull();
   });
 });
