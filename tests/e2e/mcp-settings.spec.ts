@@ -12,7 +12,7 @@ test('MCP settings hides the integration entry while the backend is unconfigured
   // UI監査 #26：MCP項目は未設定時は表示されない（「準備中」への行き止まり
   // を出さない）。構成済みの場合に項目が現れることは後続テストが固定する。
   await expect(page.getByText('外部サービス連携（設定・状態確認）', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '外部サービス接続', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '外部サービス連携', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '登録', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   // ダイアログは × ボタンで正常に閉じられる。
@@ -49,7 +49,7 @@ test('MCP settings performs owner login and logout without retaining the passwor
   await page.goto('/');
   await page.getByRole('button', { name: '設定を開く', exact: true }).click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
-  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
+  await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
   await page.getByLabel('メールアドレス').fill('owner@example.com');
   await page.getByLabel('パスワード').fill('fixture-password');
@@ -89,7 +89,7 @@ test('MCP settings handles register, check and disconnect with a simulated authe
   await page.goto('/');
   await page.getByRole('button', { name: '設定を開く', exact: true }).click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
-  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
+  await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
   await page.getByRole('button', { name: '登録', exact: true }).click();
   await expect(page.getByText('接続を登録しました。')).toBeVisible();
@@ -112,7 +112,7 @@ test('MCP settings starts reviewed OAuth without rendering service credentials',
   await page.goto('/');
   await page.getByRole('button', { name: '設定を開く', exact: true }).click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
-  await page.getByRole('button', { name: '外部サービス接続', exact: true }).click();
+  await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
   await page.getByRole('button', { name: '認証を開始', exact: true }).click();
   const link = page.getByRole('link', { name: '公式の認証画面へ進む', exact: true });

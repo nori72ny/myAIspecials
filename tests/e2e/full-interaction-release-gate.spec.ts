@@ -148,14 +148,14 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
 
       // 詳しく調べるは専用画面ではなくチャット内モード（2026-11-09）。
       // 旧検証（見出し「詳しく調べる」の画面と「会話に戻る」）は、モード
-      // バナーの出現・画面不変・解除による消去の検証に置き換える。
+      // バナーの出現・画面不変・「モードをやめる」による消去の検証に置き換える。
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
       await expect(page.getByTestId('research-mode')).toBeVisible();
       await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
       await expect(page).not.toHaveURL(/workspace=/);
       await assertSurfaceContract(page, viewport.width);
-      await page.getByRole('button', { name: '解除', exact: true }).click();
+      await page.getByRole('button', { name: 'モードをやめる', exact: true }).click();
       await expect(page.getByTestId('research-mode')).toBeHidden();
     });
   }
@@ -301,7 +301,7 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await page.getByRole('menuitem', { name: '詳しく調べる', exact: true }).click();
     await expect(page.getByTestId('research-mode')).toBeVisible();
     await expect(page).not.toHaveURL(/workspace=/);
-    await page.getByRole('button', { name: '解除', exact: true }).click();
+    await page.getByRole('button', { name: 'モードをやめる', exact: true }).click();
     await expect(page.getByTestId('research-mode')).toBeHidden();
 
     // Each workspace action must result in navigation, not a silent click.

@@ -364,7 +364,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-home-request').fill('復元対象のローカルセッション');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '新規対話を開始' }).click();
+    await page.getByRole('button', { name: '新しい会話を始める' }).click();
     await page.getByTestId('history-drawer-toggle').click();
     // UI監査 #6：ドロワー内のナレッジマップと「その他の表示」は削除された。
     // 復元は履歴一覧のセッション項目から直接行う（復元処理自体は従来どおり
@@ -471,7 +471,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await sandbox.locator('body').evaluate(() => parent.postMessage({ source: 'ORIGIN_SANDBOX_BOUNDARY', type: 'runtime-error', message: 'unstable preview', timestamp: Date.now() }, '*'));
     const boundary = page.getByTestId('sandbox-runtime-boundary');
     await expect(boundary).toBeVisible({ timeout: 15_000 });
-    await expect(boundary).toContainText('Sandbox内で実行時エラーを検知しました。');
+    await expect(boundary).toContainText('プレビューでエラーが起きました。');
     const restore = page.getByTestId('restore-last-known-good');
     await expect(restore).toBeEnabled();
     await restore.click();
@@ -607,7 +607,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-home-request').fill('無料条件の安全網を確認');
     await page.getByTestId('start-request-button').click();
     const safeWaiting = page.getByTestId('origin-safe-waiting-state');
-    await expect(safeWaiting).toContainText('無料専用ポリシーに適合する応答を確認できない');
+    await expect(safeWaiting).toContainText('無料で使えることを確認できなかったため、回答を表示できませんでした');
     await expect(safeWaiting).not.toContainText('$0.00');
     await expect(page.getByText('NEVER DISPLAY THIS PAID RESPONSE')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
@@ -673,7 +673,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByRole('heading', { name: 'What are we working on today?' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Export' })).toBeVisible();
     await expect(settingsDialog.getByRole('button', { name: 'Import' })).toBeVisible();
-    await expect(settingsDialog.getByRole('button', { name: 'Clear' })).toBeVisible();
+    await expect(settingsDialog.getByRole('button', { name: 'Start new' })).toBeVisible();
     await page.getByTestId('close-settings-button').click();
     await expect(settingsDialog).toBeHidden();
   });

@@ -97,7 +97,7 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
       await expect(titleInput).toHaveValue(title);
       await page.getByText('詳細設定', { exact: true }).click();
       await page.getByLabel('サブタイトル', { exact: true }).fill('200円/人 → 100円/人');
-      await page.getByLabel('フッター', { exact: true }).fill('評価用の架空料金');
+      await page.getByLabel('一番下の文字', { exact: true }).fill('評価用の架空料金');
       expect(await titleInput.evaluate(element => getComputedStyle(element).fontSize)).toBe('16px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       const request = page.waitForRequest('**/api/creative/v1.5/generate');
@@ -139,8 +139,8 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await expect(page.getByRole('img', { name: '作成した画像: モバイルCreative' })).toBeVisible();
     const svgDownload = page.getByRole('link', { name: 'SVG保存' });
     await expect(svgDownload).toHaveAttribute('download', 'creative-e2e-portrait.svg');
-    // 確認表示は「確認済み」の一言に圧縮され、検証の詳細は出ない。
-    await expect(page.getByText('確認済み', { exact: true })).toBeVisible();
+    // 確認表示は「品質を確認済み」の一言に圧縮され、検証の詳細は出ない。
+    await expect(page.getByText('品質を確認済み', { exact: true })).toBeVisible();
     await expect(page.getByText('検証の詳細', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '履歴を開く: モバイルCreative' })).toBeVisible();
 
