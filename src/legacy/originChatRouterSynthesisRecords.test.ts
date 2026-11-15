@@ -189,7 +189,7 @@ describe("chat router records path", () => {
 describe("research router records path", () => {
   const iphoneSources = [
     { title: "iPhone 18 Pro 発表 - Apple Newsroom", url: "https://www.apple.com/jp/newsroom/iphone18", excerpt: "iPhone 18 Proは219,800円で、2026年9月18日に発売されます。", domain: "apple.com", rank: 1, sourceType: "web-search" as const, evidenceLevel: "page-verified" as const, retrievedAt: "2026-11-07T00:00:00.000Z", freshness: "recent" as const, revisionTimestamp: "2026-09-10T00:00:00.000Z" },
-    { title: "iPhone価格まとめ", url: "https://example.jp/iphone", excerpt: "iPhone 18 Proの価格は219,800円と報じられています。", domain: "example.jp", rank: 2, sourceType: "snippet" as const, evidenceLevel: "snippet" as const, retrievedAt: "2026-11-07T00:00:00.000Z", freshness: "unknown" as const },
+    { title: "iPhone価格まとめ", url: "https://example.jp/iphone", excerpt: "iPhone 18 Proの価格は219,800円と報じられています。", domain: "example.jp", rank: 2, sourceType: "web-search" as const, evidenceLevel: "snippet" as const, retrievedAt: "2026-11-07T00:00:00.000Z", freshness: "unknown" as const },
   ];
   const iphoneQuery = "iPhone の最新モデルの、日本での価格と発売日を教えてください";
   const IPHONE_RECORDS_JSON = JSON.stringify({
@@ -233,13 +233,18 @@ describe("research router records path", () => {
     expect(synthesis).toHaveBeenCalledTimes(1);
   });
 
-  it("degrades to the extractive report when no record is adopted", async () => {
+  it("degrades to the partial answer, not the extractive dump, when no record is adopted (R-PR-9a)", async () => {
     const synthesis = vi.fn().mockResolvedValue({ ...executionResult, text: "よく分かりませんでした。" }) as unknown as OriginResearchSynthesisExecutor;
     const response = await request(createResearchApp(synthesis, RECORDS_ON_ENV)).post("/api/chat")
       .send({ messages: [{ role: "user", content: iphoneQuery }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
+    // R-PR-9a: the records-validation failure body on this router is
+    // the same deterministic partial answer the chat router falls
+    // back to; the extractive dump (report + full-excerpt
+    // concatenation) no longer appears as the answer body.
+    expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
+    expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
     // Two executions: records, then the selection layer (§8) inside
     // the records path — not a fall back into the text path.
