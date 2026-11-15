@@ -238,8 +238,9 @@ function envelope(content: string, language: "ja" | "en", status: "passed" | "no
 export const RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS = 4_000;
 
 /**
- * Answer body for a records-validation failure on this router
- * (R-PR-9a, RPR9_DESIGN_2026-11-15 §2 R9-A): the same deterministic
+ * Answer body for a records-path failure on this router
+ * (R-PR-9a, RPR9_DESIGN_2026-11-15 §2 R9-A; extended by R-PR-9d to
+ * the records helper's own provider failure): the same deterministic
  * partial answer the chat router falls back to — an honest lead
  * stating that no summarized answer could be produced, the confirmed
  * scope built from source titles, and the compact source list —
@@ -339,6 +340,13 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     // answer is never invented and the request never becomes unanswerable.
     let synthesisStatus: string = researchSynthesis ? "not-run" : "disabled";
     let synthesisFailureCode: string | undefined;
+    // Set when the records path itself settled this branch with a
+    // failure — a validation failure, or the records helper
+    // throwing (which surfaces as provider-failed). R-PR-9d: both
+    // take the deterministic partial answer at the final return;
+    // a provider failure of the TEXT synthesis does not set this
+    // flag and keeps the extractive body.
+    let recordsFailure = false;
     const safeSources = result.sources.filter((source) => {
       try {
         const url = new URL(source.url);
@@ -436,6 +444,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             }
             synthesisStatus = "records-validation-failed";
             synthesisFailureCode = recordsOutcome.failureCode;
+            recordsFailure = true;
             console.warn("[origin-research] research records discarded", {
               synthesisPath: "records",
               code: recordsOutcome.failureCode,
@@ -446,7 +455,8 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           recordsSettled = true;
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
-          console.warn("[origin-research] research records unavailable; extractive report retained", { code: synthesisFailureCode });
+          recordsFailure = true;
+          console.warn("[origin-research] research records unavailable; partial answer fallback applies", { code: synthesisFailureCode });
         }
         if (!recordsSettled) try {
           const synthesisRequest: OriginProviderExecutionRequest = {
@@ -615,11 +625,17 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     // failure — reachable only with the records kill switch ON —
     // no longer degrades to the extractive dump; it returns the
     // deterministic partial answer, unified with the chat router's
-    // fallback. Every other status reaching this return (synthesis
+    // fallback. R-PR-9d extends the same treatment to the case the
+    // 9a pass deferred: the records helper itself throwing, which
+    // surfaces as provider-failed (recordsFailure above) — that
+    // failure is a records-path failure, so it takes the partial
+    // answer too. Every other status reaching this return (synthesis
     // disabled / not run / plan unavailable / citation-validation
-    // failure / provider failure, i.e. all switch-OFF behaviour)
-    // keeps the historical extractive body byte-for-byte.
-    const recordsFailureAnswer = synthesisStatus === "records-validation-failed"
+    // failure / provider failure of the text synthesis, i.e. all
+    // switch-OFF behaviour — with the switch OFF the records helper
+    // reports not-attempted and cannot throw) keeps the historical
+    // extractive body byte-for-byte.
+    const recordsFailureAnswer = recordsFailure
       ? buildResearchRecordsValidationFailureAnswer(safeSources, language)
       : undefined;
     const content = recordsFailureAnswer ?? `${report.markdown}\n\n${sourceContent}`;
