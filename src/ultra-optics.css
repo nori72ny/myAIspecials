@@ -1,5 +1,5 @@
 @theme {
-  --font-sans: "Geist", "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+  --font-sans: "M PLUS Rounded 1c", "Geist", "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
   --font-mono: "Geist Mono", "Noto Sans JP", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -13,7 +13,7 @@
 
 @layer base {
   body {
-    font-family: "Geist", "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+    font-family: "M PLUS Rounded 1c", "Geist", "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
   }
 }
 
@@ -28,7 +28,7 @@
 
 .origin-thinking-input,
 #origin-chat-input {
-  font-family: "Geist", "Noto Sans JP", system-ui, sans-serif;
+  font-family: "M PLUS Rounded 1c", "Geist", "Noto Sans JP", system-ui, sans-serif;
   font-size: 16px !important;
   line-height: 1.65 !important;
   letter-spacing: -0.01em !important;

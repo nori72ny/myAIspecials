@@ -29,6 +29,10 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     // update for the GHSA advisories published 2026-11-12); exact dependency-only PR
     // lockfile blob after review of the two-entry lockfile delta.
     '44f1acc8660f876aed4343dad4dd5d276e7a94b3',
+    // 2026-11-15 @fontsource/m-plus-rounded-1c 5.3.0 added for the app-wide
+    // rounded font (owner-requested readability change); exact dependency-only
+    // PR lockfile blob after review of the single-entry lockfile delta.
+    '0fbdbd8785c16d51caed29470dfb459c52a50aec',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
