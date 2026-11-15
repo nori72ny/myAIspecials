@@ -334,7 +334,7 @@
 @media (max-width: 639px) and (max-height: 680px) {
   .origin-app main .origin-composer {
     min-height: 56px !important;
-    bottom: 0 !important;
+    bottom: max(24px, env(safe-area-inset-bottom)) !important;
     padding: 6px !important;
   }
   .origin-app main .origin-composer > textarea,
@@ -346,7 +346,13 @@
 
 
 /* The mobile home has two independent vertical zones: a centered intro and
-   a composer anchored to the bottom edge of the scroll viewport. */
+   a composer anchored to the bottom edge of the scroll viewport. The
+   home composer's bottom padding carries a 24px floor
+   (max(24px, env(safe-area-inset-bottom, 0px))): in standalone PWA
+   contexts env() can resolve to 0, which left the composer frame flush
+   with the screen edge and cut off by the Android gesture bar (owner
+   report, 2026-11-16). Larger insets (e.g. iOS home indicator) still win
+   through max(). */
 @media (max-width: 639px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
@@ -365,7 +371,7 @@
     flex: 0 0 auto !important;
     margin-top: 0 !important;
     margin-bottom: 0 !important;
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
@@ -380,7 +386,7 @@
     padding-bottom: 0 !important;
   }
   .origin-app main .origin-home-composer {
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
   .origin-app main .origin-home-composer > .origin-composer {
     position: relative !important;
@@ -390,7 +396,7 @@
 
 @media (max-width: 639px) and (max-height: 680px) {
   .origin-app main .origin-home-composer {
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
@@ -419,7 +425,7 @@
   .origin-app main .origin-home-composer {
     flex: 0 0 auto !important;
     margin-top: 0 !important;
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
   .origin-app main .origin-home-composer > .origin-composer {
     position: relative !important;
@@ -429,7 +435,7 @@
 
 @media (max-width: 639px) and (max-height: 680px) {
   .origin-app main .origin-home-composer {
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
