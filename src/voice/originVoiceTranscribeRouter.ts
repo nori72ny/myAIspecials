@@ -107,7 +107,11 @@ export function createOriginVoiceTranscribeRouter(
     if (duration.ok === false) {
       return fail(res, 400, 'VOICE_DURATION_INVALID');
     }
-    const audio = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    // Copy the parsed body into a fresh Buffer owned by this handler, so
+    // the transcription service only ever receives a value constructed
+    // here (anything that is not a Buffer becomes an empty Buffer and is
+    // rejected by the service as empty audio).
+    const audio = Buffer.isBuffer(req.body) ? Buffer.from(req.body) : Buffer.alloc(0);
     const result = await transcribeOriginVoiceAudio(
       { audio, declaredDurationMs: duration.value },
       {
