@@ -1,20 +1,13 @@
-import { retrieveRelevantContext, setActiveContextUserId } from "./activeContextGraph.js";
+import { resolveActiveContextUserId, retrieveRelevantContext } from "./activeContextGraph.js";
 
-const ACTIVE_CONTEXT_USER_ID_KEY = "origin-active-context-user-id:v1";
 const installedKey = "__originActiveContextChatBridgeInstalled";
 
 type WindowWithBridgeFlag = Window & { [installedKey]?: boolean };
 
 function ensureLocalContextUserId(): string {
-  const existing = window.localStorage.getItem(ACTIVE_CONTEXT_USER_ID_KEY)?.trim();
-  if (existing) {
-    setActiveContextUserId(existing);
-    return existing;
-  }
-  const created = `local-${window.crypto.randomUUID()}`;
-  window.localStorage.setItem(ACTIVE_CONTEXT_USER_ID_KEY, created);
-  setActiveContextUserId(created);
-  return created;
+  // User id generation is unified in the storage layer (design §5.2); an
+  // already-persisted id is always kept.
+  return resolveActiveContextUserId();
 }
 
 function isChatRequest(input: RequestInfo | URL, init?: RequestInit): boolean {
