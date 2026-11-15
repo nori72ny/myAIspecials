@@ -80,19 +80,20 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
     });
     await page.goto('/');
-    // 待機中から浮遊プレゼンスは上部中央に出ている（姿＋名前のみ、
+    // 待機中から浮遊プレゼンスは上部中央に出ている（姿のみ、
     // 状態ピルは作業中だけ）。画面に固定され、ヘッダーにオリンは
-    // 置かない（2026-11-14 08:59 の浮遊化）。
+    // 置かない（2026-11-14 08:59 の浮遊化）。常駐の名前テキストは
+    // 2026-11-15 のオーナー指示で削除済み（カード内表示は残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
-    await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('オリン');
+    await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0);
     await expect(presence).toHaveCSS('position', 'fixed');
     await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
     // 作業中表示（2026-11-14）：全体画面ステージは使わず、上部
-    // 中央に浮く大きなオリン＋名前＋状態ピルが段階を一文で出す。
+    // 中央に浮く大きなオリン＋状態ピルが段階を一文で出す。
     // 会話内の1行表示も出ない。
     await expect(presence).toContainText('回答を準備しています');
     await expect(page.getByTestId('origin-orin-presence-status')).toBeVisible();
