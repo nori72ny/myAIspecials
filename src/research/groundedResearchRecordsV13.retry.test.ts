@@ -119,10 +119,17 @@ function retryExecutionResult(text: string, durationMs?: number): OriginProvider
   } as OriginProviderExecutionResult;
 }
 
+// The fixture query is deliberately NOT a single-fact-slot question
+// (R-PR-6, design §9): a slot-shaped question (e.g. the prime-minister
+// question the fixtures are modeled on) takes the slot branch first,
+// where the fresh retry never fires (the execution-count
+// adjudication). This file pins the retry contract for requests that
+// reach the records stage directly; the slot branch is pinned in
+// groundedResearchRecordsV13.slot.test.ts.
 function helperOptions(overrides: Partial<Parameters<typeof executeGroundedResearchRecordsSynthesis>[1]> = {}) {
   return {
     plan: fakePlan,
-    query: "現在の内閣総理大臣は誰ですか？",
+    query: "公開情報の要点を調査してください",
     sources: pmSources(),
     language: "ja" as const,
     enabled: true,
