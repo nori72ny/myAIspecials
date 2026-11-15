@@ -198,9 +198,14 @@ describe("research router records path", () => {
       { evidence: ["E2_1"], quote: "iPhone 18 Proの価格は219,800円と報じられています。", text: "iPhone 18 Proの価格は219,800円と報じられています。" },
     ],
   });
+  // R-PR-9e: the two records state the same claim (price 219,800円)
+  // in two phrasings (〜です / 〜と報じられています), so the semantic
+  // duplicate layer of the rendering dedup renders ONE bullet with
+  // both citations merged. Before 9e this expectation pinned the two
+  // bullets separately — that was exactly the paraphrase duplication
+  // R9-E removes (the A-02 / B-01 shape of the R-PR-8 measurement).
   const EXPECTED_IPHONE_RENDER = [
-    "- iPhone 18 Proの価格は219,800円です。 [S1](https://www.apple.com/jp/newsroom/iphone18)",
-    "- iPhone 18 Proの価格は219,800円と報じられています。 [S2](https://example.jp/iphone)",
+    "- iPhone 18 Proの価格は219,800円です。 [S1](https://www.apple.com/jp/newsroom/iphone18) [S2](https://example.jp/iphone)",
     "",
     "## 出典",
     "- S1: iPhone 18 Pro 発表 - Apple Newsroom（apple.com）／公開日: 2026年9月10日／取得日: 2026年11月7日 [S1](https://www.apple.com/jp/newsroom/iphone18)",
