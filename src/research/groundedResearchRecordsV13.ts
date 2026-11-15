@@ -3,11 +3,16 @@ import type {
   OriginProviderExecutionRequest,
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient.js";
+import {
+  ORIGIN_TIER_WEIGHT,
+  type OriginSourceAuthorityTier,
+} from "../search/originSearchProviders.js";
 import { buildGroundedResearchReport, type GroundedResearchConflict } from "./groundedResearchV11.js";
 import {
   checkGroundedResearchFactSlotAnswerShape,
   matchGroundedResearchFactSlotEntry,
   parseGroundedResearchFactSlotOutput,
+  type GroundedResearchFactSlotAnswerKind,
   type GroundedResearchFactSlotCandidate,
   type GroundedResearchFactSlotEntry,
 } from "./groundedResearchFactSlotsV13.js";
@@ -33,7 +38,11 @@ import {
  * inside the shared helper between the records verdict and the
  * selection layer), and R-PR-6 (the single-fact slot layer, §9, at
  * the head of the helper's layer order; the type entries live in
- * groundedResearchFactSlotsV13.ts). The routers reach the records
+ * groundedResearchFactSlotsV13.ts). R-PR-8c (RPR8_DESIGN_2026-11-15
+ * §8c) adds the search layer's source authority tier to the packet
+ * and makes tier + published-date freshness decision material in
+ * the selection layer's cleanup and in the slot layer's agreement
+ * evaluation. The routers reach the records
  * path only when the kill switch is ON; with it OFF the V12 text
  * path runs exactly as before.
  *
@@ -57,7 +66,7 @@ export const RECORDS_MIN_UNIT_CHARS = 8;
 
 type RecordsSource = Pick<
   OriginResearchSource,
-  "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceType" | "sourceAuthority" | "revisionTimestamp" | "retrievedAt"
+  "title" | "url" | "excerpt" | "domain" | "evidenceLevel" | "freshness" | "sourceType" | "sourceAuthority" | "authorityTier" | "revisionTimestamp" | "retrievedAt"
 >;
 
 export interface GroundedResearchEvidenceUnit {
@@ -82,6 +91,13 @@ export interface GroundedResearchRecordsPacketSource {
   evidenceLevel: OriginResearchSource["evidenceLevel"];
   freshness: OriginResearchSource["freshness"];
   sourceAuthority: string;
+  /**
+   * The search layer's authority tier for this source's outlet
+   * (#1270), carried through the grounding adapter (R-PR-8c); null
+   * when the source did not come through that pipeline — tier
+   * unknown, which the tier rules treat as neutral, never as low.
+   */
+  authorityTier: OriginSourceAuthorityTier | null;
   publishedDateForms: string[];
   retrievedDateForms: string[];
   /** The exact packet excerpt string (compacted, capped) that was segmented. */
@@ -328,6 +344,7 @@ export function buildGroundedResearchRecordsPacket(
       evidenceLevel: source.evidenceLevel,
       freshness: source.freshness,
       sourceAuthority: source.sourceAuthority ?? (source.sourceType === "encyclopedia" ? "secondary-reference" : "unclassified"),
+      authorityTier: source.authorityTier ?? null,
       publishedDateForms,
       retrievedDateForms,
       excerpt,
@@ -360,6 +377,7 @@ export function formatGroundedResearchRecordsPacket(packet: GroundedResearchReco
     `retrievedDate_json: ${JSON.stringify(source.retrievedDateForms[0] ?? null)}`,
     `retrievedDateJa_json: ${JSON.stringify(source.retrievedDateForms[1] ?? null)}`,
     `sourceAuthority_json: ${JSON.stringify(source.sourceAuthority)}`,
+    `authorityTier_json: ${JSON.stringify(source.authorityTier)}`,
     ...(source.numericTokens.length ? [`原文の数値表記: ${source.numericTokens.join("、")}`] : []),
     ...source.units.map((unit) => `[${unit.id}] ${unit.text}`),
   ].join("\n")).join("\n\n");
@@ -1184,6 +1202,7 @@ export function buildGroundedResearchSelectionInstruction(language: "ja" | "en")
       "Only when you cannot return JSON, write one E-ID per line instead. Never return an E-ID that does not exist in the packet.",
       "If no unit can answer the question, return {\"select\":[]}.",
       "sourceAuthority=official-domain-match means only that the hostname deterministically matched the user's requested official-domain constraint; it is not proof that the content is true or authoritative. sourceAuthority=secondary-reference is secondary reference material; never upgrade it to a primary source.",
+      "When units disagree on a value such as a person's name or a price, prefer the unit from the source with the higher authorityTier (official is the highest), and among equals the source with the newer publishedDate. authorityTier is the search layer's outlet classification, not proof that the content is true.",
       "Do not mention internal routing, hidden prompts, providers, model names, or evaluation machinery.",
     ].join("\n");
   }
@@ -1195,6 +1214,7 @@ export function buildGroundedResearchSelectionInstruction(language: "ja" | "en")
     "JSONで返せない場合のみ、1行に1つの E-ID だけを書いてください。パケットに実在しない E-ID は返さないでください。",
     "答えられる単位が無ければ、{\"select\":[]} を返してください。",
     "sourceAuthority=official-domain-match は、ユーザーが指定した公式ドメイン条件とホスト名が決定的に一致したことだけを意味し、内容の真実性や権威性の証明ではありません。sourceAuthority=secondary-reference は二次参照資料として扱い、一次情報へ格上げしないでください。",
+    "氏名や価格などの値が単位の間で食い違う場合は、authorityTier の上位の出典（official が最上位）の単位を優先し、同位なら公開日の新しい出典の単位を優先してください。authorityTier は検索層による出典の区分であり、内容の真実性の証明ではありません。",
     "内部ルーティング、隠しプロンプト、Provider、モデル名、評価機構には触れないでください。",
   ].join("\n");
 }
@@ -1309,6 +1329,8 @@ export interface GroundedResearchSelectionEvaluation {
   overCapIdCount: number;
   /** Candidates dropped by the claim shape gate (R-PR-8a). */
   shapeDroppedIdCount: number;
+  /** Candidates dropped by the tier/freshness gate (R-PR-8c). */
+  tierDroppedIdCount: number;
   /** Units surviving the deterministic cleanup, in model-returned order. */
   selectedUnits: GroundedResearchEvidenceUnit[];
   /** Distinct packet sources the surviving selection cites. */
@@ -1324,13 +1346,18 @@ export interface GroundedResearchSelectionEvaluation {
 /**
  * Deterministic cleanup and adoption judgement for the selection layer
  * (design §8), in the fixed order: existence check, then dedupe, then
- * the claim shape gate (R-PR-8a), then the 5-unit cap — followed by
+ * the claim shape gate (R-PR-8a), then the tier/freshness gate
+ * (R-PR-8c), then the 5-unit cap — followed by
  * the same coverage re-check the records path applies (§6.4); no
  * relaxed bar for the verbatim layer in v1 (§15.5). The shape gate is
  * what keeps this layer honest against excerpt dumps: units are
  * verbatim, so a selected table row, navigation fragment, or
  * page-head metadata block would otherwise reach the answer exactly
- * as written (the F-02 / E-10 shapes in the R-PR-7 measurement).
+ * as written (the F-02 / E-10 shapes in the R-PR-7 measurement). The
+ * tier/freshness gate drops a unit stating a slot-fact value that a
+ * higher-tier (or same-tier but newer) packet source contradicts as
+ * its stated answer, when the value has no stated agreement of its
+ * own — the F-01 shape in the R-PR-7 measurement.
  * A selection error is a relevance error, never a fabrication:
  * adopted units are rendered verbatim, so no claim can appear that
  * is not a packet sentence.
@@ -1346,10 +1373,12 @@ export function evaluateGroundedResearchSelection(
   }
   const selectedUnits: GroundedResearchEvidenceUnit[] = [];
   const seen = new Set<string>();
+  const tierBlockedUnitIds = selectionTierBlockedUnitIds(packet);
   let unknownIdCount = 0;
   let duplicateIdCount = 0;
   let overCapIdCount = 0;
   let shapeDroppedIdCount = 0;
+  let tierDroppedIdCount = 0;
   for (const id of parse.ids) {
     const unit = unitById.get(id);
     if (!unit) {
@@ -1370,6 +1399,16 @@ export function evaluateGroundedResearchSelection(
       shapeDroppedIdCount += 1;
       continue;
     }
+    // Tier/freshness gate (R-PR-8c): a unit stating a slot-fact
+    // value that the packet's higher-tier or newer sources
+    // contradict as their stated answer, without stated agreement
+    // of its own, is dropped here — like a shape-dropped unit it
+    // never reaches the answer, never counts toward coverage, and
+    // never consumes a cap slot.
+    if (tierBlockedUnitIds.has(id)) {
+      tierDroppedIdCount += 1;
+      continue;
+    }
     if (selectedUnits.length >= RECORDS_SELECTION_MAX_UNITS) {
       overCapIdCount += 1;
       continue;
@@ -1386,6 +1425,7 @@ export function evaluateGroundedResearchSelection(
     duplicateIdCount,
     overCapIdCount,
     shapeDroppedIdCount,
+    tierDroppedIdCount,
     selectedUnits,
     citedSourceCount,
     requiredSourceCount,
@@ -1459,6 +1499,8 @@ interface GroundedResearchSelectionAttempt {
   citedSourceCount: number;
   /** Candidates dropped by the claim shape gate (R-PR-8a). */
   shapeDroppedIdCount: number;
+  /** Candidates dropped by the tier/freshness gate (R-PR-8c). */
+  tierDroppedIdCount: number;
   /** The post-render check failed on the selection rendering. */
   renderCheckFailed: boolean;
 }
@@ -1498,6 +1540,7 @@ async function attemptGroundedResearchSelection(
       selectedUnitCount: 0,
       citedSourceCount: 0,
       shapeDroppedIdCount: 0,
+      tierDroppedIdCount: 0,
       renderCheckFailed: false,
     };
   }
@@ -1511,6 +1554,7 @@ async function attemptGroundedResearchSelection(
     selectedUnitCount: evaluation.selectedUnits.length,
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
+    tierDroppedIdCount: evaluation.tierDroppedIdCount,
     renderCheckFailed: false,
   };
   if (!evaluation.adopted) {
@@ -1535,6 +1579,7 @@ async function attemptGroundedResearchSelection(
     selectedUnitCount: evaluation.selectedUnits.length,
     citedSourceCount: evaluation.citedSourceCount,
     shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
+    tierDroppedIdCount: evaluation.tierDroppedIdCount,
     renderCheckFailed: false,
   };
 }
@@ -1674,6 +1719,173 @@ async function attemptGroundedResearchRecordsRetry(
 }
 
 // ---------------------------------------------------------------------------
+// R-PR-8c: source tier and freshness as decision material
+// (RPR8_DESIGN_2026-11-15 §8c)
+// ---------------------------------------------------------------------------
+
+/**
+ * The support key a packet source lends to a value it states: the
+ * search layer's tier weight (ORIGIN_TIER_WEIGHT) first, then the
+ * source's published date in ISO form (a source without a date ranks
+ * below a dated one of the same tier — the design's "among equals,
+ * the newer one"). A source whose tier is unknown (it did not come
+ * through the search-grounding adapter) ranks below every known
+ * tier: unknown is neutral — such a source never opposes a value
+ * (see the assessment below) and nothing is ever dropped for being
+ * unknown — but it lends no tier strength to a value it states.
+ */
+function recordsSourceSupportKey(
+  source: GroundedResearchRecordsPacketSource,
+): readonly [number, string] {
+  return [
+    source.authorityTier === null ? 0 : ORIGIN_TIER_WEIGHT[source.authorityTier],
+    source.publishedDateForms[0] ?? "",
+  ];
+}
+
+function compareRecordsSupportKeys(
+  a: readonly [number, string],
+  b: readonly [number, string],
+): number {
+  if (a[0] !== b[0]) return a[0] - b[0];
+  return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+}
+
+/**
+ * The values one packet source STATES AS ITS ANSWER for a slot fact
+ * kind, under the R-PR-8b stated-answer extraction (assertion shapes
+ * for names; the single stated amount for prices), read over the
+ * source's whole excerpt. Returned in normalized form, so values
+ * compare across sources.
+ */
+function slotStatedValuesForSource(
+  source: GroundedResearchRecordsPacketSource,
+  kind: GroundedResearchFactSlotAnswerKind,
+): Set<string> {
+  const values = new Set<string>();
+  if (kind === "price") {
+    const stated = slotStatedPrice(source.excerpt);
+    if (stated !== null) values.add(normalizedRecordsText(stated));
+  } else {
+    for (const name of slotStatedIncumbentNames(source.excerpt)) {
+      values.add(normalizedRecordsText(name));
+    }
+  }
+  return values;
+}
+
+export interface GroundedResearchSlotTierAssessment {
+  /** Distinct packet sources stating the value as their answer, plus any extra supporters. */
+  statedSupportSourceIds: string[];
+  /** A known-tier source states a different value and outranks the value's stated support. */
+  tierOpposed: boolean;
+}
+
+/**
+ * Tier/freshness assessment of one stated slot value over the packet
+ * (design §8c): the value is tier-opposed when a source with a KNOWN
+ * tier states a different value as its answer and that source's
+ * support key is strictly stronger than the best support key among
+ * the value's stated supporters. Opposition from an unknown-tier
+ * source never counts here — weighing every source alike is the flat
+ * stated-answer conflict's job (R-PR-8b, the slot layer); this
+ * assessment is the tier-weighted material the design adds. Callers
+ * apply the design's adoption rule on top: a tier-opposed value is
+ * not adopted on its own — it needs stated agreement (at least two
+ * distinct sources stating it as their answer) or backing at least
+ * as strong as the opposition, which is exactly the not-opposed
+ * case.
+ */
+export function assessGroundedResearchSlotValueTier(
+  packet: GroundedResearchRecordsPacket,
+  kind: GroundedResearchFactSlotAnswerKind,
+  normalizedValue: string,
+  extraSupportSourceIds: readonly string[] = [],
+): GroundedResearchSlotTierAssessment {
+  const statedBySource = new Map(
+    packet.sources.map((source) => [source.id, slotStatedValuesForSource(source, kind)]),
+  );
+  const supportIds = new Set<string>(extraSupportSourceIds);
+  for (const source of packet.sources) {
+    if (statedBySource.get(source.id)?.has(normalizedValue)) supportIds.add(source.id);
+  }
+  let bestSupportKey: readonly [number, string] | null = null;
+  for (const source of packet.sources) {
+    if (!supportIds.has(source.id)) continue;
+    const key = recordsSourceSupportKey(source);
+    if (bestSupportKey === null || compareRecordsSupportKeys(key, bestSupportKey) > 0) {
+      bestSupportKey = key;
+    }
+  }
+  let tierOpposed = false;
+  for (const source of packet.sources) {
+    if (source.authorityTier === null) continue;
+    const stated = statedBySource.get(source.id);
+    if (stated === undefined || stated.size === 0) continue;
+    let statesDifferent = false;
+    for (const value of stated) {
+      if (value !== normalizedValue) statesDifferent = true;
+    }
+    if (!statesDifferent) continue;
+    if (
+      bestSupportKey === null
+      || compareRecordsSupportKeys(recordsSourceSupportKey(source), bestSupportKey) > 0
+    ) {
+      tierOpposed = true;
+    }
+  }
+  return { statedSupportSourceIds: [...supportIds], tierOpposed };
+}
+
+/**
+ * Units the tier/freshness rule keeps out of an adopted selection
+ * (design §8c): a unit stating a slot-fact value (an incumbent name,
+ * a single price) whose value is tier-opposed over the packet and
+ * lacks stated agreement — the F-01 shape, in which a stale
+ * low-tier excerpt's assertion survived on coverage borrowed from
+ * the very sources that contradicted it. The unit's own source
+ * counts as a stated supporter of the value the unit states (the
+ * excerpt-level extraction can miss it for prices, where an excerpt
+ * may carry several amounts while this unit states one). Units
+ * stating no slot value are never blocked here, and when no packet
+ * source carries a known tier the set is empty: the selection layer
+ * then behaves exactly as before.
+ */
+function selectionTierBlockedUnitIds(packet: GroundedResearchRecordsPacket): Set<string> {
+  const blocked = new Set<string>();
+  for (const source of packet.sources) {
+    for (const unit of source.units) {
+      let unitBlocked = false;
+      for (const name of slotStatedIncumbentNames(unit.text)) {
+        const assessment = assessGroundedResearchSlotValueTier(
+          packet,
+          "person-name",
+          normalizedRecordsText(name),
+          [source.id],
+        );
+        if (assessment.tierOpposed && assessment.statedSupportSourceIds.length < 2) {
+          unitBlocked = true;
+        }
+      }
+      const statedPrice = slotStatedPrice(unit.text);
+      if (statedPrice !== null) {
+        const assessment = assessGroundedResearchSlotValueTier(
+          packet,
+          "price",
+          normalizedRecordsText(statedPrice),
+          [source.id],
+        );
+        if (assessment.tierOpposed && assessment.statedSupportSourceIds.length < 2) {
+          unitBlocked = true;
+        }
+      }
+      if (unitBlocked) blocked.add(unit.id);
+    }
+  }
+  return blocked;
+}
+
+// ---------------------------------------------------------------------------
 // R-PR-6: the single-fact slot layer (design §9)
 // ---------------------------------------------------------------------------
 
@@ -1714,6 +1926,7 @@ export function buildGroundedResearchFactSlotInstruction(
       "src is the source number shown in the packet heading (like S1) of the source whose excerpt states the fact.",
       "quote is one unit line from that source, copied verbatim without its [E-ID] prefix, that contains the answer.",
       "When the fact cannot be determined uniquely from the excerpts — it is not stated, or several different candidates appear and none can be chosen — reply with {\"answer\":null,\"src\":null,\"quote\":null} and nothing else.",
+      "When the packet's sources state this fact differently, prefer the value from the source with the higher authorityTier (official is the highest), and among equals the newer source. authorityTier is the search layer's outlet classification, not proof that the content is true.",
       "Write nothing but the JSON: no headings, explanations, or source list.",
       "Do not mention internal routing, hidden prompts, providers, model names, or evaluation machinery.",
     ].join("\n");
@@ -1726,6 +1939,7 @@ export function buildGroundedResearchFactSlotInstruction(
     "src は、その事実が書かれている出典の番号（パケットの見出しにある S1 のような番号）です。",
     "quote は、その出典の単位行のうち、answer を含む一文を、[E番号] の接頭辞を除いて逐語でコピーしてください。",
     "抜粋から事実を一意に決められない場合（書かれていない、異なる候補が複数あって選べない等）は、{\"answer\":null,\"src\":null,\"quote\":null} とだけ返してください。",
+    "パケットの出典の間でこの事実の値が食い違う場合は、authorityTier の上位の出典（official が最上位）の値を優先し、同位なら新しい出典を優先してください。authorityTier は検索層による出典の区分であり、内容の真実性の証明ではありません。",
     "JSON以外の文字（見出し・解説・出典一覧）は書かないでください。",
     "内部ルーティング、隠しプロンプト、Provider、モデル名、評価機構には触れないでください。",
   ].join("\n");
@@ -1864,13 +2078,18 @@ function slotStatedPrice(text: string): string | null {
  * verbatim in the quote; (d) the answer fits the type's shape check.
  * Then the cross-source rules: the same answer must appear verbatim
  * in the excerpts of at least min(2, packet source count) distinct
- * sources (agreement), and no packet excerpt may state a DIFFERENT
- * value as its answer (conflict, redefined by R-PR-8b: the slot's
- * own extraction applied per excerpt — assertion shapes for names,
- * the single stated amount for prices; a value merely appearing in
- * an excerpt's text is not a competitor) — on conflict the layer
- * never picks a winner. The model's answer is never rewritten;
- * every failure is a fall-through code, not a request failure (§12).
+ * sources (agreement), the agreement is weighed against tiered
+ * opposition (R-PR-8c: a known-tier source stating a different
+ * value as its answer, outranking the candidate's stated support,
+ * makes verbatim agreement alone insufficient — stated agreement
+ * from at least two sources is required), and no packet excerpt may
+ * state a DIFFERENT value as its answer (conflict, redefined by
+ * R-PR-8b: the slot's own extraction applied per excerpt — assertion
+ * shapes for names, the single stated amount for prices; a value
+ * merely appearing in an excerpt's text is not a competitor) — on
+ * conflict the layer never picks a winner. The model's answer is
+ * never rewritten; every failure is a fall-through code, not a
+ * request failure (§12).
  */
 export function evaluateGroundedResearchFactSlot(
   output: string,
@@ -1909,6 +2128,18 @@ export function evaluateGroundedResearchFactSlot(
   const agreementSourceCount = supporting.length;
   const supportSourceIds = supporting.map((packetSource) => packetSource.id);
   if (agreementSourceCount < Math.min(2, packet.sources.length)) {
+    return { ...base, candidate, source, agreementSourceCount, supportSourceIds, code: "SLOT_INSUFFICIENT_AGREEMENT" };
+  }
+  // Tier/freshness weighting of the agreement (R-PR-8c, design §8c):
+  // when a known-tier source states a DIFFERENT value as its answer
+  // and outranks this candidate's stated support, the verbatim
+  // agreement above is not enough on its own — the candidate also
+  // needs stated agreement (at least two distinct sources stating
+  // it as their answer, not merely containing it). Without that, the
+  // agreement is judged insufficient here; with it, the flat
+  // stated-answer conflict below still decides (R-PR-8b, unchanged).
+  const tierAssessment = assessGroundedResearchSlotValueTier(packet, entry.answerKind, normalizedAnswer);
+  if (tierAssessment.tierOpposed && tierAssessment.statedSupportSourceIds.length < 2) {
     return { ...base, candidate, source, agreementSourceCount, supportSourceIds, code: "SLOT_INSUFFICIENT_AGREEMENT" };
   }
   let conflictDetected = false;
@@ -2150,6 +2381,8 @@ export interface GroundedResearchRecordsStageMetrics {
   selectionCitedSourceCount: number;
   /** Selection stage: candidates dropped by the claim shape gate (R-PR-8a). */
   selectionShapeDroppedCount: number;
+  /** Selection stage: candidates dropped by the tier/freshness gate (R-PR-8c). */
+  selectionTierDroppedCount: number;
   /** Selection stage: outcome code of the layer; null when not attempted. */
   selectionCode: GroundedResearchSelectionCode | null;
   /** Retry stage (§10/§11): a fresh re-execution was invoked. */
@@ -2311,6 +2544,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionSelectedUnitCount: 0,
     selectionCitedSourceCount: 0,
     selectionShapeDroppedCount: 0,
+    selectionTierDroppedCount: 0,
     selectionCode: null,
     retryAttempted: false,
     retrySkipped: null,
@@ -2591,6 +2825,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionSelectedUnitCount: selection.selectedUnitCount,
     selectionCitedSourceCount: selection.citedSourceCount,
     selectionShapeDroppedCount: selection.shapeDroppedIdCount,
+    selectionTierDroppedCount: selection.tierDroppedIdCount,
     selectionCode: selection.code,
   };
   if (selection.adopted && selection.text !== undefined && selection.result !== undefined) {
