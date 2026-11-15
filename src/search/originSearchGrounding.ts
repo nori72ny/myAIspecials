@@ -722,6 +722,9 @@ export function originSearchGroundingToResearchResult(
       // "official-domain-match" is reserved for user-requested official-domain
       // constraints; provider-side tier knowledge must not be upgraded into it.
       sourceAuthority: source.providerId === "wikipedia" ? "secondary-reference" as const : "unclassified" as const,
+      // The tier itself travels in its own field (R-PR-8c): the records
+      // path's selection and slot layers use it as decision material.
+      authorityTier: source.authorityTier,
       domain: source.domain,
       rank: index + 1,
       evidenceLevel: source.evidenceLevel === "extracted" ? "page-verified" as const : "snippet" as const,

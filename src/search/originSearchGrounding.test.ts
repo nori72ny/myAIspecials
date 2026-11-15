@@ -299,6 +299,9 @@ describe("originSearchGroundingToResearchResult", () => {
     expect(result.ok).toBe(true);
     expect(result.searchProvider).toBe("Tavily");
     expect(result.sources[0]?.sourceType).toBe("web-search");
+    // The search layer's authority tier is carried through in its own
+    // field (R-PR-8c), not upgraded into sourceAuthority.
+    expect(result.sources[0]?.authorityTier).toBe("official");
     expect(result.sources[0]?.freshness).toBe("recent");
     expect(result.sources[0]?.evidenceLevel).toBe("page-verified");
     expect(result.grounding?.questionType).toBe("price_spec");

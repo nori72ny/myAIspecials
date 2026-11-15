@@ -1,5 +1,6 @@
 import { secureFetch } from "../../services/mission-engine/src/application/agent/ToolExecutor.js";
 import type { ResearchProviderName } from "../research/researchProviderVocabulary.js";
+import type { OriginSourceAuthorityTier } from "../search/originSearchProviders.js";
 
 export interface OriginResearchSource {
   title: string;
@@ -8,6 +9,15 @@ export interface OriginResearchSource {
   revisionTimestamp?: string;
   sourceType?: "web-search" | "encyclopedia";
   sourceAuthority?: "official-domain-match" | "secondary-reference" | "unclassified";
+  /**
+   * The search layer's authority tier for this source's outlet
+   * (originSearchProviders, #1270), carried through the grounding
+   * adapter (R-PR-8c). Absent when the source did not come through
+   * the search-grounding pipeline (the legacy research path,
+   * user-provided sources): the tier is then unknown, which every
+   * consumer must treat as neutral — never as low.
+   */
+  authorityTier?: OriginSourceAuthorityTier;
   domain?: string;
   rank?: number;
   evidenceLevel: "snippet" | "page-verified";
