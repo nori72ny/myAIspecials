@@ -25,6 +25,7 @@ export interface Settings {
   uiMode?: "normal" | "developer" | "business" | "family";
   selectedTheme?: "dark" | "light" | "system" | "oled" | "retro"; // Theme settings (Dark, Light, System, OLED, Retro)
   designTheme?: "minimal" | "luxury" | "glass";
+  personalizationEnabled?: boolean; // Personalization Stage 1 master toggle (§7.4): when false, memory extraction and reflection both stop
   maxCostCap?: number; // Cost settings (Max cost cap per mission in USD)
   retryCount?: number; // Error Recovery: Retry count
   timeoutSeconds?: number; // Error Recovery: Timeout in seconds

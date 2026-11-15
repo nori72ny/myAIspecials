@@ -12,6 +12,10 @@ interface Props {
   onExportHistory?: () => void;
   onImportHistory?: (file: File) => Promise<void>;
   onResetHistory?: () => void;
+  /** Ids of saved conversation sessions that still exist (memory source links). */
+  sourceSessionIds?: ReadonlySet<string>;
+  /** Opens the conversation a memory item came from, when it still exists. */
+  onOpenSourceSession?: (sessionId: string) => void;
   /** Pointer id captured by the settings opener, when available. */
   openingPointerId?: number;
 }
@@ -25,6 +29,8 @@ export default function SettingsModal({
   onExportHistory,
   onImportHistory,
   onResetHistory,
+  sourceSessionIds,
+  onOpenSourceSession,
   openingPointerId,
 }: Props) {
   const openingPointerIdRef = useRef<number | null>(null);
@@ -59,6 +65,8 @@ export default function SettingsModal({
         onExportHistory={onExportHistory}
         onImportHistory={onImportHistory}
         onResetHistory={onResetHistory}
+        sourceSessionIds={sourceSessionIds}
+        onOpenSourceSession={onOpenSourceSession}
       />
     </div>,
     portalHost,

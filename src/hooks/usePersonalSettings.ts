@@ -14,6 +14,7 @@ export const DEFAULT_PERSONAL_SETTINGS: Settings = Object.freeze({
   uiMode: 'normal',
   selectedTheme: 'light',
   designTheme: 'minimal',
+  personalizationEnabled: true,
   maxCostCap: 0,
   retryCount: 0,
   timeoutSeconds: 45,
@@ -23,6 +24,10 @@ type StoredPersonalSettings = {
   language: Settings['language'];
   selectedTheme: PersonalTheme;
   designTheme?: PersonalDesignTheme;
+  // Personalization Stage 1 master toggle (design §7.4). Optional in the
+  // stored shape so settings saved before this field existed stay valid;
+  // an absent field means the default (on).
+  personalizationEnabled?: boolean;
 };
 
 function isStoredPersonalSettings(value: unknown): value is StoredPersonalSettings {
@@ -30,7 +35,8 @@ function isStoredPersonalSettings(value: unknown): value is StoredPersonalSettin
   const candidate = value as Partial<StoredPersonalSettings>;
   return (candidate.language === 'ja' || candidate.language === 'en')
     && (candidate.selectedTheme === 'light' || candidate.selectedTheme === 'dark' || candidate.selectedTheme === 'system')
-    && (candidate.designTheme === undefined || candidate.designTheme === 'minimal' || candidate.designTheme === 'luxury' || candidate.designTheme === 'glass');
+    && (candidate.designTheme === undefined || candidate.designTheme === 'minimal' || candidate.designTheme === 'luxury' || candidate.designTheme === 'glass')
+    && (candidate.personalizationEnabled === undefined || typeof candidate.personalizationEnabled === 'boolean');
 }
 
 function toPersonalSettings(value: StoredPersonalSettings | null): Settings {
@@ -49,7 +55,21 @@ function toStoredPersonalSettings(nextSettings: Settings): StoredPersonalSetting
     designTheme: nextSettings.designTheme === 'luxury' || nextSettings.designTheme === 'glass'
       ? nextSettings.designTheme
       : 'minimal',
+    personalizationEnabled: nextSettings.personalizationEnabled !== false,
   };
+}
+
+/**
+ * Reads the personalization master toggle straight from the persisted
+ * settings, for non-React callers (the on-device memory ingestion).
+ * Defaults to on when nothing valid is stored, matching §7.4.
+ */
+export function readPersonalizationEnabled(): boolean {
+  const stored = SafeStorage.get<StoredPersonalSettings>(
+    PERSONAL_SETTINGS_STORAGE_KEY,
+    isStoredPersonalSettings,
+  );
+  return stored?.personalizationEnabled !== false;
 }
 
 export function usePersonalSettings() {

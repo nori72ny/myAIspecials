@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_PERSONAL_SETTINGS,
   PERSONAL_SETTINGS_STORAGE_KEY,
+  readPersonalizationEnabled,
   usePersonalSettings,
 } from './usePersonalSettings';
 
@@ -67,7 +68,47 @@ describe('usePersonalSettings', () => {
       language: 'en',
       selectedTheme: 'light',
       designTheme: 'luxury',
+      personalizationEnabled: true,
     });
+  });
+
+  it('defaults the personalization master toggle to on and persists changes', () => {
+    const { result } = renderHook(() => usePersonalSettings());
+
+    expect(result.current.settings.personalizationEnabled).toBe(true);
+
+    act(() => {
+      result.current.updateSettings({ ...result.current.settings, personalizationEnabled: false });
+    });
+
+    expect(result.current.settings.personalizationEnabled).toBe(false);
+    expect(JSON.parse(localStorage.getItem(PERSONAL_SETTINGS_STORAGE_KEY) ?? '{}')).toEqual({
+      language: 'ja',
+      selectedTheme: 'light',
+      designTheme: 'minimal',
+      personalizationEnabled: false,
+    });
+  });
+
+  it('restores a stored personalization toggle and defaults to on when the field is absent', () => {
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'dark', personalizationEnabled: false }));
+
+    const off = renderHook(() => usePersonalSettings());
+    expect(off.result.current.settings.personalizationEnabled).toBe(false);
+    off.unmount();
+
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'dark' }));
+
+    const absent = renderHook(() => usePersonalSettings());
+    expect(absent.result.current.settings.personalizationEnabled).toBe(true);
+  });
+
+  it('rejects a non-boolean personalization toggle in stored settings', () => {
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'dark', personalizationEnabled: 'yes' }));
+
+    const { result } = renderHook(() => usePersonalSettings());
+
+    expect(result.current.settings).toEqual(DEFAULT_PERSONAL_SETTINGS);
   });
 
   it('upgrades previously stored appearance settings to the default minimal design', () => {
@@ -77,6 +118,16 @@ describe('usePersonalSettings', () => {
 
     expect(result.current.settings.designTheme).toBe('minimal');
     expect(result.current.settings.selectedTheme).toBe('dark');
+  });
+
+  it('reads the personalization toggle for non-React callers, defaulting to on', () => {
+    expect(readPersonalizationEnabled()).toBe(true);
+
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'light', personalizationEnabled: false }));
+    expect(readPersonalizationEnabled()).toBe(false);
+
+    localStorage.setItem(PERSONAL_SETTINGS_STORAGE_KEY, JSON.stringify({ language: 'ja', selectedTheme: 'light' }));
+    expect(readPersonalizationEnabled()).toBe(true);
   });
 
   it('rejects unapproved design themes without importing unsafe execution settings', () => {

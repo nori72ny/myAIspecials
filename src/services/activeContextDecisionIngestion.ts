@@ -5,6 +5,7 @@ import {
   type OriginMemoryKind,
 } from './activeContextGraph';
 import { checkPersonalMemoryText } from './personalMemoryGuard';
+import { readPersonalizationEnabled } from '../hooks/usePersonalSettings';
 
 // ---------------------------------------------------------------------------
 // Conversation memory ingestion (Personalization Stage 1, PR P1-2).
@@ -27,7 +28,9 @@ import { checkPersonalMemoryText } from './personalMemoryGuard';
 //
 // Extraction runs entirely on-device after the answer is delivered, adds
 // zero network requests, and is fully fail-safe: every failure is
-// swallowed so chat can never be affected. Candidates pass two protective
+// swallowed so chat can never be affected. The personalization master
+// toggle (§7.2) gates this entry point: while it is off, nothing is
+// extracted (PR P1-3). Candidates pass two protective
 // layers before storage — stage-2 topics (name / birth date / address /
 // phone number) are excluded at the rule level (§3.3), and the §9.2
 // pre-save guard (personalMemoryGuard) runs again inside the storage
@@ -380,6 +383,11 @@ async function saveCandidates(
  */
 export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<void> {
   try {
+    // Master toggle (design §7.2/§7.4, wired in PR P1-3): while the owner
+    // has "覚えている内容を、回答に活かす" off, conversation extraction
+    // stops entirely. Stored items are kept untouched and resume when the
+    // toggle is turned back on.
+    if (!readPersonalizationEnabled()) return;
     const userText = cleanText(typeof turn?.userText === 'string' ? turn.userText : '', MAX_USER_CHARS);
     const answerText = cleanText(typeof turn?.answerText === 'string' ? turn.answerText : '', MAX_ANSWER_CHARS);
     if (!userText && !answerText) return;

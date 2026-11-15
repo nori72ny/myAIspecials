@@ -114,6 +114,55 @@ type Translation = {
   historyImportUnavailable: string;
   historyImportFailed: string;
   historyResetNote: string;
+  personal: {
+    heading: string;
+    description: string;
+    groundedNote: string;
+    toggleLabel: string;
+    toggleOffNote: string;
+    usageSummary: (count: number, max: number) => string;
+    nearLimitNote: string;
+    limitReachedNote: string;
+    migrationMigrated: (count: number) => string;
+    migrationFailed: string;
+    profileHeading: string;
+    profileCategoryLabel: string;
+    profileCategories: { about: string; personality: string; preference: string; goal: string };
+    profileTextLabel: string;
+    profileTextPlaceholder: string;
+    profileAdd: string;
+    profileWarning: string;
+    profileEmpty: string;
+    blockedSave: string;
+    memoryHeading: string;
+    memoryEmpty: string;
+    memoryKinds: { request: string; decision: string; preference: string; fact: string; commitment: string };
+    originExplicit: string;
+    originInferred: string;
+    originLegacy: string;
+    sourceFromConversation: (monthDay: string) => string;
+    sourceMissing: string;
+    updatedOn: (monthDay: string) => string;
+    edit: string;
+    saveEdit: string;
+    cancelEdit: string;
+    delete: string;
+    sendToModel: string;
+    deviceOnlyNote: string;
+    historyFold: string;
+    needsCheckHeading: string;
+    needsCheckPrompt: string;
+    useThis: string;
+    deleteBoth: string;
+    clearAll: string;
+    clearAllConfirmTitle: string;
+    clearAllConfirmBody: string;
+    clearAllIncludeProfile: string;
+    clearAllConfirm: string;
+    clearAllCancel: string;
+    clearAllDone: string;
+    loadFailed: string;
+  };
   safetyHeading: string;
   freeOnlyTitle: string;
   freeOnlyDescription: string;
@@ -243,6 +292,55 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     historyImportUnavailable: '会話履歴の読み込みはこの画面では利用できません。',
     historyImportFailed: 'ファイルを読み込めませんでした。',
     historyResetNote: '「新しく始める」では、現在の会話を履歴に保存します。履歴は消えません。',
+    personal: {
+      heading: 'あなたについて',
+      description: 'あなたについて書いたことと、会話の中で覚えたことを、ここで見直せます。回答を、あなたに合わせて整えるために使います。',
+      groundedNote: '調べものへの回答には、ここに書いた内容は使いません。',
+      toggleLabel: '覚えている内容を、回答に活かす',
+      toggleOffNote: 'オフにすると、新しく覚えることも、回答に使うことも止まります。覚えた内容は消えません。',
+      usageSummary: (count, max) => `いま ${count} 件を覚えています（上限は ${max} 件です）。`,
+      nearLimitNote: '上限に近づいています。いらなくなった内容があれば、整理してみてください。',
+      limitReachedNote: '上限に達したため、会話から新しく覚えることは一時停止しています。あなたが書いた内容と、「覚えておいて」と言った内容は、これまでどおり保存されます。',
+      migrationMigrated: (count) => `前の仕組みで覚えていた ${count} 件を、こちらへ引き継ぎました。`,
+      migrationFailed: '前の仕組みからの移行がうまくいきませんでした。次に開いたときに、もう一度試します。',
+      profileHeading: 'プロフィール',
+      profileCategoryLabel: 'カテゴリ',
+      profileCategories: { about: 'わたしについて', personality: '性格・考え方', preference: '好み', goal: 'やりたいこと・目標' },
+      profileTextLabel: '内容',
+      profileTextPlaceholder: '例：短くまとめてほしい',
+      profileAdd: '追加する',
+      profileWarning: '住所・電話番号・生年月日・カード情報は書かないでください',
+      profileEmpty: 'まだ何も書かれていません。',
+      blockedSave: 'この内容は保存できませんでした。住所・電話番号・カード番号などが含まれていないか、見直してみてください。',
+      memoryHeading: 'ORIGINが覚えていること',
+      memoryEmpty: 'まだ覚えていることはありません。',
+      memoryKinds: { request: '頼まれごと', decision: '決めたこと', preference: '好み', fact: 'あなたのこと', commitment: 'ORIGINの約束' },
+      originExplicit: 'あなたが覚えさせた',
+      originInferred: '会話から',
+      originLegacy: '前の仕組みから引き継ぎ',
+      sourceFromConversation: (monthDay) => `${monthDay}の会話から`,
+      sourceMissing: '出典の情報がありません',
+      updatedOn: (monthDay) => `${monthDay}に更新`,
+      edit: '編集',
+      saveEdit: '保存',
+      cancelEdit: 'やめる',
+      delete: '消す',
+      sendToModel: 'チャットのAIに渡す',
+      deviceOnlyNote: 'この端末の中だけで使います',
+      historyFold: '置き換え済み・終わった内容',
+      needsCheckHeading: '内容が食い違っているもの',
+      needsCheckPrompt: 'どちらが今の内容ですか',
+      useThis: 'こちらを使う',
+      deleteBoth: '両方消す',
+      clearAll: '覚えていることを全て消す',
+      clearAllConfirmTitle: '覚えていることを全て消しますか',
+      clearAllConfirmBody: '会話の履歴は消えません。覚えていることだけが消えます。',
+      clearAllIncludeProfile: 'プロフィールも一緒に消す',
+      clearAllConfirm: '全て消す',
+      clearAllCancel: 'やめる',
+      clearAllDone: '覚えていることを全て消しました。',
+      loadFailed: '覚えている内容を読み込めませんでした。',
+    },
     safetyHeading: '安全と費用',
     freeOnlyTitle: 'この版は無料AIだけを使います。',
     freeOnlyDescription: '有料AIへの自動切り替えは行いません。',
@@ -370,6 +468,55 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     historyImportUnavailable: 'History import is unavailable in this view.',
     historyImportFailed: 'Could not load the file.',
     historyResetNote: '“Start new” saves the current conversation to history first. Your history is not deleted.',
+    personal: {
+      heading: 'About you',
+      description: 'Review what you have written about yourself and what ORIGIN has remembered from your conversations. These are used to shape answers for you.',
+      groundedNote: 'Researched answers do not use anything written here.',
+      toggleLabel: 'Use what ORIGIN remembers in its answers',
+      toggleOffNote: 'While this is off, ORIGIN stops remembering new things and stops using them in answers. What is already remembered is not deleted.',
+      usageSummary: (count, max) => `${count} item(s) are remembered (the limit is ${max}).`,
+      nearLimitNote: 'You are getting close to the limit. Consider tidying up anything you no longer need.',
+      limitReachedNote: 'The limit has been reached, so remembering new things from conversations is paused. What you write yourself, and anything you ask ORIGIN to remember, is still saved as before.',
+      migrationMigrated: (count) => `${count} item(s) remembered by the previous system were carried over here.`,
+      migrationFailed: 'The carry-over from the previous system did not finish. It will be tried again the next time you open this.',
+      profileHeading: 'Profile',
+      profileCategoryLabel: 'Category',
+      profileCategories: { about: 'About me', personality: 'Personality & outlook', preference: 'Preferences', goal: 'Goals' },
+      profileTextLabel: 'Details',
+      profileTextPlaceholder: 'Example: Keep answers short',
+      profileAdd: 'Add',
+      profileWarning: 'Please do not write addresses, phone numbers, birth dates, or card details here',
+      profileEmpty: 'Nothing written yet.',
+      blockedSave: 'This could not be saved. Please check that it does not include an address, phone number, card number, or similar detail.',
+      memoryHeading: 'What ORIGIN remembers',
+      memoryEmpty: 'Nothing is remembered yet.',
+      memoryKinds: { request: 'Requests', decision: 'Decisions', preference: 'Preferences', fact: 'About you', commitment: "ORIGIN's promises" },
+      originExplicit: 'You asked ORIGIN to remember this',
+      originInferred: 'From a conversation',
+      originLegacy: 'Carried over from the previous system',
+      sourceFromConversation: (monthDay) => `From a conversation on ${monthDay}`,
+      sourceMissing: 'No source information',
+      updatedOn: (monthDay) => `Updated ${monthDay}`,
+      edit: 'Edit',
+      saveEdit: 'Save',
+      cancelEdit: 'Cancel',
+      delete: 'Delete',
+      sendToModel: 'Share with the chat AI',
+      deviceOnlyNote: 'Used only on this device',
+      historyFold: 'Replaced or finished items',
+      needsCheckHeading: 'Items that do not agree',
+      needsCheckPrompt: 'Which one is current?',
+      useThis: 'Use this one',
+      deleteBoth: 'Delete both',
+      clearAll: 'Delete everything ORIGIN remembers',
+      clearAllConfirmTitle: 'Delete everything ORIGIN remembers?',
+      clearAllConfirmBody: 'Your conversation history is not deleted. Only what ORIGIN remembers is removed.',
+      clearAllIncludeProfile: 'Also delete my profile',
+      clearAllConfirm: 'Delete all',
+      clearAllCancel: 'Cancel',
+      clearAllDone: 'Everything ORIGIN remembered has been deleted.',
+      loadFailed: 'What ORIGIN remembers could not be loaded.',
+    },
     safetyHeading: 'Safety',
     freeOnlyTitle: 'ORIGIN does not use paid AI automatically.',
     freeOnlyDescription: 'There is no automatic switch to paid AI.',
