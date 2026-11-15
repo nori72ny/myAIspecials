@@ -174,7 +174,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     // ヘッダーのボタンは履歴・設定の2つだけ。オリンはヘッダーに
     // 置かず、上部中央の浮遊プレゼンスに一本化した（2026-11-14 08:59）。
     expect(within(header).getAllByRole('button')).toHaveLength(2);
-    expect(screen.queryByRole('button', { name: '新規対話を開始' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '新しい会話を始める' })).toBeNull();
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
       expect(control.className).toContain('shrink-0');

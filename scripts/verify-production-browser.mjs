@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-const MODEL_BUSY_MESSAGE = "無料AIが一時的に混み合っています。入力内容は保持しています。少し待ってから、もう一度お試しください。";
+const MODEL_BUSY_MESSAGE = "今、無料AIが混み合っています。入力した内容は残っています。少し待ってから、もう一度お試しください。";
 
 function productionUrl(value) {
   const url = new URL(value ?? "https://origin-personal.vercel.app");
@@ -141,12 +141,12 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
-    await page.getByRole("button", { name: "新規対話を開始" }).click();
+    await page.getByRole("button", { name: "新しい会話を始める" }).click();
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 10_000 });
     await restoreSavedSessionFromHistoryDrawer(page, firstPrompt);
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 10_000 });
 
-    await page.getByRole("button", { name: "新規対話を開始" }).click();
+    await page.getByRole("button", { name: "新しい会話を始める" }).click();
     await page.getByTestId("origin-home-request").fill("失敗回復を確認してください");
     await page.getByTestId("start-request-button").click();
     await page.getByText(MODEL_BUSY_MESSAGE).waitFor({ state: "visible", timeout: 10_000 });
