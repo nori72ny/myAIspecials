@@ -148,7 +148,18 @@ test.describe('V1.5 Creative panel beside the conversation', () => {
     await page.getByRole('button', { name: 'PNGを作成' }).click();
     const pngDownload = page.getByRole('link', { name: 'PNG保存' });
     await expect(pngDownload).toHaveAttribute('download', 'creative-e2e-portrait.png');
-    expect(requests.length).toBe(requestsBeforePng);
+    // 本質は「PNG変換が端末内で完結し、外部へ何も送信しない」こと。
+    // 件数の完全一致で固定すると、変換中ラベル「PNG変換中…」の「換」や
+    // 「PNG保存」リンクの「存」のように、この操作で初めて表示される文字が、
+    // セルフホストした M PLUS Rounded 1c のサブセット（同一オリジンの
+    // woff2）を遅延取得させるだけで落ちてしまう。これは外部送信では
+    // ないため許容し、それ以外の新規リクエストが無いことだけを固定する。
+    const pageOrigin = new URL(page.url()).origin;
+    const unexpectedRequests = requests.slice(requestsBeforePng).filter((url) => {
+      const parsed = new URL(url);
+      return !(parsed.origin === pageOrigin && /\.woff2?$/.test(parsed.pathname));
+    });
+    expect(unexpectedRequests).toEqual([]);
 
     const downloadPromise = page.waitForEvent('download');
     await pngDownload.click();
