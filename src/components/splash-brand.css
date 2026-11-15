@@ -1,15 +1,24 @@
-.origin-ultra-splash .origin-ultra-splash__aurora {
-  inset: -28%;
-  background:
-    radial-gradient(circle at 50% 43%, rgb(96 131 214 / 16%), transparent 20%),
-    radial-gradient(circle at 47% 48%, rgb(37 64 143 / 10%), transparent 34%);
-  filter: blur(30px);
+/* ORIGIN brand lockup + startup splash.
+   The lockup pairs the approved ribbon-O mark (public/brand/origin-ribbon-o.webp)
+   with the designed ORIGIN wordmark (owner decision 2026-11-16, mixed B/C/D):
+   ORI in navy, GIN in slate blue, a small navy bow on the second I, and a gold
+   ribbon line flowing under the word. Colors were sampled from the approved
+   reference image and from the mark asset itself:
+   navy #182d5f, slate #4f6c9b, gold #d7b253, cream #fdf0e0. */
+
+.origin-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1;
+  user-select: none;
 }
 
 .origin-ribbon-logo {
   position: relative;
-  width: 112px;
-  height: 112px;
+  width: 34px;
+  height: 34px;
+  flex: none;
   display: grid;
   place-items: center;
 }
@@ -37,16 +46,116 @@
   filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));
 }
 
+/* The header shows the mark at bar size, so its shadow quiets down there. */
+.origin-brand-lockup--header .origin-ribbon-logo__mark {
+  filter: drop-shadow(0 2px 5px rgb(9 34 76 / 20%));
+}
+
+/* In the dark theme the navy wordmark would sink into the dark header, so
+   the header lockup sits on a small cream plate (the brand surface) instead
+   of recoloring the approved wordmark. The !important declarations are
+   required because index.css carries a blanket dark-theme layer that
+   forces every header descendant's color and [class*="header"] background
+   with !important; the plate re-asserts the approved brand colors. */
+:root[data-theme="dark"] .origin-brand-lockup.origin-brand-lockup--header {
+  background: #fdf0e0 !important;
+  border-radius: 10px;
+  padding: 3px 9px 4px 4px;
+}
+
+:root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--navy {
+  color: #182d5f !important;
+}
+
+:root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--slate {
+  color: #4f6c9b !important;
+}
+
 .origin-ribbon-wordmark {
-  margin-top: 20px;
-  color: var(--text-primary);
-  font-family: "M PLUS Rounded 1c", "Geist", "Noto Sans JP", system-ui, sans-serif;
-  font-size: 21px;
-  font-weight: 500;
+  position: relative;
+  display: inline-block;
+  padding-bottom: .3em;
+  font-family: "M PLUS Rounded 1c", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
   line-height: 1;
-  letter-spacing: .34em;
-  text-indent: .34em;
-  text-rendering: geometricPrecision;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+
+.origin-ribbon-wordmark__letter {
+  position: relative;
+  display: inline-block;
+}
+
+.origin-ribbon-wordmark__letter--navy {
+  color: #182d5f;
+}
+
+.origin-ribbon-wordmark__letter--slate {
+  color: #4f6c9b;
+}
+
+.origin-ribbon-wordmark__bow {
+  position: absolute;
+  left: 50%;
+  bottom: .62em;
+  width: .88em;
+  height: auto;
+  transform: translateX(-50%);
+  fill: #182d5f;
+  pointer-events: none;
+}
+
+.origin-ribbon-wordmark__line {
+  position: absolute;
+  left: -4%;
+  top: calc(100% - .3em);
+  width: 108%;
+  height: .3em;
+  pointer-events: none;
+}
+
+/* Splash variant: the same lockup, larger, with the entrance sequence.
+   The mark settles in, the letters rise one by one, then the gold line is
+   drawn; SplashScreen fades the whole overlay out afterwards. */
+.origin-brand-lockup--splash {
+  gap: 13px;
+}
+
+.origin-brand-lockup--splash .origin-ribbon-logo {
+  width: 78px;
+  height: 78px;
+  animation: origin-brand-mark-in 540ms cubic-bezier(.22, .8, .3, 1) both;
+}
+
+.origin-brand-lockup--splash .origin-ribbon-wordmark {
+  font-size: clamp(27px, 8vw, 36px);
+}
+
+.origin-brand-lockup--splash .origin-ribbon-wordmark__letter {
+  opacity: 0;
+  animation: origin-brand-letter-in 430ms cubic-bezier(.22, .8, .3, 1) both;
+  animation-delay: calc(230ms + var(--origin-letter-index, 0) * 78ms);
+}
+
+.origin-brand-lockup--splash .origin-ribbon-wordmark__line {
+  animation: origin-brand-line-in 620ms ease-in-out 740ms both;
+}
+
+@keyframes origin-brand-mark-in {
+  from { opacity: 0; transform: scale(.93); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes origin-brand-letter-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes origin-brand-line-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
 }
 
 @keyframes origin-ribbon-breathe {
@@ -54,26 +163,61 @@
   to { opacity: .82; transform: scale(1.04); }
 }
 
+/* Splash overlay dismissal: SplashScreen owns the timing in JS and only
+   toggles this class for the fade. */
+.origin-ultra-splash {
+  transition: opacity 240ms ease;
+}
+
+.origin-ultra-splash.is-leaving {
+  opacity: 0;
+}
+
 @media (max-width: 640px) {
-  .origin-ribbon-logo {
-    width: 94px;
-    height: 94px;
+  .origin-brand-lockup--splash {
+    gap: 10px;
+  }
+
+  .origin-brand-lockup--splash .origin-ribbon-logo {
+    width: 64px;
+    height: 64px;
   }
 
   .origin-ribbon-logo__halo {
     inset: -20px;
   }
+}
 
-  .origin-ribbon-wordmark {
-    margin-top: 17px;
-    font-size: 19px;
-    letter-spacing: .3em;
-    text-indent: .3em;
+/* Narrow screens: shrink the header lockup so it never crowds the
+   centered Orin presence or the header actions. */
+@media (max-width: 560px) {
+  .origin-brand-lockup--header {
+    gap: 5px;
+  }
+
+  .origin-brand-lockup--header .origin-ribbon-logo {
+    width: 29px;
+    height: 29px;
+  }
+
+  .origin-brand-lockup--header .origin-ribbon-wordmark {
+    font-size: 15px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .origin-ribbon-logo__halo {
+  .origin-ribbon-logo__halo,
+  .origin-brand-lockup--splash .origin-ribbon-logo,
+  .origin-brand-lockup--splash .origin-ribbon-wordmark__letter,
+  .origin-brand-lockup--splash .origin-ribbon-wordmark__line {
     animation: none;
+  }
+
+  .origin-brand-lockup--splash .origin-ribbon-wordmark__letter {
+    opacity: 1;
+  }
+
+  .origin-ultra-splash {
+    transition: none;
   }
 }

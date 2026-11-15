@@ -51,6 +51,9 @@
   padding: 0 !important;
 }
 
+/* Startup splash shell. The splash is a fixed brand surface, so its
+   background is the logo cream in both themes; SplashScreen owns the
+   display timing in JS (no CSS-timed dismissal here). */
 .origin-ultra-splash {
   position: fixed;
   inset: 0;
@@ -59,9 +62,7 @@
   place-items: center;
   overflow: hidden;
   isolation: isolate;
-  background: var(--bg-primary);
-  animation: origin-ultra-splash-out 180ms var(--origin-ultra-ease) 420ms both;
-  pointer-events: none;
+  background: #fdf0e0;
 }
 
 .origin-ultra-splash__aurora {
@@ -76,46 +77,6 @@
   z-index: 2;
   display: grid;
   justify-items: center;
-  transform: translateY(12px) scale(.985);
-  opacity: 0;
-  animation: origin-ultra-rise 380ms var(--origin-ultra-ease) 20ms forwards;
-}
-
-.origin-ultra-skeleton {
-  position: absolute;
-  left: 8vw;
-  right: 8vw;
-  bottom: 7vh;
-  display: grid;
-  gap: 9px;
-  opacity: .24;
-}
-
-.origin-ultra-skeleton span {
-  display: block;
-  height: 5px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--text-secondary) 24%, transparent), transparent);
-  background-size: 220% 100%;
-  animation: origin-ultra-shimmer 1.5s linear infinite;
-}
-
-.origin-ultra-skeleton span:nth-child(2) { width: 72%; }
-.origin-ultra-skeleton span:nth-child(3) { width: 48%; }
-
-@keyframes origin-ultra-rise {
-  from { opacity: 0; transform: translateY(12px) scale(.985); filter: blur(5px); }
-  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-
-@keyframes origin-ultra-splash-out {
-  from { opacity: 1; visibility: visible; }
-  to { opacity: 0; visibility: hidden; }
-}
-
-@keyframes origin-ultra-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -20% 0; }
 }
 
 html[data-origin-focus-mode="true"] body > * header,
@@ -147,10 +108,7 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
 
 @media (prefers-reduced-motion: reduce) {
   .origin-ultra-splash,
-  .origin-ultra-splash__content,
-  .origin-ultra-skeleton span { animation: none; }
-  .origin-ultra-splash__content { opacity: 1; transform: none; }
-  .origin-ultra-splash { animation: none; opacity: 0; visibility: hidden; }
+  .origin-ultra-splash__content { animation: none; }
 }
 
 @media (max-width: 640px) {
