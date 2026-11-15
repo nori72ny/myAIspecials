@@ -29,9 +29,10 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     // UI監査 #27：ダイアログ下部の重複「閉じる」ボタンは削除され、閉じる
     // 手段は × ボタンに一本化された。× にはアクセス可能な名前
     // （設定を閉じる / Close settings）がある。末尾のフォーカス可能要素は
-    // 履歴セクションの「新しく始める」ボタンになる。
+    // P1-3 で履歴セクションの直後に入った「あなたについて」セクション
+    // （PersonalizationSettings）末尾の全消去ボタンになる。
     await expect(iconClose).toHaveAccessibleName(/^(設定を閉じる|Close settings)$/);
-    const lastControl = dialog.getByRole('button', { name: /^(新しく始める|Start new)$/ });
+    const lastControl = dialog.getByRole('button', { name: /^(覚えていることを全て消す|Delete everything ORIGIN remembers)$/ });
 
     await iconClose.focus();
     await page.keyboard.press('Shift+Tab');
