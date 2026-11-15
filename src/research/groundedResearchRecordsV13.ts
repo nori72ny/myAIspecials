@@ -553,6 +553,7 @@ export type GroundedResearchRecordRejectionCode =
   | "NAME_NOT_IN_QUOTE"
   | "TEXT_MULTI_SENTENCE"
   | "TEXT_HAS_BACK_REFERENCE"
+  | "TEXT_CLAIM_SHAPE_INVALID"
   | "DUPLICATE_RECORD";
 
 export interface GroundedResearchAcceptedRecord {
@@ -634,6 +635,96 @@ function recordsSentenceCount(text: string): number {
   return splitEvidenceSpans(text).filter((span) => spanText(text, span).length > 0).length;
 }
 
+// ---------------------------------------------------------------------------
+// Claim shape gate (R-PR-8a, RPR8_DESIGN_2026-11-15 §8a)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a text cannot stand as a claim, under the claim shape gate. The
+ * gate is a deterministic FORM check shared by the records validator
+ * (on the model's claim text, step 7b) and the selection layer (on
+ * verbatim unit texts): it judges only whether a text can stand as
+ * one complete factual claim sentence, never whether it is true, and
+ * it only ever adds rejections — no existing check is loosened. The
+ * R-PR-7 measurement showed the failure shapes this catches: excerpt
+ * dumps whose "claims" were table rows, navigation fragments, wiki
+ * template chrome, or page-head metadata (F-02 / E-10), and truncated
+ * fragments with no sentence ending. Every rule is pinned by positive
+ * and counterexample tests in groundedResearchRecordsV13.shape.test.ts.
+ */
+export type GroundedResearchClaimShapeViolation =
+  | "table-pipe"
+  | "navigation-fragment"
+  | "template-fragment"
+  | "metadata-labels"
+  | "incomplete-sentence";
+
+/** Page chrome: SNS share prompts and media-player fallbacks. */
+const RECORDS_CLAIM_NAVIGATION_PATTERN =
+  /(?:X|Twitter|Facebook|LINE|Pocket|はてなブックマーク)でシェアする|この記事をシェアする|再生できない方は/u;
+
+/** Wiki template chrome: navbox headers and citation-search boxes. */
+const RECORDS_CLAIM_TEMPLATE_PATTERN = /テンプレートの使い方|出典検索|表\s*話\s*編\s*歴/u;
+
+/** A bracketed editorial currency stamp, e.g. [令和8年4月1日現在法令等]. */
+const RECORDS_CLAIM_EDITORIAL_STAMP_PATTERN = /\[[^\]\n]{0,48}現在[^\]\n]{0,24}\]/u;
+
+/**
+ * Standalone page-head metadata labels. A label word inside prose
+ * does not trip the gate; two or more whitespace-delimited chunks
+ * that are exactly a label mark the text as a metadata dump.
+ */
+const RECORDS_CLAIM_METADATA_LABELS: ReadonlySet<string> = new Set([
+  "対象税目",
+  "概要",
+  "公開日",
+  "更新日",
+  "最終更新日",
+  "作成日",
+  "掲載日",
+  "所管",
+  "担当",
+  "お問い合わせ",
+  "目次",
+  "参考文献",
+  "関連リンク",
+  "カテゴリ",
+  "カテゴリー",
+]);
+
+/** Closing brackets/quotes that may follow sentence-final punctuation. */
+const RECORDS_CLAIM_TRAILING_CLOSERS = "」』）〕］｝〉》”’\"'】";
+
+const RECORDS_CLAIM_SENTENCE_ENDINGS = "。．.!！?？";
+
+export function recordsClaimShapeViolation(
+  rawText: string,
+): GroundedResearchClaimShapeViolation | null {
+  const text = rawText.normalize("NFKC").trim();
+  if (text.length === 0) return "incomplete-sentence";
+  // Table structure: a claim sentence never contains a pipe (the
+  // full-width ｜ is folded to | by the NFKC normalization above).
+  if (text.includes("|")) return "table-pipe";
+  if (RECORDS_CLAIM_NAVIGATION_PATTERN.test(text)) return "navigation-fragment";
+  if (RECORDS_CLAIM_TEMPLATE_PATTERN.test(text)) return "template-fragment";
+  if (RECORDS_CLAIM_EDITORIAL_STAMP_PATTERN.test(text)) return "metadata-labels";
+  let labelChunks = 0;
+  for (const chunk of text.split(/\s+/u)) {
+    if (RECORDS_CLAIM_METADATA_LABELS.has(chunk)) labelChunks += 1;
+  }
+  if (labelChunks >= 2) return "metadata-labels";
+  // Completeness: after absorbing trailing closing brackets/quotes,
+  // the text must end with sentence-final punctuation. A text that
+  // stops mid-phrase (the tail of a truncated excerpt, a heading
+  // fragment) is a fragment, not a claim.
+  let end = text.length;
+  while (end > 0 && RECORDS_CLAIM_TRAILING_CLOSERS.includes(text.charAt(end - 1))) end -= 1;
+  if (end === 0 || !RECORDS_CLAIM_SENTENCE_ENDINGS.includes(text.charAt(end - 1))) {
+    return "incomplete-sentence";
+  }
+  return null;
+}
+
 /**
  * Validates parsed records against the records packet, one record at a
  * time, in the order of design §6.1. Each record is judged independently:
@@ -670,6 +761,7 @@ export function validateGroundedResearchRecords(
     NAME_NOT_IN_QUOTE: 0,
     TEXT_MULTI_SENTENCE: 0,
     TEXT_HAS_BACK_REFERENCE: 0,
+    TEXT_CLAIM_SHAPE_INVALID: 0,
     DUPLICATE_RECORD: 0,
   };
   const acceptedQuoteKeys = new Set<string>();
@@ -761,6 +853,17 @@ export function validateGroundedResearchRecords(
     }
     if (RECORDS_BACK_REFERENCE_PATTERN.test(text)) {
       reject(recordIndex, "TEXT_HAS_BACK_REFERENCE");
+      return;
+    }
+
+    // Step 7b — claim shape gate (R-PR-8a): the text must be one
+    // complete claim-shaped sentence, free of structural artifacts
+    // (table pipes, navigation/template fragments, page-head
+    // metadata) and closed by sentence-final punctuation. Form only —
+    // never a truth judgment — and a pure addition: a text rejected
+    // here could previously be accepted, never the reverse.
+    if (recordsClaimShapeViolation(text) !== null) {
+      reject(recordIndex, "TEXT_CLAIM_SHAPE_INVALID");
       return;
     }
 
@@ -961,7 +1064,9 @@ export function buildGroundedResearchRecordsPrompt(
  * forms, so the time basis of the answer is stated by the list. The
  * slot layer (§9, R-PR-6) prepends its template paragraph through
  * renderGroundedResearchFactSlotAnswer; this renderer itself emits
- * no heading other than the source list's.
+ * no heading other than the source list's. Records whose normalized
+ * claim text is identical are rendered once, with their citations
+ * merged onto the surviving bullet (R-PR-8a).
  */
 export function renderGroundedResearchRecordsAnswer(
   accepted: readonly GroundedResearchAcceptedRecord[],
@@ -969,10 +1074,34 @@ export function renderGroundedResearchRecordsAnswer(
   language: "ja" | "en",
 ): string {
   const sourceById = new Map(packet.sources.map((source) => [source.id, source]));
-  const body = accepted.map((record) => {
+  // Duplicate-claim removal (R-PR-8a): records whose normalized claim
+  // text is identical state the same claim — render the first one
+  // only and merge the citations of the rest onto its line, so the
+  // same assertion never appears twice under different source tags
+  // (the A-02 shape in the R-PR-7 measurement). The dedup key is the
+  // shared form normalization plus the removal of 、 and a trailing
+  // sentence punctuation: punctuation-only differences (two sources
+  // punctuating the same sentence differently) are the same claim.
+  // The key is display-only — validation keeps using the unmodified
+  // normalization. Paraphrase-level duplication is out of scope by
+  // design. The post-render check (§6.5) tolerates several packet
+  // citations on one body line.
+  const bodyEntries: { text: string; citations: string[] }[] = [];
+  const bodyIndexByClaim = new Map<string, number>();
+  for (const record of accepted) {
     const source = sourceById.get(record.sourceId);
-    return `- ${record.text} [${record.sourceId}](${source?.url ?? ""})`;
-  });
+    const citation = `[${record.sourceId}](${source?.url ?? ""})`;
+    const claimKey = normalizedRecordsText(record.text).replace(/、/g, "").replace(/[。.]$/u, "");
+    const existingIndex = bodyIndexByClaim.get(claimKey);
+    if (existingIndex === undefined) {
+      bodyIndexByClaim.set(claimKey, bodyEntries.length);
+      bodyEntries.push({ text: record.text, citations: [citation] });
+    } else {
+      const entry = bodyEntries[existingIndex];
+      if (entry && !entry.citations.includes(citation)) entry.citations.push(citation);
+    }
+  }
+  const body = bodyEntries.map((entry) => `- ${entry.text} ${entry.citations.join(" ")}`);
   const list = packet.sources.map((source) => {
     const citation = `[${source.id}](${source.url})`;
     if (language === "en") {
@@ -1178,6 +1307,8 @@ export interface GroundedResearchSelectionEvaluation {
   duplicateIdCount: number;
   /** Candidates dropped by the RECORDS_SELECTION_MAX_UNITS cap. */
   overCapIdCount: number;
+  /** Candidates dropped by the claim shape gate (R-PR-8a). */
+  shapeDroppedIdCount: number;
   /** Units surviving the deterministic cleanup, in model-returned order. */
   selectedUnits: GroundedResearchEvidenceUnit[];
   /** Distinct packet sources the surviving selection cites. */
@@ -1193,11 +1324,16 @@ export interface GroundedResearchSelectionEvaluation {
 /**
  * Deterministic cleanup and adoption judgement for the selection layer
  * (design §8), in the fixed order: existence check, then dedupe, then
- * the 5-unit cap — followed by the same coverage re-check the records
- * path applies (§6.4); no relaxed bar for the verbatim layer in v1
- * (§15.5). A selection error is a relevance error, never a
- * fabrication: adopted units are rendered verbatim, so no claim can
- * appear that is not a packet sentence.
+ * the claim shape gate (R-PR-8a), then the 5-unit cap — followed by
+ * the same coverage re-check the records path applies (§6.4); no
+ * relaxed bar for the verbatim layer in v1 (§15.5). The shape gate is
+ * what keeps this layer honest against excerpt dumps: units are
+ * verbatim, so a selected table row, navigation fragment, or
+ * page-head metadata block would otherwise reach the answer exactly
+ * as written (the F-02 / E-10 shapes in the R-PR-7 measurement).
+ * A selection error is a relevance error, never a fabrication:
+ * adopted units are rendered verbatim, so no claim can appear that
+ * is not a packet sentence.
  */
 export function evaluateGroundedResearchSelection(
   output: string,
@@ -1213,6 +1349,7 @@ export function evaluateGroundedResearchSelection(
   let unknownIdCount = 0;
   let duplicateIdCount = 0;
   let overCapIdCount = 0;
+  let shapeDroppedIdCount = 0;
   for (const id of parse.ids) {
     const unit = unitById.get(id);
     if (!unit) {
@@ -1224,6 +1361,15 @@ export function evaluateGroundedResearchSelection(
       continue;
     }
     seen.add(id);
+    // Claim shape gate (R-PR-8a): a verbatim unit that is a table
+    // row, a navigation/template fragment, page-head metadata, or a
+    // truncated fragment is dropped here — it never reaches the
+    // answer, never counts toward coverage, and never consumes a
+    // cap slot.
+    if (recordsClaimShapeViolation(unit.text) !== null) {
+      shapeDroppedIdCount += 1;
+      continue;
+    }
     if (selectedUnits.length >= RECORDS_SELECTION_MAX_UNITS) {
       overCapIdCount += 1;
       continue;
@@ -1239,6 +1385,7 @@ export function evaluateGroundedResearchSelection(
     unknownIdCount,
     duplicateIdCount,
     overCapIdCount,
+    shapeDroppedIdCount,
     selectedUnits,
     citedSourceCount,
     requiredSourceCount,
@@ -1310,6 +1457,8 @@ interface GroundedResearchSelectionAttempt {
   selectedUnitCount: number;
   /** Distinct packet sources the surviving selection cites. */
   citedSourceCount: number;
+  /** Candidates dropped by the claim shape gate (R-PR-8a). */
+  shapeDroppedIdCount: number;
   /** The post-render check failed on the selection rendering. */
   renderCheckFailed: boolean;
 }
@@ -1348,6 +1497,7 @@ async function attemptGroundedResearchSelection(
       durationMs: 0,
       selectedUnitCount: 0,
       citedSourceCount: 0,
+      shapeDroppedIdCount: 0,
       renderCheckFailed: false,
     };
   }
@@ -1360,6 +1510,7 @@ async function attemptGroundedResearchSelection(
     durationMs,
     selectedUnitCount: evaluation.selectedUnits.length,
     citedSourceCount: evaluation.citedSourceCount,
+    shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     renderCheckFailed: false,
   };
   if (!evaluation.adopted) {
@@ -1383,6 +1534,7 @@ async function attemptGroundedResearchSelection(
     durationMs,
     selectedUnitCount: evaluation.selectedUnits.length,
     citedSourceCount: evaluation.citedSourceCount,
+    shapeDroppedIdCount: evaluation.shapeDroppedIdCount,
     renderCheckFailed: false,
   };
 }
@@ -1918,6 +2070,8 @@ export interface GroundedResearchRecordsStageMetrics {
   selectionSelectedUnitCount: number;
   /** Selection stage: distinct packet sources the surviving selection cites. */
   selectionCitedSourceCount: number;
+  /** Selection stage: candidates dropped by the claim shape gate (R-PR-8a). */
+  selectionShapeDroppedCount: number;
   /** Selection stage: outcome code of the layer; null when not attempted. */
   selectionCode: GroundedResearchSelectionCode | null;
   /** Retry stage (§10/§11): a fresh re-execution was invoked. */
@@ -2066,6 +2220,7 @@ export async function executeGroundedResearchRecordsSynthesis(
       NAME_NOT_IN_QUOTE: 0,
       TEXT_MULTI_SENTENCE: 0,
       TEXT_HAS_BACK_REFERENCE: 0,
+      TEXT_CLAIM_SHAPE_INVALID: 0,
       DUPLICATE_RECORD: 0,
     },
     acceptedRecordCount: 0,
@@ -2077,6 +2232,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionAttempted: false,
     selectionSelectedUnitCount: 0,
     selectionCitedSourceCount: 0,
+    selectionShapeDroppedCount: 0,
     selectionCode: null,
     retryAttempted: false,
     retrySkipped: null,
@@ -2097,6 +2253,7 @@ export async function executeGroundedResearchRecordsSynthesis(
       NAME_NOT_IN_QUOTE: 0,
       TEXT_MULTI_SENTENCE: 0,
       TEXT_HAS_BACK_REFERENCE: 0,
+      TEXT_CLAIM_SHAPE_INVALID: 0,
       DUPLICATE_RECORD: 0,
     },
     retryAcceptedRecordCount: 0,
@@ -2355,6 +2512,7 @@ export async function executeGroundedResearchRecordsSynthesis(
     selectionAttempted: true,
     selectionSelectedUnitCount: selection.selectedUnitCount,
     selectionCitedSourceCount: selection.citedSourceCount,
+    selectionShapeDroppedCount: selection.shapeDroppedIdCount,
     selectionCode: selection.code,
   };
   if (selection.adopted && selection.text !== undefined && selection.result !== undefined) {
