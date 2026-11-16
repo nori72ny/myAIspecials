@@ -46,18 +46,24 @@ describe('OriginAnswerMarkdown', () => {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
 
+    // 第1引数はモデルへ送る内部指示文、第2引数は吹き出し表示用の短い
+    // ラベル（ピルの表示文そのもの）。内部指示文が表示側へ漏れないよう、
+    // ラベルは指示文と別々に渡ることを固定する。
     fireEvent.click(screen.getByRole('button', { name: '実務向けに詳しく' }));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('判断基準'));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('検証方法'));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('開発なら'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('判断基準'), '実務向けに詳しく');
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('検証方法'), '実務向けに詳しく');
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('開発なら'), '実務向けに詳しく');
 
     fireEvent.click(screen.getByRole('button', { name: '具体例を足す' }));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('仮定や例示は明示'));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('架空の事例を実績として扱わない'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('仮定や例示は明示'), '具体例を足す');
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('架空の事例を実績として扱わない'), '具体例を足す');
 
     fireEvent.click(screen.getByRole('button', { name: '実行プランにする' }));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('明確な完了条件'));
-    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('未実施の作業を完了済みとは書かない'));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('明確な完了条件'), '実行プランにする');
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('未実施の作業を完了済みとは書かない'), '実行プランにする');
+
+    fireEvent.click(screen.getByRole('button', { name: '要点だけ' }));
+    expect(onRefine).toHaveBeenLastCalledWith(expect.stringContaining('意思決定に必要な結論と次の行動'), '要点だけ');
   });
 
   it('keeps the English deepening prompt specific to research, coding, planning, and unknowns', () => {
@@ -68,6 +74,7 @@ describe('OriginAnswerMarkdown', () => {
     for (const phrase of ['decision criteria', 'verification', 'research', 'coding', 'planning', 'Do not add filler']) {
       expect(prompt).toContain(phrase);
     }
+    expect(onRefine.mock.calls[0]?.[1]).toBe('More depth for practical work');
   });
 });
 

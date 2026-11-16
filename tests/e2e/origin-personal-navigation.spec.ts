@@ -27,6 +27,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(requests[1].messages.some(message => message.role === 'assistant' && message.content.includes('要件を確認'))).toBe(true);
       expect(requests[1].messages.at(-1)?.content).toContain('判断基準');
       expect(requests[1].messages.at(-1)?.content).toContain('開発なら使える変更内容・組込み方・テスト・制約');
+      // 吹き出しにはピルのラベルだけが出て、モデルへ送った内部指示文は
+      // 画面のどこにも表示されない（内部指示文の断片で全文検索して確認）。
+      await expect(page.locator('.origin-chat-user', { hasText: '実務向けに詳しく' })).toBeVisible();
+      await expect(page.getByText('文字数を増やすための一般論や')).toHaveCount(0);
       await expect(page.getByRole('group', { name: '回答を調整', exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });

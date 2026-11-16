@@ -108,6 +108,37 @@ describe('conversation image history persistence', () => {
   });
 });
 
+describe('message display label (displayContent) history round-trip', () => {
+  it('keeps the display label through persistence and import while content stays the full instruction', () => {
+    const source: ConversationMessage[] = [{
+      id: 'refine-1',
+      role: 'user',
+      content: '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。',
+      displayContent: '要点だけ',
+    }];
+    const persisted = persistableConversationMessages(source);
+    expect(persisted[0]?.displayContent).toBe('要点だけ');
+    const imported = parseImportedHistory({ messages: persisted });
+    expect(imported[0]?.content).toContain('意思決定に必要な結論');
+    expect(imported[0]?.displayContent).toBe('要点だけ');
+  });
+
+  it('imports legacy messages without a display label unchanged (content is displayed)', () => {
+    const imported = parseImportedHistory({ messages: [{ id: 'old-1', role: 'user', content: '昔の質問' }] });
+    expect(imported[0]?.content).toBe('昔の質問');
+    expect(imported[0]?.displayContent).toBeUndefined();
+  });
+
+  it('drops a non-string or empty display label on import instead of failing', () => {
+    const imported = parseImportedHistory({ messages: [
+      { id: 'bad-1', role: 'user', content: '質問', displayContent: 42 },
+      { id: 'bad-2', role: 'user', content: '質問2', displayContent: '' },
+    ] });
+    expect(imported[0]?.displayContent).toBeUndefined();
+    expect(imported[1]?.displayContent).toBeUndefined();
+  });
+});
+
 describe('conversation file artifact history persistence', () => {
   it('strips inline file artifacts (base64 payloads) while keeping the answer text (PR-3a)', () => {
     const source: ConversationMessage[] = [{

@@ -37,6 +37,15 @@ describe('startup archive of the previous in-progress conversation', () => {
     expect(archived?.messages.map((message) => message.content)).toEqual(['前回の相談です', '前回の回答です']);
   });
 
+  it('titles the archived session from the display label when the first user turn is a refinement', () => {
+    const refinementFirst: ConversationMessage[] = [
+      { id: 'm-1', role: 'user', content: '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。', displayContent: '要点だけ' },
+      { id: 'm-2', role: 'assistant', content: '要点だけの回答です' },
+    ];
+    const archived = startupArchivedSession(refinementFirst, 456);
+    expect(archived?.title).toBe('要点だけ');
+  });
+
   it('prepends the archived conversation without dropping existing sessions', () => {
     const next = withStartupArchivedSession([existingSession], previousConversation, 456);
     expect(next).toHaveLength(2);

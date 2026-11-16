@@ -246,6 +246,11 @@ export type ConversationMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  // 画面表示専用の文面。モデルへ送る content と画面に出す文面が異なる
+  // 送信（「回答を調整」ピルの内部指示文など）で、吹き出し・履歴・
+  // セッションタイトルにはこちらを表示する。モデルへの送信には一切
+  // 使わない。未設定（旧データ含む）なら content を表示する。
+  displayContent?: string;
   deliveryState?: 'verified' | 'error';
   // 回答が長さの上限で未完のまま届いたこと（PKG-2）。部分回答は破棄せず、
   // この印とともに表示し、画面末尾に未完であることを明示する。
@@ -262,6 +267,9 @@ export type ConversationMessage = {
   files?: readonly ChatFileArtifact[];
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
+// 吹き出し・履歴・タイトル等、利用者の目に触れる場所で使う文面。
+// displayContent があればそちらを優先し、なければ content を使う。
+export const conversationMessageDisplayText = (message: ConversationMessage): string => message.displayContent ?? message.content;
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
 // An image generation/edit intent armed outside the send pipeline (image
 // panel, edit/variation actions, or a raster clarification round-trip). The
@@ -281,7 +289,7 @@ type PendingImageRequest = {
 // intent (e.g. it answers a raster clarification question), the intent is
 // stored on the item and restored when the item drains, so queueing never
 // silently turns an image answer into plain chat.
-type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean; imageRequest?: PendingImageRequest };
+type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean; imageRequest?: PendingImageRequest; displayContent?: string };
 export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
 
 export const searchOriginLocalSnapshot = (query: string, sessions: readonly ConversationSession[], artifacts: readonly ArtifactBlock[]): OriginLocalSearchResult[] => {
@@ -290,8 +298,8 @@ export const searchOriginLocalSnapshot = (query: string, sessions: readonly Conv
   const matches = (value: string) => { const normalized = value.toLocaleLowerCase(); return terms.every((term) => normalized.includes(term)); };
   const results: OriginLocalSearchResult[] = [];
   sessions.forEach((session) => {
-    const source = `${session.title}\n${session.messages.map((message) => message.content).join('\n')}`;
-    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: session.messages.at(-1)?.content.slice(0, 160) || '会話', session });
+    const source = `${session.title}\n${session.messages.map((message) => conversationMessageDisplayText(message)).join('\n')}`;
+    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: (session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '').slice(0, 160) || '会話', session });
   });
   artifacts.forEach((artifact) => {
     const revisions = artifact.revisions?.map((revision) => revision.content).join('\n') || '';
@@ -937,7 +945,8 @@ const readAttachment = async (file: File): Promise<Attachment> => {
  */
 export const currentConversationSession = (source: readonly ConversationMessage[], createdAt: number): ConversationSession | null => {
   if (!source.length) return null;
-  const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション';
+  const firstUserSource = source.find((message) => message.role === 'user') ?? source[0];
+  const firstUser = (firstUserSource ? conversationMessageDisplayText(firstUserSource) : '') || 'ORIGIN セッション';
   const firstId = typeof source[0]?.id === 'string' && source[0].id ? source[0].id : 'current';
   return {
     id: `session-current-${firstId}`.slice(0, 128),
@@ -991,7 +1000,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
         if (!value || typeof value !== 'object') return [];
         const candidate = value as Partial<ConversationSession>;
         if (typeof candidate.id !== 'string' || typeof candidate.title !== 'string' || typeof candidate.createdAt !== 'number' || !Array.isArray(candidate.messages)) return [];
-        const messages = candidate.messages.flatMap((message): ConversationMessage[] => message && typeof message === 'object' && ((message as ConversationMessage).role === 'user' || (message as ConversationMessage).role === 'assistant') && typeof (message as ConversationMessage).content === 'string' ? [{ id: String((message as ConversationMessage).id || ''), role: (message as ConversationMessage).role, content: (message as ConversationMessage).content }] : []);
+        const messages = candidate.messages.flatMap((message): ConversationMessage[] => message && typeof message === 'object' && ((message as ConversationMessage).role === 'user' || (message as ConversationMessage).role === 'assistant') && typeof (message as ConversationMessage).content === 'string' ? [{ id: String((message as ConversationMessage).id || ''), role: (message as ConversationMessage).role, content: (message as ConversationMessage).content, ...(typeof (message as ConversationMessage).displayContent === 'string' ? { displayContent: (message as ConversationMessage).displayContent } : {}) }] : []);
         return [{ id: candidate.id, title: candidate.title, createdAt: candidate.createdAt, messages }];
       });
       setStoredSessions(restoredSessions);
@@ -1015,7 +1024,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, displaySessions, searchableArtifacts), [deferredQuery, displaySessions, searchableArtifacts]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[15px] font-semibold sm:w-auto sm:min-w-11 sm:px-3 sm:text-[13px]"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
-    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] p-0 text-lg">×</button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話' : '会話') : '成果物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid max-h-72 gap-2 overflow-auto">{displaySessions.length ? displaySessions.map((session, index) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{session.id === currentSessionId ? '現在の会話' : '会話'} · {session.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{session.messages.at(-1)?.content.slice(0, 160) || '会話'}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
+    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[10px] p-0 text-lg">×</button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[10px] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話' : '会話') : '成果物'} · {result.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid max-h-72 gap-2 overflow-auto">{displaySessions.length ? displaySessions.map((session, index) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-[13px] font-bold">{session.id === currentSessionId ? '現在の会話' : '会話'} · {session.title}</span><span className="origin-muted mt-1 block line-clamp-2 text-[13px]">{(session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '').slice(0, 160) || '会話'}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
   </>;
 };
 
@@ -1405,7 +1414,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // (rate limit, busy, transport, generic). Drives the inline retry button;
   // only set for sends without attachments, whose content is baked into the
   // history entry and could not be reconstructed faithfully on a retry.
-  const [failedChatRequest, setFailedChatRequest] = useState<{ text: string } | null>(null);
+  const [failedChatRequest, setFailedChatRequest] = useState<{ text: string; displayContent?: string } | null>(null);
   const [queuedRequests, setQueuedRequests] = useState<QueuedChatRequest[]>([]);
   const [queueNotice, setQueueNotice] = useState('');
   const queuedRequestsRef = useRef<QueuedChatRequest[]>([]);
@@ -1420,7 +1429,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const committedLoadingRef = useRef(isLoading);
   const idleWaitersRef = useRef<Array<() => void>>([]);
   const queueDrainPendingRef = useRef(false);
-  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean) => Promise<void>) | null>(null);
+  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string) => Promise<void>) | null>(null);
   const [isImageGenerationPanelOpen, setIsImageGenerationPanelOpen] = useState(false);
   const [motionImage, setMotionImage] = useState<{ url: string; downloadName: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1543,7 +1552,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         if (head.imageRequest && pendingImageRequestRef.current === null) {
           pendingImageRequestRef.current = head.imageRequest;
         }
-        void send(head.text, false, head.attachments, head.research ?? false);
+        void send(head.text, false, head.attachments, head.research ?? false, head.displayContent);
       }
     })();
   };
@@ -1620,7 +1629,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (loaded.length) setAttachments((current) => [...current, ...loaded]);
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
-  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean) => {
+  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string) => {
     const text = textToSend !== undefined ? textToSend : inputText;
     const sendAttachments = attachmentSnapshot ?? attachments;
     const preservesComposer = attachmentSnapshot !== undefined;
@@ -1651,7 +1660,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       // Do not stop or drop the in-flight response: hold this request in the
       // send queue with a snapshot of the current attachments. It is sent via
       // handleSend once the current response completes naturally.
-      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested, ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}) }]);
+      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested, ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}) }]);
       if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
       setQueueNotice(t.queueAcceptedNotice.replace('{count}', String(nextQueue.length)));
       return;
@@ -1685,7 +1694,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         const entry: OriginOutboxEntry = { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, createdAt: Date.now() };
         outboxEntryIdsRef.current.add(entry.id);
         void saveOriginOutboxEntry(entry);
-        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [], ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}) }]);
+        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [], ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}) }]);
         if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
         setQueueNotice(t.queueOfflineNotice.replace('{count}', String(nextQueue.length)));
         return;
@@ -1778,7 +1787,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '修正を指示' : 'Change requested'}: ${text.trim()}` : text.trim();
-    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim() };
+    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim(), ...(displayContent ? { displayContent } : {}) };
     const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
@@ -2226,7 +2235,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           // failure is surfaced honestly with the existing retry affordance
           // instead of being papered over by an outside answer.
           appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-          if (sendAttachments.length === 0) setFailedChatRequest({ text });
+          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
           return;
         }
         if (failure?.code === 'PROVIDER_RATE_LIMITED') {
@@ -2239,7 +2248,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           const rateLimitBase = language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE;
           const recoveryEstimate = recoveryEstimateSentence(failure?.retryAfterSeconds, Date.now(), language === 'en' ? 'en' : 'ja');
           appendFailure(recoveryEstimate ? `${rateLimitBase}${language === 'en' ? ' ' : ''}${recoveryEstimate}` : rateLimitBase);
-          if (sendAttachments.length === 0) setFailedChatRequest({ text });
+          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
@@ -2247,7 +2256,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           return;
         }
         appendFailure(t.error);
-        if (sendAttachments.length === 0) setFailedChatRequest({ text });
+        if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
         return;
       }
       const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
@@ -2411,7 +2420,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         // connection, an incomplete stream, or an unverifiable response —
         // and each is named accurately instead of "busy".
         appendFailure(chatSendFailureMessage(chatSendFailureKind(error), language));
-        if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text });
+        if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
       }
     }
     finally {
@@ -2569,23 +2578,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (item.imageRequest && pendingImageRequestRef.current === null) {
       pendingImageRequestRef.current = item.imageRequest;
     }
-    void handleSend(item.text, false, item.attachments, item.research ?? false);
+    void handleSend(item.text, false, item.attachments, item.research ?? false, item.displayContent);
   };
   const queuedRequestSummary = (item: QueuedChatRequest) => {
-    const firstLine = item.text.trim().split('\n').find((line) => line.trim()) ?? '';
+    const firstLine = (item.displayContent ?? item.text).trim().split('\n').find((line) => line.trim()) ?? '';
     if (firstLine) return firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine;
     return item.attachments.map((attachment) => attachment.name).join(', ');
   };
   const handleRetryFailedChat = () => {
     if (!failedChatRequest || isLoading || isOffline) return;
     const retryText = failedChatRequest.text;
+    const retryDisplayContent = failedChatRequest.displayContent;
     setFailedChatRequest(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
     // Drop the failed exchange's user turn first: handleSend appends it
     // again as part of the new attempt, so the log must not keep both.
     updateMessages((current) => current.at(-1)?.role === 'user' ? current.slice(0, -1) : current);
-    void handleSend(retryText, false, undefined, false);
+    void handleSend(retryText, false, undefined, false, retryDisplayContent);
   };
   const requestImageEdit = async (image: GeneratedImageMessage) => {
     if (isLoading || isOffline) return;
@@ -2714,7 +2724,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         「いまの作業を表示」の操作もプレゼンス側だけに残す。 */}
     <div className="flex min-w-0 flex-1 items-center justify-end gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} currentMessages={messages} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold sm:w-auto sm:px-3"><Settings aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversationWithQueue} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-0 text-[13px] font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><Plus aria-hidden="true" size={18} strokeWidth={2.1} /><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
   </div>
-</HeaderV12><OrinFloatingPresence text={bubbleText} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p></section><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? messages[messageIndex - 1].content : '' })} /> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? waitingText : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt) => { void handleSend(prompt); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 rounded-[10px] px-3 text-[13px] font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-[13px] font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
+</HeaderV12><OrinFloatingPresence text={bubbleText} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-2xl font-extrabold tracking-tight sm:text-3xl">{t.homeHeading}</h1><p className="origin-muted mt-2 max-w-lg text-center text-base leading-7">{t.homeDescription}</p></section><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? waitingText : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 rounded-[10px] px-3 text-[13px] font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-[13px] font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
   language={language}
   onClose={() => setIsImageGenerationPanelOpen(false)}
   onGenerate={(prompt, width, height) => {
