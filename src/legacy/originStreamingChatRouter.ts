@@ -156,6 +156,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         intent: requestIntent,
         taskType: planningResult.plan.taskType,
         independentReviewRequired: reviewDecision.required,
+        promptText: intentInput,
       });
       const providerRequest: OriginProviderExecutionRequest = {
         plan: {
