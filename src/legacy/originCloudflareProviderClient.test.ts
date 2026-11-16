@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   classifyOriginCloudflareUpstreamErrorCode,
   executeOriginCloudflareProvider,
+  executeOriginCloudflareProviderStream,
   ORIGIN_CF_CAPACITY_COOLDOWN_MS,
   ORIGIN_CF_PLAN_PROOF_CACHE_TTL_MS,
   OriginCloudflarePreflightError,
@@ -665,5 +666,158 @@ describe("executeOriginCloudflareProvider", () => {
       .rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED" });
     await expect(executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS + ORIGIN_CF_CAPACITY_COOLDOWN_MS + 1 }))
       .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "pool-exhausted" });
+  });
+});
+
+describe("executeOriginCloudflareProviderStream", () => {
+  beforeEach(() => {
+    resetOriginCloudflareRouteStateForTests();
+  });
+
+  const streamEncoder = new TextEncoder();
+  function sseResponse(parts: string[], status = 200) {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(streamEncoder.encode(part));
+        controller.close();
+      },
+    });
+    return new Response(body, { status, headers: { "Content-Type": "text/event-stream; charset=utf-8" } });
+  }
+  const cfEvent = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
+
+  function streamFetch(inference: (init?: RequestInit) => Promise<Response>) {
+    const proof = proofFetch();
+    return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("/ai/run/")) return inference(init);
+      return proof(url as string);
+    });
+  }
+
+  it("forwards each fragment as it arrives in incremental release mode and returns the joined text", async () => {
+    const fetchMock = streamFetch(async (init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.stream).toBe(true);
+      expect(body.max_tokens).toBe(4096);
+      return sseResponse([
+        cfEvent({ response: "第2" }),
+        cfEvent({ response: "経路の" }),
+        cfEvent({ response: "回答です。" }),
+        cfEvent({ usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } }),
+        "data: [DONE]\n\n",
+      ]);
+    });
+    const deltas: string[] = [];
+    const result = await executeOriginCloudflareProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    // Progressive display: the genuine fragments arrive in order, never one
+    // held-back full-text release at the end.
+    expect(deltas).toEqual(["第2", "経路の", "回答です。"]);
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(result.transportRequestCount).toBe(4);
+    expect(result.routingEvidence).toEqual(expect.objectContaining({ provider: "Cloudflare", attempt: 2, fallbackUsed: true }));
+    expect(result.usage).toEqual({ promptTokens: 100, completionTokens: 50, totalTokens: 150, costUsd: 0 });
+  });
+
+  it("releases the first fragment before the stream completes in incremental release mode", async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { streamController = controller; },
+    });
+    const fetchMock = streamFetch(async () => new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    }));
+    const deltas: string[] = [];
+    const pending = executeOriginCloudflareProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    // The plan proof runs first (3 reads + the inference send); wait until
+    // the inference request has actually been made and its stream is open.
+    await vi.waitFor(() => { expect(streamController).toBeDefined(); });
+    streamController!.enqueue(streamEncoder.encode(cfEvent({ response: "最初の" })));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    // The stream is still open (generation in progress), yet the first
+    // fragment has already been released for display.
+    expect(deltas).toEqual(["最初の"]);
+    streamController!.enqueue(streamEncoder.encode(cfEvent({ response: "断片です。" })));
+    streamController!.enqueue(streamEncoder.encode("data: [DONE]\n\n"));
+    streamController!.close();
+    const result = await pending;
+    expect(result.text).toBe("最初の断片です。");
+    expect(deltas).toEqual(["最初の", "断片です。"]);
+  });
+
+  it("holds all text until the stream terminates in hold mode and releases it once", async () => {
+    const fetchMock = streamFetch(async () => sseResponse([
+      cfEvent({ response: "保持" }),
+      cfEvent({ response: "対象の回答" }),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    const result = await executeOriginCloudflareProviderStream(
+      request,
+      { onDelta: (text) => deltas.push(text) },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(deltas).toEqual(["保持対象の回答"]);
+    expect(result.text).toBe("保持対象の回答");
+  });
+
+  it("fails closed when the stream ends without DONE, even in incremental release mode", async () => {
+    const fetchMock = streamFetch(async () => sseResponse([
+      cfEvent({ response: "未完の回答" }),
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginCloudflareProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    )).rejects.toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", diagnostic: { transportRequestCount: 4 } });
+    // The fragment was shown provisionally, but the execution failed closed:
+    // no result is returned, so downstream admission discards it.
+    expect(deltas).toEqual(["未完の回答"]);
+  });
+
+  it("classifies a pool-exhaustion HTTP failure like the blocking executor and stops the route", async () => {
+    const fetchMock = streamFetch(async () => cloudflareJson(null, 429, [{ code: 3036, message: "Account limited" }]));
+    await expect(executeOriginCloudflareProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: () => undefined },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    )).rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", diagnostic: { transportRequestCount: 4 } });
+    // The classified failure recorded the day-long pool stop, so the next
+    // streaming execution skips the route before any network call.
+    const callsBefore = fetchMock.mock.calls.length;
+    await expect(executeOriginCloudflareProviderStream(
+      request,
+      { onDelta: () => undefined },
+      enabledEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    )).rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "pool-exhausted" });
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("skips the route before any network call when the flag is unset", async () => {
+    const fetchMock = vi.fn();
+    await expect(executeOriginCloudflareProviderStream(request, { onDelta: () => undefined }, {} as NodeJS.ProcessEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }))
+      .rejects.toMatchObject({ name: "OriginCloudflarePreflightError", reason: "not-enabled" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

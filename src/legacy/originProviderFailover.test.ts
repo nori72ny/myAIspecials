@@ -23,6 +23,7 @@ import {
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog";
+import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog";
 
 const NOW_MS = Date.parse("2026-11-16T12:00:00.000Z");
 const enabledEnv = { ORIGIN_CF_FAILOVER_ENABLED: "true" } as NodeJS.ProcessEnv;
@@ -795,5 +796,161 @@ describe("second-route circuit breaker without a third route (speed wave 1)", ()
     expect(cloudflareExecute).toHaveBeenCalledTimes(3);
     expect(third.text).toBe("第2経路の回答です。");
     expect(() => assertOriginZeroCostExecutionResultWithFailover(third, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+});
+
+describe("executeOriginProviderStreamWithFailover progressive failover routes", () => {
+  const bothEnv = {
+    ORIGIN_CF_FAILOVER_ENABLED: "true",
+    GROQ_API_KEY: "synthetic-groq-api-key-for-tests-only",
+  } as NodeJS.ProcessEnv;
+
+  function groqSuccessResult(): OriginProviderExecutionResult {
+    return {
+      text: "第3経路の回答です。",
+      transportRequestCount: 1,
+      actualCostUsd: 0,
+      providerDataPolicy: primaryPlan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        servedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        strategy: "verified-free-failover",
+        provider: "Groq",
+        attempt: 3,
+        fallbackUsed: true,
+      },
+      usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160, costUsd: 0 },
+    };
+  }
+
+  function cloudflareStreamOk(fragments: string[]) {
+    return vi.fn(async (
+      _injectedRequest: OriginProviderExecutionRequest,
+      handlers: { onDelta: (text: string) => void },
+    ) => {
+      for (const fragment of fragments) handlers.onDelta(fragment);
+      return cloudflareSuccessResult();
+    });
+  }
+
+  it("streams the second route's fragments progressively after a primary stream failure", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = cloudflareStreamOk(["第2", "経路の", "回答です。"]);
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => { deltas.push(text); } },
+      enabledEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
+    );
+    // The failover route's own fragments reach the client as they are
+    // generated — not one composed full-text delta after the generation.
+    expect(deltas).toEqual(["第2", "経路の", "回答です。"]);
+    expect(deltas.join("")).toBe(result.text);
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(result.attempts).toHaveLength(2);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+    // The route plan conversion and the release policy both reach the
+    // streaming route executor.
+    const routeRequest = cloudflareStreamExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
+    expect(routeRequest.plan.providerId).toBe("cloudflare-workers-ai-free");
+    expect(routeRequest.streamRelease).toBe("incremental");
+  });
+
+  it("threads the hold release policy to the failover route unchanged", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = cloudflareStreamOk(["第2経路の回答です。"]);
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "hold-until-verified" },
+      { onDelta: (text) => { deltas.push(text); } },
+      enabledEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
+    );
+    const routeRequest = cloudflareStreamExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
+    expect(routeRequest.streamRelease).toBe("hold-until-verified");
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(deltas).toEqual(["第2経路の回答です。"]);
+  });
+
+  it("never switches to the third route after the second route delivered a fragment", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = vi.fn(async (
+      _injectedRequest: OriginProviderExecutionRequest,
+      handlers: { onDelta: (text: string) => void },
+    ) => {
+      handlers.onDelta("第2経路の途中まで");
+      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportRequestCount: 4 });
+    });
+    const groqStreamExecute = vi.fn(async () => groqSuccessResult());
+    const deltas: string[] = [];
+    const error = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => { deltas.push(text); } },
+      bothEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute, groqStreamExecute },
+    ).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_UNAVAILABLE");
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["availability-error", "availability-error"]);
+    expect(deltas).toEqual(["第2経路の途中まで"]);
+    expect(groqStreamExecute).not.toHaveBeenCalled();
+  });
+
+  it("streams the third route's fragments when the second route fails before any fragment", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportRequestCount: 3 });
+    });
+    const groqStreamExecute = vi.fn(async (
+      _injectedRequest: OriginProviderExecutionRequest,
+      handlers: { onDelta: (text: string) => void },
+    ) => {
+      handlers.onDelta("第3");
+      handlers.onDelta("経路の回答です。");
+      return groqSuccessResult();
+    });
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => { deltas.push(text); } },
+      bothEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute, groqStreamExecute },
+    );
+    expect(deltas).toEqual(["第3", "経路の回答です。"]);
+    expect(deltas.join("")).toBe(result.text);
+    expect(result.attempts).toHaveLength(3);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("skips an open-circuited primary and streams the second route directly", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = cloudflareStreamOk(["第2", "経路の回答です。"]);
+    const firstDeltas: string[] = [];
+    await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => { firstDeltas.push(text); } },
+      enabledEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
+    );
+    expect(firstDeltas).toEqual(["第2", "経路の回答です。"]);
+    // The rate limit opened the primary circuit: the next request never
+    // attempts the primary stream and goes straight to the second route's
+    // stream.
+    const secondDeltas: string[] = [];
+    const second = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => { secondDeltas.push(text); } },
+      enabledEnv,
+      fetch,
+      { nowMs: NOW_MS + 1_000, streamExecute, cloudflareStreamExecute },
+    );
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+    expect(secondDeltas).toEqual(["第2", "経路の回答です。"]);
+    expect(second.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
   });
 });

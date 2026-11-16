@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   estimateOriginGroqInputTokens,
   executeOriginGroqProvider,
+  executeOriginGroqProviderStream,
   isOriginGroqQwenRotationEnabled,
   isOriginGroqRouteConfigured,
   OriginGroqPreflightError,
@@ -595,5 +596,191 @@ describe("trimOriginGroqRouteHistory", () => {
 
   it("handles an empty history", () => {
     expect(trimOriginGroqRouteHistory([], system)).toEqual([]);
+  });
+});
+
+describe("executeOriginGroqProviderStream", () => {
+  const streamEncoder = new TextEncoder();
+  function groqSseResponse(parts: string[], status = 200) {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(streamEncoder.encode(part));
+        controller.close();
+      },
+    });
+    return new Response(body, { status, headers: { "Content-Type": "text/event-stream; charset=utf-8" } });
+  }
+  const groqEvent = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
+  const contentChunk = (model: string, content: string) => groqEvent({ model, choices: [{ delta: { content }, finish_reason: null }] });
+
+  function successStream(model: string = ORIGIN_GROQ_FREE_MODEL_ID, fragments: string[] = ["第3", "経路の", "回答です。"]) {
+    return groqSseResponse([
+      ...fragments.map((fragment) => contentChunk(model, fragment)),
+      groqEvent({ model, choices: [{ delta: {}, finish_reason: "stop" }] }),
+      groqEvent({ model, choices: [], usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 } }),
+      "data: [DONE]\n\n",
+    ]);
+  }
+
+  it("forwards each fragment as it arrives in incremental release mode and returns the joined text", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.stream).toBe(true);
+      expect(body.stream_options).toEqual({ include_usage: true });
+      expect(body.model).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+      return successStream();
+    });
+    const deltas: string[] = [];
+    const result = await executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(deltas).toEqual(["第3", "経路の", "回答です。"]);
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(result.transportRequestCount).toBe(1);
+    expect(result.routingEvidence).toEqual(expect.objectContaining({
+      provider: "Groq",
+      servedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+      attempt: 3,
+      fallbackUsed: true,
+    }));
+    expect(result.usage).toEqual({ promptTokens: 120, completionTokens: 40, totalTokens: 160, costUsd: 0 });
+  });
+
+  it("releases the first fragment before the stream completes in incremental release mode", async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { streamController = controller; },
+    });
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    }));
+    const deltas: string[] = [];
+    const pending = executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    await vi.waitFor(() => { expect(streamController).toBeDefined(); });
+    streamController!.enqueue(streamEncoder.encode(contentChunk(ORIGIN_GROQ_FREE_MODEL_ID, "最初の")));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(deltas).toEqual(["最初の"]);
+    streamController!.enqueue(streamEncoder.encode(contentChunk(ORIGIN_GROQ_FREE_MODEL_ID, "断片です。")));
+    streamController!.enqueue(streamEncoder.encode(groqEvent({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })));
+    streamController!.enqueue(streamEncoder.encode("data: [DONE]\n\n"));
+    streamController!.close();
+    const result = await pending;
+    expect(result.text).toBe("最初の断片です。");
+    expect(deltas).toEqual(["最初の", "断片です。"]);
+  });
+
+  it("holds all text until the stream terminates in hold mode and releases it once", async () => {
+    const fetchMock = vi.fn(async () => successStream(ORIGIN_GROQ_FREE_MODEL_ID, ["保持", "対象の回答"]));
+    const deltas: string[] = [];
+    const result = await executeOriginGroqProviderStream(
+      request,
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(deltas).toEqual(["保持対象の回答"]);
+    expect(result.text).toBe("保持対象の回答");
+  });
+
+  it("rejects a substituted served model mid-stream before forwarding its content", async () => {
+    const fetchMock = vi.fn(async () => groqSseResponse([
+      contentChunk(ORIGIN_GROQ_FREE_MODEL_ID, "正規の"),
+      contentChunk("paid-or-substituted-model", "混入テキスト"),
+      "data: [DONE]\n\n",
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    )).rejects.toMatchObject({ code: "PROVIDER_ROUTING_UNVERIFIED", retryable: false });
+    expect(deltas).toEqual(["正規の"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rotates to the second model when the first is rate-limited before any fragment", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === ORIGIN_GROQ_FREE_MODEL_ID) {
+        return groqJson({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429);
+      }
+      return successStream(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, ["回転後の", "回答です。"]);
+    });
+    const deltas: string[] = [];
+    const result = await executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(result.text).toBe("回転後の回答です。");
+    expect(deltas).toEqual(["回転後の", "回答です。"]);
+    expect(result.transportRequestCount).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rotates when an in-stream rate-limit error arrives before any fragment", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === ORIGIN_GROQ_FREE_MODEL_ID) {
+        return groqSseResponse([
+          groqEvent({ error: { code: "rate_limit_exceeded", type: "tokens", message: "Rate limit reached" } }),
+        ]);
+      }
+      return successStream(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, ["回転後の回答です。"]);
+    });
+    const result = await executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: () => undefined },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never rotates after a fragment was released, even on a rotation-trigger failure", async () => {
+    const fetchMock = vi.fn(async () => groqSseResponse([
+      contentChunk(ORIGIN_GROQ_FREE_MODEL_ID, "表示済みの"),
+      groqEvent({ error: { code: "rate_limit_exceeded", type: "tokens", message: "Rate limit reached" } }),
+    ]));
+    const deltas: string[] = [];
+    await expect(executeOriginGroqProviderStream(
+      { ...request, streamRelease: "incremental" },
+      { onDelta: (text) => deltas.push(text) },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    )).rejects.toMatchObject({ code: "PROVIDER_RATE_LIMITED", diagnostic: { transportRequestCount: 1 } });
+    // A rotation would re-send the request and duplicate the displayed
+    // fragment; the failure is surfaced instead.
+    expect(deltas).toEqual(["表示済みの"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("is completely disabled without GROQ_API_KEY, exactly like the blocking executor", async () => {
+    const fetchMock = vi.fn() as unknown as OriginFetch;
+    const error = await executeOriginGroqProviderStream(request, { onDelta: () => undefined }, {} as NodeJS.ProcessEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginGroqPreflightError);
+    expect((error as OriginGroqPreflightError).reason).toBe("not-configured");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
