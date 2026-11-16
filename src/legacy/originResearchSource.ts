@@ -41,6 +41,24 @@ export type OriginResearchFailure = {
   code: OriginResearchFailureCode;
 };
 
+/**
+ * Pre-gate candidate observation from the search layer, carried through
+ * the grounding adapter so a zero-source outcome can be attributed
+ * after the fact (provider sparsity vs relevance-screen drops vs
+ * freshness drops). Counts and domain/tier tallies only — never
+ * titles, excerpts, or URLs.
+ */
+export interface OriginResearchGroundingCandidateStats {
+  /** Candidates that reached the freshness gate (post relevance screen). */
+  totalCount: number;
+  domainCounts: Readonly<Record<string, number>>;
+  tierCounts: Readonly<Record<string, number>>;
+  /** Dropped by the relevance screen before the gate. */
+  droppedByScreenCount: number;
+  /** Dropped by the freshness gate (stale + undated). */
+  droppedByFreshnessCount: number;
+}
+
 export interface OriginResearchGroundingMetadata {
   questionType: string;
   providersUsed: readonly string[];
@@ -49,6 +67,12 @@ export interface OriginResearchGroundingMetadata {
   unknownDateSourceCount: number;
   droppedStaleSourceCount: number;
   droppedUndatedSourceCount: number;
+  /**
+   * Present only when the generic route pipeline produced a candidate
+   * set; absent on the dedicated weather/market routes (which have no
+   * candidate set to observe) and on legacy-path results.
+   */
+  candidateStats?: OriginResearchGroundingCandidateStats;
 }
 
 export interface OriginResearchResult {

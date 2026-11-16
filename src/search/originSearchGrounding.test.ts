@@ -307,6 +307,23 @@ describe("originSearchGroundingToResearchResult", () => {
     expect(result.grounding?.questionType).toBe("price_spec");
     expect(result.grounding?.freshnessVerified).toBe(true);
   });
+
+  it("carries the pre-gate candidate observation into the grounding metadata", async () => {
+    const { fetchImpl } = routedFetch(tavilyRoute(
+      [{ title: "iPhone 17 - Apple（日本）", url: "https://www.apple.com/jp/iphone-17/", content: "価格は128,800円。", score: 0.9, published_date: "2026-10-15T00:00:00.000Z" }],
+      [{ url: "https://www.apple.com/jp/iphone-17/", raw_content: "iPhone 17 価格 128,800円" }],
+    ));
+    const outcome = groundedOf(await executeOriginSearchGrounding(PRICE_QUESTION, makeDeps({ fetchImpl })));
+    const result = originSearchGroundingToResearchResult(outcome);
+    // Counts and tallies only: the single candidate reached the
+    // freshness gate and survived it, so no drop is attributed to the
+    // relevance screen or the gate.
+    expect(result.grounding?.candidateStats?.totalCount).toBe(1);
+    expect(result.grounding?.candidateStats?.droppedByScreenCount).toBe(0);
+    expect(result.grounding?.candidateStats?.droppedByFreshnessCount).toBe(0);
+    expect(result.grounding?.candidateStats?.tierCounts.official).toBe(1);
+    expect(Object.values(result.grounding?.candidateStats?.domainCounts ?? {})).toEqual([1]);
+  });
 });
 
 describe("createDefaultOriginResearchExecutor", () => {
@@ -361,6 +378,36 @@ describe("createDefaultOriginResearchExecutor", () => {
     const result = await execute(NEWS_QUESTION);
     expect(result.ok).toBe(false);
     expect(result.groundingFailure).toBe("no-fresh-sources");
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("carries the candidate observation on the gate failure so the drop is attributable", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.gdeltproject.org",
+        respond: () => ({
+          articles: [
+            { url: "https://www3.nhk.or.jp/news/html/old.html", title: "古いニュース", domain: "nhk.or.jp", seendate: "20261001T000000Z" },
+          ],
+        }),
+      },
+    ]);
+    const legacy = vi.fn(async () => legacyResult);
+    const execute = createDefaultOriginResearchExecutor(makeDeps({ env: {}, fetchImpl }), legacy);
+    const result = await execute(NEWS_QUESTION);
+    expect(result.ok).toBe(false);
+    expect(result.groundingFailure).toBe("no-fresh-sources");
+    // The one candidate reached the freshness gate and was dropped
+    // there as stale: the metadata says which stage dropped it, with
+    // counts and tallies only — no title, excerpt, or URL.
+    expect(result.grounding?.questionType).toBe("news");
+    expect(result.grounding?.providersUsed).toEqual([]);
+    expect(result.grounding?.droppedStaleSourceCount).toBe(1);
+    expect(result.grounding?.candidateStats?.totalCount).toBe(1);
+    expect(result.grounding?.candidateStats?.droppedByScreenCount).toBe(0);
+    expect(result.grounding?.candidateStats?.droppedByFreshnessCount).toBe(1);
+    expect(JSON.stringify(result.grounding)).not.toContain("https://");
+    expect(JSON.stringify(result.grounding)).not.toContain("古いニュース");
     expect(legacy).not.toHaveBeenCalled();
   });
 });

@@ -284,6 +284,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         requestId,
         searchMs: researchSearchMs,
         sourceCount: researchResult.sources.length,
+        // Grounding aggregates (counts and codes only — no titles,
+        // excerpts, or URLs): the freshness counts and, when the
+        // generic pipeline produced a candidate set, the pre-gate
+        // candidate observation, so a thin or empty result can be
+        // attributed to the stage that dropped it. Absent when the
+        // result did not come from the search-grounding pipeline.
+        ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
       });
       // The sources event carries exactly the citable set the answer will
       // use (same safe filter as groundedResearchAnswer), titles/domains only.
@@ -311,6 +318,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           reasonCode: failClosedReasonCode,
           ...(groundingFailure ? { groundingFailure } : {}),
           ...(researchResult.failure ? { failureStage: researchResult.failure.stage, failureCode: researchResult.failure.code } : {}),
+          // Same aggregates as the search-completed log: on this
+          // zero-source path the candidate observation is what tells
+          // provider sparsity apart from screen/freshness drops.
+          ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
         });
       }
       let synthesisStatus = "not-run";
@@ -370,12 +381,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                     ...recordsOutcome.metrics,
                   });
                   const verificationReason = grounded.language === "en"
-                    ? "The answer was assembled deterministically from records whose quotes were verified verbatim against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
-                    : "取得済みHTTPS証拠パケットに対して逐語検証を通ったレコードだけから、アプリ側で決定的に組み立てました。主張の真偽や媒体の権威性を独立検証したものではありません。";
+                    ? "The answer was assembled deterministically from records whose quotes were verified verbatim against the retrieved HTTPS source information; factual truth and publisher authority were not independently verified."
+                    : "取得した出典情報に対して逐語検証を通ったレコードだけから、アプリ側で決定的に組み立てました。主張の真偽や媒体の権威性を独立検証したものではありません。";
                   const limitations = [
                     grounded.language === "en"
-                      ? "Every claim in the answer is backed by a verbatim quote checked against the retrieved packet, but claim truth, completeness, and publisher authority were not independently verified."
-                      : "回答の各主張は、取得済みパケットと逐語照合した引用で裏付けられていますが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
+                      ? "Every claim in the answer is backed by a verbatim quote checked against the retrieved source information, but claim truth, completeness, and publisher authority were not independently verified."
+                      : "回答の各主張は、取得した出典情報と逐語照合した引用で裏付けられていますが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
                   ];
                   if (recordsOutcome.partial) {
                     // Partial-answer salvage (records improvement

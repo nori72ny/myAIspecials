@@ -192,6 +192,12 @@ describe("chat router records path", () => {
     expect(response.body.routing.synthesisPartial).toBe(true);
     expect(response.body.routing.synthesisSourceCount).toBe(1);
     expect(response.body.answer.limitations).toContain("この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+    // Records-path envelope wording carries no internal bundle term:
+    // the verification summary and the base limitation speak of the
+    // retrieved source information in plain words.
+    expect(response.body.answer.limitations).toContain("回答の各主張は、取得した出典情報と逐語照合した引用で裏付けられていますが、主張の真偽・網羅性・媒体の権威性は独立検証していません。");
+    expect(response.body.answer.verification.summary).toContain("取得した出典情報に対して逐語検証を通ったレコードだけから");
+    expect(JSON.stringify(response.body.answer)).not.toContain("パケット");
     expect(synthesis).toHaveBeenCalledTimes(2);
   });
 
