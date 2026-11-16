@@ -274,8 +274,8 @@ function hasMeaningfulResidue(text: string): boolean {
 
 function cleanupRewritten(text: string): string {
   return text
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s+([。、,.!?！？])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/ ([。、,.!?！？])/g, '$1')
     .replace(/([、。])\1+/g, '$1')
     .replace(/^[のなにをで、,\s]+/, '')
     .replace(/\s+$/, '')
