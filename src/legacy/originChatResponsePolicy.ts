@@ -12,6 +12,7 @@ import {
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
 import { classifyOriginSearchQuestion, detectOriginHighRiskCategory } from "../search/originSearchClassifier.js";
+import { detectOriginBusinessPlanningKind } from "../lib/orchestration/OriginBusinessPlanning.js";
 
 export function requiresOriginFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
@@ -147,6 +148,29 @@ function isNonFactualFreshGeneralRequest(message: string): boolean {
   return false;
 }
 
+/**
+ * Business planning / marketing requests (planning-routing fix,
+ * 2026-11-16 production measurement BP-3 / BP-6): when the deterministic
+ * planning detection fires, the request asks for a framework answer — a
+ * plan, an analysis structure, a marketing spec — whose figures are
+ * governed by the planning profile's assumption discipline (labelled
+ * placeholders, honest gaps), not by retrieved facts. Surface matches
+ * pulled such requests into the grounded path, where they failed closed
+ * with the no-sources hold even though there was nothing to ground:
+ * BP-6's 「仕様書」 + 「新製品」 read as a product price/spec lookup
+ * (classifier rule price-with-product), and BP-3's 「検討しています」
+ * carried the freshness marker 「いま」 (already fenced by the routing
+ * calibration; this exemption is the second, intent-level guard). The
+ * exemption is bounded by the explicit-freshness guard: a planning
+ * request that itself demands current external facts (「最新の市場規模
+ * を教えて」「現在の競合の料金は」) keeps the grounded path exactly as
+ * before.
+ */
+function isBusinessPlanningRequest(message: string): boolean {
+  if (hasExplicitExternalFreshnessIntent(message)) return false;
+  return detectOriginBusinessPlanningKind(message) !== null;
+}
+
 export function requiresOriginGroundedResearch(message: string): boolean {
   if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
 
@@ -180,6 +204,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isSuppliedPriceArithmeticRequest(message)
     || isDeterministicQuantitativeRequest(message)
     || isProvidedPriceDecisionRequest(message)
+    || isBusinessPlanningRequest(message)
   ) return false;
 
   // Search-grounding classification (SEARCH_GROUNDING_DESIGN_2026-11-07
