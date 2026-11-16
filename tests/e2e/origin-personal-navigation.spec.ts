@@ -289,6 +289,7 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.shell, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.app, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.main, JSON.stringify(metrics)).not.toBeNull();
+      expect(metrics.scrollViewport, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.composer, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.heading, JSON.stringify(metrics)).not.toBeNull();
       expect(metrics.description, JSON.stringify(metrics)).not.toBeNull();
@@ -302,8 +303,14 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       console.log('MOBILE_HOME_LAYOUT_METRICS', JSON.stringify(metrics));
-      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.18);
-      expect(metrics.heading!.top, JSON.stringify(metrics)).toBeLessThanOrEqual(viewport.height * 0.40);
+      // 見出しの縦位置は、ヘッダー＋オリンの帯の下にあるスクロール
+      // 領域を基準に測る。帯方式（2026-11-17）でプレゼンスが通常
+      // フロー内の帯になったため、見出しは帯の分だけ下がり、
+      // ビューポート全体基準では旧浮遊方式の比率に収まらない。
+      // 領域内での相対位置（18%〜40%）という検証の意図は維持する。
+      const headingTopInScrollViewport = metrics.heading!.top - metrics.scrollViewport!.top;
+      expect(headingTopInScrollViewport, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.scrollViewport!.height * 0.18);
+      expect(headingTopInScrollViewport, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.scrollViewport!.height * 0.40);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);
     });
