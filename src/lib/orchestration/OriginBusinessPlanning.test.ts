@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS,
   buildOriginBusinessPlanningInstruction,
+  buildOriginGroqBusinessPlanningInstruction,
   computeFunnelBackcast,
   detectOriginBusinessPlanningKind,
   parseBusinessPlanningFigures,
@@ -237,6 +238,74 @@ describe("OriginBusinessPlanning instruction hardening", () => {
     expect(originAnswerQualityInstruction(withPrompt)).toBe(originAnswerQualityInstruction(noPrompt));
     for (const marker of ["Required parts for this kind", "Number sanity", "Ownership and deadlines"]) {
       expect(originAnswerQualityInstruction(withPrompt)).not.toContain(marker);
+    }
+  });
+});
+
+describe("OriginBusinessPlanning route-3 compact instruction", () => {
+  // Round-2 adjudication (2026-11-16): route 3 served all seven briefs and
+  // carried none of the mandatory playbook, so mustInclude failed on every
+  // brief and owner/deadline appeared in none. The compact builder must
+  // carry the same mandatory core as the full instruction, compressed.
+  const compactFor = (prompt: string) => buildOriginGroqBusinessPlanningInstruction(resolveOriginBusinessPlanning(prompt)!);
+
+  it("carries every required part of the brief's kind, in the canon's order", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const compact = compactFor(brief.prompt);
+      const kind = resolveOriginBusinessPlanning(brief.prompt)!.kind;
+      const sections = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[kind].filter((part) => part !== "仮置き");
+      let lastIndex = -1;
+      for (const part of sections) {
+        const index = compact.indexOf(part);
+        expect(index, `${brief.id} compact must contain ${part}`).toBeGreaterThan(lastIndex);
+        lastIndex = index;
+      }
+      for (const part of brief.mustInclude) {
+        expect(compact, `${brief.id} compact must contain mustInclude ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("carries the number discipline: shown arithmetic, rate direction, formula integrity, no unsourced figures", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const compact = compactFor(brief.prompt);
+      expect(compact, brief.id).toContain("仮置き（仮定）");
+      expect(compact, brief.id).toContain("result ÷ input");
+      expect(compact, brief.id).toContain("must equal that formula's result");
+      expect(compact, brief.id).toContain("same value in the summary, tables, and body");
+      expect(compact, brief.id).toContain("Never state an unsourced market size, competitor fact, or statistic as fact");
+    }
+  });
+
+  it("requires an owner and a deadline for execution-plan kinds only (same split as the full instruction)", () => {
+    for (const id of ["BP-1", "BP-2", "BP-5", "BP-6", "BP-7"]) {
+      const compact = compactFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === id)!.prompt);
+      expect(compact, id).toContain("Ownership and deadlines");
+      expect(compact, id).toContain("担当");
+      expect(compact, id).toContain("期限");
+    }
+    for (const id of ["BP-3", "BP-4"]) {
+      const compact = compactFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === id)!.prompt);
+      expect(compact, id).not.toContain("Ownership and deadlines");
+    }
+  });
+
+  it("carries the deterministic backcast with the exact computed counts", () => {
+    const compact = compactFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === "BP-7")!.prompt);
+    expect(compact).toContain("System-computed backcast");
+    expect(compact).toContain("do not recompute");
+    expect(compact).toContain("受注 120件");
+    expect(compact).toContain("商談 600件");
+    expect(compact).toContain("from 600 to 1,200");
+    expect(compact).toContain("User-supplied figures");
+    expect(compact).toContain("60,000,000円");
+  });
+
+  it("stays compact: at most 1,700 characters for every fixed brief (the full instruction is 4,400+)", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const compact = compactFor(brief.prompt);
+      expect(compact.length, brief.id).toBeLessThanOrEqual(1_700);
+      expect(compact.length, brief.id).toBeLessThan(buildOriginBusinessPlanningInstruction(resolveOriginBusinessPlanning(brief.prompt)!).length / 2);
     }
   });
 });
