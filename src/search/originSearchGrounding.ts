@@ -514,8 +514,22 @@ export async function executeOriginSearchGrounding(
       break;
     case "market":
     case "price_spec":
+      if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
+      break;
     case "policy":
       if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));
+      // Policy questions pair the encyclopedia route with Tavily, like
+      // fresh_general (routing calibration, 2026-11-16 measurement
+      // B-02): the type covers standing institutional facts — statutory
+      // pension ages, benefit rules, labor-law tables — whose canonical
+      // statements live in encyclopedic / official reference pages.
+      // With Tavily alone, a pension-age question whose search results
+      // fell outside the freshness window ended in the no-sources
+      // refusal even though the fact is stable and well documented.
+      // The pooled candidates still pass the policy freshness
+      // requirement below (undated sources kept, stale-dated dropped),
+      // so the freshness discipline is unchanged.
+      if (wikipediaAccess.enabled) addRoute("wikipedia", runWikipediaRoute(deps, query, searchTimeoutMs()));
       break;
     case "fresh_general":
       if (tavilyEnabled) addRoute("tavily", runTavilyRoute(deps, query, requirement.tavilyTopic, requirement.tavilyTimeRange, searchTimeoutMs()));

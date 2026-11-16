@@ -11,7 +11,7 @@ import {
   type OriginResolvedWorkPlan,
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
-import { classifyOriginSearchQuestion } from "../search/originSearchClassifier.js";
+import { classifyOriginSearchQuestion, detectOriginHighRiskCategory } from "../search/originSearchClassifier.js";
 
 export function requiresOriginFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
@@ -79,7 +79,16 @@ function isSuppliedPriceArithmeticRequest(message: string): boolean {
   if (hasExplicitExternalFreshnessIntent(message)) return false;
   const suppliedAmount = /(?:[0-9][0-9,.]*\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9][0-9,.]*)/i.test(message);
   const suppliedPercentage = /[0-9]+(?:\.[0-9]+)?\s*(?:[%％]|パーセント|percent\b)/i.test(message);
-  const calculation = /計算|計算式|\b(?:calculate|compute|arithmetic)\b/i.test(message);
+  // The calculation cue is the explicit 計算 wording, or the derived-price
+  // question shape (routing calibration, 2026-11-16 measurement H-05 /
+  // H-10): with an amount and a percentage both supplied, asking back for
+  // the original or resulting price ("元の値段はいくらですか",
+  // "売値はいくらですか") IS the arithmetic request — it previously fell
+  // through to the price-question fallback below and was refused for
+  // lack of grounding. A bare price question supplies no percentage and
+  // stays grounded, exactly as before.
+  const calculation = /計算|計算式|\b(?:calculate|compute|arithmetic)\b/i.test(message)
+    || /(?:元の値段|元の価格|元値|売値|定価|原価).{0,4}いくら/.test(message);
   return suppliedAmount && suppliedPercentage && calculation;
 }
 
@@ -123,6 +132,18 @@ function isNonFactualFreshGeneralRequest(message: string): boolean {
   if (/(?:方法|やり方|仕方|立て方|作り方|考え方|コツ)を/.test(message)) return true;
   if (/(?:どうすれば|どうしたら)/.test(message)) return true;
   if (/(?:予定|スケジュール|タスク|やること).{0,16}(?:整理|まとめ|管理|確認)/s.test(message)) return true;
+  // Deliberation / consultation shapes (routing calibration, 2026-11-16
+  // measurement J-01): a request to help organise one's own thinking
+  // about a personal decision, or an explicit statement of being torn /
+  // worried, carries no published fact to verify — the freshness marker
+  // that promoted it ("今の仕事") modifies the user's own situation.
+  // Factual consultations are unaffected: they reach this carve-out only
+  // when the classifier already said fresh_general, and a request to
+  // look up or compare external facts carries none of these shapes
+  // (「現在の競合価格を調べて…比較してください」 still promotes).
+  if (/(?:考え方|気持ち|悩み|状況)の?整理を(?:手伝|頼|お願い)/.test(message)) return true;
+  if (/(?:迷って|悩んで|困って)い(?:ます|る)/.test(message)) return true;
+  if (/(?:相談|アドバイス)(?:したい|させて|をください|がほしい|お願い)/.test(message)) return true;
   return false;
 }
 
@@ -193,6 +214,22 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     searchClassification.type === "fresh_general"
     && !isNonFactualFreshGeneralRequest(message)
   ) return true;
+  // Stable facts pinned by the high-risk detector (routing calibration,
+  // 2026-11-16 measurement G-02 / I-03): the classifier deliberately
+  // keeps past-pinned questions `stable` (the S-PR-1 G-01 fix — a
+  // definition or a timeless table must not be shredded by the grounded
+  // path), but two stable shapes are exactly the ones the normal path
+  // asserted wrongly from memory: a past officeholder (1990年の首相)
+  // and a named entity's event date (a possibly nonexistent line's
+  // 開業日）. The detector still identifies both — the historical guard
+  // only pre-empts the type, not the category — so promote on the
+  // category. Every other stable shape (definitions, ふるさと納税とは,
+  // the 当初 tax-rate question whose detector result is null) keeps
+  // the direct path.
+  if (searchClassification.type === "stable") {
+    const highRiskCategory = detectOriginHighRiskCategory(message);
+    if (highRiskCategory === "incumbent_role" || highRiskCategory === "named_entity_event") return true;
+  }
 
   // The bare price branch requires a question / confirmation marker
   // shortly after the price word: a plain statement mentioning a price

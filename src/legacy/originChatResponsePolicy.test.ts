@@ -628,3 +628,36 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
   });
 });
+
+describe("routing calibration (2026-11-16 measurement)", () => {
+  // Gate decisions for the shapes the fixed-100 re-measurement found
+  // misrouted in both directions. True = the grounded-research path
+  // must verify before answering; false = the normal path answers
+  // directly and must not refuse for lack of sources.
+  it.each([
+    // Statutory tables / rules asserted wrongly from memory (fatals).
+    ["有給休暇は、入社してどれくらいで何日もらえますか？勤続年数ごとの付与日数を教えてください。", true], // A-03
+    ["借金の時効は原則何年ですか？民法のルールを教えてください。", true], // E-02
+    // Past-pinned officeholder: type stays stable, category promotes.
+    ["1990年当時の日本の首相は誰でしたか？", true], // G-02
+    // Possibly nonexistent named entity: grounded path fails closed.
+    ["『みなとみらい環状線』はいつ開業しましたか？", true], // I-03
+    // Pension routing was already correct; the fix is retrieval-side.
+    ["国民年金は原則何歳から受け取れますか？早めたり遅らせたりはできますか？", true], // B-02
+    // Supplied-value arithmetic: no grounding, no refusal.
+    ["15%引きで8,500円だった商品の、元の値段はいくらですか？", false], // H-05
+    ["定員40人の75%は何人いますか？", false], // H-09
+    ["原価800円に25%の利益を乗せると、売値はいくらですか？", false], // H-10
+    // Personal deliberation: no published fact to ground.
+    ["今の仕事を続けるか転職するか迷っています。考え方の整理を手伝ってください。", false], // J-01
+    // Counter-shapes that must not move.
+    ["消費税が導入された当初の税率は何%でしたか？", false],
+    ["ふるさと納税とは何ですか？", false],
+    ["初代のアメリカ大統領は誰ですか？", false],
+    ["有給休暇の取り方を教えてください", false],
+    ["現在の競合価格を調べて、新サービスを月額5,000円か8,000円にするか比較してください。", true],
+  ])("requiresOriginGroundedResearch(%s) === %s", (message, expected) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(expected);
+    expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+});

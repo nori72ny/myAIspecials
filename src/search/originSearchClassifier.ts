@@ -74,8 +74,14 @@ rule: string;
 // (this time, a discourse reference), 今から / 今すぐ / 今まで (the user's
 // own immediate actions and spans) — do not read as freshness markers.
 // 今いくつ・今月・今週・今の首相 etc. still match, as do the longer forms.
+// The bare 「いま」 alternative is fenced the same way (routing
+// calibration, 2026-11-16 measurement H-09): unfenced, it matched inside
+// the polite verb endings います / いました / いません and turned plain
+// arithmetic ("何人いますか") into a freshness demand. The idiom
+// continuations いまさら / いまや / いまひとつ / いまにも assert no
+// currency either and are fenced off with it.
 const FRESHNESS_MARKER =
-/(?:最新|現在|直近|最近|今日|今の|今(?![さ]|いち|や|回|後|のち|から|すぐ|まで|にも)|現時点|今年|いま|アップデート|バージョンアップ|発売予定|リリース予定|登場予定|今後|これから)/;
+/(?:最新|現在|直近|最近|今日|今の|今(?![さ]|いち|や|回|後|のち|から|すぐ|まで|にも)|現時点|今年|いま(?![すしせさやひ]|にも)|アップデート|バージョンアップ|発売予定|リリース予定|登場予定|今後|これから)/;
 const CONCEPT_MARKER =
 /(?:とは|って何|の意味|意味を|定義|歴史|由来|仕組み|読み方|誰が作|いつ作られ|いつからある)/;
 
@@ -115,7 +121,15 @@ if (hasDigits && asksCalculation) return true;
 // so a bare "いくらですか" about a product (no supplied values) still
 // routes to price_spec below.
 const hasSuppliedValue = hasSuppliedCalculationValue(message);
-const asksResultAmount = /(?:いくらになります|いくらになる|合計でいくら|総額はいくら)/.test(message);
+const asksResultAmount = /(?:いくらになります|いくらになる|合計でいくら|総額はいくら)/.test(message)
+// Derived-price shapes (routing calibration, 2026-11-16 measurement
+// H-05 / H-10): the user supplies the discounted / cost values and
+// asks back for the original or resulting price ("元の値段はいくら",
+// "売値はいくら"). That is the same supplied-value arithmetic with
+// the result noun swapped, not a price lookup — a bare product price
+// question carries no supplied amount or percentage and still falls
+// through to price_spec below.
+|| /(?:元の値段|元の価格|元値|売値|定価|原価).{0,4}いくら/.test(message);
 return hasDigits && hasSuppliedValue && asksResultAmount;
 }
 
@@ -172,12 +186,25 @@ export type OriginHighRiskCategory =
 | "tax_institution"
 | "medical_standard"
 | "product_price_spec"
-| "incumbent_role";
+| "incumbent_role"
+| "named_entity_event";
 
+/**
+ * The institutional bucket covers tax / social-insurance institutions
+ * plus, since the routing calibration for the 2026-11-16 measurement,
+ * the two neighbouring statutory systems whose tables and rules the
+ * model reproduced wrongly from memory on the normal path: labor
+ * standards (A-03: the paid-leave grant table of 労働基準法39条 — the
+ * vocabulary had no labor term at all) and civil-law rules (E-02: the
+ * extinctive-prescription rule of 民法166条, asked as 「時効は何年」
+ * with no 法律 token for the policy signal). The name + factual-demand
+ * conjunction is unchanged, so how-to and definition shapes stay off
+ * the route exactly as before.
+ */
 const TAX_INSTITUTION_NAME =
-/(?:ふるさと納税|確定申告|年末調整|医療費控除|住宅ローン控除|新\s?nisa|\bnisa\b|ideco|つみたて投資枠|成長投資枠|投資枠|国民年金|厚生年金|基礎年金|老齢年金|障害年金|遺族年金|公的年金|年金|健康保険|介護保険|雇用保険|労災保険|社会保険|児童手当|児童扶養手当|出産育児一時金|高額療養費|育児休業給付|失業給付|雇用調整助成金|マイナンバー制度|インボイス制度|消費税|所得税|住民税|固定資産税|相続税|贈与税|法人税|税金|税制|生活保護)/i;
+/(?:ふるさと納税|確定申告|年末調整|医療費控除|住宅ローン控除|新\s?nisa|\bnisa\b|ideco|つみたて投資枠|成長投資枠|投資枠|国民年金|厚生年金|基礎年金|老齢年金|障害年金|遺族年金|公的年金|年金|健康保険|介護保険|雇用保険|労災保険|社会保険|児童手当|児童扶養手当|出産育児一時金|高額療養費|育児休業給付|失業給付|雇用調整助成金|マイナンバー制度|インボイス制度|消費税|所得税|住民税|固定資産税|相続税|贈与税|法人税|税金|税制|生活保護|有給休暇|年次有給休暇|労働基準法|育児休業|介護休業|民法|時効)/i;
 const TAX_INSTITUTION_FACT_MARKER =
-/(?:仕組み|目安|基準|上限|下限|自己負担|控除|対象|条件|期間|期限|いくら|どれくらい|どのくらい|何歳|何円|何パーセント|いつから|いつまで|枠|支給|受給|金額|年額|月額|割合)/;
+/(?:仕組み|目安|基準|上限|下限|自己負担|控除|対象|条件|期間|期限|いくら|どれくらい|どのくらい|何歳|何年|何日|何円|何パーセント|いつから|いつまで|枠|支給|受給|金額|年額|月額|割合)/;
 
 const MEDICAL_STANDARD_NAME =
 /(?:予防接種|ワクチン|定期接種|食事摂取基準|摂取基準|塩分|食塩|ナトリウム|血圧|血糖値|コレステロール|中性脂肪|尿酸値|\bbmi\b|タンパク質|食物繊維|カルシウム|鉄分|ビタミン|健康診断|特定健診|妊婦健診|乳幼児健診)/i;
@@ -194,6 +221,25 @@ const INCUMBENT_PERSON_MARKER =
 /(?:誰|名前|氏名|現職|現在の|今の|何という)/;
 const INCUMBENT_PAST_EXCLUSION =
 /(?:初代|歴代|元首相|元大統領|元知事|元総理|前首相|前大統領|前知事)/;
+
+/**
+ * A quoted proper noun plus an event-date demand (routing calibration,
+ * 2026-11-16 measurement I-03): 『みなとみらい環状線』はいつ開業した
+ * か asked for the opening date of a line that does not exist, and the
+ * normal path fabricated one. The existence / date of a named entity
+ * is a fixed fact with a decisive search outcome either way: sources
+ * confirm it, or the grounded path finds nothing and the answer holds
+ * explicitly instead of inventing a date. The conjunction is narrow
+ * on purpose — a quoted name alone (comparisons, quoted product
+ * prices, which route earlier anyway) and an event noun alone
+ * (ordinary history) do not fire it.
+ */
+const NAMED_ENTITY_QUOTED = /(?:『[^』]{1,40}』|「[^」]{1,40}」)/;
+const NAMED_ENTITY_EVENT_NOUN = /(?:開業|開通|設立|創立|創業|竣工|完成|開館|開局)/;
+const NAMED_ENTITY_EVENT_DEMAND = new RegExp(
+`(?:いつ|何年|何月).{0,16}${NAMED_ENTITY_EVENT_NOUN.source}|${NAMED_ENTITY_EVENT_NOUN.source}(?:したのは|されたのは|は)(?:いつ|何年|何月)`,
+"s",
+);
 
 const PRODUCT_CATEGORY_NAME =
 /(?:掃除機|冷蔵庫|洗濯機|テレビ|エアコン|電子レンジ|炊飯器|食洗機|ドライヤー|プリンター|モニター|ディスプレイ|キーボード|イヤホン|ヘッドホン|スピーカー|カメラ|レンズ|自動車|バイク|自転車|腕時計|ゲーム機|給湯器|加湿器|空気清浄機|除湿機|扇風機|ヒーター|プロジェクター|ドローン|電動歯ブラシ|シェーバー)/;
@@ -232,6 +278,9 @@ INCUMBENT_ROLE_NAME.test(text)
 && !INCUMBENT_PAST_EXCLUSION.test(text)
 ) {
 return "incumbent_role";
+}
+if (NAMED_ENTITY_QUOTED.test(text) && NAMED_ENTITY_EVENT_DEMAND.test(text)) {
+return "named_entity_event";
 }
 return null;
 }
@@ -294,6 +343,12 @@ if (highRiskCategory === "tax_institution") return done("policy", "high-risk-tax
 if (highRiskCategory === "medical_standard") return done("policy", "high-risk-medical-standard");
 if (highRiskCategory === "product_price_spec") return done("price_spec", "high-risk-product-price-spec");
 if (highRiskCategory === "incumbent_role") return done("fresh_general", "high-risk-incumbent-role");
+// A named entity's event date is a fixed fact: it classifies as
+// stable, and the response policy promotes exactly this category (and
+// past-pinned officeholders) from stable to the grounded path — see
+// requiresOriginCurrentInformation. Stable alone does not ground;
+// definitions and timeless history keep the direct path.
+if (highRiskCategory === "named_entity_event") return done("stable", "high-risk-named-entity-event");
 if (hasConceptMarker &&!hasFreshnessMarker) return done("stable", "concept-definition");
 if (/(?:百科|ウィキペディア|wikipedia)/i.test(text)) return done("stable", "encyclopedia-request");
 if (hasFreshnessMarker) return done("fresh_general", "freshness-marker");
