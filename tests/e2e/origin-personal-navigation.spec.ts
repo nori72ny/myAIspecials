@@ -540,20 +540,22 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.goto('/');
 
     const header = page.locator('header.origin-header');
+    const sidebarToggle = page.getByTestId('sidebar-toggle');
     const history = page.getByTestId('history-drawer-toggle');
     const settings = page.getByRole('button', { name: '設定を開く' });
 
     await expect(header).toContainText('ORIGIN');
-    // 浮遊化（オーナー指示 2026-11-14）でオリンはヘッダー外の固定プレゼンスへ移り、
-    // 未使用時のヘッダーのボタンは 履歴／設定の2つになった。
-    await expect(header.getByRole('button')).toHaveCount(2);
+    // 浮遊化（オーナー指示 2026-11-14）でオリンはヘッダー外の固定プレゼンスへ移った。
+    // サイドバー導入（レイアウト段階1）で開閉ボタンが加わり、未使用時の
+    // ヘッダーのボタンは サイドバーを開く／履歴／設定の3つになった。
+    await expect(header.getByRole('button')).toHaveCount(3);
     // オリンはヘッダーの外（画面上部中央の浮遊プレゼンス）に1つだけ存在する。
     await expect(header.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence')).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: '新しい会話を始める' })).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [history, settings]) {
+    for (const button of [sidebarToggle, history, settings]) {
       const box = await button.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeGreaterThanOrEqual(44);
@@ -566,8 +568,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(page.getByRole('article', { name: 'ORIGINの回答' }).getByText('確認しました。', { exact: true })).toBeVisible();
     const newConversation = page.getByRole('button', { name: '新しい会話を始める' });
     await expect(newConversation).toBeVisible();
-    // 使用後は新規対話ボタンが加わり3つ（オリンはヘッダー外の浮遊プレゼンスのまま）。
-    await expect(header.getByRole('button')).toHaveCount(3);
+    // 使用後は新規対話ボタンが加わり4つ（オリンはヘッダー外の浮遊プレゼンスのまま）。
+    await expect(header.getByRole('button')).toHaveCount(4);
     const newBox = await newConversation.boundingBox();
     expect(newBox?.height).toBeGreaterThanOrEqual(44);
     expect(newBox?.width).toBeGreaterThanOrEqual(44);

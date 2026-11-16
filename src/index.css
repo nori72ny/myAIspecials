@@ -336,6 +336,10 @@
    whose uniform padding (sm:p-6 = 1.5rem) already covers the inset. */
 .origin-sheet-safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .origin-sheet-safe-area-bottom { padding-bottom: 1.5rem; } }
+/* The sidebar drawer touches the screen's top and bottom edges on
+   narrow screens, so the safe-area insets are applied exactly once as
+   the sidebar's own vertical padding (same approach as the sheets). */
+.origin-sidebar-safe-area { padding-top: max(0.75rem, env(safe-area-inset-top)); padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
 @media (max-width: 639px) {
   .origin-header { padding-inline: 0.5rem; }
   .origin-header > div:first-child { gap: 0.25rem; }

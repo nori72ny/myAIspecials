@@ -288,3 +288,70 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByText(/必要な証拠や作成物ができた時だけ/)).toBeNull();
   });
 });
+
+describe('PersonalEditionApp sidebar shell (layout stage 1)', () => {
+  // サイドバー段階1（レイアウト設計 2026-11-16 §4）：シェルに行き先だけを
+  // 持つサイドバーを足す。履歴はまだ入れず、開閉状態も端末に保存しない。
+  // jsdom の既定幅（1024px）ではサイドバーは閉じた状態から始まる。
+  type SidebarAppProps = MockAppProps & { onToggleSidebar?: () => void; sidebarOpen?: boolean };
+
+  function toggleSidebarFromChat() {
+    const props = latestAppProps() as SidebarAppProps;
+    act(() => props.onToggleSidebar?.());
+  }
+
+  it('passes the sidebar wiring to the chat and starts closed at narrow widths', () => {
+    render(<PersonalEditionApp />);
+
+    const props = latestAppProps() as SidebarAppProps;
+    expect(typeof props.onToggleSidebar).toBe('function');
+    expect(props.sidebarOpen).toBe(false);
+    const sidebar = screen.getByTestId('origin-sidebar');
+    expect(sidebar.getAttribute('aria-hidden')).toBe('true');
+    // 段階1では履歴をサイドバーへ入れない（現行の履歴ドロワーが担当）。
+    expect(screen.queryByTestId('sidebar-history')).toBeNull();
+    expect(screen.getByTestId('sidebar-nav-chat').getAttribute('aria-current')).toBe('page');
+  });
+
+  it('opens from the chat toggle and navigates to the Agent workspace', async () => {
+    render(<PersonalEditionApp />);
+
+    toggleSidebarFromChat();
+    const props = latestAppProps() as SidebarAppProps;
+    expect(props.sidebarOpen).toBe(true);
+    expect(screen.getByTestId('origin-sidebar').getAttribute('aria-hidden')).toBe('false');
+
+    fireEvent.click(screen.getByTestId('sidebar-nav-agent'));
+    expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
+    expect(window.location.search).toBe('?workspace=agent');
+    expect(screen.getByTestId('sidebar-nav-agent').getAttribute('aria-current')).toBe('page');
+  });
+
+  it('starts a new conversation through the existing reset signal path', () => {
+    render(<PersonalEditionApp />);
+    expect(latestAppProps().resetSignal).toBe(0);
+
+    fireEvent.click(screen.getByTestId('sidebar-new-conversation'));
+
+    expect(latestAppProps().resetSignal).toBe(1);
+    expect(window.location.search).toBe('');
+  });
+
+  it('opens settings from the sidebar footer', () => {
+    const onOpenSettings = vi.fn();
+    render(<PersonalEditionApp onOpenSettings={onOpenSettings} />);
+
+    fireEvent.click(screen.getByTestId('sidebar-settings'));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it('closes with the in-sidebar close button', () => {
+    render(<PersonalEditionApp />);
+    toggleSidebarFromChat();
+    expect((latestAppProps() as SidebarAppProps).sidebarOpen).toBe(true);
+
+    fireEvent.click(screen.getByTestId('sidebar-close'));
+    expect((latestAppProps() as SidebarAppProps).sidebarOpen).toBe(false);
+    expect(screen.getByTestId('origin-sidebar').getAttribute('aria-hidden')).toBe('true');
+  });
+});
