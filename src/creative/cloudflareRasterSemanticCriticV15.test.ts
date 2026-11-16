@@ -1457,4 +1457,89 @@ describe('cloudflareRasterSemanticCriticV15', () => {
       mimeType: 'image/png',
     }, ENV, fetchMock as unknown as typeof fetch)).rejects.toThrow(expectedCode);
   });
+
+  // Shadow axis ipSimilarity (copyright policy, 2026-11-16): the
+  // critic's ipSimilarity list is recorded on the verdict for
+  // calibration, and must never reach the gate — not the axis floor,
+  // not the average, not `passed`, not the retry feedback (`issues`).
+  it('records ipSimilarity defects in shadowAxes without affecting the gate', async () => {
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '丸い耳のネズミのキャラクターのイラスト',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({
+      ipSimilarity: defectList(5, 'closely resembles a well-known cartoon mouse mascot'),
+    })) as unknown as typeof fetch);
+
+    // The gate verdict is exactly the defect-free gate-axis verdict:
+    // five shadow defects would derive 1 if they were a gate axis.
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(100);
+    expect(result.scores).toEqual({
+      promptAdherence: 4,
+      composition: 4,
+      subjectIntegrity: 4,
+      styleExecution: 4,
+      textHandling: 4,
+      artifactControl: 4,
+      professionalUsefulness: 4,
+    });
+    expect(result.issues).toEqual([]);
+    expect(result.checks).toHaveLength(RASTER_SEMANTIC_AXES_V15.length);
+    // …and the shadow record carries the defects and the derived
+    // score the calibration step will compare against human review.
+    expect(result.shadowAxes.ipSimilarity).toEqual({
+      defects: defectList(5, 'closely resembles a well-known cartoon mouse mascot'),
+      defectCount: 5,
+      derivedScore: 1,
+    });
+  });
+
+  it('records a null shadow record when the answer omits ipSimilarity, gate unchanged', async () => {
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer()) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.shadowAxes.ipSimilarity).toBeNull();
+  });
+
+  it('records an empty shadow list as a zero-defect record', async () => {
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ ipSimilarity: [] })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.shadowAxes.ipSimilarity).toEqual({ defects: [], defectCount: 0, derivedScore: 4 });
+  });
+
+  it('treats a malformed ipSimilarity value as not recorded instead of failing the verdict', async () => {
+    const result = await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, criticFetch(semanticAnswer({ ipSimilarity: 3 })) as unknown as typeof fetch);
+
+    expect(result.passed).toBe(true);
+    expect(result.shadowAxes.ipSimilarity).toBeNull();
+  });
+
+  it('asks for the ipSimilarity list in the critic question and template', async () => {
+    const fetchMock = criticFetch(semanticAnswer({ ipSimilarity: [] }));
+    await critiqueCloudflareRasterSemanticV15({
+      originalRequest: '静かな湖の写真',
+      bytes: png(),
+      mimeType: 'image/png',
+    }, ENV, fetchMock as unknown as typeof fetch);
+
+    const init = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.question).toContain('ipSimilarity');
+    expect(body.question).toContain('"ipSimilarity":[]');
+    expect(body.question).toContain('recorded for calibration only');
+  });
 });

@@ -376,6 +376,45 @@ describe('rasterImageV15Router', () => {
     expect(response.body.plan.compiledPrompt).toContain('Output: 1200x628');
   });
 
+  // 著作権ポリシー（2026-11-16 採用）: 既存キャラクター・ブランド・
+  // ロゴそのものが主題の依頼は、プロバイダ実行前に平易な説明つきで
+  // 422 に差し戻す。作風指定だけの依頼は指定を外して計画を進める。
+  it('refuses a protected-subject request on the plan route before any planning', async () => {
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: 'ピカチュウのイラストを描いて' });
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'RASTER_IP_IMITATION_BLOCKED',
+      retryable: false,
+      freeOnly: true,
+      paidFallbackUsed: false,
+    });
+    expect(response.body.message).toContain('既存のキャラクターやブランドそのものを描くことはできません');
+  });
+
+  it('refuses a protected-subject request on the generate route before the zero-cost gate', async () => {
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/generate')
+      .send({ prompt: 'スターバックスのロゴを描いて' });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe('RASTER_IP_IMITATION_BLOCKED');
+    expect(response.body.message).toContain('既存のキャラクターやブランドそのものを描くことはできません');
+  });
+
+  it('plans the rewritten prompt when only a style qualifier names a protected work', async () => {
+    const response = await request(app())
+      .post('/api/creative/v1.5/raster/plan')
+      .send({ prompt: 'ジブリ風の田園風景を描いて' });
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.ipPolicy).toEqual({ action: 'rewritten' });
+    expect(response.body.plan.originalRequest).toBe('田園風景を描いて');
+    expect(response.body.plan.compiledPrompt).not.toContain('ジブリ');
+    expect(response.body.plan.compiledPrompt).toContain('Create only original imagery');
+  });
+
   it('exposes the structured raster plan without executing an image provider', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

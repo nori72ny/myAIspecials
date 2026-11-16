@@ -29,12 +29,23 @@ function classify(prompt: string): WorldClassImagePromptProfileV16 {
   return 'generic';
 }
 
+/**
+ * The originality constraint every compiled prompt carries (owner
+ * copyright policy, adopted 2026-11-16): ORIGIN generates only its own
+ * original imagery. Defined once here, in the profile-constraint
+ * mechanism, and reused by the raster visual planner's compiledPrompt
+ * so the free path and this compiler state the rule identically.
+ */
+export const WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16 =
+  'Create only original imagery: do not depict, imitate, or closely approximate any existing copyrighted character, mascot, brand logo, trademarked design, product packaging, or a specific artist\'s signature style.';
+
 function commonConstraints(editing: boolean): string[] {
   const constraints = [
     'Follow the primary instruction exactly. Do not add unrequested subjects, text, logos, watermarks, borders, or decorative clutter.',
     'Use deliberate composition with a clear visual hierarchy, coherent perspective, physically plausible lighting, and clean subject separation.',
     'Avoid malformed anatomy, duplicated objects, warped geometry, broken reflections, inconsistent shadows, accidental text, and compression artifacts.',
     'Keep the result production-ready: crisp focal detail, controlled contrast, natural local texture, and no oversharpened or plastic surfaces unless explicitly requested.',
+    WORLD_CLASS_ORIGINALITY_CONSTRAINT_V16,
   ];
   if (editing) {
     constraints.unshift(

@@ -3,6 +3,10 @@ import { Router, type Request, type Response } from 'express';
 import { detectSensitiveConversation } from '../legacy/originChatValidation.js';
 import { type RasterImageRequestV15, type RasterReferenceImageV15 } from './rasterImageProviderV15.js';
 import { planRasterVisualRequestV15 } from './rasterVisualPlannerV15.js';
+import {
+  applyRasterIpPolicyV15,
+  RASTER_IP_POLICY_BLOCK_MESSAGE_V15,
+} from './rasterIpPolicyV15.js';
 import { readRasterDimensionsV15 } from './rasterImageCriticV15.js';
 import { rasterVisualTemplatesV15 } from './rasterVisualTemplatesV15.js';
 import { candidatePolicyForRasterRequestV15 } from './rasterTechnicalCriticV15.js';
@@ -223,12 +227,20 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
 
     try {
       const input = parseBody(req.body);
-      const plan = planRasterVisualRequestV15(input.prompt, { width: input.width, height: input.height });
+      // Copyright policy (2026-11-16): the same guard the generate/edit
+      // handler applies, so a plan preview can never promise a request
+      // the generation path would refuse or rewrite differently.
+      const ipPolicy = applyRasterIpPolicyV15(input.prompt);
+      if (ipPolicy.action === 'block') {
+        return fail(res, 422, 'RASTER_IP_IMITATION_BLOCKED', RASTER_IP_POLICY_BLOCK_MESSAGE_V15, false);
+      }
+      const plan = planRasterVisualRequestV15(ipPolicy.prompt, { width: input.width, height: input.height });
       return res.status(plan.ready ? 200 : 409).json({
         ok: plan.ready,
         code: plan.ready ? 'RASTER_PLAN_READY' : 'IMAGE_REQUIREMENTS_INCOMPLETE',
         plan,
-        candidatePolicy: candidatePolicyForRasterRequestV15(input.prompt, plan.purpose),
+        ...(ipPolicy.action === 'rewrite' ? { ipPolicy: { action: 'rewritten' as const } } : {}),
+        candidatePolicy: candidatePolicyForRasterRequestV15(ipPolicy.prompt, plan.purpose),
         freeOnly: true,
         paidFallbackUsed: false,
         providerExecutions: 0,
@@ -249,6 +261,22 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
       input = parseBody(req.body, mode);
     } catch (error) {
       return fail(res, 400, error instanceof Error ? error.message : 'INVALID_RASTER_REQUEST');
+    }
+
+    // Copyright policy (owner policy, adopted 2026-11-16), enforced
+    // deterministically before planning and before any provider call:
+    // a request whose subject is an existing character, brand, or logo
+    // is refused with a plain-language explanation (the same 422
+    // refusal shape as the sensitive-input block above); a request
+    // that only carries the protected name as a style qualifier or a
+    // brand mention proceeds with that span removed, and the removal
+    // is surfaced on the delivery headers below.
+    const ipPolicy = applyRasterIpPolicyV15(input.prompt);
+    if (ipPolicy.action === 'block') {
+      return fail(res, 422, 'RASTER_IP_IMITATION_BLOCKED', RASTER_IP_POLICY_BLOCK_MESSAGE_V15, false);
+    }
+    if (ipPolicy.action === 'rewrite') {
+      input = { ...input, prompt: ipPolicy.prompt };
     }
 
     let plan: ReturnType<typeof planRasterVisualRequestV15>;
@@ -335,6 +363,7 @@ export function createRasterImageV15Router(_env: NodeJS.ProcessEnv = process.env
       res.setHeader('X-Origin-Visual-Width', String(result.width));
       res.setHeader('X-Origin-Visual-Height', String(result.height));
       res.setHeader('X-Origin-Visual-Task', mode);
+      if (ipPolicy.action === 'rewrite') res.setHeader('X-Origin-Visual-Ip-Policy', 'rewritten');
       res.setHeader('X-Origin-Visual-Reference-Count', String(input.referenceImages?.length ?? 0));
       res.setHeader('X-Origin-Visual-Provider', result.providerId);
       res.setHeader('X-Origin-Visual-Model', result.model);

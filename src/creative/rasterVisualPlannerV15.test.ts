@@ -119,4 +119,29 @@ describe('rasterVisualPlannerV15', () => {
     expect(plan.negativePrompt).toContain('unwanted text');
   });
 
+  // 著作権ポリシー（2026-11-16 採用）: compiledPrompt は全用途で
+  // 独自性制約を運び、ロゴ／アイコンと商品／広告には用途別の
+  // 制約文が加わる。ネガティブプロンプトにも既存キャラ・ロゴの
+  // 抑止が常時入る。
+  it('carries the originality constraint in every compiled prompt and negative prompt', () => {
+    const plan = planRasterVisualRequestV15('朝の湖と山の風景写真');
+    expect(plan.compiledPrompt).toContain('Create only original imagery');
+    expect(plan.compiledPrompt).toContain('existing copyrighted character');
+    expect(plan.negativePrompt).toContain('copyrighted characters');
+    expect(plan.negativePrompt).toContain('existing brand logos');
+    expect(plan.negativePrompt).toContain('trademarked mascots');
+  });
+
+  it('adds the original-mark constraint for logo and icon purposes', () => {
+    const plan = planRasterVisualRequestV15('猫とリボンのロゴを作って');
+    expect(plan.purpose).toBe('logo');
+    expect(plan.compiledPrompt).toContain('The mark must be an original design created for this request');
+  });
+
+  it('adds the generic-branding constraint for product purposes', () => {
+    const plan = planRasterVisualRequestV15('香水ボトルの商品写真');
+    expect(plan.purpose).toBe('product');
+    expect(plan.compiledPrompt).toContain('Keep all product branding generic and original');
+  });
+
 });
