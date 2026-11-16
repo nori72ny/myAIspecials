@@ -120,6 +120,11 @@ export type UpsertRejectionReason = 'inferred-paused-at-limit' | 'blocked-sensit
 export interface UpsertResult {
   saved: boolean;
   reason?: UpsertRejectionReason;
+  /** True when the item was not created because an active item of the same
+   * kind already stores the same statement (design §8.2, PR P1-5). The
+   * statement itself is saved — it was already there — so `saved` stays
+   * true and no second copy exists. */
+  duplicate?: boolean;
   usage: PersonalMemoryUsage;
 }
 
@@ -474,8 +479,23 @@ export async function upsertMemoryItem(userId: string, item: OriginMemoryItem): 
       return { saved: false, reason: 'inferred-paused-at-limit', usage };
     }
   }
-  if (index >= 0) store.memory[index] = item;
-  else store.memory.push(item);
+  if (index >= 0) {
+    // Same-id upserts are the owner's own edits and the management UI's
+    // status transitions (including needs-check resolutions): they are
+    // authoritative and never re-run the save-time matching below.
+    store.memory[index] = item;
+  } else {
+    // Save-time matching (design §8, PR P1-5): a brand-new item entering
+    // as `active` is compared with the existing active items of its kind.
+    // A substantive duplicate is not created a second time; contradiction
+    // candidates transition statuses (supersede / needs-check) in place.
+    // The pre-save guard above and the limit pause keep their order: a
+    // blocked or paused item never reaches the matching.
+    if (applySaveTimeMatching(store, item)) {
+      return { saved: true, duplicate: true, usage: computeUsage(store) };
+    }
+    store.memory.push(item);
+  }
   await writeStore(safeUserId, store);
   return { saved: true, usage: computeUsage(store) };
 }
@@ -506,6 +526,154 @@ export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory
   store.memory = [];
   if (scope === 'all') store.profile = [];
   await writeStore(safeUserId, store);
+}
+
+// --- Save-time matching: duplicates and contradiction candidates (design §8) --
+//
+// PR P1-5. A NEW memory item entering the store as `active` is matched
+// deterministically against the existing `active` items of the same kind,
+// using the character 2-gram primitives of the §6.1 relevance matching.
+// The comparison is on the item text only and has three outcomes:
+//
+//   - Substantive duplicate: the same statement is already stored, so no
+//     second copy is created. Identity means the normalized texts are
+//     equal, or one text only extends the other (containment — e.g. a
+//     politeness suffix) with a bigram Dice of at least 0.85. A commitment
+//     whose deadline differs is a different undertaking, never a duplicate
+//     (§8.4: commitments at different times are not the same statement).
+//   - Contradiction candidate: the same statement frame with a small local
+//     difference — Dice at least 0.5, at least 4 shared bigrams, at most 6
+//     differing bigrams, and neither text containing the other.
+//     Containment without duplicate-level overlap is a refinement (one
+//     statement only adds to the other), which is a complement, not a
+//     contradiction, and is left alone. Only decision / preference / fact
+//     participate: request completion and commitment expiry are state
+//     transitions, not contradictions (§8.4), so those kinds are matched
+//     for duplicates only.
+//   - Anything else is stored untouched.
+//
+// Candidate resolution follows §8.2/§8.3. An explicit newcomer supersedes
+// every candidate (superseded items stay as history; the chain remains
+// traceable through the newcomer's supersedesId, which points at the
+// closest candidate). An inferred newcomer conflicting with an explicit
+// record is itself stored as superseded — explicit always wins. Inferred
+// against inferred (migrated legacy records count as the inferred side:
+// they predate the distinction) is never auto-resolved: both sides become
+// `needs-check` and wait for the owner in the management UI, whose
+// existing resolution flow (choose one / delete both) takes it from
+// there. Until resolved, neither side is assembled into chat context,
+// because assembly only takes `active` items (§6.1). Pinned records are
+// never transitioned by an automatic process (§4.3), so they are not
+// candidates. Nothing is ever deleted or silently overwritten here: the
+// only transitions are status markings on records that stay in the store.
+//
+// The matching is a deterministic overlap heuristic, not a semantic
+// contradiction judge (§8.4). The thresholds deliberately sit on the
+// non-detection side: pairs that merely share a formulaic ending, differ
+// in more than a small local region, or restate a topic in very different
+// words stay undetected, and final correctness rests with the owner's own
+// edits in the management UI.
+
+const DUPLICATE_CONTAINMENT_DICE = 0.85;
+const CONTRADICTION_MIN_DICE = 0.5;
+const CONTRADICTION_MIN_SHARED_BIGRAMS = 4;
+const CONTRADICTION_MAX_DIFFERING_BIGRAMS = 6;
+const CONTRADICTION_MATCH_KINDS: ReadonlySet<OriginMemoryKind> = new Set(['decision', 'preference', 'fact']);
+
+interface MemoryTextMatch {
+  shared: number;
+  differing: number;
+  dice: number;
+  containment: boolean;
+  identical: boolean;
+}
+
+function matchMemoryTexts(a: string, b: string): MemoryTextMatch {
+  const gramsA = characterBigrams(a);
+  const gramsB = characterBigrams(b);
+  let shared = 0;
+  for (const gram of gramsA) if (gramsB.has(gram)) shared += 1;
+  const total = gramsA.size + gramsB.size;
+  return {
+    shared,
+    differing: total - 2 * shared,
+    dice: total === 0 ? 0 : (2 * shared) / total,
+    containment: gramsA.size > 0 && gramsB.size > 0 && (shared === gramsA.size || shared === gramsB.size),
+    identical: normalizeForMatching(a).length > 0 && normalizeForMatching(a) === normalizeForMatching(b),
+  };
+}
+
+function isSubstantiveDuplicate(incoming: OriginMemoryItem, existing: OriginMemoryItem, match: MemoryTextMatch): boolean {
+  // A commitment is identified by text AND deadline: the same words with a
+  // different expiresAt are a new undertaking, not a restatement (§8.4).
+  if (incoming.kind === 'commitment' && incoming.expiresAt !== existing.expiresAt) return false;
+  if (match.identical) return true;
+  return match.containment && match.dice >= DUPLICATE_CONTAINMENT_DICE;
+}
+
+function isContradictionCandidate(incoming: OriginMemoryItem, existing: OriginMemoryItem, match: MemoryTextMatch): boolean {
+  if (!CONTRADICTION_MATCH_KINDS.has(incoming.kind)) return false;
+  if (match.containment) return false;
+  return match.dice >= CONTRADICTION_MIN_DICE
+    && match.shared >= CONTRADICTION_MIN_SHARED_BIGRAMS
+    && match.differing <= CONTRADICTION_MAX_DIFFERING_BIGRAMS;
+}
+
+/**
+ * Applies the §8 save-time matching for a new item about to be pushed into
+ * the store. Mutates the incoming item's status / supersedesId and the
+ * status of any transitioned existing items. Returns true when the item is
+ * a substantive duplicate and must NOT be added to the store.
+ */
+function applySaveTimeMatching(store: PersonalMemoryStore, item: OriginMemoryItem): boolean {
+  // Only statements entering as `active` participate; records upserted
+  // directly in another status (history, parked needs-check pairs from the
+  // management UI) are stored exactly as given.
+  if (item.status !== 'active') return false;
+  const candidates: Array<{ existing: OriginMemoryItem; match: MemoryTextMatch }> = [];
+  for (const existing of store.memory) {
+    if (existing.status !== 'active' || existing.kind !== item.kind) continue;
+    const match = matchMemoryTexts(item.text, existing.text);
+    if (isSubstantiveDuplicate(item, existing, match)) return true;
+    // Pinned records are exempt from automatic transitions (§4.3); a
+    // duplicate of a pinned record still counts as a duplicate, since
+    // skipping the copy changes nothing about the pinned record itself.
+    if (existing.pinned) continue;
+    if (isContradictionCandidate(item, existing, match)) candidates.push({ existing, match });
+  }
+  if (!candidates.length) return false;
+  const now = Date.now();
+
+  if (item.origin === 'explicit') {
+    // §8.2: the new explicit statement wins; the older records stay as
+    // superseded history, traceable through supersedesId (the closest
+    // candidate when several conflict).
+    candidates.sort((a, b) => b.match.dice - a.match.dice);
+    for (const { existing } of candidates) {
+      existing.status = 'superseded';
+      existing.updatedAt = now;
+    }
+    if (!item.supersedesId) item.supersedesId = candidates[0].existing.id;
+    return false;
+  }
+
+  // Inferred (and legacy-acg) newcomers: an explicit record always wins
+  // (§8.2), so the newcomer is stored as superseded history and the
+  // explicit record — and every other candidate — stays untouched.
+  if (candidates.some(({ existing }) => existing.origin === 'explicit')) {
+    item.status = 'superseded';
+    return false;
+  }
+
+  // §8.3: inferred against inferred is never auto-resolved. Both sides
+  // become needs-check and wait for the owner; the management UI's
+  // existing resolution flow (choose one / delete both) finishes it.
+  item.status = 'needs-check';
+  for (const { existing } of candidates) {
+    existing.status = 'needs-check';
+    existing.updatedAt = now;
+  }
+  return false;
 }
 
 // --- User id (unified, design §1.5/§5.2) -------------------------------------

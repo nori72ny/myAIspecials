@@ -388,7 +388,9 @@ describe('management limits', () => {
     expect(inferred.reason).toBe('inferred-paused-at-limit');
 
     // Explicit items and profile items are always stored, even at the limit.
-    const explicit = await mod.upsertMemoryItem(USER_ID, memoryItem({ id: 'new-explicit', origin: 'explicit' }));
+    // (Distinct text: since PR P1-5 the seeded statement restated verbatim
+    // would be a §8.2 duplicate and not created a second time.)
+    const explicit = await mod.upsertMemoryItem(USER_ID, memoryItem({ id: 'new-explicit', origin: 'explicit', text: '週末は家族と過ごしたい' }));
     expect(explicit.saved).toBe(true);
     const profile = await mod.upsertProfileItem(USER_ID, profileItem());
     expect(profile.saved).toBe(true);
