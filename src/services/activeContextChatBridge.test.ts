@@ -283,3 +283,39 @@ describe('active context chat bridge (design §6.3/§7.2)', () => {
     expect(forwarded[0].init?.body).toBeUndefined();
   });
 });
+
+describe('active context chat bridge proposals (design §6.4, PR P1-6)', () => {
+  it('records a pending combination proposal for the owner to review, adding nothing to the request', async () => {
+    const { graph, bridge } = await loadBridge();
+    bridge.installActiveContextChatBridge();
+    const userId = storedUserId();
+    await graph.upsertMemoryItem(userId, memoryItem());
+    setSettings({ personalizationEnabled: true });
+
+    await window.fetch('/api/chat', { method: 'POST', body: chatBody('予算の件を確認します') });
+
+    const proposals = await graph.listProposals(userId);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].kind).toBe('combination');
+    expect(proposals[0].status).toBe('pending');
+    expect(proposals[0].memoryItemIds).toEqual(['memory-1']);
+    // The proposal itself never rides along with the request: the body
+    // carries only the assembled context block, as in PR P1-4.
+    const body = JSON.parse(String(forwarded[0].init?.body)) as { activeContext?: string };
+    expect(body.activeContext).toContain('［決めたこと］ 予算の件は確定しました（11月16日）');
+    expect(body.activeContext).not.toContain('提案');
+  });
+
+  it('records no proposal while the master toggle is off', async () => {
+    const { graph, bridge } = await loadBridge();
+    bridge.installActiveContextChatBridge();
+    const userId = storedUserId();
+    await graph.upsertMemoryItem(userId, memoryItem());
+    setSettings({ personalizationEnabled: false });
+
+    await window.fetch('/api/chat', { method: 'POST', body: chatBody('予算の件を確認します') });
+
+    expect(forwarded).toHaveLength(1);
+    await expect(graph.listProposals(userId)).resolves.toEqual([]);
+  });
+});

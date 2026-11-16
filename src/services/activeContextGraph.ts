@@ -102,6 +102,43 @@ interface PersonalMemoryStore {
   version: 1;
   profile: OriginProfileItem[];
   memory: OriginMemoryItem[];
+  proposals: OriginProposal[];
+}
+
+// --- Combination proposals (design §6.4, PR P1-6) ---------------------------
+//
+// A proposal is a deterministic, on-device record that a combination of
+// accumulated items could change how a request is carried out. Generation
+// happens on the client at chat send time (no model call, no extra
+// request); the owner approves or dismisses each proposal in the
+// management UI, and only an APPROVED combination is ever reflected in
+// the assembled chat context (inside the §6.2 proposal tier of at most
+// MAX_PROPOSAL_MEMORY_ITEMS memory items). A combination that already has
+// a record — pending, approved or dismissed — is never proposed again:
+// the dismissed-pair record of §6.4 is the `dismissed` status itself.
+// The records live inside the same encrypted payload as the items they
+// reference (they contain item ids and a request excerpt, so they are
+// never kept in plaintext storage).
+
+export type OriginProposalKind = 'combination' | 'needs-check';
+export type OriginProposalStatus = 'pending' | 'approved' | 'dismissed';
+
+export interface OriginProposal {
+  id: string;
+  kind: OriginProposalKind;
+  status: OriginProposalStatus;
+  /** Memory items the combination is built from (combination), or the
+   * needs-check group awaiting the owner's choice (§8.3). */
+  memoryItemIds: string[];
+  /** Profile items cited as part of the basis (§6.4). Profile items are
+   * always part of the context already, so they ground a proposal's
+   * rationale but are never themselves promoted by an approval. */
+  profileItemIds: string[];
+  /** The request that triggered the proposal, kept for display. */
+  promptExcerpt: string;
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt?: number;
 }
 
 export interface PersonalMemoryUsage {
@@ -144,6 +181,8 @@ const PROFILE_CATEGORIES: ReadonlySet<string> = new Set(['about', 'personality',
 const MEMORY_KINDS: ReadonlySet<string> = new Set(['request', 'decision', 'preference', 'fact', 'commitment']);
 const MEMORY_ORIGINS: ReadonlySet<string> = new Set(['explicit', 'inferred', 'legacy-acg']);
 const MEMORY_STATUSES: ReadonlySet<string> = new Set(['active', 'superseded', 'done', 'needs-check', 'archived']);
+const PROPOSAL_KINDS: ReadonlySet<string> = new Set(['combination', 'needs-check']);
+const PROPOSAL_STATUSES: ReadonlySet<string> = new Set(['pending', 'approved', 'dismissed']);
 
 let activeUserId: string | null = null;
 let cachedKey: CryptoKey | null = null;
@@ -289,8 +328,21 @@ function isMemoryItem(value: unknown): value is OriginMemoryItem {
   return typeof item.source.quote === "string" && typeof item.source.at === "number";
 }
 
+function isProposal(value: unknown): value is OriginProposal {
+  if (!value || typeof value !== "object") return false;
+  const proposal = value as Partial<OriginProposal>;
+  if (typeof proposal.id !== "string" || proposal.id.length === 0) return false;
+  if (typeof proposal.kind !== "string" || !PROPOSAL_KINDS.has(proposal.kind)) return false;
+  if (typeof proposal.status !== "string" || !PROPOSAL_STATUSES.has(proposal.status)) return false;
+  if (!Array.isArray(proposal.memoryItemIds) || !proposal.memoryItemIds.every((id) => typeof id === "string")) return false;
+  if (!Array.isArray(proposal.profileItemIds) || !proposal.profileItemIds.every((id) => typeof id === "string")) return false;
+  if (typeof proposal.promptExcerpt !== "string") return false;
+  if (typeof proposal.createdAt !== "number" || typeof proposal.updatedAt !== "number") return false;
+  return proposal.resolvedAt === undefined || typeof proposal.resolvedAt === "number";
+}
+
 function emptyStore(): PersonalMemoryStore {
-  return { version: 1, profile: [], memory: [] };
+  return { version: 1, profile: [], memory: [], proposals: [] };
 }
 
 async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemoryStore> {
@@ -301,6 +353,9 @@ async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemorySt
     version: 1,
     profile: Array.isArray(store.profile) ? store.profile.filter(isProfileItem) : [],
     memory: Array.isArray(store.memory) ? store.memory.filter(isMemoryItem) : [],
+    // Payloads written before PR P1-6 have no proposals field; they simply
+    // have no proposal records yet.
+    proposals: Array.isArray(store.proposals) ? store.proposals.filter(isProposal) : [],
   };
 }
 
@@ -374,6 +429,7 @@ async function migrateLegacyStore(userId: string): Promise<PersonalMemoryStore> 
       version: 1,
       profile: [],
       memory: nodes.map(legacyNodeToMemoryItem),
+      proposals: [],
     };
     await writeStore(userId, store);
     window.localStorage.removeItem(storageKey(userId));
@@ -524,6 +580,10 @@ export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory
   const safeUserId = sanitizeUserId(userId);
   const store = await readStore(safeUserId);
   store.memory = [];
+  // Proposals are derived from the remembered items (their combinations
+  // and excerpts lose their meaning once the items are gone), so they are
+  // cleared with the memory in both scopes.
+  store.proposals = [];
   if (scope === 'all') store.profile = [];
   await writeStore(safeUserId, store);
 }
@@ -851,6 +911,46 @@ function formatContextLine(label: string, text: string, at: number, language: Pe
     : `[${label}] ${flatText}${date ? ` (${date})` : ''}`;
 }
 
+interface RankedMemory {
+  item: OriginMemoryItem;
+  relevance: MemoryRelevance;
+}
+
+/**
+ * The §6.1 memory ranking shared by the context assembly and the proposal
+ * generation (PR P1-6): active, model-shared items only, relevance-gated,
+ * explicit tier before legacy before inferred, score second, recency as
+ * tiebreak. No item cap is applied here; callers slice to their own quota.
+ */
+function rankRelevantMemories(store: PersonalMemoryStore, prompt: string, promptGrams: Set<string>, now: number): RankedMemory[] {
+  return store.memory
+    .filter((item) => item.status === 'active' && item.sendToModel)
+    .map((item) => ({ item, relevance: memoryRelevance(prompt, promptGrams, item, now) }))
+    .filter(({ relevance }) => relevance.shared >= MIN_SHARED_BIGRAMS && relevance.score >= MIN_MEMORY_RELEVANCE)
+    .sort((a, b) => memoryTierRank(a.item.origin) - memoryTierRank(b.item.origin)
+      || b.relevance.score - a.relevance.score
+      || b.item.createdAt - a.item.createdAt);
+}
+
+/**
+ * Promotion order for the proposal tier (PR P1-6): memory items named by
+ * an APPROVED proposal, earliest approval first, each proposal's items in
+ * their recorded order. Pending and dismissed proposals contribute
+ * nothing — an unapproved proposal never influences the context.
+ */
+function approvedProposalItemOrder(proposals: OriginProposal[]): Map<string, number> {
+  const order = new Map<string, number>();
+  const approved = proposals
+    .filter((proposal) => proposal.status === 'approved')
+    .sort((a, b) => (a.resolvedAt ?? a.updatedAt) - (b.resolvedAt ?? b.updatedAt) || a.createdAt - b.createdAt);
+  for (const proposal of approved) {
+    for (const id of proposal.memoryItemIds) {
+      if (!order.has(id)) order.set(id, order.size);
+    }
+  }
+  return order;
+}
+
 /**
  * Assembles the personal context block for the current prompt (design §6.1/
  * §6.2): formatted text lines — kind/category label, text, date — never raw
@@ -889,14 +989,26 @@ export async function retrieveRelevantContext(
 
   // (2) Explicit memories, then (3) inferred memories: active items only,
   // relevance-gated, tier first and score second, recency as tiebreak.
-  const ranked = store.memory
-    .filter((item) => item.status === 'active' && item.sendToModel)
-    .map((item) => ({ item, relevance: memoryRelevance(prompt, promptGrams, item, now) }))
-    .filter(({ relevance }) => relevance.shared >= MIN_SHARED_BIGRAMS && relevance.score >= MIN_MEMORY_RELEVANCE)
-    .sort((a, b) => memoryTierRank(a.item.origin) - memoryTierRank(b.item.origin)
-      || b.relevance.score - a.relevance.score
-      || b.item.createdAt - a.item.createdAt)
-    .slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+  // Items of an owner-approved combination proposal are promoted into the
+  // proposal tier at the head of the list (PR P1-6, §6.4): the tier holds
+  // at most MAX_PROPOSAL_MEMORY_ITEMS items, promoted items still have to
+  // pass the same relevance gate and flag checks, and the overall cap of
+  // MAX_MEMORY_CONTEXT_ITEMS is unchanged. With no approved proposal the
+  // ordering is exactly the PR P1-4 ranking.
+  const gated = rankRelevantMemories(store, prompt, promptGrams, now);
+  const proposalOrder = approvedProposalItemOrder(store.proposals);
+  let ranked: RankedMemory[];
+  if (proposalOrder.size === 0) {
+    ranked = gated.slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+  } else {
+    const promoted = gated
+      .filter(({ item }) => proposalOrder.has(item.id))
+      .sort((a, b) => (proposalOrder.get(a.item.id) ?? 0) - (proposalOrder.get(b.item.id) ?? 0))
+      .slice(0, MAX_PROPOSAL_MEMORY_ITEMS);
+    const promotedIds = new Set(promoted.map(({ item }) => item.id));
+    const rest = gated.filter(({ item }) => !promotedIds.has(item.id));
+    ranked = [...promoted, ...rest].slice(0, MAX_MEMORY_CONTEXT_ITEMS);
+  }
 
   const memoryHeader = language === 'ja' ? 'ORIGINが覚えていること:' : 'What ORIGIN remembers:';
   const memoryLines: string[] = [];
@@ -928,6 +1040,241 @@ export function buildActiveContextInstruction(context: string): string {
     "- Do not claim that the historical values are current facts. Preserve conflicts by prioritizing the current request and explicitly flagging meaningful uncertainty.",
     context,
   ].join("\n");
+}
+
+// --- Combination proposals: generation and resolution (design §6.4/§8.3) -----
+//
+// PR P1-6. Generation is deterministic and on-device: the chat bridge
+// calls `generateProposalsForPrompt` with the outgoing request, and at
+// most ONE new proposal is recorded per request. Two kinds are produced:
+//
+//   - needs-check (§8.3): a group of remembered statements that disagree
+//     with each other is relevant to the request. Until the owner chooses,
+//     neither side enters the context (assembly takes `active` only), so
+//     this confirmation is generated first — it unblocks the correct use
+//     of everything else. Approving it makes §8.3's interim rule ("the
+//     newer statement is preferred") definitive: the newest member
+//     becomes active and the rest stay as superseded history. Dismissing
+//     it leaves the group untouched (the management UI's per-item choice
+//     still works) and the same group is never proposed again.
+//   - combination (§6.4): the request relates to accumulated items and
+//     combining them would change how it is carried out. The combination
+//     is the §6.2 proposal tier — the top MAX_PROPOSAL_MEMORY_ITEMS
+//     relevant memories — plus any relevant profile items as cited basis.
+//     "Would change the approach" is judged deterministically, in the
+//     spirit of §8.4's honesty about heuristic limits: an item whose
+//     statement the request already contains verbatim (its character
+//     2-grams are a subset of the request's) adds nothing, because the
+//     owner has already woven it into the request themselves, so it is
+//     left out; if every candidate is already stated, no proposal is
+//     made (the "content unchanged" case of §10).
+//
+// A combination's identity is the SET of items it uses, not the wording
+// of the request that happened to trigger it: any existing record with
+// the same item set — pending, approved or dismissed — suppresses
+// regeneration, so a dismissed pair is never proposed again even when a
+// later request is phrased differently (§6.4). Frequency is further
+// suppressed by the one-per-request rule and by pausing generation while
+// MAX_PENDING_PROPOSALS proposals await the owner. Records are capped at
+// MAX_PROPOSAL_RECORDS; past the cap the oldest dismissed records are
+// pruned first (approved records, which drive the context assembly, are
+// never pruned automatically).
+
+const MAX_PENDING_PROPOSALS = 10;
+const MAX_PROPOSAL_RECORDS = 200;
+const MAX_PROPOSAL_PROFILE_BASIS = 2;
+const PROPOSAL_PROMPT_EXCERPT_CHARS = 80;
+const NEEDS_CHECK_KIND_ORDER: readonly OriginMemoryKind[] = ['decision', 'preference', 'fact', 'request', 'commitment'];
+
+function proposalIdentity(proposal: Pick<OriginProposal, 'kind' | 'memoryItemIds' | 'profileItemIds'>): string {
+  const memory = [...proposal.memoryItemIds].sort().join(',');
+  const profile = [...proposal.profileItemIds].sort().join(',');
+  return `${proposal.kind}|${memory}|${profile}`;
+}
+
+function proposalPromptExcerpt(prompt: string): string {
+  const flat = prompt.replace(/\s+/g, ' ').trim();
+  return flat.length > PROPOSAL_PROMPT_EXCERPT_CHARS ? `${flat.slice(0, PROPOSAL_PROMPT_EXCERPT_CHARS)}…` : flat;
+}
+
+/** True when the request already states the item's content itself: every
+ * character 2-gram of the item text occurs in the request, so combining
+ * the item in would not change anything (§10 "content unchanged"). */
+function promptAlreadyStatesItem(promptGrams: Set<string>, text: string): boolean {
+  const grams = characterBigrams(text);
+  if (!grams.size) return false;
+  for (const gram of grams) if (!promptGrams.has(gram)) return false;
+  return true;
+}
+
+function sharedBigramCount(promptGrams: Set<string>, text: string): number {
+  let shared = 0;
+  for (const gram of characterBigrams(text)) if (promptGrams.has(gram)) shared += 1;
+  return shared;
+}
+
+function buildNeedsCheckProposal(store: PersonalMemoryStore, prompt: string, promptGrams: Set<string>, now: number): OriginProposal | null {
+  for (const kind of NEEDS_CHECK_KIND_ORDER) {
+    const group = store.memory
+      .filter((item) => item.status === 'needs-check' && item.kind === kind)
+      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (group.length < 2) continue;
+    // The group must genuinely contain a contradiction-candidate pair
+    // (the §8 criteria of PR P1-5); a group parked in needs-check by hand
+    // is the owner's to resolve in the management UI, not to propose on.
+    let hasCandidatePair = false;
+    for (let i = 0; i < group.length && !hasCandidatePair; i += 1) {
+      for (let j = i + 1; j < group.length; j += 1) {
+        if (isContradictionCandidate(group[j], group[i], matchMemoryTexts(group[j].text, group[i].text))) {
+          hasCandidatePair = true;
+          break;
+        }
+      }
+    }
+    if (!hasCandidatePair) continue;
+    // §8.3: the question is raised when the request touches the pair.
+    const touches = group.some((item) => {
+      const relevance = memoryRelevance(prompt, promptGrams, item, now);
+      return relevance.shared >= MIN_SHARED_BIGRAMS && relevance.score >= MIN_MEMORY_RELEVANCE;
+    });
+    if (!touches) continue;
+    return {
+      id: crypto.randomUUID(),
+      kind: 'needs-check',
+      status: 'pending',
+      memoryItemIds: group.map((item) => item.id),
+      profileItemIds: [],
+      promptExcerpt: proposalPromptExcerpt(prompt),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  return null;
+}
+
+function buildCombinationProposal(store: PersonalMemoryStore, prompt: string, promptGrams: Set<string>, now: number): OriginProposal | null {
+  // The combination is grounded in the same gated ranking the context
+  // assembly uses (active, model-shared items), so an approval can
+  // truthfully take effect there; items the request already states are
+  // dropped as content-unchanged, and the tier is capped at the §6.2
+  // proposal quota.
+  const tier = rankRelevantMemories(store, prompt, promptGrams, now)
+    .filter(({ item }) => !promptAlreadyStatesItem(promptGrams, item.text))
+    .slice(0, MAX_PROPOSAL_MEMORY_ITEMS);
+  if (!tier.length) return null;
+  const basis = store.profile
+    .filter((item) => item.sendToModel)
+    .map((item) => ({ item, shared: sharedBigramCount(promptGrams, item.text) }))
+    .filter(({ item, shared }) => shared >= MIN_SHARED_BIGRAMS
+      && shared / promptGrams.size >= MIN_MEMORY_RELEVANCE
+      && !promptAlreadyStatesItem(promptGrams, item.text))
+    .sort((a, b) => b.shared - a.shared || a.item.createdAt - b.item.createdAt)
+    .slice(0, MAX_PROPOSAL_PROFILE_BASIS);
+  return {
+    id: crypto.randomUUID(),
+    kind: 'combination',
+    status: 'pending',
+    memoryItemIds: tier.map(({ item }) => item.id),
+    profileItemIds: basis.map(({ item }) => item.id),
+    promptExcerpt: proposalPromptExcerpt(prompt),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Records at most one new proposal for the outgoing request and returns
+ * the proposals created by this call (usually none). Deterministic and
+ * fully on-device; the caller (the chat bridge) treats any failure as
+ * irrelevant to the request itself. Uses the module's active user id,
+ * like `retrieveRelevantContext`.
+ */
+export async function generateProposalsForPrompt(
+  currentPrompt: string,
+  options: { now?: number } = {},
+): Promise<OriginProposal[]> {
+  ensureBrowser();
+  if (!activeUserId) return [];
+  const prompt = currentPrompt.trim();
+  if (!prompt) return [];
+  const now = options.now ?? Date.now();
+  const store = await readStore(activeUserId);
+  // Frequency suppression (§10): while enough proposals already await
+  // the owner, no new ones are added.
+  if (store.proposals.filter((proposal) => proposal.status === 'pending').length >= MAX_PENDING_PROPOSALS) return [];
+  const promptGrams = characterBigrams(prompt);
+  if (!promptGrams.size) return [];
+
+  const candidate = buildNeedsCheckProposal(store, prompt, promptGrams, now)
+    ?? buildCombinationProposal(store, prompt, promptGrams, now);
+  if (!candidate) return [];
+  const identity = proposalIdentity(candidate);
+  if (store.proposals.some((proposal) => proposalIdentity(proposal) === identity)) return [];
+
+  store.proposals.push(candidate);
+  // Record cap: prune the oldest dismissed records first; if nothing may
+  // be pruned, the new record is dropped instead of growing the store.
+  while (store.proposals.length > MAX_PROPOSAL_RECORDS) {
+    const prunable = store.proposals
+      .filter((proposal) => proposal.status === 'dismissed' && proposal.id !== candidate.id)
+      .sort((a, b) => a.updatedAt - b.updatedAt)[0];
+    if (!prunable) {
+      store.proposals = store.proposals.filter((proposal) => proposal.id !== candidate.id);
+      return [];
+    }
+    store.proposals = store.proposals.filter((proposal) => proposal.id !== prunable.id);
+  }
+  await writeStore(activeUserId, store);
+  return [candidate];
+}
+
+export async function listProposals(userId: string): Promise<OriginProposal[]> {
+  const store = await readStore(sanitizeUserId(userId));
+  return store.proposals;
+}
+
+/**
+ * Applies the owner's decision to a pending proposal. Approving a
+ * combination needs no further store change: the context assembly picks
+ * approved proposals up on its own. Approving a needs-check proposal
+ * resolves the group in the same write (newest statement becomes active,
+ * the rest become superseded history — §8.3 made definitive by the
+ * owner's choice; members already resolved by hand are left as they
+ * are). Dismissing only records the decision: the combination is never
+ * proposed again (§6.4). Returns false when the proposal does not exist
+ * or was already resolved.
+ */
+export async function setProposalStatus(
+  userId: string,
+  proposalId: string,
+  next: 'approved' | 'dismissed',
+  options: { now?: number } = {},
+): Promise<boolean> {
+  const safeUserId = sanitizeUserId(userId);
+  const store = await readStore(safeUserId);
+  const proposal = store.proposals.find((entry) => entry.id === proposalId);
+  if (!proposal || proposal.status !== 'pending') return false;
+  const now = options.now ?? Date.now();
+  proposal.status = next;
+  proposal.resolvedAt = now;
+  proposal.updatedAt = now;
+  if (next === 'approved' && proposal.kind === 'needs-check') {
+    const members = store.memory
+      .filter((item) => proposal.memoryItemIds.includes(item.id) && item.status === 'needs-check')
+      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (members.length) {
+      const chosen = members[members.length - 1];
+      chosen.status = 'active';
+      chosen.updatedAt = now;
+      for (const other of members) {
+        if (other.id === chosen.id) continue;
+        other.status = 'superseded';
+        other.updatedAt = now;
+      }
+    }
+  }
+  await writeStore(safeUserId, store);
+  return true;
 }
 
 // --- Passkey key migration (key handling unchanged) ---------------------------

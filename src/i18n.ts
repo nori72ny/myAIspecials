@@ -166,6 +166,15 @@ type Translation = {
     needsCheckPrompt: string;
     useThis: string;
     deleteBoth: string;
+    proposalsHeading: string;
+    proposalsIntro: string;
+    proposalFromRequest: (excerpt: string) => string;
+    proposalApproveCombination: string;
+    proposalDismiss: string;
+    proposalNeedsCheckTitle: string;
+    proposalNeedsCheckBody: string;
+    proposalNeedsCheckApprove: string;
+    proposalNeedsCheckDismiss: string;
     clearAll: string;
     clearAllConfirmTitle: string;
     clearAllConfirmBody: string;
@@ -356,6 +365,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       needsCheckPrompt: 'どちらが今の内容ですか',
       useThis: 'こちらを使う',
       deleteBoth: '両方消す',
+      proposalsHeading: '合わせて進める提案',
+      proposalsIntro: '覚えている内容を合わせると、頼みごとが進めやすくなりそうな組み合わせです。使うかどうかは、ここで選べます。',
+      proposalFromRequest: (excerpt) => `「${excerpt}」という頼みごとから`,
+      proposalApproveCombination: '合わせて進める',
+      proposalDismiss: '今は使わない',
+      proposalNeedsCheckTitle: '食い違っている内容の確認',
+      proposalNeedsCheckBody: 'どちらも、覚えている内容として残っています。新しい方を使うか、このままにしておくか選べます。',
+      proposalNeedsCheckApprove: '新しい方を使う',
+      proposalNeedsCheckDismiss: '今は決めない',
       clearAll: '覚えていることを全て消す',
       clearAllConfirmTitle: '覚えていることを全て消しますか',
       clearAllConfirmBody: '会話の履歴は消えません。覚えていることだけが消えます。',
@@ -544,6 +562,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       needsCheckPrompt: 'Which one is current?',
       useThis: 'Use this one',
       deleteBoth: 'Delete both',
+      proposalsHeading: 'Combinations to try',
+      proposalsIntro: 'Combinations of things ORIGIN remembers that could make your requests go more smoothly. You choose which ones to use.',
+      proposalFromRequest: (excerpt) => `From your request: “${excerpt}”`,
+      proposalApproveCombination: 'Use this combination',
+      proposalDismiss: 'Not now',
+      proposalNeedsCheckTitle: 'Checking items that do not agree',
+      proposalNeedsCheckBody: 'Both are still remembered. You can switch to the newer one, or leave them as they are for now.',
+      proposalNeedsCheckApprove: 'Use the newer one',
+      proposalNeedsCheckDismiss: 'Decide later',
       clearAll: 'Delete everything ORIGIN remembers',
       clearAllConfirmTitle: 'Delete everything ORIGIN remembers?',
       clearAllConfirmBody: 'Your conversation history is not deleted. Only what ORIGIN remembers is removed.',

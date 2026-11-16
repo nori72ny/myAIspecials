@@ -9,13 +9,16 @@ import {
   getPersonalMemoryMigrationNotice,
   getPersonalMemoryUsage,
   listItems,
+  listProposals,
   resolveActiveContextUserId,
+  setProposalStatus,
   upsertMemoryItem,
   upsertProfileItem,
   type OriginMemoryItem,
   type OriginMemoryKind,
   type OriginProfileCategory,
   type OriginProfileItem,
+  type OriginProposal,
   type PersonalMemoryUsage,
 } from '../services/activeContextGraph';
 
@@ -73,6 +76,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const userIdRef = useRef<string | null>(null);
   const [profileItems, setProfileItems] = useState<OriginProfileItem[]>([]);
   const [memoryItems, setMemoryItems] = useState<OriginMemoryItem[]>([]);
+  const [proposals, setProposals] = useState<OriginProposal[]>([]);
   const [usage, setUsage] = useState<PersonalMemoryUsage | null>(null);
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>({ kind: 'idle' });
@@ -92,10 +96,11 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
 
   const reload = useCallback(async () => {
     const id = userId();
-    const [items, nextUsage] = await Promise.all([listItems(id), getPersonalMemoryUsage(id)]);
+    const [items, nextUsage, nextProposals] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id)]);
     setProfileItems(items.profile);
     setMemoryItems(items.memory);
     setUsage(nextUsage);
+    setProposals(nextProposals);
   }, []);
 
   useEffect(() => {
@@ -206,6 +211,20 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
     });
   };
 
+  // --- Proposal actions (design §6.4, PR P1-6) --------------------------------
+  //
+  // Approving a combination lets the context assembly promote its items
+  // into the proposal tier; approving a needs-check proposal resolves the
+  // group in favor of the newest statement (the storage layer performs
+  // the transition). Dismissing records the pair so it is never proposed
+  // again. Resolved proposals leave the list either way.
+
+  const resolveProposal = async (proposal: OriginProposal, next: 'approved' | 'dismissed') => {
+    await runMutation(async () => {
+      await setProposalStatus(userId(), proposal.id, next);
+    });
+  };
+
   const deleteNeedsCheckGroup = async (group: OriginMemoryItem[]) => {
     await runMutation(async () => {
       for (const item of group) await deleteMemoryItem(userId(), item.id);
@@ -233,6 +252,18 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
     .map((kind) => ({ kind, items: activeMemory.filter((item) => item.kind === kind) }))
     .filter((group) => group.items.length > 0);
   const historyItems = memoryItems.filter((item) => HISTORY_STATUSES.has(item.status));
+
+  // Pending proposals whose items are still in the state the proposal was
+  // made for (a combination whose items were deleted or replaced since,
+  // or a needs-check group the owner already settled by hand, is stale
+  // and simply not shown; its record still suppresses re-proposal).
+  const memoryById = new Map(memoryItems.map((item) => [item.id, item]));
+  const profileById = new Map(profileItems.map((item) => [item.id, item]));
+  const pendingProposals = proposals
+    .filter((proposal) => proposal.status === 'pending')
+    .filter((proposal) => (proposal.kind === 'needs-check'
+      ? proposal.memoryItemIds.filter((id) => memoryById.get(id)?.status === 'needs-check').length >= 2
+      : proposal.memoryItemIds.length > 0 && proposal.memoryItemIds.every((id) => memoryById.get(id)?.status === 'active')));
 
   const originLabel = (item: OriginMemoryItem): string => (
     item.origin === 'explicit' ? p.originExplicit : item.origin === 'legacy-acg' ? p.originLegacy : p.originInferred
@@ -295,6 +326,57 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       )}
     </li>
   );
+
+  const renderProposal = (proposal: OriginProposal) => {
+    const memoryBasis = proposal.memoryItemIds
+      .map((id) => memoryById.get(id))
+      .filter((item): item is OriginMemoryItem => Boolean(item));
+    const profileBasis = proposal.profileItemIds
+      .map((id) => profileById.get(id))
+      .filter((item): item is OriginProfileItem => Boolean(item));
+    return (
+      <li key={proposal.id} data-testid={`proposal-${proposal.id}`} className="origin-surface-muted space-y-2 rounded-xl border p-3">
+        {proposal.kind === 'needs-check' ? (
+          <>
+            <p className="text-sm font-bold">{p.proposalNeedsCheckTitle}</p>
+            <p className="origin-muted text-[13px] leading-5">{p.proposalNeedsCheckBody}</p>
+            <ul className="space-y-1">
+              {memoryBasis.map((item) => (
+                <li key={item.id} className="text-sm leading-6">
+                  {item.text}
+                  <span className="origin-muted text-[13px]">（{formatMonthDay(item.createdAt, language)}）</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'approved'); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">{p.proposalNeedsCheckApprove}</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-[13px] font-semibold">{p.proposalNeedsCheckDismiss}</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="origin-muted text-[13px] leading-5">{p.proposalFromRequest(proposal.promptExcerpt)}</p>
+            <ul className="space-y-1">
+              {memoryBasis.map((item) => (
+                <li key={item.id} className="text-sm leading-6">
+                  <span className="origin-muted text-[13px]">{p.memoryKinds[item.kind]}：</span>{item.text}
+                </li>
+              ))}
+              {profileBasis.map((item) => (
+                <li key={item.id} className="text-sm leading-6">
+                  <span className="origin-muted text-[13px]">{p.profileCategories[item.category]}：</span>{item.text}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'approved'); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">{p.proposalApproveCombination}</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-[13px] font-semibold">{p.proposalDismiss}</button>
+            </div>
+          </>
+        )}
+      </li>
+    );
+  };
 
   return (
     <section aria-labelledby="personal-heading" data-testid="personalization-section" className="space-y-3 border-t border-[var(--border-default)] pt-5">
@@ -384,6 +466,16 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           <p className="origin-muted text-[13px] leading-5">{p.profileWarning}</p>
         </div>
       </div>
+
+      {pendingProposals.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <h4 className="text-sm font-bold">{p.proposalsHeading}</h4>
+          <p className="origin-muted text-[13px] leading-5">{p.proposalsIntro}</p>
+          <ul className="space-y-2">
+            {pendingProposals.map((proposal) => renderProposal(proposal))}
+          </ul>
+        </div>
+      )}
 
       <div className="space-y-3 pt-2">
         <h4 className="text-sm font-bold">{p.memoryHeading}</h4>
