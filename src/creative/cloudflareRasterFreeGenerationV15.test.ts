@@ -3,13 +3,13 @@ import {
   generateCloudflareRasterImageFreeProofV15,
   CloudflareRasterUsageReconciliationErrorV15,
 } from './cloudflareRasterFreeGenerationV15';
-import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog';
+import { CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15 } from './cloudflareRasterFreeQuotaV15';
 
 const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
   CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
 };
-const NOW_IN_WINDOW = () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
+const NOW_IN_WINDOW = () => Date.parse(CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15.verifiedAt) + 1;
 const RECONCILE_FAST = { attempts: 2, delayMs: 0, totalMs: 1_000 };
 
 function envelope(result: unknown, status = 200): Response {
@@ -260,7 +260,7 @@ describe('cloudflareRasterFreeGenerationV15', () => {
       INPUT,
       ENV,
       fetchMock as unknown as typeof fetch,
-      { now: () => Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].reviewAfter) + 1 },
+      { now: () => Date.parse(CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15.reviewAfter) + 1 },
     )).rejects.toThrow('RASTER_PRICING_EVIDENCE_STALE');
     expect(fetchMock).not.toHaveBeenCalled();
   });

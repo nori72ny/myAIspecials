@@ -469,7 +469,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('fails closed at the quota pre-check when daily usage cannot be verified, before any inference', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(cfEnvelope({ default_usage_model: 'bundled' }))
       .mockResolvedValueOnce(cfEnvelope([]))
@@ -527,7 +527,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('does not fall back to another provider when the Cloudflare proof pipeline cannot complete', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const scopedKeyInfo = {
       valid: true,
       type: 'secret',
@@ -582,7 +582,7 @@ describe('rasterImageV15Router', () => {
 
 
   it('fails closed for direct valid generate and edit API calls when the plan proof cannot complete', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const fetchMock = vi.fn(async (_url: string) => { throw new Error('network unavailable'); });
     vi.stubGlobal('fetch', fetchMock);
     const instance = app(CF_ENV);
@@ -625,7 +625,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('delivers an image only when the full Cloudflare Free proof pipeline passes', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     stubSuccessfulCloudflarePipeline(state, pngBytes(768, 1024));
 
@@ -681,7 +681,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('reports the observed Neurons totals in usage headers on aggregate-carried delivery', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     stubSuccessfulCloudflarePipeline(state, pngBytes(768, 1024));
 
@@ -704,7 +704,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('reports the per-request Neurons total and omits the unobserved aggregate on reported delivery', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     stubPerRequestReportedPipeline(state, pngBytes(768, 1024));
 
@@ -733,7 +733,10 @@ describe('rasterImageV15Router', () => {
     // failed the client's binary verification. The real router response
     // must now pass every client condition for this plan shape
     // (purpose 'photograph', typography 'not-required').
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-13T12:00:00.000Z'));
+    // The Date.now pin is the in-window pin used across this file; the
+    // 2026-11-13 incident date itself predates the current pricing
+    // evidence window and would fail the freshness gate instead.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     stubSuccessfulCloudflarePipeline(state, pngBytes(1024, 1024));
 
@@ -755,7 +758,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('includes the observed usage snapshot when reconciliation fails', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     const criticAnswer = JSON.stringify({
       promptAdherence: [],
@@ -837,7 +840,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('runs best-of-2 candidate selection for quality-critical purposes within the quota reserve', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { usedNeurons: 100, imageRuns: 0 };
     // Defect-list contract: candidate 0 carries one defect on each of
     // three axes (derived 3,3,3,4,4,4,4 -> score 89); candidate 1 is
@@ -901,7 +904,7 @@ describe('rasterImageV15Router', () => {
   });
 
   it('refuses generation before inference when the daily free allocation cannot cover the reserve', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-16T12:00:00.000Z'));
     const state = { imageRuns: 0 };
     const fetchMock = vi.fn(async (url: string) => {
       const target = String(url);
