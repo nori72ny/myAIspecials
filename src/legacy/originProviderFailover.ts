@@ -128,6 +128,40 @@ import {
  * every primary attempt. A request that skips the primary records the attempt as
  * outcome "skipped" with skipReason "primary-circuit-open", the error code that
  * opened the breaker, and a transport count of 0 (nothing was sent).
+ *
+ * Second-route attempt cap (speed wave 1, 2026-11-16): the production measurement
+ * of the same day showed ordinary/planning answers taking 32-37s, dominated by the
+ * second route's slow failures being waited out serially — one planning request
+ * waited 34.9s for the Cloudflare route to time out before the third route answered
+ * in 1.4s — while a successful second-route attempt took 16.6s. While the third
+ * route is configured, the second route's slice is therefore additionally capped
+ * at ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS (25s, ~1.5x the observed healthy success),
+ * on top of the third-route reserve: a slow second-route failure now costs at most
+ * the cap, and the third route still starts with at least its reserve. Without a
+ * configured third route the second route is the last route and keeps the full
+ * remainder, exactly as before (mirroring the reserve's conditionality).
+ *
+ * Second-route circuit breaker (speed wave 1, 2026-11-16): the Cloudflare client
+ * already stops the route on its own for a day on pool exhaustion and for 60s on
+ * a temporary-capacity code, but a hanging route has no such state — every request
+ * paid the full slice again. The dispatcher now counts consecutive executed
+ * second-route attempts that fail with a timeout, a rate limit, or an
+ * unavailability error AND actually sent at least one request (a bounded-race
+ * expiry that sent nothing says nothing about the route's health and never
+ * counts). At ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD consecutive counted
+ * failures the breaker opens for ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS: while the
+ * third route is configured, later requests skip the second route entirely
+ * (attempt recorded as outcome "skipped", skipReason "cloudflare-circuit-open",
+ * the opening error code, transport count 0) and go straight to the third route.
+ * After the cooldown the next request trials the second route once (half-open):
+ * success closes the breaker and resets the count; a counted failure re-opens it
+ * at once. A success at any time resets the consecutive count, and outcomes that
+ * are not counted failures (pre-execution skips, integrity failures) leave the
+ * count untouched. Without a configured third route the breaker never skips: the
+ * second route is the last chance and always runs. Like the primary breaker this
+ * is best-effort in-process state only — losing it reverts to attempting the
+ * route under its slice. Breaker open/close transitions are logged with numbers
+ * and fixed codes only.
  */
 
 export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode> = new Set([
@@ -159,6 +193,19 @@ export const ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS = 52_000;
 export const ORIGIN_GROQ_ROUTE_RESERVE_MS = 10_000;
 /** skipReason recorded on the primary attempt evidence while the circuit breaker is open. */
 export const ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON = "primary-circuit-open";
+/**
+ * Cap on the second route's slice of the total budget while the third route is
+ * configured (speed wave 1): ~1.5x the 16.6s healthy success measured in
+ * production on 2026-11-16, so a healthy success is not clipped while a hanging
+ * attempt stops costing the previous ~35s (remaining minus reserve).
+ */
+export const ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS = 25_000;
+/** Consecutive counted availability failures of the second route that open its circuit breaker. */
+export const ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD = 2;
+/** How long the second route is skipped after its circuit breaker opens. */
+export const ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS = 180_000;
+/** skipReason recorded on the Cloudflare attempt evidence while its circuit breaker is open. */
+export const ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON = "cloudflare-circuit-open";
 
 export interface OriginProviderFailoverOptions {
   nowMs?: number;
@@ -176,6 +223,12 @@ export interface OriginProviderFailoverOptions {
   totalBudgetMs?: number;
   /** Overrides ORIGIN_GROQ_ROUTE_RESERVE_MS (tests and tuning). */
   groqReserveMs?: number;
+  /** Overrides ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS (tests and tuning). */
+  cloudflareAttemptBudgetMs?: number;
+  /** Overrides ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS (tests and tuning). */
+  cloudflareCircuitCooldownMs?: number;
+  /** Overrides ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD (tests and tuning). */
+  cloudflareCircuitFailureThreshold?: number;
   /**
    * Internal: the total-budget window opened by the public entry points and shared
    * with every internal helper, so the primary phase and the second route draw from
@@ -205,6 +258,7 @@ let primaryCircuit: OriginPrimaryCircuitState | null = null;
 
 export function resetOriginProviderFailoverCircuitForTests(): void {
   primaryCircuit = null;
+  cloudflareCircuit = null;
 }
 
 function dispatcherNowMs(options: OriginProviderFailoverOptions): number {
@@ -228,6 +282,76 @@ function closePrimaryCircuit(): void {
 /** Only sustained availability failures open the breaker: rate limits and timeouts. */
 function circuitOpeningCode(error: OriginProviderError): OriginProviderErrorCode | null {
   return error.code === "PROVIDER_RATE_LIMITED" || error.code === "PROVIDER_TIMEOUT" ? error.code : null;
+}
+
+interface OriginCloudflareCircuitState {
+  consecutiveFailures: number;
+  /** Epoch ms until which the route is skipped; 0 while the breaker is closed (failures only counted). */
+  openUntilMs: number;
+  errorCode: OriginProviderErrorCode;
+}
+
+/**
+ * In-process circuit breaker for the second (Cloudflare) route, mirroring the
+ * primary breaker above: a best-effort latency optimization only, never a
+ * correctness or policy mechanism, so losing it (cold start, scale-out,
+ * instance recycling) simply reverts to attempting the route under its slice.
+ */
+let cloudflareCircuit: OriginCloudflareCircuitState | null = null;
+
+function cloudflareCircuitOpen(options: OriginProviderFailoverOptions): OriginCloudflareCircuitState | null {
+  if (!cloudflareCircuit || cloudflareCircuit.openUntilMs <= 0) return null;
+  return dispatcherNowMs(options) < cloudflareCircuit.openUntilMs ? cloudflareCircuit : null;
+}
+
+/**
+ * The second-route failures that count toward its breaker: timeouts, rate
+ * limits (the client's classification of the capacity and pool-exhaustion
+ * 429s), and unavailability (5xx / network). The attempt must actually have
+ * sent at least one request: a bounded-race expiry that sent nothing (the
+ * total budget was already spent before the route could run) is a budget
+ * event, not route ill health, and never counts. Configuration and integrity
+ * failures never count either.
+ */
+function cloudflareCircuitFailureCode(error: OriginProviderError): OriginProviderErrorCode | null {
+  if (error.code !== "PROVIDER_TIMEOUT" && error.code !== "PROVIDER_RATE_LIMITED" && error.code !== "PROVIDER_UNAVAILABLE") {
+    return null;
+  }
+  if ((error.diagnostic?.transportRequestCount ?? 0) <= 0) return null;
+  return error.code;
+}
+
+function recordCloudflareRouteFailure(error: OriginProviderError, options: OriginProviderFailoverOptions): void {
+  const errorCode = cloudflareCircuitFailureCode(error);
+  if (!errorCode) return;
+  const nowMs = dispatcherNowMs(options);
+  const previous = cloudflareCircuit;
+  const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
+  // A counted failure on the half-open trial (the cooldown had expired and this
+  // request retried the route) re-opens the breaker at once, as does one that
+  // somehow executed while already open (possible only when no third route is
+  // configured and the breaker therefore never skips). Otherwise the breaker
+  // opens when the consecutive-failure threshold is reached.
+  const halfOpenTrial = previous !== null && previous.openUntilMs > 0 && nowMs >= previous.openUntilMs;
+  const alreadyOpen = previous !== null && nowMs < previous.openUntilMs;
+  const threshold = Math.max(1, options.cloudflareCircuitFailureThreshold ?? ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD);
+  if (halfOpenTrial || alreadyOpen || consecutiveFailures >= threshold) {
+    const cooldownMs = options.cloudflareCircuitCooldownMs ?? ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS;
+    cloudflareCircuit = { consecutiveFailures, openUntilMs: nowMs + cooldownMs, errorCode };
+    console.warn("[origin-provider-failover] cloudflare circuit opened", { errorCode, consecutiveFailures, cooldownMs });
+    return;
+  }
+  cloudflareCircuit = { consecutiveFailures, openUntilMs: 0, errorCode };
+}
+
+function recordCloudflareRouteSuccess(): void {
+  if (!cloudflareCircuit) return;
+  const wasOpen = cloudflareCircuit.openUntilMs > 0;
+  const errorCode = cloudflareCircuit.errorCode;
+  cloudflareCircuit = null;
+  if (wasOpen) {
+    console.info("[origin-provider-failover] cloudflare circuit closed", { errorCode });
+  }
 }
 
 function mergeAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
@@ -457,12 +581,17 @@ function totalBudgetTimeoutError(transportRequestCount?: number): OriginProvider
  * the third route always starts with at least the reserve left (PKG-4 PR-1);
  * earlier routes that finish sooner leave the third route more than the reserve.
  * Without a configured third route the second route keeps the full remainder.
+ * Speed wave 1 additionally caps the slice at the second route's own attempt
+ * budget while the third route is configured, so a hanging second route stops
+ * costing the whole remainder-minus-reserve; the cap never extends the slice
+ * beyond what the reserve leaves, and the total budget is unchanged.
  */
 function cloudflareSliceMs(options: OriginProviderFailoverOptions, env: NodeJS.ProcessEnv): number {
   const remainingMs = totalBudgetRemainingMs(options);
   if (!isOriginGroqRouteConfigured(env)) return remainingMs;
   const reserveMs = Math.max(0, options.groqReserveMs ?? ORIGIN_GROQ_ROUTE_RESERVE_MS);
-  return remainingMs - reserveMs;
+  const attemptBudgetMs = Math.max(1, options.cloudflareAttemptBudgetMs ?? ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS);
+  return Math.min(remainingMs - reserveMs, attemptBudgetMs);
 }
 
 /**
@@ -662,6 +791,73 @@ async function attemptGroqRoute(
 }
 
 /**
+ * Second-route phase shared by both failover entries (a primary availability
+ * failure, and a circuit-open primary skip): runs the Cloudflare route bounded,
+ * records the outcome on its circuit breaker, and falls through to the third
+ * route on availability failures and pre-execution skips. Returns the serving
+ * route's result on success; otherwise throws the honest error: the fallback
+ * error (built lazily by `skippedFallbackError`, since the open-circuit
+ * variant's Retry-After depends on when it is built) when the second route was
+ * skipped before execution, or the second route's own error when it executed
+ * and failed. Attempt history is attached to the thrown error's diagnostic
+ * either way.
+ *
+ * Circuit breaker: while the second route's breaker is open and the third
+ * route is configured, the second route is not attempted at all — the skip is
+ * recorded exactly like a pre-execution skip (skipReason
+ * "cloudflare-circuit-open", the opening error code, zero transport requests)
+ * and the third route runs immediately. Without a configured third route the
+ * second route is the last route and always runs, breaker state
+ * notwithstanding.
+ */
+async function failOverFromCloudflareRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  primaryAttempt: OriginProviderAttemptEvidence,
+  skippedFallbackError: () => OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const circuit = cloudflareCircuitOpen(options);
+  if (circuit && isOriginGroqRouteConfigured(env)) {
+    const skipped = cloudflareAttemptEvidence("skipped", {
+      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
+      errorCode: circuit.errorCode,
+      transportRequestCount: 0,
+    });
+    return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], skippedFallbackError());
+  }
+  const cloudflareStartedAtMs = Date.now();
+  try {
+    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
+    recordCloudflareRouteSuccess();
+    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginCloudflarePreflightError) {
+      const skipped = cloudflareAttemptEvidence("skipped", {
+        skipReason: error.reason === "plan-proof-failed" && error.proofReason
+          ? `plan-proof-failed:${error.proofReason}`
+          : error.reason,
+        transportRequestCount: 0,
+      });
+      return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], skippedFallbackError());
+    }
+    if (error instanceof OriginProviderError) {
+      recordCloudflareRouteFailure(error, options);
+      const failed = cloudflareAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
+      );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+        return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
+      }
+      throw withFailoverAttempts(error, [primaryAttempt, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
  * Handles a primary availability failure. Returns the Cloudflare result on success;
  * otherwise throws the honest error: the primary error when the secondary route was
  * skipped before execution, or the secondary route's own error when it executed and
@@ -676,32 +872,20 @@ async function failOverFromPrimaryError(
   primaryDurationMs?: number,
 ): Promise<OriginProviderExecutionResult> {
   const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError, primaryDurationMs);
-  const cloudflareStartedAtMs = Date.now();
-  try {
-    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
-    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
-  } catch (error) {
-    if (error instanceof OriginCloudflarePreflightError) {
-      const skipped = cloudflareAttemptEvidence("skipped", {
-        skipReason: error.reason === "plan-proof-failed" && error.proofReason
-          ? `plan-proof-failed:${error.proofReason}`
-          : error.reason,
-        transportRequestCount: 0,
-      });
-      return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], primaryError);
-    }
-    if (error instanceof OriginProviderError) {
-      const failed = cloudflareAttemptEvidence(
-        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
-      );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
-        return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
-      }
-      throw withFailoverAttempts(error, [primaryAttempt, failed]);
-    }
-    throw error;
-  }
+  return failOverFromCloudflareRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryError);
+}
+
+/**
+ * The honest primary error while the primary circuit is open and no primary
+ * attempt ran in this request: the code that opened the breaker, with the
+ * remaining cooldown as Retry-After for a rate limit. Surfaced when every later
+ * route is skipped before execution.
+ */
+function circuitPrimaryError(circuit: OriginPrimaryCircuitState, options: OriginProviderFailoverOptions): OriginProviderError {
+  const remainingCooldownSeconds = Math.max(1, Math.ceil((circuit.openUntilMs - dispatcherNowMs(options)) / 1000));
+  return circuit.errorCode === "PROVIDER_RATE_LIMITED"
+    ? new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, remainingCooldownSeconds, { transportRequestCount: 0 })
+    : new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout", transportRequestCount: 0 });
 }
 
 /**
@@ -750,36 +934,14 @@ async function failOverFromOpenCircuit(
     errorCode: circuit.errorCode,
     transportRequestCount: 0,
   };
-  const cloudflareStartedAtMs = Date.now();
-  try {
-    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
-    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
-  } catch (error) {
-    if (error instanceof OriginCloudflarePreflightError) {
-      const skipped = cloudflareAttemptEvidence("skipped", {
-        skipReason: error.reason === "plan-proof-failed" && error.proofReason
-          ? `plan-proof-failed:${error.proofReason}`
-          : error.reason,
-        transportRequestCount: 0,
-      });
-      const remainingCooldownSeconds = Math.max(1, Math.ceil((circuit.openUntilMs - dispatcherNowMs(options)) / 1000));
-      const primaryError = circuit.errorCode === "PROVIDER_RATE_LIMITED"
-        ? new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, remainingCooldownSeconds, { transportRequestCount: 0 })
-        : new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout", transportRequestCount: 0 });
-      return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], primaryError);
-    }
-    if (error instanceof OriginProviderError) {
-      const failed = cloudflareAttemptEvidence(
-        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
-        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
-      );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
-        return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
-      }
-      throw withFailoverAttempts(error, [primaryAttempt, failed]);
-    }
-    throw error;
-  }
+  return failOverFromCloudflareRoute(
+    request,
+    env,
+    fetchImpl,
+    options,
+    primaryAttempt,
+    () => circuitPrimaryError(circuit, options),
+  );
 }
 
 export async function executeOriginProviderWithFailover(
