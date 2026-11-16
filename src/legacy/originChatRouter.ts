@@ -377,6 +377,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       ? "Every claim in the answer is backed by a verbatim quote checked against the retrieved packet, but claim truth, completeness, and publisher authority were not independently verified."
                       : "回答の各主張は、取得済みパケットと逐語照合した引用で裏付けられていますが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
                   ];
+                  if (recordsOutcome.partial) {
+                    // Partial-answer salvage (records improvement
+                    // #2): the delivered text is verified material
+                    // only, and its own lead note says so; the
+                    // envelope records the same limitation.
+                    limitations.push(grounded.language === "en"
+                      ? "This answer shows only the range that could be confirmed; parts that could not be confirmed are not included."
+                      : "この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+                  }
                   if (grounded.conflicts > 0) {
                     limitations.push(grounded.language === "en"
                       ? "Retrieved sources contain structured-value differences that require human review."
@@ -473,6 +482,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       synthesisStatus: "records-validated",
                       synthesisPath: "records",
                       synthesisSourceCount: recordsOutcome.usedSourceIds.length,
+                      ...(recordsOutcome.partial ? { synthesisPartial: true } : {}),
                       providerDataPolicy: recordsResult.providerDataPolicy,
                       providerRouting: recordsResult.routingEvidence,
                       usage: recordsResult.usage,

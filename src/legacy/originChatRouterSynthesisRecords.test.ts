@@ -9,7 +9,11 @@ vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: resear
 
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { buildGroundedResearchPartialAnswer } from "../research/groundedResearchV11";
-import { buildGroundedResearchRecordsInstruction } from "../research/groundedResearchRecordsV13";
+import {
+  buildGroundedResearchRecordsInstruction,
+  buildGroundedResearchSelectionInstruction,
+  groundedResearchRecordsSalvageNote,
+} from "../research/groundedResearchRecordsV13";
 import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExecutor } from "./originChatRouter";
 import { createOriginResearchRouter, type OriginResearchSynthesisExecutor } from "./originResearchRouter";
 import type { OriginResearchSource } from "./originResearchSource";
@@ -151,6 +155,46 @@ describe("chat router records path", () => {
     expect(synthesis).toHaveBeenCalledTimes(2);
   });
 
+  it("delivers verified single-source records as a marked partial answer (improvement #2)", async () => {
+    const singleRecordJson = JSON.stringify({
+      records: [{ evidence: ["E1_1"], quote: PM_UNIT_1, text: "現在の内閣総理大臣は高市早苗です。" }],
+    });
+    // Sequenced by instruction: the records execution returns one
+    // S1 record (coverage fails), the selection execution selects
+    // nothing. Before improvement #2 this fell back to the
+    // source-list-only partial answer; the salvage stage now
+    // delivers the verified record as a partial answer.
+    const synthesis = vi.fn(async (request: { systemInstruction: string }) => {
+      if (request.systemInstruction === buildGroundedResearchRecordsInstruction("ja")) {
+        return { ...executionResult, text: singleRecordJson };
+      }
+      if (request.systemInstruction === buildGroundedResearchSelectionInstruction("ja")) {
+        return { ...executionResult, text: "{\"select\":[]}" };
+      }
+      throw new Error("unexpected instruction");
+    }) as unknown as OriginChatExecutor;
+    const response = await request(createChatApp(synthesis, RECORDS_ON_ENV))
+      .post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe([
+      groundedResearchRecordsSalvageNote("ja"),
+      "",
+      "- 現在の内閣総理大臣は高市早苗です。 [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "",
+      "## 出典",
+      "- S1: 内閣総理大臣の指名について（kantei.go.jp）／公開日: 公開日不明／取得日: 2026年11月14日 [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "- S2: 首相ニュース（nhk.or.jp）／公開日: 公開日不明／取得日: 2026年11月14日 [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+    ].join("\n"));
+    expect(response.body.routing.synthesisStatus).toBe("records-validated");
+    expect(response.body.routing.synthesisPath).toBe("records");
+    expect(response.body.routing.synthesisPartial).toBe(true);
+    expect(response.body.routing.synthesisSourceCount).toBe(1);
+    expect(response.body.answer.limitations).toContain("この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+    expect(synthesis).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves the text path fully in charge when the kill switch is OFF (default)", async () => {
     const synthesis = vi.fn().mockResolvedValue({ ...executionResult, text: VALID_TEXT }) as unknown as OriginChatExecutor;
     const response = await request(createChatApp(synthesis))
@@ -236,6 +280,40 @@ describe("research router records path", () => {
     expect(response.body.routing.synthesisPath).toBe("records");
     expect(response.body.research.synthesis).toEqual({ status: "records-validated", path: "records", sourceCount: 2 });
     expect(synthesis).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a salvaged single-source answer as a partial records synthesis (improvement #2)", async () => {
+    const singleRecordJson = JSON.stringify({
+      records: [{
+        evidence: ["E1_1"],
+        quote: "iPhone 18 Proは219,800円で、2026年9月18日に発売されます。",
+        text: "iPhone 18 Proの価格は219,800円です。",
+      }],
+    });
+    const synthesis = vi.fn(async (request: { systemInstruction: string }) => {
+      if (request.systemInstruction === buildGroundedResearchRecordsInstruction("ja")) {
+        return { ...executionResult, text: singleRecordJson };
+      }
+      if (request.systemInstruction === buildGroundedResearchSelectionInstruction("ja")) {
+        return { ...executionResult, text: "{\"select\":[]}" };
+      }
+      throw new Error("unexpected instruction");
+    }) as unknown as OriginResearchSynthesisExecutor;
+    const response = await request(createResearchApp(synthesis, RECORDS_ON_ENV)).post("/api/chat")
+      .send({ messages: [{ role: "user", content: iphoneQuery }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.content.startsWith(groundedResearchRecordsSalvageNote("ja"))).toBe(true);
+    expect(response.body.content).toContain("- iPhone 18 Proの価格は219,800円です。 [S1](https://www.apple.com/jp/newsroom/iphone18)");
+    expect(response.body.content).not.toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
+    expect(response.body.research.synthesis).toEqual({
+      status: "records-validated",
+      path: "records",
+      sourceCount: 1,
+      partial: true,
+    });
+    expect(response.body.routing.synthesisPartial).toBe(true);
+    expect(synthesis).toHaveBeenCalledTimes(2);
   });
 
   it("degrades to the partial answer, not the extractive dump, when no record is adopted (R-PR-9a)", async () => {

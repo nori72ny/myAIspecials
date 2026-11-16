@@ -424,6 +424,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                   synthesisStatus: "records-validated",
                   synthesisPath: "records",
                   synthesisSourceCount: recordsOutcome.usedSourceIds.length,
+                  ...(recordsOutcome.partial ? { synthesisPartial: true } : {}),
                   sourceCount: safeSources.length,
                 },
                 research: {
@@ -438,6 +439,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                     status: "records-validated",
                     path: "records",
                     sourceCount: recordsOutcome.usedSourceIds.length,
+                    ...(recordsOutcome.partial ? { partial: true } : {}),
                   },
                 },
               });

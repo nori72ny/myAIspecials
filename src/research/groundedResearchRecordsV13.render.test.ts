@@ -364,16 +364,23 @@ describe("executeGroundedResearchRecordsSynthesis (design §11/§12/§14.1)", ()
     expect(outcome.text).toBeUndefined();
   });
 
-  it("fails with INSUFFICIENT_SOURCE_COVERAGE when survivors cite only one of two packet sources", async () => {
+  it("adopts survivors citing only one of two packet sources as a partial answer (improvement #2)", async () => {
     const single = JSON.stringify({
       records: [{ evidence: ["E1_1"], quote: PM_UNIT_1, text: "現在の内閣総理大臣は高市早苗です。" }],
     });
     const execute = vi.fn(async () => executionResult(single));
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions());
-    expect(outcome.adopted).toBe(false);
-    expect(outcome.failureCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
+    // The records-stage verdict stands in the metrics (one accepted
+    // record, coverage unsatisfied — the full-adoption bar is
+    // unchanged), but the verified survivor is no longer discarded:
+    // the salvage stage delivers it as a partial answer.
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.partial).toBe(true);
+    expect(outcome.failureCode).toBeUndefined();
     expect(outcome.metrics?.acceptedRecordCount).toBe(1);
     expect(outcome.metrics?.coverageSatisfied).toBe(false);
+    expect(outcome.metrics?.salvageCode).toBe("SALVAGE_ADOPTED");
+    expect(outcome.metrics?.finalForm).toBe("salvage");
   });
 
   it("spends no execution when the packet is empty (EMPTY_RECORDS_PACKET)", async () => {

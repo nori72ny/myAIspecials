@@ -403,21 +403,26 @@ describe("executeGroundedResearchRecordsSynthesis fresh retry (R-PR-5)", () => {
     expect(outcome.metrics?.finalForm).toBe("records-after-retry");
   });
 
-  it("re-judges the standing failure code over the merged set", async () => {
+  it("re-judges the standing verdict over the merged set, then delivers the survivor as a partial answer (improvement #2)", async () => {
     const { execute } = recordingExecute(FABRICATED_RECORDS_JSON, SELECTION_EMPTY_JSON);
     const executeRetry = vi.fn(async () => retryExecutionResult(SINGLE_RECORD_JSON));
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ executeRetry }));
-    expect(outcome.adopted).toBe(false);
-    // The retry produced one survivor, so the standing code is the
-    // coverage verdict over the merged set, not the initial
-    // zero-survivor verdict.
-    expect(outcome.failureCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
+    // The retry produced one survivor, so the standing verdict is
+    // the coverage judgement over the merged set, not the initial
+    // zero-survivor verdict — and since that survivor is verified
+    // material, the salvage stage delivers it as a partial answer
+    // instead of the request failing on the re-judged code.
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.partial).toBe(true);
+    expect(outcome.failureCode).toBeUndefined();
     expect(outcome.metrics).toMatchObject({
       executionCount: 3,
       retryAcceptedRecordCount: 1,
       mergedAcceptedRecordCount: 1,
       selectionAttempted: true,
       selectionCode: "SELECTION_NO_UNITS",
+      salvageCode: "SALVAGE_ADOPTED",
+      finalForm: "salvage",
     });
   });
 

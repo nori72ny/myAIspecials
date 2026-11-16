@@ -9,6 +9,7 @@ import {
   buildGroundedResearchRecordsPacket,
   buildGroundedResearchSelectionInstruction,
   executeGroundedResearchRecordsSynthesis,
+  groundedResearchRecordsSalvageNote,
   renderGroundedResearchRecomposedAnswer,
   type GroundedResearchAcceptedRecord,
   type GroundedResearchRecordsPacket,
@@ -231,24 +232,37 @@ describe("executeGroundedResearchRecordsSynthesis recomposition stage (R-PR-9d)"
     expect(s2Bullet).toBeGreaterThan(s1Bullet);
   });
 
-  it("retains the accepted records on the outcome when the pool cannot satisfy coverage", async () => {
+  it("delivers the retained record as a partial answer when the pool cannot satisfy coverage (improvement #2)", async () => {
     const execute = sequencedExecute(SINGLE_S1_RECORD_JSON, SELECTION_EMPTY_JSON);
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions());
-    expect(outcome.adopted).toBe(false);
-    expect(outcome.failureCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
-    expect(outcome.text).toBeUndefined();
-    // The verified record is retained, not discarded.
-    expect(outcome.acceptedRecords).toHaveLength(1);
-    expect(outcome.acceptedRecords?.[0]).toMatchObject({
-      sourceId: "S1",
-      text: "現在の内閣総理大臣は高市早苗です。",
-      quote: PM_UNIT_1,
-    });
+    // Before records improvement #2 this request failed with
+    // INSUFFICIENT_SOURCE_COVERAGE and the verified record only rode
+    // the outcome as retention data while the caller fell back to
+    // the source-list-only answer. The salvage stage now delivers
+    // the record as a partial answer, marked partial, leading with
+    // the plain-language note.
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.partial).toBe(true);
+    expect(outcome.failureCode).toBeUndefined();
+    expect(outcome.text).toBe([
+      groundedResearchRecordsSalvageNote("ja"),
+      "",
+      `- 現在の内閣総理大臣は高市早苗です。 [S1](https://www.kantei.example.go.jp/souri/)`,
+      "",
+      ...PM_SOURCE_LIST,
+    ].join("\n"));
+    // Adopted outcomes carry their material in the text, not in the
+    // retention field.
+    expect(outcome.acceptedRecords).toBeUndefined();
     expect(outcome.metrics).toMatchObject({
       recompositionAttempted: true,
       recompositionMaterialCount: 1,
       recompositionCode: "RECOMPOSITION_INSUFFICIENT_COVERAGE",
-      finalForm: "partial",
+      salvageAttempted: true,
+      salvageMaterialCount: 1,
+      salvageDeliveredCount: 1,
+      salvageCode: "SALVAGE_ADOPTED",
+      finalForm: "salvage",
     });
   });
 
@@ -262,26 +276,35 @@ describe("executeGroundedResearchRecordsSynthesis recomposition stage (R-PR-9d)"
       recompositionAttempted: true,
       recompositionMaterialCount: 0,
       recompositionCode: "RECOMPOSITION_NO_MATERIAL",
+      salvageAttempted: true,
+      salvageMaterialCount: 0,
+      salvageDeliveredCount: 0,
+      salvageCode: "SALVAGE_NO_MATERIAL",
       finalForm: "partial",
     });
   });
 
-  it("retains the retry-merged records when the merged set still cannot adopt", async () => {
+  it("delivers the retry-merged records as a partial answer when the merged set still cannot adopt in full (improvement #2)", async () => {
     const execute = sequencedExecute(FABRICATED_RECORDS_JSON, SELECTION_EMPTY_JSON);
     const executeRetry = vi.fn(async () => executionResult(SINGLE_S1_RECORD_JSON, 777));
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ executeRetry }));
-    expect(outcome.adopted).toBe(false);
-    // The standing code is re-judged over the merged set, and the
-    // merged survivor is what the outcome retains.
-    expect(outcome.failureCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
-    expect(outcome.acceptedRecords).toHaveLength(1);
-    expect(outcome.acceptedRecords?.[0]?.sourceId).toBe("S1");
+    // The standing code is re-judged over the merged set (one
+    // survivor: the coverage verdict), and the merged survivor is
+    // then delivered by the salvage stage as a partial answer
+    // instead of only riding the outcome as retention data.
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.partial).toBe(true);
+    expect(outcome.failureCode).toBeUndefined();
+    expect(outcome.usedSourceIds).toEqual(["S1"]);
+    expect(outcome.text).toContain("現在の内閣総理大臣は高市早苗です。");
+    expect(outcome.acceptedRecords).toBeUndefined();
     expect(outcome.metrics).toMatchObject({
       executionCount: 3,
       mergedAcceptedRecordCount: 1,
       recompositionMaterialCount: 1,
       recompositionCode: "RECOMPOSITION_INSUFFICIENT_COVERAGE",
-      finalForm: "partial",
+      salvageCode: "SALVAGE_ADOPTED",
+      finalForm: "salvage",
     });
   });
 
