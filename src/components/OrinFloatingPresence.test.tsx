@@ -198,7 +198,7 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('pins the presence CSS: fixed on screen, z-index below the profile card, conversation clearance', () => {
+  it('pins the presence CSS: in-flow band under the header, no fixed overlay, no conversation clearance', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).not.toContain('.origin-orin-bubble');
     expect(css).not.toContain('.origin-orin-overlay');
@@ -206,20 +206,19 @@ describe('Orin floating presence (2026-11-14 08:59 revision)', () => {
     expect(css).toContain('.origin-orin-presence__pill {');
     // 名前ラベルのスタイルは名前ごと削除した（2026-11-15 ノリ指示）。
     expect(css).not.toContain('.origin-orin-presence__name');
-    // スクロールで動かないよう position: fixed で画面に固定する。
-    expect(css).toContain('position: fixed;');
-    // ヘッダー（60px／小画面58px）の下＋8pxの位置。
-    expect(css).toContain('top: calc(60px + env(safe-area-inset-top, 0px) + 8px);');
-    expect(css).toContain('top: calc(58px + env(safe-area-inset-top, 0px) + 8px);');
-    // プロフィールカード（overlay z-40）より下、会話より上。
-    expect(css).toContain('z-index: 15;');
-    // タップできるのはプレゼンス自身のタップ対象だけ。
-    expect(css).toContain('pointer-events: none;');
-    expect(css).toContain('pointer-events: auto;');
-    // 待機中に最初のメッセージがプレゼンスに隠れないよう、会話列に
-    // 上部の余白を確保する。名前を消した分、従来の156pxから
-    // プレゼンスの実高（約122px）に合わせて131pxへ詰めた。
-    expect(css).toContain('.origin-conversation-log');
-    expect(css).toContain('padding-top: 131px !important;');
+    // 帯方式（2026-11-17）：プレゼンスはヘッダー直下の通常フロー内の
+    // 帯として置き、スクロールする本文には決して重ねない。固定配置
+    // だった頃の宣言（fixed／top／transform／z-index）が帯の規則に
+    // 戻っていないことを固定する。
+    const bandRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
+    expect(bandRule).toContain('display: flex;');
+    expect(bandRule).toContain('justify-content: center;');
+    expect(bandRule).not.toContain('position: fixed');
+    expect(bandRule).not.toContain('top:');
+    expect(bandRule).not.toContain('transform');
+    expect(bandRule).not.toContain('z-index');
+    // 固定配置前提の会話クリアランス（131px）は撤去した。本文は
+    // 帯の下からそのまま始まる。
+    expect(css).not.toContain('padding-top: 131px !important;');
   });
 });

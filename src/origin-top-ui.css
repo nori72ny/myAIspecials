@@ -562,45 +562,36 @@
   }
 }
 
-/* Orin floating presence (owner revision, 2026-11-14 08:59). Orin
-   no longer sits in the header: a single presence floats at the top
-   centre of the screen like the Muse app's avatar, fixed in place
-   (position: fixed) so page scroll never moves it, at the same size
-   (104px pedestal) in idle and working states alike — it does not
-   shrink back to a small header icon when an answer completes. The
-   dark status pill appears under the circle only while work is in
-   flight, and on completion only the pill fades away. No name text
-   sits under the circle (removed by owner request, 2026-11-15;
-   the name appears inside the profile card instead).
-   Position: top = header height (60px, 58px on small screens) plus
-   the top safe-area inset plus an 8px gap, so the circle hangs just
-   below the header bar and renders above the scrolling conversation.
-   z-index 15 sits above the conversation and the composer (neither
-   carries an explicit z-index) and below the Orin profile card
-   overlay (z-40), the header (z-50), the artifact workspace
-   (z-50) and the image panel (z-80): the card opens over this
-   presence, which stays visible underneath so the tap joy motion
-   can play (profile card revision, 2026-11-15). The presence itself is pointer-events:
-   none; only its own tap target (circle + pill) accepts taps,
-   so the conversation behind it stays scrollable. Width is capped by
-   the viewport so it cannot overflow at 320px. The pill's motion is
+/* Orin presence band (owner revision, 2026-11-14 08:59; band layout
+   revision, 2026-11-17). Orin no longer sits in the header: a single
+   presence stays resident at the top centre of the screen like the
+   Muse app's avatar, at the same size (104px pedestal) in idle and
+   working states alike — it does not shrink back to a small header
+   icon when an answer completes. The dark status pill appears under
+   the circle only while work is in flight, and on completion only
+   the pill fades away. No name text sits under the circle (removed
+   by owner request, 2026-11-15; the name appears inside the profile
+   card instead).
+   Layout: the presence used to float over the conversation as a
+   position: fixed overlay, but the fixed circle — and the pill,
+   whose height the old 131px conversation clearance never accounted
+   for — covered message text and code while scrolling (production
+   defect, confirmed 2026-11-17). The presence is now a band in the
+   normal flow directly under the header: a non-shrinking row of the
+   main column that centres its tap target (circle + pill). It can
+   never overlap the conversation; when the pill appears, the band
+   grows and the conversation is pushed down instead of being
+   covered. The profile card overlay (z-40) still opens over the
+   band, which stays visible underneath so the tap joy motion can
+   play (profile card revision, 2026-11-15). The pill's motion is
    a gentle opacity fade plus a slight scale on entry, driven by the
    component; prefers-reduced-motion removes it. */
 .origin-orin-presence {
-  position: fixed;
-  top: calc(60px + env(safe-area-inset-top, 0px) + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 15;
-  width: max-content;
-  max-width: min(92vw, 24rem);
+  display: flex;
+  justify-content: center;
+  flex: none;
+  width: 100%;
   box-sizing: border-box;
-  pointer-events: none;
-}
-@media (max-width: 639px) {
-  .origin-orin-presence {
-    top: calc(58px + env(safe-area-inset-top, 0px) + 8px);
-  }
 }
 .origin-orin-presence__tap {
   display: flex;
@@ -655,7 +646,7 @@
    every device; only the form factor changes at the 640px breakpoint
    (the app's sm breakpoint): below it the card is a bottom sheet,
    at or above it a centered modal card. The overlay is fixed over
-   the viewport at z-index 40 — above the presence (z-15) so the
+   the viewport at z-index 40 — above the presence band so the
    backdrop catches taps, below the header (z-50). The presence
    stays visible behind the lightly dimmed backdrop so the tap joy
    motion can play. Entry motion is a short fade plus a small rise;
@@ -714,17 +705,9 @@
   }
 }
 
-/* Conversation clearance for the floating presence: the presence
-   block (8px gap + 4px tap padding + 104px pedestal + 6px tap
-   padding, about 122px below the header) must not cover the first
-   message while idle, so the conversation column starts 131px
-   below the scroll area's content top; scrolling then slides
-   messages under the presence. The block shrank when the name
-   text under the art was removed (owner request, 2026-11-15);
-   the earlier value was 156px with the name. The high-specificity
-   selectors mirror the small-screen first-child rule above, which
-   would otherwise override this padding on narrow screens. */
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-conversation-log,
-.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-conversation-log {
-  padding-top: 131px !important;
-}
+/* No conversation clearance is needed any more: the Orin presence
+   is a band in the normal flow under the header (see above), so the
+   conversation column starts directly below it and scrolling can
+   never slide messages under the presence. The 131px top padding
+   that guarded only the first screenful under the old fixed overlay
+   was removed with the band revision (2026-11-17). */
