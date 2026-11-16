@@ -3,6 +3,10 @@ import {
   assertOriginZeroCostExecutionResultWithFailover,
   executeOriginProviderStreamWithFailover,
   executeOriginProviderWithFailover,
+  ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS,
+  ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS,
+  ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD,
+  ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
   ORIGIN_GROQ_ROUTE_RESERVE_MS,
   resetOriginProviderFailoverCircuitForTests,
 } from "./originProviderFailover";
@@ -473,5 +477,216 @@ describe("third-route reserve and attempt durations (PKG-4 PR-1)", () => {
     expect(groqExecute).not.toHaveBeenCalled();
     expect(result.attempts).toHaveLength(2);
     expect(result.attempts?.[1]?.durationMs).toBeGreaterThanOrEqual(75);
+  });
+});
+
+describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16)", () => {
+  const timeoutError = (transportRequestCount = 4): OriginProviderError =>
+    new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, {
+      transportFailure: "timeout",
+      transportRequestCount,
+    });
+  const cloudflareTimeout = () => vi.fn(async () => { throw timeoutError(); });
+  // Keep the primary breaker out of the way: a 1ms cooldown means every
+  // request re-trials the primary and reaches the second route afresh, so the
+  // second-route breaker is exercised through the primary-error entry. The
+  // open-circuit entry is covered by its own case below.
+  const noPrimaryCircuit = { primaryCircuitCooldownMs: 1 };
+
+  it("pins the attempt budget, failure threshold, and cooldown defaults", () => {
+    expect(ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS).toBe(25_000);
+    expect(ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD).toBe(2);
+    expect(ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS).toBe(180_000);
+  });
+
+  it("caps a hanging second route at its attempt budget instead of the remaining-minus-reserve slice", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+    const groqExecute = groqOk();
+    const startedAt = Date.now();
+    const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+      totalBudgetMs: 4_000, groqReserveMs: 500, cloudflareAttemptBudgetMs: 300,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(groqExecute).toHaveBeenCalledTimes(1);
+    // Without the cap the slice would be 4,000 - 500 = 3,500ms; the attempt
+    // budget cuts the wait at ~300ms and the third route answers.
+    expect(elapsedMs).toBeGreaterThanOrEqual(250);
+    expect(elapsedMs).toBeLessThan(2_000);
+    expect(result.attempts?.[1]).toMatchObject({ outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT" });
+    expect(result.attempts?.[1]?.durationMs).toBeLessThan(1_000);
+  });
+
+  it("opens after two consecutive second-route timeouts and skips the route while open", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = cloudflareTimeout();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const first = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    expect(first.text).toBe("第3経路の回答です。");
+    expect(cloudflareExecute).toHaveBeenCalledTimes(1);
+    const second = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    expect(second.text).toBe("第3経路の回答です。");
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    const third = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
+    expect(third.text).toBe("第3経路の回答です。");
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    expect(third.attempts).toHaveLength(3);
+    expect(third.attempts?.[1]).toEqual({
+      providerId: "cloudflare-workers-ai-free",
+      modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
+      outcome: "skipped",
+      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
+      errorCode: "PROVIDER_TIMEOUT",
+      transportRequestCount: 0,
+    });
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(third, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("also skips the second route when the request arrives through the open primary circuit", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = cloudflareTimeout();
+    const groqExecute = groqOk();
+    // Default primary cooldown (300s): after the first request the primary is
+    // skipped too, so the second-route breaker must engage — and later skip —
+    // from the circuit-open entry as well.
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS + 1_000, primaryExecute, cloudflareExecute, groqExecute });
+    expect(primaryExecute).toHaveBeenCalledTimes(1);
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    const third = await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS + 2_000, primaryExecute, cloudflareExecute, groqExecute });
+    expect(primaryExecute).toHaveBeenCalledTimes(1);
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    expect(third.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
+    expect(third.attempts?.[1]).toMatchObject({
+      outcome: "skipped",
+      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
+      errorCode: "PROVIDER_TIMEOUT",
+      transportRequestCount: 0,
+    });
+    expect(third.text).toBe("第3経路の回答です。");
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(third, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("resets the consecutive count on a second-route success", async () => {
+    let cfBehavior: "timeout" | "ok" = "timeout";
+    const cloudflareExecute = vi.fn(async () => {
+      if (cfBehavior === "timeout") throw timeoutError();
+      return cloudflareSuccessResult();
+    });
+    const primaryExecute = primaryRateLimited();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    cfBehavior = "ok";
+    const recovered = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    expect(recovered.text).toBe("第2経路の回答です。");
+    cfBehavior = "timeout";
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
+    // Only one counted failure since the success: the route is still attempted.
+    const fourth = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 3_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(4);
+    expect(fourth.text).toBe("第3経路の回答です。");
+  });
+
+  it("half-opens after the cooldown: a trial success closes the breaker and restarts the count", async () => {
+    let cfBehavior: "timeout" | "ok" = "timeout";
+    const cloudflareExecute = vi.fn(async () => {
+      if (cfBehavior === "timeout") throw timeoutError();
+      return cloudflareSuccessResult();
+    });
+    const primaryExecute = primaryRateLimited();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    // The breaker opened at NOW+1_000 for the 180s cooldown; the next request
+    // after that trials the route once.
+    cfBehavior = "ok";
+    const trialed = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      ...options, nowMs: NOW_MS + 1_000 + ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS + 1,
+    });
+    expect(trialed.text).toBe("第2経路の回答です。");
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
+    // Closed again with a fresh count: one new timeout does not re-open it.
+    cfBehavior = "timeout";
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 182_000 });
+    const after = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 183_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(5);
+    expect(after.text).toBe("第3経路の回答です。");
+  });
+
+  it("re-opens at once when the half-open trial fails with a counted failure", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = cloudflareTimeout();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    const trialed = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      ...options, nowMs: NOW_MS + 1_000 + ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS + 1,
+    });
+    expect(trialed.text).toBe("第3経路の回答です。");
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
+    const skipped = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 182_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
+    expect(skipped.attempts?.[1]).toMatchObject({ outcome: "skipped", skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON });
+  });
+
+  it("does not count configuration failures toward the breaker", async () => {
+    const notConfigured = new OriginProviderError("PROVIDER_NOT_CONFIGURED", "Provider認証情報を確認できません。", 401, false, undefined, { transportRequestCount: 4 });
+    let cfBehavior: "not-configured" | "timeout" = "not-configured";
+    const cloudflareExecute = vi.fn(async () => {
+      if (cfBehavior === "not-configured") throw notConfigured;
+      throw timeoutError();
+    });
+    const primaryExecute = primaryRateLimited();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    cfBehavior = "timeout";
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
+    // The two not-configured failures never counted and the timeout is only
+    // the first counted one: the route is still attempted on the next request.
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 3_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not count a timeout that never reached the network (zero transport)", async () => {
+    const cloudflareExecute = vi.fn(async () => { throw timeoutError(0); });
+    const primaryExecute = primaryRateLimited();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
+  });
+
+  it("delivers the third route through the streaming variant while the second-route breaker is open", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = cloudflareTimeout();
+    const groqExecute = groqOk();
+    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
+    await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    const deltas: string[] = [];
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(1); });
+    const result = await executeOriginProviderStreamWithFailover(
+      request,
+      { onDelta: (text: string) => { deltas.push(text); } },
+      bothEnv,
+      fetch,
+      { nowMs: NOW_MS + 2_000, streamExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit },
+    );
+    expect(cloudflareExecute).toHaveBeenCalledTimes(2);
+    expect(result.text).toBe("第3経路の回答です。");
+    expect(deltas).toEqual(["第3経路の回答です。"]);
+    expect(result.attempts?.[1]).toMatchObject({ outcome: "skipped", skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON });
   });
 });

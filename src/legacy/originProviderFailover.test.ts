@@ -764,3 +764,36 @@ describe("assertOriginZeroCostExecutionResultWithFailover circuit-skip shapes", 
       .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
   });
 });
+
+describe("second-route circuit breaker without a third route (speed wave 1)", () => {
+  it("never skips the second route while the Groq route is not configured: it is the last route", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    let cfBehavior: "timeout" | "ok" = "timeout";
+    const cloudflareExecute = vi.fn(async () => {
+      if (cfBehavior === "timeout") {
+        throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, {
+          transportFailure: "timeout",
+          transportRequestCount: 4,
+        });
+      }
+      return cloudflareSuccessResult();
+    });
+    // enabledEnv carries no GROQ_API_KEY. The primary cooldown override keeps
+    // every request on the primary-error entry.
+    const options = { primaryExecute, cloudflareExecute, primaryCircuitCooldownMs: 1 };
+    const first = await executeOriginProviderWithFailover(request, enabledEnv, fetch, { ...options, nowMs: NOW_MS })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(first.code).toBe("PROVIDER_TIMEOUT");
+    const second = await executeOriginProviderWithFailover(request, enabledEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 })
+      .catch((caught: unknown) => caught) as OriginProviderError;
+    expect(second.code).toBe("PROVIDER_TIMEOUT");
+    // Two counted failures opened the breaker internally, but with no third
+    // route configured the second route is the last chance: it still runs —
+    // and can still serve — on the next request.
+    cfBehavior = "ok";
+    const third = await executeOriginProviderWithFailover(request, enabledEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
+    expect(third.text).toBe("第2経路の回答です。");
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(third, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+});
