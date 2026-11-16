@@ -442,3 +442,83 @@ describe('PersonalizationSettings clear all', () => {
     });
   });
 });
+
+// --- Proposals (design §6.4, PR P1-6) -------------------------------------------
+
+describe('PersonalizationSettings proposals', () => {
+  it('shows a pending combination proposal and approves it', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.upsertMemoryItem(userId, memoryItem({ id: 'm-1' }));
+    const created = await graph.generateProposalsForPrompt('文章で書いてください', { now: AT });
+    expect(created).toHaveLength(1);
+
+    renderSection(PersonalizationSettings);
+    const card = await screen.findByTestId(`proposal-${created[0].id}`);
+    expect(within(card).getByText('表より文章が好き')).toBeTruthy();
+    expect(within(card).getByText(/「文章で書いてください」という頼みごとから/)).toBeTruthy();
+
+    fireEvent.click(within(card).getByRole('button', { name: '合わせて進める' }));
+    await waitFor(async () => {
+      expect((await graph.listProposals(userId))[0].status).toBe('approved');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId(`proposal-${created[0].id}`)).toBeNull();
+    });
+  });
+
+  it('dismisses a combination proposal, and the same combination is never proposed again', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.upsertMemoryItem(userId, memoryItem({ id: 'm-1' }));
+    const created = await graph.generateProposalsForPrompt('文章で書いてください', { now: AT });
+    expect(created).toHaveLength(1);
+
+    renderSection(PersonalizationSettings);
+    const card = await screen.findByTestId(`proposal-${created[0].id}`);
+    fireEvent.click(within(card).getByRole('button', { name: '今は使わない' }));
+    await waitFor(async () => {
+      expect((await graph.listProposals(userId))[0].status).toBe('dismissed');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId(`proposal-${created[0].id}`)).toBeNull();
+    });
+
+    // The dismissed pair stays dismissed: generating again records nothing.
+    await expect(graph.generateProposalsForPrompt('文章で書いてください', { now: AT + 1 })).resolves.toEqual([]);
+    expect(await graph.listProposals(userId)).toHaveLength(1);
+  });
+
+  it('approves a needs-check proposal in favor of the newest statement', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.upsertMemoryItem(userId, memoryItem({
+      id: 'nc-old', text: '表より文章が好き', origin: 'inferred', status: 'needs-check',
+      source: { quote: '文章で書いてほしい', at: AT }, createdAt: AT - 1000, updatedAt: AT - 1000,
+    }));
+    await graph.upsertMemoryItem(userId, memoryItem({
+      id: 'nc-new', text: '文章より表が好き', origin: 'inferred', status: 'needs-check',
+      source: { quote: '表で書いてほしい', at: AT },
+    }));
+    const created = await graph.generateProposalsForPrompt('文章で書いてください', { now: AT });
+    expect(created).toHaveLength(1);
+    expect(created[0].kind).toBe('needs-check');
+
+    renderSection(PersonalizationSettings);
+    const card = await screen.findByTestId(`proposal-${created[0].id}`);
+    expect(within(card).getByText('食い違っている内容の確認')).toBeTruthy();
+    expect(within(card).getByText('表より文章が好き')).toBeTruthy();
+    expect(within(card).getByText('文章より表が好き')).toBeTruthy();
+
+    fireEvent.click(within(card).getByRole('button', { name: '新しい方を使う' }));
+    await waitFor(async () => {
+      const items = await graph.listMemoryItems(userId);
+      expect(items.find((item) => item.id === 'nc-new')?.status).toBe('active');
+      expect(items.find((item) => item.id === 'nc-old')?.status).toBe('superseded');
+      expect((await graph.listProposals(userId))[0].status).toBe('approved');
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId(`proposal-${created[0].id}`)).toBeNull();
+    });
+  });
+});

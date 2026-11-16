@@ -1,4 +1,4 @@
-import { resolveActiveContextUserId, retrieveRelevantContext } from "./activeContextGraph.js";
+import { generateProposalsForPrompt, resolveActiveContextUserId, retrieveRelevantContext } from "./activeContextGraph.js";
 import { readPersonalizationEnabled, readPersonalLanguage } from "../hooks/usePersonalSettings";
 
 const installedKey = "__originActiveContextChatBridgeInstalled";
@@ -70,6 +70,17 @@ export function installActiveContextChatBridge(): void {
     } catch {
       // Fail closed: a local-memory failure must never block or alter the chat request.
       activeContext = "";
+    }
+
+    try {
+      // Combination proposals (design §6.4, PR P1-6): deterministic and
+      // on-device, no extra request. This only records pending proposals
+      // for the owner to review in settings — nothing about a proposal is
+      // added to the outgoing request — and a failure here must never
+      // block or alter the chat request either.
+      await generateProposalsForPrompt(prompt);
+    } catch {
+      // Ignored by design (see above).
     }
 
     // The assembled block already respects the client-side 2,000-char cap
