@@ -51,8 +51,10 @@
   padding: 0 !important;
 }
 
-/* Startup splash shell. The splash is a fixed brand surface, so its
-   background is the logo cream in both themes; SplashScreen owns the
+/* Startup splash shell. The splash background is plain white, matching
+   the app surface (--bg-primary in the light theme) and the white baked
+   into the ribbon mark asset, so the splash hands off to the main screen
+   without a color jump (owner request 2026-11-16); SplashScreen owns the
    display timing in JS (no CSS-timed dismissal here). */
 .origin-ultra-splash {
   position: fixed;
@@ -62,7 +64,7 @@
   place-items: center;
   overflow: hidden;
   isolation: isolate;
-  background: #fdf0e0;
+  background: #ffffff;
 }
 
 .origin-ultra-splash__aurora {
