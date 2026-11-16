@@ -21,6 +21,7 @@ import {
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
+import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 
 /**
  * Groq route (free-provider failover Phase 3, third route).
@@ -331,20 +332,25 @@ export interface OriginGroqExecutionOptions {
   nowMs?: number;
 }
 
+interface OriginGroqPreparedAttempt {
+  modelId: OriginGroqFreeModelId;
+  messages: Array<{ role: string; content: string }>;
+  completionBudget: number;
+  timeoutMs: number;
+}
+
 /**
- * One send against one catalog model, with every route invariant enforced for
- * that model: plan/policy validation, current per-model evidence, the pre-send
- * TPM gate against that model's ceiling, and served-model identity. The shared
- * transport counter honestly accumulates sends across a rotation.
+ * Everything one model attempt must prove before it may send, shared by the
+ * blocking and streaming attempts: plan/policy validation, current per-model
+ * catalog evidence, the route-3 payload build (compact substitute instruction
+ * plus history trimmed to the route input budget), and the pre-send TPM gate
+ * against that model's tokens/minute ceiling.
  */
-async function executeGroqModelAttempt(
+function prepareGroqModelAttempt(
   providerRequest: OriginProviderExecutionRequest,
   plan: OriginExecutionPlan,
-  apiKey: string,
-  fetchImpl: OriginFetch,
   options: OriginGroqExecutionOptions,
-  transport: { count: number },
-): Promise<OriginProviderExecutionResult> {
+): OriginGroqPreparedAttempt {
   validateGroqPlan(plan);
   if (providerRequest.requiredTool) {
     // Required-tool contracts stay on the primary route: the strict single-call tool
@@ -396,6 +402,54 @@ async function executeGroqModelAttempt(
   }
 
   const timeoutMs = Math.min(ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(plan.timeoutMs) || ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS));
+  return { modelId, messages, completionBudget, timeoutMs };
+}
+
+/**
+ * Builds the route's verified result shape for one model attempt and
+ * asserts it, exactly as both attempt variants return it.
+ */
+function composeGroqAttemptResult(
+  text: string,
+  plan: OriginExecutionPlan,
+  modelId: OriginGroqFreeModelId,
+  transport: { count: number },
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number },
+): OriginProviderExecutionResult {
+  const result: OriginProviderExecutionResult = {
+    text,
+    transportRequestCount: transport.count,
+    actualCostUsd: 0,
+    providerDataPolicy: plan.providerDataPolicy,
+    routingEvidence: {
+      requestedModel: modelId,
+      servedModel: modelId,
+      strategy: "verified-free-failover",
+      provider: "Groq",
+      attempt: 3,
+      fallbackUsed: true,
+    },
+    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
+  };
+  assertOriginGroqExecutionResult(result, modelId);
+  return result;
+}
+
+/**
+ * One send against one catalog model, with every route invariant enforced for
+ * that model: plan/policy validation, current per-model evidence, the pre-send
+ * TPM gate against that model's ceiling, and served-model identity. The shared
+ * transport counter honestly accumulates sends across a rotation.
+ */
+async function executeGroqModelAttempt(
+  providerRequest: OriginProviderExecutionRequest,
+  plan: OriginExecutionPlan,
+  apiKey: string,
+  fetchImpl: OriginFetch,
+  options: OriginGroqExecutionOptions,
+  transport: { count: number },
+): Promise<OriginProviderExecutionResult> {
+  const { modelId, messages, completionBudget, timeoutMs } = prepareGroqModelAttempt(providerRequest, plan, options);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
@@ -438,23 +492,7 @@ async function executeGroqModelAttempt(
   const text = typeof content === "string" ? content.trim() : "";
   if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
   const usage = extractUsage(body);
-  const result: OriginProviderExecutionResult = {
-    text,
-    transportRequestCount: transport.count,
-    actualCostUsd: 0,
-    providerDataPolicy: plan.providerDataPolicy,
-    routingEvidence: {
-      requestedModel: modelId,
-      servedModel: modelId,
-      strategy: "verified-free-failover",
-      provider: "Groq",
-      attempt: 3,
-      fallbackUsed: true,
-    },
-    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
-  };
-  assertOriginGroqExecutionResult(result, modelId);
-  return result;
+  return composeGroqAttemptResult(text, plan, modelId, transport, usage);
 }
 
 /**
@@ -541,6 +579,241 @@ export async function executeOriginGroqProvider(
             if (qwenPlan) {
               try {
                 return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport);
+              } catch (qwenError) {
+                throw withTransportCount(qwenError, transport);
+              }
+            }
+          }
+          throw withTransportCount(rotationError, transport);
+        }
+      }
+    }
+    throw withTransportCount(error, transport);
+  }
+}
+
+export type OriginGroqStreamExecutor = (
+  providerRequest: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginGroqExecutionOptions,
+) => Promise<OriginProviderExecutionResult>;
+
+interface GroqStreamChunk {
+  model?: unknown;
+  choices?: Array<{ delta?: { content?: unknown }; finish_reason?: unknown }>;
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
+  error?: { code?: unknown; type?: unknown; message?: unknown };
+}
+
+/**
+ * Reads a Groq SSE stream, handing each `data:` payload to the callback as
+ * it arrives. Mirrors the other routes' stream readers: lines may split
+ * across network chunks, comment lines are skipped, and a trailing
+ * unterminated line is flushed at end of stream.
+ */
+async function consumeGroqSseStream(
+  response: Response,
+  onPayload: (payload: string) => void,
+): Promise<void> {
+  if (!response.body) {
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const processLine = (rawLine: string) => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line || line.startsWith(":")) return;
+    if (!line.startsWith("data:")) return;
+    onPayload(line.slice(5).trimStart());
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) processLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) processLine(buffer);
+  } finally {
+    try { await reader.cancel(); } catch { /* stream already completed */ }
+  }
+}
+
+/**
+ * Streaming variant of one Groq model attempt. The pre-send invariants are
+ * the shared prepare step above (per-model evidence, TPM gate); the send
+ * itself is an OpenAI-compatible SSE stream whose chunks name the served
+ * model, and that identity is verified chunk by chunk BEFORE the chunk's
+ * fragment is forwarded — a substituted model fails the attempt before any
+ * of its text is released, the same standard the blocking attempt applies
+ * to the completed body. Usage arrives on the terminal chunk
+ * (stream_options.include_usage) and feeds the same result shape as the
+ * blocking attempt. In incremental release mode fragments are forwarded as
+ * they arrive; in hold mode the accumulated text is released once, after
+ * the stream terminates and the result passes the same assertion as the
+ * blocking attempt's. The returned text is the trimmed accumulation,
+ * identical to the blocking attempt's text for the same generation; only
+ * the delivery split changes.
+ */
+async function executeGroqModelAttemptStream(
+  providerRequest: OriginProviderExecutionRequest,
+  plan: OriginExecutionPlan,
+  apiKey: string,
+  handlers: OriginProviderStreamHandlers,
+  fetchImpl: OriginFetch,
+  options: OriginGroqExecutionOptions,
+  transport: { count: number },
+): Promise<OriginProviderExecutionResult> {
+  const { modelId, messages, completionBudget, timeoutMs } = prepareGroqModelAttempt(providerRequest, plan, options);
+  const incrementalRelease = providerRequest.streamRelease === "incremental";
+  const controller = new AbortController();
+  // The timer stays armed for the whole read, as in the Cloudflare
+  // streaming executor: once the dispatcher has delivered the first
+  // fragment it no longer aborts this route, so this cap is the only bound
+  // on a stalled stream.
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    transport.count += 1;
+    const response = await fetchImpl(`${GROQ_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: modelId,
+        messages,
+        max_tokens: completionBudget,
+        temperature: 0.2,
+        stream: true,
+        stream_options: { include_usage: true },
+        // qwen3.8-27b is a dual-mode (thinking / instruct) model: Groq's
+        // documented recommendation for conversational use is
+        // reasoning_effort "none", which also keeps thinking tokens from
+        // consuming the free tokens/minute and tokens/day budgets. The
+        // gpt-oss models keep their previous request shape exactly.
+        ...(modelId === ORIGIN_GROQ_QWEN_MODEL_ID ? { reasoning_effort: "none" } : {}),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
+      throw inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After")));
+    }
+    let output = "";
+    let doneSeen = false;
+    let servedModelSeen = false;
+    let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    await consumeGroqSseStream(response, (payload) => {
+      if (payload === "[DONE]") { doneSeen = true; return; }
+      let chunk: GroqStreamChunk;
+      try {
+        chunk = JSON.parse(payload) as GroqStreamChunk;
+      } catch {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      }
+      if (chunk.error) {
+        // An in-stream error envelope carries the provider's raw code/type;
+        // it is classified by its content exactly like the HTTP-error
+        // envelope (the nominal status of a started stream is 200).
+        throw inferenceFailure(200, { error: chunk.error });
+      }
+      if (chunk.model !== undefined) {
+        if (chunk.model !== modelId) {
+          throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status });
+        }
+        servedModelSeen = true;
+      }
+      if (chunk.usage) {
+        usage = extractUsage({ usage: chunk.usage });
+      }
+      const content = chunk.choices?.[0]?.delta?.content;
+      if (typeof content === "string" && content) {
+        if (!servedModelSeen) {
+          throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false);
+        }
+        output += content;
+        if (incrementalRelease) handlers.onDelta(content);
+      }
+    });
+    if (!doneSeen || !servedModelSeen || !output.trim()) {
+      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+    }
+    const result = composeGroqAttemptResult(output.trim(), plan, modelId, transport, usage);
+    // Hold mode releases the verified full text once, at the end, exactly
+    // like the blocking attempt's single delivery; incremental mode has
+    // already forwarded every fragment as it was generated.
+    if (!incrementalRelease) handlers.onDelta(result.text);
+    return result;
+  } catch (error) {
+    if (error instanceof OriginProviderError) throw error;
+    if ((error as Error)?.name === "AbortError") {
+      throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
+    }
+    throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Streaming variant of the Groq route executor, used by the failover
+ * dispatcher's streaming entry so a third-route answer is displayed
+ * progressively instead of arriving as one block. The rotation cascade is
+ * the blocking executor's, with one streaming-only constraint: rotation
+ * re-sends the request on another model, so it is available only while no
+ * fragment has been released downstream yet in this route call — after a
+ * release, a rotation would duplicate the displayed text, and the failure
+ * is surfaced instead (the same no-switch-after-first-byte rule the
+ * dispatcher and the primary stream client enforce). In hold release mode
+ * nothing is released before an attempt succeeds, so rotation behaves
+ * exactly as in the blocking executor.
+ */
+export async function executeOriginGroqProviderStream(
+  providerRequest: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: OriginFetch = fetch,
+  options: OriginGroqExecutionOptions = {},
+): Promise<OriginProviderExecutionResult> {
+  const apiKey = resolveOriginGroqApiKey(env);
+  if (!apiKey) throw new OriginGroqPreflightError("not-configured");
+
+  const transport = { count: 0 };
+  let releasedFragments = 0;
+  const countingHandlers: OriginProviderStreamHandlers = {
+    onDelta: (text: string) => {
+      if (text) releasedFragments += 1;
+      handlers.onDelta(text);
+    },
+  };
+  try {
+    return await executeGroqModelAttemptStream(providerRequest, providerRequest.plan, apiKey, countingHandlers, fetchImpl, options, transport);
+  } catch (error) {
+    if (error instanceof OriginProviderError
+      && providerRequest.plan.modelId === ORIGIN_GROQ_FREE_MODEL_ID
+      && releasedFragments === 0
+      && isGroqRotationTrigger(error)) {
+      const rotationPlan = buildGroqRotationPlan(providerRequest, options);
+      if (rotationPlan) {
+        try {
+          return await executeGroqModelAttemptStream(providerRequest, rotationPlan, apiKey, countingHandlers, fetchImpl, options, transport);
+        } catch (rotationError) {
+          // Second rotation stage: qwen/qwen3.8-27b (Preview), reached only
+          // when the first rotation model also failed with a rotation
+          // trigger AND the kill switch is explicitly enabled — and, in the
+          // streaming variant, only while nothing has been released yet.
+          if (rotationError instanceof OriginProviderError
+            && releasedFragments === 0
+            && isGroqRotationTrigger(rotationError)
+            && isOriginGroqQwenRotationEnabled(env)) {
+            const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
+            if (qwenPlan) {
+              try {
+                return await executeGroqModelAttemptStream(providerRequest, qwenPlan, apiKey, countingHandlers, fetchImpl, options, transport);
               } catch (qwenError) {
                 throw withTransportCount(qwenError, transport);
               }

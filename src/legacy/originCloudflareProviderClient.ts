@@ -17,6 +17,7 @@ import {
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
+import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 
 /**
  * Cloudflare Workers AI route (free-provider failover Phase 1, second route).
@@ -568,52 +569,138 @@ export interface OriginCloudflareExecutionOptions {
   nowMs?: number;
 }
 
+/**
+ * Route preflight shared by the blocking and streaming executors: the
+ * enable flag, the credentials, and the error-code route-stop state. A
+ * pool-exhausted day or a temporary-capacity cooldown skips the route
+ * before any network call (not even the plan-proof reads), so the
+ * dispatcher falls through to the next route immediately.
+ */
+function resolveCloudflareRouteCredentials(
+  env: NodeJS.ProcessEnv,
+  options: OriginCloudflareExecutionOptions,
+): OriginCloudflareCredentials {
+  if (!isOriginCloudflareFailoverEnabled(env)) throw new OriginCloudflarePreflightError("not-enabled");
+  const credentials = resolveOriginCloudflareCredentials(env);
+  if (!credentials) throw new OriginCloudflarePreflightError("not-configured");
+  const routeBlock = cloudflareRouteBlock(options.nowMs ?? Date.now());
+  if (routeBlock) throw new OriginCloudflarePreflightError(routeBlock);
+  return credentials;
+}
+
+interface OriginCloudflarePreparedInference {
+  messages: Array<{ role: string; content: string }>;
+  timeoutMs: number;
+  /** (PKG-2b) The requested completion budget, fixed once so the truncation check compares against exactly the value sent as max_tokens. */
+  completionTokenBudget: number;
+}
+
+/**
+ * Everything both executors must prove before inference may be sent: the
+ * plan shape, the current catalog evidence, and the mechanical Workers
+ * Free plan proof. The proof reads count into the shared transport counter
+ * exactly as the inference send does.
+ */
+async function prepareOriginCloudflareInference(
+  providerRequest: OriginProviderExecutionRequest,
+  credentials: OriginCloudflareCredentials,
+  fetchImpl: OriginFetch,
+  options: OriginCloudflareExecutionOptions,
+  transport: { count: number },
+): Promise<OriginCloudflarePreparedInference> {
+  validateCloudflarePlan(providerRequest.plan);
+  if (providerRequest.requiredTool) {
+    // Required-tool contracts stay on the primary route in Phase 1: the strict single-call
+    // tool contract has not been verified against this route's model.
+    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "必須ツール付きリクエストはフェイルオーバー対象外です。", 400, false);
+  }
+  const nowMs = options.nowMs ?? Date.now();
+  const selection = selectCurrentOriginCloudflareFreeModel(options.catalog, nowMs);
+  if (selection.ok === false) {
+    throw new OriginCloudflarePreflightError(selection.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale");
+  }
+  if (!planEvidenceIsCurrent(providerRequest.plan, selection.model, nowMs)) {
+    throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
+  }
+
+  const proof = await verifyOriginCloudflareWorkersFreePlanCached(fetchImpl, credentials, transport, nowMs);
+  if (proof.ok === false) throw new OriginCloudflarePreflightError("plan-proof-failed", proof.reason);
+
+  const messages = [
+    { role: "system", content: sanitizePreEgress(providerRequest.systemInstruction) },
+    ...providerRequest.messages.map((message) => ({
+      role: message.role === "user" ? "user" : "assistant",
+      content: sanitizePreEgress(message.content),
+    })),
+  ];
+  const timeoutMs = Math.min(MAX_CF_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_CF_REQUEST_TIMEOUT_MS));
+  const completionTokenBudget = originCompletionTokenBudget(providerRequest.plan.taskType);
+  return { messages, timeoutMs, completionTokenBudget };
+}
+
+/** Builds the route's verified result shape and asserts it, exactly as both executors return it. */
+function composeOriginCloudflareResult(
+  text: string,
+  transport: { count: number },
+  providerRequest: OriginProviderExecutionRequest,
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number },
+  completionTokenBudget: number,
+): OriginProviderExecutionResult {
+  const neurons = Math.round(
+    (usage.promptTokens / 1_000_000) * NEURONS_PER_MILLION_INPUT_TOKENS
+    + (usage.completionTokens / 1_000_000) * NEURONS_PER_MILLION_OUTPUT_TOKENS,
+  );
+  const result: OriginProviderExecutionResult = {
+    text,
+    // (PKG-2b) Truncation detection, method B: reaching the requested
+    // completion budget means the answer was cut at the cap. Usage collapses
+    // to 0 when the provider omits it, so a 0 reading is "undetectable" and
+    // never flags the result.
+    ...(usage.completionTokens > 0 && usage.completionTokens >= completionTokenBudget
+      ? { truncated: true }
+      : {}),
+    transportRequestCount: transport.count,
+    actualCostUsd: 0,
+    providerDataPolicy: providerRequest.plan.providerDataPolicy,
+    routingEvidence: {
+      requestedModel: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL,
+      servedModel: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL,
+      strategy: "verified-free-failover",
+      provider: "Cloudflare",
+      attempt: 2,
+      fallbackUsed: true,
+      neurons,
+    },
+    usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
+  };
+  assertOriginCloudflareExecutionResult(result);
+  return result;
+}
+
+/** Attaches the shared transport count to a provider error, exactly as both executors surface failures. */
+function withCloudflareTransportCount(error: unknown, transport: { count: number }): unknown {
+  if (error instanceof OriginCloudflarePreflightError) return error;
+  if (error instanceof OriginProviderError) {
+    return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+      ...error.diagnostic,
+      transportRequestCount: transport.count,
+    });
+  }
+  return error;
+}
+
 export async function executeOriginCloudflareProvider(
   providerRequest: OriginProviderExecutionRequest,
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: OriginFetch = fetch,
   options: OriginCloudflareExecutionOptions = {},
 ): Promise<OriginProviderExecutionResult> {
-  if (!isOriginCloudflareFailoverEnabled(env)) throw new OriginCloudflarePreflightError("not-enabled");
-  const credentials = resolveOriginCloudflareCredentials(env);
-  if (!credentials) throw new OriginCloudflarePreflightError("not-configured");
-  // Error-code branching state: a pool-exhausted day or a temporary-capacity
-  // cooldown skips the route before any network call (not even the plan-proof
-  // reads), so the dispatcher falls through to the next route immediately.
-  const routeBlock = cloudflareRouteBlock(options.nowMs ?? Date.now());
-  if (routeBlock) throw new OriginCloudflarePreflightError(routeBlock);
+  const credentials = resolveCloudflareRouteCredentials(env, options);
 
   const transport = { count: 0 };
   try {
-    validateCloudflarePlan(providerRequest.plan);
-    if (providerRequest.requiredTool) {
-      // Required-tool contracts stay on the primary route in Phase 1: the strict single-call
-      // tool contract has not been verified against this route's model.
-      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "必須ツール付きリクエストはフェイルオーバー対象外です。", 400, false);
-    }
-    const nowMs = options.nowMs ?? Date.now();
-    const selection = selectCurrentOriginCloudflareFreeModel(options.catalog, nowMs);
-    if (selection.ok === false) {
-      throw new OriginCloudflarePreflightError(selection.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale");
-    }
-    if (!planEvidenceIsCurrent(providerRequest.plan, selection.model, nowMs)) {
-      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "実行計画の無料証拠がカタログと一致しません。", 400, false);
-    }
-
-    const proof = await verifyOriginCloudflareWorkersFreePlanCached(fetchImpl, credentials, transport, nowMs);
-    if (proof.ok === false) throw new OriginCloudflarePreflightError("plan-proof-failed", proof.reason);
-
-    const messages = [
-      { role: "system", content: sanitizePreEgress(providerRequest.systemInstruction) },
-      ...providerRequest.messages.map((message) => ({
-        role: message.role === "user" ? "user" : "assistant",
-        content: sanitizePreEgress(message.content),
-      })),
-    ];
-    const timeoutMs = Math.min(MAX_CF_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(providerRequest.plan.timeoutMs) || MAX_CF_REQUEST_TIMEOUT_MS));
-    // (PKG-2b) Fix the requested completion budget once, so the truncation
-    // check below compares against exactly the value sent as max_tokens.
-    const completionTokenBudget = originCompletionTokenBudget(providerRequest.plan.taskType);
+    const prepared = await prepareOriginCloudflareInference(providerRequest, credentials, fetchImpl, options, transport);
+    const { messages, timeoutMs, completionTokenBudget } = prepared;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
@@ -653,43 +740,170 @@ export async function executeOriginCloudflareProvider(
     const text = extractInferenceText(body.result);
     if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
     const usage = extractUsage(body);
-    const neurons = Math.round(
-      (usage.promptTokens / 1_000_000) * NEURONS_PER_MILLION_INPUT_TOKENS
-      + (usage.completionTokens / 1_000_000) * NEURONS_PER_MILLION_OUTPUT_TOKENS,
-    );
-    const result: OriginProviderExecutionResult = {
-      text,
-      // (PKG-2b) Truncation detection, method B: reaching the requested
-      // completion budget means the answer was cut at the cap. Usage collapses
-      // to 0 when the provider omits it, so a 0 reading is "undetectable" and
-      // never flags the result.
-      ...(usage.completionTokens > 0 && usage.completionTokens >= completionTokenBudget
-        ? { truncated: true }
-        : {}),
-      transportRequestCount: transport.count,
-      actualCostUsd: 0,
-      providerDataPolicy: providerRequest.plan.providerDataPolicy,
-      routingEvidence: {
-        requestedModel: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL,
-        servedModel: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL,
-        strategy: "verified-free-failover",
-        provider: "Cloudflare",
-        attempt: 2,
-        fallbackUsed: true,
-        neurons,
-      },
-      usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
-    };
-    assertOriginCloudflareExecutionResult(result);
-    return result;
+    return composeOriginCloudflareResult(text, transport, providerRequest, usage, completionTokenBudget);
   } catch (error) {
-    if (error instanceof OriginCloudflarePreflightError) throw error;
-    if (error instanceof OriginProviderError) {
-      throw new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
-        ...error.diagnostic,
-        transportRequestCount: transport.count,
-      });
+    throw withCloudflareTransportCount(error, transport);
+  }
+}
+
+/**
+ * Streaming variant of the Cloudflare executor, used by the failover
+ * dispatcher's streaming entry so a second-route answer is displayed
+ * progressively instead of arriving as one block after the full generation.
+ * Every pre-send proof is identical to the blocking executor (the shared
+ * prepare step above): this route's $0 guarantee is established before the
+ * request is sent (Workers Free plan proof, current catalog evidence), and
+ * the response itself carries no per-fragment billing or served-model
+ * metadata to verify — the model identity is fixed by the request URL and
+ * the usage accounting is post-hoc, exactly as in the blocking executor.
+ * Text fragments may therefore be forwarded as they arrive in incremental
+ * release mode; in hold mode the accumulated text is released once, after
+ * the stream terminates and the result passes the same assertion as the
+ * blocking executor's. The returned text is the trimmed accumulation,
+ * identical to the blocking executor's text for the same generation; only
+ * the delivery split changes.
+ */
+export type OriginCloudflareStreamExecutor = (
+  providerRequest: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginCloudflareExecutionOptions,
+) => Promise<OriginProviderExecutionResult>;
+
+interface CloudflareStreamEvent {
+  response?: unknown;
+  usage?: unknown;
+  choices?: Array<{ delta?: { content?: unknown } }>;
+}
+
+function cloudflareStreamFragment(event: CloudflareStreamEvent): string {
+  if (typeof event.response === "string") return event.response;
+  const content = event.choices?.[0]?.delta?.content;
+  return typeof content === "string" ? content : "";
+}
+
+/**
+ * Reads a Workers AI SSE stream, handing each `data:` payload to the
+ * callback as it arrives. Mirrors the primary stream client's reader:
+ * lines may split across network chunks, comment lines are skipped, and a
+ * trailing unterminated line is flushed at end of stream.
+ */
+async function consumeCloudflareSseStream(
+  response: Response,
+  onPayload: (payload: string) => void,
+): Promise<void> {
+  if (!response.body) {
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const processLine = (rawLine: string) => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line || line.startsWith(":")) return;
+    if (!line.startsWith("data:")) return;
+    onPayload(line.slice(5).trimStart());
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) processLine(line);
     }
-    throw error;
+    buffer += decoder.decode();
+    if (buffer.trim()) processLine(buffer);
+  } finally {
+    try { await reader.cancel(); } catch { /* stream already completed */ }
+  }
+}
+
+export async function executeOriginCloudflareProviderStream(
+  providerRequest: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: OriginFetch = fetch,
+  options: OriginCloudflareExecutionOptions = {},
+): Promise<OriginProviderExecutionResult> {
+  const credentials = resolveCloudflareRouteCredentials(env, options);
+  const transport = { count: 0 };
+  try {
+    const prepared = await prepareOriginCloudflareInference(providerRequest, credentials, fetchImpl, options, transport);
+    const incrementalRelease = providerRequest.streamRelease === "incremental";
+    const controller = new AbortController();
+    // Unlike the blocking executor — whose timer only needs to cover the
+    // wait for the response — the streaming timer stays armed for the whole
+    // read: once the dispatcher has delivered the first fragment it no
+    // longer aborts this route, so this cap is the only bound on a stalled
+    // stream (the primary stream client is bounded the same way).
+    const timer = setTimeout(() => controller.abort(), prepared.timeoutMs);
+    try {
+      transport.count += 1;
+      const response = await fetchImpl(
+        `${CLOUDFLARE_API_BASE}/accounts/${credentials.accountId}/ai/run/${ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${credentials.aiToken}` },
+          body: JSON.stringify({
+            messages: prepared.messages,
+            max_tokens: prepared.completionTokenBudget,
+            temperature: 0.2,
+            stream: true,
+          }),
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as CloudflareEnvelope | null;
+        // Same failure bookkeeping as the blocking executor: a pool-exhaustion
+        // code stops this route for the rest of the UTC day and a temporary-
+        // capacity code starts its short cooldown, so later requests in this
+        // process skip the route instead of repeating a doomed attempt.
+        noteCloudflareUpstreamFailure(body, options.nowMs ?? Date.now());
+        throw inferenceFailure(response.status, body);
+      }
+      let output = "";
+      let doneSeen = false;
+      let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+      await consumeCloudflareSseStream(response, (payload) => {
+        if (payload === "[DONE]") { doneSeen = true; return; }
+        let event: CloudflareStreamEvent;
+        try {
+          event = JSON.parse(payload) as CloudflareStreamEvent;
+        } catch {
+          throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+        }
+        if (event.usage !== undefined) {
+          usage = extractUsage({ usage: event.usage } as CloudflareEnvelope);
+        }
+        const fragment = cloudflareStreamFragment(event);
+        if (fragment) {
+          output += fragment;
+          if (incrementalRelease) handlers.onDelta(fragment);
+        }
+      });
+      if (!doneSeen || !output.trim()) {
+        throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      }
+      const result = composeOriginCloudflareResult(output.trim(), transport, providerRequest, usage, prepared.completionTokenBudget);
+      // Hold mode releases the verified full text once, at the end, exactly
+      // like the blocking executor's single delivery; incremental mode has
+      // already forwarded every fragment as it was generated.
+      if (!incrementalRelease) handlers.onDelta(result.text);
+      return result;
+    } catch (error) {
+      if (error instanceof OriginProviderError) throw error;
+      if ((error as Error)?.name === "AbortError") {
+        throw new OriginProviderError("PROVIDER_TIMEOUT", "無料AIがタイムアウトしました。", 504, true, undefined, { transportFailure: "timeout" });
+      }
+      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportFailure: "network" });
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (error) {
+    throw withCloudflareTransportCount(error, transport);
   }
 }

@@ -28,14 +28,18 @@ import {
 import {
   assertOriginCloudflareExecutionResult,
   executeOriginCloudflareProvider,
+  executeOriginCloudflareProviderStream,
   isOriginCloudflareFailoverEnabled,
   OriginCloudflarePreflightError,
+  type OriginCloudflareStreamExecutor,
 } from "./originCloudflareProviderClient.js";
 import {
   assertOriginGroqExecutionResult,
   executeOriginGroqProvider,
+  executeOriginGroqProviderStream,
   isOriginGroqRouteConfigured,
   OriginGroqPreflightError,
+  type OriginGroqStreamExecutor,
 } from "./originGroqProviderClient.js";
 import {
   executeOriginProviderStream,
@@ -215,6 +219,14 @@ export interface OriginProviderFailoverOptions {
   cloudflareExecute?: typeof executeOriginCloudflareProvider;
   groqExecute?: typeof executeOriginGroqProvider;
   streamExecute?: typeof executeOriginProviderStream;
+  /**
+   * Streaming executors for the failover routes, used only by the streaming
+   * entry. When unset, an injected blocking executor is adapted (its verified
+   * full text is released once at completion, the pre-streaming behavior) and
+   * otherwise the route's real streaming executor runs.
+   */
+  cloudflareStreamExecute?: OriginCloudflareStreamExecutor;
+  groqStreamExecute?: OriginGroqStreamExecutor;
   /** Overrides ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS (tests and tuning). */
   primaryAttemptBudgetMs?: number;
   /** Overrides ORIGIN_PRIMARY_CIRCUIT_COOLDOWN_MS (tests and tuning). */
@@ -791,6 +803,360 @@ async function attemptGroqRoute(
 }
 
 /**
+ * Adapts a blocking route executor to the streaming shape: its verified full
+ * text is released once, at completion. This is the degradation for an
+ * injected executor without streaming support (and exactly the behavior the
+ * streaming entry had for every failover route before the routes learned to
+ * stream); the production default below is the route's real streaming
+ * executor.
+ */
+function adaptCloudflareStreamExecutor(execute: typeof executeOriginCloudflareProvider): OriginCloudflareStreamExecutor {
+  return async (request, handlers, env, fetchImpl, options) => {
+    const result = await execute(request, env, fetchImpl, options);
+    if (result.text) handlers.onDelta(result.text);
+    return result;
+  };
+}
+
+function adaptGroqStreamExecutor(execute: typeof executeOriginGroqProvider): OriginGroqStreamExecutor {
+  return async (request, handlers, env, fetchImpl, options) => {
+    const result = await execute(request, env, fetchImpl, options);
+    if (result.text) handlers.onDelta(result.text);
+    return result;
+  };
+}
+
+function resolveCloudflareStreamExecutor(options: OriginProviderFailoverOptions): OriginCloudflareStreamExecutor {
+  if (options.cloudflareStreamExecute) return options.cloudflareStreamExecute;
+  if (options.cloudflareExecute) return adaptCloudflareStreamExecutor(options.cloudflareExecute);
+  return executeOriginCloudflareProviderStream;
+}
+
+function resolveGroqStreamExecutor(options: OriginProviderFailoverOptions): OriginGroqStreamExecutor {
+  if (options.groqStreamExecute) return options.groqStreamExecute;
+  if (options.groqExecute) return adaptGroqStreamExecutor(options.groqExecute);
+  return executeOriginGroqProviderStream;
+}
+
+async function runCloudflareRouteStream(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  // Mirrors runCloudflareRoute (same route plan, timeout raised to the
+  // Cloudflare client's own maximum); the request additionally carries the
+  // stream-release policy, which only the streaming executor reads.
+  const planResult = buildOriginCloudflareRoutePlan(
+    { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+    {
+      cloudflareFreeModelCatalog: options.cloudflareCatalog,
+      nowMs: options.nowMs,
+    },
+  );
+  if (planResult.ok === false) {
+    throw new OriginCloudflarePreflightError(
+      planResult.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale",
+    );
+  }
+  const execute = resolveCloudflareStreamExecutor(options);
+  return execute(
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, streamRelease: request.streamRelease },
+    handlers,
+    env,
+    fetchImpl,
+    { catalog: options.cloudflareCatalog, nowMs: options.nowMs },
+  );
+}
+
+async function runGroqRouteStream(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  // Mirrors runGroqRoute (same route plan, timeout raised to the Groq
+  // client's own maximum), plus the stream-release policy.
+  const planResult = buildOriginGroqRoutePlan(
+    { ...request.plan, timeoutMs: Math.max(request.plan.timeoutMs, ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS) },
+    {
+      groqFreeModelCatalog: options.groqCatalog,
+      nowMs: options.nowMs,
+    },
+  );
+  if (planResult.ok === false) {
+    throw new OriginGroqPreflightError(
+      planResult.code === "FREE_MODEL_CATALOG_INVALID" ? "catalog-invalid" : "evidence-stale",
+    );
+  }
+  const execute = resolveGroqStreamExecutor(options);
+  return execute(
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction, streamRelease: request.streamRelease },
+    handlers,
+    env,
+    fetchImpl,
+    { catalog: options.groqCatalog, nowMs: options.nowMs },
+  );
+}
+
+/**
+ * Races one failover route's stream against its slice of the total budget,
+ * with the streaming delivery rule. Before the first delivered fragment, a
+ * slice expiry aborts the route's fetches, detaches its handlers (a late
+ * fragment from the abandoned stream is dropped by the guard), and surfaces
+ * as the same bounded-race timeout the blocking routes produce. After any
+ * fragment is delivered, abandoning the stream would corrupt the displayed
+ * answer, so the race is stood down and the route finishes under its own
+ * client's caps — the same exception the primary stream has always had.
+ */
+async function raceRouteStreamAgainstSlice(
+  start: (guardedHandlers: OriginProviderStreamHandlers) => Promise<OriginProviderExecutionResult>,
+  handlers: OriginProviderStreamHandlers,
+  sliceMs: number,
+  transport: { count: number },
+  abort: () => void,
+  delivery: { delivered: boolean },
+): Promise<OriginProviderExecutionResult> {
+  if (sliceMs <= 0) throw totalBudgetTimeoutError(0);
+  let abandoned = false;
+  const guardedHandlers: OriginProviderStreamHandlers = {
+    onDelta: (text: string) => {
+      if (abandoned) return;
+      handlers.onDelta(text);
+    },
+  };
+  const routePromise = start(guardedHandlers);
+  routePromise.catch(() => undefined);
+  const settled: Promise<
+    | { kind: "result"; result: OriginProviderExecutionResult }
+    | { kind: "error"; error: unknown }
+  > = routePromise.then(
+    (result) => ({ kind: "result" as const, result }),
+    (error) => ({ kind: "error" as const, error }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<"budget">((resolve) => {
+    timer = setTimeout(() => resolve("budget"), sliceMs);
+  });
+  const winner = await Promise.race([settled, budget]);
+  if (winner === "budget") {
+    if (delivery.delivered) {
+      const outcome = await settled;
+      if (outcome.kind === "error") throw outcome.error;
+      return outcome.result;
+    }
+    abandoned = true;
+    abort();
+    throw totalBudgetTimeoutError(transport.count);
+  }
+  if (timer) clearTimeout(timer);
+  if (winner.kind === "error") throw winner.error;
+  return winner.result;
+}
+
+/**
+ * The Cloudflare route's stream inside the dispatch's total budget: same
+ * slice computation as the blocking bounded route (third-route reserve and
+ * the second route's attempt cap included), raced under the delivery rule
+ * above. Without a window (direct internal use only) the route streams
+ * exactly as the unbounded helper.
+ */
+async function runCloudflareRouteStreamBounded(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  delivery: { delivered: boolean },
+): Promise<OriginProviderExecutionResult> {
+  if (!options.totalBudgetWindow) return runCloudflareRouteStream(request, handlers, env, fetchImpl, options);
+  const routeController = new AbortController();
+  const transport = { count: 0 };
+  const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
+  return raceRouteStreamAgainstSlice(
+    (guardedHandlers) => runCloudflareRouteStream(request, guardedHandlers, env, boundedFetch, options),
+    handlers,
+    cloudflareSliceMs(options, env),
+    transport,
+    () => routeController.abort(),
+    delivery,
+  );
+}
+
+/** The Groq route's stream inside the total budget, mirroring the bounded blocking route. */
+async function runGroqRouteStreamBounded(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  delivery: { delivered: boolean },
+): Promise<OriginProviderExecutionResult> {
+  if (!options.totalBudgetWindow) return runGroqRouteStream(request, handlers, env, fetchImpl, options);
+  const routeController = new AbortController();
+  const transport = { count: 0 };
+  const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
+  return raceRouteStreamAgainstSlice(
+    (guardedHandlers) => runGroqRouteStream(request, guardedHandlers, env, boundedFetch, options),
+    handlers,
+    totalBudgetRemainingMs(options),
+    transport,
+    () => routeController.abort(),
+    delivery,
+  );
+}
+
+/**
+ * Streaming mirror of attemptGroqRoute: identical skip and error surfacing,
+ * with the third route running as a stream whose fragments the chain's
+ * tracking handlers forward as they arrive.
+ */
+async function attemptGroqStreamRoute(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  delivery: { delivered: boolean },
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  fallbackError: OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  if (!isOriginGroqRouteConfigured(env)) {
+    throw withFailoverAttempts(fallbackError, priorAttempts);
+  }
+  const groqStartedAtMs = Date.now();
+  try {
+    const groqResult = await runGroqRouteStreamBounded(request, handlers, env, fetchImpl, options, delivery);
+    return composeGroqResult(groqResult, priorAttempts, Date.now() - groqStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginGroqPreflightError) {
+      const skipped = groqAttemptEvidence("skipped", {
+        skipReason: error.reason,
+        transportRequestCount: 0,
+      });
+      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+    }
+    if (error instanceof OriginProviderError) {
+      const failed = groqAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
+      );
+      throw withFailoverAttempts(error, [...priorAttempts, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Streaming mirror of failOverFromCloudflareRoute: the second route runs as
+ * a stream and its fragments reach the client as they are generated, under
+ * the request's stream-release policy. Circuit-breaker recording, attempt
+ * evidence, and error surfacing are identical to the blocking chain, with
+ * one streaming-only guard: once any fragment of the second route's answer
+ * has been delivered, an availability failure no longer switches to the
+ * third route — switching would duplicate the displayed text — and the
+ * failure is surfaced instead, exactly like a mid-stream primary failure.
+ */
+async function failOverStreamFromCloudflareRoute(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  primaryAttempt: OriginProviderAttemptEvidence,
+  skippedFallbackError: () => OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const delivery = { delivered: false };
+  const trackingHandlers: OriginProviderStreamHandlers = {
+    onDelta: (text: string) => {
+      if (text) delivery.delivered = true;
+      handlers.onDelta(text);
+    },
+  };
+  const circuit = cloudflareCircuitOpen(options);
+  if (circuit && isOriginGroqRouteConfigured(env)) {
+    const skipped = cloudflareAttemptEvidence("skipped", {
+      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
+      errorCode: circuit.errorCode,
+      transportRequestCount: 0,
+    });
+    return attemptGroqStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, skipped], skippedFallbackError());
+  }
+  const cloudflareStartedAtMs = Date.now();
+  try {
+    const cloudflareResult = await runCloudflareRouteStreamBounded(request, trackingHandlers, env, fetchImpl, options, delivery);
+    recordCloudflareRouteSuccess();
+    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginCloudflarePreflightError) {
+      const skipped = cloudflareAttemptEvidence("skipped", {
+        skipReason: error.reason === "plan-proof-failed" && error.proofReason
+          ? `plan-proof-failed:${error.proofReason}`
+          : error.reason,
+        transportRequestCount: 0,
+      });
+      return attemptGroqStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, skipped], skippedFallbackError());
+    }
+    if (error instanceof OriginProviderError) {
+      recordCloudflareRouteFailure(error, options);
+      const failed = cloudflareAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
+      );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) && !delivery.delivered) {
+        return attemptGroqStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, failed], error);
+      }
+      throw withFailoverAttempts(error, [primaryAttempt, failed]);
+    }
+    throw error;
+  }
+}
+
+/** Streaming mirror of failOverFromPrimaryError. */
+async function failOverStreamFromPrimaryError(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  primaryError: OriginProviderError,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  primaryDurationMs?: number,
+): Promise<OriginProviderExecutionResult> {
+  const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError, primaryDurationMs);
+  return failOverStreamFromCloudflareRoute(request, handlers, env, fetchImpl, options, primaryAttempt, () => primaryError);
+}
+
+/** Streaming mirror of failOverFromOpenCircuit. */
+async function failOverStreamFromOpenCircuit(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  circuit: OriginPrimaryCircuitState,
+): Promise<OriginProviderExecutionResult> {
+  const primaryAttempt: OriginProviderAttemptEvidence = {
+    providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
+    modelId: request.plan.modelId,
+    outcome: "skipped",
+    skipReason: ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON,
+    errorCode: circuit.errorCode,
+    transportRequestCount: 0,
+  };
+  return failOverStreamFromCloudflareRoute(
+    request,
+    handlers,
+    env,
+    fetchImpl,
+    options,
+    primaryAttempt,
+    () => circuitPrimaryError(circuit, options),
+  );
+}
+
+/**
  * Second-route phase shared by both failover entries (a primary availability
  * failure, and a circuit-open primary skip): runs the Cloudflare route bounded,
  * records the outcome on its circuit breaker, and falls through to the third
@@ -985,11 +1351,14 @@ export async function executeOriginProviderWithFailover(
 }
 
 /**
- * Streaming variant. The primary stream executor releases text only after its terminal
- * billing/routing verification, so failover here still happens strictly before the first
- * downstream byte: if the primary stream fails with an availability error and nothing was
- * delivered, the Cloudflare route runs non-streaming and its verified full text is
- * delivered as a single delta. After any byte is delivered, no switch is attempted.
+ * Streaming variant. Failover here happens strictly before the first downstream
+ * byte: if the primary stream fails with an availability error and nothing was
+ * delivered, the failover routes run as streams themselves — the Cloudflare and
+ * Groq routes forward their fragments progressively under the request's
+ * stream-release policy (incremental forwarding, or a single verified release
+ * at completion in hold mode), and the composed result's text is exactly what
+ * the serving route generated. After any byte is delivered, no switch is
+ * attempted, on any route.
  */
 export async function executeOriginProviderStreamWithFailover(
   providerRequest: OriginProviderExecutionRequest,
@@ -1005,9 +1374,7 @@ export async function executeOriginProviderStreamWithFailover(
   const scopedOptions = withTotalBudgetWindow(options);
   const circuit = primaryCircuitOpen(scopedOptions);
   if (circuit) {
-    const composed = await failOverFromOpenCircuit(providerRequest, env, fetchImpl, scopedOptions, circuit);
-    handlers.onDelta(composed.text);
-    return composed;
+    return failOverStreamFromOpenCircuit(providerRequest, handlers, env, fetchImpl, scopedOptions, circuit);
   }
   let delivered = false;
   let abandoned = false;
@@ -1045,16 +1412,15 @@ export async function executeOriginProviderStreamWithFailover(
     abandoned = true;
     attemptController.abort();
     openPrimaryCircuit(scopedOptions, "PROVIDER_TIMEOUT");
-    const composed = await failOverFromPrimaryError(
+    return failOverStreamFromPrimaryError(
       providerRequest,
+      handlers,
       primaryBudgetTimeoutError(transport.count),
       env,
       fetchImpl,
       scopedOptions,
       Date.now() - streamStartedAtMs,
     );
-    handlers.onDelta(composed.text);
-    return composed;
   }
   if (timer) clearTimeout(timer);
   const outcome = winner === "budget" ? await settled : winner;
@@ -1063,9 +1429,7 @@ export async function executeOriginProviderStreamWithFailover(
     if (!delivered && error instanceof OriginProviderError && ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
       const openingCode = circuitOpeningCode(error);
       if (openingCode) openPrimaryCircuit(scopedOptions, openingCode);
-      const composed = await failOverFromPrimaryError(providerRequest, error, env, fetchImpl, scopedOptions, outcome.durationMs);
-      handlers.onDelta(composed.text);
-      return composed;
+      return failOverStreamFromPrimaryError(providerRequest, handlers, error, env, fetchImpl, scopedOptions, outcome.durationMs);
     }
     throw error;
   }
