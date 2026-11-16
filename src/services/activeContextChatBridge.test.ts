@@ -12,8 +12,6 @@ import type { OriginMemoryItem, OriginProfileItem } from './activeContextGraph';
 //     non-POST requests are never touched.
 // The storage harness mirrors activeContextGraph.test.ts.
 
-const KEY_DB_NAME = 'origin-active-context-key';
-const KEY_STORE_NAME = 'keys';
 const USER_ID_STORAGE_KEY = 'origin-active-context-user-id:v1';
 const SETTINGS_KEY = 'origin_personal_settings';
 const NOV16 = Date.UTC(2026, 10, 16, 12, 0, 0);
