@@ -124,6 +124,34 @@ describe("chat router synthesis salvage", () => {
       expect.objectContaining({ id: "synthesis", status: "completed", citationValidated: true }),
     ]));
     expect(response.body.answer.answer).toBe(salvagedText);
+    // Partial-answer disclosure (2026-11-16): a salvaged adoption carries
+    // the same limitations wording as the records-path salvage (PR #1327).
+    expect(response.body.answer.limitations).toContain("この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+  });
+
+  it("adopts a synthesis salvaged for an unsupported number (generalized salvage) and discloses the partial answer", async () => {
+    const keptText = [
+      "首相官邸のページでは高市早苗が内閣総理大臣として示されています [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+    ].join("\n");
+    const response = await request(createChatApp(synthesisReturning(
+      [
+        keptText.split("\n")[0],
+        "内閣支持率は99%です [S1](https://www.kantei.go.jp/jp/104/actions/index.html) [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+        keptText.split("\n")[1],
+      ].join("\n"),
+    ))).post("/api/chat")
+      .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
+
+    expect(response.status).toBe(200);
+    // The unsupported-number line is removed; the verified remainder is
+    // delivered instead of the source-list fallback.
+    expect(response.body.content).toBe(keptText);
+    expect(response.body.content).not.toContain("99%");
+    expect(response.body.routing.synthesisStatus).toBe("citation-validated");
+    expect(response.body.routing.synthesisSalvaged).toBe(true);
+    expect(response.body.routing.synthesisSalvageRemovedUnits).toBe(1);
+    expect(response.body.answer.limitations).toContain("この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
   });
 
   it("S15: an aborted salvage returns the hygienic partial answer with the first failure code", async () => {

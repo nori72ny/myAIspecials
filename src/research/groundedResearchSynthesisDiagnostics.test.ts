@@ -206,13 +206,13 @@ describe("salvage abort remainingUncitedUnits", () => {
     expect(result.remainingUncitedUnits).toBe(3);
   });
 
-  it("is absent when the salvage was never attempted (non-UNCITED first failure)", () => {
-    const input = [
-      CITED_PRICE_LINE,
-      "料金は999円です。[S1](https://example.com/one) [S2](https://example.org/two)",
-    ].join("\n");
+  it("is absent when the salvage was never attempted (non-salvageable first failure)", () => {
+    // INSUFFICIENT_SOURCE_COVERAGE is not line-local: removing lines
+    // cannot create coverage, so the salvage is never attempted and no
+    // abort record (hence no remainingUncitedUnits) is produced.
+    const input = "料金は100円です。[S1](https://example.com/one)";
     const result = expectRejected(adoptGroundedResearchSynthesis(input, priceSources));
-    expect(result.failureCode).toBe("UNSUPPORTED_NUMERIC_TOKEN");
+    expect(result.failureCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
     expect(result.salvageAttempted).toBe(false);
     expect(result.remainingUncitedUnits).toBeUndefined();
   });

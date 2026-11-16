@@ -159,10 +159,18 @@ describe("synthesis-discard fallback hygiene", () => {
     expect(response.body.routing.synthesisSalvageRemovedUnits).toBe(1);
   });
 
-  it("uses the hygienic partial answer when a number is not in the cited evidence (UNSUPPORTED_NUMERIC_TOKEN)", async () => {
-    const response = await request(createApp(synthesisReturning(
-      "内閣総理大臣は高市早苗氏です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)\n記者会見も行われました [S2](https://www.nhk.or.jp/politics/articles/1.html)\n内閣支持率は99%です [S1](https://www.kantei.go.jp/jp/104/actions/index.html) [S2](https://www.nhk.or.jp/politics/articles/1.html)",
-    ))).post("/api/chat")
+  it("uses the hygienic partial answer when unsupported numbers exceed what the salvage may remove (UNSUPPORTED_NUMERIC_TOKEN)", async () => {
+    // Generalized salvage (2026-11-16): a single unsupported-number line is
+    // now removed and the verified remainder adopted (see the salvage test
+    // file). Three of four units carrying unsupported numbers exceed the
+    // removal caps, so this shape still discards to the partial answer,
+    // with the FIRST validation code preserved.
+    const response = await request(createApp(synthesisReturning([
+      "内閣総理大臣は高市早苗氏です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "内閣支持率は99%です [S1](https://www.kantei.go.jp/jp/104/actions/index.html)",
+      "内閣支持率は98%です [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+      "内閣支持率は97%です [S1](https://www.kantei.go.jp/jp/104/actions/index.html) [S2](https://www.nhk.or.jp/politics/articles/1.html)",
+    ].join("\n")))).post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
     expect(response.status).toBe(200);
     expectHygienicFallback(response.body, "UNSUPPORTED_NUMERIC_TOKEN");
