@@ -8,6 +8,7 @@ import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginR
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
+import { logOriginBusinessPlanningAuditShadow } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
@@ -303,6 +304,14 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
           deckFailureShape = outcome.failureShape;
         }
+      }
+      // Numeric audit gate, stage 1 (shadow): when the delivered chat
+      // text is exactly the model answer (no deck path replaced it and
+      // the assertion gate did not rewrite it), a planning/marketing
+      // answer is re-checked deterministically and the outcome is only
+      // logged — delivery is never altered by the audit.
+      if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced) {
+        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text });
       }
       console.info("[origin-chat] upstream stream completed", {
         requestId,

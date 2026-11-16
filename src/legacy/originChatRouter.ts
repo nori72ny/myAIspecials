@@ -10,6 +10,7 @@ import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginR
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
+import { logOriginBusinessPlanningAuditShadow } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -864,6 +865,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
       if (assertionGate.replaced) console.info("[origin-chat] ungrounded current assertion replaced", { requestId, reasonCode: "GATE_REPLACED" });
       const answerText = assertionGate.text;
+      // Numeric audit gate, stage 1 (shadow): planning/marketing answers
+      // are re-checked deterministically and the outcome is only logged —
+      // the delivered text below is never altered by the audit.
+      logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText });
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
