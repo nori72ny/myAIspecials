@@ -121,6 +121,48 @@ const fakeIndexedDB = {
   },
 };
 
+// --- Store seeding -------------------------------------------------------------
+//
+// A few assembly tests need several records with the SAME statement text in
+// the store at once (tier ranking, item caps). Since PR P1-5 the upsert
+// path treats a restated statement as a §8.2 duplicate and will not create
+// it twice, so those fixtures seed the encrypted store directly — the same
+// pattern as the bulk fixtures in activeContextGraph.test.ts. Assembly
+// behavior is what those tests pin; how the records entered the store is
+// not.
+
+const PERSONAL_KEY = `origin-personal-memory:v1:${USER_ID}`;
+const KEY_DB_NAME = 'origin-active-context-key';
+const KEY_STORE_NAME = 'keys';
+const KEY_ID = 'aes-gcm-256';
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+async function seedEncryptionKey(): Promise<CryptoKey> {
+  const key = await webcrypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  getDb(KEY_DB_NAME).storeData(KEY_STORE_NAME).set(KEY_ID, key);
+  return key;
+}
+
+async function encryptPayload(key: CryptoKey, value: unknown): Promise<string> {
+  const iv = webcrypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await webcrypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(value)),
+  );
+  return JSON.stringify({ version: 1, iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)) });
+}
+
+async function seedStore(store: { profile: OriginProfileItem[]; memory: OriginMemoryItem[] }): Promise<void> {
+  const key = await seedEncryptionKey();
+  window.localStorage.setItem(PERSONAL_KEY, await encryptPayload(key, { version: 1, ...store }));
+}
+
 // --- Fixtures ------------------------------------------------------------------
 
 function profileItem(overrides: Partial<OriginProfileItem> = {}): OriginProfileItem {
@@ -224,10 +266,18 @@ describe('personal context assembly (design §6)', () => {
   });
 
   it('ranks migrated legacy records between explicit and inferred memories', async () => {
+    // Seeded directly: all three records carry the same statement (that is
+    // what equalizes their relevance), and the upsert path would treat the
+    // restatements as §8.2 duplicates since PR P1-5.
+    await seedStore({
+      profile: [],
+      memory: [
+        memoryItem({ id: 'm-inferred', origin: 'inferred', source: { quote: '予算の件は確定しました', at: NOV16 }, createdAt: NOV16 }),
+        memoryItem({ id: 'm-legacy', origin: 'legacy-acg', source: { quote: '予算の件は確定しました', at: NOV15 }, createdAt: NOV15 }),
+        memoryItem({ id: 'm-explicit', origin: 'explicit', source: { quote: '予算の件は確定しました', at: NOV14 }, createdAt: NOV14 }),
+      ],
+    });
     const mod = await loadFreshModule();
-    await mod.upsertMemoryItem(USER_ID, memoryItem({ id: 'm-inferred', origin: 'inferred', source: { quote: '予算の件は確定しました', at: NOV16 }, createdAt: NOV16 }));
-    await mod.upsertMemoryItem(USER_ID, memoryItem({ id: 'm-legacy', origin: 'legacy-acg', source: { quote: '予算の件は確定しました', at: NOV15 }, createdAt: NOV15 }));
-    await mod.upsertMemoryItem(USER_ID, memoryItem({ id: 'm-explicit', origin: 'explicit', source: { quote: '予算の件は確定しました', at: NOV14 }, createdAt: NOV14 }));
 
     const block = await mod.retrieveRelevantContext('予算の件を確認します');
     expect(block.indexOf('11月14日')).toBeGreaterThanOrEqual(0);
@@ -314,20 +364,35 @@ describe('personal context assembly (design §6)', () => {
   });
 
   it('keeps at most five memory items in the block', async () => {
-    const mod = await loadFreshModule();
-    for (let index = 0; index < 7; index += 1) {
-      await mod.upsertMemoryItem(USER_ID, memoryItem({
+    // Seeded directly: the seven records share one statement text, which
+    // the upsert path would deduplicate since PR P1-5 (§8.2).
+    await seedStore({
+      profile: [],
+      memory: Array.from({ length: 7 }, (_, index) => memoryItem({
         id: `m-${index}`,
         text: '予算の件は月末までに対応します',
         source: { quote: '予算の件は月末までに対応します', at: NOV16 },
         createdAt: NOV16 + index,
-      }));
-    }
+      })),
+    });
+    const mod = await loadFreshModule();
     const block = await mod.retrieveRelevantContext('予算の件を確認します');
     expect(block.match(/［決めたこと］/g)).toHaveLength(5);
   });
 
   it('respects the 800-char profile allocation and the 2,000-char total cap', async () => {
+    // The five memory records share one statement text and are seeded
+    // directly (the upsert path would deduplicate them since PR P1-5);
+    // the profile items are then upserted on top of the seeded store.
+    await seedStore({
+      profile: [],
+      memory: Array.from({ length: 5 }, (_, index) => memoryItem({
+        id: `m-${index}`,
+        text: `予算の件は${'あ'.repeat(255)}`,
+        source: { quote: '予算の件は', at: NOV16 },
+        createdAt: NOV16 + index,
+      })),
+    });
     const mod = await loadFreshModule();
     // Each formatted profile line is 163 chars; the 800-char allocation
     // (plus its section header) fits exactly four of them.
@@ -337,14 +402,6 @@ describe('personal context assembly (design §6)', () => {
     // Each formatted memory line is 276 chars; after the profile section
     // (~664 chars of budget) and the memory header, four lines fit under
     // the 2,000-char total and the fifth is skipped whole.
-    for (let index = 0; index < 5; index += 1) {
-      await mod.upsertMemoryItem(USER_ID, memoryItem({
-        id: `m-${index}`,
-        text: `予算の件は${'あ'.repeat(255)}`,
-        source: { quote: '予算の件は', at: NOV16 },
-        createdAt: NOV16 + index,
-      }));
-    }
 
     const block = await mod.retrieveRelevantContext('予算の件で相談があります');
     expect(block.match(/［好み］/g)).toHaveLength(4);
