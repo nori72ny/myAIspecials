@@ -1044,6 +1044,19 @@ const HELPER_EXPECTED_RECORDS_RENDER = [
   "",
   ...PM_SOURCE_LIST,
 ].join("\n");
+// The slot form of the same support set (R-PR-9f): the second
+// support record ("2026年11月時点でも…") restates the slot headline
+// itself — same holder, its month-precision date contained in the
+// headline's day-precision date — so the slot renderer drops it
+// from the tail (the B-04 shape). The first support record carries
+// no date, so its values cannot be confirmed contained in the
+// headline's and it stays. In the records stage (no headline) both
+// records render, as HELPER_EXPECTED_RECORDS_RENDER pins.
+const HELPER_EXPECTED_SLOT_SUPPORT_RENDER = [
+  "- 現在の内閣総理大臣は高市早苗です。 [S1](https://www.kantei.example.go.jp/souri/)",
+  "",
+  ...PM_SOURCE_LIST,
+].join("\n");
 
 describe("executeGroundedResearchRecordsSynthesis slot layer (design §9/§11/§12)", () => {
   it("adopts the slot and renders supporting records below it; retry and selection never fire", async () => {
@@ -1051,7 +1064,7 @@ describe("executeGroundedResearchRecordsSynthesis slot layer (design §9/§11/§
     const executeRetry = vi.fn(async () => executionResult(PM_RECORDS_JSON, 777));
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions({ executeRetry }));
     expect(outcome.adopted).toBe(true);
-    expect(outcome.text).toBe(`${HELPER_SLOT_HEADLINE}\n\n${HELPER_PM_EVIDENCE_LINES.join("\n")}\n\n${HELPER_EXPECTED_RECORDS_RENDER}`);
+    expect(outcome.text).toBe(`${HELPER_SLOT_HEADLINE}\n\n${HELPER_PM_EVIDENCE_LINES.join("\n")}\n\n${HELPER_EXPECTED_SLOT_SUPPORT_RENDER}`);
     expect(outcome.usedSourceIds).toEqual(["S1", "S2"]);
     // The consumed result is the supporting records execution's.
     expect(outcome.result?.text).toBe(PM_RECORDS_JSON);
