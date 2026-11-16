@@ -559,8 +559,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const synthesisResult = retryOutcome.result;
             if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
-                ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
-                : "取得済みHTTPS証拠パケットとの引用構造一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
+                ? "Citation structure was checked against the retrieved source information; factual truth and publisher authority were not independently verified."
+                : "取得した出典情報との引用構造の一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
               const limitations = [
                 grounded.language === "en"
                   ? "Citations were structurally validated against retrieved sources, but claim truth, completeness, and publisher authority were not independently verified."
@@ -855,7 +855,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const startedAt = now();
     try {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required, promptText: intentInput });
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en"), groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) };
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en"), groqSystemInstruction: originGroqRouteSystemInstruction() };
       const result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
       // Output-side assertion gate (S-PR-1): this direct path carries no
       // search grounding for the request, so a current-form assertion
