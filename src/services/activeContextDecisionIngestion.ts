@@ -399,7 +399,9 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
 async function saveCandidates(
   candidates: MemoryCandidate[],
   turn: { userMessageId?: string; sessionId?: string },
-  guardBlocks?: GuardBlock[],
+  // Always provided by the entry point: the §5.3 accumulator is part of
+  // this function's contract, not an optional extra.
+  guardBlocks: GuardBlock[],
 ): Promise<void> {
   if (!candidates.length) return;
   const userId = resolveActiveContextUserId();
@@ -430,7 +432,7 @@ async function saveCandidates(
     // accumulated as a §5.3 notice with the categories recomputed over
     // the same union the store checked.
     const result = await upsertMemoryItem(userId, item).catch(() => undefined);
-    if (guardBlocks && result && !result.saved && result.reason === 'blocked-sensitive-content') {
+    if (result && !result.saved && result.reason === 'blocked-sensitive-content') {
       const { categories } = checkPersonalMemoryTexts([item.text, item.detail ?? '', item.source.quote]);
       if (categories.length) guardBlocks.push({ kind: candidate.kind, categories });
     }
