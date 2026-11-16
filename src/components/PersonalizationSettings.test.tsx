@@ -522,3 +522,41 @@ describe('PersonalizationSettings proposals', () => {
     });
   });
 });
+
+// --- Block notices (design §5.3) ------------------------------------------------
+
+describe('PersonalizationSettings block notices', () => {
+  it('shows accumulated block reasons and clears them on acknowledgement', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.recordBlockNotices(userId, [
+      { kind: 'fact', categories: ['phone-number'], at: AT },
+      { categories: ['payment-card', 'credential'], at: AT },
+    ]);
+
+    renderSection(PersonalizationSettings);
+    const area = await screen.findByTestId('block-notices');
+    expect(within(area).getByText('保存しなかった内容のお知らせ')).toBeTruthy();
+    expect(within(area).getByText(/内容そのものは、ここにも残していません/)).toBeTruthy();
+    expect(within(area).getByText(/11月16日の会話から：電話番号らしい内容が含まれていたため、保存しませんでした/)).toBeTruthy();
+    expect(within(area).getByText(/カード番号・パスワードやAPIキーらしい内容/)).toBeTruthy();
+
+    fireEvent.click(within(area).getByRole('button', { name: '分かりました' }));
+    await waitFor(async () => {
+      expect(await graph.listBlockNotices(userId)).toEqual([]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId('block-notices')).toBeNull();
+    });
+  });
+
+  it('shows no notice area when nothing was blocked', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.upsertMemoryItem(userId, memoryItem());
+
+    renderSection(PersonalizationSettings);
+    await screen.findByText('表より文章が好き');
+    expect(screen.queryByTestId('block-notices')).toBeNull();
+  });
+});

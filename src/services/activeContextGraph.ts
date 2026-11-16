@@ -1,5 +1,9 @@
 import { getUnlockedPasskeyKey } from '../security/passkeyKeyDerivation.js';
-import { checkPersonalMemoryText, checkPersonalMemoryTexts } from './personalMemoryGuard.js';
+import {
+  checkPersonalMemoryText,
+  checkPersonalMemoryTexts,
+  type PersonalMemoryBlockCategory,
+} from './personalMemoryGuard.js';
 
 // ---------------------------------------------------------------------------
 // Personal memory storage foundation (Personalization Stage 1, PR P1-1).
@@ -103,6 +107,33 @@ interface PersonalMemoryStore {
   profile: OriginProfileItem[];
   memory: OriginMemoryItem[];
   proposals: OriginProposal[];
+  blockNotices: OriginBlockNotice[];
+}
+
+// --- Block notices (design §5.3) --------------------------------------------
+//
+// §5.3: an item stopped by the §9.2 pre-save guard is not stored, and the
+// owner is told the reason — for profile items at input time (the settings
+// UI shows it immediately), for memory items in the management screen's
+// notification area. Memory blocks happen during automatic conversation
+// ingestion, when the owner is not looking at any save action, so the
+// ingestion path accumulates one notice per blocked candidate here. A
+// notice records ONLY when it happened, the candidate's kind (when the
+// extraction knew it) and the guard categories that matched — never the
+// blocked text itself: keeping the value would defeat the guard (§9.2).
+// The records live in the same encrypted payload as the items, are capped
+// (oldest dropped past the cap; they are notifications, not remembered
+// items, so the §4.3 no-auto-delete rule for items does not apply), and
+// are cleared together with the memory by clearAll.
+
+export interface OriginBlockNotice {
+  id: string;
+  /** The kind the blocked candidate would have been stored as, when the
+   * extraction path had already classified it. */
+  kind?: OriginMemoryKind;
+  /** Guard categories that matched (§9.2) — the reasons shown to the owner. */
+  categories: PersonalMemoryBlockCategory[];
+  at: number;
 }
 
 // --- Combination proposals (design §6.4, PR P1-6) ---------------------------
@@ -183,6 +214,13 @@ const MEMORY_ORIGINS: ReadonlySet<string> = new Set(['explicit', 'inferred', 'le
 const MEMORY_STATUSES: ReadonlySet<string> = new Set(['active', 'superseded', 'done', 'needs-check', 'archived']);
 const PROPOSAL_KINDS: ReadonlySet<string> = new Set(['combination', 'needs-check']);
 const PROPOSAL_STATUSES: ReadonlySet<string> = new Set(['pending', 'approved', 'dismissed']);
+const BLOCK_CATEGORIES: ReadonlySet<string> = new Set([
+  'credential', 'payment-card', 'phone-number', 'email-address', 'date-of-birth',
+  'pin-code', 'government-id', 'financial-account', 'postal-address', 'medical-information',
+]);
+// Notification records are capped so a repeatedly blocked value cannot
+// grow the store; the newest reasons are the ones the owner still needs.
+const MAX_BLOCK_NOTICES = 50;
 
 let activeUserId: string | null = null;
 let cachedKey: CryptoKey | null = null;
@@ -341,8 +379,18 @@ function isProposal(value: unknown): value is OriginProposal {
   return proposal.resolvedAt === undefined || typeof proposal.resolvedAt === "number";
 }
 
+function isBlockNotice(value: unknown): value is OriginBlockNotice {
+  if (!value || typeof value !== "object") return false;
+  const notice = value as Partial<OriginBlockNotice>;
+  if (typeof notice.id !== "string" || notice.id.length === 0) return false;
+  if (notice.kind !== undefined && (typeof notice.kind !== "string" || !MEMORY_KINDS.has(notice.kind))) return false;
+  if (!Array.isArray(notice.categories) || notice.categories.length === 0) return false;
+  if (!notice.categories.every((category) => typeof category === "string" && BLOCK_CATEGORIES.has(category))) return false;
+  return typeof notice.at === "number";
+}
+
 function emptyStore(): PersonalMemoryStore {
-  return { version: 1, profile: [], memory: [], proposals: [] };
+  return { version: 1, profile: [], memory: [], proposals: [], blockNotices: [] };
 }
 
 async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemoryStore> {
@@ -356,6 +404,9 @@ async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemorySt
     // Payloads written before PR P1-6 have no proposals field; they simply
     // have no proposal records yet.
     proposals: Array.isArray(store.proposals) ? store.proposals.filter(isProposal) : [],
+    // Payloads written before the §5.3 block-notice accumulation have no
+    // blockNotices field; they simply have no notices yet.
+    blockNotices: Array.isArray(store.blockNotices) ? store.blockNotices.filter(isBlockNotice) : [],
   };
 }
 
@@ -430,6 +481,7 @@ async function migrateLegacyStore(userId: string): Promise<PersonalMemoryStore> 
       profile: [],
       memory: nodes.map(legacyNodeToMemoryItem),
       proposals: [],
+      blockNotices: [],
     };
     await writeStore(userId, store);
     window.localStorage.removeItem(storageKey(userId));
@@ -584,8 +636,67 @@ export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory
   // and excerpts lose their meaning once the items are gone), so they are
   // cleared with the memory in both scopes.
   store.proposals = [];
+  // Block notices report on memory accumulation (§5.3), so they are
+  // cleared with the memory in both scopes as well.
+  store.blockNotices = [];
   if (scope === 'all') store.profile = [];
   await writeStore(safeUserId, store);
+}
+
+// --- Block notices: accumulation and dismissal (design §5.3) ------------------
+
+export async function listBlockNotices(userId: string): Promise<OriginBlockNotice[]> {
+  const store = await readStore(sanitizeUserId(userId));
+  return store.blockNotices;
+}
+
+/**
+ * Appends block notices from one ingestion turn (§5.3). Entries with no
+ * categories are ignored, and entries identical in kind and category set
+ * are collapsed — within the batch and against notices already recorded
+ * at the same timestamp — so one blocked statement mentioned several
+ * times in a turn leaves a single notice. Past MAX_BLOCK_NOTICES the
+ * oldest notices are dropped. The blocked values themselves are never
+ * part of an entry and are never stored anywhere.
+ */
+export async function recordBlockNotices(
+  userId: string,
+  entries: ReadonlyArray<{ kind?: OriginMemoryKind; categories: readonly PersonalMemoryBlockCategory[]; at: number }>,
+): Promise<void> {
+  const safeUserId = sanitizeUserId(userId);
+  const fresh = entries.filter((entry) => entry.categories.length > 0);
+  if (!fresh.length) return;
+  const store = await readStore(safeUserId);
+  const keyOf = (kind: OriginMemoryKind | undefined, categories: readonly string[], at: number): string =>
+    `${kind ?? ''}|${[...categories].sort().join(',')}|${at}`;
+  const seen = new Set(store.blockNotices.map((notice) => keyOf(notice.kind, notice.categories, notice.at)));
+  for (const entry of fresh) {
+    const key = keyOf(entry.kind, entry.categories, entry.at);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    store.blockNotices.push({
+      id: crypto.randomUUID(),
+      ...(entry.kind ? { kind: entry.kind } : {}),
+      categories: [...entry.categories],
+      at: entry.at,
+    });
+  }
+  if (store.blockNotices.length > MAX_BLOCK_NOTICES) {
+    store.blockNotices = store.blockNotices.slice(-MAX_BLOCK_NOTICES);
+  }
+  await writeStore(safeUserId, store);
+}
+
+/** Dismisses every accumulated block notice (the management UI's
+ * acknowledgement action). Returns how many notices were cleared. */
+export async function clearBlockNotices(userId: string): Promise<number> {
+  const safeUserId = sanitizeUserId(userId);
+  const store = await readStore(safeUserId);
+  const count = store.blockNotices.length;
+  if (count === 0) return 0;
+  store.blockNotices = [];
+  await writeStore(safeUserId, store);
+  return count;
 }
 
 // --- Save-time matching: duplicates and contradiction candidates (design §8) --

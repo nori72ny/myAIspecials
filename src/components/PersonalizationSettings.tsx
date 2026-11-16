@@ -4,16 +4,19 @@ import { getTranslations, type OriginLanguage } from '../i18n';
 import { cn } from '../utils';
 import {
   clearAll,
+  clearBlockNotices,
   deleteMemoryItem,
   deleteProfileItem,
   getPersonalMemoryMigrationNotice,
   getPersonalMemoryUsage,
+  listBlockNotices,
   listItems,
   listProposals,
   resolveActiveContextUserId,
   setProposalStatus,
   upsertMemoryItem,
   upsertProfileItem,
+  type OriginBlockNotice,
   type OriginMemoryItem,
   type OriginMemoryKind,
   type OriginProfileCategory,
@@ -33,7 +36,9 @@ import {
 // deletable and individually excludable from what is shared with the chat
 // AI. All data stays in the P1-1 on-device store; this component only
 // calls its item-level CRUD API. Conversation history lives in a different
-// store and is never touched here.
+// store and is never touched here. The block-notice area (§5.3) shows the
+// reason categories of memory candidates the §9.2 guard stopped during
+// ingestion; the blocked content itself is never stored or shown.
 // ---------------------------------------------------------------------------
 
 interface Props {
@@ -77,6 +82,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const [profileItems, setProfileItems] = useState<OriginProfileItem[]>([]);
   const [memoryItems, setMemoryItems] = useState<OriginMemoryItem[]>([]);
   const [proposals, setProposals] = useState<OriginProposal[]>([]);
+  const [blockNotices, setBlockNotices] = useState<OriginBlockNotice[]>([]);
   const [usage, setUsage] = useState<PersonalMemoryUsage | null>(null);
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>({ kind: 'idle' });
@@ -96,11 +102,12 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
 
   const reload = useCallback(async () => {
     const id = userId();
-    const [items, nextUsage, nextProposals] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id)]);
+    const [items, nextUsage, nextProposals, nextBlockNotices] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id), listBlockNotices(id)]);
     setProfileItems(items.profile);
     setMemoryItems(items.memory);
     setUsage(nextUsage);
     setProposals(nextProposals);
+    setBlockNotices(nextBlockNotices);
   }, []);
 
   useEffect(() => {
@@ -222,6 +229,18 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const resolveProposal = async (proposal: OriginProposal, next: 'approved' | 'dismissed') => {
     await runMutation(async () => {
       await setProposalStatus(userId(), proposal.id, next);
+    });
+  };
+
+  // --- Block notice actions (design §5.3) -------------------------------------
+  //
+  // The notices report memory candidates the §9.2 guard stopped during
+  // conversation ingestion, with the reason categories only (the blocked
+  // content itself is never stored). Acknowledging clears them all.
+
+  const dismissBlockNotices = async () => {
+    await runMutation(async () => {
+      await clearBlockNotices(userId());
     });
   };
 
@@ -474,6 +493,27 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           <ul className="space-y-2">
             {pendingProposals.map((proposal) => renderProposal(proposal))}
           </ul>
+        </div>
+      )}
+
+      {blockNotices.length > 0 && (
+        <div className="space-y-3 pt-2" data-testid="block-notices">
+          <h4 className="text-sm font-bold">{p.blockNoticesHeading}</h4>
+          <p className="origin-muted text-[13px] leading-5">{p.blockNoticesIntro}</p>
+          <ul className="space-y-2">
+            {blockNotices.map((notice) => (
+              <li key={notice.id} data-testid={`block-notice-${notice.id}`} className="origin-surface-muted rounded-xl border p-3">
+                <p className="text-sm leading-6">
+                  {p.blockNoticeEntry(
+                    formatMonthDay(notice.at, language),
+                    notice.categories.map((category) => p.blockCategories[category]).join('・'),
+                  )}
+                  {notice.kind ? <span className="origin-muted text-[13px]">（{p.memoryKinds[notice.kind]}）</span> : null}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={(event) => { event.stopPropagation(); void dismissBlockNotices(); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-[13px] font-semibold">{p.blockNoticesDismiss}</button>
         </div>
       )}
 
