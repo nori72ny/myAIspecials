@@ -10,7 +10,6 @@ import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginR
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
-import { logOriginBusinessPlanningAuditShadow } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -276,6 +275,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       } catch {
         researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
       }
+      // Stage timing (speed measurement 2026-11-16): the search stage
+      // runs serially before any synthesis, and its duration was not
+      // recorded anywhere. Numbers and counts only; no query or text.
+      const researchSearchMs = Math.max(0, now() - groundedStartedAt);
+      console.info("[origin-chat] research search completed", {
+        requestId,
+        searchMs: researchSearchMs,
+        sourceCount: researchResult.sources.length,
+      });
       // The sources event carries exactly the citable set the answer will
       // use (same safe filter as groundedResearchAnswer), titles/domains only.
       emitResearchSources(safeOriginResearchSources(researchResult.sources));
@@ -298,6 +306,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             : "SEARCH_NO_RESULTS";
         console.warn("[origin-chat] grounded answer fail-closed", {
           requestId,
+          searchMs: researchSearchMs,
           reasonCode: failClosedReasonCode,
           ...(groundingFailure ? { groundingFailure } : {}),
           ...(researchResult.failure ? { failureStage: researchResult.failure.stage, failureCode: researchResult.failure.code } : {}),
@@ -855,10 +864,6 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
       if (assertionGate.replaced) console.info("[origin-chat] ungrounded current assertion replaced", { requestId, reasonCode: "GATE_REPLACED" });
       const answerText = assertionGate.text;
-      // Numeric audit gate, stage 1 (shadow): planning/marketing answers
-      // are re-checked deterministically and the outcome is only logged —
-      // the delivered text below is never altered by the audit.
-      logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText });
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
@@ -875,7 +880,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       }
       const evidence = extractProvidedOriginEvidence(answerText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
-      console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
+      console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), servedModel: result.routingEvidence.servedModel, fallbackUsed: result.routingEvidence.fallbackUsed, routeAttempts: (result.attempts ?? []).map((attempt) => ({ providerId: attempt.providerId, outcome: attempt.outcome, ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}) })), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
       return res.json({ content: answerText, answer: answerEnvelope(answerText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}) } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
