@@ -66,6 +66,18 @@ import {
  * bar and post-render check. The routers reach the records
  * path only when the kill switch is ON; with it OFF the V12 text
  * path runs exactly as before.
+ * Records improvement #2 (RPR9_MEASUREMENT_ADJUDICATION_2026-11-16,
+ * improvement candidate 2) adds the partial-answer salvage stage
+ * after the recomposition stage: when every full-adoption layer
+ * has failed but the recomposition pool still holds verified
+ * material, the pool is rendered deterministically, re-checked,
+ * stripped of any records behind failing body lines, and adopted
+ * as a partial answer — marked partial on the outcome, leading
+ * with a plain-language note that only the confirmed range is
+ * included — instead of being discarded into the caller's
+ * source-list-only fallback. The full-adoption coverage bar is
+ * unchanged; the salvage spends no execution and delivers only
+ * material a validator already passed.
  *
  * Core invariant (design §3): the packet built here is the exact set the
  * validator will later judge against — the sources shown to the model, the
@@ -2082,6 +2094,87 @@ export function renderGroundedResearchRecomposedAnswer(
 }
 
 // ---------------------------------------------------------------------------
+// Records improvement #2: the partial-answer salvage stage
+// (RPR9_MEASUREMENT_ADJUDICATION_2026-11-16, improvement candidate 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The plain-language note a salvaged partial answer leads with. It
+ * states the answer's own completeness — that only the confirmed
+ * range is included and the rest could not be confirmed — with no
+ * internal vocabulary (no records, gates, or validation terms), no
+ * factual claim about the world, no URL, and no numeric token, so
+ * prepending it to the checked rendering preserves every invariant
+ * the post-render check established for the material part.
+ */
+export function groundedResearchRecordsSalvageNote(language: "ja" | "en"): string {
+  return language === "en"
+    ? "Note: this answer includes only what could be confirmed from the information retrieved. Parts that could not be confirmed are not included."
+    : "※確認できた内容のみをお伝えします。取得した情報では確認しきれなかった部分があり、その部分は含めていません。";
+}
+
+/**
+ * Drops the records a render-check failure can be attributed to,
+ * judged per record against the check's two per-line arms (the
+ * salvage's per-line judgement):
+ * - citation arm: records whose source is not in the packet —
+ *   their rendered line cannot carry a packet citation. (By
+ *   construction validation binds records to packet sources, so
+ *   this arm normally drops nothing.)
+ * - numeric arm: records whose text carries a numeric token
+ *   absent from the candidates' quote union — the rendered line
+ *   for such a record is a failing one.
+ * Both arms are applied in one pass; over-dropping is safe because
+ * the caller re-renders and re-checks after every reduction, so a
+ * delivered text has always passed the unchanged post-render
+ * check, and no progress (nothing dropped) aborts the salvage with
+ * the total failure standing.
+ */
+function dropRecordsFailingRenderCheck(
+  candidates: readonly GroundedResearchAcceptedRecord[],
+  packet: GroundedResearchRecordsPacket,
+): GroundedResearchAcceptedRecord[] {
+  const packetSourceIds = new Set(packet.sources.map((source) => source.id));
+  const cited = candidates.filter((record) => packetSourceIds.has(record.sourceId));
+  const quoteUnion = normalizedRecordsText(cited.map((record) => record.quote).join("\n"));
+  return cited.filter((record) =>
+    !recordsNumericTokens(record.text).some((token) => !quoteUnion.includes(token)));
+}
+
+/**
+ * The partial-answer salvage proper: renders the pooled verified
+ * material deterministically and re-runs the post-render check
+ * (§6.5). When the check fails, the records behind the failing
+ * body lines are removed and the remainder is re-rendered and
+ * re-checked, until the check passes or no progress is possible.
+ * Returns the surviving records and the deliverable text — the
+ * salvage note followed by the checked rendering — or null when
+ * nothing deliverable survives. No model execution is spent, and
+ * no sentence is delivered that a validator did not already pass:
+ * the pool holds only per-record-validated records and verbatim
+ * packet sentences from the selection layer.
+ */
+export function salvageGroundedResearchRecordsMaterial(
+  material: readonly GroundedResearchAcceptedRecord[],
+  packet: GroundedResearchRecordsPacket,
+  language: "ja" | "en",
+): { records: GroundedResearchAcceptedRecord[]; text: string } | null {
+  let candidates = [...material];
+  while (candidates.length > 0) {
+    const rendered = renderGroundedResearchRecordsAnswer(candidates, packet, language);
+    const check = checkGroundedResearchRenderedAnswer(rendered, packet, candidates);
+    if (!check.ok) {
+      const reduced = dropRecordsFailingRenderCheck(candidates, packet);
+      if (reduced.length >= candidates.length) return null;
+      candidates = reduced;
+      continue;
+    }
+    return { records: candidates, text: `${groundedResearchRecordsSalvageNote(language)}\n\n${rendered}` };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // R-PR-5: the per-record fresh retry (design §10)
 // ---------------------------------------------------------------------------
 
@@ -3130,6 +3223,14 @@ export interface GroundedResearchRecordsStageMetrics {
   recompositionMaterialCount: number;
   /** Recomposition stage: outcome code of the stage; null when not attempted. */
   recompositionCode: GroundedResearchRecompositionCode | null;
+  /** Salvage stage (records improvement #2): the stage ran (every full-adoption layer failed). */
+  salvageAttempted: boolean;
+  /** Salvage stage: verified material in the recomposition pool when the stage ran. */
+  salvageMaterialCount: number;
+  /** Salvage stage: records delivered by the salvaged partial answer; 0 unless it adopted. */
+  salvageDeliveredCount: number;
+  /** Salvage stage: outcome code of the stage; null when not attempted. */
+  salvageCode: GroundedResearchRecordsSalvageCode | null;
   /** Retry stage (§10/§11): a fresh re-execution was invoked. */
   retryAttempted: boolean;
   /** Retry stage: why an eligible retry did not fire; null when it fired. */
@@ -3169,8 +3270,14 @@ export interface GroundedResearchRecordsStageMetrics {
   /** Slot stage: adoption / fall-through code of the layer; null when not attempted. */
   slotCode: GroundedResearchFactSlotCode | null;
   /** Arrival stage: the final form this request took. */
-  finalForm: "slot" | "records" | "records-after-retry" | "selection" | "recomposition" | "partial";
+  finalForm: "slot" | "records" | "records-after-retry" | "selection" | "recomposition" | "salvage" | "partial";
 }
+
+/** Outcome code of the partial-answer salvage stage as a whole, for the stage metrics. */
+export type GroundedResearchRecordsSalvageCode =
+  | "SALVAGE_ADOPTED"
+  | "SALVAGE_NO_MATERIAL"
+  | "SALVAGE_CHECK_FAILED";
 
 export type GroundedResearchRecordsFailureCode =
   | "EMPTY_RECORDS_PACKET"
@@ -3182,6 +3289,15 @@ export interface GroundedResearchRecordsExecutionOutcome {
   /** False only when the kill switch was off: the caller must run the V12 text path unchanged. */
   attempted: boolean;
   adopted: boolean;
+  /**
+   * True when the adopted text is the partial-answer salvage
+   * (records improvement #2): verified material delivered with the
+   * partial note because every full-adoption layer failed. Absent
+   * on full adoptions and on non-adopted outcomes. Callers surface
+   * it in routing so a partial answer is never mistaken for a
+   * complete one.
+   */
+  partial?: boolean;
   /** Rendered answer text, present exactly when adopted. */
   text?: string;
   /** Distinct sources cited by the adopted records (empty when not adopted). */
@@ -3251,13 +3367,18 @@ export interface GroundedResearchRecordsExecutionOptions {
  * rendering, and the post-render check. Layer order inside the records
  * path (design §12): slot (§9, R-PR-6) → records → fresh retry (§10,
  * R-PR-5) → selection (§8, R-PR-4) → recomposition (R-PR-9d) →
+ * partial-answer salvage (records improvement #2) → the caller's
  * partial answer. The recomposition stage pools the verified
  * material the earlier layers produced — the records stage's
  * accepted records, retained on the outcome instead of discarded,
  * and the selection layer's surviving units as material supply —
  * and, when the pool satisfies the same coverage bar, recomposes
  * the answer deterministically under the same post-render check.
- * It spends no execution, so the three-execution cap stands.
+ * It spends no execution, so the three-execution cap stands. The
+ * salvage stage spends no execution either: it renders the same
+ * pool, re-checks it, and — when material survives — adopts it as
+ * a partial answer marked as such, instead of leaving the caller
+ * with the source-list-only fallback.
  *
  * Execution-count adjudication (R-PR-6): a slot attempt spends one
  * execution. When the slot adopts, a supporting records generation
@@ -3323,6 +3444,10 @@ export async function executeGroundedResearchRecordsSynthesis(
     recompositionAttempted: false,
     recompositionMaterialCount: 0,
     recompositionCode: null,
+    salvageAttempted: false,
+    salvageMaterialCount: 0,
+    salvageDeliveredCount: 0,
+    salvageCode: null,
     retryAttempted: false,
     retrySkipped: null,
     retrySkipDetail: null,
@@ -3692,12 +3817,63 @@ export async function executeGroundedResearchRecordsSynthesis(
       recompositionRenderCheckFailed = true;
     }
   }
+  // Partial-answer salvage (records improvement #2;
+  // RPR9_MEASUREMENT_ADJUDICATION_2026-11-16, improvement candidate
+  // 2): every full-adoption layer has failed, yet the recomposition
+  // pool may still hold verified material — records that passed
+  // per-record validation and selection units that are verbatim
+  // packet sentences, each backed by a verified quote, that missed
+  // adoption only as a set (the coverage bar) or through a
+  // rendering failure. Discarding that material here is what
+  // reduced measurable answers to the source-list-only fallback in
+  // the 2026-11-16 measurement (the E-group pattern). The salvage
+  // renders the pool deterministically and re-runs the post-render
+  // check, removing the records behind failing body lines and
+  // re-checking the remainder; what survives is adopted AS A
+  // PARTIAL ANSWER — marked partial on the outcome, its text
+  // leading with the plain-language note — so the verified range
+  // reaches the user with its incompleteness stated, instead of
+  // not reaching the user at all. The full-adoption coverage bar
+  // is unchanged: this stage runs only after every layer above has
+  // failed, spends no execution, and delivers nothing a validator
+  // did not pass.
+  const salvage = recompositionMaterial.length > 0
+    ? salvageGroundedResearchRecordsMaterial(recompositionMaterial, packet, options.language)
+    : null;
+  if (salvage !== null) {
+    return {
+      attempted: true,
+      adopted: true,
+      partial: true,
+      text: salvage.text,
+      usedSourceIds: [...new Set(salvage.records.map((record) => record.sourceId))],
+      // The consumed result follows the recomposition precedent:
+      // the last execution whose material the delivered answer
+      // consumed — the selection execution when it produced one,
+      // else the retry's, else the initial one.
+      result: selection.result ?? retryResult ?? result,
+      metrics: {
+        ...selectionMetrics,
+        renderCheckFailed: selectionMetrics.renderCheckFailed || recompositionRenderCheckFailed,
+        recompositionAttempted: true,
+        recompositionMaterialCount: recompositionMaterial.length,
+        recompositionCode,
+        salvageAttempted: true,
+        salvageMaterialCount: recompositionMaterial.length,
+        salvageDeliveredCount: salvage.records.length,
+        salvageCode: "SALVAGE_ADOPTED",
+        renderedRecordCount: salvage.records.length,
+        ...countGroundedResearchRecordsNumericTokens(salvage.records),
+        finalForm: "salvage",
+      },
+    };
+  }
   // Every layer failed: the records stage's failure code (as
-  // re-judged after the retry) stands — the selection and
-  // recomposition outcomes are recorded in the metrics only, design
-  // §11 — the caller falls back to the partial answer, and the
-  // retained accepted records ride the outcome instead of being
-  // discarded (R-PR-9d).
+  // re-judged after the retry) stands — the selection,
+  // recomposition, and salvage outcomes are recorded in the metrics
+  // only, design §11 — the caller falls back to the partial answer,
+  // and the retained accepted records ride the outcome instead of
+  // being discarded (R-PR-9d).
   return {
     attempted: true,
     adopted: false,
@@ -3711,6 +3887,10 @@ export async function executeGroundedResearchRecordsSynthesis(
       recompositionAttempted: true,
       recompositionMaterialCount: recompositionMaterial.length,
       recompositionCode,
+      salvageAttempted: true,
+      salvageMaterialCount: recompositionMaterial.length,
+      salvageDeliveredCount: 0,
+      salvageCode: recompositionMaterial.length === 0 ? "SALVAGE_NO_MATERIAL" : "SALVAGE_CHECK_FAILED",
     },
   };
 }

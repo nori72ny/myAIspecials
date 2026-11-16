@@ -365,17 +365,27 @@ describe("executeGroundedResearchRecordsSynthesis selection layer (design §8/§
     });
   });
 
-  it("records a coverage failure of the selection layer in metrics only", async () => {
+  it("records a coverage failure of the selection layer in metrics, then salvages the selected units (improvement #2)", async () => {
     const execute = sequencedExecute(FABRICATED_RECORDS_JSON, "{\"select\":[\"E1_1\",\"E1_2\"]}");
     const outcome = await executeGroundedResearchRecordsSynthesis(execute, helperOptions());
-    expect(outcome.adopted).toBe(false);
-    expect(outcome.failureCode).toBe("NO_ACCEPTED_RECORDS");
+    // The selection layer's own verdict is unchanged (coverage
+    // failure, recorded in metrics); before improvement #2 the
+    // request then failed with NO_ACCEPTED_RECORDS and the two
+    // verified units were discarded. The salvage stage now
+    // delivers them as a partial answer.
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.partial).toBe(true);
+    expect(outcome.failureCode).toBeUndefined();
+    expect(outcome.text).toContain(PM_UNIT_1);
+    expect(outcome.text).toContain(PM_UNIT_2);
     expect(outcome.metrics).toMatchObject({
       selectionAttempted: true,
       selectionSelectedUnitCount: 2,
       selectionCitedSourceCount: 1,
       selectionCode: "SELECTION_INSUFFICIENT_COVERAGE",
-      finalForm: "partial",
+      salvageCode: "SALVAGE_ADOPTED",
+      salvageDeliveredCount: 2,
+      finalForm: "salvage",
     });
   });
 
