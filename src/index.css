@@ -49,7 +49,7 @@
   --text-secondary: oklch(0.465 0.014 250);
   --text-placeholder: oklch(0.55 0.012 250);
   --text-on-accent: oklch(0.99 0.004 260);
-  --border-default: oklch(0.63 0.012 250);
+  --border-default: oklch(0.60 0.012 250);
   --border-strong: oklch(0.67 0.018 250);
   --accent-primary: oklch(0.37 0.115 272);
   --accent-hover: oklch(0.31 0.115 272);
@@ -279,14 +279,14 @@
 }
 .origin-chat-assistant {
   width: 100%;
-  max-width: 52rem;
+  max-width: 45rem;
   margin-inline: auto;
   background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
   border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
   color: var(--text-primary);
   box-shadow: 0 14px 38px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
 }
-.origin-answer-markdown { min-width: 0; max-width: 52rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
+.origin-answer-markdown { min-width: 0; max-width: 45rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
@@ -458,76 +458,10 @@ a[href]:focus-visible {
   }
 }
 
-/* ========================================================================== */
-/* ORIGIN Personal - PURE WHITE LIGHT THEME OVERRIDES                        */
-/* ========================================================================== */
-
-/* 1. 画面全体の完全白化 */
-html, body, #root, #__next, main {
-  background-color: #FFFFFF !important;
-  color: #0F172A !important;
-  color-scheme: light only !important;
-}
-
-/* 2. ヘッダーのライトテーマ固定 */
-header, .origin-header, [class*="header"] {
-  background-color: #FFFFFF !important;
-  border-bottom: 1px solid #E2E8F0 !important;
-}
-header *, [class*="header"] * {
-  color: #0F172A !important;
-}
-
-/* 3. 下部入力枠（純白・ライトグレーカード） */
-form, div:has(> textarea), div:has(> input[type="text"]), [class*="composer"] {
-  background-color: #F8FAFC !important;
-  border: 1px solid #E2E8F0 !important;
-  border-radius: 20px !important;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05) !important;
-}
-
-/* 入力文字とプレースホルダー */
-textarea, input[type="text"] {
-  background-color: transparent !important;
-  color: #0F172A !important;
-}
-::placeholder, textarea::placeholder, input::placeholder {
-  color: #475569 !important;
-  opacity: 1 !important;
-}
-
-/* 4. 送信ボタン */
-button[type="submit"], [class*="submit"], [class*="send"] {
-  background: var(--accent-primary) !important;
-  background-color: var(--accent-primary) !important;
-  border: 1px solid transparent !important;
-  border-radius: 12px !important;
-  box-shadow: 0 4px 14px color-mix(in oklch, var(--accent-primary) 28%, transparent) !important;
-  opacity: 1 !important;
-  color: var(--text-on-accent) !important;
-}
-
-button[type="submit"] *, [class*="submit"] *, [class*="send"] * {
-  fill: var(--text-on-accent) !important;
-  stroke: var(--text-on-accent) !important;
-  color: var(--text-on-accent) !important;
-  opacity: 1 !important;
-}
-
-/* 左下の「＋」ボタン（選択中を示すプライマリボタンは対象外：
-   背景を透明化すると白文字のラベルが読めなくなるため） */
-button:first-child:has(svg):not(.origin-primary-button) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-button:first-child:has(svg):not(.origin-primary-button) * {
-  stroke: #475569 !important;
-  color: #475569 !important;
-}
-
-
-/* Theme preference support: keep the historical light overrides scoped to light mode. */
+/* Theme preference support: dark theme token definitions (the standard
+   dark theme's only token source) plus dark-scoped surface rules. The
+   historical PURE WHITE light override layer that these rules used to
+   counterbalance was removed; light surfaces are token/component driven. */
 :root[data-theme="dark"] {
   color-scheme: dark !important;
   --bg-primary: #0b1024;

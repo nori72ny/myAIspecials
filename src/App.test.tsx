@@ -153,8 +153,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       screen.getByTestId('history-drawer-toggle'),
       screen.getByRole('button', { name: '設定を開く' }),
       screen.getByTestId('origin-add-menu-toggle'),
-      screen.getByTestId('start-request-button'),
     ];
+    const sendControl = screen.getByTestId('start-request-button');
 
     const historyControl = screen.getByTestId('history-drawer-toggle');
     const settingsControl = screen.getByRole('button', { name: '設定を開く' });
@@ -167,6 +167,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
     }
+    // The primary send action is 48px (h-12/w-12), above the 44px floor.
+    expect(sendControl.className).toMatch(/\bh-12\b/);
+    expect(sendControl.className).toMatch(/\bw-12\b/);
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
@@ -184,7 +187,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('history-drawer')).toBeTruthy();
   });
 
-  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving 44px targets', () => {
+  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving touch targets (send action at 48px)', () => {
     render(<App language="ja" />);
 
     const composer = document.querySelector('.origin-composer') as HTMLElement;
@@ -200,8 +203,8 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(send.textContent).toBe('↑');
     expect(add.className).toContain('h-11');
     expect(add.className).toContain('w-11');
-    expect(send.className).toContain('h-11');
-    expect(send.className).toContain('w-11');
+    expect(send.className).toContain('h-12');
+    expect(send.className).toContain('w-12');
     expect(send.textContent).not.toContain('開始');
     expect(send.textContent).not.toContain('送信');
   });
