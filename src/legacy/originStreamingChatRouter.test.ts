@@ -356,4 +356,49 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.text).toContain(`data: {"type":"delta","text":"国会で指名され、天皇に任命されます。"}`);
     expect(response.text).not.toContain("確認できなかったため");
   });
+
+  it("logs stage timing on completion: first delta, served route, per-attempt durations", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+        handlers.onDelta("回答");
+        return {
+          ...result("回答"),
+          routingEvidence: {
+            requestedModel: evidence.modelId,
+            servedModel: "@cf/google/gemma-4-26b-a4b-it",
+            strategy: "adaptive-primary",
+            provider: "Cloudflare",
+            attempt: 2,
+            fallbackUsed: true,
+          },
+          attempts: [
+            { providerId: "openrouter-free", modelId: evidence.modelId, outcome: "availability-error", errorCode: "PROVIDER_UNAVAILABLE", durationMs: 120 },
+            { providerId: "cloudflare-workers-ai-free", modelId: "@cf/google/gemma-4-26b-a4b-it", outcome: "succeeded", durationMs: 1500 },
+          ],
+        } as OriginProviderExecutionResult;
+      }) as unknown as OriginProviderStreamExecutor;
+      const response = await request(appWith(streamExecute))
+        .post("/api/chat")
+        .set("Accept", "text/event-stream")
+        .send({ messages: [{ role: "user", content: "短い案内文を作ってください" }] });
+
+      expect(response.status).toBe(200);
+      const completed = infoSpy.mock.calls
+        .filter((call) => call[0] === "[origin-chat] upstream stream completed")
+        .map((call) => call[1] as Record<string, unknown>);
+      expect(completed).toHaveLength(1);
+      expect(typeof completed[0].firstDeltaMs).toBe("number");
+      expect(completed[0].firstDeltaMs as number).toBeGreaterThanOrEqual(0);
+      expect(completed[0].firstDeltaMs as number).toBeLessThanOrEqual(completed[0].durationMs as number);
+      expect(completed[0].servedModel).toBe("@cf/google/gemma-4-26b-a4b-it");
+      expect(completed[0].fallbackUsed).toBe(true);
+      expect(completed[0].routeAttempts).toEqual([
+        { providerId: "openrouter-free", outcome: "availability-error", durationMs: 120 },
+        { providerId: "cloudflare-workers-ai-free", outcome: "succeeded", durationMs: 1500 },
+      ]);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
 });

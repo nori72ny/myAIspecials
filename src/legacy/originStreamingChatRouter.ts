@@ -8,7 +8,6 @@ import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginR
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
-import { logOriginBusinessPlanningAuditShadow } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
@@ -121,6 +120,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     const startedAt = now();
     let downstreamStarted = false;
     let providerDeltaCount = 0;
+    // Stage timing (speed measurement 2026-11-16): when the first answer
+    // text actually reached the client. Buffered paths (assertion gate,
+    // deck records) release text only at completion, so this is the
+    // perceived wait; it is logged as a number only, never the text.
+    let firstDeltaAtMs: number | null = null;
 
     try {
       const intentInput = originIntentInputFromContext(contextResult.window.messages);
@@ -208,6 +212,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           res.setHeader("X-Origin-Stream-Protocol", "origin-verified-sse-v1");
           res.flushHeaders?.();
         }
+        if (firstDeltaAtMs === null) firstDeltaAtMs = now();
         providerDeltaCount += 1;
         res.write(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`);
       };
@@ -299,17 +304,20 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckFailureShape = outcome.failureShape;
         }
       }
-      // Numeric audit gate, stage 1 (shadow): when the delivered chat
-      // text is exactly the model answer (no deck path replaced it and
-      // the assertion gate did not rewrite it), a planning/marketing
-      // answer is re-checked deterministically and the outcome is only
-      // logged — delivery is never altered by the audit.
-      if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced) {
-        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text });
-      }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
+        // Stage timing (speed measurement 2026-11-16): first delivered
+        // text, which route actually served, and how long each executed
+        // route attempt took. Numbers and fixed codes only; no text.
+        firstDeltaMs: firstDeltaAtMs === null ? null : Math.max(0, firstDeltaAtMs - startedAt),
+        servedModel: result.routingEvidence.servedModel,
+        fallbackUsed: result.routingEvidence.fallbackUsed,
+        routeAttempts: (result.attempts ?? []).map((attempt) => ({
+          providerId: attempt.providerId,
+          outcome: attempt.outcome,
+          ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}),
+        })),
         modelId: planningResult.plan.modelId,
         costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
@@ -343,6 +351,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       console.warn("[origin-chat] upstream stream failed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
+        firstDeltaMs: firstDeltaAtMs === null ? null : Math.max(0, firstDeltaAtMs - startedAt),
         code: safeError.code,
         status: safeError.status,
         retryable: safeError.retryable,
