@@ -395,6 +395,11 @@ const EXECUTION_PLAN_KINDS: ReadonlySet<OriginBusinessPlanningKind> = new Set([
   "marketing-plan",
 ]);
 
+// Exported for the numeric audit gate (OriginBusinessPlanningAudit),
+// which checks owner/deadline presence for exactly these kinds. The set
+// itself stays defined here so the vocabulary has a single owner.
+export const ORIGIN_BUSINESS_PLANNING_EXECUTION_PLAN_KINDS = EXECUTION_PLAN_KINDS;
+
 function formatRequiredPartsLine(kind: OriginBusinessPlanningKind): string {
   const parts = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[kind];
   const sections = parts.filter((part) => part !== "仮置き");
