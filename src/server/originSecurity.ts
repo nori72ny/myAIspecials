@@ -73,7 +73,11 @@ export function applyOriginSecurityHeaders(env: NodeJS.ProcessEnv = process.env)
     res.setHeader("Content-Security-Policy", contentSecurityPolicy);
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    // The microphone is allowed for this origin only (PR-V3 voice input):
+    // `microphone=(self)` lets the app itself use getUserMedia while every
+    // cross-origin embed stays denied (frame-ancestors 'none' above also
+    // keeps the app from being framed at all). Camera and the rest stay off.
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("X-Content-Type-Options", "nosniff");
     if (isProduction) {

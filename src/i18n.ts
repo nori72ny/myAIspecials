@@ -66,6 +66,18 @@ type Translation = {
   addMenuAgentDescription: string;
   addMenuCodeDescription: string;
   addMenuCreateDescription: string;
+  voiceInput: string;
+  voiceRecording: string;
+  voiceTranscribing: string;
+  voiceFinish: string;
+  voiceCancel: string;
+  voicePrivacyNotice: string;
+  voicePrivacyStart: string;
+  voicePermissionDenied: string;
+  voiceUnsupported: string;
+  voiceDailyLimit: string;
+  voiceUnavailable: string;
+  voiceFailed: string;
   attachedFiles: string;
   dropFiles: string;
   removeAttachment: string;
@@ -239,6 +251,18 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     addMenuAgentDescription: '計画を確認してから進めます',
     addMenuCodeDescription: 'プログラムを作って動かします',
     addMenuCreateDescription: '文章や資料などの成果物を作ります',
+    voiceInput: '音声入力',
+    voiceRecording: '録音中',
+    voiceTranscribing: '文字にしています…',
+    voiceFinish: '文字にする',
+    voiceCancel: 'やめる',
+    voicePrivacyNotice: '音声は文字起こしのためだけに送信され、保存されません',
+    voicePrivacyStart: 'はじめる',
+    voicePermissionDenied: 'マイクの使用が許可されませんでした。ブラウザの設定でマイクを許可してください',
+    voiceUnsupported: 'このブラウザでは音声入力を使えません',
+    voiceDailyLimit: '今日の音声入力の上限に達しました',
+    voiceUnavailable: '音声入力は現在使えません',
+    voiceFailed: '文字起こしできませんでした。もう一度お試しください',
     attachedFiles: '添付ファイル',
     dropFiles: '画像またはテキストファイルをここにドロップ',
     removeAttachment: '添付を削除',
@@ -415,6 +439,18 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
     addMenuAgentDescription: 'Make a plan and proceed after you confirm it',
     addMenuCodeDescription: 'Build and run code',
     addMenuCreateDescription: 'Create documents and other deliverables',
+    voiceInput: 'Voice input',
+    voiceRecording: 'Recording',
+    voiceTranscribing: 'Turning your voice into text…',
+    voiceFinish: 'Transcribe',
+    voiceCancel: 'Cancel',
+    voicePrivacyNotice: 'Your voice is sent only to be transcribed and is never saved.',
+    voicePrivacyStart: 'Start',
+    voicePermissionDenied: 'Microphone access was not allowed. Please allow the microphone in your browser settings.',
+    voiceUnsupported: 'Voice input is not available in this browser.',
+    voiceDailyLimit: "You've reached today's voice input limit.",
+    voiceUnavailable: 'Voice input is not available right now.',
+    voiceFailed: 'Transcription failed. Please try again.',
     attachedFiles: 'Attached files',
     dropFiles: 'Drop image or text files here',
     removeAttachment: 'Remove attachment',

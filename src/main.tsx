@@ -13,6 +13,7 @@ import { migrateOriginLegacySnapshot, originIndexedDbAdapter, type OriginPersist
 import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
+import { refreshVoiceAvailability } from './voice/voiceAvailability';
 import '@fontsource/m-plus-rounded-1c/400.css';
 import '@fontsource/m-plus-rounded-1c/500.css';
 import '@fontsource/m-plus-rounded-1c/700.css';
@@ -24,6 +25,11 @@ import './origin-top-ui.css';
 
 registerOriginServiceWorker();
 installActiveContextChatBridge();
+// Voice input (PR-V3): probe the transcribe endpoint's kill switch once
+// at startup. The composer reads the result from the availability store
+// and shows the microphone button only when the endpoint proves it is
+// enabled; components never probe on mount.
+void refreshVoiceAvailability();
 
 const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
