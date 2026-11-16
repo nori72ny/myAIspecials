@@ -1,4 +1,5 @@
 import { resolveActiveContextUserId, retrieveRelevantContext } from "./activeContextGraph.js";
+import { readPersonalizationEnabled, readPersonalLanguage } from "../hooks/usePersonalSettings";
 
 const installedKey = "__originActiveContextChatBridgeInstalled";
 
@@ -49,6 +50,12 @@ export function installActiveContextChatBridge(): void {
     const body = readJsonBody(sourceBody);
     if (!body) return originalFetch(input, init);
 
+    // Master toggle (design §7.2): while personalization is off, no personal
+    // context block is attached at all — the request goes out exactly as the
+    // app built it. (PR P1-3 wired the extraction side of this gate; this is
+    // the reflection side, completed in PR P1-4.)
+    if (!readPersonalizationEnabled()) return originalFetch(input, init);
+
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const lastUserMessage = [...messages]
       .reverse()
@@ -59,17 +66,20 @@ export function installActiveContextChatBridge(): void {
 
     let activeContext = "";
     try {
-      activeContext = await retrieveRelevantContext(prompt);
+      activeContext = await retrieveRelevantContext(prompt, { language: readPersonalLanguage() });
     } catch {
       // Fail closed: a local-memory failure must never block or alter the chat request.
       activeContext = "";
     }
 
+    // The assembled block already respects the client-side 2,000-char cap
+    // (design §6.2); the server's 6,000-char acceptance limit is unchanged
+    // and stays as the outer guard.
     const nextInit: RequestInit = {
       ...init,
       body: JSON.stringify({
         ...body,
-        activeContext: activeContext.slice(0, 6_000),
+        activeContext,
       }),
     };
     return originalFetch(input, nextInit);

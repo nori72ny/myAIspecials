@@ -445,7 +445,7 @@ describe('fail-safe behavior', () => {
 // --- Bridge compatibility -----------------------------------------------------------------------
 
 describe('bridge compatibility', () => {
-  it('keeps new-path decisions retrievable as context in the legacy shape', async () => {
+  it('keeps new-path decisions retrievable as context in the formatted shape', async () => {
     const { graph, ingestion } = await loadModules();
     await ingestion.ingestCompletedChatTurn({
       userText: '予算は10万円以内で進めることにします',
@@ -453,7 +453,9 @@ describe('bridge compatibility', () => {
     });
     const context = await graph.retrieveRelevantContext('予算 について相談します');
     expect(context).toContain('予算は10万円以内で進めることにします');
-    expect(context).toContain('"decision"');
+    // PR P1-4 (design §6.2): formatted text lines, not raw node JSON.
+    expect(context).toContain('［決めたこと］');
+    expect(context).not.toContain('"decision"');
   });
 });
 
