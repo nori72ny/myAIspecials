@@ -570,7 +570,7 @@ async function runCloudflareRoute(
   }
   const execute = options.cloudflareExecute ?? executeOriginCloudflareProvider;
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, cloudflareSystemInstruction: request.cloudflareSystemInstruction },
     env,
     fetchImpl,
     { catalog: options.cloudflareCatalog, nowMs: options.nowMs },
@@ -862,7 +862,7 @@ async function runCloudflareRouteStream(
   }
   const execute = resolveCloudflareStreamExecutor(options);
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, streamRelease: request.streamRelease },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, cloudflareSystemInstruction: request.cloudflareSystemInstruction, streamRelease: request.streamRelease },
     handlers,
     env,
     fetchImpl,

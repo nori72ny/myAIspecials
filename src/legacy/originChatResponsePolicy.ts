@@ -624,3 +624,102 @@ export function originChatSystemInstruction(
     : withoutOriginCreationGuidance(baseInstruction);
   return `${effectiveBaseInstruction}${requestGuidance}${requirementGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}${intentAwarenessGuidance}`;
 }
+
+/**
+ * Route-2 (Cloudflare) deduplicated system instruction.
+ *
+ * Route 2's generation latency grows with the prompt it is fed: in the
+ * 2026-11-16 production measurement the assembled standard instruction
+ * reached the route as a 3,680-token prompt and successful route-2
+ * generations still took 14-22s, the largest remaining share of chat
+ * latency (chat-speed-measurement-2026-11-16-after). Route 3 already
+ * carries a compact substitute for its own token budget; route 2's
+ * variant is deliberately NOT a rewrite — it is the assembled standard
+ * instruction with only the lines removed whose rule is already carried,
+ * in the same assembled text, by another line that stays. Every
+ * behavioral instruction therefore survives exactly once, verbatim: the
+ * removed lines are restatements (the same rule rephrased in a second
+ * section, written when each section had to stand alone), never the sole
+ * carrier of a rule. The anchors below name each removed line and the
+ * kept line(s) that carry its rule:
+ *
+ * - "Deliverable First after clarification" (answer-quality section):
+ *   resolving material unknowns first is the base's "Decide which missing
+ *   items would materially change the next revision" plus "If the request
+ *   is already sufficiently specified, proceed immediately"; starting
+ *   with the finished output is the base's Version-1 rule and the quality
+ *   section's own "deliver the requested output once material
+ *   requirements are clear"; dropping capability descriptions and
+ *   preambles is the deliverable mode line and the base's filler rule.
+ * - "Depth calibration: concise means removing repetition" (answer-
+ *   quality section): its operative half restates the base's "Calibrate
+ *   depth to complexity" nearly verbatim; its brevity half is the base's
+ *   filler/repetition removal plus the same completeness requirement.
+ * - "Write for a capable adult using professional, domain-appropriate
+ *   language" (answer-quality section): a rephrasing of the base's "Use
+ *   professional, domain-appropriate language. Do not oversimplify
+ *   important nuance unless the user asks for a beginner explanation."
+ * - "Respect an explicit request for brevity or depth" (answer-quality
+ *   section): the base's form/length rule carries the same requirement
+ *   with stronger force ("that specification takes top priority"), and
+ *   its completeness half restates "Calibrate depth to complexity".
+ * - "Silently evaluate correctness, relevance, completeness, freshness,
+ *   evidence, calibration, actionability, and clarity before sending"
+ *   (answer-quality section): a third restatement of the pre-send
+ *   self-check the base already carries twice (the three-passes rule and
+ *   the before-sending checklist).
+ * - "Do not say that an agent, specialist, tool, search, service, or
+ *   artifact was used unless the execution record proves it" (request-
+ *   intent section), "Never present an uncreated file, uncalled service,
+ *   unverified search, or unexecuted review as completed" (work-plan
+ *   section), and "A partial or unavailable assignment must never be
+ *   described as executed" (assignment section): three section-local
+ *   restatements of the base's "Do not claim code, deployment, purchase,
+ *   configuration, search, file creation, specialist review, or other
+ *   execution without evidence", which stays. The work-plan and
+ *   assignment sections additionally keep their own positive forms
+ *   ("clearly state what was not executed"; "Only assigned services may
+ *   be treated as available").
+ * - "Treat requirement discovery as part of the work, not as friction"
+ *   (base, creation rulebook): restates the base's Version-1-first rule
+ *   (never a question-only first turn, label assumptions and sample data,
+ *   at most one or two refinement questions) that precedes it in the
+ *   same base text.
+ * - "Never spend the first turn on questions alone for a creation
+ *   request" and "Never ask the same requirement twice after the user
+ *   has answered it" (requirement-clarification section, deliverable
+ *   shape): restatements of the same Version-1 rule and of the base's
+ *   "Use follow-up answers to improve the existing draft ... never
+ *   repeat a question that the user has already answered".
+ *
+ * Nothing else is touched: the planning/marketing protocol (required
+ * parts, number discipline, ownership and deadlines), the intent-
+ * awareness section, the executive protocol, and the appended date
+ * instruction all carry rules stated nowhere else and pass through
+ * unchanged, as do the mode and verification lines of the quality
+ * section. Routes 1 and 3 are unaffected — route 1 keeps the full
+ * instruction and route 3 keeps its compact substitute; callers that do
+ * not set the route-2 field keep the previous behavior exactly. Whether
+ * this variant is adopted is decided by the post-deploy fixed-brief
+ * quality measurement, not by this change.
+ */
+const ORIGIN_ROUTE2_REDUNDANT_LINE_ANCHORS: readonly string[] = [
+  "Deliverable First after clarification",
+  "Depth calibration: concise means removing repetition",
+  "Write for a capable adult using professional, domain-appropriate language",
+  "Respect an explicit request for brevity or depth",
+  "Silently evaluate correctness, relevance, completeness, freshness, evidence, calibration, actionability, and clarity before sending",
+  "Do not say that an agent, specialist, tool, search, service, or artifact was used unless the execution record proves it",
+  "Never present an uncreated file, uncalled service, unverified search, or unexecuted review as completed",
+  "A partial or unavailable assignment must never be described as executed",
+  "Treat requirement discovery as part of the work, not as friction",
+  "Never spend the first turn on questions alone for a creation request",
+  "Never ask the same requirement twice after the user has answered it",
+];
+
+export function originCloudflareRouteSystemInstruction(assembledInstruction: string): string {
+  return assembledInstruction
+    .split("\n")
+    .filter((line) => !ORIGIN_ROUTE2_REDUNDANT_LINE_ANCHORS.some((anchor) => line.startsWith(`- ${anchor}`)))
+    .join("\n");
+}

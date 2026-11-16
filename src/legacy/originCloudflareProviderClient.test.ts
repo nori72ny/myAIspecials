@@ -442,6 +442,23 @@ describe("executeOriginCloudflareProvider", () => {
     expect(inferenceBody.max_tokens).toBe(4096);
   });
 
+  it("sends the route-2 deduplicated instruction when the request carries one", async () => {
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 90_000, completion_tokens: 40_000 },
+    }));
+    const dedupedRequest: OriginProviderExecutionRequest = {
+      ...request,
+      cloudflareSystemInstruction: "経路2向けに重複を除いた指示です。",
+    };
+    const result = await executeOriginCloudflareProvider(dedupedRequest, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.text).toBe("確認結果です。");
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
+    const inferenceBody = JSON.parse(String(calls[3][1]?.body)) as { messages: Array<{ role: string; content: string }> };
+    expect(inferenceBody.messages[0]).toEqual({ role: "system", content: "経路2向けに重複を除いた指示です。" });
+    expect(inferenceBody.messages[1]).toEqual({ role: "user", content: "確認してください" });
+  });
+
   it("flags the result as truncated when completion tokens reach the requested budget", async () => {
     const fetchMock = fullFetch(async () => cloudflareJson({
       response: "確認結果です。",
