@@ -28,6 +28,7 @@ import {
   originAnswerQualityInstruction,
   resolveOriginAnswerQualityPolicy,
 } from "../lib/orchestration/OriginAnswerQualityPolicy";
+import { resolveOriginBusinessPlanning } from "../lib/orchestration/OriginBusinessPlanning";
 import { ORIGIN_BUSINESS_PLANNING_BRIEFS } from "../lib/orchestration/OriginBusinessPlanningBriefs";
 import { detectOriginBusinessPlanningKind } from "../lib/orchestration/OriginBusinessPlanning";
 
@@ -694,5 +695,49 @@ describe("planning routing (2026-11-16 production measurement BP-3 / BP-6)", () 
   ])("explicit current-fact demand stays grounded: %s", (message) => {
     expect(requiresOriginGroundedResearch(message)).toBe(true);
     expect(requiresOriginCurrentInformation(message)).toBe(true);
+  });
+});
+
+describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudication follow-up)", () => {
+  // The round-2 production measurement (2026-11-16) served all seven
+  // planning briefs from route 3, whose substitute instruction was
+  // request-independent: the mandatory planning parts never reached the
+  // model and every brief failed mustInclude with no owner/deadline
+  // anywhere. These tests pin the fix: the base substitute is untouched,
+  // and a detected planning profile appends the compact playbook.
+  const base = originGroqRouteSystemInstruction();
+
+  it("leaves the base substitute byte-identical when no planning profile is given", () => {
+    expect(originGroqRouteSystemInstruction()).toBe(base);
+    expect(originGroqRouteSystemInstruction(null)).toBe(base);
+    expect(originGroqRouteSystemInstruction(undefined)).toBe(base);
+    expect(base.length).toBeGreaterThanOrEqual(2_000);
+    expect(base.length).toBeLessThanOrEqual(3_000);
+    expect(base).not.toContain("Business planning rules for this request");
+  });
+
+  it("appends the compact playbook after the unchanged base for every fixed brief", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const profile = resolveOriginBusinessPlanning(brief.prompt)!;
+      const augmented = originGroqRouteSystemInstruction(profile);
+      expect(augmented.startsWith(base), brief.id).toBe(true);
+      expect(augmented, brief.id).toContain(`kind: ${profile.kind}`);
+      for (const part of brief.mustInclude) {
+        expect(augmented, `${brief.id} augmented must contain ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("keeps the combined payload inside the route's functional token budget for every fixed brief", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const augmented = originGroqRouteSystemInstruction(resolveOriginBusinessPlanning(brief.prompt)!);
+      // The addendum is bounded on its own, and the whole route-3 payload
+      // (instruction + the user's request) estimates to well under the
+      // 6,000-token input budget the Groq executor trims history against,
+      // leaving most of the 8,000 tokens/minute ceiling for completion.
+      expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(1_700);
+      expect(augmented.length, brief.id).toBeLessThanOrEqual(4_700);
+      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(2_400);
+    }
   });
 });

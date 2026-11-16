@@ -12,7 +12,11 @@ import {
 } from "../lib/orchestration/OriginServiceRegistry.js";
 import { originRequirementClarificationInstruction } from "../lib/orchestration/OriginRequirementClarifier.js";
 import { classifyOriginSearchQuestion, detectOriginHighRiskCategory } from "../search/originSearchClassifier.js";
-import { detectOriginBusinessPlanningKind } from "../lib/orchestration/OriginBusinessPlanning.js";
+import {
+  buildOriginGroqBusinessPlanningInstruction,
+  detectOriginBusinessPlanningKind,
+  type OriginBusinessPlanningProfile,
+} from "../lib/orchestration/OriginBusinessPlanning.js";
 
 export function requiresOriginFutureReleaseInformation(message: string): boolean {
   return /(?:今後|これから|次に).{0,18}(?:登場|出てくる|発売|公開|リリース|提供開始|予定)|(?:登場|発売|公開|リリース|提供開始)予定|次世代.{0,12}(?:AI|モデル)/.test(message)
@@ -455,9 +459,23 @@ export function originIntentAwarenessInstruction(): string {
  * receive the full instruction unchanged. The third route is the last resort: on
  * that route, returning a sound answer takes precedence over instruction
  * completeness, by design.
+ *
+ * Planning augmentation (2026-11-16 round-2 adjudication follow-up): when the
+ * request is a detected business-planning/marketing request, the caller passes
+ * its profile and the compact form of the planning playbook
+ * (buildOriginGroqBusinessPlanningInstruction) is appended. Before this, the
+ * substitute was request-independent, so a planning request served by route 3
+ * — in the round-2 measurement, all seven briefs, because route 2 failed over
+ * every time — never carried the mandatory parts (required-parts checklist,
+ * number discipline, owner/deadline mandate, deterministic backcast) that
+ * routes 1 and 2 receive via the answer quality policy, and every measured
+ * answer dropped them. The base substitute is unchanged and stays inside its
+ * pinned 2,000–3,000 character budget; the addendum is planning-only,
+ * separately bounded by test, and the combined payload still estimates to
+ * roughly 2,300 input tokens against the route's 6,000-token input budget.
  */
-export function originGroqRouteSystemInstruction(): string {
-  return `You are ORIGIN Personal AI on the last-resort free route. A sound answer matters more than completeness; never trade away the accuracy and safety rules below.
+export function originGroqRouteSystemInstruction(planningProfile?: OriginBusinessPlanningProfile | null): string {
+  const base = `You are ORIGIN Personal AI on the last-resort free route. A sound answer matters more than completeness; never trade away the accuracy and safety rules below.
 - Reply in the language used by the user; in Japanese, use the polite desu/masu register by default.
 - Answer directly. For creation requests, produce a Version 1 draft with sound defaults, label assumptions and sample data, then ask at most one or two high-impact refinement questions — never a question-only first turn.
 - Adapt tone and structure to the request's context: work, personal, learning, creative, or casual. Name the assumed context in one short opening phrase when it shapes the answer. If it fundamentally changes the answer and cannot be inferred, ask one short question with choices instead — once per topic, never repeat. If unclear, keep the neutral style.
@@ -472,6 +490,8 @@ export function originGroqRouteSystemInstruction(): string {
 - For professional guidance (legal, compliance, security, financial), do not turn a possible rule into a universal rule without verified jurisdiction/context; separate general practice from binding requirements; for consequential decisions, state what the user must independently confirm before acting.
 - Safety/health values follow Japan's official standards (food heating: core 75°C, at least one minute); label foreign ones by country, never as Japan's.
 - Write for a phone screen: bottom line first (1–3 sentences), then 3–5 points; short headings, bullets, at most six sections, and a Markdown table only when it makes comparison easier. Fit the output budget; never restart, repeat, or end with a fragment.`;
+  if (!planningProfile) return base;
+  return `${base}\n\n${buildOriginGroqBusinessPlanningInstruction(planningProfile)}`;
 }
 
 /**

@@ -327,15 +327,20 @@ function formatYen(value: number): string {
   return `${value.toLocaleString("ja-JP")}円`;
 }
 
-function formatBackcastBlock(profile: OriginBusinessPlanningProfile): string[] {
-  const { figures, backcast } = profile;
-  const lines: string[] = [];
+function suppliedFigureParts(figures: OriginBusinessPlanningFigures): string[] {
   const supplied: string[] = [];
   if (typeof figures.goalRevenueYen === "number") supplied.push(`revenue goal ${formatYen(figures.goalRevenueYen)}`);
   if (typeof figures.goalOrders === "number") supplied.push(`order goal ${figures.goalOrders}件`);
   if (typeof figures.unitPriceYen === "number") supplied.push(`average unit price ${formatYen(figures.unitPriceYen)}`);
   if (typeof figures.meetingToOrderRate === "number") supplied.push(`meeting->order rate ${Math.round(figures.meetingToOrderRate * 1000) / 10}%`);
   if (typeof figures.sqlToMeetingRate === "number") supplied.push(`SQL->meeting rate ${Math.round(figures.sqlToMeetingRate * 1000) / 10}%`);
+  return supplied;
+}
+
+function formatBackcastBlock(profile: OriginBusinessPlanningProfile): string[] {
+  const { figures, backcast } = profile;
+  const lines: string[] = [];
+  const supplied = suppliedFigureParts(figures);
   if (supplied.length > 0) {
     lines.push(`- User-supplied figures (treat as given facts, do not alter them): ${supplied.join("; ")}.`);
   }
@@ -423,5 +428,63 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
     "- Beyond-the-request actions, within the plan only: (1) fill missing premises as explicit assumptions — ask at most one short question, and only when the answer would materially change the plan; otherwise proceed with a one-line stated premise. (2) Design to the higher purpose behind the request, but do not add deliverable types the user did not ask for. (3) Close with the separate final section （次の一手 / リスク / 代替案）: next actions named as who does what, by when, and how many; risks as the condition that breaks a premise and its impact; alternatives as the switch if a premise breaks, with sensitivity where you can give it. (4) If the conversation or the provided context contains relevant past plans or data, propose combining them — as a proposal only; never write as if past data exists when none was provided.",
     "- Keep the added sections smaller than the body of the plan. The plan itself, at decision-ready specificity, is the deliverable.",
     ...formatBackcastBlock(profile),
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Route-3 (Groq) compact form of the playbook above.
+//
+// The full instruction runs 4,400–5,400 characters — more than the entire
+// route-3 compact instruction (2,000–3,000 characters, pinned by test) —
+// and the chat routers used to hand route 3 the compact substitute with
+// no per-request addition at all. Route 3 is the last-resort route, but
+// it is also the route that actually serves whenever route 2 fails or
+// times out: in the 2026-11-16 round-2 production measurement it served
+// all seven planning briefs, so the model never saw the mandatory parts
+// of the playbook — no required-parts checklist, no number discipline,
+// no owner/deadline mandate, no deterministic backcast — and every
+// answer dropped required parts and every owner/deadline (adjudication:
+// business-planning-measurement-2026-11-16-r2). This builder carries
+// exactly that mandatory core, compressed, for the routers to append to
+// the route-3 substitute when a planning kind is detected. The
+// quality-shaping prose of the full instruction (kind emphasis, what
+// each part must carry, KPI classes) stays exclusive to routes 1–2;
+// what is not negotiable — the parts themselves, assumption labelling,
+// number integrity, ownership and deadlines, and the system-computed
+// figures — is all here, in well under a third of the full length.
+// ---------------------------------------------------------------------------
+
+function formatGroqBackcastLines(profile: OriginBusinessPlanningProfile): string[] {
+  const { figures, backcast } = profile;
+  const lines: string[] = [];
+  const supplied = suppliedFigureParts(figures);
+  if (supplied.length > 0) {
+    lines.push(`- User-supplied figures (given facts; do not alter them): ${supplied.join("; ")}.`);
+  }
+  if (backcast) {
+    const chain = backcast.stages
+      .map((stage) => `${STAGE_LABEL_JA[stage.stage]} ${stage.count.toLocaleString("ja-JP")}件`)
+      .join(" <- ");
+    const sensitivity = backcast.sensitivity
+      ? ` Sensitivity: with every rate halved, the required ${STAGE_LABEL_JA[backcast.sensitivity.stage]} rises from ${backcast.sensitivity.baseCount.toLocaleString("ja-JP")} to ${backcast.sensitivity.halvedRateCount.toLocaleString("ja-JP")} — state this beside the backcast.`
+      : "";
+    lines.push(`- System-computed backcast — use these exact counts; do not recompute or round differently: ${chain}.${sensitivity}`);
+  }
+  return lines;
+}
+
+export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile): string {
+  const parts = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[profile.kind];
+  const sections = parts.filter((part) => part !== "仮置き");
+  const assumptionClause = parts.includes("仮置き")
+    ? " Labelling every assumed figure 「仮置き（仮定）」 at the point of use is also a required part."
+    : "";
+  return [
+    `Business planning rules for this request (kind: ${profile.kind}) — mandatory, not optional structure advice:`,
+    `- Required parts: include EVERY part below as its own headed section, in this order, under these exact names: ${sections.join(" / ")}. Never omit or merge a part; a part with little to say still appears, with one line saying why it is small.${assumptionClause}`,
+    "- Numbers: use only user-supplied figures, arithmetic you show from them, or assumptions labelled 「仮置き（仮定）」. A rate is result ÷ input — write the division beside the rate. A figure presented with a formula must equal that formula's result, and the same quantity must carry the same value in the summary, tables, and body. Never state an unsourced market size, competitor fact, or statistic as fact; label estimates as estimates （推定）.",
+    "- Funnel order is fixed: リーチ → リード → MQL → SQL → 商談 → 受注. Show the backcast from the goal backwards, with the conversion rate beside the stage it produces.",
+    ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines: every measure and every next action must name its 担当 (a role name is enough) and its 期限 (a calendar date or a relative deadline such as 「2週間以内」). A measure or action without both does not count as part of the plan."] : []),
+    ...formatGroqBackcastLines(profile),
   ].join("\n");
 }

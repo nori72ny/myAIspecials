@@ -105,6 +105,7 @@ describe("createOriginStreamingChatRouter", () => {
       expect(providerRequest.groqSystemInstruction).toBe(originGroqRouteSystemInstruction());
       expect(providerRequest.groqSystemInstruction?.length).toBeLessThanOrEqual(3_000);
       expect(providerRequest.systemInstruction.length).toBeGreaterThan(9_000);
+      expect(providerRequest.systemInstruction).not.toContain("Business planning & marketing protocol");
       handlers.onDelta("ORIGIN-CONTEXT-42");
       return result("ORIGIN-CONTEXT-42");
     }) as unknown as OriginProviderStreamExecutor;
@@ -120,6 +121,32 @@ describe("createOriginStreamingChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain(`data: {"type":"delta","text":"ORIGIN-CONTEXT-42"}`);
     expect(response.text).toMatch(/data: \[DONE\]\s*$/);
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries the compact planning playbook on the route-3 instruction for a planning request", async () => {
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      // Routes 1 and 2 receive the full planning protocol via the quality policy.
+      expect(providerRequest.systemInstruction).toContain("Business planning & marketing protocol");
+      expect(providerRequest.systemInstruction).toContain("Required parts for this kind");
+      // Route 3 receives the compact playbook appended to the unchanged base
+      // substitute — the mandatory parts the round-2 measurement (all seven
+      // briefs served by route 3) found missing on every brief.
+      expect(providerRequest.groqSystemInstruction?.startsWith(originGroqRouteSystemInstruction())).toBe(true);
+      expect(providerRequest.groqSystemInstruction).toContain("Business planning rules for this request (kind: campaign-plan)");
+      expect(providerRequest.groqSystemInstruction).toContain("受注 120件");
+      expect(providerRequest.groqSystemInstruction).toContain("商談 600件");
+      expect(providerRequest.groqSystemInstruction).toContain("Ownership and deadlines");
+      handlers.onDelta("計画です");
+      return result("計画です");
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "今年度の売上目標は6,000万円、平均単価は50万円、成約率は20%です。必要な商談数とリード数を逆算して、達成計画を立てて。" }] });
+
+    expect(response.status).toBe(200);
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 

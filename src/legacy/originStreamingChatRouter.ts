@@ -178,7 +178,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         )
           + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
           + (deckRequested && deckInstruction ? `\n\n${deckInstruction}` : ""),
-        groqSystemInstruction: originGroqRouteSystemInstruction(),
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning),
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters

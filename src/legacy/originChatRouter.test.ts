@@ -63,6 +63,25 @@ describe("createOriginChatRouter", () => {
     expect(call?.systemInstruction.length).toBeGreaterThan(9_000);
     expect(call?.systemInstruction).not.toBe(call?.groqSystemInstruction);
   });
+
+  it("carries the compact planning playbook on the route-3 instruction for a planning request", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "新製品ローンチのマーケティング仕様書を作って。目的、ターゲット、ファネル、KPI、計測方法まで含めてください。" }] });
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const call = executeMock.mock.calls[0]?.[0];
+    // Routes 1 and 2 receive the full planning protocol via the quality policy.
+    expect(call?.systemInstruction).toContain("Business planning & marketing protocol");
+    expect(call?.systemInstruction).toContain("Required parts for this kind");
+    // Route 3 receives the compact playbook appended to the unchanged base
+    // substitute — the mandatory parts the round-2 measurement (all seven
+    // briefs served by route 3) found missing on every brief.
+    expect(call?.groqSystemInstruction?.startsWith(originGroqRouteSystemInstruction())).toBe(true);
+    expect(call?.groqSystemInstruction).toContain("Business planning rules for this request (kind: marketing-spec)");
+    expect(call?.groqSystemInstruction).toContain("数値の逆算");
+    expect(call?.groqSystemInstruction).toContain("Ownership and deadlines");
+    expect(call?.groqSystemInstruction).toContain("担当");
+    expect(call?.groqSystemInstruction).toContain("期限");
+  });
   it("blocks synthetic secrets before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] }); expect(response.status).toBe(422); expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED"); expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456"); expect(executeMock).not.toHaveBeenCalled(); });
   it("returns a validated zero-cost routing envelope", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(response.body.routing).toEqual(expect.objectContaining({ model: "ORIGIN 無料AI", providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, traceId: "origin-test-trace", verificationStatus: "not-run", reviewRequired: true, providerAttempts: 1, providerTransportRequests: 1, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true }, providerRouting: { requestedModel: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } })); expect(executeMock).toHaveBeenCalledTimes(1); const call = executeMock.mock.calls[0]?.[0]; expect(call?.systemInstruction).toContain("For routine explanatory or comparison answers"); expect(call?.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed"); expect(call?.systemInstruction).toContain("ask at most one or two focused questions after the Version 1 draft"); expect(call?.systemInstruction).toContain("Use follow-up answers to improve the existing draft"); expect(call?.systemInstruction).toContain("Treat explicit output-shape constraints as hard requirements"); expect(call?.systemInstruction).toContain("JSON only, code only, no Markdown, exactly N items"); });
   it("marks low-risk writing as not requiring independent review", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "短い案内文を読みやすく整えてください" }] }); expect(response.status).toBe(200); expect(response.body.answer.verification).toEqual({ status: "not-required", independentReviewPerformed: false, summary: "この依頼では、追加の独立確認を必須と判定していません。" }); expect(response.body.answer.limitations).toEqual([]); expect(response.body.answer.nextActions).toEqual([]); });
