@@ -15,8 +15,6 @@ import type {
 // in-memory IndexedDB fake); every test loads a fresh module instance.
 
 const USER_ID = 'user-1';
-const KEY_DB_NAME = 'origin-active-context-key';
-const KEY_STORE_NAME = 'keys';
 const KEY_ID = 'aes-gcm-256';
 // Midday UTC so the formatted month/day is the 16th in UTC and JST alike.
 const NOV16 = Date.UTC(2026, 10, 16, 12, 0, 0);
