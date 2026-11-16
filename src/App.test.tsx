@@ -2339,6 +2339,65 @@ describe('code examples remain in conversation context', () => {
   });
 });
 
+describe('answer refinement pill display label', () => {
+  afterEach(cleanup);
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const jsonChatReply = (content: string) => new Response(JSON.stringify({
+    content,
+    routing: { modelId: 'google/gemma-4-31b-it:free', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: 'google/gemma-4-31b-it:free', servedModel: 'google/gemma-4-31b-it:free', fallbackUsed: false } },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  it('shows only the pill label in the user bubble while the model receives the full internal instruction', async () => {
+    const chatBodies: { messages: { role: string; content: string }[] }[] = [];
+    const seenMessages: ConversationMessage[][] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestPath(input) === '/api/chat') {
+        chatBodies.push(JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] });
+        return jsonChatReply(chatBodies.length === 1 ? '最初の回答です' : '要点だけの回答です');
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" onMessagesChange={(messages) => { seenMessages.push([...messages]); }} />);
+
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '進め方を教えて' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('最初の回答です')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '要点だけ' }));
+    expect(await screen.findByText('要点だけの回答です')).toBeTruthy();
+
+    // モデルへ送る内容は従来どおり完全な内部指示文のまま（表示だけの変更）
+    expect(chatBodies).toHaveLength(2);
+    const lastUser = chatBodies[1]?.messages.at(-1);
+    expect(lastUser?.role).toBe('user');
+    expect(lastUser?.content).toContain('意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください');
+
+    // 吹き出し・会話ログに内部指示文は出ない（ラベルは出る）
+    const log = screen.getByRole('log');
+    expect(log.textContent).not.toContain('意思決定に必要な結論と次の行動');
+    const userBubbles = [...log.querySelectorAll('.origin-chat-user')].map((element) => element.textContent);
+    expect(userBubbles).toContain('要点だけ');
+
+    // メッセージは content=内部指示文 / displayContent=ラベル で保持される
+    const latest = seenMessages.at(-1) ?? [];
+    const refinementTurn = latest.filter((message) => message.role === 'user').at(-1);
+    expect(refinementTurn?.content).toContain('意思決定に必要な結論と次の行動');
+    expect(refinementTurn?.displayContent).toBe('要点だけ');
+  });
+
+  it('prefers the display label for the session title and falls back to content for legacy messages', () => {
+    const session = currentConversationSession([
+      { id: 'u1', role: 'user', content: '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。重要な条件、リスク、不確実性は残し、必要情報ではなく重複を削ってください。', displayContent: '要点だけ' },
+      { id: 'a1', role: 'assistant', content: '回答' },
+    ], 1);
+    expect(session?.title).toBe('要点だけ');
+    const legacy = currentConversationSession([{ id: 'u1', role: 'user', content: '昔の質問' }], 1);
+    expect(legacy?.title).toBe('昔の質問');
+  });
+});
+
 describe('chat send queue while a response is generating', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });

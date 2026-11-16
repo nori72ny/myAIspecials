@@ -140,6 +140,10 @@ export function parseImportedHistory(value: unknown): ConversationMessage[] {
       id: typeof candidate.id === 'string' && candidate.id.length <= 128 ? candidate.id : `import-${index}-${Date.now()}`,
       role: candidate.role,
       content: candidate.content.slice(0, 50_000),
+      // 表示専用文面（「回答を調整」ピルのラベル等）も会話の一部として
+      // 保持する。これを落とすと復元後に内部指示文が吹き出しへ戻ってしまう。
+      // 旧データには無いので、その場合は undefined のまま（content を表示）。
+      displayContent: typeof candidate.displayContent === 'string' && candidate.displayContent.length > 0 ? candidate.displayContent.slice(0, 2_000) : undefined,
       deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined,
       image,
       research,
@@ -189,7 +193,8 @@ function loadLegacySnapshot(): OriginPersistedSnapshot | null {
  */
 export function startupArchivedSession(source: readonly ConversationMessage[], createdAt: number): ConversationSession | null {
   if (!source.length) return null;
-  const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション';
+  const firstUserSource = source.find((message) => message.role === 'user') ?? source[0];
+  const firstUser = (firstUserSource ? (firstUserSource.displayContent ?? firstUserSource.content) : '') || 'ORIGIN セッション';
   const firstId = typeof source[0]?.id === 'string' && source[0].id ? source[0].id : String(createdAt);
   return {
     id: `session-startup-${firstId}`.slice(0, 128),
@@ -253,7 +258,7 @@ function PersonalReleaseRoot() {
         if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
-  const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUser = source.find((message) => message.role === 'user')?.content || source[0]?.content || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
+  const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUserSource = source.find((message) => message.role === 'user') ?? source[0]; const firstUser = (firstUserSource ? (firstUserSource.displayContent ?? firstUserSource.content) : '') || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages: persistableConversationMessages(messages) }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };
   const importHistory = async (file: File) => { if (file.size > 1_500_000) throw new Error(t.historyImportFailed); try { dirtyDuringHydration.current.messages = true; setMessages(parseImportedHistory(JSON.parse(await file.text()))); } catch { throw new Error(t.historyImportFailed); } };
   const resetConversation = () => { archiveSession(messages); dirtyDuringHydration.current.messages = true; setMessages([]); setResetSignal((value) => value + 1); };

@@ -4,10 +4,15 @@ import remarkGfm from 'remark-gfm';
 import type { OriginLanguage } from '../../i18n';
 import MarkdownTableV12 from '../MarkdownTableV12';
 
+export type AnswerRefinementKind = 'depth' | 'example' | 'plan' | 'summary';
+
 type OriginAnswerMarkdownProps = {
   content: string;
   language: OriginLanguage;
-  onRefine?: (prompt: string) => void;
+  // 第1引数はモデルへ送る完全な内部指示文、第2引数は利用者の吹き出しに
+  // 表示する短いラベル（ピルの表示文そのもの）。内部指示文をそのまま
+  // 吹き出しに出さないため、表示文は必ず分けて渡す。
+  onRefine?: (prompt: string, displayLabel: string) => void;
 };
 
 function CopyButton({ text, language, label }: { text: string; language: OriginLanguage; label: string }) {
@@ -43,7 +48,7 @@ function AnswerCodeBlock({ children, language }: { children: ReactNode; language
   </section>;
 }
 
-const refinementPrompt = (language: OriginLanguage, kind: 'depth' | 'example' | 'plan' | 'summary') => {
+const refinementPrompt = (language: OriginLanguage, kind: AnswerRefinementKind) => {
   if (language === 'en') {
     if (kind === 'depth') return 'Upgrade your previous answer to professional working depth. Keep the direct conclusion, then fill the material gaps with decision criteria, evidence or reasoning, relevant conditions, trade-offs, risks, concrete steps, verification, and explicit unknowns. Adapt the structure to the task: research needs sources/conditions/comparison logic; coding needs usable changes, integration, tests, and limitations; planning needs deliverables, dependencies, ownership, and completion criteria. Do not add filler or invent facts.';
     if (kind === 'example') return 'Add a concrete, directly usable example that fits my request and show how it connects to the recommendation. Label illustrative assumptions, preserve important constraints, and never present an invented example as an observed result.';
@@ -62,6 +67,12 @@ const refinementPrompt = (language: OriginLanguage, kind: 'depth' | 'example' | 
  * answers remain readable on narrow screens.
  */
 export default function OriginAnswerMarkdown({ content, language, onRefine }: OriginAnswerMarkdownProps) {
+  const refinementOptions: { kind: AnswerRefinementKind; label: string }[] = [
+    { kind: 'depth', label: language === 'en' ? 'More depth for practical work' : '実務向けに詳しく' },
+    { kind: 'example', label: language === 'en' ? 'Add an example' : '具体例を足す' },
+    { kind: 'plan', label: language === 'en' ? 'Make a plan' : '実行プランにする' },
+    { kind: 'summary', label: language === 'en' ? 'Key points' : '要点だけ' },
+  ];
   return (
     <div className="origin-answer-markdown markdown-body">
       <ReactMarkdown
@@ -88,10 +99,9 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
       {content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
         {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>
-          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'depth'))}>{language === 'en' ? 'More depth for practical work' : '実務向けに詳しく'}</button>
-          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'example'))}>{language === 'en' ? 'Add an example' : '具体例を足す'}</button>
-          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'plan'))}>{language === 'en' ? 'Make a plan' : '実行プランにする'}</button>
-          <button type="button" onClick={() => onRefine(refinementPrompt(language, 'summary'))}>{language === 'en' ? 'Key points' : '要点だけ'}</button>
+          {refinementOptions.map((option) => (
+            <button key={option.kind} type="button" onClick={() => onRefine(refinementPrompt(language, option.kind), option.label)}>{option.label}</button>
+          ))}
         </div>}
       </div>}
     </div>
