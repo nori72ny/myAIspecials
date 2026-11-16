@@ -11,17 +11,17 @@ import {
   type OriginCloudflareFreeModelEvidence,
 } from "./OriginCloudflareFreeModelCatalog";
 
-const DURING_MS = Date.parse("2026-11-10T12:00:00.000Z");
-const AFTER_ALL_REVIEW_MS = Date.parse("2026-11-21T00:00:00.000Z");
+const DURING_MS = Date.parse("2026-11-17T12:00:00.000Z");
+const AFTER_ALL_REVIEW_MS = Date.parse("2026-11-27T00:00:00.000Z");
 
 describe("Cloudflare free model evidence catalog", () => {
-  it("pins the verified primary model and the 2026-11-19 review deadline", () => {
+  it("pins the verified primary model and the 2026-11-26 review deadline", () => {
     const entry = DEFAULT_ORIGIN_CLOUDFLARE_FREE_MODEL_CATALOG[0];
     expect(entry.providerId).toBe("cloudflare-workers-ai-free");
     expect(entry.modelId).toBe(ORIGIN_CLOUDFLARE_FREE_MODEL);
     expect(entry.modelId).toBe("@cf/google/gemma-4-26b-a4b-it");
-    expect(entry.verifiedAt).toBe("2026-11-09T13:00:00.000Z");
-    expect(entry.reviewAfter).toBe("2026-11-19T13:00:00.000Z");
+    expect(entry.verifiedAt).toBe("2026-11-16T00:00:00.000Z");
+    expect(entry.reviewAfter).toBe("2026-11-26T00:00:00.000Z");
     expect(entry.sourceDescription).toContain("zero data retention");
     expect(entry.sourceDescription).toContain("10,000 Neurons per day");
     expect(entry.sourceDescription).toContain("9,091 / 27,273 Neurons");

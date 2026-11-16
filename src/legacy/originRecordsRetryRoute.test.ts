@@ -375,11 +375,11 @@ describe("next-route derivation with production-shaped inputs (R-PR-8d)", () => 
   // The routers wire the executor with no catalogs (the builders fall
   // back to the default evidence catalogs) and a plan built by
   // buildOriginExecutionPlan. These tests pin the derivation against
-  // exactly that shape, on the R-PR-7 measurement day's clock
-  // (2026-11-15 09:46 JST), when every route's evidence was inside
-  // its freshness window: route 1 must derive the Cloudflare plan and
+  // exactly that shape, on a clock inside every route's current
+  // evidence freshness window (the pin moves with the catalog
+  // evidence refreshes): route 1 must derive the Cloudflare plan and
   // route 2 must derive the Groq plan.
-  const MEASUREMENT_NOW_MS = Date.parse("2026-11-15T00:46:00.000Z");
+  const MEASUREMENT_NOW_MS = Date.parse("2026-11-16T12:00:00.000Z");
   const PROD_ENV: NodeJS.ProcessEnv = { ...CF_ENV, ...GROQ_ENV };
 
   function productionRequest(): OriginProviderExecutionRequest {
