@@ -175,6 +175,22 @@ type Translation = {
     proposalNeedsCheckBody: string;
     proposalNeedsCheckApprove: string;
     proposalNeedsCheckDismiss: string;
+    blockNoticesHeading: string;
+    blockNoticesIntro: string;
+    blockNoticeEntry: (monthDay: string, reasons: string) => string;
+    blockCategories: {
+      credential: string;
+      'payment-card': string;
+      'phone-number': string;
+      'email-address': string;
+      'date-of-birth': string;
+      'pin-code': string;
+      'government-id': string;
+      'financial-account': string;
+      'postal-address': string;
+      'medical-information': string;
+    };
+    blockNoticesDismiss: string;
     clearAll: string;
     clearAllConfirmTitle: string;
     clearAllConfirmBody: string;
@@ -374,6 +390,22 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       proposalNeedsCheckBody: 'どちらも、覚えている内容として残っています。新しい方を使うか、このままにしておくか選べます。',
       proposalNeedsCheckApprove: '新しい方を使う',
       proposalNeedsCheckDismiss: '今は決めない',
+      blockNoticesHeading: '保存しなかった内容のお知らせ',
+      blockNoticesIntro: '会話から覚えようとした内容に、保存できないものが含まれていたため、保存しませんでした。内容そのものは、ここにも残していません。',
+      blockNoticeEntry: (monthDay, reasons) => `${monthDay}の会話から：${reasons}らしい内容が含まれていたため、保存しませんでした`,
+      blockCategories: {
+        credential: 'パスワードやAPIキー',
+        'payment-card': 'カード番号',
+        'phone-number': '電話番号',
+        'email-address': 'メールアドレス',
+        'date-of-birth': '生年月日',
+        'pin-code': '暗証番号',
+        'government-id': 'マイナンバーなどの公的な番号',
+        'financial-account': '口座番号',
+        'postal-address': '住所',
+        'medical-information': '医療に関する情報',
+      },
+      blockNoticesDismiss: '分かりました',
       clearAll: '覚えていることを全て消す',
       clearAllConfirmTitle: '覚えていることを全て消しますか',
       clearAllConfirmBody: '会話の履歴は消えません。覚えていることだけが消えます。',
@@ -571,6 +603,22 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       proposalNeedsCheckBody: 'Both are still remembered. You can switch to the newer one, or leave them as they are for now.',
       proposalNeedsCheckApprove: 'Use the newer one',
       proposalNeedsCheckDismiss: 'Decide later',
+      blockNoticesHeading: 'Things that were not saved',
+      blockNoticesIntro: 'Something ORIGIN tried to remember from a conversation contained details that cannot be stored, so it was not saved. The content itself is not kept here either.',
+      blockNoticeEntry: (monthDay, reasons) => `From a conversation on ${monthDay}: not saved, because it seemed to include ${reasons}.`,
+      blockCategories: {
+        credential: 'a password or API key',
+        'payment-card': 'a card number',
+        'phone-number': 'a phone number',
+        'email-address': 'an email address',
+        'date-of-birth': 'a date of birth',
+        'pin-code': 'a PIN',
+        'government-id': 'a government ID number',
+        'financial-account': 'an account number',
+        'postal-address': 'an address',
+        'medical-information': 'medical information',
+      },
+      blockNoticesDismiss: 'Got it',
       clearAll: 'Delete everything ORIGIN remembers',
       clearAllConfirmTitle: 'Delete everything ORIGIN remembers?',
       clearAllConfirmBody: 'Your conversation history is not deleted. Only what ORIGIN remembers is removed.',

@@ -288,6 +288,111 @@ describe('personal memory CRUD', () => {
   });
 });
 
+// --- Block notices (design §5.3) ---------------------------------------------------
+
+describe('block notices', () => {
+  it('records, lists and clears block notices', async () => {
+    const mod = await loadFreshModule();
+    await mod.recordBlockNotices(USER_ID, [
+      { kind: 'fact', categories: ['phone-number'], at: 2_000 },
+      { categories: ['payment-card'], at: 3_000 },
+    ]);
+    const notices = await mod.listBlockNotices(USER_ID);
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toMatchObject({ kind: 'fact', categories: ['phone-number'], at: 2_000 });
+    expect(notices[1]).toMatchObject({ categories: ['payment-card'], at: 3_000 });
+    expect(notices[1].kind).toBeUndefined();
+    // A notice carries no text field at all: the blocked value is never stored.
+    for (const notice of notices) {
+      expect(Object.keys(notice).sort()).toEqual(
+        notice.kind ? ['at', 'categories', 'id', 'kind'] : ['at', 'categories', 'id'],
+      );
+    }
+
+    await expect(mod.clearBlockNotices(USER_ID)).resolves.toBe(2);
+    await expect(mod.listBlockNotices(USER_ID)).resolves.toEqual([]);
+    await expect(mod.clearBlockNotices(USER_ID)).resolves.toBe(0);
+  });
+
+  it('collapses identical kind and category sets recorded at the same time', async () => {
+    const mod = await loadFreshModule();
+    await mod.recordBlockNotices(USER_ID, [
+      { kind: 'fact', categories: ['phone-number'], at: 2_000 },
+      { kind: 'fact', categories: ['phone-number'], at: 2_000 },
+      { categories: [], at: 2_000 },
+    ]);
+    await mod.recordBlockNotices(USER_ID, [
+      { kind: 'fact', categories: ['phone-number'], at: 2_000 },
+    ]);
+    const notices = await mod.listBlockNotices(USER_ID);
+    expect(notices).toHaveLength(1);
+    // The same block at a different time is a separate notice.
+    await mod.recordBlockNotices(USER_ID, [
+      { kind: 'fact', categories: ['phone-number'], at: 5_000 },
+    ]);
+    await expect(mod.listBlockNotices(USER_ID)).resolves.toHaveLength(2);
+  });
+
+  it('keeps only the newest notices past the cap', async () => {
+    const mod = await loadFreshModule();
+    const entries = Array.from({ length: 55 }, (_, index) => ({
+      categories: ['credential'] as const,
+      at: 1_000 + index,
+    }));
+    await mod.recordBlockNotices(USER_ID, entries.map((entry) => ({ ...entry, categories: [...entry.categories] })));
+    const notices = await mod.listBlockNotices(USER_ID);
+    expect(notices).toHaveLength(50);
+    expect(notices[0].at).toBe(1_005);
+    expect(notices[49].at).toBe(1_054);
+  });
+
+  it('clears block notices together with the memory in clearAll', async () => {
+    const mod = await loadFreshModule();
+    await mod.upsertProfileItem(USER_ID, profileItem());
+    await mod.recordBlockNotices(USER_ID, [{ categories: ['phone-number'], at: 2_000 }]);
+
+    await mod.clearAll(USER_ID);
+    await expect(mod.listBlockNotices(USER_ID)).resolves.toEqual([]);
+    await expect(mod.listProfileItems(USER_ID)).resolves.toEqual([profileItem()]);
+  });
+
+  it('reads payloads written before block notices existed', async () => {
+    const key = await seedEncryptionKey();
+    const legacyStore = { version: 1, profile: [profileItem()], memory: [memoryItem()], proposals: [] };
+    window.localStorage.setItem(PERSONAL_KEY, await encryptPayload(key, legacyStore));
+    const mod = await loadFreshModule();
+
+    await expect(mod.listBlockNotices(USER_ID)).resolves.toEqual([]);
+    await expect(mod.listItems(USER_ID)).resolves.toEqual({ profile: [profileItem()], memory: [memoryItem()] });
+
+    // Recording into such a payload keeps the existing items intact.
+    await mod.recordBlockNotices(USER_ID, [{ kind: 'fact', categories: ['date-of-birth'], at: 2_000 }]);
+    await expect(mod.listBlockNotices(USER_ID)).resolves.toHaveLength(1);
+    await expect(mod.listItems(USER_ID)).resolves.toEqual({ profile: [profileItem()], memory: [memoryItem()] });
+  });
+
+  it('drops malformed notice records when reading a payload', async () => {
+    const key = await seedEncryptionKey();
+    const store = {
+      version: 1,
+      profile: [],
+      memory: [],
+      proposals: [],
+      blockNotices: [
+        { id: 'ok-1', kind: 'fact', categories: ['phone-number'], at: 2_000 },
+        { id: 'bad-1', kind: 'fact', categories: ['not-a-category'], at: 2_000 },
+        { id: 'bad-2', categories: [], at: 2_000 },
+        { categories: ['phone-number'], at: 2_000 },
+      ],
+    };
+    window.localStorage.setItem(PERSONAL_KEY, await encryptPayload(key, store));
+    const mod = await loadFreshModule();
+    const notices = await mod.listBlockNotices(USER_ID);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].id).toBe('ok-1');
+  });
+});
+
 // --- Legacy migration ------------------------------------------------------------
 
 describe('legacy ACG migration', () => {

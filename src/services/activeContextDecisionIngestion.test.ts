@@ -370,6 +370,120 @@ describe('protective layers in ingestion', () => {
   });
 });
 
+// --- Block-reason accumulation (design §5.3) ----------------------------------------------
+
+describe('block-reason accumulation in ingestion', () => {
+  async function storedNotices(graph: GraphModule) {
+    return graph.listBlockNotices(graph.resolveActiveContextUserId());
+  }
+
+  it('accumulates a notice when an explicit remember request hits the guard', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、電話番号は090-1234-5678です',
+      answerText: PLAIN_ANSWER,
+    });
+    await expect(storedItems(graph)).resolves.toEqual([]);
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].categories).toEqual(['phone-number']);
+    // The blocked value itself is nowhere in the accumulated record.
+    expect(JSON.stringify(notices)).not.toContain('090-1234-5678');
+    expect(JSON.stringify(notices)).not.toContain('09012345678');
+  });
+
+  it('accumulates a notice with the classified kind for a B-pattern sentence', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '私は連絡先として090-1234-5678を使っています',
+      answerText: PLAIN_ANSWER,
+    });
+    await expect(storedItems(graph)).resolves.toEqual([]);
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].kind).toBe('fact');
+    expect(notices[0].categories).toEqual(['phone-number']);
+  });
+
+  it('accumulates a payment-card notice from an explicit remember request', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、カード番号は4111-1111-1111-1111です',
+      answerText: PLAIN_ANSWER,
+    });
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].categories).toEqual(['payment-card']);
+    expect(JSON.stringify(notices)).not.toContain('4111');
+  });
+
+  it('accumulates a commitment notice when the answer side hits the guard', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: 'ありがとうございます',
+      answerText: '明日、090-1234-5678へ確認します。',
+    });
+    await expect(storedItems(graph)).resolves.toEqual([]);
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].kind).toBe('commitment');
+    expect(notices[0].categories).toEqual(['phone-number']);
+  });
+
+  it('collapses repeated blocks of the same kind and reason within one turn', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、電話番号は090-1234-5678です。覚えておいて、電話番号は080-9876-5432です。',
+      answerText: PLAIN_ANSWER,
+    });
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].categories).toEqual(['phone-number']);
+  });
+
+  it('records nothing for a drop caused only by the stage-2 topic rules', async () => {
+    const { graph, ingestion } = await loadModules();
+    // "住所は…" is excluded by the §3.3 topic rules; the §9.2 guard
+    // patterns (which need a structured address form) do not match, so
+    // §5.3 has nothing to report for this drop.
+    await ingestion.ingestCompletedChatTurn({
+      userText: '住所は東京都港区です',
+      answerText: PLAIN_ANSWER,
+    });
+    await expect(storedItems(graph)).resolves.toEqual([]);
+    await expect(storedNotices(graph)).resolves.toEqual([]);
+  });
+
+  it('records nothing while the master toggle is off', async () => {
+    const { graph, ingestion } = await loadModules();
+    window.localStorage.setItem('origin_personal_settings', JSON.stringify({
+      language: 'ja', selectedTheme: 'light', personalizationEnabled: false,
+    }));
+    await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、電話番号は090-1234-5678です',
+      answerText: PLAIN_ANSWER,
+    });
+    await expect(storedNotices(graph)).resolves.toEqual([]);
+  });
+
+  it('keeps accumulating across turns and leaves stored items unaffected', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '覚えておいて、私は自宅にPCを持っていません',
+      answerText: PLAIN_ANSWER,
+    });
+    await ingestion.ingestCompletedChatTurn({
+      userText: '私は生年月日が1990年5月3日です',
+      answerText: PLAIN_ANSWER,
+    });
+    expect(await storedItems(graph)).toHaveLength(1);
+    const notices = await storedNotices(graph);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].kind).toBe('fact');
+    expect(notices[0].categories).toEqual(['date-of-birth']);
+  });
+});
+
 // --- A-2: explicit operation -------------------------------------------------------------
 
 describe('A-2 explicit operation (saveExplicitMemory)', () => {

@@ -1,10 +1,15 @@
 import {
+  recordBlockNotices,
   resolveActiveContextUserId,
   upsertMemoryItem,
   type OriginMemoryItem,
   type OriginMemoryKind,
 } from './activeContextGraph';
-import { checkPersonalMemoryText } from './personalMemoryGuard';
+import {
+  checkPersonalMemoryText,
+  checkPersonalMemoryTexts,
+  type PersonalMemoryBlockCategory,
+} from './personalMemoryGuard';
 import { readPersonalizationEnabled } from '../hooks/usePersonalSettings';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +40,16 @@ import { readPersonalizationEnabled } from '../hooks/usePersonalSettings';
 // phone number) are excluded at the rule level (§3.3), and the §9.2
 // pre-save guard (personalMemoryGuard) runs again inside the storage
 // layer itself.
+//
+// §5.3 block-reason accumulation: when a candidate is dropped because the
+// §9.2 guard matched, the turn records a block notice (kind + guard
+// categories + time — never the blocked text) so the management screen's
+// notification area can tell the owner afterwards what was not saved and
+// why. Drops caused only by the §3.3 rule-level topic exclusion, with no
+// guard category, are not notices: §5.3 covers the §9.2 check. Saves the
+// owner performs in person (the management UI's edits, the A-2 explicit
+// operation) report through their immediate result instead and are not
+// accumulated.
 // ---------------------------------------------------------------------------
 
 export interface CompletedChatTurn {
@@ -58,6 +73,22 @@ interface MemoryCandidate {
   quote: string;
   origin: 'explicit' | 'inferred';
   expiresAt?: number;
+}
+
+/** One §9.2 guard hit observed during a turn (§5.3). Carries the reason
+ * categories only — the blocked text is deliberately never copied here. */
+interface GuardBlock {
+  kind?: OriginMemoryKind;
+  categories: PersonalMemoryBlockCategory[];
+}
+
+/** Records a guard block for a dropped sentence, when the §9.2 guard —
+ * not only the §3.3 topic rules — is what matched. */
+function noteGuardBlock(blocks: GuardBlock[] | undefined, sentence: string, kind?: OriginMemoryKind): void {
+  if (!blocks) return;
+  const { categories } = checkPersonalMemoryText(sentence);
+  if (!categories.length) return;
+  blocks.push({ ...(kind ? { kind } : {}), categories });
 }
 
 const MAX_USER_CHARS = 4_000;
@@ -252,14 +283,20 @@ function parseCommitmentExpiry(sentence: string, now: number): number | undefine
   return undefined;
 }
 
-function extractCommitmentCandidates(answerText: string, now: number): MemoryCandidate[] {
+function extractCommitmentCandidates(answerText: string, now: number, guardBlocks?: GuardBlock[]): MemoryCandidate[] {
   const candidates: MemoryCandidate[] = [];
   for (const sentence of splitSentences(answerText)) {
     if (candidates.length >= MAX_COMMITMENT_ITEMS_PER_TURN) break;
     if (isQuestion(sentence) || sentence.includes('ください')) continue;
-    if (isBlockedSentence(sentence)) continue;
     if (!COMMITMENT_PATTERNS.some((pattern) => pattern.test(sentence))) continue;
     if (!COMMITMENT_ANCHORS.some((pattern) => pattern.test(sentence))) continue;
+    // The guard is consulted after the candidacy checks so a notice is
+    // recorded only for a sentence that would otherwise have been saved
+    // (§5.3); the set of saved items is unchanged.
+    if (isBlockedSentence(sentence)) {
+      noteGuardBlock(guardBlocks, sentence, 'commitment');
+      continue;
+    }
     candidates.push({
       kind: 'commitment',
       text: distill(sentence),
@@ -273,7 +310,7 @@ function extractCommitmentCandidates(answerText: string, now: number): MemoryCan
 
 // --- User-side extraction (A-1 + B) ----------------------------------------------
 
-function extractUserCandidates(userText: string): MemoryCandidate[] {
+function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): MemoryCandidate[] {
   const sentences = splitSentences(userText);
   const used = new Set<number>();
   const candidates: MemoryCandidate[] = [];
@@ -287,7 +324,12 @@ function extractUserCandidates(userText: string): MemoryCandidate[] {
       ?? CONTINUATION_PATTERNS_EN.find((pattern) => pattern.test(sentence));
     if (!rememberPhrase && !continuationPhrase) return;
     used.add(index);
-    if (isBlockedSentence(sentence)) return;
+    if (isBlockedSentence(sentence)) {
+      // The owner explicitly asked for this to be remembered and the
+      // guard stopped it — exactly the case §5.3 wants surfaced.
+      noteGuardBlock(guardBlocks, sentence, classifyKind(sentence) ?? undefined);
+      return;
+    }
 
     let content = sentence;
     let sourceIndex = index;
@@ -302,7 +344,11 @@ function extractUserCandidates(userText: string): MemoryCandidate[] {
             : -1;
         if (neighborIndex < 0) return;
         const neighbor = sentences[neighborIndex];
-        if (isQuestion(neighbor) || isBlockedSentence(neighbor)) return;
+        if (isQuestion(neighbor)) return;
+        if (isBlockedSentence(neighbor)) {
+          noteGuardBlock(guardBlocks, neighbor, classifyKind(neighbor) ?? undefined);
+          return;
+        }
         content = neighbor;
         sourceIndex = neighborIndex;
         used.add(neighborIndex);
@@ -328,9 +374,15 @@ function extractUserCandidates(userText: string): MemoryCandidate[] {
   sentences.forEach((sentence, index) => {
     if (used.has(index) || candidates.length >= MAX_USER_ITEMS_PER_TURN) return;
     if (isQuestion(sentence) || THIRD_PARTY_SUBJECT.test(sentence)) return;
-    if (isBlockedSentence(sentence)) return;
     const kind = classifyKind(sentence);
     if (!kind) return;
+    // The kind is classified before the guard is consulted so a notice
+    // is recorded only for a sentence that would otherwise have been
+    // saved (§5.3); the set of saved items is unchanged.
+    if (isBlockedSentence(sentence)) {
+      noteGuardBlock(guardBlocks, sentence, kind);
+      return;
+    }
     candidates.push({
       kind,
       text: distill(sentence),
@@ -347,6 +399,9 @@ function extractUserCandidates(userText: string): MemoryCandidate[] {
 async function saveCandidates(
   candidates: MemoryCandidate[],
   turn: { userMessageId?: string; sessionId?: string },
+  // Always provided by the entry point: the §5.3 accumulator is part of
+  // this function's contract, not an optional extra.
+  guardBlocks: GuardBlock[],
 ): Promise<void> {
   if (!candidates.length) return;
   const userId = resolveActiveContextUserId();
@@ -371,8 +426,16 @@ async function saveCandidates(
       ...(candidate.expiresAt ? { expiresAt: candidate.expiresAt } : {}),
     };
     // The storage layer re-runs the §9.2 guard and the §4.3 limit rules;
-    // a rejection (or any failure) simply skips this item.
-    await upsertMemoryItem(userId, item).catch(() => undefined);
+    // a rejection (or any failure) simply skips this item. A guard
+    // rejection here means the union of text and source quote matched
+    // even though the distilled text alone passed extraction; it is
+    // accumulated as a §5.3 notice with the categories recomputed over
+    // the same union the store checked.
+    const result = await upsertMemoryItem(userId, item).catch(() => undefined);
+    if (result && !result.saved && result.reason === 'blocked-sensitive-content') {
+      const { categories } = checkPersonalMemoryTexts([item.text, item.detail ?? '', item.source.quote]);
+      if (categories.length) guardBlocks.push({ kind: candidate.kind, categories });
+    }
   }
 }
 
@@ -392,11 +455,21 @@ export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<
     const answerText = cleanText(typeof turn?.answerText === 'string' ? turn.answerText : '', MAX_ANSWER_CHARS);
     if (!userText && !answerText) return;
     const now = Date.now();
+    const guardBlocks: GuardBlock[] = [];
     const candidates = [
-      ...(userText ? extractUserCandidates(userText) : []),
-      ...(answerText ? extractCommitmentCandidates(answerText, now) : []),
+      ...(userText ? extractUserCandidates(userText, guardBlocks) : []),
+      ...(answerText ? extractCommitmentCandidates(answerText, now, guardBlocks) : []),
     ];
-    await saveCandidates(candidates, turn ?? {});
+    await saveCandidates(candidates, turn ?? {}, guardBlocks);
+    // §5.3: persist the turn's block notices for the management screen.
+    // Recording is best-effort like everything else in this path — a
+    // failure here must not affect the turn or the saved items.
+    if (guardBlocks.length) {
+      await recordBlockNotices(
+        resolveActiveContextUserId(),
+        guardBlocks.map((block) => ({ ...block, at: now })),
+      ).catch(() => undefined);
+    }
   } catch {
     // Fail-safe by design: local memory is optional and must never surface
     // an error in chat.
