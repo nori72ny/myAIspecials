@@ -2,11 +2,16 @@ import type { AITaskType } from "./MultiAIOrchestrator.js";
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
 import { buildActiveContextInstruction } from "../../services/activeContextGraph.js";
 import { getActiveContext } from "./activeContextRequestStore.js";
+import {
+  buildOriginBusinessPlanningInstruction,
+  resolveOriginBusinessPlanning,
+  type OriginBusinessPlanningProfile,
+} from "./OriginBusinessPlanning.js";
 
 export type OriginAnswerMode = "direct" | "decision" | "deliverable" | "research";
 export type OriginVerificationLevel = "basic" | "evidence-required" | "independent-review-required";
-export interface OriginAnswerQualityPolicy { answerMode: OriginAnswerMode; verificationLevel: OriginVerificationLevel; creativeSpecRequired: boolean; executiveReasoningRequired: boolean; }
-interface OriginAnswerQualityPolicyInput { intent: OriginRequestIntent; taskType: AITaskType; independentReviewRequired: boolean; }
+export interface OriginAnswerQualityPolicy { answerMode: OriginAnswerMode; verificationLevel: OriginVerificationLevel; creativeSpecRequired: boolean; executiveReasoningRequired: boolean; businessPlanning: OriginBusinessPlanningProfile | null; }
+interface OriginAnswerQualityPolicyInput { intent: OriginRequestIntent; taskType: AITaskType; independentReviewRequired: boolean; promptText?: string; }
 const RESEARCH_TASKS = new Set<AITaskType>(["research", "current-information"]);
 const EXECUTIVE_TASKS = new Set<AITaskType>(["research", "current-information", "architecture", "operations", "security"]);
 const CREATIVE_ARTIFACT_OUTPUTS = new Set(["application", "website", "presentation", "dashboard"]);
@@ -19,7 +24,13 @@ export function resolveOriginAnswerQualityPolicy(input: OriginAnswerQualityPolic
   const answerMode: OriginAnswerMode = input.intent.interactionMode === "deliverable" ? "deliverable" : researchRequired ? "research" : decisionRequested ? "decision" : "direct";
   const verificationLevel: OriginVerificationLevel = input.independentReviewRequired ? "independent-review-required" : researchRequired ? "evidence-required" : "basic";
   const creativeSpecRequired = input.intent.interactionMode === "deliverable" && (input.intent.requestedOutputs.some((o) => CREATIVE_ARTIFACT_OUTPUTS.has(o)) || input.intent.requiredCapabilities.some((c) => CREATIVE_ARTIFACT_CAPABILITIES.has(c)));
-  return { answerMode, verificationLevel, creativeSpecRequired, executiveReasoningRequired };
+  // Planning/marketing playbook (BUSINESS_CAPABILITY_PROGRAM §2.1, chat
+  // fast-track 2026-11-16): detected from the raw prompt text; null for
+  // every other request, in which case the instruction below is unchanged.
+  const businessPlanning = typeof input.promptText === "string" && input.promptText.trim().length > 0
+    ? resolveOriginBusinessPlanning(input.promptText, input.intent)
+    : null;
+  return { answerMode, verificationLevel, creativeSpecRequired, executiveReasoningRequired, businessPlanning };
 }
 
 function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy): string {
@@ -50,6 +61,10 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
   const creativeSpecInstruction = policy.creativeSpecRequired ? [
     "Creative / Vibe Spec preflight (internal only): define purpose, target user, hierarchy, responsive layout, accessible controls, and restrained visual treatment before producing a complete artifact.",
   ] : [];
+  const businessPlanningInstruction = policy.businessPlanning ? [
+    "",
+    buildOriginBusinessPlanningInstruction(policy.businessPlanning),
+  ] : [];
   // Three directives that used to be repeated here — prefer specific
   // recommendations over generic advice, never claim execution without
   // evidence, and never request or expose credentials — are carried exactly
@@ -77,6 +92,7 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
     "- Never display invented confidence percentages, fake precision, or claims such as perfect, guaranteed, or world-best without evidence.",
     ...executiveInstruction,
     ...creativeSpecInstruction,
+    ...businessPlanningInstruction,
   ].join("\n");
 }
 
