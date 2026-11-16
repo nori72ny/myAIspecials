@@ -5,6 +5,7 @@ import {
   ORIGIN_REQUEST_CONTEXTS,
   originAnswerNeedsAssertionGate,
   originChatSystemInstruction,
+  originCloudflareRouteSystemInstruction,
   originCurrentDateInstruction,
   originGroqRouteSystemInstruction,
   originIntentAwarenessInstruction,
@@ -28,9 +29,12 @@ import {
   originAnswerQualityInstruction,
   resolveOriginAnswerQualityPolicy,
 } from "../lib/orchestration/OriginAnswerQualityPolicy";
-import { resolveOriginBusinessPlanning } from "../lib/orchestration/OriginBusinessPlanning";
 import { ORIGIN_BUSINESS_PLANNING_BRIEFS } from "../lib/orchestration/OriginBusinessPlanningBriefs";
-import { detectOriginBusinessPlanningKind } from "../lib/orchestration/OriginBusinessPlanning";
+import {
+  buildOriginBusinessPlanningInstruction,
+  detectOriginBusinessPlanningKind,
+  resolveOriginBusinessPlanning,
+} from "../lib/orchestration/OriginBusinessPlanning";
 
 describe("originChatResponsePolicy", () => {
   it.each([
@@ -739,5 +743,154 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       expect(augmented.length, brief.id).toBeLessThanOrEqual(4_700);
       expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(2_400);
     }
+  });
+});
+
+describe("originCloudflareRouteSystemInstruction (route-2 deduplicated instruction)", () => {
+  // Mirrors how both chat routers assemble the routes 1-2 instruction —
+  // base + intent, requirement, work-plan, assignment, and quality
+  // sections, with the current-date instruction appended — and then derive
+  // the route-2 variant from that exact string.
+  const assemble = (message: string, taskType: "review" | "documentation") => {
+    const intentInput = originIntentInputFromContext([{ role: "user", content: message }]);
+    const intent = classifyOriginRequestIntent(intentInput, taskType);
+    const workPlan = buildOriginAgentWorkPlan(intent);
+    const resolvedPlan = resolveOriginAgentWorkPlan(workPlan);
+    const review = decideOriginReviewForMessage(taskType, message);
+    const quality = resolveOriginAnswerQualityPolicy({
+      intent,
+      taskType,
+      independentReviewRequired: review.required,
+      promptText: intentInput,
+    });
+    return originChatSystemInstruction(intent, workPlan, resolvedPlan, originAnswerQualityInstruction(quality))
+      + "\n\n" + originCurrentDateInstruction(Date.UTC(2026, 10, 16, 12), "ja");
+  };
+
+  // Lines the route-2 variant removes for every request shape. Each one is
+  // a restatement whose rule stays in the assembled text verbatim (the
+  // kept carriers are pinned by the next test); removing any OTHER line,
+  // or one of these lines losing its kept carrier, must fail loudly here.
+  const REDUNDANT_LINES_ALWAYS = [
+    "- Do not say that an agent, specialist, tool, search, service, or artifact was used unless the execution record proves it.",
+    "- Never present an uncreated file, uncalled service, unverified search, or unexecuted review as completed.",
+    "- A partial or unavailable assignment must never be described as executed.",
+    "- Deliverable First after clarification: when the user asks for something usable, first resolve only the material unknowns that would change the result. Then start with the finished output. Remove capability descriptions and generic preambles unless requested.",
+    "- Depth calibration: concise means removing repetition, not removing substance. A short answer is appropriate only when it fully resolves the request. Multi-part, technical, planning, or consequential work must address every explicit requirement with enough concrete reasoning, constraints, examples, and execution detail to be decision-ready.",
+    "- Write for a capable adult using professional, domain-appropriate language. Do not flatten important nuance or use childlike explanations unless the user asks for a beginner version.",
+    "- Respect an explicit request for brevity or depth. For complex requests with no length preference, prioritize a complete, professionally reasoned answer over a short summary; use paragraphs, lists, tables, and fenced code where each helps the user act.",
+    "- Silently evaluate correctness, relevance, completeness, freshness, evidence, calibration, actionability, and clarity before sending.",
+  ];
+  // Additional restatements that only exist in the creation/deliverable
+  // assembly (creation rulebook and requirement-discovery section).
+  const REDUNDANT_LINES_CREATION = [
+    "- Treat requirement discovery as part of the work, not as friction, but it must not delay a useful first result. For custom creations, produce a working Version 1 first using low-risk defaults, mark assumptions and sample data, then request only one or two refinements. Do not make a question-only first turn.",
+    "- Never spend the first turn on questions alone for a creation request. After the first draft, ask at most one or two focused questions, ordered by impact. Prefer concrete choices or examples when that reduces user effort.",
+    "- Never ask the same requirement twice after the user has answered it. Carry accepted requirements forward into later turns and into the final deliverable.",
+  ];
+
+  const countLines = (text: string) => {
+    const counts = new Map<string, number>();
+    for (const line of text.split("\n")) counts.set(line, (counts.get(line) ?? 0) + 1);
+    return counts;
+  };
+
+  it("removes exactly the redundant restatements for a plain conversational request, and nothing else", () => {
+    const full = assemble("1から100までの素数をすべて教えてください。", "review");
+    const variant = originCloudflareRouteSystemInstruction(full);
+    for (const line of REDUNDANT_LINES_ALWAYS) {
+      expect(full.split(line).length - 1).toBe(1);
+      expect(variant).not.toContain(line);
+    }
+    // Removal only: every surviving line is a line of the full instruction,
+    // with multiplicities preserved, and the line count drops by exactly
+    // the number of removed restatements.
+    const fullCounts = countLines(full);
+    for (const [line, count] of countLines(variant)) {
+      expect(count).toBeLessThanOrEqual(fullCounts.get(line) ?? 0);
+    }
+    expect(full.split("\n").length - variant.split("\n").length).toBe(REDUNDANT_LINES_ALWAYS.length);
+    expect(full.length - variant.length).toBeGreaterThanOrEqual(1_400);
+  });
+
+  it("keeps the carrier line of every removed restatement, and the behavioral core, exactly once", () => {
+    const variant = originCloudflareRouteSystemInstruction(assemble("1から100までの素数をすべて教えてください。", "review"));
+    for (const phrase of [
+      // Kept carriers of the removed restatements.
+      "Decide which missing items would materially change the next revision",
+      "Calibrate depth to complexity. Simple requests may be brief",
+      "Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.",
+      "that specification takes top priority",
+      "Silently use three passes before answering",
+      "Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition",
+      "Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence",
+      "clearly state what was not executed",
+      "Only assigned services may be treated as available",
+      // Behavioral core that must survive any prompt compression.
+      "Reply in the language used by the user",
+      "polite desu/masu register",
+      "never spend the first turn asking only questions",
+      "Treat explicit output-shape constraints as hard requirements",
+      "Use follow-up answers to improve the existing draft",
+      "Do not invent current or future facts, model names, release dates, or roadmaps",
+      "Separate confirmed facts from assumptions, inferences, and recommendations",
+      "〔出典: [",
+      "Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys",
+      "do not turn a possible rule into a universal rule without verified jurisdiction/context",
+      "core reaches 75°C",
+      "For consequential decisions, state what the user must independently confirm before acting",
+      "Request-context awareness (infer why the user is asking, then adapt the answer):",
+      "Ask back instead of answering only when all three hold",
+      "現在の日付（Asia/Tokyo）は",
+    ]) {
+      expect(variant).toContain(phrase);
+    }
+    // The deduplicated no-fake-execution directive survives exactly once:
+    // its three section-local restatements are gone, the base carrier stays.
+    expect(variant.split("without evidence").length - 1).toBeGreaterThanOrEqual(1);
+    expect(variant.split("- Do not claim code, deployment, purchase, configuration").length - 1).toBe(1);
+  });
+
+  it("removes the creation-rulebook restatements for a deliverable request and keeps the rulebook's unique rules", () => {
+    const full = assemble("新商品の企画書を作ってください。", "documentation");
+    const variant = originCloudflareRouteSystemInstruction(full);
+    for (const line of [...REDUNDANT_LINES_ALWAYS, ...REDUNDANT_LINES_CREATION]) {
+      expect(full.split(line).length - 1).toBe(1);
+      expect(variant).not.toContain(line);
+    }
+    for (const phrase of [
+      "Build an internal requirement brief from the conversation before finalizing",
+      "Preserve the requested medium",
+      "When the user requests an image, do not substitute",
+      "For custom web or app deliverables, do not stop at a bare form or demo",
+      "After producing a first version, treat user feedback as new requirements",
+    ]) {
+      expect(variant).toContain(phrase);
+    }
+  });
+
+  it("leaves the planning/marketing protocol byte-identical in the variant", () => {
+    const message = "中小企業向け経費精算SaaSのマーケティング計画を作ってください。月額5,000円で、1年で導入300社が目標です。施策ごとの予算配分と数値目標も入れてください。";
+    const intentInput = originIntentInputFromContext([{ role: "user", content: message }]);
+    const intent = classifyOriginRequestIntent(intentInput, "review");
+    const profile = resolveOriginBusinessPlanning(intentInput, intent);
+    expect(profile).not.toBeNull();
+    const planningInstruction = buildOriginBusinessPlanningInstruction(profile!);
+    const variant = originCloudflareRouteSystemInstruction(assemble(message, "review"));
+    // Every line of the protocol — required parts, number discipline and
+    // sanity, ownership and deadlines, assumption labelling — survives.
+    for (const line of planningInstruction.split("\n")) {
+      expect(variant).toContain(line);
+    }
+    expect(variant).toContain("Required parts for this kind — a checklist, not a suggestion");
+    expect(variant).toContain("Number discipline (hard rule)");
+    expect(variant).toContain("Ownership and deadlines (required for this kind)");
+    expect(variant).toContain("仮置き（仮定）");
+  });
+
+  it("is a no-op on text that carries none of the redundant lines", () => {
+    const compact = originGroqRouteSystemInstruction();
+    expect(originCloudflareRouteSystemInstruction(compact)).toBe(compact);
+    expect(originCloudflareRouteSystemInstruction("")).toBe("");
   });
 });

@@ -627,7 +627,7 @@ async function prepareOriginCloudflareInference(
   if (proof.ok === false) throw new OriginCloudflarePreflightError("plan-proof-failed", proof.reason);
 
   const messages = [
-    { role: "system", content: sanitizePreEgress(providerRequest.systemInstruction) },
+    { role: "system", content: sanitizePreEgress(providerRequest.cloudflareSystemInstruction ?? providerRequest.systemInstruction) },
     ...providerRequest.messages.map((message) => ({
       role: message.role === "user" ? "user" : "assistant",
       content: sanitizePreEgress(message.content),

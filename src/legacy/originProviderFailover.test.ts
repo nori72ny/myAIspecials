@@ -152,6 +152,22 @@ describe("executeOriginProviderWithFailover", () => {
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
+  it("passes the route-2 deduplicated instruction through to the Cloudflare route", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareExecute = vi.fn(async (_injectedRequest: OriginProviderExecutionRequest) => cloudflareSuccessResult());
+    const dedupedRequest: OriginProviderExecutionRequest = {
+      ...request,
+      cloudflareSystemInstruction: "経路2向け重複除去済み指示",
+    };
+    const result = await executeOriginProviderWithFailover(dedupedRequest, enabledEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
+    });
+    expect(result.text).toBe("第2経路の回答です。");
+    const cloudflareRequest = cloudflareExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
+    expect(cloudflareRequest.cloudflareSystemInstruction).toBe("経路2向け重複除去済み指示");
+    expect(cloudflareRequest.systemInstruction).toBe(request.systemInstruction);
+  });
+
   it("surfaces the primary error when the Cloudflare route is skipped by its plan proof", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => {
@@ -873,6 +889,22 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
     expect(routeRequest.streamRelease).toBe("hold-until-verified");
     expect(result.text).toBe("第2経路の回答です。");
     expect(deltas).toEqual(["第2経路の回答です。"]);
+  });
+
+  it("passes the route-2 deduplicated instruction through to the streaming Cloudflare route", async () => {
+    const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
+    const cloudflareStreamExecute = cloudflareStreamOk(["第2経路の回答です。"]);
+    const result = await executeOriginProviderStreamWithFailover(
+      { ...request, streamRelease: "incremental", cloudflareSystemInstruction: "経路2向け重複除去済み指示" },
+      { onDelta: () => {} },
+      enabledEnv,
+      fetch,
+      { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
+    );
+    expect(result.text).toBe("第2経路の回答です。");
+    const routeRequest = cloudflareStreamExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
+    expect(routeRequest.cloudflareSystemInstruction).toBe("経路2向け重複除去済み指示");
+    expect(routeRequest.systemInstruction).toBe(request.systemInstruction);
   });
 
   it("never switches to the third route after the second route delivered a fragment", async () => {
