@@ -6,9 +6,13 @@ import type {
 } from "../legacy/originProviderClient";
 import type { GroundedResearchConflict } from "./groundedResearchV11";
 import {
+  buildGroundedResearchFactSlotInstruction,
+  buildGroundedResearchFactSlotPrompt,
   buildGroundedResearchRecordsInstruction,
   buildGroundedResearchRecordsPacket,
   buildGroundedResearchRecordsPrompt,
+  buildGroundedResearchSelectionInstruction,
+  buildGroundedResearchSelectionPrompt,
   checkGroundedResearchRenderedAnswer,
   evaluateGroundedResearchRecords,
   executeGroundedResearchRecordsSynthesis,
@@ -16,6 +20,7 @@ import {
   renderGroundedResearchRecordsAnswer,
   type GroundedResearchRecordsPacket,
 } from "./groundedResearchRecordsV13";
+import { GROUNDED_RESEARCH_FACT_SLOT_ENTRIES } from "./groundedResearchFactSlotsV13";
 
 // R-PR-3 (design §5, §6.5, §7, §11, §14.3): records instruction/prompt,
 // deterministic rendering, the post-render check, the kill switch, and
@@ -137,6 +142,67 @@ describe("buildGroundedResearchRecordsInstruction (design §5.1)", () => {
     expect(instruction).toContain("\"records\"");
     expect(instruction).toContain("verbatim");
     expect(instruction).toContain("entirely fictional");
+  });
+});
+
+describe("records-path wording: the internal bundle term stays out of the prose", () => {
+  // The records stage must never be handed the internal bundle name
+  // (「証拠パケット」 / "evidence packet") in prose: a model that reads
+  // it can echo it into a user-facing answer (external evaluation R1,
+  // REG-05). The packet delimiters are structural markers, not prose,
+  // and intentionally keep the term.
+  const pmEntry = GROUNDED_RESEARCH_FACT_SLOT_ENTRIES.find((entry) => entry.id === "incumbent-prime-minister-jp")!;
+
+  it("keeps every records-path instruction free of the internal term (ja)", () => {
+    const instructions = [
+      buildGroundedResearchRecordsInstruction("ja"),
+      buildGroundedResearchSelectionInstruction("ja"),
+      buildGroundedResearchFactSlotInstruction(pmEntry, "ja"),
+    ];
+    for (const instruction of instructions) {
+      expect(instruction).not.toContain("パケット");
+      expect(instruction).toContain("出典情報");
+    }
+  });
+
+  it("keeps every records-path instruction free of the internal term (en)", () => {
+    const instructions = [
+      buildGroundedResearchRecordsInstruction("en"),
+      buildGroundedResearchSelectionInstruction("en"),
+      buildGroundedResearchFactSlotInstruction(pmEntry, "en"),
+    ];
+    for (const instruction of instructions) {
+      expect(instruction.toLowerCase()).not.toContain("packet");
+      expect(instruction).toContain("source information");
+    }
+  });
+
+  it("keeps the delimiters as structural markers while the surrounding prompt prose is plain (ja)", () => {
+    const prompts = [
+      buildGroundedResearchRecordsPrompt("現在の内閣総理大臣は誰ですか？", pmPacket(), [], "ja"),
+      buildGroundedResearchSelectionPrompt("現在の内閣総理大臣は誰ですか？", pmPacket(), [], "ja"),
+      buildGroundedResearchFactSlotPrompt("現在の内閣総理大臣は誰ですか？", pmPacket(), pmEntry, "ja"),
+    ];
+    for (const prompt of prompts) {
+      expect(prompt).toContain("信頼できない証拠パケット開始");
+      expect(prompt).toContain("信頼できない証拠パケット終了");
+      const prose = prompt.split("\n").filter((line) => !line.includes("信頼できない証拠パケット")).join("\n");
+      expect(prose).not.toContain("パケット");
+    }
+  });
+
+  it("keeps the delimiters as structural markers while the surrounding prompt prose is plain (en)", () => {
+    const prompts = [
+      buildGroundedResearchRecordsPrompt("Who is the current prime minister?", pmPacket(), [], "en"),
+      buildGroundedResearchSelectionPrompt("Who is the current prime minister?", pmPacket(), [], "en"),
+      buildGroundedResearchFactSlotPrompt("Who is the current prime minister?", pmPacket(), pmEntry, "en"),
+    ];
+    for (const prompt of prompts) {
+      expect(prompt).toContain("BEGIN UNTRUSTED EVIDENCE PACKET");
+      expect(prompt).toContain("END UNTRUSTED EVIDENCE PACKET");
+      const prose = prompt.split("\n").filter((line) => !line.includes("UNTRUSTED EVIDENCE PACKET")).join("\n");
+      expect(prose.toLowerCase()).not.toContain("packet");
+    }
   });
 });
 

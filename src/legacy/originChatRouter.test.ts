@@ -131,6 +131,53 @@ describe("createOriginChatRouter", () => {
     expect(response.body.routing.answerMode).toBe("research");
     expect(executeMock).not.toHaveBeenCalled();
   });
+
+  it("logs the grounding candidate observation when a grounded answer fail-closes", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const candidateStats = {
+        totalCount: 3,
+        domainCounts: { "example.jp": 3 },
+        tierCounts: { official: 0, "major-news": 0, specialist: 1, general: 2 },
+        droppedByScreenCount: 1,
+        droppedByFreshnessCount: 3,
+      };
+      const researchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        sources: [],
+        failure: { stage: "web-search", code: "NO_RESULTS" },
+        groundingFailure: "no-fresh-sources",
+        grounding: {
+          questionType: "policy",
+          providersUsed: [],
+          freshnessVerified: false,
+          verifiedFreshSourceCount: 0,
+          unknownDateSourceCount: 1,
+          droppedStaleSourceCount: 2,
+          droppedUndatedSourceCount: 1,
+          candidateStats,
+        },
+      });
+      const response = await request(createApp(execute, undefined, undefined, undefined, researchMock))
+        .post("/api/chat").send({ messages: [{ role: "user", content: "国民年金の受給開始年齢を教えてください" }] });
+      expect(response.status).toBe(200);
+      expect(executeMock).not.toHaveBeenCalled();
+      const completed = info.mock.calls.find((call) => String(call[0]).includes("research search completed"));
+      expect((completed?.[1] as { searchGrounding?: unknown } | undefined)?.searchGrounding)
+        .toEqual(expect.objectContaining({ questionType: "policy", candidateStats }));
+      const failClosed = warn.mock.calls.find((call) => String(call[0]).includes("grounded answer fail-closed"));
+      expect(failClosed).toBeDefined();
+      const logged = failClosed?.[1] as { searchGrounding?: { candidateStats?: unknown; droppedStaleSourceCount?: number } } | undefined;
+      expect(logged?.searchGrounding?.candidateStats).toEqual(candidateStats);
+      expect(logged?.searchGrounding?.droppedStaleSourceCount).toBe(2);
+      // Counts and codes only: no source title, excerpt, or URL is logged.
+      expect(JSON.stringify(failClosed?.[1])).not.toContain("https://");
+    } finally {
+      info.mockRestore();
+      warn.mockRestore();
+    }
+  });
   // S-PR-1 note: this test pins context windowing only. Its final message
   // used to be 「最新の依頼」, which under the unified needs-freshness
   // determination now routes to grounded research (fresh_general fails

@@ -13,7 +13,10 @@
  * (including optional extract) at 8s, so grounding can never starve the
  * generation budget that PR #1115 established.
  */
-import type { OriginResearchResult } from "../legacy/originResearchSource.js";
+import type {
+  OriginResearchGroundingMetadata,
+  OriginResearchResult,
+} from "../legacy/originResearchSource.js";
 import {
   classifyOriginSearchQuestion,
   extractOriginMarketInstruments,
@@ -722,6 +725,44 @@ const SEARCH_PROVIDER_LABELS: Readonly<Record<OriginSearchProviderId, string>> =
   stooq: "Stooq",
 };
 
+/**
+ * The grounding metadata both outcome kinds carry into the research
+ * result: freshness aggregates always, and the pre-gate candidate
+ * observation when the generic pipeline produced one. The candidate
+ * stats are copied field by field (counts and domain/tier tallies
+ * only — the outcome never holds titles, excerpts, or URLs here), so
+ * the routers' search logs can attribute a thin or empty result to
+ * the stage that dropped it.
+ */
+function groundingMetadataFromOutcome(
+  questionType: Exclude<OriginSearchQuestionType, "no_search">,
+  providersUsed: readonly OriginSearchProviderId[],
+  freshnessVerified: boolean,
+  freshness: OriginSearchGroundingFreshnessStats,
+  candidateStats: OriginSearchCandidateStats | undefined,
+): OriginResearchGroundingMetadata {
+  return {
+    questionType,
+    providersUsed,
+    freshnessVerified,
+    verifiedFreshSourceCount: freshness.verifiedFreshCount,
+    unknownDateSourceCount: freshness.unknownDateCount,
+    droppedStaleSourceCount: freshness.droppedStaleCount,
+    droppedUndatedSourceCount: freshness.droppedUndatedCount,
+    ...(candidateStats
+      ? {
+          candidateStats: {
+            totalCount: candidateStats.totalCount,
+            domainCounts: candidateStats.domainCounts,
+            tierCounts: candidateStats.tierCounts,
+            droppedByScreenCount: candidateStats.droppedByScreenCount,
+            droppedByFreshnessCount: candidateStats.droppedByFreshnessCount,
+          },
+        }
+      : {}),
+  };
+}
+
 export function originSearchGroundingToResearchResult(
   outcome: Extract<OriginSearchGroundingOutcome, { kind: "grounded" }>,
 ): OriginResearchResult {
@@ -750,15 +791,13 @@ export function originSearchGroundingToResearchResult(
     searchProvider: outcome.providersUsed.length === 1
       ? SEARCH_PROVIDER_LABELS[outcome.providersUsed[0]] as OriginResearchResult["searchProvider"]
       : "SearchGrounding",
-    grounding: {
-      questionType: outcome.questionType,
-      providersUsed: outcome.providersUsed,
-      freshnessVerified: outcome.freshnessVerified,
-      verifiedFreshSourceCount: outcome.freshness.verifiedFreshCount,
-      unknownDateSourceCount: outcome.freshness.unknownDateCount,
-      droppedStaleSourceCount: outcome.freshness.droppedStaleCount,
-      droppedUndatedSourceCount: outcome.freshness.droppedUndatedCount,
-    },
+    grounding: groundingMetadataFromOutcome(
+      outcome.questionType,
+      outcome.providersUsed,
+      outcome.freshnessVerified,
+      outcome.freshness,
+      outcome.candidateStats,
+    ),
   };
 }
 
@@ -785,6 +824,18 @@ export function createDefaultOriginResearchExecutor(
         sources: [],
         failure: { stage: "web-search", code: "NO_RESULTS" },
         groundingFailure: outcome.reason,
+        // The gate-failure metadata travels with the result so the
+        // fail-closed log can attribute the empty outcome (which
+        // stage dropped the candidates) instead of only naming the
+        // failure code. No provider produced a usable source here,
+        // so providersUsed is empty.
+        grounding: groundingMetadataFromOutcome(
+          outcome.questionType,
+          [],
+          outcome.freshness.verifiedFreshCount > 0,
+          outcome.freshness,
+          outcome.candidateStats,
+        ),
       };
     }
     return legacyResearch(query);
