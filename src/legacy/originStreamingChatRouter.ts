@@ -13,7 +13,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
-import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
   buildProposalDeckChatArtifact,
   isProposalDeckChatRequest,
@@ -164,20 +164,22 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         independentReviewRequired: reviewDecision.required,
         promptText: intentInput,
       });
+      const fullSystemInstruction = systemInstruction(
+        requestIntent,
+        workPlan,
+        resolvedPlan,
+        originAnswerQualityInstruction(answerQualityPolicy),
+      )
+        + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
+        + (deckRequested && deckInstruction ? `\n\n${deckInstruction}` : "");
       const providerRequest: OriginProviderExecutionRequest = {
         plan: {
           ...planningResult.plan,
           timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS),
         },
         messages: contextResult.window.messages,
-        systemInstruction: systemInstruction(
-          requestIntent,
-          workPlan,
-          resolvedPlan,
-          originAnswerQualityInstruction(answerQualityPolicy),
-        )
-          + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
-          + (deckRequested && deckInstruction ? `\n\n${deckInstruction}` : ""),
+        systemInstruction: fullSystemInstruction,
+        cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction),
         groqSystemInstruction: originGroqRouteSystemInstruction(),
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after

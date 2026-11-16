@@ -27,7 +27,7 @@ import {
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
-import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
@@ -855,7 +855,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const startedAt = now();
     try {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required, promptText: intentInput });
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en"), groqSystemInstruction: originGroqRouteSystemInstruction() };
+      const fullSystemInstruction = systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en");
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction), groqSystemInstruction: originGroqRouteSystemInstruction() };
       const result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
       // Output-side assertion gate (S-PR-1): this direct path carries no
       // search grounding for the request, so a current-form assertion

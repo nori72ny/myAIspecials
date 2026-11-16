@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExecutor } from "./originChatRouter";
-import { originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
+import { originCloudflareRouteSystemInstruction, originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
 import { OriginProviderError } from "./originProviderClient";
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -62,6 +62,20 @@ describe("createOriginChatRouter", () => {
     expect(call?.groqSystemInstruction?.length).toBeLessThanOrEqual(3_000);
     expect(call?.systemInstruction.length).toBeGreaterThan(9_000);
     expect(call?.systemInstruction).not.toBe(call?.groqSystemInstruction);
+  });
+  it("carries the deduplicated route-2 instruction on the dispatch request without shrinking the standard instruction", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] });
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const call = executeMock.mock.calls[0]?.[0];
+    // Route-2 wiring: the Cloudflare executor receives the deduplicated
+    // variant via this field; routes 1 and 3 keep their own instructions
+    // and the standard instruction itself is unchanged.
+    expect(call?.cloudflareSystemInstruction).toBe(originCloudflareRouteSystemInstruction(call!.systemInstruction));
+    expect(call!.cloudflareSystemInstruction!.length).toBeLessThan(call!.systemInstruction.length);
+    expect(call?.systemInstruction).toContain("- Deliverable First after clarification");
+    expect(call?.cloudflareSystemInstruction).not.toContain("- Deliverable First after clarification");
+    expect(call?.cloudflareSystemInstruction).toContain("Do not claim code, deployment, purchase, configuration, search, file creation");
   });
   it("blocks synthetic secrets before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] }); expect(response.status).toBe(422); expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED"); expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456"); expect(executeMock).not.toHaveBeenCalled(); });
   it("returns a validated zero-cost routing envelope", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(response.body.routing).toEqual(expect.objectContaining({ model: "ORIGIN 無料AI", providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, traceId: "origin-test-trace", verificationStatus: "not-run", reviewRequired: true, providerAttempts: 1, providerTransportRequests: 1, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true }, providerRouting: { requestedModel: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } })); expect(executeMock).toHaveBeenCalledTimes(1); const call = executeMock.mock.calls[0]?.[0]; expect(call?.systemInstruction).toContain("For routine explanatory or comparison answers"); expect(call?.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed"); expect(call?.systemInstruction).toContain("ask at most one or two focused questions after the Version 1 draft"); expect(call?.systemInstruction).toContain("Use follow-up answers to improve the existing draft"); expect(call?.systemInstruction).toContain("Treat explicit output-shape constraints as hard requirements"); expect(call?.systemInstruction).toContain("JSON only, code only, no Markdown, exactly N items"); });

@@ -558,7 +558,7 @@ async function runCloudflareRoute(
   }
   const execute = options.cloudflareExecute ?? executeOriginCloudflareProvider;
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, cloudflareSystemInstruction: request.cloudflareSystemInstruction },
     env,
     fetchImpl,
     { catalog: options.cloudflareCatalog, nowMs: options.nowMs },

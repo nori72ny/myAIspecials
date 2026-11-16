@@ -27,6 +27,17 @@ export interface OriginProviderExecutionRequest {
    */
   groqSystemInstruction?: string;
   /**
+   * Optional route-2-only deduplicated system instruction. The Cloudflare executor
+   * sends this instead of `systemInstruction` when present: it is the assembled
+   * standard instruction with only the lines removed whose rule is carried
+   * verbatim elsewhere in the same text (see originCloudflareRouteSystemInstruction),
+   * so route 2's prompt shrinks without dropping any behavioral instruction.
+   * Routes 1 and 3 never read this field, and callers that do not set it — for
+   * example the grounded-research synthesis — keep the previous route-2 behavior
+   * exactly.
+   */
+  cloudflareSystemInstruction?: string;
+  /**
    * Optional text-release policy for the upstream streaming executor; every other
    * executor ignores this field. "hold-until-verified" (also the behavior when the
    * field is absent) releases the answer text only after the stream has terminated

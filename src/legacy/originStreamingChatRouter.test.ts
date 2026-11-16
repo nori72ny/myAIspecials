@@ -3,7 +3,7 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginStreamingChatRouter } from "./originStreamingChatRouter";
-import { originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
+import { originCloudflareRouteSystemInstruction, originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
 import { OriginProviderError, type OriginProviderExecutionResult } from "./originProviderClient";
 import type { OriginProviderStreamExecutor } from "./originProviderStreamClient";
 
@@ -105,6 +105,10 @@ describe("createOriginStreamingChatRouter", () => {
       expect(providerRequest.groqSystemInstruction).toBe(originGroqRouteSystemInstruction());
       expect(providerRequest.groqSystemInstruction?.length).toBeLessThanOrEqual(3_000);
       expect(providerRequest.systemInstruction.length).toBeGreaterThan(9_000);
+      // Route-2 wiring: the deduplicated variant rides along for the
+      // Cloudflare executor while the standard instruction stays full-size.
+      expect(providerRequest.cloudflareSystemInstruction).toBe(originCloudflareRouteSystemInstruction(providerRequest.systemInstruction));
+      expect(providerRequest.cloudflareSystemInstruction?.length).toBeLessThan(providerRequest.systemInstruction.length);
       handlers.onDelta("ORIGIN-CONTEXT-42");
       return result("ORIGIN-CONTEXT-42");
     }) as unknown as OriginProviderStreamExecutor;
