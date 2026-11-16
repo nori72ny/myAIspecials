@@ -6,7 +6,7 @@ import {
 } from "./OriginBusinessPlanning.js";
 
 // Deterministic numeric audit gate for business planning / marketing
-// answers — stage 1: detection + shadow mode.
+// answers — stage 1: detection + shadow mode; stage 2: enforcement.
 //
 // Design canon: NUMERIC_AUDIT_GATE_DESIGN_2026-11-16.md. Two production
 // measurements (2026-11-16, rounds 1 and 2) showed that strengthening the
@@ -15,14 +15,31 @@ import {
 // explicit formulas are recomputed, itemised breakdowns are summed,
 // funnel stage counts are multiplied by their stated rates, population
 // shares are re-derived, and the required parts for the kind are checked
-// for presence. No model call is made and nothing here changes the
-// delivered answer: the routers only log the result (shadow mode). The
-// pure audit result is the single connection point a later enforcement
-// stage consumes.
+// for presence. No model call is made. In shadow mode (the default) the
+// routers only log the result; the pure audit result is the single
+// connection point the enforcement stage consumes.
+//
+// Stage 2 (enforcement) is selected per deployment with the env switch
+// ORIGIN_BUSINESS_PLANNING_AUDIT_MODE=shadow|enforce (default shadow).
+// Enforcement never calls a model and never invents content:
+// - a FORMULA_RESULT_MISMATCH whose stated result sits unambiguously
+//   next to its formula is replaced by the recomputed value, and the
+//   fix is kept only when a full re-audit of the corrected text shows
+//   the violation gone and no new violation created;
+// - every violation that cannot be corrected that way (and every
+//   structural gap: missing parts, unlabelled assumptions, missing
+//   owner/deadline, a deadline date already in the past, mixed yen /
+//   dollar amounts with no stated conversion) is disclosed to the user
+//   in a plain-language note appended to the answer, instead of being
+//   passed through silently.
+// Regeneration and answer suppression (design options (a) and the
+// 差し止め form) are deliberately not implemented: regeneration needs
+// an extra model call, and suppressing a mostly sound answer would
+// break it; the note is the warning step of the staged rollout.
 //
 // Violation details carry numbers and fixed vocabulary only (part names,
-// stage names) — never excerpts of the answer text — so the shadow log
-// holds no personal information.
+// stage names) — never excerpts of the answer text — so the audit logs
+// hold no personal information.
 
 export type OriginBusinessPlanningAuditViolationCode =
   | "FORMULA_RESULT_MISMATCH"
@@ -30,6 +47,8 @@ export type OriginBusinessPlanningAuditViolationCode =
   | "BREAKDOWN_SUM_MISMATCH"
   | "FUNNEL_RATE_MISMATCH"
   | "POPULATION_SHARE_MISMATCH"
+  | "MIXED_CURRENCY"
+  | "DEADLINE_PAST"
   | "REQUIRED_PART_MISSING"
   | "ASSUMPTION_LABELLING_MISSING"
   | "OWNER_MISSING"
@@ -46,6 +65,8 @@ export interface OriginBusinessPlanningAuditChecks {
   breakdowns: number;
   funnelRates: number;
   shares: number;
+  currencyMixes: number;
+  deadlineDates: number;
   partsPresent: number;
   partsRequired: number;
 }
@@ -129,6 +150,20 @@ function numbersAgree(computed: number, stated: number): boolean {
 
 function roundForDetail(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+/** Formula results stated as a percent need a tolerance in percentage
+ * points, not in answer units: the shared half-unit floor of
+ * numbersAgree (0.5) would wave through a stated 20% for a computed
+ * 0.50 (round 3 BP-5: "1,500 ÷ 3,000" labelled 20%). Half a percentage
+ * point (0.005) is the same half-unit rule expressed for rates, and
+ * honest roundings (1/6 stated as 17%) stay inside it. */
+function formulaResultsAgree(computed: number, stated: number, statedToken: NumToken): boolean {
+  if (statedToken.dimension !== "ratio") return numbersAgree(computed, stated);
+  if (!Number.isFinite(computed) || !Number.isFinite(stated)) return false;
+  const diff = Math.abs(computed - stated);
+  const scale = Math.max(Math.abs(computed), Math.abs(stated));
+  return diff <= Math.max(0.005, scale * 0.02);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +301,7 @@ function checkFormulas(lines: readonly string[], violations: OriginBusinessPlann
       const stated = resolveStatedResult(line, expr, tokens, consumed);
       if (!stated) continue;
       checked += 1;
-      if (!numbersAgree(expr.computed, stated.value)) {
+      if (!formulaResultsAgree(expr.computed, stated.value, stated)) {
         violations.push({
           code: "FORMULA_RESULT_MISMATCH",
           detail: { computed: roundForDetail(expr.computed), stated: roundForDetail(stated.value), dimension: expr.dimension },
@@ -620,7 +655,94 @@ function checkPopulationShares(text: string, violations: OriginBusinessPlanningA
 }
 
 // ---------------------------------------------------------------------------
-// 6. Required parts / assumption labelling / owner & deadline. Presence is
+// 6. Currency-mix check: a plan whose goal is stated in yen but whose
+// derivation (a backcast line carrying a formula or a revenue keyword)
+// runs in dollars, with no conversion basis anywhere in the answer,
+// mixes two currencies that cannot be compared as stated (round 3
+// BP-4: a ¥1,000,000 monthly ARR goal backed out as 200 × $500 =
+// $100,000). A dollar figure that is merely mentioned (a tool price)
+// never fires: a derivation line is required, and any conversion
+// vocabulary (換算・為替・ドル円) suppresses the check entirely.
+// ---------------------------------------------------------------------------
+
+const CURRENCY_CONVERSION_RE = /(?:換算|為替|ドル円|円ドル)/;
+const YEN_AMOUNT_RE = /\d[\d,]*\.?\d*\s*(?:億円|万円|千円|円)/g;
+const DOLLAR_AMOUNT_RE = /\$\s*\d[\d,]*\.?\d*|\d[\d,]*\.?\d*\s*(?:ドル|USD)/g;
+const DOLLAR_AMOUNT_PRESENT_RE = /\$\s*\d|\d[\d,]*\.?\d*\s*(?:ドル|USD)/;
+const DERIVATION_LINE_RE = /(?:×|÷|=|＝|≈|ARR|売上|収益|合計|逆算|Backcast)/;
+
+function checkCurrencyMix(text: string, violations: OriginBusinessPlanningAuditViolation[]): number {
+  if (CURRENCY_CONVERSION_RE.test(text)) return 0;
+  const yenAmounts = text.match(YEN_AMOUNT_RE)?.length ?? 0;
+  const dollarAmounts = text.match(DOLLAR_AMOUNT_RE)?.length ?? 0;
+  if (yenAmounts === 0 || dollarAmounts === 0) return 0;
+  const derived = text
+    .split("\n")
+    .some((line) => DOLLAR_AMOUNT_PRESENT_RE.test(line) && DERIVATION_LINE_RE.test(line));
+  if (!derived) return 0;
+  violations.push({
+    code: "MIXED_CURRENCY",
+    detail: { yenAmounts, dollarAmounts },
+  });
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
+// 7. Past-deadline check: an explicit calendar date (YYYY年M月D日 or
+// YYYY-MM-DD) on a deadline line (期限・締切・までに) that is already
+// past cannot be a plan deadline (round 3 BP-2/BP-7 carried 2024–2025
+// deadlines). The detector needs the current date, so it only runs
+// when the caller supplies one; dates are compared as Asia/Tokyo
+// calendar days, and a deadline of today is not past. Mentions of past
+// dates without deadline context (a results report) never fire.
+// ---------------------------------------------------------------------------
+
+const FULL_DATE_RES: readonly RegExp[] = [
+  /(\d{4})年(\d{1,2})月(\d{1,2})日/g,
+  /(\d{4})[-/‐‑‒–—](\d{1,2})[-/‐‑‒–—](\d{1,2})/g,
+];
+const DEADLINE_CONTEXT_RE = /(?:期限|締切|デッドライン|までに|まで)/;
+
+function jstCalendarDay(now: Date): readonly [number, number, number] {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return [jst.getUTCFullYear(), jst.getUTCMonth() + 1, jst.getUTCDate()];
+}
+
+function checkPastDeadlines(
+  lines: readonly string[],
+  now: Date,
+  violations: OriginBusinessPlanningAuditViolation[],
+): number {
+  const [todayYear, todayMonth, todayDay] = jstCalendarDay(now);
+  let examined = 0;
+  const reported = new Set<string>();
+  for (const line of lines) {
+    if (!DEADLINE_CONTEXT_RE.test(line)) continue;
+    for (const pattern of FULL_DATE_RES) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(line)) !== null) {
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+        if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+        examined += 1;
+        const past =
+          year < todayYear ||
+          (year === todayYear && (month < todayMonth || (month === todayMonth && day < todayDay)));
+        const key = `${year}-${month}-${day}`;
+        if (past && !reported.has(key)) {
+          reported.add(key);
+          violations.push({ code: "DEADLINE_PAST", detail: { year, month, day } });
+        }
+      }
+    }
+  }
+  return examined;
+}
+
+// ---------------------------------------------------------------------------
+// 8. Required parts / assumption labelling / owner & deadline. Presence is
 // a deterministic heading-and-keyword match against the part vocabulary
 // owned by OriginBusinessPlanning (the same lists the instruction renders
 // as its checklist); it signals coverage, not substantive quality.
@@ -639,8 +761,11 @@ const PART_ALIASES: Record<string, readonly string[]> = {
 };
 
 // An owner counts only in assignment form ("担当：…", "担当は…"), never as
-// a general noun mention ("担当者のフォローアップ").
-const OWNER_ASSIGNMENT_RE = /(?:担当(?:者)?\s*[：:]|担当は|責任者\s*[：:は]|を担当|担当部署)/;
+// a general noun mention ("担当者のフォローアップ"). Markdown emphasis
+// between the keyword and its colon ("**担当**：…", the shape every
+// round-3 execution plan used) is still the assignment form; without
+// the emphasis allowance the round-3 BP-2 answer was a false positive.
+const OWNER_ASSIGNMENT_RE = /(?:担当(?:者)?[\s*＊]*[：:]|担当は|責任者[\s*＊]*(?:[：:]|は)|を担当|担当部署)/;
 const DEADLINE_RE = /(?:期限|締切|デッドライン|\d{1,2}月\d{1,2}日|\d+\s*(?:週間|か月|ヶ月|日)以内|(?:月末|週末|年末|年度末)まで)/;
 
 function checkParts(
@@ -676,6 +801,7 @@ function checkParts(
 export function auditOriginBusinessPlanningAnswer(
   profile: OriginBusinessPlanningProfile,
   answerText: string,
+  options?: { now?: Date },
 ): OriginBusinessPlanningAuditResult {
   const text = normalizeAuditText(answerText);
   const lines = text.split("\n");
@@ -685,6 +811,8 @@ export function auditOriginBusinessPlanningAnswer(
   const breakdowns = checkBreakdowns(text, violations);
   const funnelRates = checkFunnel(text, lines, violations);
   const shares = checkPopulationShares(text, violations);
+  const currencyMixes = checkCurrencyMix(text, violations);
+  const deadlineDates = options?.now ? checkPastDeadlines(lines, options.now, violations) : 0;
   const parts = checkParts(profile.kind, text, violations);
   return {
     kind: profile.kind,
@@ -695,10 +823,34 @@ export function auditOriginBusinessPlanningAnswer(
       breakdowns,
       funnelRates,
       shares,
+      currencyMixes,
+      deadlineDates,
       partsPresent: parts.present,
       partsRequired: parts.required,
     },
   };
+}
+
+/**
+ * Shared shadow-log emission: the stage-1 log line, used verbatim by
+ * both the shadow hook below and the gate's shadow branch, so the two
+ * paths can never drift apart.
+ */
+function emitOriginBusinessPlanningAuditShadowLog(
+  logger: (message: string, fields: Record<string, unknown>) => void,
+  requestId: string,
+  result: OriginBusinessPlanningAuditResult,
+): void {
+  logger("[origin-chat] business planning audit (shadow)", {
+    requestId,
+    kind: result.kind,
+    violationCount: result.violations.length,
+    violationCodes: [...new Set(result.violations.map((violation) => violation.code))],
+    missingParts: result.violations
+      .filter((violation) => violation.code === "REQUIRED_PART_MISSING")
+      .map((violation) => String(violation.detail.part)),
+    checks: result.checks,
+  });
 }
 
 /**
@@ -719,16 +871,7 @@ export function logOriginBusinessPlanningAuditShadow(input: {
   const logger = input.logger ?? ((message, fields) => console.info(message, fields));
   try {
     const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText);
-    logger("[origin-chat] business planning audit (shadow)", {
-      requestId: input.requestId,
-      kind: result.kind,
-      violationCount: result.violations.length,
-      violationCodes: [...new Set(result.violations.map((violation) => violation.code))],
-      missingParts: result.violations
-        .filter((violation) => violation.code === "REQUIRED_PART_MISSING")
-        .map((violation) => String(violation.detail.part)),
-      checks: result.checks,
-    });
+    emitOriginBusinessPlanningAuditShadowLog(logger, input.requestId, result);
     return result;
   } catch (error) {
     logger("[origin-chat] business planning audit (shadow) failed", {
@@ -736,5 +879,380 @@ export function logOriginBusinessPlanningAuditShadow(input: {
       auditError: error instanceof Error ? error.name : "UnknownError",
     });
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: enforcement. Selected by ORIGIN_BUSINESS_PLANNING_AUDIT_MODE
+// (default shadow). See the file header for the enforcement contract:
+// deterministic formula fixes verified by re-audit, and a plain-language
+// disclosure note for everything that cannot be corrected safely.
+// ---------------------------------------------------------------------------
+
+export type OriginBusinessPlanningAuditMode = "shadow" | "enforce";
+
+export function resolveOriginBusinessPlanningAuditMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginBusinessPlanningAuditMode {
+  return env?.ORIGIN_BUSINESS_PLANNING_AUDIT_MODE === "enforce" ? "enforce" : "shadow";
+}
+
+/** Normalisation that never changes a line's length (full-width digits
+ * and punctuation map one character to one character; the thousand
+ * separator space-joining of normalizeAuditText is deliberately not
+ * applied), so token spans computed on the result are valid spans of
+ * the original line. */
+function lengthPreservingNormalize(line: string): string {
+  return line
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/％/g, "%")
+    .replace(/[，、]/g, ",")
+    .replace(/．/g, ".");
+}
+
+interface FormulaFixCandidate {
+  lineIndex: number;
+  start: number;
+  end: number;
+  replacement: string;
+  violationKey: string;
+}
+
+function violationKey(violation: OriginBusinessPlanningAuditViolation): string {
+  return `${violation.code}|${JSON.stringify(violation.detail)}`;
+}
+
+const SCALED_YEN_UNITS = new Set(["千円", "万円", "億円", "億", "万"]);
+const BEFORE_FORMULA_GAPS = new Set(["", "（", "(", "：", ":", "=", "＝", "≈"]);
+const RANGE_SUFFIX_RE = /^(?:以上|以下|未満|超|〜|~)/;
+
+function formatFixedNumber(rendered: number, originalNumberText: string): string {
+  let text =
+    Math.abs(rendered - Math.round(rendered)) < 1e-9
+      ? String(Math.round(rendered))
+      : String(Math.round(rendered * 100) / 100);
+  if (originalNumberText.includes(",")) {
+    const [intPart, ...rest] = text.split(".");
+    const grouped = String(Number(intPart)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    text = rest.length > 0 ? `${grouped}.${rest.join(".")}` : grouped;
+  }
+  return text;
+}
+
+/**
+ * Finds the formula mismatches of the original audit that can be
+ * corrected deterministically: the line carries exactly one formula,
+ * its stated result sits immediately next to the formula (an explicit
+ * "= N" after it, or the value the formula's parenthesis explains), the
+ * audit flagged the same computed/stated pair, and the recomputed value
+ * can be rendered in the stated value's own unit without guessing a
+ * scale. Anything else is left for the disclosure note.
+ */
+function findFormulaFixCandidates(
+  answerText: string,
+  violations: readonly OriginBusinessPlanningAuditViolation[],
+): FormulaFixCandidate[] {
+  const formulaViolations = violations.filter((violation) => violation.code === "FORMULA_RESULT_MISMATCH");
+  if (formulaViolations.length === 0) return [];
+  const candidates: FormulaFixCandidate[] = [];
+  const lines = answerText.split("\n");
+  lines.forEach((originalLine, lineIndex) => {
+    const line = lengthPreservingNormalize(originalLine);
+    const tokens = tokenizeLine(line);
+    if (tokens.length < 2) return;
+    const expressions = findFormulas(line, tokens);
+    if (expressions.length !== 1) return;
+    const expr = expressions[0];
+    const consumed = new Set<NumToken>(expr.tokens);
+    // Resolution provenance: an explicit "= N" after the formula is
+    // unambiguous; the closest-token fallback only counts when that
+    // token directly precedes the formula (the value its parenthesis
+    // explains, or "result = formula" order).
+    let stated: NumToken | null = null;
+    for (const token of tokens) {
+      if (token.start < expr.end || consumed.has(token)) continue;
+      const between = line.slice(expr.end, token.start).replace(/[\s*＊]/g, "");
+      if (between === "=" || between === "＝" || between === "≈") stated = token;
+      break;
+    }
+    if (!stated) {
+      const closest = resolveStatedResult(line, expr, tokens, consumed);
+      if (!closest || closest.end > expr.start) return;
+      const gap = line.slice(closest.end, expr.start).replace(/[\s*＊]/g, "");
+      if (!BEFORE_FORMULA_GAPS.has(gap)) return;
+      stated = closest;
+    }
+    if (formulaResultsAgree(expr.computed, stated.value, stated)) return;
+    const matched = formulaViolations.find(
+      (violation) =>
+        violation.detail.computed === roundForDetail(expr.computed) &&
+        violation.detail.stated === roundForDetail(stated.value),
+    );
+    if (!matched) return;
+    // The recomputed value must be renderable in the stated unit
+    // without inventing a scale: a percent is replaced only by a rate,
+    // a scaled yen unit (万円・億円) only by a value the formula itself
+    // denominated in yen, and range/comparison suffixes (以上・〜)
+    // change the claim's shape, so those are never rewritten.
+    if (expr.computed < 0) return;
+    if (stated.dimension === "ratio" && expr.computed > 1) return;
+    if (!dimensionAccepts(expr.dimension, stated.dimension)) return;
+    if (RANGE_SUFFIX_RE.test(originalLine.slice(stated.end))) return;
+    const span = line.slice(stated.start, stated.end);
+    const spanMatch = span.match(/^(\d[\d,]*\.?\d*)\s*(.*)$/);
+    if (!spanMatch) return;
+    const numberText = spanMatch[1];
+    const unitText = spanMatch[2];
+    if (SCALED_YEN_UNITS.has(unitText) && expr.dimension !== "yen") return;
+    if (unitText === "円" && expr.dimension !== "yen" && expr.dimension !== "plain") return;
+    let rendered: number;
+    if (unitText === "%") rendered = expr.computed * 100;
+    else if (unitText in YEN_UNIT_VALUES) rendered = expr.computed / YEN_UNIT_VALUES[unitText];
+    else rendered = expr.computed;
+    if (!Number.isFinite(rendered)) return;
+    const suffix = originalLine.slice(stated.start, stated.end).slice(numberText.length);
+    candidates.push({
+      lineIndex,
+      start: stated.start,
+      end: stated.end,
+      replacement: `${formatFixedNumber(rendered, numberText)}${suffix}`,
+      violationKey: violationKey(matched),
+    });
+  });
+  return candidates;
+}
+
+function applyFormulaFixCandidates(answerText: string, candidates: readonly FormulaFixCandidate[]): string {
+  const lines = answerText.split("\n");
+  for (const candidate of candidates) {
+    const line = lines[candidate.lineIndex];
+    lines[candidate.lineIndex] =
+      line.slice(0, candidate.start) + candidate.replacement + line.slice(candidate.end);
+  }
+  return lines.join("\n");
+}
+
+/** A fix set is kept only when the re-audit of the corrected text is a
+ * sub-multiset of the original violations minus the fixed ones: every
+ * fixed violation is gone and no new violation appeared anywhere
+ * (a corrected figure can feed another detector, e.g. a funnel input). */
+function formulaFixesAreSafe(
+  before: readonly OriginBusinessPlanningAuditViolation[],
+  candidates: readonly FormulaFixCandidate[],
+  after: readonly OriginBusinessPlanningAuditViolation[],
+): boolean {
+  const allowed = new Map<string, number>();
+  for (const violation of before) {
+    allowed.set(violationKey(violation), (allowed.get(violationKey(violation)) ?? 0) + 1);
+  }
+  for (const candidate of candidates) {
+    const count = allowed.get(candidate.violationKey) ?? 0;
+    if (count <= 0) return false;
+    allowed.set(candidate.violationKey, count - 1);
+  }
+  for (const violation of after) {
+    const count = allowed.get(violationKey(violation)) ?? 0;
+    if (count <= 0) return false;
+    allowed.set(violationKey(violation), count - 1);
+  }
+  return true;
+}
+
+const NUMERIC_VIOLATION_CODES: readonly OriginBusinessPlanningAuditViolationCode[] = [
+  "FORMULA_RESULT_MISMATCH",
+  "TOTAL_SUM_MISMATCH",
+  "BREAKDOWN_SUM_MISMATCH",
+  "FUNNEL_RATE_MISMATCH",
+  "POPULATION_SHARE_MISMATCH",
+];
+
+function buildAuditDisclosureNote(
+  remaining: readonly OriginBusinessPlanningAuditViolation[],
+  fixedCount: number,
+  language: "ja" | "en",
+): { text: string; codes: OriginBusinessPlanningAuditViolationCode[] } | null {
+  const sentences: { codes: OriginBusinessPlanningAuditViolationCode[]; text: string }[] = [];
+  const present = (code: OriginBusinessPlanningAuditViolationCode) =>
+    remaining.some((violation) => violation.code === code);
+  if (fixedCount > 0) {
+    sentences.push({
+      codes: [],
+      text:
+        language === "ja"
+          ? "数値の一部を、回答に記載された計算式に合わせて修正しました。"
+          : "Some figures were corrected to match the calculations stated in the answer.",
+    });
+  }
+  const numericPresent = NUMERIC_VIOLATION_CODES.filter(present);
+  if (numericPresent.length > 0) {
+    sentences.push({
+      codes: numericPresent,
+      text:
+        language === "ja"
+          ? "計算の記載と結果が一致していない数値があります。お使いになる前に、数値を確認してください。"
+          : "Some figures do not match the calculations stated for them. Please check the numbers before using them.",
+    });
+  }
+  if (present("MIXED_CURRENCY")) {
+    sentences.push({
+      codes: ["MIXED_CURRENCY"],
+      text:
+        language === "ja"
+          ? "円とドルの金額が混ざっています。換算の前提が書かれていないため、そのままでは金額を比べられません。"
+          : "Yen and dollar amounts are mixed, and no conversion basis is stated, so the amounts cannot be compared as they are.",
+    });
+  }
+  const pastDeadlines = remaining.filter((violation) => violation.code === "DEADLINE_PAST");
+  if (pastDeadlines.length > 0) {
+    const dates = pastDeadlines
+      .map((violation) => ({
+        year: Number(violation.detail.year),
+        month: Number(violation.detail.month),
+        day: Number(violation.detail.day),
+      }))
+      .sort((a, b) => a.year - b.year || a.month - b.month || a.day - b.day);
+    const shown = dates.slice(0, 2).map((date) =>
+      language === "ja"
+        ? `${date.year}年${date.month}月${date.day}日`
+        : `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`,
+    );
+    const suffix = dates.length > shown.length ? (language === "ja" ? " など" : ", and others") : "";
+    sentences.push({
+      codes: ["DEADLINE_PAST"],
+      text:
+        language === "ja"
+          ? `期限として、すでに過ぎた日付（${shown.join("、")}${suffix}）が含まれています。`
+          : `A deadline date that has already passed (${shown.join(", ")}${suffix}) is included.`,
+    });
+  }
+  const missingParts = [
+    ...new Set(
+      remaining
+        .filter((violation) => violation.code === "REQUIRED_PART_MISSING")
+        .map((violation) => String(violation.detail.part)),
+    ),
+  ];
+  if (missingParts.length > 0) {
+    sentences.push({
+      codes: ["REQUIRED_PART_MISSING"],
+      text:
+        language === "ja"
+          ? `この回答には${missingParts.map((part) => `「${part}」`).join("")}の項目が含まれていません。`
+          : `This answer does not include the following required sections: ${missingParts.join(", ")}.`,
+    });
+  }
+  if (present("ASSUMPTION_LABELLING_MISSING")) {
+    sentences.push({
+      codes: ["ASSUMPTION_LABELLING_MISSING"],
+      text:
+        language === "ja"
+          ? "数値の一部は仮置き（仮定）ですが、その表示がありません。"
+          : "Some figures are assumptions, but they are not labelled as such.",
+    });
+  }
+  if (present("OWNER_MISSING")) {
+    sentences.push({
+      codes: ["OWNER_MISSING"],
+      text: language === "ja" ? "担当の記載がありません。" : "No owner is assigned in the plan.",
+    });
+  }
+  if (present("DEADLINE_MISSING")) {
+    sentences.push({
+      codes: ["DEADLINE_MISSING"],
+      text: language === "ja" ? "期限の記載がありません。" : "No deadline is stated in the plan.",
+    });
+  }
+  if (sentences.length === 0) return null;
+  const header = language === "ja" ? "**自動チェックで気づいた点**" : "**Points found by an automatic check**";
+  return {
+    text: `\n\n---\n\n${header}\n${sentences.map((sentence) => `- ${sentence.text}`).join("\n")}`,
+    codes: sentences.flatMap((sentence) => sentence.codes),
+  };
+}
+
+export interface OriginBusinessPlanningAuditGateOutcome {
+  mode: OriginBusinessPlanningAuditMode;
+  /** The text to deliver: the original in shadow mode, the corrected
+   * and/or note-appended text in enforce mode. */
+  answerText: string;
+  result: OriginBusinessPlanningAuditResult | null;
+  fixedCount: number;
+  notedCodes: readonly OriginBusinessPlanningAuditViolationCode[];
+  remainingViolations: readonly OriginBusinessPlanningAuditViolation[];
+}
+
+/**
+ * Router-facing gate for both modes. Shadow mode reproduces the
+ * stage-1 behaviour exactly (audit + log, text untouched). Enforce
+ * mode applies the deterministic formula fixes that survive a full
+ * re-audit and appends the disclosure note for the rest. The gate is
+ * isolated in a try/catch: any audit failure delivers the original
+ * text, exactly as in shadow mode.
+ */
+export function applyOriginBusinessPlanningAuditGate(input: {
+  requestId: string;
+  profile: OriginBusinessPlanningProfile | null;
+  answerText: string;
+  env?: NodeJS.ProcessEnv;
+  now?: Date;
+  language?: "ja" | "en";
+  logger?: (message: string, fields: Record<string, unknown>) => void;
+}): OriginBusinessPlanningAuditGateOutcome {
+  const mode = resolveOriginBusinessPlanningAuditMode(input.env);
+  const unchanged: OriginBusinessPlanningAuditGateOutcome = {
+    mode,
+    answerText: input.answerText,
+    result: null,
+    fixedCount: 0,
+    notedCodes: [],
+    remainingViolations: [],
+  };
+  if (!input.profile) return unchanged;
+  const logger = input.logger ?? ((message, fields) => console.info(message, fields));
+  try {
+    const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText, { now: input.now });
+    if (mode === "shadow") {
+      emitOriginBusinessPlanningAuditShadowLog(logger, input.requestId, result);
+      return { ...unchanged, result, remainingViolations: result.violations };
+    }
+    let answerText = input.answerText;
+    let remaining: readonly OriginBusinessPlanningAuditViolation[] = result.violations;
+    let fixedCount = 0;
+    const candidates = findFormulaFixCandidates(input.answerText, result.violations);
+    if (candidates.length > 0) {
+      const fixedText = applyFormulaFixCandidates(input.answerText, candidates);
+      const after = auditOriginBusinessPlanningAnswer(input.profile, fixedText, { now: input.now });
+      if (formulaFixesAreSafe(result.violations, candidates, after.violations)) {
+        answerText = fixedText;
+        remaining = after.violations;
+        fixedCount = candidates.length;
+      }
+    }
+    const note = buildAuditDisclosureNote(remaining, fixedCount, input.language ?? "ja");
+    if (note) answerText += note.text;
+    logger("[origin-chat] business planning audit (enforce)", {
+      requestId: input.requestId,
+      kind: result.kind,
+      mode,
+      fixedCount,
+      notedCodes: note?.codes ?? [],
+      remainingViolationCount: remaining.length,
+      remainingViolationCodes: [...new Set(remaining.map((violation) => violation.code))],
+      checks: result.checks,
+    });
+    return {
+      mode,
+      answerText,
+      result,
+      fixedCount,
+      notedCodes: note?.codes ?? [],
+      remainingViolations: remaining,
+    };
+  } catch (error) {
+    logger("[origin-chat] business planning audit (gate) failed", {
+      requestId: input.requestId,
+      auditError: error instanceof Error ? error.name : "UnknownError",
+    });
+    return unchanged;
   }
 }

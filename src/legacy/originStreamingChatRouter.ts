@@ -8,7 +8,12 @@ import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginR
 import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orchestration/OriginAgentWorkPlan.js";
 import { isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
-import { logOriginBusinessPlanningAuditShadow } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
+import {
+  applyOriginBusinessPlanningAuditGate,
+  logOriginBusinessPlanningAuditShadow,
+  resolveOriginBusinessPlanningAuditMode,
+  type OriginBusinessPlanningAuditGateOutcome,
+} from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
@@ -200,6 +205,21 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // questions outside the volatile set keep the original progressive
       // forwarding untouched.
       const assertionGateArmed = originAnswerNeedsAssertionGate(lastUserMessage);
+      // Numeric audit gate, stage 2 (enforcement): with
+      // ORIGIN_BUSINESS_PLANNING_AUDIT_MODE=enforce, a planning/marketing
+      // answer is buffered like an assertion-gated one so the
+      // deterministic audit can correct figures and append its
+      // disclosure note before anything is released; the enforced text
+      // is emitted once at completion (the trade-off is that planning
+      // answers lose progressive display while the mode is on). In
+      // shadow mode (the default) nothing is buffered here and the
+      // audit stays the log-only hook below. Deck paths are outside the
+      // audit's scope, exactly as in shadow mode.
+      const auditGateArmed =
+        resolveOriginBusinessPlanningAuditMode(env) === "enforce" &&
+        Boolean(answerQualityPolicy.businessPlanning) &&
+        !deckRequested &&
+        !deckRecordsPlan;
       const bufferedDeltas: string[] = [];
       const emitDelta = (delta: string) => {
         if (!downstreamStarted) {
@@ -228,7 +248,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           // are buffered like the assertion-gate ones and replaced
           // after completion by the deterministic chat rendering
           // (design §5, §13-5 (a): hold until complete).
-          if (assertionGateArmed || deckRecordsPlan) {
+          if (assertionGateArmed || deckRecordsPlan || auditGateArmed) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -240,6 +260,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
       }
       let assertionGateReplaced = false;
+      let auditGateOutcome: OriginBusinessPlanningAuditGateOutcome | null = null;
       // PR-3a / D-PR-6 deck outcomes, filled by whichever deck path
       // runs below and consumed by the completion log and event.
       let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
@@ -270,11 +291,23 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
         }
         emitDelta(outcome.chatText);
-      } else if (assertionGateArmed) {
-        const assertionGate = applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false);
+      } else if (assertionGateArmed || auditGateArmed) {
+        const assertionGate = assertionGateArmed
+          ? applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false)
+          : { replaced: false, text: result.text };
         assertionGateReplaced = assertionGate.replaced;
         if (assertionGate.replaced) {
           emitDelta(assertionGate.text);
+        } else if (auditGateArmed) {
+          auditGateOutcome = applyOriginBusinessPlanningAuditGate({
+            requestId,
+            profile: answerQualityPolicy.businessPlanning,
+            answerText: result.text,
+            env,
+            now: new Date(now()),
+            language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+          });
+          emitDelta(auditGateOutcome.answerText);
         } else {
           for (const buffered of bufferedDeltas) emitDelta(buffered);
         }
@@ -307,12 +340,15 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckFailureShape = outcome.failureShape;
         }
       }
-      // Numeric audit gate, stage 1 (shadow): when the delivered chat
-      // text is exactly the model answer (no deck path replaced it and
-      // the assertion gate did not rewrite it), a planning/marketing
-      // answer is re-checked deterministically and the outcome is only
-      // logged — delivery is never altered by the audit.
-      if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced) {
+      // Numeric audit gate: when the delivered chat text is exactly the
+      // model answer (no deck path replaced it and the assertion gate
+      // did not rewrite it), a planning/marketing answer is re-checked
+      // deterministically. In shadow mode (default) the outcome is only
+      // logged — delivery is never altered by the audit. In enforce
+      // mode the gate already ran in the buffered branch above and the
+      // enforced text was emitted there, so this log-only hook is
+      // skipped to avoid counting the same answer twice.
+      if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced && !auditGateArmed) {
         logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text });
       }
       console.info("[origin-chat] upstream stream completed", {
@@ -335,6 +371,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         truncated: result.truncated === true,
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
+        ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
         proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
