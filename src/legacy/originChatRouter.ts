@@ -544,11 +544,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             };
             const initialSynthesisResult = await researchSynthesis(synthesisRequest);
             assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
-            // Adoption gate (synthesis salvage, §3): the unchanged citation
-            // validator decides; on an UNCITED_FACTUAL_UNIT-only failure the
-            // salvage helper may remove the uncited unit lines and re-run
-            // the same validator. Adopted text — salvaged or not — has
-            // passed the identical gate.
+            // Adoption gate (synthesis salvage, §3; generalized to all
+            // line-local failures 2026-11-16): the unchanged citation
+            // validator decides; on a line-local failure the salvage helper
+            // may remove the unit lines that individually fail validation
+            // and re-run the same validator. Adopted text — salvaged or
+            // not — has passed the identical gate.
             const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, grounded.sources);
             // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): when
             // the adoption gate still rejects the synthesis, the shared
@@ -587,6 +588,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   ? "Citations were structurally validated against retrieved sources, but claim truth, completeness, and publisher authority were not independently verified."
                   : "引用先が取得済みソースと一致することは機械検証しましたが、主張の真偽・網羅性・媒体の権威性は独立検証していません。",
               ];
+              if (adoption.salvaged) {
+                // Partial-answer disclosure, worded exactly as the
+                // records-path salvage (PR #1327) words it: the delivered
+                // text is the verified remainder only, and the envelope
+                // says so in plain language.
+                limitations.push(grounded.language === "en"
+                  ? "This answer shows only the range that could be confirmed; parts that could not be confirmed are not included."
+                  : "この回答は確認できた範囲のみを示しており、確認できなかった部分は含めていません。");
+              }
               if (grounded.conflicts > 0) {
                 limitations.push(grounded.language === "en"
                   ? "Retrieved sources contain structured-value differences that require human review."

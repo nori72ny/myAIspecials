@@ -505,27 +505,53 @@ export function diagnoseGroundedResearchSynthesisUnits(
 }
 
 // ---------------------------------------------------------------------------
-// UNCITED_FACTUAL_UNIT salvage (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §3).
+// Line-local salvage (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §3, generalized by
+// ANSWER_DELIVERY_INVESTIGATION_2026-11-16 item 2).
 //
 // The validator above is the only adoption gate and is NOT modified by this
-// section. When — and only when — it rejects a synthesis solely because some
-// factual units carry no citation, this helper removes those unit lines one
-// at a time and re-runs the unchanged validator on the whole text after each
-// removal. A salvaged text is adopted only if the unchanged validator accepts
-// it, so the delivered standard (every factual line cited, numbers verbatim
-// in cited evidence, no unknown citations, two-source coverage) is identical
-// to a first-pass adoption. Removing an uncited unit cannot change the cited
-// source set or the cited-evidence union (§3.6), so a failure that surfaces
-// after a removal is a later failure the fail-fast validator had masked; it
-// aborts the salvage and the caller falls back exactly as before.
+// section. When it rejects a synthesis with a line-local failure — a factual
+// unit carrying no citation, a citation token that is unknown or whose URL
+// does not match its source, or a unit whose numbers the cited evidence does
+// not support — this helper removes the offending unit lines one at a time
+// and re-runs the unchanged validator on the whole text after each removal.
+// A salvaged text is adopted only if the unchanged validator accepts it, so
+// the delivered standard (every factual line cited, numbers verbatim in
+// cited evidence, no unknown citations, two-source coverage) is identical
+// to a first-pass adoption.
+//
+// The 2026-11-14 design salvaged UNCITED_FACTUAL_UNIT only and aborted when
+// a removal unmasked a later defect class. The 2026-11-16 generalization
+// keeps removing while the surfaced failure stays line-local: each removal
+// deletes a line that individually fails the validator, and the survivors
+// must still pass the identical gate. Failures that are NOT line-local end
+// the salvage immediately — EMPTY_SYNTHESIS (nothing to remove from) and
+// INSUFFICIENT_SOURCE_COVERAGE (removing lines cannot create coverage; if
+// removals collapse the cited set below the coverage requirement, the
+// re-validation surfaces this code and the caller falls back exactly as
+// before). The structural guards of §3.4/§3.5 (removal caps, table
+// atomicity, orphan-heading cleanup, back-reference and lead-unit guards)
+// apply unchanged to every removal, whatever code prompted it.
 //
 // Only line deletions are performed (plus removal of a heading whose section
 // a removal emptied). No character is rewritten, added, reordered, or
 // renumbered. Nothing about the text — no unit text, no detail strings — is
 // returned for logging; callers log counts and codes only (§3.7).
 
-/** Maximum number of uncited factual units a salvage may remove (§3.4). */
+/** Maximum number of failing factual units a salvage may remove (§3.4). */
 export const GROUNDED_RESEARCH_SYNTHESIS_SALVAGE_MAX_REMOVE = 3;
+
+/**
+ * Validation codes whose defect is attributable to specific unit lines, so
+ * deleting exactly those lines can rescue the rest. EMPTY_SYNTHESIS and
+ * INSUFFICIENT_SOURCE_COVERAGE are deliberately absent: neither can be
+ * repaired by deletion.
+ */
+const GROUNDED_RESEARCH_SYNTHESIS_SALVAGEABLE_CODES: ReadonlySet<GroundedResearchSynthesisValidationCode> = new Set([
+  "UNCITED_FACTUAL_UNIT",
+  "UNKNOWN_CITATION",
+  "MISMATCHED_CITATION_URL",
+  "UNSUPPORTED_NUMERIC_TOKEN",
+]);
 
 const CITATION_TOKEN_PATTERN = /\[S\d+\]\(https:\/\/[^)\s]+\)/;
 const BACK_REFERENCE_PATTERN = /上記|前述|先述|上述|以上のとおり|as noted above|as mentioned/i;
@@ -604,6 +630,120 @@ function synthesisTableLineFlags(lines: readonly SynthesisTextLine[]): boolean[]
   return flags;
 }
 
+interface SynthesisSourceMaps {
+  /** Source ID -> the packet URL a citation token for it must carry verbatim. */
+  sourceMap: Map<string, string>;
+  /** Source ID -> normalized packet evidence (title, excerpt, date forms). */
+  sourceEvidence: Map<string, string>;
+}
+
+/**
+ * The source maps the validator itself builds (bounded to eight sources,
+ * safe-HTTPS URLs only, evidence normalized the same way), shared with the
+ * feedback scan's construction. The salvage's per-line diagnosis must agree
+ * with the gate about which citations are valid and which numbers the cited
+ * evidence supports, so it works from these maps rather than re-deriving
+ * its own.
+ */
+function buildSynthesisSourceMaps(sources: readonly SynthesisSource[]): SynthesisSourceMaps {
+  const sourceMap = new Map<string, string>();
+  const sourceEvidence = new Map<string, string>();
+  sources.slice(0, 8).forEach((source, index) => {
+    const id = sourceId(index);
+    const normalized = safeHttpsUrl(source.url);
+    if (normalized) {
+      sourceMap.set(id, normalized);
+      sourceEvidence.set(id, normalizedEvidenceText([
+        source.title,
+        source.excerpt,
+        ...groundedResearchPacketDateForms(source.revisionTimestamp),
+        ...groundedResearchPacketDateForms(source.retrievedAt),
+      ].join("\n")));
+    }
+  });
+  return { sourceMap, sourceEvidence };
+}
+
+function citationTokensOf(unit: string): Array<{ id: string; url: string }> {
+  const tokens: Array<{ id: string; url: string }> = [];
+  CITATION_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CITATION_PATTERN.exec(unit))) {
+    tokens.push({ id: `S${match[1]}`, url: match[2] });
+  }
+  return tokens;
+}
+
+/**
+ * Per-line diagnosis for the generalized salvage: the index of the first
+ * unit line that individually fails the validator in the way `code` names,
+ * or -1 when no unit line carries the defect (the offending token sits in a
+ * heading or label line, which the salvage never deletes — the caller then
+ * aborts and falls back). Every check reuses the validator's own machinery
+ * (the shared line classification, CITATION_PATTERN, numericTokens, and the
+ * cited-evidence union built from the current text's valid citations), so
+ * the diagnosis cannot drift from the gate.
+ */
+function findSalvageTargetLineIndex(
+  lines: readonly SynthesisTextLine[],
+  code: GroundedResearchSynthesisValidationCode,
+  maps: SynthesisSourceMaps,
+  currentText: string,
+): number {
+  if (code === "UNCITED_FACTUAL_UNIT") {
+    return lines.findIndex(
+      (line) => line.kind === "unit" && !CITATION_TOKEN_PATTERN.test(line.unit),
+    );
+  }
+  if (code === "UNKNOWN_CITATION") {
+    const knownUrls = new Set(maps.sourceMap.values());
+    return lines.findIndex((line) => {
+      if (line.kind !== "unit") return false;
+      if (citationTokensOf(line.unit).some((token) => !maps.sourceMap.has(token.id))) return true;
+      // The validator also rejects any bare HTTPS URL the packet does not
+      // know; a line carrying one is the offending line.
+      return (line.unit.match(URL_PATTERN) ?? []).some((rawUrl) => {
+        const normalized = safeHttpsUrl(rawUrl);
+        return !normalized || !knownUrls.has(normalized);
+      });
+    });
+  }
+  if (code === "MISMATCHED_CITATION_URL") {
+    return lines.findIndex((line) => {
+      if (line.kind !== "unit") return false;
+      return citationTokensOf(line.unit).some((token) => {
+        const expected = maps.sourceMap.get(token.id);
+        return expected !== undefined && safeHttpsUrl(token.url) !== expected;
+      });
+    });
+  }
+  if (code === "UNSUPPORTED_NUMERIC_TOKEN") {
+    // The cited-evidence union of the CURRENT text, built exactly as the
+    // validator builds it: only citations whose ID and URL both check out
+    // contribute evidence. Removals can shrink this union, which is why it
+    // is recomputed from the current text on every pass.
+    const used = new Set<string>();
+    CITATION_PATTERN.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = CITATION_PATTERN.exec(currentText))) {
+      const id = `S${match[1]}`;
+      const expected = maps.sourceMap.get(id);
+      if (expected && safeHttpsUrl(match[2]) === expected) used.add(id);
+    }
+    const citedEvidenceNormalized = normalizedEvidenceText(
+      [...used].map((id) => maps.sourceEvidence.get(id) ?? "").join("\n"),
+    );
+    return lines.findIndex((line) => {
+      if (line.kind !== "unit") return false;
+      if (!CITATION_TOKEN_PATTERN.test(line.unit)) return false;
+      return numericTokens(line.unit).some(
+        (token) => !citedEvidenceNormalized.includes(normalizedEvidenceText(token)),
+      );
+    });
+  }
+  return -1;
+}
+
 export function adoptGroundedResearchSynthesis(
   text: string,
   sources: readonly SynthesisSource[],
@@ -612,11 +752,13 @@ export function adoptGroundedResearchSynthesis(
   if (initial.ok === true) {
     return { adopted: true, text, usedSourceIds: initial.usedSourceIds, salvaged: false, removedUnits: 0 };
   }
-  if (initial.code !== "UNCITED_FACTUAL_UNIT") {
-    // Salvage is defined for UNCITED_FACTUAL_UNIT only (§3.2). Every other
-    // failure keeps the existing discard path untouched.
+  if (!GROUNDED_RESEARCH_SYNTHESIS_SALVAGEABLE_CODES.has(initial.code)) {
+    // Salvage is defined for line-local failures only. Every other failure
+    // (empty text, insufficient coverage) keeps the existing discard path
+    // untouched: removing lines cannot repair it.
     return { adopted: false, failureCode: initial.code, salvageAttempted: false, salvageRemovedUnits: 0 };
   }
+  const sourceMaps = buildSynthesisSourceMaps(sources);
   let lines = classifySynthesisTextLines(text.replace(/\r\n/g, "\n").trim());
   const totalUnits = lines.filter((line) => line.kind === "unit").length;
   const firstUnitLine = lines.find((line) => line.kind === "unit");
@@ -678,9 +820,11 @@ export function adoptGroundedResearchSynthesis(
         removedUnits: removed,
       };
     }
-    if (validation.code !== "UNCITED_FACTUAL_UNIT") {
-      // A masked later failure surfaced (e.g. UNSUPPORTED_NUMERIC_TOKEN):
-      // stop immediately (§3.2).
+    if (!GROUNDED_RESEARCH_SYNTHESIS_SALVAGEABLE_CODES.has(validation.code)) {
+      // A non-line-local failure surfaced: the removals collapsed the cited
+      // set below the coverage requirement (or the text emptied). The
+      // answer's coverage / section structure no longer holds, so the
+      // salvage stops here and the caller falls back exactly as before.
       return abort(removed, validation.code);
     }
     if (removed >= GROUNDED_RESEARCH_SYNTHESIS_SALVAGE_MAX_REMOVE) return abort(removed, validation.code);
@@ -688,9 +832,7 @@ export function adoptGroundedResearchSynthesis(
     if ((removed + 1) * 2 > totalUnits) return abort(removed, validation.code);
 
     const tableFlags = synthesisTableLineFlags(lines);
-    const targetIndex = lines.findIndex(
-      (line) => line.kind === "unit" && !CITATION_TOKEN_PATTERN.test(line.unit),
-    );
+    const targetIndex = findSalvageTargetLineIndex(lines, validation.code, sourceMaps, currentText);
     if (targetIndex < 0) return abort(removed, validation.code);
     if (tableFlags[targetIndex]) return abort(removed, validation.code);
 

@@ -9,9 +9,11 @@ import {
 
 /**
  * Permanent fixtures for the UNCITED_FACTUAL_UNIT salvage
- * (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §6, cases S1–S16) and for the
- * coverage instruction structure (§5 option 1). The validator itself is
- * unchanged; every salvaged text below is adopted only because the
+ * (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §6, cases S1–S16), for its
+ * generalization to every line-local validation failure
+ * (ANSWER_DELIVERY_INVESTIGATION_2026-11-16 item 2, cases G1–G8), and for
+ * the coverage instruction structure (§5 option 1). The validator itself
+ * is unchanged; every salvaged text below is adopted only because the
  * unchanged validator accepts it after line deletions.
  */
 
@@ -242,20 +244,28 @@ describe("adoptGroundedResearchSynthesis (synthesis salvage)", () => {
     expect(result.salvageAbortCode).toBe("UNCITED_FACTUAL_UNIT");
   });
 
-  it("S10: never attempts salvage for UNKNOWN_CITATION or MISMATCHED_CITATION_URL", () => {
+  it("S10: salvage is attempted for UNKNOWN_CITATION / MISMATCHED_CITATION_URL, but a single-unit text still rejects (the only unit cannot be removed)", () => {
+    // Generalized salvage (2026-11-16): these codes are line-local and the
+    // salvage now attempts them. Both fixtures are a single unit, so the
+    // half-of-units cap stops the removal before it happens and the text
+    // is rejected with the first failure code preserved.
     const unknown = expectRejected(adoptGroundedResearchSynthesis(
       "料金は100円です。[S1](https://example.com/one) [S9](https://example.net/fake)",
       priceSources,
     ));
     expect(unknown.failureCode).toBe("UNKNOWN_CITATION");
-    expect(unknown.salvageAttempted).toBe(false);
+    expect(unknown.salvageAttempted).toBe(true);
+    expect(unknown.salvageRemovedUnits).toBe(0);
+    expect(unknown.salvageAbortCode).toBe("UNKNOWN_CITATION");
 
     const mismatched = expectRejected(adoptGroundedResearchSynthesis(
       "料金情報を確認しました。[S1](https://example.org/two) [S2](https://example.org/two)",
       priceSources,
     ));
     expect(mismatched.failureCode).toBe("MISMATCHED_CITATION_URL");
-    expect(mismatched.salvageAttempted).toBe(false);
+    expect(mismatched.salvageAttempted).toBe(true);
+    expect(mismatched.salvageRemovedUnits).toBe(0);
+    expect(mismatched.salvageAbortCode).toBe("MISMATCHED_CITATION_URL");
   });
 
   it("S11: never attempts salvage for INSUFFICIENT_SOURCE_COVERAGE (repro case 4)", () => {
@@ -366,6 +376,137 @@ describe("adoptGroundedResearchSynthesis (synthesis salvage)", () => {
     expect(aborted.salvageAttempted).toBe(true);
     expect(aborted.salvageRemovedUnits).toBe(1);
     expect(aborted.salvageAbortCode).toBe("UNSUPPORTED_NUMERIC_TOKEN");
+  });
+});
+
+describe("adoptGroundedResearchSynthesis (generalized line-local salvage, 2026-11-16)", () => {
+  it("G1: salvages a unit carrying an unknown citation, and one carrying an unknown bare URL", () => {
+    const unknownToken = [
+      CITED_PRICE_LINE,
+      "速報では料金は無料です。[S9](https://example.net/fake)",
+      CITED_PRICE_LINE_2,
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(unknownToken, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNKNOWN_CITATION" }),
+    );
+    const result = expectAdopted(adoptGroundedResearchSynthesis(unknownToken, priceSources));
+    expect(result.salvaged).toBe(true);
+    expect(result.removedUnits).toBe(1);
+    expect(result.usedSourceIds).toEqual(["S1", "S2"]);
+    expect(result.text).toBe([CITED_PRICE_LINE, CITED_PRICE_LINE_2].join("\n"));
+
+    const unknownUrl = [
+      CITED_PRICE_LINE,
+      "詳細は https://example.net/fake で確認できます。",
+      CITED_PRICE_LINE_2,
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(unknownUrl, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNKNOWN_CITATION" }),
+    );
+    const urlResult = expectAdopted(adoptGroundedResearchSynthesis(unknownUrl, priceSources));
+    expect(urlResult.removedUnits).toBe(1);
+    expect(urlResult.text).toBe([CITED_PRICE_LINE, CITED_PRICE_LINE_2].join("\n"));
+  });
+
+  it("G2: salvages a unit whose citation URL does not match its source", () => {
+    const input = [
+      CITED_PRICE_LINE,
+      "料金情報を確認しました。[S1](https://example.org/two)",
+      CITED_PRICE_LINE_2,
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(input, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "MISMATCHED_CITATION_URL" }),
+    );
+    const result = expectAdopted(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.salvaged).toBe(true);
+    expect(result.removedUnits).toBe(1);
+    expect(result.text).toBe([CITED_PRICE_LINE, CITED_PRICE_LINE_2].join("\n"));
+  });
+
+  it("G3: salvages a unit whose number the cited evidence does not support (first failure is UNSUPPORTED_NUMERIC_TOKEN)", () => {
+    const input = [
+      CITED_PRICE_LINE,
+      "合計は999円になります。[S1](https://example.com/one) [S2](https://example.org/two)",
+      CITED_PRICE_LINE_2,
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(input, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNSUPPORTED_NUMERIC_TOKEN" }),
+    );
+    const result = expectAdopted(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.salvaged).toBe(true);
+    expect(result.removedUnits).toBe(1);
+    expect(result.text).toBe([CITED_PRICE_LINE, CITED_PRICE_LINE_2].join("\n"));
+  });
+
+  it("G4: a masked line-local failure surfaces after a removal and is salvaged in turn (UNCITED, then UNSUPPORTED)", () => {
+    const input = [
+      CITED_PRICE_LINE,
+      "この料金は大変お得です。",
+      CITED_PRICE_LINE_2,
+      "合計は999円になります。[S1](https://example.com/one)",
+      CITED_PRICE_LINE_3,
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(input, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNCITED_FACTUAL_UNIT" }),
+    );
+    const result = expectAdopted(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.salvaged).toBe(true);
+    expect(result.removedUnits).toBe(2);
+    expect(result.text).toBe([CITED_PRICE_LINE, CITED_PRICE_LINE_2, CITED_PRICE_LINE_3].join("\n"));
+  });
+
+  it("G5: aborts when a removal collapses the cited set below the coverage requirement", () => {
+    // The first line is the only S2 citer and also carries an unknown
+    // citation; removing it leaves a single cited source, so the
+    // re-validation surfaces INSUFFICIENT_SOURCE_COVERAGE and the salvage
+    // aborts — coverage collapse always falls back.
+    const input = [
+      "料金は100円です。[S2](https://example.org/two) [S9](https://example.net/fake)",
+      "料金は100円です。[S1](https://example.com/one)",
+    ].join("\n");
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.failureCode).toBe("UNKNOWN_CITATION");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(1);
+    expect(result.salvageAbortCode).toBe("INSUFFICIENT_SOURCE_COVERAGE");
+  });
+
+  it("G6: the lead-unit structure guard applies to generalized codes (removing the lead leaves a bare residue)", () => {
+    const input = [
+      "速報です。[S9](https://example.net/fake)",
+      CITED_PRICE_LINE,
+    ].join("\n");
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.failureCode).toBe("UNKNOWN_CITATION");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(1);
+    // No validation code describes this abort (§3.4 condition 5).
+    expect(result.salvageAbortCode).toBeUndefined();
+  });
+
+  it("G7: never attempts salvage for EMPTY_SYNTHESIS", () => {
+    const result = expectRejected(adoptGroundedResearchSynthesis("", priceSources));
+    expect(result.failureCode).toBe("EMPTY_SYNTHESIS");
+    expect(result.salvageAttempted).toBe(false);
+    expect(result.salvageRemovedUnits).toBe(0);
+  });
+
+  it("G8: never removes a unit inside a markdown table block, whatever the failure code", () => {
+    const input = [
+      CITED_PRICE_LINE,
+      "",
+      "| 項目 | 料金 |",
+      "| --- | --- |",
+      "| 基本 | 100円 [S1](https://example.org/two) |",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(input, priceSources)).toEqual(
+      expect.objectContaining({ ok: false, code: "MISMATCHED_CITATION_URL" }),
+    );
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, priceSources));
+    expect(result.failureCode).toBe("MISMATCHED_CITATION_URL");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(0);
+    expect(result.salvageAbortCode).toBe("MISMATCHED_CITATION_URL");
   });
 });
 
