@@ -61,6 +61,7 @@ export default function OriginSidebar({
         data-testid="origin-sidebar"
         aria-label={isEn ? 'Sidebar' : 'サイドバー'}
         aria-hidden={!open}
+        inert={!open}
         className={`origin-sidebar-safe-area origin-surface fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[85vw] flex-col border-r border-origin-border transition-transform duration-200 lg:static lg:z-auto lg:shrink-0 lg:translate-x-0 ${
           open ? 'translate-x-0' : 'invisible -translate-x-full lg:hidden'
         }`}
