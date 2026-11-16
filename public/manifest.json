@@ -8,7 +8,7 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
-  "background_color": "#f7f6f2",
+  "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "categories": ["productivity", "utilities"],
   "prefer_related_applications": false,
