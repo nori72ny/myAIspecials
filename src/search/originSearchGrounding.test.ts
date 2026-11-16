@@ -816,3 +816,43 @@ describe("search packet relevance", () => {
     }
   });
 });
+
+describe("policy route pairing (routing calibration, 2026-11-16)", () => {
+  // B-02: the pension-age question classified correctly as policy, but
+  // the policy route ran Tavily alone and the chat refused when no
+  // usable source came back. Standing institutional facts are also
+  // encyclopedic, so the policy route now pairs Wikipedia like
+  // fresh_general does; the freshness gate still applies to the pool.
+  const PENSION_QUESTION = "国民年金は原則何歳から受け取れますか？早めたり遅らせたりはできますか？";
+  const PENSION_EXCERPT = "国民年金は日本の公的年金制度の基礎年金である。老齢基礎年金は原則何歳から受け取れるかというと65歳からであり、受給開始時期は60歳までの繰上げや75歳までの繰下げも選択できる。".repeat(6);
+
+  function pensionFetch(wikiPages: unknown[]) {
+    return routedFetch([
+      { match: "api.tavily.com/search", respond: () => ({ results: [] }) },
+      { match: "api.tavily.com/extract", respond: () => ({ results: [], failed_results: [] }) },
+      { match: "/search/page", respond: () => ({ pages: wikiPages }) },
+      {
+        match: "wikipedia.org",
+        respond: () => ({ html_url: "https://ja.wikipedia.org/wiki/国民年金", latest: { timestamp: "2026-10-15T00:00:00.000Z" } }),
+      },
+    ]);
+  }
+
+  it("grounds a policy question via Wikipedia when Tavily returns nothing", async () => {
+    const { fetchImpl } = pensionFetch([
+      { key: "国民年金", title: "国民年金", excerpt: PENSION_EXCERPT, description: "日本の公的年金制度" },
+    ]);
+    const outcome = groundedOf(await executeOriginSearchGrounding(PENSION_QUESTION, makeDeps({ fetchImpl })));
+    expect(outcome.questionType).toBe("policy");
+    expect(outcome.providersUsed).toEqual(["wikipedia"]);
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0]?.title).toBe("国民年金");
+  });
+
+  it("still fails closed when neither policy route finds a source", async () => {
+    const { fetchImpl } = pensionFetch([]);
+    const outcome = await executeOriginSearchGrounding(PENSION_QUESTION, makeDeps({ fetchImpl }));
+    expect(outcome.kind).toBe("unavailable");
+    if (outcome.kind === "unavailable") expect(outcome.reason).toBe("no-sources");
+  });
+});

@@ -362,3 +362,72 @@ describe("extractOriginMarketInstruments", () => {
     expect(extractOriginMarketInstruments("今日の株価はどうですか")).toEqual([]);
   });
 });
+
+describe("routing calibration (2026-11-16 measurement)", () => {
+  // The fixed-100 re-measurement found the routing wrong in both
+  // directions: statutory / historical facts fell through to the
+  // normal path and were asserted wrongly from memory (fatals A-03,
+  // E-02, G-02, I-03), while plain arithmetic and a consultation were
+  // promoted and then refused for lack of grounding (H-05, H-09,
+  // H-10, J-01). These tests pin the routing DECISIONS for those
+  // shapes (not the measured answers).
+  it("routes the paid-leave grant table to policy (A-03: labor institutions join the high-risk vocabulary)", () => {
+    const result = classifyOriginSearchQuestion("有給休暇は、入社してどれくらいで何日もらえますか？勤続年数ごとの付与日数を教えてください。");
+    expect(result.type).toBe("policy");
+    expect(result.rule).toBe("high-risk-tax-institution");
+    expect(detectOriginHighRiskCategory("有給休暇は、入社してどれくらいで何日もらえますか？勤続年数ごとの付与日数を教えてください。")).toBe("tax_institution");
+  });
+
+  it("keeps paid-leave how-to questions off the route (A-03 counter-shape)", () => {
+    expect(classifyOriginSearchQuestion("有給休暇の取り方を教えてください").type).toBe("no_search");
+  });
+
+  it("routes the civil-code prescription rule to policy (E-02)", () => {
+    const result = classifyOriginSearchQuestion("借金の時効は原則何年ですか？民法のルールを教えてください。");
+    expect(result.type).toBe("policy");
+    expect(result.rule).toBe("high-risk-tax-institution");
+  });
+
+  it("keeps a past-pinned officeholder stable at the classifier, with the category carrying the promotion signal (G-02)", () => {
+    const question = "1990年当時の日本の首相は誰でしたか？";
+    const result = classifyOriginSearchQuestion(question);
+    expect(result.type).toBe("stable");
+    expect(result.rule).toBe("historical-fact");
+    expect(detectOriginHighRiskCategory(question)).toBe("incumbent_role");
+  });
+
+  it("classifies a quoted entity's event date as stable via the named-entity category (I-03)", () => {
+    const question = "『みなとみらい環状線』はいつ開業しましたか？";
+    const result = classifyOriginSearchQuestion(question);
+    expect(result.type).toBe("stable");
+    expect(result.rule).toBe("high-risk-named-entity-event");
+    expect(detectOriginHighRiskCategory(question)).toBe("named_entity_event");
+    // A real entity routes identically; grounding is what confirms it.
+    expect(detectOriginHighRiskCategory("『東京スカイツリー』はいつ開業しましたか？")).toBe("named_entity_event");
+    // A quoted name without an event-date demand does not fire it.
+    expect(detectOriginHighRiskCategory("『鬼滅の刃』の感想を教えてください")).toBeNull();
+  });
+
+  it("keeps derived-price arithmetic on the deterministic-calculation path (H-05 / H-10)", () => {
+    expect(classifyOriginSearchQuestion("15%引きで8,500円だった商品の、元の値段はいくらですか？").rule).toBe("deterministic-calculation");
+    expect(classifyOriginSearchQuestion("原価800円に25%の利益を乗せると、売値はいくらですか？").rule).toBe("deterministic-calculation");
+  });
+
+  it("does not read the polite verb ending います as the freshness marker いま (H-09)", () => {
+    const result = classifyOriginSearchQuestion("定員40人の75%は何人いますか？");
+    expect(result.type).toBe("no_search");
+    expect(result.rule).toBe("deterministic-calculation");
+  });
+
+  it("still classifies the consultation as fresh_general at this layer (J-01 is carved out by the response policy)", () => {
+    const result = classifyOriginSearchQuestion("今の仕事を続けるか転職するか迷っています。考え方の整理を手伝ってください。");
+    expect(result.type).toBe("fresh_general");
+    expect(result.rule).toBe("freshness-marker");
+  });
+
+  it("keeps the pension-age question on policy (B-02 routing was already correct)", () => {
+    const result = classifyOriginSearchQuestion("国民年金は原則何歳から受け取れますか？早めたり遅らせたりはできますか？");
+    expect(result.type).toBe("policy");
+    expect(result.rule).toBe("high-risk-tax-institution");
+  });
+});
