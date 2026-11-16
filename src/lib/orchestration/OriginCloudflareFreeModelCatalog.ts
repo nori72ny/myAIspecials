@@ -23,7 +23,7 @@ export function isOriginCloudflareFreeModelId(value: unknown): value is OriginCl
 }
 
 /**
- * Published Workers AI rates (Neurons per 1M tokens), rechecked on 2026-11-09
+ * Published Workers AI rates (Neurons per 1M tokens), rechecked on 2026-11-16
  * against the official pricing page. Evidence for routing decisions and
  * consumption estimates only; never a charge. The route executor still uses
  * its own pinned constants for the primary model until the routing PR wires
@@ -54,10 +54,10 @@ export const DEFAULT_ORIGIN_CLOUDFLARE_FREE_MODEL_CATALOG: readonly OriginCloudf
     providerId: "cloudflare-workers-ai-free",
     providerLabel: "ORIGIN 無料AI",
     modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
-    verifiedAt: "2026-11-09T13:00:00.000Z",
-    reviewAfter: "2026-11-19T13:00:00.000Z",
+    verifiedAt: "2026-11-16T00:00:00.000Z",
+    reviewAfter: "2026-11-26T00:00:00.000Z",
     sourceUrl: ORIGIN_CLOUDFLARE_FREE_MODEL_SOURCE,
-    sourceDescription: "Cloudflare official documentation rechecked on 2026-11-09: 'Your Data and Workers AI' (updated 2026-10-16) states zero data retention for standard inference requests and that Cloudflare does not use Customer Content processed by Workers AI to train AI models. The Workers AI pricing page (updated 2026-10-20) states the free allocation is 10,000 Neurons per day per account (limits reset at 00:00 UTC) and that exceeding it errors instead of charging on the Workers Free plan, which has no Neurons billing; it lists @cf/google/gemma-4-26b-a4b-it at $0.10 per million input tokens and $0.30 per million output tokens (9,091 / 27,273 Neurons per million tokens). The model page for @cf/google/gemma-4-26b-a4b-it marks the model Cloudflare-hosted with 'Zero data retention: Yes' and shows no planned deprecation. This catalog check does not by itself prove a live account is on Workers Free: runtime must additionally verify the account plan (bundled usage model, no paid Workers subscription, exact $0 prices) and the live model schema before every inference, and must fail closed on any unverifiable condition. The evidence window is deliberately short (reviewAfter 2026-11-19): the route fails closed when it passes without a fresh documentation re-check.",
+    sourceDescription: "Cloudflare official documentation rechecked on 2026-11-16: 'Your Data and Workers AI' (updated 2026-10-16) states zero data retention for standard inference requests and that Cloudflare does not use Customer Content processed by Workers AI to train AI models. The Workers AI pricing page (updated 2026-11-12) states the free allocation is 10,000 Neurons per day per account (limits reset at 00:00 UTC) and that exceeding it errors instead of charging on the Workers Free plan, which has no Neurons billing; it lists @cf/google/gemma-4-26b-a4b-it at $0.10 per million input tokens and $0.30 per million output tokens (9,091 / 27,273 Neurons per million tokens). The model page for @cf/google/gemma-4-26b-a4b-it marks the model Cloudflare-hosted with 'Zero data retention: Yes' and shows no planned deprecation. This catalog check does not by itself prove a live account is on Workers Free: runtime must additionally verify the account plan (bundled usage model, no paid Workers subscription, exact $0 prices) and the live model schema before every inference, and must fail closed on any unverifiable condition. The evidence window is deliberately short (reviewAfter 2026-11-26): the route fails closed when it passes without a fresh documentation re-check.",
   },
   {
     providerId: "cloudflare-workers-ai-free",
