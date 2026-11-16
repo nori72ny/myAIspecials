@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS,
   buildOriginBusinessPlanningInstruction,
   computeFunnelBackcast,
   detectOriginBusinessPlanningKind,
@@ -151,5 +152,91 @@ describe("OriginBusinessPlanning policy integration", () => {
     expect(originAnswerQualityInstruction(plain)).not.toContain("Business planning & marketing protocol");
     const noPrompt = resolveOriginAnswerQualityPolicy({ intent: intent(), taskType: "implementation", independentReviewRequired: false });
     expect(noPrompt.businessPlanning).toBeNull();
+  });
+});
+
+describe("OriginBusinessPlanning instruction hardening", () => {
+  const instructionFor = (prompt: string) => buildOriginBusinessPlanningInstruction(resolveOriginBusinessPlanning(prompt)!);
+  const checklistLine = (instruction: string) => instruction.split("\n").find((line) => line.includes("Required parts for this kind"))!;
+
+  it("injects every brief's mustInclude parts into that brief's checklist line", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const line = checklistLine(instructionFor(brief.prompt));
+      expect(line, brief.id).toBeDefined();
+      for (const part of brief.mustInclude) {
+        expect(line, `${brief.id} checklist must contain ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("keeps the per-kind required parts equal to the briefs' mustInclude union (no drift)", () => {
+    const kindsWithBriefs = [...new Set(ORIGIN_BUSINESS_PLANNING_BRIEFS.map((b) => b.expectedKind))];
+    for (const kind of kindsWithBriefs) {
+      const union = new Set(ORIGIN_BUSINESS_PLANNING_BRIEFS.filter((b) => b.expectedKind === kind).flatMap((b) => b.mustInclude));
+      expect(new Set(ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[kind]), kind).toEqual(union);
+    }
+    // marketing-plan has no brief; it takes the full standard structure.
+    const planLine = checklistLine(instructionFor("来期のマーケティング戦略を考えたい"));
+    for (const part of ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS["marketing-plan"]) {
+      expect(planLine).toContain(part);
+    }
+  });
+
+  it("does not force parts the kind does not require", () => {
+    const outline = checklistLine(instructionFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === "BP-2")!.prompt));
+    for (const part of ["市場・競合の見立て", "施策とチャネル", "数値の逆算", "KPIと計測方法", "仮置き"]) {
+      expect(outline, `proposal-outline checklist must not require ${part}`).not.toContain(part);
+    }
+    const funnel = checklistLine(instructionFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === "BP-4")!.prompt));
+    for (const part of ["提供価値", "市場・競合の見立て", "数値の逆算"]) {
+      expect(funnel, `funnel-design checklist must not require ${part}`).not.toContain(part);
+    }
+    const market = checklistLine(instructionFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === "BP-3")!.prompt));
+    for (const part of ["施策とチャネル", "数値の逆算", "KPIと計測方法", "仮置き"]) {
+      expect(market, `market-competition checklist must not require ${part}`).not.toContain(part);
+    }
+  });
+
+  it("adds the concrete number-sanity rules to every brief's instruction", () => {
+    for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
+      const instruction = instructionFor(brief.prompt);
+      expect(instruction, brief.id).toContain("Number sanity");
+      // Rate direction: result ÷ input, never the inverse (BP-1 defect).
+      expect(instruction, brief.id).toContain("成約率 = 受注数 ÷ 商談数");
+      expect(instruction, brief.id).toContain("never the inverse");
+      // Formula and result must agree (BP-2 market-size / forecast defects).
+      expect(instruction, brief.id).toContain("must equal the value that formula produces");
+      expect(instruction, brief.id).toContain("対象数 × 比率 × 単価 × 期間");
+      // No unsourced statistic dressed as fact (BP-2 / BP-4 defects).
+      expect(instruction, brief.id).toContain("「業界平均」「調査によると」「統計によると」");
+      expect(instruction, brief.id).toContain("may appear only labelled 「仮置き（仮定）」");
+      // Summary and body must not contradict each other (BP-2 defect).
+      expect(instruction, brief.id).toContain("same value everywhere it appears");
+    }
+  });
+
+  it("requires an owner and a deadline for execution-plan kinds only", () => {
+    const withDeadline = ["BP-1", "BP-2", "BP-5", "BP-6", "BP-7"];
+    const withoutDeadline = ["BP-3", "BP-4"];
+    for (const id of withDeadline) {
+      const instruction = instructionFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === id)!.prompt);
+      expect(instruction, id).toContain("Ownership and deadlines");
+      expect(instruction, id).toContain("担当");
+      expect(instruction, id).toContain("期限");
+      expect(instruction, id).toContain("「2週間以内」「初月末まで」");
+    }
+    for (const id of withoutDeadline) {
+      const instruction = instructionFor(ORIGIN_BUSINESS_PLANNING_BRIEFS.find((b) => b.id === id)!.prompt);
+      expect(instruction, id).not.toContain("Ownership and deadlines");
+    }
+  });
+
+  it("keeps non-planning instructions byte-identical to the no-prompt policy", () => {
+    const withPrompt = resolveOriginAnswerQualityPolicy({ intent: intent(), taskType: "implementation", independentReviewRequired: false, promptText: "このバグを直して" });
+    const noPrompt = resolveOriginAnswerQualityPolicy({ intent: intent(), taskType: "implementation", independentReviewRequired: false });
+    expect(originAnswerQualityInstruction(withPrompt)).toBe(originAnswerQualityInstruction(noPrompt));
+    for (const marker of ["Required parts for this kind", "Number sanity", "Ownership and deadlines"]) {
+      expect(originAnswerQualityInstruction(withPrompt)).not.toContain(marker);
+    }
   });
 });

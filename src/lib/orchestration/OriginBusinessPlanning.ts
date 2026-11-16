@@ -361,13 +361,59 @@ const KIND_EMPHASIS: Record<OriginBusinessPlanningKind, string> = {
   "marketing-plan": "Cover the full standard structure below; where the request is narrow, keep the structure but compress the parts that do not bind the decision.",
 };
 
+// Required parts per kind, in the canon's part vocabulary. These are the
+// same parts the fixed briefs score as mustInclude
+// (OriginBusinessPlanningBriefs.ts) — but until now they existed only on
+// the scoring side and were never injected into the instruction, while the
+// instruction itself offered one generic structure for every kind with a
+// compression allowance. Measured answers dropped required parts on every
+// brief. The lists below are therefore the union of the briefs'
+// mustInclude per kind (a unit test pins that equality), and
+// buildOriginBusinessPlanningInstruction renders them as a hard checklist.
+// "仮置き" is not a section heading: it is the assumption-labelling
+// requirement, rendered as its own clause in the checklist line.
+export const ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS: Record<OriginBusinessPlanningKind, readonly string[]> = {
+  "marketing-spec": ["目的とゴール", "対象", "提供価値", "施策とチャネル", "数値の逆算", "KPIと計測方法", "リスクと代替案", "次の一手", "仮置き"],
+  "funnel-design": ["目的とゴール", "対象", "施策とチャネル", "KPIと計測方法", "リスクと代替案", "次の一手", "仮置き"],
+  "market-competition": ["目的とゴール", "対象", "提供価値", "市場・競合の見立て", "リスクと代替案", "次の一手"],
+  "campaign-plan": ["目的とゴール", "対象", "提供価値", "施策とチャネル", "数値の逆算", "KPIと計測方法", "リスクと代替案", "次の一手", "仮置き"],
+  "promotion-ideas": ["目的とゴール", "対象", "提供価値", "施策とチャネル", "KPIと計測方法", "リスクと代替案", "次の一手"],
+  "proposal-outline": ["目的とゴール", "対象", "提供価値", "リスクと代替案", "次の一手"],
+  // No fixed brief covers marketing-plan; it takes the full standard structure.
+  "marketing-plan": ["目的とゴール", "対象", "提供価値", "市場・競合の見立て", "施策とチャネル", "数値の逆算", "KPIと計測方法", "リスクと代替案", "次の一手", "仮置き"],
+};
+
+// Kinds whose deliverable is an execution plan: every measure and next
+// action must carry an owner and a deadline (canon candidate axis 17 —
+// the axis every measured answer, the external ones included, was weak on,
+// because nothing forced it).
+const EXECUTION_PLAN_KINDS: ReadonlySet<OriginBusinessPlanningKind> = new Set([
+  "marketing-spec",
+  "campaign-plan",
+  "promotion-ideas",
+  "proposal-outline",
+  "marketing-plan",
+]);
+
+function formatRequiredPartsLine(kind: OriginBusinessPlanningKind): string {
+  const parts = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[kind];
+  const sections = parts.filter((part) => part !== "仮置き");
+  const assumptionClause = parts.includes("仮置き")
+    ? " Labelling every assumed figure 「仮置き（仮定）」 at the point of use is likewise a required part for this kind, not an optional style."
+    : "";
+  return `- Required parts for this kind — a checklist, not a suggestion: the answer must contain every part below as its own headed section, in this order, under these exact part names: ${sections.join(" / ")}.${assumptionClause} Do not omit, merge, or compress away any listed part; a part with little to say still appears and states in one line why it is small. Parts not listed for this kind are optional.`;
+}
+
 export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile): string {
   return [
     "Business planning & marketing protocol (a planning/marketing request was detected; apply this playbook):",
     `- Request kind: ${profile.kind}. ${KIND_EMPHASIS[profile.kind]}`,
-    "- Structure the answer in this order, using headings in the user's language: 目的とゴール (state the higher purpose behind the request in one line — if you inferred it, say it is your reading; write the goal in SMART form) / 対象 (who it is for: the ICP or persona defined by their problem and decision conditions, not demographics alone) / 提供価値 (the value against that problem, and the decisive difference from alternatives) / 市場・競合の見立て (facts need sources; label estimates as estimates) / 施策とチャネル (every measure tied to the funnel stage it moves) / 数値の逆算 / KPIと計測方法 / リスクと代替案 / 次の一手. Compress a part only when it cannot bind the decision; never silently drop the backcast, the KPI definitions, or the closing section.",
+    formatRequiredPartsLine(profile.kind),
+    "- What the parts must carry: 目的とゴール states the higher purpose behind the request in one line (if you inferred it, say it is your reading) and the goal in SMART form. 対象 defines who it is for — the ICP or persona by their problem and decision conditions, not demographics alone. 提供価値 states the value against that problem and the decisive difference from alternatives. 市場・競合の見立て rests on sourced facts and labels estimates as estimates. 施策とチャネル ties every measure to the funnel stage it moves.",
     "- Funnel vocabulary is fixed: リーチ -> リード -> MQL -> SQL -> 商談 -> 受注. Show the backcast from the goal backwards: goal -> required orders -> meetings -> SQL -> MQL -> leads -> reach, with the conversion rate written next to the stage it produces.",
     "- Number discipline (hard rule): every number in the plan is user-supplied, computed from user-supplied numbers by arithmetic you show, or an assumption. An assumed rate, price, or volume must be visibly labelled 「仮置き（仮定）」 at the point of use, with a note that it will be calibrated once actual results exist. Never fill a missing figure with a plausible-looking number presented as fact, and never raise a rate to make the plan appear to reach the goal — if the numbers do not close the gap, say plainly that they do not close it and show the size of the remaining gap.",
+    "- Number sanity (hard rules, check before finishing): (a) A conversion rate is always result ÷ input — 成約率 = 受注数 ÷ 商談数, 商談化率 = 商談数 ÷ リード数 — never the inverse; whenever you state a rate, write the division it comes from next to it so the direction can be checked. (b) A figure presented with a formula — a market size built as 対象数 × 比率 × 単価 × 期間, a revenue forecast built from a unit price and a customer count — must equal the value that formula produces; recompute it before writing, and never let a forecast table drift away from the price model stated in the same answer. (c) Never present a statistic as fact dressed as 「業界平均」「調査によると」「統計によると」, or with an institution's name attached, when you cannot actually source it; an unsourced benchmark figure may appear only labelled 「仮置き（仮定）」. (d) The same quantity must carry the same value everywhere it appears — summary, tables, and body must agree; if two numbers for the same thing disagree, fix the inconsistency instead of shipping both.",
+    ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines (required for this kind): every measure and every next action must name its 担当 (a role name is enough — e.g. マーケティング担当, 営業責任者, 経営者) and its 期限 as a calendar date or a relative deadline (e.g. 「2週間以内」「初月末まで」「3ヶ月目の第2週」). A measure or action without an owner and a deadline does not count as part of the plan."] : []),
     "- KPIs come in three classes — result （結果）, process （過程）, efficiency （効率） — and a vanity metric (raw PV, follower counts, impressions alone) is never the primary KPI. Fix the measurement definitions (what counts as an MQL/SQL, the period, the source of the count) inside the plan, not later.",
     "- Beyond-the-request actions, within the plan only: (1) fill missing premises as explicit assumptions — ask at most one short question, and only when the answer would materially change the plan; otherwise proceed with a one-line stated premise. (2) Design to the higher purpose behind the request, but do not add deliverable types the user did not ask for. (3) Close with the separate final section （次の一手 / リスク / 代替案）: next actions named as who does what, by when, and how many; risks as the condition that breaks a premise and its impact; alternatives as the switch if a premise breaks, with sensitivity where you can give it. (4) If the conversation or the provided context contains relevant past plans or data, propose combining them — as a proposal only; never write as if past data exists when none was provided.",
     "- Keep the added sections smaller than the body of the plan. The plan itself, at decision-ready specificity, is the deliverable.",
