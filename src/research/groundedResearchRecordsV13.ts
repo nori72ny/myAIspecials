@@ -1248,6 +1248,174 @@ function recordsClaimsAreSemanticDuplicates(
 }
 
 /**
+ * Minimum shared core bigrams for the cross-source duplicate layer
+ * (R-PR-9f): digit-stripped content-skeleton bigrams shared by both
+ * claims. The value sits between the measured merge pairs of the
+ * 2026-11-16 re-measurement (minimum 4: the B-04 slot pair and the
+ * B-06 ministry-attribution pair) and the highest measured
+ * distinct-claim pair on the same subject (3: two different facts
+ * about the same tax, sharing only the subject and the verb). The
+ * numeric signature below does the heavy lifting; this floor only
+ * confirms the two texts talk about the same thing at all.
+ */
+const RECORDS_CLAIM_CROSS_SOURCE_MIN_CORE_BIGRAMS = 4;
+
+/**
+ * Digit runs of a claim (R-PR-9f), split by parenthesised spans.
+ * The unbracketed runs are the claim's value signature: unlike
+ * `recordsNumericTokens` they keep single digits and carry no
+ * suffix requirement, because a one-digit difference is exactly a
+ * different value (生後2か月 vs 生後6か月 — invisible to the
+ * filtered extraction, whose suffix rule exists for the render
+ * check's quote matching, not for value identity). Runs inside
+ * （）/() spans are annotations: Japanese excerpts put
+ * supplementary matter there — a period spelled out （1月〜12月）,
+ * an edition year （2025年度版）, a population qualifier
+ * （18歳以上） — which restates or frames the claim instead of
+ * stating its values. Form normalization matches the established
+ * rule (NFKC, commas stripped); values are never converted or
+ * rounded into equivalence.
+ */
+function recordsClaimDigitRuns(text: string): {
+  unbracketed: string[];
+  bracketed: string[];
+} {
+  const nfkc = text.normalize("NFKC");
+  let unbracketedText = "";
+  let bracketedText = "";
+  let depth = 0;
+  for (const ch of nfkc) {
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth > 0) bracketedText += ch;
+    else unbracketedText += ch;
+  }
+  const runs = (part: string): string[] => {
+    const values: string[] = [];
+    for (const match of part.match(/\d[\d,]*(?:\.\d+)?/g) ?? []) {
+      const value = match.replace(/,/g, "");
+      if (!values.includes(value)) values.push(value);
+    }
+    return values;
+  };
+  return { unbracketed: runs(unbracketedText), bracketed: runs(bracketedText) };
+}
+
+/**
+ * Subject-position tax names of a normalized claim (R-PR-9f): kanji
+ * / katakana compounds ending in 税 and followed by a case particle
+ * or 及. This is the one named-subject family the measurements
+ * proved decidable without a dictionary — the R-PR-8 distinct-fact
+ * pair at Dice 0.750 was two different taxes （所得税 vs 住民税）
+ * stating the same filing period, and excerpt pairs about
+ * different taxes can share their whole verbal frame (filing,
+ * period, the same dates), so no overlap measure separates them;
+ * only the subject does. Verb uses （課税されます) never match:
+ * the compound must stand in subject position, before a particle.
+ */
+const RECORDS_CLAIM_TAX_SUBJECT_PATTERN = /[一-鿿ァ-ヶー]*税(?=[はがのをにへとも]|及)/g;
+
+function recordsClaimTaxSubjects(normalizedClaim: string): ReadonlySet<string> {
+  return new Set(normalizedClaim.match(RECORDS_CLAIM_TAX_SUBJECT_PATTERN) ?? []);
+}
+
+/** Precomputed per-claim features for the cross-source layer. */
+interface RecordsClaimCrossSourceFeatures {
+  /** Bigrams of the digit-stripped content skeleton. */
+  coreBigrams: ReadonlySet<string>;
+  unbracketedDigitRuns: string[];
+  bracketedDigitRuns: string[];
+  taxSubjects: ReadonlySet<string>;
+  negated: boolean;
+  skeletonBigramCount: number;
+}
+
+function recordsClaimCrossSourceFeatures(text: string): RecordsClaimCrossSourceFeatures {
+  const normalized = normalizedRecordsText(text);
+  const skeleton = recordsClaimSkeleton(normalized);
+  const digitRuns = recordsClaimDigitRuns(text);
+  return {
+    coreBigrams: recordsClaimSkeletonBigrams(skeleton.replace(/[0-9]/g, "")),
+    unbracketedDigitRuns: digitRuns.unbracketed,
+    bracketedDigitRuns: digitRuns.bracketed,
+    taxSubjects: recordsClaimTaxSubjects(normalized),
+    negated: RECORDS_CLAIM_NEGATION_PATTERN.test(normalized),
+    skeletonBigramCount: recordsClaimSkeletonBigrams(skeleton).size,
+  };
+}
+
+/**
+ * Cross-source duplicate judgement (R-PR-9f): the third dedup
+ * layer, consulted only for pairs the exact key and the semantic
+ * layer both missed. It exists for the shape the 2026-11-16
+ * re-measurement observed (adjudication §"後退の主因" 2): the same
+ * claim restated by INDEPENDENT source excerpts — selection units
+ * and recomposition material — whose phrasings share almost no
+ * surface mass (skeleton Dice 0.34–0.78, far under the semantic
+ * layer's bar, which was calibrated on one model restating its own
+ * claims). For such pairs the claim's identity is its value
+ * signature plus a shared topic core, so the judgement is:
+ * - negation symmetry and the minimum-mass guard, unchanged from
+ *   the semantic layer;
+ * - the unbracketed digit-run sequences must be compatible under
+ *   the same subsequence rule as the numeric guard (both empty is
+ *   compatible; exactly one side empty is NOT — a refinement keeps
+ *   its own bullet), so any substituted or one-sided value blocks
+ *   the merge, including single-digit values;
+ * - bracketed (annotation) digit runs never block on one side —
+ *   they are supplementary by construction — but when both sides
+ *   carry them they must be compatible;
+ * - a subject-tax veto: when both claims name a subject-position
+ *   tax and the names differ, the claims are about different
+ *   taxes and never merge, however much frame they share;
+ * - at least RECORDS_CLAIM_CROSS_SOURCE_MIN_CORE_BIGRAMS shared
+ *   digit-stripped skeleton bigrams, confirming a shared topic.
+ * A claim whose values are not contained in the surviving claim's
+ * signature is therefore never dropped — the layer only ever
+ * merges restatements whose every stated value the survivor also
+ * states (or a superset of them).
+ */
+function recordsClaimsAreCrossSourceDuplicates(
+  a: RecordsClaimCrossSourceFeatures,
+  b: RecordsClaimCrossSourceFeatures,
+): boolean {
+  if (a.negated !== b.negated) return false;
+  if (
+    a.skeletonBigramCount < RECORDS_CLAIM_SKELETON_MIN_BIGRAMS ||
+    b.skeletonBigramCount < RECORDS_CLAIM_SKELETON_MIN_BIGRAMS
+  ) {
+    return false;
+  }
+  if (!recordsNumericSequencesCompatible(a.unbracketedDigitRuns, b.unbracketedDigitRuns)) {
+    return false;
+  }
+  if (
+    a.bracketedDigitRuns.length > 0 &&
+    b.bracketedDigitRuns.length > 0 &&
+    !recordsNumericSequencesCompatible(a.bracketedDigitRuns, b.bracketedDigitRuns)
+  ) {
+    return false;
+  }
+  if (a.taxSubjects.size > 0 && b.taxSubjects.size > 0) {
+    if (
+      a.taxSubjects.size !== b.taxSubjects.size ||
+      [...a.taxSubjects].some((subject) => !b.taxSubjects.has(subject))
+    ) {
+      return false;
+    }
+  }
+  let shared = 0;
+  for (const gram of a.coreBigrams) if (b.coreBigrams.has(gram)) shared += 1;
+  return shared >= RECORDS_CLAIM_CROSS_SOURCE_MIN_CORE_BIGRAMS;
+}
+
+/**
  * Deterministic rendering of the adopted records (design §7). The body
  * is the accepted records in the order the model returned them, each as
  * one bullet carrying the citation token the app derives from the
@@ -1261,7 +1429,8 @@ function recordsClaimsAreSemanticDuplicates(
  * claim text is identical are rendered once, with their citations
  * merged onto the surviving bullet (R-PR-8a); records the exact key
  * misses but the semantic layer judges the same claim are merged the
- * same way (R-PR-9e).
+ * same way (R-PR-9e), and pairs both of those miss can still merge
+ * under the cross-source layer (R-PR-9f).
  */
 export function renderGroundedResearchRecordsAnswer(
   accepted: readonly GroundedResearchAcceptedRecord[],
@@ -1289,10 +1458,19 @@ export function renderGroundedResearchRecordsAnswer(
   // under different source tags. The layer is display-only like the
   // key it extends: validation, coverage and every other gate keep
   // operating on the un-merged record set.
+  //
+  // Cross-source layer (R-PR-9f): a record both of those miss is
+  // also merged onto the first surviving entry the cross-source
+  // judgement (recordsClaimsAreCrossSourceDuplicates) calls the
+  // same claim — the restatement of one claim by independent source
+  // excerpts the 2026-11-16 re-measurement observed (B-01 / B-05 /
+  // B-06 / B-10), whose surface overlap is too dilute for the
+  // semantic layer. Display-only on the same terms.
   const bodyEntries: {
     text: string;
     citations: string[];
     features: RecordsClaimDuplicateFeatures;
+    crossFeatures: RecordsClaimCrossSourceFeatures;
   }[] = [];
   const bodyIndexByClaim = new Map<string, number>();
   for (const record of accepted) {
@@ -1300,6 +1478,7 @@ export function renderGroundedResearchRecordsAnswer(
     const citation = `[${record.sourceId}](${source?.url ?? ""})`;
     const claimKey = normalizedRecordsText(record.text).replace(/、/g, "").replace(/[。.]$/u, "");
     const features = recordsClaimDuplicateFeatures(record.text);
+    const crossFeatures = recordsClaimCrossSourceFeatures(record.text);
     let existingIndex = bodyIndexByClaim.get(claimKey);
     if (existingIndex === undefined) {
       const semanticIndex = bodyEntries.findIndex((entry) =>
@@ -1308,8 +1487,14 @@ export function renderGroundedResearchRecordsAnswer(
       if (semanticIndex >= 0) existingIndex = semanticIndex;
     }
     if (existingIndex === undefined) {
+      const crossIndex = bodyEntries.findIndex((entry) =>
+        recordsClaimsAreCrossSourceDuplicates(entry.crossFeatures, crossFeatures),
+      );
+      if (crossIndex >= 0) existingIndex = crossIndex;
+    }
+    if (existingIndex === undefined) {
       bodyIndexByClaim.set(claimKey, bodyEntries.length);
-      bodyEntries.push({ text: record.text, citations: [citation], features });
+      bodyEntries.push({ text: record.text, citations: [citation], features, crossFeatures });
     } else {
       const entry = bodyEntries[existingIndex];
       if (entry && !entry.citations.includes(citation)) entry.citations.push(citation);
@@ -2754,7 +2939,31 @@ export function renderGroundedResearchFactSlotAnswer(
   language: "ja" | "en",
 ): string {
   const headline = `${sentence} [${source.id}](${source.url})`;
-  const tail = renderGroundedResearchRecordsAnswer(supportRecords, packet, language).replace(/^\n/u, "");
+  // Cross-source dedup against the headline (R-PR-9f): the support
+  // records render through the shared renderer, whose dedup layers
+  // compare them only with each other — the slot sentence itself is
+  // composed here, outside that list, so a support record that
+  // restates the slot's own claim was rendered a second time below
+  // its headline (the 2026-11-16 measurement's B-04 shape: headline,
+  // quote, and bullet all stating the self-burden). A support record
+  // the cross-source judgement calls the same claim as the slot
+  // sentence is therefore dropped from the tail. Display-only, like
+  // the renderer's layers: adoption, coverage, the evidence block
+  // and the post-render check keep operating on the full support
+  // set, the dropped record's source stays in the full source list,
+  // and its agreement is already surfaced by the evidence block's
+  // agreement count. The dropped record's citation is not merged
+  // onto the headline — the headline carries the slot's own
+  // verified citation, which is the claim's support.
+  const slotFeatures = recordsClaimCrossSourceFeatures(sentence);
+  const tailRecords = supportRecords.filter(
+    (record) =>
+      !recordsClaimsAreCrossSourceDuplicates(
+        slotFeatures,
+        recordsClaimCrossSourceFeatures(record.text),
+      ),
+  );
+  const tail = renderGroundedResearchRecordsAnswer(tailRecords, packet, language).replace(/^\n/u, "");
   const candidate = evaluation.candidate;
   if (candidate === null) {
     return `${headline}\n\n${tail}`;
