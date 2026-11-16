@@ -28,6 +28,8 @@ import {
   originAnswerQualityInstruction,
   resolveOriginAnswerQualityPolicy,
 } from "../lib/orchestration/OriginAnswerQualityPolicy";
+import { ORIGIN_BUSINESS_PLANNING_BRIEFS } from "../lib/orchestration/OriginBusinessPlanningBriefs";
+import { detectOriginBusinessPlanningKind } from "../lib/orchestration/OriginBusinessPlanning";
 
 describe("originChatResponsePolicy", () => {
   it.each([
@@ -659,5 +661,38 @@ describe("routing calibration (2026-11-16 measurement)", () => {
   ])("requiresOriginGroundedResearch(%s) === %s", (message, expected) => {
     expect(requiresOriginGroundedResearch(message)).toBe(expected);
     expect(requiresOriginCurrentInformation(message)).toBe(expected);
+  });
+});
+
+describe("planning routing (2026-11-16 production measurement BP-3 / BP-6)", () => {
+  // The fixed planning/marketing briefs ask for framework answers, not
+  // retrieved facts: every brief stays on the normal path, where the
+  // planning profile's assumption discipline governs its figures. In
+  // production (aade75ea) BP-3 and BP-6 were pulled into the grounded
+  // path and failed closed with the 35-character no-sources hold —
+  // BP-3 via the unfenced 「いま」 inside 「検討しています」 (fenced by
+  // the routing calibration above), BP-6 via 「仕様書」 + 「新製品」
+  // matching the price-with-product signal pair.
+  it.each(ORIGIN_BUSINESS_PLANNING_BRIEFS.map((brief) => [brief.id, brief.prompt, brief.expectedKind] as const))(
+    "%s stays on the normal path",
+    (_id, prompt, expectedKind) => {
+      expect(detectOriginBusinessPlanningKind(prompt)).toBe(expectedKind);
+      expect(requiresOriginGroundedResearch(prompt)).toBe(false);
+      expect(requiresOriginCurrentInformation(prompt)).toBe(false);
+    },
+  );
+
+  // The exemption's boundary: a planning-shaped request that itself
+  // demands current external facts keeps the grounded path.
+  it.each([
+    // Planning detection fires (市場規模) but the latest figure itself is demanded.
+    "学習塾向け予約システム市場の最新の市場規模を教えてください。",
+    // Current competitor pricing is a live fact, planning frame or not.
+    "学習塾向け予約システム市場で、現在の競合の料金はいくらですか。",
+    // A spec request that also asks for researched current prices.
+    "新製品ローンチのマーケティング仕様書を作って。最新の競合製品の価格も調べて入れてください。",
+  ])("explicit current-fact demand stays grounded: %s", (message) => {
+    expect(requiresOriginGroundedResearch(message)).toBe(true);
+    expect(requiresOriginCurrentInformation(message)).toBe(true);
   });
 });
