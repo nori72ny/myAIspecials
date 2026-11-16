@@ -372,10 +372,10 @@ describe("adoptGroundedResearchSynthesis (synthesis salvage)", () => {
 describe("synthesis instruction structure (§5 option 1: coverage by construction)", () => {
   it("requires the source list to enumerate every packet source with its citation token", () => {
     const ja = buildGroundedResearchSynthesisInstruction("ja");
-    expect(ja).toContain("パケット内の全出典を1行に1出典ずつ漏れなく列挙");
+    expect(ja).toContain("出典情報に含まれる全出典を1行に1出典ずつ漏れなく列挙");
     expect(ja).toContain("本文で引用しなかった出典も");
     const en = buildGroundedResearchSynthesisInstruction("en");
-    expect(en).toContain("enumerates every source in the evidence packet");
+    expect(en).toContain("enumerates every provided source");
     expect(en).toContain("including sources you did not cite in the body");
   });
 

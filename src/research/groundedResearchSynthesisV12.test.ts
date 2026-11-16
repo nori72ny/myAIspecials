@@ -3,6 +3,7 @@ import type { OriginResearchSource } from "../legacy/originResearchSource";
 import {
   buildGroundedResearchSynthesisInstruction,
   buildGroundedResearchSynthesisPrompt,
+  buildGroundedResearchSynthesisRetryFeedback,
   validateGroundedResearchSynthesis,
 } from "./groundedResearchSynthesisV12";
 
@@ -56,7 +57,7 @@ describe("groundedResearchSynthesisV12", () => {
     expect(prompt).toContain('sourceAuthority_json: "secondary-reference"');
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("記憶由来の事実を追加しない");
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("信頼できないデータ");
-    expect(buildGroundedResearchSynthesisInstruction("en")).toContain("Use only the evidence packet");
+    expect(buildGroundedResearchSynthesisInstruction("en")).toContain("Use only the source information");
     expect(buildGroundedResearchSynthesisInstruction("en")).toContain("untrusted data");
     expect(buildGroundedResearchSynthesisInstruction("en")).toContain("official-domain-match");
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("一次情報へ格上げしない");
@@ -97,7 +98,7 @@ describe("groundedResearchSynthesisV12", () => {
     expect(en).toContain("End with a source list");
     expect(en).toContain("cite at least two different sources");
     expect(en).toContain("Attach each citation to the sentence that states the fact itself");
-    expect(en).toContain("cite one more related source from the packet as context");
+    expect(en).toContain("cite one more related source from the provided sources as context");
   });
 
   it("accepts a synthesis that states the packet publication date verbatim", () => {
@@ -199,6 +200,52 @@ describe("groundedResearchSynthesisV12", () => {
     expect(instruction).toContain("clean Markdown headings");
     expect(instruction).toContain("explicit Markdown table");
     expect(instruction).toContain("downstream local artifact Supervisor");
+  });
+
+  it("keeps the internal term for the evidence bundle out of model-facing prose (R1 eval REG-05)", () => {
+    // The synthesis model mirrored the internal name of the evidence
+    // bundle (「証拠パケット」 / "evidence packet") into a user-facing
+    // answer. The bundle is now described to the model only as the
+    // provided source information, the instruction explicitly forbids
+    // the internal terms in the answer, and the retry feedback uses the
+    // same plain wording. The untrusted-data delimiters keep their
+    // established names: they are structural markers, not prose.
+    const jaInstruction = buildGroundedResearchSynthesisInstruction("ja");
+    for (const line of jaInstruction.split("\n")) {
+      if (line.includes("パケット")) expect(line).toContain("使わないでください");
+    }
+    expect(jaInstruction).toContain("確認した出典");
+    const enInstruction = buildGroundedResearchSynthesisInstruction("en");
+    for (const line of enInstruction.split("\n")) {
+      if (/packet/i.test(line)) expect(line).toContain("Do not use internal terms");
+    }
+
+    const jaPrompt = buildGroundedResearchSynthesisPrompt("現在の料金を比較してください", sources, [], "ja");
+    for (const line of jaPrompt.split("\n")) {
+      if (line.includes("パケット")) {
+        expect(["信頼できない証拠パケット開始", "信頼できない証拠パケット終了"]).toContain(line);
+      }
+    }
+    const enPrompt = buildGroundedResearchSynthesisPrompt("Compare the current prices", sources, [], "en");
+    for (const line of enPrompt.split("\n")) {
+      if (/packet/i.test(line)) {
+        expect(["BEGIN UNTRUSTED EVIDENCE PACKET", "END UNTRUSTED EVIDENCE PACKET"]).toContain(line);
+      }
+    }
+
+    const material = {
+      totalFactualUnits: 5,
+      uncitedUnits: 2,
+      uncitedUnitsWithUrlLike: 0,
+      citedSourceCount: 1,
+      requiredSourceCount: 2,
+      unsupportedNumericTokens: ["999円"],
+      unsupportedNumericTokenCount: 1,
+    };
+    const jaFeedback = buildGroundedResearchSynthesisRetryFeedback(material, "UNCITED_FACTUAL_UNIT", "UNKNOWN_CITATION", "ja");
+    expect(jaFeedback).not.toContain("パケット");
+    const enFeedback = buildGroundedResearchSynthesisRetryFeedback(material, "UNCITED_FACTUAL_UNIT", "UNKNOWN_CITATION", "en");
+    expect(enFeedback).not.toMatch(/packet/i);
   });
 
   it("frames instruction-like source text as untrusted data instead of prompt instructions", () => {

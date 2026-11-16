@@ -569,8 +569,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             const synthesisResult = retryOutcome.result;
             if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
-                ? "Citation structure was checked against the retrieved HTTPS evidence packet; factual truth and publisher authority were not independently verified."
-                : "取得済みHTTPS証拠パケットとの引用構造一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
+                ? "Citation structure was checked against the retrieved source information; factual truth and publisher authority were not independently verified."
+                : "取得した出典情報との引用構造の一致を確認しました。主張の真偽や媒体の権威性を独立検証したものではありません。";
               const limitations = [
                 grounded.language === "en"
                   ? "Citations were structurally validated against retrieved sources, but claim truth, completeness, and publisher authority were not independently verified."
