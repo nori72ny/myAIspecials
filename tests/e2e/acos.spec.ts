@@ -6,7 +6,11 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.goto('/');
     await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('header').getByRole('img', { name: 'ORIGIN' })).toBeVisible();
+    // サイドバー導入（レイアウト段階1）で、PC 幅ではブランド表示は
+    // サイドバー最上部が担い、ヘッダー側のロックアップは隠れる
+    // （設計メモ SIDEBAR_LAYOUT_DESIGN_2026-11-16 §5 判断点5）。
+    await expect(page.getByTestId('origin-sidebar').getByRole('img', { name: 'ORIGIN' })).toBeVisible();
+    await expect(page.locator('header').getByRole('img', { name: 'ORIGIN' })).toHaveCount(0);
     await expect(page.getByText('Personal 2.0', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '今日は何をしますか？' })).toBeVisible();
     const commandBar = page.getByTestId('origin-home-request');
