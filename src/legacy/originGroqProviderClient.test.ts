@@ -35,8 +35,8 @@ import {
 
 // Synthetic test fixture only; not a real credential (kept clearly fake on purpose).
 const SYNTHETIC_KEY = "synthetic-groq-api-key-for-tests-only";
-const NOW_MS = Date.parse("2026-11-08T12:00:00.000Z");
-const AFTER_REVIEW_MS = Date.parse("2026-11-23T00:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-17T12:00:00.000Z");
+const AFTER_REVIEW_MS = Date.parse("2026-12-02T00:00:00.000Z");
 
 const groqEnv = { GROQ_API_KEY: SYNTHETIC_KEY } as NodeJS.ProcessEnv;
 
@@ -468,9 +468,9 @@ describe("isOriginGroqQwenRotationEnabled (kill switch, default OFF)", () => {
 });
 
 describe("executeOriginGroqProvider qwen second rotation stage", () => {
-  // Inside all three evidence windows: gpt-oss entries run 2026-11-08 to
-  // 2026-11-22, the qwen entry runs 2026-11-10 to 2026-12-10.
-  const QWEN_NOW_MS = Date.parse("2026-11-15T12:00:00.000Z");
+  // Inside all three evidence windows: gpt-oss entries run 2026-11-17 to
+  // 2026-12-01, the qwen entry runs 2026-11-10 to 2026-12-10.
+  const QWEN_NOW_MS = Date.parse("2026-11-20T12:00:00.000Z");
   const qwenEnv = { GROQ_API_KEY: SYNTHETIC_KEY, ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "true" } as NodeJS.ProcessEnv;
   const qwenSuccessBody = (content = "第3経路（第2ローテーション先）の回答です。"): Record<string, unknown> => ({
     model: ORIGIN_GROQ_QWEN_MODEL_ID,

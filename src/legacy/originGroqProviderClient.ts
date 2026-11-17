@@ -44,7 +44,7 @@ import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.
  * would send, the completion allowance is what remains under the ceiling, and when
  * even a minimal completion no longer fits, the route is skipped before any request
  * is sent (fail closed) instead of gambling on a mid-answer rate limit. The evidence
- * catalog entry is deliberately short-lived (reviewAfter 2026-11-22) and the route
+ * catalog entry is deliberately short-lived (reviewAfter 2026-12-01) and the route
  * fails closed when it expires, exactly like the other routes. The API key is used
  * only in the Authorization header; it never appears in results, errors, or logs.
  *
