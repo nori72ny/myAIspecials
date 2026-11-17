@@ -16,17 +16,17 @@ import {
   type OriginExecutionPlan,
 } from "./OriginExecutionPolicy";
 
-const DURING_MS = Date.parse("2026-11-08T12:00:00.000Z");
-const AFTER_REVIEW_MS = Date.parse("2026-11-23T00:00:00.000Z");
+const DURING_MS = Date.parse("2026-11-17T12:00:00.000Z");
+const AFTER_REVIEW_MS = Date.parse("2026-12-02T00:00:00.000Z");
 
 describe("Groq free model evidence catalog", () => {
-  it("pins the verified free model and the 2026-11-22 review deadline", () => {
+  it("pins the verified free model and the 2026-12-01 review deadline", () => {
     const entry = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG[0];
     expect(entry.providerId).toBe("groq-free");
     expect(entry.modelId).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
     expect(entry.modelId).toBe("openai/gpt-oss-120b");
-    expect(entry.verifiedAt).toBe("2026-11-08T00:00:00.000Z");
-    expect(entry.reviewAfter).toBe("2026-11-22T00:00:00.000Z");
+    expect(entry.verifiedAt).toBe("2026-11-17T00:00:00.000Z");
+    expect(entry.reviewAfter).toBe("2026-12-01T00:00:00.000Z");
     expect(entry.sourceDescription).toContain("ZDR");
     expect(entry.sourceDescription).toContain("8,000 tokens/minute");
   });
@@ -60,8 +60,8 @@ describe("Groq free model evidence catalog", () => {
     expect(entry.providerId).toBe("groq-free");
     expect(entry.modelId).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
     expect(entry.modelId).toBe("openai/gpt-oss-20b");
-    expect(entry.verifiedAt).toBe("2026-11-08T00:00:00.000Z");
-    expect(entry.reviewAfter).toBe("2026-11-22T00:00:00.000Z");
+    expect(entry.verifiedAt).toBe("2026-11-17T00:00:00.000Z");
+    expect(entry.reviewAfter).toBe("2026-12-01T00:00:00.000Z");
     expect(entry.sourceDescription).toContain("per model");
     expect(entry.sourceDescription).toContain("8,000 tokens/minute");
     expect(entry.sourceDescription).toContain("NOT been re-verified");
@@ -125,13 +125,13 @@ describe("Groq free model evidence catalog", () => {
     expect(entry.sourceDescription).toContain("ORIGIN_GROQ_QWEN_ROTATION_ENABLED");
   });
 
-  it("selects the qwen evidence inside its own window, which opens after the primary window", () => {
+  it("selects the qwen evidence inside its own window", () => {
     const qwenDuringMs = Date.parse("2026-11-15T12:00:00.000Z");
     const result = selectCurrentOriginGroqFreeModelById(undefined, ORIGIN_GROQ_QWEN_MODEL_ID, qwenDuringMs);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.model.modelId).toBe("qwen/qwen3.8-27b");
     // Before its verifiedAt the qwen entry is not yet usable either.
-    const tooEarly = selectCurrentOriginGroqFreeModelById(undefined, ORIGIN_GROQ_QWEN_MODEL_ID, DURING_MS);
+    const tooEarly = selectCurrentOriginGroqFreeModelById(undefined, ORIGIN_GROQ_QWEN_MODEL_ID, Date.parse("2026-11-08T12:00:00.000Z"));
     expect(tooEarly).toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
   });
 
@@ -140,7 +140,7 @@ describe("Groq free model evidence catalog", () => {
       entry.modelId === ORIGIN_GROQ_QWEN_MODEL_ID
         ? { ...entry, verifiedAt: "2026-10-26T00:00:00.000Z", reviewAfter: "2026-11-05T00:00:00.000Z" }
         : entry);
-    const qwenDuringMs = Date.parse("2026-11-15T12:00:00.000Z");
+    const qwenDuringMs = Date.parse("2026-11-20T12:00:00.000Z");
     expect(selectCurrentOriginGroqFreeModelById(lapsedQwenCatalog, ORIGIN_GROQ_QWEN_MODEL_ID, qwenDuringMs))
       .toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
     const primary = selectCurrentOriginGroqFreeModel(lapsedQwenCatalog, qwenDuringMs);
@@ -181,7 +181,7 @@ describe("buildOriginGroqRoutePlan", () => {
       requireZeroDataRetention: true,
     });
     expect(result.plan.modelEvidence.providerId).toBe("groq-free");
-    expect(result.plan.modelEvidence.reviewAfter).toBe("2026-11-22T00:00:00.000Z");
+    expect(result.plan.modelEvidence.reviewAfter).toBe("2026-12-01T00:00:00.000Z");
   });
 
   it("refuses to build the route plan once the evidence is stale", () => {

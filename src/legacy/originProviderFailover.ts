@@ -1589,7 +1589,7 @@ function circuitPrimaryError(circuit: OriginPrimaryCircuitState, options: Origin
  * until the owner registers the key. With the key, the route is raced against the
  * same total budget as the second route, its executor enforces the 8,000
  * tokens/minute ceiling before sending, and its evidence catalog entry expires on
- * 2026-11-22, after which the route disables itself (fail closed). Inside the
+ * 2026-12-01, after which the route disables itself (fail closed). Inside the
  * route, the executor may rotate once from openai/gpt-oss-120b to
  * openai/gpt-oss-20b (a separate per-model quota bucket with its own catalog
  * evidence) when the primary model fails with a rate-limit or overload error;
