@@ -64,7 +64,7 @@ export default function OriginSidebar({
         inert={!open}
         data-open={open}
         className={`origin-sidebar-safe-area origin-sidebar fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[85vw] flex-col border-r border-origin-border lg:static lg:z-auto lg:shrink-0 lg:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full lg:hidden'
+          open ? 'translate-x-0' : '-translate-x-full lg:-ml-[280px]'
         }`}
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2">
