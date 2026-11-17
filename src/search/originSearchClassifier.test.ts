@@ -413,6 +413,26 @@ describe("routing calibration (2026-11-16 measurement)", () => {
     expect(classifyOriginSearchQuestion("原価800円に25%の利益を乗せると、売値はいくらですか？").rule).toBe("deterministic-calculation");
   });
 
+  // 2026-11-17 re-measurement (H-06 / H-08): self-contained questions
+  // whose inputs are all inside the question — a ratio split and a
+  // supplied-rate conversion — were classified no_search here but then
+  // promoted by the response policy's bare price-question fallback and
+  // self-destructed on unrelated sources. The deterministic-calculation
+  // guard now recognises both shapes at this layer too.
+  it("keeps self-contained ratio splits and supplied-rate conversions on the deterministic-calculation path (H-06 / H-08)", () => {
+    const ratio = classifyOriginSearchQuestion("30万円を3対2の割合で2人に分けると、それぞれいくらですか？");
+    expect(ratio.type).toBe("no_search");
+    expect(ratio.rule).toBe("deterministic-calculation");
+    const conversion = classifyOriginSearchQuestion("1ドル=150円のとき、350ドルは日本円でいくらですか？");
+    expect(conversion.type).toBe("no_search");
+    expect(conversion.rule).toBe("deterministic-calculation");
+  });
+
+  it("still routes live-rate demands to market (H-08 counter-shapes)", () => {
+    expect(classifyOriginSearchQuestion("現在のドル円の為替レートはいくらですか？").type).toBe("market");
+    expect(classifyOriginSearchQuestion("最新の為替レートで、350ドルは日本円でいくらですか？").type).toBe("market");
+  });
+
   it("does not read the polite verb ending います as the freshness marker いま (H-09)", () => {
     const result = classifyOriginSearchQuestion("定員40人の75%は何人いますか？");
     expect(result.type).toBe("no_search");

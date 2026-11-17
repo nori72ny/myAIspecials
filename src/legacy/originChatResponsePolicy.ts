@@ -109,6 +109,43 @@ function isDeterministicQuantitativeRequest(message: string): boolean {
   return hasNumbers && asksCalculation;
 }
 
+function isSelfContainedCalculationRequest(message: string): boolean {
+  // Self-contained calculation / conversion (routing calibration,
+  // 2026-11-17 re-measurement H-06 / H-08): every input is inside the
+  // question — an amount plus an explicit ratio to split by, or an
+  // explicit rate equation plus the amount to convert — so the
+  // grounded path can only fetch unrelated sources and discard the
+  // question (H-06 was discarded over an unrelated Wikipedia page;
+  // H-08 returned only a note that the sources held no exchange rate).
+  // Both shapes slipped past the exemptions above (the ratio is not a
+  // percentage, the 万 in 30万円 breaks the plain amount pattern, and
+  // the result cue is a bare いくらですか) and were promoted by this
+  // policy's own bare price-question fallback at the bottom. The
+  // freshness guard is the same one the other arithmetic exemptions
+  // use: a question that itself demands a current external value
+  // ("最新の為替レートで…", "為替レートが今いくらか") keeps the
+  // grounded path exactly as before.
+  if (hasExplicitExternalFreshnessIntent(message)) return false;
+  const normalized = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
+  if (!/\d/.test(normalized)) return false;
+  // Thousands separators were stripped in the normalization above, so
+  // the amount pattern only faces a plain digit run plus an optional
+  // single trailing separator — no overlapping quantifiers (CodeQL
+  // js/polynomial-redos). A decimal amount still counts, and counts
+  // once: its final digit run sits next to the unit. The ratio check
+  // below needs only a digit on each side of the separator, because a
+  // ratio number always starts and ends with a digit.
+  const suppliedAmountPattern = /(?:\d+[.,]?\s*(?:万|億)?\s*(?:円|ドル|ユーロ|ポンド|USD|JPY|EUR|GBP)|[$€£]\s*\d+[.,]?)/gi;
+  const suppliedAmounts = normalized.match(suppliedAmountPattern) ?? [];
+  if (suppliedAmounts.length === 0) return false;
+  const ratioSplit = /\d\s*(?:対|:)\s*\d/.test(normalized)
+    && /(?:分け|配分|それぞれ|いくら|何円|何ドル)|\b(?:split|divide|each)\b/i.test(normalized);
+  const rateEquation = /(?:1\s*(?:ドル|ユーロ|ポンド|USD|EUR|GBP)\s*=\s*\d[\d,.]*\s*(?:円|JPY)|1\s*(?:円|JPY)\s*=\s*\d[\d,.]*\s*(?:ドル|ユーロ|ポンド|USD|EUR|GBP))/i.test(normalized);
+  const rateConversion = rateEquation && suppliedAmounts.length >= 2
+    && /(?:いくら|何円|何ドル|何ユーロ|何ポンド|換算|日本円|円で)|\bhow much\b|\bconvert\b/i.test(normalized);
+  return ratioSplit || rateConversion;
+}
+
 function isProvidedPriceDecisionRequest(message: string): boolean {
   if (hasExplicitExternalFreshnessIntent(message)) return false;
   const normalized = message.toLowerCase();
@@ -207,6 +244,7 @@ export function requiresOriginCurrentInformation(message: string): boolean {
     || isStableEnglishTopicExplanationRequest(message)
     || isSuppliedPriceArithmeticRequest(message)
     || isDeterministicQuantitativeRequest(message)
+    || isSelfContainedCalculationRequest(message)
     || isProvidedPriceDecisionRequest(message)
     || isBusinessPlanningRequest(message)
   ) return false;

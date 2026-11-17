@@ -613,6 +613,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               }),
             });
             const adoption = retryOutcome.adoption;
+            if (adoption.redactionRemnantsRemoved) {
+              // Redaction-remnant scrub observability (A-02 fix):
+              // counts only — no answer text, unit text, or marker
+              // context is ever logged.
+              console.info("[origin-chat] research synthesis redaction remnants scrubbed", {
+                requestId,
+                redactionRemnantsRemoved: adoption.redactionRemnantsRemoved,
+                redactionUnitsDropped: adoption.redactionUnitsDropped ?? 0,
+              });
+            }
             // The execution result the rest of this branch consumes: the
             // retry's when a retry ran and was adopted, otherwise the
             // initial one.
