@@ -166,7 +166,7 @@
 [data-testid="origin-core-logo"] .origin-logo-glow {
   inset: -5px !important;
   border-radius: 999px !important;
-  background: radial-gradient(circle, rgb(37 64 143 / 26%) 0%, rgb(96 131 214 / 12%) 40%, transparent 72%) !important;
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent-primary) 24%, transparent) 0%, color-mix(in oklch, var(--accent-primary) 10%, transparent) 40%, transparent 72%) !important;
   filter: blur(10px) !important;
   opacity: .72 !important;
 }
@@ -622,6 +622,7 @@
   color: #ffffff;
   box-shadow: 0 6px 18px rgb(15 23 42 / 22%);
   backdrop-filter: blur(8px);
+  font-family: var(--font-brand);
   font-size: 13px;
   line-height: 1.4;
   text-align: center;

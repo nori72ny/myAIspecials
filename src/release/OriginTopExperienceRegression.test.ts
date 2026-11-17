@@ -83,9 +83,9 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(auditCss).not.toContain('--accent-hover:');
     expect(auditCss).not.toContain('--accent-soft:');
     expect(auditCss).not.toContain('.origin-primary-button');
-    expect(indexCss).toContain('--accent-primary: oklch(0.37 0.115 272);');
-    expect(indexCss).toContain('--accent-hover: oklch(0.31 0.115 272);');
-    expect(indexCss).toContain('--accent-border: oklch(0.80 0.05 268);');
+    expect(indexCss).toContain('--accent-primary: oklch(0.53 0.09 262);');
+    expect(indexCss).toContain('--accent-hover: oklch(0.47 0.09 262);');
+    expect(indexCss).toContain('--accent-border: oklch(0.83 0.038 262);');
   });
 
   it('locks the canonical Release 2 composer instead of the superseded flagship treatment', () => {
