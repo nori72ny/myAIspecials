@@ -664,6 +664,12 @@ describe('AgentWorkspaceView v3', () => {
     expect(within(panel).getByText('富士山は標高3,776mの日本最高峰です。')).toBeTruthy();
     expect(within(panel).getByText('出典2件 · 12秒')).toBeTruthy();
     expect(within(panel).getByText('文書を作っています')).toBeTruthy();
+    // 実況パネルのオリンは、制作系ステップ（document_generator）の
+    // 実行中は専用の「作っている」静止画になる（M2、2026-11-18）。
+    await waitFor(() => {
+      expect(within(panel).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('making');
+      expect(within(panel).getByTestId('origin-cat-state').getAttribute('src')).toBe('/brand/origin-cat-making.webp');
+    });
 
     // Completion: the delivered artifact is the research sources
     // JSON, rendered as source cards — the raw JSON never appears.

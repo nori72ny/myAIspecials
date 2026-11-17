@@ -26,17 +26,22 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 同じく size 基準で決まるため、猫の大きさ自体は変わらない。
  * 本命の修正は透過背景アセットへの差し替え（猫ホスト化フェーズ）。
  */
-export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'waiting' | 'done' | 'sorry' | 'sleep';
+export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'making' | 'waiting' | 'done' | 'sorry' | 'sleep';
 
 export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
   idle: '/brand/origin-cat.webp',
   thinking: '/brand/origin-cat-thinking.webp',
   // 「調べている」は作業中（working）から分離した専用の状態（動きの
-  // 作り直し第1段、2026-11-13）。専用アセットは第2段で制作するため、
-  // 第1段では視線が上〜横を向く thinking の静止画を暫定的に使う。
+  // 作り直し第1段、2026-11-13）。第1段では thinking の静止画を暫定
+  // 流用していたが、第2段（M1／M2、2026-11-18）で専用静止画
+  // （顔を上げて見回す姿、検収 9.4）に差し替えた。
   // 差し替えはこの1か所だけで全配置に効く。
-  searching: '/brand/origin-cat-thinking.webp',
+  searching: '/brand/origin-cat-searching.webp',
   working: '/brand/origin-cat-working.webp',
+  // 「作っている」は成果物を作成している場面専用の状態（動きの
+  // 作り直し第2段、2026-11-18）。鉛筆で紙に描く姿の静止画
+  // （検収 9.2）。画像生成中とエージェントの制作系ステップから使う。
+  making: '/brand/origin-cat-making.webp',
   waiting: '/brand/origin-cat-waiting.webp',
   done: '/brand/origin-cat-done.webp',
   sorry: '/brand/origin-cat-sorry.webp',

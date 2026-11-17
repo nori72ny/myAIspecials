@@ -491,8 +491,10 @@ export default function AgentWorkspaceView() {
   const researchArtifact = useMemo(() => parseAgentResearchArtifact(artifact), [artifact]);
 
   // 実況パネルのオリンは、実行中ステップがウェブ調査のときは専用の
-  // 「調べている」状態にする（working からの分離、動きの作り直し
-  // 第1段 PR-β）。それ以外は従来のフェーズ連動のまま。
+  // 「調べている」状態にし、成果物を作るステップ（文書・ファイル・
+  // 画像の下ごしらえ）のときは「作っている」状態にする（working
+  // からの分離、動きの作り直し第1段 PR-β／第2段 2026-11-18）。
+  // それ以外は従来のフェーズ連動のまま。
   const livePanelCatState: OriginCatStateKind = (() => {
     if (liveSession && liveRunView) {
       const runningIndex = liveSession.steps.findIndex((_, index) => {
@@ -500,6 +502,7 @@ export default function AgentWorkspaceView() {
         return state?.status === 'running';
       });
       if (runningIndex >= 0 && liveSession.steps[runningIndex]?.toolName === 'web_search_grounding') return 'searching';
+      if (runningIndex >= 0 && ['document_generator', 'file_writer', 'image_prompt_compiler'].includes(liveSession.steps[runningIndex]?.toolName ?? '')) return 'making';
     }
     return catStateForPhase(phase, checkingCapability, ready);
   })();
