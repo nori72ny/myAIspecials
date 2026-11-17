@@ -1,4 +1,5 @@
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
+import { buildOriginBusinessCalendarAnchor } from "./OriginBusinessCalendarAnchor.js";
 
 // Business planning & marketing capability for chat answers.
 //
@@ -414,11 +415,25 @@ function formatRequiredPartsLine(kind: OriginBusinessPlanningKind): string {
   return `- Required parts for this kind — a checklist, not a suggestion: the answer must contain every part below as its own headed section, in this order, under these exact part names: ${sections.join(" / ")}.${assumptionClause} Do not omit, merge, or compress away any listed part; a part with little to say still appears and states in one line why it is small. Parts not listed for this kind are optional.`;
 }
 
-export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile): string {
+// Premise-table structure (external-consult adoption
+// EXTERNAL_CONSULT_BUSINESS_ADOPTION_2026-11-17, item 2): the answer opens
+// with a table that fixes every figure's provenance before the body uses
+// it, and the body may only reference those rows. This is what makes the
+// number discipline above checkable — a figure that appears in the body
+// without a premise row, or with a different value, is a visible defect —
+// and it gives the numeric audit gate a fixed place to find each figure's
+// stated basis. The unit rule (one of 円 / 万円 throughout, never 千円)
+// removes the unit-mixing and digit-slip class the measurements kept
+// hitting (BP-4 currency mixing, 千円/万円 slips).
+const PREMISE_TABLE_LINE =
+  "- Answer structure — premise table first: before the first required section, open with a premise table listing every figure the plan uses, one row per figure, under the columns 指標 / 値 / 単位 / 対象期間 / 種別 / 根拠. 種別 is exactly one of 入力事実 (supplied by the user), 仮置き（仮定） (an assumption you are making), 計算結果 (computed from other rows — its 根拠 cell shows the formula, and for a rate the numerator and denominator it divides, e.g. 受注 120件 ÷ 商談 600件), or 未確定 (cannot be fixed from what was supplied — its 値 cell states what is missing instead of a number). After the premise table, the body only references figures that appear in it: introduce no new number in the body, and never restate a figure with a different value from its premise-table row. Amounts use exactly one unit across the whole answer — 円 or 万円, chosen once — and 千円 amounts are never written (rewrite 50千円 as 50,000円, or as 5万円 in the chosen unit).";
+
+export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile, now: Date = new Date()): string {
   return [
     "Business planning & marketing protocol (a planning/marketing request was detected; apply this playbook):",
     `- Request kind: ${profile.kind}. ${KIND_EMPHASIS[profile.kind]}`,
     formatRequiredPartsLine(profile.kind),
+    PREMISE_TABLE_LINE,
     "- What the parts must carry: 目的とゴール states the higher purpose behind the request in one line (if you inferred it, say it is your reading) and the goal in SMART form. 対象 defines who it is for — the ICP or persona by their problem and decision conditions, not demographics alone. 提供価値 states the value against that problem and the decisive difference from alternatives. 市場・競合の見立て rests on sourced facts and labels estimates as estimates. 施策とチャネル ties every measure to the funnel stage it moves.",
     "- Funnel vocabulary is fixed: リーチ -> リード -> MQL -> SQL -> 商談 -> 受注. Show the backcast from the goal backwards: goal -> required orders -> meetings -> SQL -> MQL -> leads -> reach, with the conversion rate written next to the stage it produces.",
     "- Number discipline (hard rule): every number in the plan is user-supplied, computed from user-supplied numbers by arithmetic you show, or an assumption. An assumed rate, price, or volume must be visibly labelled 「仮置き（仮定）」 at the point of use, with a note that it will be calibrated once actual results exist. Never fill a missing figure with a plausible-looking number presented as fact, and never raise a rate to make the plan appear to reach the goal — if the numbers do not close the gap, say plainly that they do not close it and show the size of the remaining gap.",
@@ -428,6 +443,11 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
     "- Beyond-the-request actions, within the plan only: (1) fill missing premises as explicit assumptions — ask at most one short question, and only when the answer would materially change the plan; otherwise proceed with a one-line stated premise. (2) Design to the higher purpose behind the request, but do not add deliverable types the user did not ask for. (3) Close with the separate final section （次の一手 / リスク / 代替案）: next actions named as who does what, by when, and how many; risks as the condition that breaks a premise and its impact; alternatives as the switch if a premise breaks, with sensitivity where you can give it. (4) If the conversation or the provided context contains relevant past plans or data, propose combining them — as a proposal only; never write as if past data exists when none was provided.",
     "- Keep the added sections smaller than the body of the plan. The plan itself, at decision-ready specificity, is the deliverable.",
     ...formatBackcastBlock(profile),
+    // Calendar anchor last (adoption item 1): the precomputed JST date
+    // table sits at the end of the planning instruction — the position
+    // closest to the user's request — so dates are copied from it rather
+    // than computed by the model.
+    buildOriginBusinessCalendarAnchor(now),
   ].join("\n");
 }
 
@@ -452,6 +472,15 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
 // what is not negotiable — the parts themselves, assumption labelling,
 // number integrity, ownership and deadlines, and the system-computed
 // figures — is all here, in well under a third of the full length.
+//
+// The premise table and the calendar anchor (external-consult adoption
+// 2026-11-17, items 1-2) are deliberately NOT carried here: the route-3
+// addendum is pinned to at most 1,700 characters by the route's token
+// budget (originChatResponsePolicy.test.ts), and the compact text for
+// the largest fixed brief already runs to 1,668 characters, so neither
+// block fits without raising the pinned budget. They ride on routes 1-2
+// via the full instruction above; carrying them on route 3 is a separate
+// budget decision, not a silent omission.
 // ---------------------------------------------------------------------------
 
 function formatGroqBackcastLines(profile: OriginBusinessPlanningProfile): string[] {
