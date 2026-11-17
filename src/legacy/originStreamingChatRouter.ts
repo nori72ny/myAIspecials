@@ -15,6 +15,7 @@ import {
   type OriginBusinessPlanningAuditGateOutcome,
 } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
+import { logOriginPublicationGateShadow } from "../lib/orchestration/OriginPublicationGate.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
@@ -261,6 +262,13 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       }
       let assertionGateReplaced = false;
       let auditGateOutcome: OriginBusinessPlanningAuditGateOutcome | null = null;
+      // Publication gate, stage 1 shadow (EXTERNAL_CONSULT_STALE_ADOPTION
+      // _2026-11-17 adoptions 1–2): the exact text this branch delivers
+      // as the answer body, captured for the log-only detector below.
+      // Deck paths replace the body with their own deterministic
+      // rendering and stay out of scope (null), exactly as they are for
+      // the numeric audit gate.
+      let publicationGateAnswerText: string | null = null;
       // PR-3a / D-PR-6 deck outcomes, filled by whichever deck path
       // runs below and consumed by the completion log and event.
       let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
@@ -297,6 +305,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           : { replaced: false, text: result.text };
         assertionGateReplaced = assertionGate.replaced;
         if (assertionGate.replaced) {
+          publicationGateAnswerText = assertionGate.text;
           emitDelta(assertionGate.text);
         } else if (auditGateArmed) {
           auditGateOutcome = applyOriginBusinessPlanningAuditGate({
@@ -307,10 +316,16 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
             now: new Date(now()),
             language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
           });
+          publicationGateAnswerText = auditGateOutcome.answerText;
           emitDelta(auditGateOutcome.answerText);
         } else {
+          publicationGateAnswerText = result.text;
           for (const buffered of bufferedDeltas) emitDelta(buffered);
         }
+      } else if (!deckRequested) {
+        // Plain incremental streaming: the delivered body is the model
+        // answer itself, already forwarded delta by delta above.
+        publicationGateAnswerText = result.text;
       }
       if (!downstreamStarted) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
@@ -350,6 +365,17 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // skipped to avoid counting the same answer twice.
       if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced && !auditGateArmed) {
         logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text });
+      }
+      // Publication gate, stage 1 shadow: scan the delivered direct
+      // answer for evidence-required claim shapes and check its statute
+      // names against the bundled e-Gov list. Log-only — kinds and
+      // counts, never text — and the delivered stream above is never
+      // altered by it. Runs on every non-deck direct answer (including
+      // assertion-gate and audit-gate deliveries, whose final text is
+      // what the user actually receives), so the shadow counts measure
+      // the delivered surface, not the raw model output.
+      if (publicationGateAnswerText !== null && !deckRequested) {
+        logOriginPublicationGateShadow({ requestId, answerText: publicationGateAnswerText });
       }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
