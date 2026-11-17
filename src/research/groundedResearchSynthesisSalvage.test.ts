@@ -11,10 +11,13 @@ import {
  * Permanent fixtures for the UNCITED_FACTUAL_UNIT salvage
  * (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §6, cases S1–S16), for its
  * generalization to every line-local validation failure
- * (ANSWER_DELIVERY_INVESTIGATION_2026-11-16 item 2, cases G1–G8), and for
+ * (ANSWER_DELIVERY_INVESTIGATION_2026-11-16 item 2, cases G1–G8), for
+ * the salvage floor guard (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-3,
+ * cases F1–F3; S7's expectation changed under the same canon), and for
  * the coverage instruction structure (§5 option 1). The validator itself
  * is unchanged; every salvaged text below is adopted only because the
- * unchanged validator accepts it after line deletions.
+ * unchanged validator accepts it after line deletions and the adoption
+ * floor guard is satisfied.
  */
 
 function source(partial: Partial<OriginResearchSource> & Pick<OriginResearchSource, "title" | "url" | "excerpt">): OriginResearchSource {
@@ -200,18 +203,49 @@ describe("adoptGroundedResearchSynthesis (synthesis salvage)", () => {
     expect(result.salvageAbortCode).toBe("UNSUPPORTED_NUMERIC_TOKEN");
   });
 
-  it("S7: removes the orphaned heading of a section emptied by a removal", () => {
+  it("S7: removing the only conclusion unit aborts at the salvage floor guard (R-3), even though the evidence section survives", () => {
+    // This fixture's salvaged shape — the conclusion unit removed (its
+    // orphaned heading cleaned up), leaving an evidence-section-only
+    // text — was adopted when this case was written. The salvage floor
+    // guard (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-3) reclassifies
+    // exactly that shape (production type T-7, the H-08 pattern) as not
+    // adoptable: a salvage may not deliver an answer whose conclusion
+    // zone holds no substantive unit. Orphan-heading cleanup itself is
+    // still exercised by S7b below, where the conclusion survives.
     const kept = [
       "## 根拠",
       "首相官邸の閣僚名簿では、内閣総理大臣として高市早苗の名が掲載されています。[S1](https://www.kantei.go.jp/)",
       "内閣総理大臣は日本の行政の長です。[S2](https://ja.wikipedia.org/wiki/%E5%86%85%E9%96%A3%E7%B7%8F%E7%90%86%E5%A4%A7%E8%87%A3)",
     ];
     const input = ["## 結論", "現在の内閣総理大臣は高市早苗です。", ...kept].join("\n");
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, pmSources));
+    expect(result.failureCode).toBe("UNCITED_FACTUAL_UNIT");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(1);
+    // No validation code describes the floor-guard abort.
+    expect(result.salvageAbortCode).toBeUndefined();
+  });
+
+  it("S7b: removes the orphaned heading of a non-conclusion section emptied by a removal", () => {
+    const kept = [
+      "## 結論",
+      "現在の内閣総理大臣は高市早苗です。[S1](https://www.kantei.go.jp/)",
+      "## 根拠",
+      "内閣総理大臣は日本の行政の長です。[S2](https://ja.wikipedia.org/wiki/%E5%86%85%E9%96%A3%E7%B7%8F%E7%90%86%E5%A4%A7%E8%87%A3)",
+    ];
+    const input = [
+      "## 結論",
+      "現在の内閣総理大臣は高市早苗です。[S1](https://www.kantei.go.jp/)",
+      "## 補足",
+      "裏付けのない補足文です。",
+      "## 根拠",
+      "内閣総理大臣は日本の行政の長です。[S2](https://ja.wikipedia.org/wiki/%E5%86%85%E9%96%A3%E7%B7%8F%E7%90%86%E5%A4%A7%E8%87%A3)",
+    ].join("\n");
     const result = expectAdopted(adoptGroundedResearchSynthesis(input, pmSources));
     expect(result.salvaged).toBe(true);
     expect(result.removedUnits).toBe(1);
     expect(result.text).toBe(kept.join("\n"));
-    expect(result.text).not.toContain("## 結論");
+    expect(result.text).not.toContain("## 補足");
   });
 
   it("S8: never removes a unit inside a markdown table block (repro case 9)", () => {
@@ -507,6 +541,67 @@ describe("adoptGroundedResearchSynthesis (generalized line-local salvage, 2026-1
     expect(result.salvageAttempted).toBe(true);
     expect(result.salvageRemovedUnits).toBe(0);
     expect(result.salvageAbortCode).toBe("MISMATCHED_CITATION_URL");
+  });
+});
+
+describe("adoptGroundedResearchSynthesis (salvage floor guard, RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-3)", () => {
+  const singleSource: OriginResearchSource[] = [
+    source({ title: "料金資料1", url: "https://example.com/one", excerpt: "料金は100円と記載されています。" }),
+  ];
+
+  it("F1: rejects the I-03 shell — salvage leaves a conclusion section holding only a citation link", () => {
+    // Production type T-7 (I-03): the two uncited evidence lines are
+    // removed within the caps and the remainder validates — a heading
+    // plus a citation-only line as the "conclusion", with the only
+    // substantive unit sitting in the evidence section. The floor guard
+    // must refuse adoption so the caller falls back instead of
+    // delivering the shell.
+    const input = [
+      "## 結論",
+      "[S1](https://example.com/one)",
+      "## 根拠",
+      "裏付けのない補足文です。",
+      "根拠のない断定文です。",
+      "この出典でも料金について説明されています。[S1](https://example.com/one)",
+    ].join("\n");
+    expect(validateGroundedResearchSynthesis(input, singleSource)).toEqual(
+      expect.objectContaining({ ok: false, code: "UNCITED_FACTUAL_UNIT" }),
+    );
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, singleSource));
+    expect(result.failureCode).toBe("UNCITED_FACTUAL_UNIT");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(2);
+    // No validation code describes the floor-guard abort.
+    expect(result.salvageAbortCode).toBeUndefined();
+  });
+
+  it("F2: rejects a heading-less shell — salvage leaves only citation-only lines", () => {
+    const input = [
+      "[S1](https://example.com/one)",
+      "裏付けのない補足文です。",
+      "根拠のない断定文です。",
+      "[S1](https://example.com/one)",
+    ].join("\n");
+    const result = expectRejected(adoptGroundedResearchSynthesis(input, singleSource));
+    expect(result.failureCode).toBe("UNCITED_FACTUAL_UNIT");
+    expect(result.salvageAttempted).toBe(true);
+    expect(result.salvageRemovedUnits).toBe(2);
+    expect(result.salvageAbortCode).toBeUndefined();
+  });
+
+  it("F3: adopts the same shape when the conclusion keeps a substantive cited unit", () => {
+    const input = [
+      "## 結論",
+      "料金は100円と記載されています。[S1](https://example.com/one)",
+      "## 根拠",
+      "裏付けのない補足文です。",
+      "根拠のない断定文です。",
+      "この出典でも料金について説明されています。[S1](https://example.com/one)",
+    ].join("\n");
+    const result = expectAdopted(adoptGroundedResearchSynthesis(input, singleSource));
+    expect(result.salvaged).toBe(true);
+    expect(result.removedUnits).toBe(2);
+    expect(result.text).toContain("料金は100円と記載されています。");
   });
 });
 
