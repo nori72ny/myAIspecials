@@ -11,6 +11,16 @@
  * 画面が表示されている間だけ更新されるため、読み手は updatedAt の
  * 新しさを必ず確認し、古い「実行中」は信用しないこと。
  */
+
+/** 計画ステップ1件分の状態（run 記録の stepsState の状態語彙そのまま）。 */
+export type AgentActivityStepStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked';
+
+export interface AgentActivityStep {
+  /** 平易なステップタイトル（例：ウェブで調べる）。 */
+  title: string;
+  status: AgentActivityStepStatus;
+}
+
 export interface AgentActivitySummary {
   /** 終端状態でなく、実行中とみなせるか。 */
   active: boolean;
@@ -21,6 +31,13 @@ export interface AgentActivitySummary {
   currentStep: number;
   /** ステップ総数。 */
   totalSteps: number;
+  /**
+   * 計画の全ステップ（タイトル＋状態）。「いまの作業を表示」が
+   * 開くカードが、現在のステップ1行だけでなく計画全体の進捗
+   * （どのステップが終わり、どれが実行中か）を見せるために使う。
+   * 旧い報告（この項目なし）でも読み手は壊れない。
+   */
+  steps?: readonly AgentActivityStep[];
   /** 最終更新時刻（Date.now()）。 */
   updatedAt: number;
 }

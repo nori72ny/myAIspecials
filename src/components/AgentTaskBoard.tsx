@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { driveAgentRun } from '../agent/agentRunClient';
+import { formatStepDuration } from './AgentLivePanel';
+import { safeExternalUrl } from '../research/researchReport';
 
 /**
  * Task board (multitask Phase 1, PR 1-F; design §5.2 and §8.8).
@@ -27,6 +29,13 @@ import { driveAgentRun } from '../agent/agentRunClient';
  * starting a resume (PR 1-C, which re-plans and requires a fresh
  * approval before anything runs again) and cancelling a run. Changing
  * priority has no board wiring.
+ *
+ * Live detail and refresh (agent live view, board side): run details
+ * also read the steps' recorded liveDetail (PR-L1) — the pages a
+ * research step actually saw and each step's duration — and while an
+ * active (planning / queued / running) run is listed, the list is
+ * quietly re-read every 15 seconds so progress made elsewhere keeps
+ * flowing. The refresh only reads; it never drives.
  *
  * Re-driving (PR-D3, wiring design §4.5): the operator binding spans
  * every operator run across plans, so when the operator explicitly
@@ -66,6 +75,9 @@ const RUN_STATUS_LABELS: Record<string, string> = {
 };
 const KNOWN_RUN_STATUSES = new Set(Object.keys(RUN_STATUS_LABELS));
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'expired']);
+/** 自分では動けない保留・承認待ちと終端を除く、進みうる状態。 */
+const BOARD_ACTIVE_STATUSES = new Set(['planning', 'queued', 'running']);
+const BOARD_LIVE_REFRESH_MS = 15_000;
 const CANCELLABLE_STATUSES = new Set(['planning', 'awaiting_approval', 'queued', 'held']);
 
 const STEP_STATUS_LABELS: Record<string, string> = {
@@ -107,8 +119,42 @@ type RunHoldView = {
   resumeAttempts: number;
 };
 
-type RunStepStateView = { id: string; status: string; attempts: number };
+/**
+ * ステップの実況詳細（PR-L1 が run 記録に残す liveDetail）。
+ * ワークスペースの実況パネルと同じデータで、ボードの詳細でも
+ * 「見たページ」と所要時間を見せるために読む。形が合わない部分は
+ * 落とすだけで、行そのものは従来どおり表示する。
+ */
+type RunStepLiveSourceView = { title: string; url: string; domain?: string; excerpt?: string };
+type RunStepLiveDetailView = {
+  startedAt?: number;
+  finishedAt?: number;
+  query?: string;
+  sources?: RunStepLiveSourceView[];
+};
+
+type RunStepStateView = { id: string; status: string; attempts: number; liveDetail?: RunStepLiveDetailView };
 type RunPlanStepView = { toolName: string; params: Record<string, unknown> };
+
+function parseStepLiveDetail(raw: unknown): RunStepLiveDetailView | undefined {
+  if (!isRecord(raw)) return undefined;
+  const detail: RunStepLiveDetailView = {};
+  if (typeof raw.startedAt === 'number' && Number.isFinite(raw.startedAt)) detail.startedAt = raw.startedAt;
+  if (typeof raw.finishedAt === 'number' && Number.isFinite(raw.finishedAt)) detail.finishedAt = raw.finishedAt;
+  if (typeof raw.query === 'string' && raw.query) detail.query = raw.query;
+  if (Array.isArray(raw.sources)) {
+    const sources: RunStepLiveSourceView[] = [];
+    for (const item of raw.sources) {
+      if (!isRecord(item) || typeof item.title !== 'string' || typeof item.url !== 'string') continue;
+      const source: RunStepLiveSourceView = { title: item.title, url: item.url };
+      if (typeof item.domain === 'string' && item.domain) source.domain = item.domain;
+      if (typeof item.excerpt === 'string' && item.excerpt) source.excerpt = item.excerpt;
+      sources.push(source);
+    }
+    if (sources.length > 0) detail.sources = sources;
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
 
 type RunView = {
   runId: string;
@@ -169,8 +215,14 @@ function parseRunView(raw: unknown): RunView | null {
   const plan = Array.isArray(raw.plan)
     ? raw.plan.filter((step): step is RunPlanStepView => isRecord(step) && typeof step.toolName === 'string' && isRecord(step.params))
     : null;
-  const stepsState = Array.isArray(raw.stepsState)
-    ? raw.stepsState.filter((step): step is RunStepStateView => isRecord(step) && typeof step.id === 'string' && typeof step.status === 'string' && typeof step.attempts === 'number')
+  const stepsState: RunStepStateView[] = Array.isArray(raw.stepsState)
+    ? raw.stepsState.flatMap((rawStep) => {
+      if (!isRecord(rawStep) || typeof rawStep.id !== 'string' || typeof rawStep.status !== 'string' || typeof rawStep.attempts !== 'number') return [];
+      const view: RunStepStateView = { id: rawStep.id, status: rawStep.status, attempts: rawStep.attempts };
+      const liveDetail = parseStepLiveDetail(rawStep.liveDetail);
+      if (liveDetail) view.liveDetail = liveDetail;
+      return [view];
+    })
     : [];
   let hold: RunHoldView | null = null;
   if (isRecord(raw.hold) && typeof raw.hold.reason === 'string') {
@@ -377,6 +429,38 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browserPlanToken]);
 
+  // Live refresh (agent live view, board side): while the board shows
+  // a run that can still move on its own — planning / queued / running,
+  // e.g. driven by the operator path or picked up again elsewhere —
+  // re-read the list quietly so its progress keeps flowing instead of
+  // freezing at load time. Held and awaiting-approval runs never move
+  // without a fresh approval and terminal runs never move again, so
+  // the polling exists only while an active run is on screen. It never
+  // drives anything (that stays with the explicit operator load), and
+  // a failed refresh keeps the current list untouched.
+  useEffect(() => {
+    if (loadState !== 'ready' || !auth || !runs) return undefined;
+    if (!runs.some((run) => BOARD_ACTIVE_STATUSES.has(run.status))) return undefined;
+    const resolved = auth;
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch('/api/agent/v3/runs?limit=50', {
+            headers: authHeaders(resolved),
+            cache: 'no-store',
+          });
+          const data = await response.json() as { ok?: boolean; runs?: unknown };
+          if (!response.ok || data.ok !== true || !Array.isArray(data.runs)) return;
+          setRuns(data.runs.map(parseRunView).filter((run): run is RunView => run !== null));
+        } catch {
+          // Keep the list on screen; the next tick tries again.
+        }
+      })();
+    }, BOARD_LIVE_REFRESH_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadState, auth, runs]);
+
   const startResume = async (run: RunView) => {
     const resolved = auth ?? resolveAuth();
     if (!resolved) {
@@ -519,12 +603,36 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         {Array.from({ length: stepRows }, (_, index) => {
           const planStep = planSteps[index];
           const state = run.stepsState[index];
-          return <li key={planStep ? `${index}-${planStep.toolName}` : state?.id ?? index} className="flex items-center justify-between gap-3">
-            <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業'}</span>
-            <span className="text-xs text-origin-muted">
-              {state ? STEP_STATUS_LABELS[state.status] ?? '未実行' : '未実行'}
-              {state && state.attempts > 1 ? ` · ${state.attempts}回試行` : ''}
-            </span>
+          const detail = state?.liveDetail;
+          const duration = formatStepDuration(detail);
+          const sources = detail?.sources ?? [];
+          return <li key={planStep ? `${index}-${planStep.toolName}` : state?.id ?? index}>
+            <div className="flex items-center justify-between gap-3">
+              <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業'}</span>
+              <span className="text-xs text-origin-muted">
+                {state ? STEP_STATUS_LABELS[state.status] ?? '未実行' : '未実行'}
+                {state && state.attempts > 1 ? ` · ${state.attempts}回試行` : ''}
+                {duration ? ` · ${duration}` : ''}
+              </span>
+            </div>
+            {detail?.query && state && state.status !== 'queued' && (
+              <p className="mt-0.5 pl-5 text-xs leading-5 text-origin-muted">
+                「{detail.query}」で{state.status === 'running' ? '調べています' : '調べました'}
+              </p>
+            )}
+            {sources.length > 0 && (
+              <ul className="mt-1 space-y-1 pl-5">
+                {sources.map((source, sourceIndex) => {
+                  const href = safeExternalUrl(source.url);
+                  return <li key={`${source.url}-${sourceIndex}`} className="flex flex-wrap items-baseline gap-x-2 text-xs leading-5">
+                    {href
+                      ? <a href={href} target="_blank" rel="noreferrer" className="font-semibold text-[var(--accent-primary)] underline">{source.title}</a>
+                      : <span className="font-semibold">{source.title}</span>}
+                    {source.domain && <span className="text-origin-muted">{source.domain}</span>}
+                  </li>;
+                })}
+              </ul>
+            )}
           </li>;
         })}
       </ol> : <p className="text-sm text-origin-muted">計画はまだありません。</p>}

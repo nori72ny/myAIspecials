@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { currentConversationSession, withCurrentConversationSession } from './App';
+import { reportAgentActivity } from './agent/agentActivityStore';
 
 vi.mock('./creative/localRasterHistoryV15', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./creative/localRasterHistoryV15')>();
@@ -2611,6 +2612,39 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     const sheet = screen.getByTestId('origin-work-sheet');
     expect(sheet.textContent).toContain('いまは作業していません');
+  });
+
+  it('shows the agent plan steps (not just the current step) in the work sheet', () => {
+    reportAgentActivity({
+      active: true,
+      outcome: 'running',
+      stepTitle: '文書を作る',
+      currentStep: 2,
+      totalSteps: 3,
+      steps: [
+        { title: 'ウェブで調べる', status: 'completed' },
+        { title: '文書を作る', status: 'running' },
+        { title: 'テストと動作確認', status: 'queued' },
+      ],
+      updatedAt: Date.now(),
+    });
+    try {
+      render(<App language="ja" onOpenAgent={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+      const sheet = screen.getByTestId('origin-work-sheet');
+      // 項目の行は従来どおり現在のステップと n/m、行の下に計画の
+      // ステップ列（各ステップの状態）が出る。
+      expect(within(sheet).getByTestId('origin-work-sheet-agent-link')).toBeTruthy();
+      expect(sheet.textContent).toContain('2/3');
+      const steps = within(sheet).getByTestId('origin-work-sheet-steps');
+      expect(steps.textContent).toContain('ウェブで調べる');
+      expect(steps.textContent).toContain('完了');
+      expect(steps.textContent).toContain('実行中');
+      expect(steps.textContent).toContain('テストと動作確認');
+      expect(steps.textContent).toContain('まだ');
+    } finally {
+      reportAgentActivity(null);
+    }
   });
 
   it('shows the current chat stage while generating and the last completed work afterwards', async () => {

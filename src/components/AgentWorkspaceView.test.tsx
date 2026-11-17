@@ -12,6 +12,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
 }));
 
 import AgentWorkspaceView, { catStateForPhase } from './AgentWorkspaceView';
+import { getAgentActivitySnapshot, reportAgentActivity } from '../agent/agentActivityStore';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -338,6 +339,79 @@ describe('AgentWorkspaceView v3', () => {
 
     await screen.findByRole('heading', { name: '継続駆動で完成した文書' }, { timeout: 5000 });
     expect(advanceCalls).toBe(2);
+  });
+
+  it('reports the full plan step list to the shared activity summary while driving', async () => {
+    reportAgentActivity(null);
+    let midRunSteps: unknown;
+    let advanceCalls = 0;
+    const twoStepPlan = {
+      ...planResponse('web_search_grounding'),
+      steps: [
+        { toolName: 'web_search_grounding', params: { query: '検索テスト' } },
+        { toolName: 'document_generator', params: { content: '文書案を作ってください' } },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json({ ...readyStatus(), browserApprovalEnabled: true });
+      if (url === '/api/agent/v3/plan') return json(twoStepPlan, 201);
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/browser-approval') return json({ ok: true, approvalToken: 'signed-browser-approval-token' }, 201);
+      if (url === '/api/agent/v3/runs') return json({ ok: true, runId: 'run-test-1', status: 'queued' }, 201);
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
+        advanceCalls += 1;
+        if (advanceCalls === 1) {
+          return json({
+            ok: true, runId: 'run-test-1', status: 'running', advanced: true,
+            run: {
+              runId: 'run-test-1', status: 'running', goal: '文書案を作ってください',
+              plan: twoStepPlan.steps,
+              stepsState: [
+                { id: 'task-1', status: 'running', attempts: 1 },
+                { id: 'task-2', status: 'queued', attempts: 0 },
+              ],
+            },
+          }, 202);
+        }
+        // 2回目の advance が呼ばれる時点では、1回目の進捗が共有
+        // 要約へ反映されている（シートが読むのはこの中身）。
+        midRunSteps = getAgentActivitySnapshot()?.steps;
+        return json({
+          ok: true, runId: 'run-test-1', status: 'completed', artifact: '# 完成した文書',
+          run: {
+            runId: 'run-test-1', status: 'completed', goal: '文書案を作ってください',
+            plan: twoStepPlan.steps,
+            stepsState: [
+              { id: 'task-1', status: 'completed', attempts: 1 },
+              { id: 'task-2', status: 'completed', attempts: 1 },
+            ],
+          },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('まだ実行していません · 承認待ち');
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+
+    await screen.findByRole('heading', { name: '完成した文書' }, { timeout: 5000 });
+    expect(midRunSteps).toEqual([
+      { title: 'ウェブで調べる', status: 'running' },
+      { title: '文書を作る', status: 'queued' },
+    ]);
+    const finalSnapshot = getAgentActivitySnapshot();
+    expect(finalSnapshot?.outcome).toBe('completed');
+    expect(finalSnapshot?.steps).toEqual([
+      { title: 'ウェブで調べる', status: 'completed' },
+      { title: '文書を作る', status: 'completed' },
+    ]);
+    reportAgentActivity(null);
   });
 
   it('fails closed without executing when the run record cannot be created (503)', async () => {

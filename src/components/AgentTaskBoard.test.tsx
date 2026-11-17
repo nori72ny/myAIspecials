@@ -153,6 +153,98 @@ describe('AgentTaskBoard', () => {
     expect(screen.getByText(/書き込みと重ならないよう、1件ずつ順番に実行されます/)).toBeTruthy();
   });
 
+  it('shows the pages a research step saw, its query, and step durations in the detail (live view)', async () => {
+    const researched = runView({
+      status: 'completed',
+      hold: null,
+      stepsState: [
+        {
+          id: 'task-1', status: 'completed', attempts: 1,
+          liveDetail: {
+            startedAt: 1_000_000,
+            finishedAt: 1_065_000,
+            query: '富士山の標高',
+            sources: [
+              { title: '富士山について - 国土地理院', url: 'https://www.gsi.go.jp/fuji', domain: 'gsi.go.jp', excerpt: '標高は3,776mです。' },
+              { title: '安全でないリンク', url: 'javascript:alert(1)', domain: 'evil.example' },
+            ],
+          },
+        },
+        { id: 'task-2', status: 'completed', attempts: 1 },
+      ],
+    });
+    const fetchMock = vi.fn(async () => json({ ok: true, runs: [researched] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
+    await screen.findByText('調査レポートを作ってください');
+    fireEvent.click(screen.getByRole('button', { name: '詳細' }));
+
+    const article = screen.getByText('調査レポートを作ってください').closest('article');
+    // 所要時間（65秒 → 1分5秒）と、実際に投げた検索文。
+    expect(article?.textContent).toContain('1分5秒');
+    expect(article?.textContent).toContain('「富士山の標高」で調べました');
+    // 出典はタイトル＋ドメインで出し、安全なURLだけリンクにする。
+    const link = screen.getByRole('link', { name: '富士山について - 国土地理院' });
+    expect(link.getAttribute('href')).toBe('https://www.gsi.go.jp/fuji');
+    expect(article?.textContent).toContain('gsi.go.jp');
+    expect(screen.queryByRole('link', { name: '安全でないリンク' })).toBeNull();
+    expect(article?.textContent).toContain('安全でないリンク');
+    // 内部の語彙は出さない。
+    expect(article?.textContent).not.toContain('liveDetail');
+    expect(article?.textContent).not.toContain('web_search_grounding');
+  });
+
+  it('quietly refreshes the list while an active run is shown, and stops once it is terminal', async () => {
+    const running = runView({
+      status: 'running',
+      hold: null,
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'running', attempts: 1 },
+      ],
+    });
+    const completed = runView({
+      status: 'completed',
+      hold: null,
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'completed', attempts: 1 },
+      ],
+    });
+    let listCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/agent/v3/runs?')) {
+        listCalls += 1;
+        return json({ ok: true, runs: [listCalls === 1 ? running : completed] });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      render(<AgentTaskBoard browserPlanToken="plan-token-1" />);
+      await act(async () => { });
+      expect(screen.getByText('調査レポートを作ってください')).toBeTruthy();
+      expect(listCalls).toBe(1);
+      // 15秒経つまでは再取得しない。
+      await act(async () => { await vi.advanceTimersByTimeAsync(14_999); });
+      expect(listCalls).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(listCalls).toBe(2);
+      const article = screen.getByText('調査レポートを作ってください').closest('article');
+      expect(article?.textContent).toContain('完了');
+      expect(article?.textContent).toContain('ステップ 2/2');
+      // 終端になったら、それ以上は再取得しない。
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(listCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cancels a queued run after an inline confirmation and reloads the list', async () => {
     const queued = runView({ status: 'queued', hold: null });
     const cancelled = runView({ status: 'cancelled', hold: null });

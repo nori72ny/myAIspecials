@@ -33,6 +33,24 @@ describe('agentActivityStore', () => {
     expect(getAgentActivitySnapshot()).toBeNull();
   });
 
+  it('carries the plan step list (titles and statuses) for the work sheet', () => {
+    reportAgentActivity(summary({
+      steps: [
+        { title: 'ウェブで調べる', status: 'completed' },
+        { title: '文書を作る', status: 'running' },
+        { title: 'テストと動作確認', status: 'queued' },
+      ],
+    }));
+    expect(getAgentActivitySnapshot()?.steps).toEqual([
+      { title: 'ウェブで調べる', status: 'completed' },
+      { title: '文書を作る', status: 'running' },
+      { title: 'テストと動作確認', status: 'queued' },
+    ]);
+    // 旧い報告（steps なし）もそのまま通る。
+    reportAgentActivity(summary());
+    expect(getAgentActivitySnapshot()?.steps).toBeUndefined();
+  });
+
   it('notifies subscribers until they unsubscribe', () => {
     const listener = vi.fn();
     const unsubscribe = subscribeAgentActivity(listener);
