@@ -13,7 +13,10 @@ import type { OriginLanguage } from '../i18n';
  * 内容そのまま：平易な項目タイトル＋状態（進行中／完了）＋最小限の
  * 進み具合だけで、詳細・ログ・技術用語は出さない（作業工程表示
  * ルール 2026-11-09）。詳しい作業内容は各画面側の表示（エージェント
- * 画面の実況パネルなど）に寄せ、ここは全体の要約に徹する。
+ * 画面の実況パネルなど）に寄せ、ここは全体の要約に徹する。ただし
+ * エージェント作業については、「いまの作業を表示」という操作の名に
+ * 沿って、要約1行ではなく計画のステップ列（タイトル＋状態）までを
+ * ここに載せる（データは run 記録の stepsState 由来の共有要約）。
  *
  * 内容と項目は全デバイスで完全に同一にし、表示形態だけを変える：
  * 広い画面（640px以上）では中央のカード型モーダル、狭い画面では
@@ -21,6 +24,12 @@ import type { OriginLanguage } from '../i18n';
  * .origin-orin-profile 側（ブレークポイント 640px）が担う。
  * 閉じる操作は×ボタン・カード外タップ・Escキーの3つ。
  */
+/** エージェント作業の計画ステップ1件分（平易なタイトル＋状態）。 */
+export interface OriginWorkSheetStep {
+  title: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'blocked';
+}
+
 export interface OriginWorkSheetItem {
   id: string;
   /** 平易な項目タイトル（例：回答を準備しています、ウェブ調査）。 */
@@ -30,6 +39,20 @@ export interface OriginWorkSheetItem {
   meta?: string;
   /** 実行中のエージェント作業だけが持つ、画面への移動アクション。 */
   action?: 'agent';
+  /**
+   * エージェント作業の計画ステップ列。「いまの作業を表示」の名に
+   * 沿って、現在のステップ1行ではなく計画全体の進捗（各ステップの
+   * 状態まで）を見せるために、エージェント項目だけが持つ。
+   */
+  steps?: readonly OriginWorkSheetStep[];
+}
+
+/** ステップ状態の平易な表示文（実況パネルの語彙と揃える）。 */
+function workSheetStepStatusText(status: OriginWorkSheetStep['status'], ja: boolean): string {
+  if (status === 'running') return ja ? '実行中' : 'In progress';
+  if (status === 'completed') return ja ? '完了' : 'Done';
+  if (status === 'failed' || status === 'blocked') return ja ? '止まりました' : 'Stopped';
+  return ja ? 'まだ' : 'Pending';
 }
 
 export interface OriginWorkSheetProps {
@@ -124,6 +147,21 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                       </button>
                     ) : (
                       <div className="flex min-h-11 items-center gap-2 px-3 text-sm">{body}</div>
+                    )}
+                    {item.steps && item.steps.length > 0 && (
+                      <ol data-testid="origin-work-sheet-steps" className="m-0 mb-1 grid list-none gap-0.5 p-0 pl-6 pr-3">
+                        {item.steps.map((step, stepIndex) => (
+                          <li key={`${stepIndex}-${step.title}`} className="flex min-h-8 items-center gap-2 text-[13px]">
+                            <span aria-hidden="true" className="origin-muted shrink-0">{stepIndex + 1}.</span>
+                            <span
+                              aria-hidden="true"
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${step.status === 'running' ? 'animate-pulse bg-[var(--accent-primary)]' : step.status === 'completed' ? 'bg-[var(--text-secondary)]' : 'bg-[var(--border-default)]'}`}
+                            />
+                            <span className="min-w-0 flex-1 truncate font-semibold">{step.title}</span>
+                            <span className="origin-muted shrink-0">{workSheetStepStatusText(step.status, ja)}</span>
+                          </li>
+                        ))}
+                      </ol>
                     )}
                   </li>
                 );

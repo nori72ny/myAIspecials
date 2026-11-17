@@ -58,6 +58,52 @@ describe('OriginWorkSheet', () => {
     expect(onOpenAgent).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the agent plan steps with their statuses under the agent item', () => {
+    renderSheet([
+      {
+        id: 'agent',
+        title: '文書を作る',
+        status: 'active',
+        meta: '2/3',
+        action: 'agent',
+        steps: [
+          { title: 'ウェブで調べる', status: 'completed' },
+          { title: '文書を作る', status: 'running' },
+          { title: 'テストと動作確認', status: 'queued' },
+        ],
+      },
+    ], { onOpenAgent: vi.fn() });
+    const steps = screen.getByTestId('origin-work-sheet-steps');
+    expect(steps.textContent).toContain('1.');
+    expect(steps.textContent).toContain('ウェブで調べる');
+    expect(steps.textContent).toContain('完了');
+    expect(steps.textContent).toContain('2.');
+    expect(steps.textContent).toContain('文書を作る');
+    expect(steps.textContent).toContain('実行中');
+    expect(steps.textContent).toContain('3.');
+    expect(steps.textContent).toContain('テストと動作確認');
+    expect(steps.textContent).toContain('まだ');
+    // ステップ列は表示専用で、行自体はボタンにしない（移動は項目の行だけ）。
+    expect(within(steps).queryByRole('button')).toBeNull();
+  });
+
+  it('shows a stopped step plainly and no step list when the item has none', () => {
+    renderSheet([
+      {
+        id: 'agent',
+        title: 'エージェントの作業',
+        status: 'done',
+        steps: [
+          { title: 'ウェブで調べる', status: 'completed' },
+          { title: 'ファイルを作る・直す', status: 'failed' },
+        ],
+      },
+    ]);
+    const steps = screen.getByTestId('origin-work-sheet-steps');
+    expect(steps.textContent).toContain('ファイルを作る・直す');
+    expect(steps.textContent).toContain('止まりました');
+  });
+
   it('does not offer the agent jump for a completed agent item', () => {
     renderSheet([
       { id: 'agent', title: 'エージェントの作業', status: 'done', action: 'agent' },

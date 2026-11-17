@@ -23,7 +23,7 @@ import KenBurnsVideoDialog from './creative/KenBurnsVideoDialog';
 import type { CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import CreativeArtifactEditorV15 from './components/CreativeArtifactEditorV15';
 import { type OriginCatStateKind } from './components/OriginCatState';
-import OriginWorkSheet, { type OriginWorkSheetItem } from './components/OriginWorkSheet';
+import OriginWorkSheet, { type OriginWorkSheetItem, type OriginWorkSheetStep } from './components/OriginWorkSheet';
 import OrinFloatingPresence, { resolveOrinBubbleText } from './components/OrinFloatingPresence';
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
@@ -2553,16 +2553,24 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       status: 'active',
       meta: `${agentActivity.currentStep}/${agentActivity.totalSteps}`,
       action: 'agent',
+      // 「いまの作業を表示」の名に沿って、現在のステップ1行だけで
+      // なく計画のステップ列（各ステップの状態まで）をカードに載せる。
+      ...(agentActivity.steps && agentActivity.steps.length > 0 ? { steps: agentActivity.steps } : {}),
     });
   }
   if (workSheetItems.length === 0) {
     const agentDone = agentActivity && agentActivity.outcome === 'completed'
-      ? { label: language === 'ja' ? 'エージェントの作業' : 'Agent work', at: agentActivity.updatedAt }
+      ? { label: language === 'ja' ? 'エージェントの作業' : 'Agent work', at: agentActivity.updatedAt, steps: agentActivity.steps }
       : null;
     const latestCompleted = [lastCompletedWork, agentDone]
-      .filter((candidate): candidate is { label: string; at: number } => candidate !== null)
+      .filter((candidate): candidate is { label: string; at: number; steps?: readonly OriginWorkSheetStep[] } => candidate !== null)
       .sort((a, b) => b.at - a.at)[0];
-    if (latestCompleted) workSheetItems.push({ id: 'last-completed', title: latestCompleted.label, status: 'done' });
+    if (latestCompleted) workSheetItems.push({
+      id: 'last-completed',
+      title: latestCompleted.label,
+      status: 'done',
+      ...(latestCompleted.steps && latestCompleted.steps.length > 0 ? { steps: latestCompleted.steps } : {}),
+    });
   }
   const toggleWorkSheet = () => {
     if (!workSheetOpen) setOrinJoySignal((current) => current + 1);

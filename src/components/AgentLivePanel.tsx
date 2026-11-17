@@ -60,7 +60,8 @@ function stepStatusLabel(status: string): string {
   return 'まだ';
 }
 
-function formatStepDuration(detail: AgentRunStepStateView['liveDetail']): string | null {
+/** ステップの所要時間の平易な表記（タスクボードの詳細でも使う）。 */
+export function formatStepDuration(detail: AgentRunStepStateView['liveDetail']): string | null {
   if (!detail || typeof detail.startedAt !== 'number' || typeof detail.finishedAt !== 'number') return null;
   if (detail.finishedAt < detail.startedAt) return null;
   const seconds = Math.round((detail.finishedAt - detail.startedAt) / 1000);

@@ -13,7 +13,7 @@ import {
   type AgentRunAuth,
   type AgentRunView,
 } from '../agent/agentRunClient';
-import { reportAgentActivity } from '../agent/agentActivityStore';
+import { reportAgentActivity, type AgentActivityStepStatus } from '../agent/agentActivityStore';
 
 type AgentCapability = {
   ready: boolean;
@@ -248,6 +248,9 @@ export default function AgentWorkspaceView() {
   // 駆動やポーリングの結果（liveRunView）が変わるたびに、平易な
   // ステップタイトルと進み具合だけを共有ストアへ書く。実行系の
   // 挙動には一切影響しない（書き込み専用の副作用）。
+  // 計画の全ステップ（タイトル＋状態）も一緒に載せる：「いまの
+  // 作業を表示」が開くカードが、現在のステップ1行ではなく実際の
+  // 進捗（計画のステップ列と各状態）を見せられるようにするため。
   useEffect(() => {
     if (!liveSession) return;
     const steps = liveSession.steps;
@@ -259,12 +262,14 @@ export default function AgentWorkspaceView() {
     const terminal = runStatus !== null && AGENT_RUN_TERMINAL_STATUSES.has(runStatus);
     const active = !terminal && (phase === 'executing' || phase === 'recorded' || runningIndex >= 0);
     const currentIndex = runningIndex >= 0 ? runningIndex : Math.min(completedCount, Math.max(0, total - 1));
+    const toStepStatus = (status: string | undefined): AgentActivityStepStatus => (status === 'running' || status === 'completed' || status === 'failed' || status === 'blocked' ? status : 'queued');
     reportAgentActivity({
       active,
       outcome: terminal ? (runStatus === 'completed' ? 'completed' : 'failed') : active ? 'running' : null,
       stepTitle: total > 0 ? toolLabel(steps[currentIndex].toolName) : null,
       currentStep: total > 0 ? currentIndex + 1 : 0,
       totalSteps: total,
+      steps: steps.map((step, index) => ({ title: toolLabel(step.toolName), status: toStepStatus(stateAt(index)?.status) })),
       updatedAt: Date.now(),
     });
   }, [liveSession, phase, liveRunView]);
