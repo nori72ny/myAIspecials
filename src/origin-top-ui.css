@@ -622,8 +622,9 @@
   color: #ffffff;
   box-shadow: 0 6px 18px rgb(15 23 42 / 22%);
   backdrop-filter: blur(8px);
-  font-family: var(--font-brand);
+  font-family: var(--font-sans);
   font-size: 13px;
+  font-weight: 500;
   line-height: 1.4;
   text-align: center;
   overflow-wrap: break-word;
