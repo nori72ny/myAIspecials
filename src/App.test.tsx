@@ -558,6 +558,42 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     }
   });
 
+  it('shows the making cat in the floating presence while an image is being generated', async () => {
+    let resolveGeneration: ((response: Response) => void) | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/generate-image') {
+        return new Promise<Response>((resolve) => { resolveGeneration = resolve; });
+      }
+      return new Response(JSON.stringify({ code: 'UNEXPECTED_REQUEST' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+
+      // 画像生成中は浮遊プレゼンスのオリンが専用の「作っている」
+      // 静止画になる（M2、2026-11-18。それまでは working の動画）。
+      const presence = await screen.findByTestId('origin-orin-presence');
+      await waitFor(() => {
+        const presenceCat = within(presence).getByTestId('origin-cat-state');
+        expect(presenceCat.getAttribute('data-state')).toBe('making');
+        expect(presenceCat.tagName).toBe('IMG');
+        expect(presenceCat.getAttribute('src')).toBe('/brand/origin-cat-making.webp');
+      });
+
+      resolveGeneration?.(new Response(JSON.stringify({
+        code: 'PROVIDER_UNAVAILABLE',
+        message: '画像生成Providerが未構成です。',
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not carry a rejected image-panel request into the next ordinary chat message', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestPath(input);

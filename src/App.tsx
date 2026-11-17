@@ -2465,7 +2465,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const orinPresenceState: OriginCatStateKind = headerDoneCue
     ? 'done'
     : imagePhase
-      ? 'working'
+      ? 'making'
       : researchRun || streamPhase === 'searching'
         ? 'searching'
         : isLoading

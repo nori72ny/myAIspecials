@@ -29,7 +29,7 @@ function stubReducedMotion(matches: boolean) {
 describe('OriginCatState', () => {
   it('renders a still image for non-working states', () => {
     stubReducedMotion(false);
-    for (const state of ['thinking', 'waiting', 'done', 'sorry', 'sleep'] as const) {
+    for (const state of ['thinking', 'searching', 'making', 'waiting', 'done', 'sorry', 'sleep'] as const) {
       const { unmount } = render(<OriginCatState state={state} />);
       const visual = screen.getByTestId('origin-cat-state');
       expect(visual.tagName).toBe('IMG');
@@ -119,13 +119,23 @@ describe('OriginCatState', () => {
     expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.working);
   });
 
-  it('renders the dedicated searching state as a still (split from working, PR-β)', () => {
+  it('renders the dedicated searching still (no longer shared with thinking, M2)', () => {
     stubReducedMotion(false);
     render(<OriginCatState state="searching" />);
     const visual = screen.getByTestId('origin-cat-state');
     expect(visual.tagName).toBe('IMG');
     expect(visual.getAttribute('data-state')).toBe('searching');
-    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.searching);
+    expect(visual.getAttribute('src')).toBe('/brand/origin-cat-searching.webp');
+    expect(ORIGIN_CAT_STILL_SRC.searching).not.toBe(ORIGIN_CAT_STILL_SRC.thinking);
+  });
+
+  it('renders the making still for artifact creation (M2)', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="making" />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('IMG');
+    expect(visual.getAttribute('data-state')).toBe('making');
+    expect(visual.getAttribute('src')).toBe('/brand/origin-cat-making.webp');
   });
 
   it('keeps the working state a still when stillOnly is set (quiet surfaces such as the header)', () => {
