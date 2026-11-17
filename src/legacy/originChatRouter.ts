@@ -11,6 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { applyOriginBusinessPlanningAuditGate } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
+import { logOriginPublicationGateShadow } from "../lib/orchestration/OriginPublicationGate.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -1100,6 +1101,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
       });
       const answerText = auditGate.answerText;
+      // Publication gate, stage 1 shadow (EXTERNAL_CONSULT_STALE
+      // _ADOPTION_2026-11-17 adoptions 1–2): scan the final direct
+      // answer — after the assertion gate and the numeric audit gate —
+      // for evidence-required claim shapes and check its statute names
+      // against the bundled e-Gov list. Log-only (kinds and counts,
+      // never text); the answer below is delivered exactly as assembled,
+      // and a detector failure skips detection instead of delaying it.
+      logOriginPublicationGateShadow({ requestId, answerText });
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
