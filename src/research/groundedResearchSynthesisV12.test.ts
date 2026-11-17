@@ -63,6 +63,47 @@ describe("groundedResearchSynthesisV12", () => {
     expect(buildGroundedResearchSynthesisInstruction("ja")).toContain("一次情報へ格上げしない");
   });
 
+  it("caps each packet excerpt at 600 characters (R-2 packet compression)", () => {
+    // RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-2: the per-source excerpt cap
+    // in the synthesis packet is 600 characters — the grounding side's
+    // own snippet-sufficiency threshold — so the packet stays small
+    // enough for route 3 to act as the synthesis fallback under its TPM
+    // gate. A longer excerpt is truncated; a shorter one passes whole.
+    const longExcerpt = "あ".repeat(1_000);
+    const longSources: OriginResearchSource[] = [{ ...sources[0], excerpt: longExcerpt }, sources[1]];
+    const prompt = buildGroundedResearchSynthesisPrompt("現在の料金を比較してください", longSources, [], "ja");
+    const excerptJson = prompt.match(/excerpt_json: ("(?:[^"\\]|\\.)*")/);
+    expect(excerptJson).not.toBeNull();
+    expect(JSON.parse(excerptJson![1])).toBe("あ".repeat(600));
+    // The untouched second source keeps its full short excerpt.
+    expect(prompt).toContain('excerpt_json: "別資料では料金は120円と記載されています。"');
+  });
+
+  it("keeps answer-bearing sentences that sit past the cap (R-2 coverage-first selection)", () => {
+    // The sentence carrying the price, the target period, and the
+    // exception starts past character 600, so a plain head truncation
+    // would drop exactly the evidence the answer depends on. The
+    // selection must keep it (whole), keep the lead context, stay
+    // within the cap, and preserve the original sentence order.
+    const lead = "この資料は制度の概要を説明するものです。";
+    const filler = `${"あ".repeat(700)}。`;
+    const key = "対象期間は2026年4月からで、料金は100円です。ただし学生は例外です。";
+    const longSources: OriginResearchSource[] = [
+      { ...sources[0], excerpt: `${lead}${filler}${key}` },
+      sources[1],
+    ];
+    const prompt = buildGroundedResearchSynthesisPrompt("現在の料金を比較してください", longSources, [], "ja");
+    const excerptJson = prompt.match(/excerpt_json: ("(?:[^"\\]|\\.)*")/);
+    expect(excerptJson).not.toBeNull();
+    const excerpt = JSON.parse(excerptJson![1]) as string;
+    expect(excerpt.length).toBeLessThanOrEqual(600);
+    expect(excerpt).toContain("料金は100円です");
+    expect(excerpt).toContain("対象期間は2026年4月から");
+    expect(excerpt).toContain("ただし学生は例外です");
+    expect(excerpt).not.toContain("あああ");
+    expect(excerpt.indexOf("制度の概要")).toBeLessThan(excerpt.indexOf("料金は100円です"));
+  });
+
   it("puts packet publication and retrieval dates in both ISO and Japanese forms", () => {
     const dated: OriginResearchSource[] = [
       { ...sources[0], revisionTimestamp: "2026-09-20T00:00:00.000Z" },

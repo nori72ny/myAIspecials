@@ -105,12 +105,19 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   // batch 1, A-02 / B-01 / B-05).
   // Synthesis-hygiene shape: the fallback states plainly that no
   // summarized answer is available, then shows the confirmed scope as
-  // attributions built only from source titles (top three) plus the
-  // compact source list (id, title, domain, URL). The internal
-  // cross-check breakdown (照合メモ) never appears in the user-facing
-  // body — it stays in logs and routing metadata. Excerpts stay
-  // available to the synthesis stage as evidence; they are not
-  // user-facing text.
+  // attributions built from source titles (top three) plus the compact
+  // source list (id, title, domain, URL). The internal cross-check
+  // breakdown (照合メモ) never appears in the user-facing body — it
+  // stays in logs and routing metadata.
+  // R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): each attribution
+  // now also carries the source's excerpt as a bounded, neutralized
+  // verbatim quote inside the attribution itself ("the source states:
+  // '…'"), so the answer's core reaches the user even when synthesis
+  // never ran. The quote is never presented as a confirmed fact and the
+  // lead still directs the user to the sources for details; the PKG-9
+  // concern above is addressed by the attribution form, the 240-char
+  // bound, and the neutralization in buildGroundedResearchPartialAnswer,
+  // not by pasting raw page text as the answer.
   const content = buildGroundedResearchPartialAnswer(sources, isEnglish ? "en" : "ja");
   const reason = isEnglish
     ? `Grounded Research retrieved ${grounded.sourceCount} public sources without a paid fallback.`
@@ -322,6 +329,28 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           // zero-source path the candidate observation is what tells
           // provider sparsity apart from screen/freshness drops.
           ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
+          // Flat scalar copies of the grounding aggregates (R-0): the
+          // nested searchGrounding object collapses in serialized log
+          // output, which is why the 2026-11-17 re-measurement could not
+          // attribute the zero-source refusals (failure type T-2) to a
+          // reason. Top-level counts survive, so the reason breakdown —
+          // no candidates at all vs dropped as stale vs dropped as
+          // undated — is recoverable per request. Counts and codes only.
+          ...(researchResult.grounding
+            ? {
+                groundingVerifiedFreshCount: researchResult.grounding.verifiedFreshSourceCount,
+                groundingUnknownDateCount: researchResult.grounding.unknownDateSourceCount,
+                groundingDroppedStaleCount: researchResult.grounding.droppedStaleSourceCount,
+                groundingDroppedUndatedCount: researchResult.grounding.droppedUndatedSourceCount,
+                ...(researchResult.grounding.candidateStats
+                  ? {
+                      groundingCandidateTotalCount: researchResult.grounding.candidateStats.totalCount,
+                      groundingCandidateDroppedByScreenCount: researchResult.grounding.candidateStats.droppedByScreenCount,
+                      groundingCandidateDroppedByFreshnessCount: researchResult.grounding.candidateStats.droppedByFreshnessCount,
+                    }
+                  : {}),
+              }
+            : {}),
         });
       }
       let synthesisStatus = "not-run";
@@ -522,7 +551,16 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               recordsSettled = true;
               synthesisStatus = "provider-failed";
               synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
-              console.warn("[origin-chat] research records unavailable; source-list fallback retained", { requestId, code: synthesisFailureCode });
+              // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
+              // the final code alone cannot attribute an unavailability
+              // to a route, so the whitelisted failover-attempt summary
+              // (per-route outcome / error code / upstream error code /
+              // skip reason / duration) rides the log line. Log-only.
+              console.warn("[origin-chat] research records unavailable; source-list fallback retained", {
+                requestId,
+                code: synthesisFailureCode,
+                ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
+              });
             }
           }
           if (!recordsSettled) try {
@@ -802,7 +840,15 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           } catch (error) {
             synthesisStatus = "provider-failed";
             synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
-            console.warn("[origin-chat] research synthesis unavailable; source-list fallback retained", { requestId, code: synthesisFailureCode });
+            // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
+            // same failover-attempt summary as the records path above, so
+            // a PROVIDER_RATE_LIMITED unavailability (failure type T-1)
+            // can be attributed to the route that actually failed.
+            console.warn("[origin-chat] research synthesis unavailable; source-list fallback retained", {
+              requestId,
+              code: synthesisFailureCode,
+              ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
+            });
           }
         } else {
           synthesisStatus = "plan-unavailable";

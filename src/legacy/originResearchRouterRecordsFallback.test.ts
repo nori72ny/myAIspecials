@@ -75,11 +75,13 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
     expect(response.body.routing.synthesisStatus).toBe("records-validation-failed");
     // The body is exactly the chat router's partial-answer shape for
-    // the same sources: honest lead, confirmed scope from titles,
-    // compact source list. No extractive report, no source excerpts.
+    // the same sources: honest lead, confirmed scope attributions,
+    // compact source list. No extractive report; excerpts appear only
+    // as verbatim quotes inside their sources' attribution lines (R-1,
+    // RESEARCH_FLOOR_DESIGN_2026-11-17 §3).
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
     expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
-    expect(response.body.content).not.toContain("iPhone 18 Proは219,800円で、2026年9月18日に発売されます。");
+    expect(response.body.content).toContain("『iPhone 18 Proは219,800円で、2026年9月18日に発売されます。』");
     expect(response.body.content).not.toContain("証拠比較");
     expect(response.body.content.length).toBeLessThanOrEqual(RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS);
     // Two executions inside the records path (records, then the
@@ -101,7 +103,9 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(enSources, "en"));
     expect(response.body.content).not.toContain("Cited research report (extractive)");
-    expect(response.body.content).not.toContain("starts at 219,800 yen");
+    // R-1: the excerpt appears only as a verbatim quote inside its
+    // source's attribution line.
+    expect(response.body.content).toContain("It states: \"The iPhone 18 Pro starts at 219,800 yen and will be released on September 18, 2026.\"");
   });
 
   it("keeps the caps inert for ordinary sources (builder output equals the partial answer)", () => {
@@ -129,7 +133,9 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.routing.synthesisStatus).toBe("provider-failed");
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
     expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
-    expect(response.body.content).not.toContain("iPhone 18 Proは219,800円で、2026年9月18日に発売されます。");
+    // R-1: the excerpt appears only as a verbatim quote inside its
+    // source's attribution line.
+    expect(response.body.content).toContain("『iPhone 18 Proは219,800円で、2026年9月18日に発売されます。』");
     expect(response.body.content).not.toContain("証拠比較");
     // The records execution threw once and the branch settled: the
     // text path never ran for a records-selected request.
@@ -154,8 +160,11 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     }
     expect(content.length).toBeLessThanOrEqual(RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS);
     // The total cap fired and says so, at a line boundary, as the
-    // last line; source body text never appears at any length.
+    // last line. Excerpts appear only as the top-three attribution
+    // quotes (R-1): the first source's excerpt is quoted inside its
+    // attribution line, and the fourth source's excerpt never appears.
     expect(content.endsWith("（出典一覧の一部を省略しました）")).toBe(true);
-    expect(content).not.toContain("抜粋1の本文テキストです。");
+    expect(content).toContain("『抜粋1の本文テキストです。』");
+    expect(content).not.toContain("抜粋4の本文テキストです。");
   });
 });

@@ -16,7 +16,7 @@ import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabl
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
-import { OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
+import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover } from "./originProviderFailover.js";
 import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
 import {
@@ -312,6 +312,32 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     const language = languageOf(query);
     const result = await research(query);
     if (!result.ok) {
+      // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0): this
+      // branch previously logged nothing, so a zero-source outcome on
+      // the research route could not be attributed after the fact. The
+      // grounding reason and the freshness / candidate aggregates are
+      // recorded as flat scalars (nested objects collapse in serialized
+      // log output), counts and codes only — no titles or text.
+      console.warn("[origin-research] research grounding unavailable", {
+        ...(result.groundingFailure ? { groundingFailure: result.groundingFailure } : {}),
+        ...(result.failure ? { failureStage: result.failure.stage, failureCode: result.failure.code } : {}),
+        ...(result.grounding
+          ? {
+              searchGrounding: result.grounding,
+              groundingVerifiedFreshCount: result.grounding.verifiedFreshSourceCount,
+              groundingUnknownDateCount: result.grounding.unknownDateSourceCount,
+              groundingDroppedStaleCount: result.grounding.droppedStaleSourceCount,
+              groundingDroppedUndatedCount: result.grounding.droppedUndatedSourceCount,
+              ...(result.grounding.candidateStats
+                ? {
+                    groundingCandidateTotalCount: result.grounding.candidateStats.totalCount,
+                    groundingCandidateDroppedByScreenCount: result.grounding.candidateStats.droppedByScreenCount,
+                    groundingCandidateDroppedByFreshnessCount: result.grounding.candidateStats.droppedByFreshnessCount,
+                  }
+                : {}),
+            }
+          : {}),
+      });
       const message = language === "ja"
         ? "現在、無料の公開情報源から最新情報を取得できませんでした。未確認の内容を通常AIで補完せず、安全に停止しました。時間をおいて手動で再度お試しください。"
         : "Current information could not be retrieved from the free public sources. ORIGIN stopped safely instead of filling the gap with an unverified model answer. Please try again manually later.";
@@ -458,7 +484,14 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
           recordsFailure = true;
-          console.warn("[origin-research] research records unavailable; partial answer fallback applies", { code: synthesisFailureCode });
+          // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
+          // the whitelisted failover-attempt summary rides the log line
+          // so an unavailability can be attributed to the route that
+          // actually failed, not only to the final surfaced code.
+          console.warn("[origin-research] research records unavailable; partial answer fallback applies", {
+            code: synthesisFailureCode,
+            ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
+          });
         }
         if (!recordsSettled) try {
           const synthesisRequest: OriginProviderExecutionRequest = {
@@ -621,7 +654,12 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
         } catch (error) {
           synthesisStatus = "provider-failed";
           synthesisFailureCode = error instanceof OriginProviderError ? error.code : "PROVIDER_INTERNAL_ERROR";
-          console.warn("[origin-research] research synthesis unavailable; extractive report retained", { code: synthesisFailureCode });
+          // Observability (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-0):
+          // same failover-attempt summary as the records path above.
+          console.warn("[origin-research] research synthesis unavailable; extractive report retained", {
+            code: synthesisFailureCode,
+            ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
+          });
         }
       } else {
         synthesisStatus = "plan-unavailable";
