@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
-import { ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA } from "../search/originSearchGrounding";
+import { buildGroundedResearchAbstainAnswer } from "../research/groundedResearchOutcome";
 import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExecutor } from "./originChatRouter";
 import { OriginProviderError, type OriginProviderErrorCode } from "./originProviderClient";
 import type { OriginResearchResult, OriginResearchSource } from "./originResearchSource";
@@ -102,6 +102,11 @@ function expectSourceListFallback(body: { content: string; routing: Record<strin
   for (const source of faultSources) expect(body.content).toContain(source.url);
   expect(body.routing.freeOnly).toBe(true);
   expect(body.routing.cost).toBe(0);
+  // Ladder landing (N-1): the extractive fallback is tier T3 with the
+  // three-valued outcome PARTIAL, never an abstain.
+  expect(body.routing.researchTier).toBe("T3");
+  expect(body.routing.researchOutcome).toBe("PARTIAL");
+  expect(body.routing.researchAbstainReason).toBeUndefined();
 }
 
 describe("fault injection: synthesis provider unavailable (chat router)", () => {
@@ -165,9 +170,19 @@ describe("fault injection: grounding unavailable (chat router)", () => {
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
     expect(response.status).toBe(200);
-    expect(response.body.content).toBe("確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。");
+    // Tier-T4 hold text (N-1): names what was searched and the concrete
+    // reason (the retrieval itself failed), instead of a fixed template.
+    expect(response.body.content).toBe(buildGroundedResearchAbstainAnswer({
+      query: "今日の公開情報を調査してください",
+      language: "ja",
+      reason: "provider-error",
+    }));
+    expect(response.body.content).toContain("出典を確認できませんでした");
     expect(response.body.routing.sourceCount).toBe(0);
     expect(response.body.routing.synthesisStatus).toBe("not-run");
+    expect(response.body.routing.researchTier).toBe("T4");
+    expect(response.body.routing.researchOutcome).toBe("ABSTAIN");
+    expect(response.body.routing.researchAbstainReason).toBe("provider-error");
     expect(synthesis).not.toHaveBeenCalled();
   });
 
@@ -183,9 +198,19 @@ describe("fault injection: grounding unavailable (chat router)", () => {
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "今日の公開情報を調査してください" }] });
     expect(response.status).toBe(200);
-    expect(response.body.content).toBe(ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA);
+    // Tier-T4 hold text (N-1): the reason is concrete — sources existed
+    // but none was fresh enough — not the former fixed template.
+    expect(response.body.content).toBe(buildGroundedResearchAbstainAnswer({
+      query: "今日の公開情報を調査してください",
+      language: "ja",
+      reason: "no-fresh-sources",
+    }));
+    expect(response.body.content).toContain("古い情報を現在の情報として示すことはしませんでした");
     expect(response.body.content.length).toBeGreaterThan(0);
     expect(response.body.routing.sourceCount).toBe(0);
+    expect(response.body.routing.researchTier).toBe("T4");
+    expect(response.body.routing.researchOutcome).toBe("ABSTAIN");
+    expect(response.body.routing.researchAbstainReason).toBe("no-fresh-sources");
     expect(synthesis).not.toHaveBeenCalled();
   });
 });
@@ -254,7 +279,11 @@ describe("fault injection: phased streaming app path (chat router)", () => {
     const { events, doneSeen } = parsePhasedStream(response.text);
     expect(doneSeen).toBe(true);
     expect(events.some((event) => event.type === "error")).toBe(false);
-    expect(deltaText(events)).toBe(ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA);
+    expect(deltaText(events)).toBe(buildGroundedResearchAbstainAnswer({
+      query: "今日の公開情報を調査してください",
+      language: "ja",
+      reason: "no-sources",
+    }));
     expect(events.some((event) => event.type === "complete")).toBe(true);
   });
 });

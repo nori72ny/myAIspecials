@@ -833,9 +833,12 @@ describe("createOriginChatRouter", () => {
       .send({ messages: [{ role: "user", content: "現在の料金を教えてください" }] });
 
     expect(response.status).toBe(200);
-    expect(response.body.content).toContain("現在の情報を推測して回答しません");
+    // Tier-T4 hold text (N-1): no guessing, with the concrete reason.
+    expect(response.body.content).toContain("裏付けが取れなかったため、推測で回答しません");
+    expect(response.body.content).toContain("出典を確認できませんでした");
     expect(response.body.routing.answerMode).toBe("research");
     expect(response.body.routing.sourceCount).toBe(0);
+    expect(response.body.routing.researchOutcome).toBe("ABSTAIN");
     expect(executeMock).not.toHaveBeenCalled();
   });
   it("treats acronym definitions as ordinary stable questions unless freshness is explicit", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "AIO対策について教えて" }] }); expect(response.status).toBe(200); expect(executeMock).toHaveBeenCalledTimes(1); });

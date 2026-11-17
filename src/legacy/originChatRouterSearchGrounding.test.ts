@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { OriginSearchUsageCounter } from "../search/originSearchProviderCatalog";
 import { OriginSearchTtlCache } from "../search/originSearchCache";
-import { ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA } from "../search/originSearchGrounding";
+import { buildGroundedResearchAbstainAnswer } from "../research/groundedResearchOutcome";
 import type { OriginSearchFetch } from "../search/originSearchProviders";
 import { createOriginChatRouter, type OriginChatExecutor } from "./originChatRouter";
 
@@ -145,7 +145,16 @@ describe("createOriginChatRouter with search grounding (default research composi
       .post("/api/chat")
       .send({ messages: [{ role: "user", content: "昨日から今日にかけて、日本に関する主要なニュースを3つ教えてください" }] });
     expect(response.status).toBe(200);
-    expect(response.body.content).toBe(ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA);
+    // Tier-T4 hold text (N-1): the concrete reason (sources existed but
+    // were all stale) replaces the former fixed template.
+    expect(response.body.content).toBe(buildGroundedResearchAbstainAnswer({
+      query: "昨日から今日にかけて、日本に関する主要なニュースを3つ教えてください",
+      language: "ja",
+      reason: "no-fresh-sources",
+    }));
+    expect(response.body.routing.researchTier).toBe("T4");
+    expect(response.body.routing.researchOutcome).toBe("ABSTAIN");
+    expect(response.body.routing.researchAbstainReason).toBe("no-fresh-sources");
     expect(response.body.answer.limitations.join("")).toContain("鮮度条件");
     expect(response.body.answer.evidence).toEqual([]);
     expect(response.body.routing.answerMode).toBe("research");
