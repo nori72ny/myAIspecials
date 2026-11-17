@@ -283,9 +283,15 @@
    active row carries the pale accent wash above. Motion is a single
    decelerating slide on --ease-panel; visibility flips after the
    slide-out so closing animates too, and the scrim fades in with a
-   light blur on the same duration. On desktop the sidebar is a static
-   flex item toggled with lg:hidden, so the transition is disabled
-   there and the layout change stays instant and honest. */
+   light blur on the same duration. On desktop the sidebar is a
+   static flex item whose own width never changes (its content must
+   not reflow mid-animation); closing instead animates margin-left
+   to -280px, exactly its own width, on the same panel tokens, so
+   the panel slides out of the flow and the main column widens
+   smoothly instead of snapping (design evaluation round 2,
+   2026-11-17). The shell's overflow hidden clips whatever slides
+   past the left edge, and the global reduced-motion rule collapses
+   the transition there as everywhere else. */
 .origin-sidebar {
   border-radius: 0;
   box-shadow: none;
@@ -298,7 +304,12 @@
   transition: transform var(--duration-panel) var(--ease-panel), visibility 0s;
 }
 @media (min-width: 1024px) {
-  .origin-sidebar, .origin-sidebar[data-open="true"] { transition: none; }
+  .origin-sidebar {
+    transition: margin-left var(--duration-panel) var(--ease-panel), visibility 0s linear var(--duration-panel);
+  }
+  .origin-sidebar[data-open="true"] {
+    transition: margin-left var(--duration-panel) var(--ease-panel), visibility 0s;
+  }
 }
 .origin-sidebar-scrim {
   background: var(--scrim);
@@ -396,16 +407,26 @@
 .origin-composer { min-height: 64px; border-radius: var(--radius-composer); }
 .origin-composer--compact { min-height: 60px; box-shadow: 0 8px 20px var(--shadow-color); }
 .origin-composer--compact textarea { min-height: 44px; }
-/* Home hero placement (design evaluation 2026-11-17, layout axis):
-   the heading used to float at the vertical centre of its zone with
-   empty space pooled below it. The intro block now starts at the top
-   of its zone (App.tsx) with a little breathing room under the Orin
-   band, so Orin, heading and description read as one raised group.
-   The composer stays anchored to the bottom edge of the scroll
-   viewport (owner decision 2026-11-12, pinned by E2E), and the
-   mobile geometry contracts in origin-top-ui.css override this
-   padding there. */
+/* Home hero placement (design evaluation round 2, 2026-11-17,
+   layout axis): the top-anchored intro left the whole void pooled
+   under the description (~55% of the viewport height at 1919x998),
+   which read as missing content rather than as margin. The intro
+   block is now centred in its flexible zone (App.tsx), so the
+   whitespace distributes above the heading and below the
+   description as deliberate margins on both sides. The composer
+   stays anchored to the bottom edge of the scroll viewport (owner
+   decision 2026-11-12, pinned by E2E), the Orin band stays in the
+   normal flow above the zone, and the mobile geometry contracts
+   in origin-top-ui.css override this padding there. */
 .origin-home-intro { padding-top: 5vh; }
+@media (min-width: 640px) {
+  .origin-home-intro { padding-top: 0; }
+}
+/* Home description wrapping: keep-all folds the Japanese text at
+   phrase boundaries instead of mid-phrase (the round-2 evaluation
+   caught 頼むだけ／で、 at 1280px), with break-word kept as the
+   fallback for a phrase longer than the line itself. */
+.origin-home-description { word-break: keep-all; overflow-wrap: break-word; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
 .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: clamp(1rem, 1.1vw, 1.04rem); line-height: 1.8; }
