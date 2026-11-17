@@ -171,3 +171,58 @@ export function formatOriginBusinessCalendarAnchor(anchor: OriginBusinessCalenda
 export function buildOriginBusinessCalendarAnchor(now: Date = new Date()): string {
   return formatOriginBusinessCalendarAnchor(computeOriginBusinessCalendarAnchor(now));
 }
+
+// ---------------------------------------------------------------------------
+// Route-3 (Groq) compact forms.
+//
+// The full anchor above runs 525 characters — more than the route-3
+// business addendum could carry under its former 1,700-character pin, so
+// route 3 shipped without it, and route 3 is the route that actually
+// answers planning requests (14/14 across the round-3 and round-4
+// production measurements; BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18). BP-2
+// shipped ten past dates as future deadlines on that route. The compact
+// form below carries the same computed values — base date, end of the
+// current month, the next three months' ranges, the next quarter — in
+// one line, and compresses the role rules to the two that produced the
+// measured defects: schedule/deadline dates sit on or after the base
+// date with 4-digit years, and a user-supplied past date is flagged as
+// past, never silently moved. The week range is the one part dropped.
+// ---------------------------------------------------------------------------
+
+export function formatOriginBusinessCalendarAnchorCompact(anchor: OriginBusinessCalendarAnchor): string {
+  const [nextMonth, twoMonthsAhead, threeMonthsAhead] = anchor.followingMonths;
+  const quarter = anchor.nextQuarter;
+  const monthSegment = (label: string, target: OriginBusinessCalendarMonth) =>
+    `${label}：${monthLabelJa(target)}（${target.start}〜${target.end}）`;
+  const segments = [
+    `カレンダー基準（確定値。日付は写して使い、自分で計算しない）：基準日：${anchor.baseDate}（${anchor.weekdayJa}）`,
+    `今月末：${anchor.endOfCurrentMonth}`,
+    monthSegment("来月", nextMonth),
+    monthSegment("2ヶ月後", twoMonthsAhead),
+    monthSegment("3ヶ月後", threeMonthsAhead),
+    // A calendar quarter never crosses a year, so the compact form can
+    // name the months without repeating the year.
+    `次の四半期：${quarter.year}年Q${quarter.quarter}（${quarter.startMonth}月〜${quarter.endMonth}月）`,
+  ];
+  return `${segments.join("／")}。予定・期限の日付は基準日以降とし、西暦4桁を付ける。ユーザーが指定した日付が過去の場合は、勝手に移さず過去である旨を明示する。`;
+}
+
+/** Convenience builder: compute the anchor for `now` and format it compactly. */
+export function buildOriginBusinessCalendarAnchorCompact(now: Date = new Date()): string {
+  return formatOriginBusinessCalendarAnchorCompact(computeOriginBusinessCalendarAnchor(now));
+}
+
+/**
+ * Compact current-date instruction for the route-3 business addendum.
+ *
+ * The full current-date instruction (originCurrentDateInstruction) is
+ * appended only to the routes 1-2 instruction, so on route 3 the model
+ * was never told today's date at all — the second half of the BP-2 past-
+ * date defect. This line carries the same discipline in one sentence —
+ * judge 現在/最新 against this date, and state the as-of point of a
+ * current value — and it is derived from the same anchor as the compact
+ * calendar table beside it, so the two can never disagree.
+ */
+export function formatOriginBusinessCurrentDateInstruction(anchor: OriginBusinessCalendarAnchor): string {
+  return `- 今日の日付（Asia/Tokyo）は${anchor.baseDateJa}です。「現在」「最新」はこの日付基準で判断し、現在の値には「（${anchor.baseDateJa}時点）」と時点を明示すること。`;
+}

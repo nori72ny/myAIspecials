@@ -3,6 +3,8 @@ import {
   buildOriginBusinessCalendarAnchor,
   computeOriginBusinessCalendarAnchor,
   formatOriginBusinessCalendarAnchor,
+  formatOriginBusinessCalendarAnchorCompact,
+  formatOriginBusinessCurrentDateInstruction,
 } from "./OriginBusinessCalendarAnchor";
 
 // All inputs are UTC instants; the anchor is the JST calendar frame of
@@ -104,5 +106,37 @@ describe("OriginBusinessCalendarAnchor formatting", () => {
   it("formats exactly what compute returns (no hidden re-derivation)", () => {
     const now = JST_NOON("2026-12-15");
     expect(buildOriginBusinessCalendarAnchor(now)).toBe(formatOriginBusinessCalendarAnchor(computeOriginBusinessCalendarAnchor(now)));
+  });
+});
+
+describe("OriginBusinessCalendarAnchor compact formatting (route-3 form)", () => {
+  it("carries the same computed values as the full anchor, without the week range", () => {
+    const compact = formatOriginBusinessCalendarAnchorCompact(computeOriginBusinessCalendarAnchor(JST_NOON("2026-11-17")));
+    for (const expected of [
+      "カレンダー基準",
+      "自分で計算しない",
+      "基準日：2026-11-17（火）",
+      "今月末：2026-11-30",
+      "来月：2026年12月（2026-12-01〜2026-12-31）",
+      "2ヶ月後：2027年1月（2027-01-01〜2027-01-31）",
+      "3ヶ月後：2027年2月（2027-02-01〜2027-02-28）",
+      "次の四半期：2027年Q1（1月〜3月）",
+      "予定・期限の日付は基準日以降とし、西暦4桁を付ける",
+      "勝手に移さず過去である旨を明示する",
+    ]) {
+      expect(compact).toContain(expected);
+    }
+    // The week range is the one part the compact form drops, and the
+    // whole block stays inside its measured budget (~255 characters).
+    expect(compact).not.toContain("今週");
+    expect(compact).not.toContain("\n");
+    expect(compact.length).toBeLessThanOrEqual(320);
+  });
+
+  it("renders the compact current-date instruction from the same anchor", () => {
+    const line = formatOriginBusinessCurrentDateInstruction(computeOriginBusinessCalendarAnchor(JST_NOON("2026-11-17")));
+    expect(line).toContain("今日の日付（Asia/Tokyo）は2026年11月17日です");
+    expect(line).toContain("「現在」「最新」はこの日付基準で判断し");
+    expect(line).toContain("（2026年11月17日時点）");
   });
 });

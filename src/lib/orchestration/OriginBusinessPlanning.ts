@@ -1,5 +1,10 @@
 import type { OriginRequestIntent } from "./OriginRequestIntent.js";
-import { buildOriginBusinessCalendarAnchor } from "./OriginBusinessCalendarAnchor.js";
+import {
+  buildOriginBusinessCalendarAnchor,
+  computeOriginBusinessCalendarAnchor,
+  formatOriginBusinessCalendarAnchorCompact,
+  formatOriginBusinessCurrentDateInstruction,
+} from "./OriginBusinessCalendarAnchor.js";
 
 // Business planning & marketing capability for chat answers.
 //
@@ -148,8 +153,24 @@ export function detectOriginBusinessPlanningKind(
       return "campaign-plan";
     }
   }
+  // Business-plan coverage (BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18, item 3):
+  // a business noun compounded with a plan noun （運営計画・開業計画・
+  // 事業計画・経営計画・店舗計画・売上計画・集客計画）, or a business
+  // noun tied to a plan verb inside one clause （事業を始める計画を立て
+  // て), is a planning request even with no marketing vocabulary — the
+  // 2026-11-17 production check （焼き菓子店の運営計画） detected null
+  // and received no playbook on any route. This runs last so every
+  // specific kind and the numeric-goal fallback keep their precedence,
+  // and it always requires the business noun: a bare 計画/プラン （旅行
+  // の計画・勉強計画） never fires on its own, and neither does a bare
+  // business noun （開業したい). The (?!性) keeps 事業計画性のような
+  // derived nouns out.
+  if (BUSINESS_PLAN_PATTERN.test(text)) return "marketing-plan";
   return null;
 }
+
+const BUSINESS_PLAN_PATTERN =
+  /(?:運営|開業|事業|経営|店舗|売上|集客)(?:の)?(?:計画|プラン)(?!性)|(?:事業|経営|開業|店舗|運営|営業|販路)(?:の)?[^。！？\n]{0,6}(?:計画|プラン)(?:を|の)?(?:立て|作|考え|練|策定)/;
 
 // ---------------------------------------------------------------------------
 // Figure parsing: only explicitly labelled numbers are taken. A bare number
@@ -474,14 +495,33 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
 // figures — is all here, in well under a third of the full length.
 //
 // The premise table and the calendar anchor (external-consult adoption
-// 2026-11-17, items 1-2) are deliberately NOT carried here: the route-3
-// addendum is pinned to at most 1,700 characters by the route's token
+// 2026-11-17, items 1-2) were initially NOT carried here: the route-3
+// addendum was pinned to at most 1,700 characters by the route's token
 // budget (originChatResponsePolicy.test.ts), and the compact text for
-// the largest fixed brief already runs to 1,668 characters, so neither
-// block fits without raising the pinned budget. They ride on routes 1-2
-// via the full instruction above; carrying them on route 3 is a separate
-// budget decision, not a silent omission.
+// the largest fixed brief already ran to 1,668 characters, so neither
+// block fit without raising the pinned budget. The 2026-11-18 diagnosis
+// (BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18) showed what that omission cost:
+// route 3 served 14/14 measured briefs across rounds 3-4, so the premise
+// table appeared in 0/7 answers and BP-2 shipped ten past dates as
+// future deadlines — the anchor's target defect recurring on the one
+// route the anchor never reached, where the model was not even told
+// today's date. The compact builder therefore now carries all three in
+// compressed form: the premise table as one line (287 characters
+// measured), the current-date line (88), and the calendar anchor in its
+// compact one-line form (255; OriginBusinessCalendarAnchor.ts) — 633
+// characters added, taking the largest brief (BP-7) to 2,301 characters
+// and the combined route-3 payload to 5,275 (estimated 2,678 input
+// tokens at the gate's characters/2, against the 8,000 tokens/minute
+// Groq ceiling). The budget pins in the tests were raised on exactly
+// that measured basis, and only that far.
 // ---------------------------------------------------------------------------
+
+// Compressed premise-table line for route 3: the same contract as
+// PREMISE_TABLE_LINE — provenance classes, formula-bearing basis column,
+// body reference-only, one money unit, no 千円 — in a third of the
+// characters. The wording is pinned by test at at most 300 characters.
+const GROQ_PREMISE_TABLE_LINE =
+  "- Premise table first: open with a table of every figure used — columns 指標 / 値 / 単位 / 対象期間 / 種別 / 根拠. 種別： 入力事実, 仮置き（仮定）, 計算結果 (根拠 = formula; a rate shows numerator ÷ denominator), 未確定 (値 = what is missing). The body uses only these figures, unchanged. One money unit — 円 or 万円； never 千円.";
 
 function formatGroqBackcastLines(profile: OriginBusinessPlanningProfile): string[] {
   const { figures, backcast } = profile;
@@ -502,18 +542,27 @@ function formatGroqBackcastLines(profile: OriginBusinessPlanningProfile): string
   return lines;
 }
 
-export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile): string {
+export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile, now: Date = new Date()): string {
   const parts = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[profile.kind];
   const sections = parts.filter((part) => part !== "仮置き");
   const assumptionClause = parts.includes("仮置き")
     ? " Labelling every assumed figure 「仮置き（仮定）」 at the point of use is also a required part."
     : "";
+  // One anchor computation feeds both date blocks, so the current-date
+  // line and the calendar table always state the same base date.
+  const anchor = computeOriginBusinessCalendarAnchor(now);
   return [
     `Business planning rules for this request (kind: ${profile.kind}) — mandatory, not optional structure advice:`,
     `- Required parts: include EVERY part below as its own headed section, in this order, under these exact names: ${sections.join(" / ")}. Never omit or merge a part; a part with little to say still appears, with one line saying why it is small.${assumptionClause}`,
+    GROQ_PREMISE_TABLE_LINE,
     "- Numbers: use only user-supplied figures, arithmetic you show from them, or assumptions labelled 「仮置き（仮定）」. A rate is result ÷ input — write the division beside the rate. A figure presented with a formula must equal that formula's result, and the same quantity must carry the same value in the summary, tables, and body. Never state an unsourced market size, competitor fact, or statistic as fact; label estimates as estimates （推定）.",
     "- Funnel order is fixed: リーチ → リード → MQL → SQL → 商談 → 受注. Show the backcast from the goal backwards, with the conversion rate beside the stage it produces.",
     ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines: every measure and every next action must name its 担当 (a role name is enough) and its 期限 (a calendar date or a relative deadline such as 「2週間以内」). A measure or action without both does not count as part of the plan."] : []),
     ...formatGroqBackcastLines(profile),
+    // Date blocks last, mirroring the full instruction's recency
+    // position for the anchor: the current-date line, then the compact
+    // calendar anchor the answer's dates are copied from.
+    formatOriginBusinessCurrentDateInstruction(anchor),
+    formatOriginBusinessCalendarAnchorCompact(anchor),
   ].join("\n");
 }

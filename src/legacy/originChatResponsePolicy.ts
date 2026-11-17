@@ -509,8 +509,13 @@ export function originIntentAwarenessInstruction(): string {
  * routes 1 and 2 receive via the answer quality policy, and every measured
  * answer dropped them. The base substitute is unchanged and stays inside its
  * pinned 2,000–3,000 character budget; the addendum is planning-only,
- * separately bounded by test, and the combined payload still estimates to
- * roughly 2,300 input tokens against the route's 6,000-token input budget.
+ * separately bounded by test. The 2026-11-18 follow-up (diagnosis:
+ * BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18) extended the addendum with the
+ * compressed premise table, the current-date line, and the compact
+ * calendar anchor — route 3 kept serving every measured brief without
+ * them (premise table 0/7, BP-2 shipped ten past dates) — and the
+ * combined payload now estimates to roughly 2,700 input tokens against
+ * the route's 6,000-token input budget.
  */
 export function originGroqRouteSystemInstruction(planningProfile?: OriginBusinessPlanningProfile | null): string {
   const base = `You are ORIGIN Personal AI on the last-resort free route. A sound answer matters more than completeness; never trade away the accuracy and safety rules below.
