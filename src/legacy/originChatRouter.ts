@@ -20,11 +20,18 @@ import { researchCurrentInformation, type OriginResearchResult, type OriginResea
 import {
   createDefaultOriginResearchExecutor,
   fetchOriginWeatherAnswer,
-  ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_EN,
-  ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA,
   type OriginSearchGroundingDeps,
 } from "../search/originSearchGrounding.js";
 import { buildGroundedResearchPartialAnswer, buildGroundedResearchReport } from "../research/groundedResearchV11.js";
+import {
+  buildGroundedResearchAbstainAnswer,
+  ensureGroundedResearchTerminalBody,
+  researchAbstainReasonForResearchResult,
+  researchLandingForAbstain,
+  researchLandingForAdopted,
+  researchLandingForPartialAnswer,
+  type OriginResearchLanding,
+} from "../research/groundedResearchOutcome.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
@@ -60,11 +67,17 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   const safeSources = safeOriginResearchSources(result.sources);
   if (!result.ok || safeSources.length === 0) {
     const groundingFailure = result.groundingFailure;
-    const content = groundingFailure
-      ? (isEnglish ? ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_EN : ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA)
-      : isEnglish
-        ? "ORIGIN could not retrieve usable public sources, so it will not guess current information."
-        : "確認できる公開情報を取得できなかったため、現在の情報を推測して回答しません。";
+    // Tier T4 (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17 §1.4): the hold
+    // body is no longer a fixed template — it states what was searched,
+    // that nothing could be confirmed, and the concrete reason for this
+    // request (no sources found / none fresh enough / retrieval failed
+    // / monthly cap), in plain language with no internal vocabulary.
+    const abstainReason = researchAbstainReasonForResearchResult(result);
+    const content = buildGroundedResearchAbstainAnswer({
+      query,
+      language: isEnglish ? "en" : "ja",
+      reason: abstainReason,
+    });
     const reason = groundingFailure
       ? (isEnglish
         ? `Search grounding could not verify reliable sources (${groundingFailure}).`
@@ -89,6 +102,9 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
       conflicts: 0,
       sources: safeSources,
       conflictDetails: [],
+      // Ladder landing (N-1 §1.2): tier T4, outcome ABSTAIN, with the
+      // abstain reason carried as metadata for routing and logs.
+      landing: researchLandingForAbstain(abstainReason),
     };
   }
 
@@ -151,6 +167,10 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
     conflicts: grounded.conflicts.length,
     sources,
     conflictDetails: grounded.conflicts,
+    // Default ladder landing when sources exist (N-1 §1.1): the
+    // extractive partial answer is tier T3 / outcome PARTIAL. An
+    // adopted synthesis overrides the landing to T0 at its return site.
+    landing: researchLandingForPartialAnswer(),
   };
 }
 function firstAnswerBlock(content: string): string { const firstBlock = content.split(/\n\s*\n|\n/).map((part) => part.trim()).find(Boolean) ?? content.trim(); const withoutHeading = firstBlock.replace(/^#{1,6}\s+/, "").trim(); if (withoutHeading.length <= 500) return withoutHeading; const candidate = withoutHeading.slice(0, 500); const sentenceEnd = Math.max(candidate.lastIndexOf("。") + 1, candidate.lastIndexOf("！") + 1, candidate.lastIndexOf("？") + 1, candidate.lastIndexOf(". ") + 1); return sentenceEnd >= 40 ? candidate.slice(0, sentenceEnd).trim() : `${candidate.slice(0, 499).trimEnd()}…`; }
@@ -225,6 +245,37 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               setTimeout(writeNext, 15);
             };
             writeNext();
+            return res;
+          }
+          if (res.statusCode >= 200 && res.statusCode < 400) {
+            // Terminal guarantee (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17
+            // §1.4; failure type T-8 / case F-12): a 200 phased stream
+            // must never end with zero deltas and no complete event. The
+            // research branch's final assembly already guarantees a
+            // non-empty body, so an empty 2xx payload here means an
+            // unforeseen path produced one; land on the tier-T4 hold
+            // text as the terminal body instead of an empty 200. The
+            // warning log is the R-0 capture point for this condition
+            // (delta 0, no complete) if it ever recurs.
+            console.warn("[origin-chat] phased stream terminal guard fired", {
+              deltaCount: 0,
+              completeSent: false,
+              statusCode: res.statusCode,
+            });
+            const terminalLanguage = phaseAnswerEnvelope && phaseAnswerEnvelope.language === "en" ? "en" : "ja";
+            const terminalText = buildGroundedResearchAbstainAnswer({ query: "", language: terminalLanguage, reason: "provider-error" });
+            const terminalChunks = terminalText.match(/.{1,48}(?:\s|$)|.{1,48}/gs) ?? [terminalText];
+            let terminalIndex = 0;
+            const writeTerminalNext = () => {
+              if (terminalIndex >= terminalChunks.length) {
+                writePhasedEvent({ type: "complete" });
+                res.end("data: [DONE]\n\n");
+                return;
+              }
+              writePhasedEvent({ type: "delta", text: terminalChunks[terminalIndex++] });
+              setTimeout(writeTerminalNext, 15);
+            };
+            writeTerminalNext();
             return res;
           }
           // Defensive: no current research-branch exit produces an error
@@ -323,6 +374,12 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           requestId,
           searchMs: researchSearchMs,
           reasonCode: failClosedReasonCode,
+          // Ladder landing (N-1 §1.2): this exit is always tier T4 /
+          // outcome ABSTAIN; the reason rides the same log line so the
+          // zero-source refusals (failure type T-2) stay attributable.
+          researchTier: grounded.landing.tier,
+          researchOutcome: grounded.landing.outcome,
+          ...(grounded.landing.abstainReason ? { researchAbstainReason: grounded.landing.abstainReason } : {}),
           ...(groundingFailure ? { groundingFailure } : {}),
           ...(researchResult.failure ? { failureStage: researchResult.failure.stage, failureCode: researchResult.failure.code } : {}),
           // Same aggregates as the search-completed log: on this
@@ -407,6 +464,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   console.info("[origin-chat] research records completed", {
                     requestId,
                     synthesisPath: "records",
+                    // Ladder landing (N-1 §1.2): records adoption is tier
+                    // T0; a partial records answer (confirmed range only)
+                    // reports outcome PARTIAL instead of ANSWERED.
+                    researchTier: researchLandingForAdopted(recordsOutcome.partial === true).tier,
+                    researchOutcome: researchLandingForAdopted(recordsOutcome.partial === true).outcome,
                     ...recordsOutcome.metrics,
                   });
                   const verificationReason = grounded.language === "en"
@@ -521,6 +583,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
                       synthesisStatus: "records-validated",
                       synthesisPath: "records",
+                      researchTier: "T0",
+                      researchOutcome: recordsOutcome.partial ? "PARTIAL" : "ANSWERED",
                       synthesisSourceCount: recordsOutcome.usedSourceIds.length,
                       ...(recordsOutcome.partial ? { synthesisPartial: true } : {}),
                       providerDataPolicy: recordsResult.providerDataPolicy,
@@ -544,6 +608,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   requestId,
                   synthesisPath: "records",
                   code: recordsOutcome.failureCode,
+                  // Landing after this discard is the tier-T3 extractive
+                  // partial answer (N-1 §1.1).
+                  researchTier: "T3",
+                  researchOutcome: "PARTIAL",
                   ...recordsOutcome.metrics,
                 });
               }
@@ -559,6 +627,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               console.warn("[origin-chat] research records unavailable; source-list fallback retained", {
                 requestId,
                 code: synthesisFailureCode,
+                researchTier: "T3",
+                researchOutcome: "PARTIAL",
                 ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
               });
             }
@@ -694,6 +764,23 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   citedUnits: unitDiagnostics.citedUnits,
                   uncitedUnits: unitDiagnostics.uncitedUnits,
                   uncitedUnitsWithUrlLike: unitDiagnostics.uncitedUnitsWithUrlLike,
+                  // Ladder landing (N-1 §1.2): a salvaged adoption that
+                  // passed the R-3 floor guard is tier T0 / ANSWERED.
+                  researchTier: "T0",
+                  researchOutcome: "ANSWERED",
+                });
+              }
+              if (!adoption.salvaged) {
+                // Completion log for a clean adoption (N-1): the landing
+                // (tier T0 / outcome ANSWERED) is recorded for every
+                // adopted synthesis, not only salvaged ones, so outcome
+                // counts can be aggregated per request.
+                console.info("[origin-chat] research synthesis completed", {
+                  requestId,
+                  synthesisSalvaged: false,
+                  ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
+                  researchTier: "T0",
+                  researchOutcome: "ANSWERED",
                 });
               }
               return res.json({
@@ -768,6 +855,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   conflictCount: grounded.conflicts,
                   ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
                   synthesisStatus: "citation-validated",
+                  researchTier: "T0",
+                  researchOutcome: "ANSWERED",
                   synthesisSourceCount: adoption.usedSourceIds.length,
                   ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
                   ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
@@ -811,6 +900,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             console.warn("[origin-chat] research synthesis discarded", {
               requestId,
               code: adoption.failureCode,
+              // Landing after this discard is the tier-T3 extractive
+              // partial answer (N-1 §1.1).
+              researchTier: "T3",
+              researchOutcome: "PARTIAL",
               totalFactualUnits: unitDiagnostics.totalFactualUnits,
               citedUnits: unitDiagnostics.citedUnits,
               uncitedUnits: unitDiagnostics.uncitedUnits,
@@ -847,6 +940,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             console.warn("[origin-chat] research synthesis unavailable; source-list fallback retained", {
               requestId,
               code: synthesisFailureCode,
+              researchTier: "T3",
+              researchOutcome: "PARTIAL",
               ...(error instanceof OriginProviderError ? { failureDiagnostic: buildOriginProviderFailureDiagnostic(error) } : {}),
             });
           }
@@ -868,8 +963,42 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
           : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"]
         : grounded.limitations;
+      // Terminal guarantee (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17
+      // §1.4): this return is the research path's final assembly, and it
+      // structurally cannot emit an empty or shell-only body (failure
+      // type T-8 / case F-12). The grounded body is the tier-T4 hold
+      // text when no sources were usable and the tier-T3 extractive
+      // partial answer otherwise — both substantive by construction —
+      // and the guard replaces anything else with the tier-T4 hold text
+      // and re-lands the outcome on ABSTAIN.
+      const terminal = ensureGroundedResearchTerminalBody(grounded.content, () =>
+        buildGroundedResearchAbstainAnswer({ query: lastUserMessage, language: grounded.language, reason: "provider-error" }));
+      const landing: OriginResearchLanding = terminal.guardFired
+        ? researchLandingForAbstain("provider-error")
+        : grounded.landing;
+      if (terminal.guardFired) {
+        console.warn("[origin-chat] research terminal guard fired", {
+          requestId,
+          synthesisStatus,
+          ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+          sourceCount: grounded.sourceCount,
+        });
+      }
+      // Landing log (N-1 §1.2): one line per research request that ends
+      // on the fallback assembly, carrying the tier and the three-valued
+      // outcome (plus the abstain reason on ABSTAIN), so landings can be
+      // aggregated alongside the R-0 attempt attribution.
+      console.info("[origin-chat] research outcome", {
+        requestId,
+        researchTier: landing.tier,
+        researchOutcome: landing.outcome,
+        ...(landing.abstainReason ? { researchAbstainReason: landing.abstainReason } : {}),
+        synthesisStatus,
+        ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+        sourceCount: grounded.sourceCount,
+      });
       return res.json({
-        content: grounded.content,
+        content: terminal.content,
         supervisor: {
           version: ORIGIN_SUPERVISOR_VERSION_V2,
           status: researchRequestedOutputs.length > 0 ? "partial" : "not-required",
@@ -899,7 +1028,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             },
           ],
         },
-        answer: answerEnvelope(grounded.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
+        answer: answerEnvelope(terminal.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),
           answerMode: "research",
@@ -910,6 +1039,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ...(researchResult.grounding ? { searchGrounding: researchResult.grounding } : {}),
           synthesisStatus,
           ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+          researchTier: landing.tier,
+          researchOutcome: landing.outcome,
+          ...(landing.abstainReason ? { researchAbstainReason: landing.abstainReason } : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
