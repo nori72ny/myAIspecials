@@ -174,8 +174,11 @@ import {
  * ORIGIN_GROQ_FIRST_ENABLED is exactly "true", a DIRECT CHAT dispatch runs the
  * failover routes in the opposite order after a primary availability failure:
  * Groq first, under ORIGIN_GROQ_ATTEMPT_BUDGET_MS, then Cloudflare as the
- * final route with its usual attempt cap and circuit breaker but no third-route
- * reserve (there is no later route to protect). The switch defaults to OFF:
+ * final route with its usual attempt cap and circuit-breaker recording but no
+ * third-route reserve (there is no later route to protect). As the last route
+ * it is never skipped by its breaker — the same rule the current order
+ * applies when no third route is configured — so a Groq outage cannot turn
+ * into a hard failure of every request while the breaker happens to be open. The switch defaults to OFF:
  * unset or any other value reproduces the order above exactly, and flipping it
  * back is the whole rollback. Only direct chat is reordered. A dispatch is a
  * direct chat dispatch when the request carries the route-3 substitute
@@ -906,12 +909,14 @@ async function attemptGroqRoute(
  * over the prior attempts, a pre-execution skip surfaces the fallback error
  * (the error of the route that executed before it, or the primary error when
  * nothing executed), and an executed failure surfaces the route's own error.
- * While the route's circuit breaker is open the route is not attempted at
- * all — the same skip the current order records while a later route exists —
- * because in this order the Groq route has already had its attempt, and
- * paying a hanging final route's full slice on every request is exactly what
- * the breaker exists to prevent. After the cooldown the next request trials
- * the route again (half-open), as in the current order.
+ * The route's circuit breaker never skips it here: as the last route it runs
+ * even while the breaker is open, exactly like the current order's second
+ * route when no third route is configured. That matters most in the situation
+ * Groq-first creates — when the Groq route is at its own limits, skipping the
+ * final route as well would hard-fail every request instead of giving the
+ * last chance its attempt. The outcome is still recorded on the breaker as
+ * usual: a success closes it, and a counted failure re-opens it at once (the
+ * record function's executed-while-open case).
  */
 async function attemptCloudflareRoute(
   request: OriginProviderExecutionRequest,
@@ -921,15 +926,6 @@ async function attemptCloudflareRoute(
   priorAttempts: readonly OriginProviderAttemptEvidence[],
   fallbackError: OriginProviderError,
 ): Promise<OriginProviderExecutionResult> {
-  const circuit = cloudflareCircuitOpen(options);
-  if (circuit) {
-    const skipped = cloudflareAttemptEvidence("skipped", {
-      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
-      errorCode: circuit.errorCode,
-      transportRequestCount: 0,
-    });
-    throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
-  }
   const cloudflareStartedAtMs = Date.now();
   try {
     const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
@@ -1257,7 +1253,9 @@ async function attemptGroqStreamRoute(
  * recording, attempt evidence, and error surfacing are identical to the
  * blocking final-route attempt; there is no later route to switch to, so a
  * failure is always surfaced (with the fallback error taking its place when
- * the route was skipped before execution).
+ * the route was skipped before execution). Like the blocking attempt, the
+ * route runs even while its circuit breaker is open — the breaker records
+ * the outcome but never skips the last route.
  */
 async function attemptCloudflareStreamRoute(
   request: OriginProviderExecutionRequest,
@@ -1269,15 +1267,6 @@ async function attemptCloudflareStreamRoute(
   priorAttempts: readonly OriginProviderAttemptEvidence[],
   fallbackError: OriginProviderError,
 ): Promise<OriginProviderExecutionResult> {
-  const circuit = cloudflareCircuitOpen(options);
-  if (circuit) {
-    const skipped = cloudflareAttemptEvidence("skipped", {
-      skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
-      errorCode: circuit.errorCode,
-      transportRequestCount: 0,
-    });
-    throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
-  }
   const cloudflareStartedAtMs = Date.now();
   try {
     const cloudflareResult = await runCloudflareRouteStreamBounded(request, handlers, env, fetchImpl, options, delivery);
