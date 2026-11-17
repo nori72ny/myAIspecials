@@ -1,6 +1,6 @@
 import { selectOriginCapability, type OriginCapability, type OriginCapabilityDecision } from "./OriginCapabilityRouter.js";
 import { classifyTask, type AITaskRequest, type AITaskType } from "./MultiAIOrchestrator.js";
-import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, selectCurrentOriginFreeModel, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, ORIGIN_DEFAULT_OPENROUTER_FREE_MODEL, ORIGIN_OPENROUTER_ROUTE_DISPOSITION, selectCurrentOriginFreeModel, selectOriginFreeModelForStoppedRoute, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog.js";
 import { ORIGIN_CLOUDFLARE_FREE_MODEL, selectCurrentOriginCloudflareFreeModel, type OriginCloudflareFreeModelEvidence } from "./OriginCloudflareFreeModelCatalog.js";
 import { ORIGIN_GROQ_FREE_MODEL_ID, selectCurrentOriginGroqFreeModel, type OriginGroqFreeModelEvidence } from "./OriginGroqFreeModelCatalog.js";
 
@@ -14,7 +14,7 @@ export const ORIGIN_GROQ_FREE_MODEL = "llama-3.3-70b-versatile" as const;
 export const ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL = ORIGIN_CLOUDFLARE_FREE_MODEL;
 
 export type OriginExecutionProviderId = typeof ORIGIN_OPENROUTER_FREE_PROVIDER_ID | typeof ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID | typeof ORIGIN_GROQ_FREE_PROVIDER_ID | typeof ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID;
-/** Production primary route is OpenRouter. Gemini is a separately guarded secondary route only. Groq was independently verified on 2026-11-08 (ZDR enabled on the owner's free account) and exists only as the failover dispatcher's third route; it stays disabled until GROQ_API_KEY is configured. */
+/** The OpenRouter route is dispositioned "stopped" (PKG-4 PR-2, 2026-11-17): it is never executed, and direct chat is served by the Cloudflare and Groq failover routes only. Gemini is a separately guarded secondary route only. Groq was independently verified on 2026-11-08 (ZDR enabled on the owner's free account) and exists only as a failover route; it stays disabled until GROQ_API_KEY is configured. */
 export const ORIGIN_ZERO_COST_PROVIDER_IDS: readonly OriginExecutionProviderId[] = [ORIGIN_OPENROUTER_FREE_PROVIDER_ID, ORIGIN_GOOGLE_AI_STUDIO_FREE_PROVIDER_ID];
 
 export interface OriginExecutionAvailability { openRouterConfigured: boolean; googleAiStudioConfigured?: boolean; groqConfigured?: boolean; cloudflareConfigured?: boolean; }
@@ -67,8 +67,20 @@ function parseEvidence(evidence: OriginProviderFreeEvidence, providerId: OriginE
 
 function resolveProviderEvidence(providerId: OriginExecutionProviderId, planningOptions: OriginExecutionPlanningOptions, nowMs: number): OriginProviderFreeEvidence | OriginExecutionPlanResult {
   if (providerId === ORIGIN_OPENROUTER_FREE_PROVIDER_ID) {
-    const result = selectCurrentOriginFreeModel(planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG, nowMs);
+    const catalog = planningOptions.freeModelCatalog ?? DEFAULT_ORIGIN_FREE_MODEL_CATALOG;
+    const result = selectCurrentOriginFreeModel(catalog, nowMs);
     if ("model" in result) return { ...result.model, providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID };
+    // Stopped-route disposition (PKG-4 PR-2): the OpenRouter route is never
+    // executed, so its evidence freshness no longer gates plan building —
+    // the plan is the shared shell the failover routes derive their own
+    // plans from, and each serving route verifies its own evidence before
+    // running. The stale entry is carried as the plan's evidence record.
+    // A malformed catalog still fails closed (FREE_MODEL_CATALOG_INVALID);
+    // only staleness is waived, and only under the disposition.
+    if (result.code === "FREE_MODEL_EVIDENCE_STALE" && ORIGIN_OPENROUTER_ROUTE_DISPOSITION === "stopped") {
+      const stoppedEntry = selectOriginFreeModelForStoppedRoute(catalog);
+      if (stoppedEntry) return { ...stoppedEntry, providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID };
+    }
     return { ok: false, code: result.code, message: result.message };
   }
   if (providerId === ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID) {
@@ -105,7 +117,7 @@ export function buildOriginExecutionPlan(request: OriginExecutionRequest, availa
   const modelEvidence = evidence as OriginProviderFreeEvidence;
   const modelId = ORIGIN_OPENROUTER_FREE_MODEL;
   const providerDataPolicy = DEFAULT_ORIGIN_PROVIDER_DATA_POLICY;
-  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類し、検証済みのOpenRouter無料モデルのみを選択します。Provider自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
+  return { ok: true, plan: { providerId, providerLabel: "ORIGIN 無料AI", modelId, taskType, capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: policy.timeoutMs, requiresOwnerApproval: false, reason: `依頼を capability「${capabilityDecision.capability}」/ task「${taskType}」としてローカル分類します。第1経路（OpenRouter）は停止中（disposition: stopped、2026-11-15のZDR強制により実行しません）。この計画はフェイルオーバー経路（Cloudflare／Groq）の共通シェルであり、各経路は自身の無料利用証拠が期限内である場合のみ実行します。`, providerDataPolicy, modelEvidence } };
 }
 
 /**
@@ -124,7 +136,7 @@ export function buildOriginCloudflareRoutePlan(sourcePlan: OriginExecutionPlan, 
   const evidence = resolveProviderEvidence(ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, planningOptions, nowMs);
   if ("ok" in evidence && evidence.ok === false) return evidence;
   const modelEvidence = evidence as OriginProviderFreeEvidence;
-  return { ok: true, plan: { providerId: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第1経路（OpenRouter）の可用性エラー時に限り、証拠が期限内でZDR・学習利用なし・$0が公式情報で確認できるCloudflare Workers AIの固定無料モデルへ切り替えるための副経路計画です。実行前にアカウントのWorkers Freeプラン状態と価格$0を機械証明し、証明できない場合はこの経路を実行しません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
+  return { ok: true, plan: { providerId: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_MODEL, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第1経路（OpenRouter）は停止中（disposition: stopped）のため、証拠が期限内でZDR・学習利用なし・$0が公式情報で確認できるCloudflare Workers AIの固定無料モデルを実行するための経路計画です。実行前にアカウントのWorkers Freeプラン状態と価格$0を機械証明し、証明できない場合はこの経路を実行しません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
 }
 
 /**
@@ -144,5 +156,5 @@ export function buildOriginGroqRoutePlan(sourcePlan: OriginExecutionPlan, planni
   const evidence = resolveProviderEvidence(ORIGIN_GROQ_FREE_PROVIDER_ID, planningOptions, nowMs);
   if ("ok" in evidence && evidence.ok === false) return evidence;
   const modelEvidence = evidence as OriginProviderFreeEvidence;
-  return { ok: true, plan: { providerId: ORIGIN_GROQ_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_GROQ_FREE_MODEL_ID, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第1・第2経路の可用性エラー時に限り、証拠が期限内でZDR有効化と無料上限を実地確認済みのGroq固定無料モデルへ切り替えるための第3経路計画です。GROQ_API_KEYが未設定の場合はこの経路自体が存在しないものとして扱い、証拠期限切れやトークン上限超過が見込まれる場合は実行しません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
+  return { ok: true, plan: { providerId: ORIGIN_GROQ_FREE_PROVIDER_ID, providerLabel: "ORIGIN 無料AI", modelId: ORIGIN_GROQ_FREE_MODEL_ID, taskType: sourcePlan.taskType, capabilityDecision: sourcePlan.capabilityDecision, freeOnly: true, estimatedCostUsd: 0, timeoutMs: sourcePlan.timeoutMs, requiresOwnerApproval: false, reason: "第1経路は停止中、第2経路の可用性エラー時に限り、証拠が期限内でZDR有効化と無料上限を実地確認済みのGroq固定無料モデルへ切り替えるための経路計画です。GROQ_API_KEYが未設定の場合はこの経路自体が存在しないものとして扱い、証拠期限切れやトークン上限超過が見込まれる場合は実行しません。", providerDataPolicy: DEFAULT_ORIGIN_PROVIDER_DATA_POLICY, modelEvidence } };
 }

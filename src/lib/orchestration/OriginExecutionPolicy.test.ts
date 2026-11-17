@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
-import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -57,9 +57,24 @@ describe("buildOriginExecutionPlan", () => {
     expect(buildOriginExecutionPlan(request, { openRouterConfigured: false }, undefined, { nowMs: verifiedNow })).toEqual({ ok: false, code: "FREE_PROVIDER_NOT_CONFIGURED", message: "明示的に無料と確認できるOpenRouter無料モデルが設定されていません。" });
   });
 
-  it("fails closed after the fixed OpenRouter model evidence expires", () => {
+  it("still builds the plan after the stopped route's model evidence expires (PKG-4 PR-2)", () => {
+    // The OpenRouter route is dispositioned stopped and never executed, so
+    // its evidence freshness no longer gates plan building: the plan is the
+    // shared shell for the Cloudflare/Groq failover routes, which verify
+    // their own evidence. The stale entry is carried as the evidence record.
     const result = buildOriginExecutionPlan(request, { openRouterConfigured: true }, undefined, { nowMs: Date.parse(verifiedEvidence.reviewAfter) + 1 });
-    expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.providerId).toBe("openrouter-free");
+    expect(result.plan.modelId).toBe(ORIGIN_OPENROUTER_FREE_MODEL);
+    expect(result.plan.modelEvidence.verifiedAt).toBe(verifiedEvidence.verifiedAt);
+    expect(result.plan.modelEvidence.reviewAfter).toBe(verifiedEvidence.reviewAfter);
+  });
+
+  it("fails closed on a malformed OpenRouter catalog even under the stopped disposition", () => {
+    const malformed = [{ ...verifiedEvidence, modelId: "someone/else:free" }] as unknown as readonly OriginFreeModelEvidence[];
+    const result = buildOriginExecutionPlan(request, { openRouterConfigured: true }, undefined, { nowMs: verifiedNow, freeModelCatalog: malformed });
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" }));
   });
 
   it("keeps the server reliability timeout bounded and rejects invalid cost/timeout policies", () => {

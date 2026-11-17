@@ -131,6 +131,7 @@ describe("Groq third route in the failover dispatcher", () => {
     const result = await executeOriginProviderWithFailover(request, cfEnabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第2経路の回答です。");
     expect(result.attempts).toHaveLength(2);
     expect(groqExecute).not.toHaveBeenCalled();
@@ -144,13 +145,14 @@ describe("Groq third route in the failover dispatcher", () => {
     const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第3経路の回答です。");
     expect(result.attempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
       { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "skipped", skipReason: "not-configured", transportRequestCount: 0 },
       { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
-    expect(result.transportRequestCount).toBe(2);
+    expect(result.transportRequestCount).toBe(1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
@@ -161,6 +163,7 @@ describe("Groq third route in the failover dispatcher", () => {
     const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第3経路の回答です。");
     expect(result.attempts?.[1]).toEqual({
       providerId: "cloudflare-workers-ai-free",
@@ -170,19 +173,17 @@ describe("Groq third route in the failover dispatcher", () => {
       transportRequestCount: 4,
       durationMs: expect.any(Number),
     });
-    expect(result.transportRequestCount).toBe(1 + 4 + 1);
+    expect(result.transportRequestCount).toBe(0 + 4 + 1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
   it("forwards the route-3 compact instruction to the Groq executor only", async () => {
     const compactInstruction = "経路3専用の短縮指示です。";
     const activatedRequest: OriginProviderExecutionRequest = { ...request, groqSystemInstruction: compactInstruction };
-    let primarySeen: OriginProviderExecutionRequest | undefined;
     let cloudflareSeen: OriginProviderExecutionRequest | undefined;
     let groqSeen: OriginProviderExecutionRequest | undefined;
-    const primaryExecute = vi.fn(async (seen: OriginProviderExecutionRequest) => {
-      primarySeen = seen;
-      throw rateLimitedError(1);
+    const primaryExecute = vi.fn(async () => {
+      throw new Error("primary must not be attempted under the stopped disposition");
     });
     const cloudflareExecute = vi.fn(async (seen: OriginProviderExecutionRequest) => {
       cloudflareSeen = seen;
@@ -197,13 +198,12 @@ describe("Groq third route in the failover dispatcher", () => {
     });
     expect(result.text).toBe("第3経路の回答です。");
     // The Groq executor receives both the original instruction (untouched) and the
-    // route-3 substitute. The primary executor shares the request object but never
-    // reads the substitute (its payload is built from systemInstruction alone), and
-    // the Cloudflare route's constructed request does not carry the field at all.
+    // route-3 substitute. The primary executor is never invoked at all under the
+    // stopped disposition (PKG-4 PR-2), and the Cloudflare route's constructed
+    // request does not carry the field.
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(groqSeen?.groqSystemInstruction).toBe(compactInstruction);
     expect(groqSeen?.systemInstruction).toBe(request.systemInstruction);
-    expect(primarySeen?.groqSystemInstruction).toBe(compactInstruction);
-    expect(primarySeen?.systemInstruction).toBe(request.systemInstruction);
     expect(cloudflareSeen?.groqSystemInstruction).toBeUndefined();
     expect(cloudflareSeen?.systemInstruction).toBe(request.systemInstruction);
   });
@@ -233,14 +233,17 @@ describe("Groq third route in the failover dispatcher", () => {
     expect((error as OriginProviderError).diagnostic?.failoverAttempts).toHaveLength(2);
   });
 
-  it("surfaces the primary error when Groq is skipped before execution (stale evidence)", async () => {
+  it("surfaces the route-stopped unavailability when Groq is skipped before execution (stale evidence)", async () => {
     const primaryExecute = primaryRateLimited();
     const cloudflareExecute = cloudflareSkipped();
     const groqExecute = vi.fn(async () => { throw new OriginGroqPreflightError("evidence-stale"); });
     const error = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
     }).catch((caught: unknown) => caught);
-    expect((error as OriginProviderError).code).toBe("PROVIDER_RATE_LIMITED");
+    expect(primaryExecute).not.toHaveBeenCalled();
+    // Every route was skipped before execution, so the honest surfaced error
+    // is the synthesized route-stopped unavailability (PKG-4 PR-2).
+    expect((error as OriginProviderError).code).toBe("PROVIDER_UNAVAILABLE");
     const attempts = (error as OriginProviderError).diagnostic?.failoverAttempts;
     expect(attempts).toHaveLength(3);
     expect(attempts?.[2]).toEqual({
@@ -268,9 +271,9 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(attempts?.[2].outcome).toBe("availability-error");
   });
 
-  it("records each route's upstream status and raw error code on its failed attempt evidence", async () => {
+  it("records each executed route's upstream status and raw error code on its failed attempt evidence", async () => {
     const primaryExecute = vi.fn(async () => {
-      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, { transportRequestCount: 1, upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded" });
+      throw new Error("primary must not be attempted under the stopped disposition");
     });
     const cloudflareExecute = vi.fn(async () => {
       throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, { transportRequestCount: 4, upstreamStatus: 429, upstreamErrorCode: "10023" });
@@ -281,26 +284,27 @@ describe("Groq third route in the failover dispatcher", () => {
     const error = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
     }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(error.code).toBe("PROVIDER_RATE_LIMITED");
     expect(error.diagnostic?.failoverAttempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorType: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
       { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4, durationMs: expect.any(Number) },
       { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
   });
 
-  it("chains through a circuit-open primary skip to Groq on the next request", async () => {
+  it("records the route-stopped skip and chains to Groq on every request (PKG-4 PR-2)", async () => {
+    const primaryExecute = vi.fn(async () => { throw new Error("primary must not be attempted under the stopped disposition"); });
     const first = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
       nowMs: NOW_MS,
-      primaryExecute: primaryRateLimited(),
+      primaryExecute,
       cloudflareExecute: cloudflareSkipped(),
       groqExecute: groqOk(),
     });
     expect(first.text).toBe("第3経路の回答です。");
 
-    const primaryExecute = vi.fn(async () => { throw new Error("primary must not be attempted while the circuit is open"); });
     const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
-      nowMs: NOW_MS,
+      nowMs: NOW_MS + 1_000,
       primaryExecute,
       cloudflareExecute: cloudflareSkipped(),
       groqExecute: groqOk(),
@@ -310,8 +314,7 @@ describe("Groq third route in the failover dispatcher", () => {
       providerId: "openrouter-free",
       modelId: ORIGIN_OPENROUTER_FREE_MODEL,
       outcome: "skipped",
-      skipReason: "primary-circuit-open",
-      errorCode: "PROVIDER_RATE_LIMITED",
+      skipReason: "route-stopped",
       transportRequestCount: 0,
     });
     expect(result.attempts).toHaveLength(3);
@@ -345,11 +348,11 @@ describe("Groq third route in the failover dispatcher", () => {
       transportRequestCount: 2,
       durationMs: expect.any(Number),
     });
-    expect(result.transportRequestCount).toBe(1 + 0 + 2);
+    expect(result.transportRequestCount).toBe(0 + 0 + 2);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("delivers the Groq answer through the streaming variant when the primary stream fails before any byte", async () => {
+  it("delivers the Groq answer through the streaming variant without starting the stopped primary stream", async () => {
     const deltas: string[] = [];
     const streamExecute = vi.fn(async () => { throw rateLimitedError(1); });
     const result = await executeOriginProviderStreamWithFailover(
@@ -364,9 +367,11 @@ describe("Groq third route in the failover dispatcher", () => {
         groqExecute: groqOk(),
       },
     );
+    expect(streamExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第3経路の回答です。");
     expect(deltas).toEqual(["第3経路の回答です。"]);
     expect(result.attempts).toHaveLength(3);
+    expect(result.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
   });
 });
 
@@ -380,6 +385,12 @@ describe("assertOriginZeroCostExecutionResultWithFailover with three attempts", 
 
   it("accepts the honest three-attempt shape", () => {
     const result = groqServedResult([primaryFailed, cfSkipped, groqServed], 2);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("accepts the route-stopped three-attempt shape (PKG-4 PR-2)", () => {
+    const routeStopped = { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped" as const, skipReason: "route-stopped", transportRequestCount: 0 };
+    const result = groqServedResult([routeStopped, cfSkipped, groqServed], 1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
@@ -464,7 +475,9 @@ describe("third-route reserve and attempt durations (PKG-4 PR-1)", () => {
     expect(cloudflareDurationMs).toBeGreaterThanOrEqual(1_250);
     expect(cloudflareDurationMs).toBeLessThan(2_500);
     expect(result.attempts?.[2]).toMatchObject({ providerId: "groq-free", outcome: "succeeded" });
-    expect(typeof result.attempts?.[0]?.durationMs).toBe("number");
+    // The first attempt is the route-stopped skip (PKG-4 PR-2): nothing was
+    // executed, so it carries no duration.
+    expect(result.attempts?.[0]?.durationMs).toBeUndefined();
     expect(typeof result.attempts?.[2]?.durationMs).toBe("number");
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
@@ -490,11 +503,9 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
       transportRequestCount,
     });
   const cloudflareTimeout = () => vi.fn(async () => { throw timeoutError(); });
-  // Keep the primary breaker out of the way: a 1ms cooldown means every
-  // request re-trials the primary and reaches the second route afresh, so the
-  // second-route breaker is exercised through the primary-error entry. The
-  // open-circuit entry is covered by its own case below.
-  const noPrimaryCircuit = { primaryCircuitCooldownMs: 1 };
+  // Every request enters the second-route phase through the route-stopped
+  // primary skip (PKG-4 PR-2), so the second-route breaker is exercised
+  // through that entry throughout this describe.
 
   it("pins the attempt budget, failure threshold, and cooldown defaults", () => {
     expect(ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS).toBe(25_000);
@@ -503,12 +514,11 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
   });
 
   it("caps a hanging second route at its attempt budget instead of the remaining-minus-reserve slice", async () => {
-    const primaryExecute = primaryRateLimited();
     const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
     const groqExecute = groqOk();
     const startedAt = Date.now();
     const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+      nowMs: NOW_MS, cloudflareExecute, groqExecute,
       totalBudgetMs: 4_000, groqReserveMs: 500, cloudflareAttemptBudgetMs: 300,
     });
     const elapsedMs = Date.now() - startedAt;
@@ -523,10 +533,9 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
   });
 
   it("opens after two consecutive second-route timeouts and skips the route while open", async () => {
-    const primaryExecute = primaryRateLimited();
     const cloudflareExecute = cloudflareTimeout();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     const first = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     expect(first.text).toBe("第3経路の回答です。");
     expect(cloudflareExecute).toHaveBeenCalledTimes(1);
@@ -548,21 +557,20 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
     expect(() => assertOriginZeroCostExecutionResultWithFailover(third, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("also skips the second route when the request arrives through the open primary circuit", async () => {
-    const primaryExecute = primaryRateLimited();
+  it("also skips the second route when the request arrives through the route-stopped entry (PKG-4 PR-2)", async () => {
+    const primaryExecute = vi.fn(async () => { throw new Error("primary must not be attempted under the stopped disposition"); });
     const cloudflareExecute = cloudflareTimeout();
     const groqExecute = groqOk();
-    // Default primary cooldown (300s): after the first request the primary is
-    // skipped too, so the second-route breaker must engage — and later skip —
-    // from the circuit-open entry as well.
+    // The route-stopped entry is the only entry now: the second-route
+    // breaker must engage — and later skip — from it as well.
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS + 1_000, primaryExecute, cloudflareExecute, groqExecute });
-    expect(primaryExecute).toHaveBeenCalledTimes(1);
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(cloudflareExecute).toHaveBeenCalledTimes(2);
     const third = await executeOriginProviderWithFailover(request, bothEnv, fetch, { nowMs: NOW_MS + 2_000, primaryExecute, cloudflareExecute, groqExecute });
-    expect(primaryExecute).toHaveBeenCalledTimes(1);
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(cloudflareExecute).toHaveBeenCalledTimes(2);
-    expect(third.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
+    expect(third.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
     expect(third.attempts?.[1]).toMatchObject({
       outcome: "skipped",
       skipReason: ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON,
@@ -579,9 +587,8 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
       if (cfBehavior === "timeout") throw timeoutError();
       return cloudflareSuccessResult();
     });
-    const primaryExecute = primaryRateLimited();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     cfBehavior = "ok";
     const recovered = await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
@@ -600,9 +607,8 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
       if (cfBehavior === "timeout") throw timeoutError();
       return cloudflareSuccessResult();
     });
-    const primaryExecute = primaryRateLimited();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
     expect(cloudflareExecute).toHaveBeenCalledTimes(2);
@@ -623,10 +629,9 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
   });
 
   it("re-opens at once when the half-open trial fails with a counted failure", async () => {
-    const primaryExecute = primaryRateLimited();
     const cloudflareExecute = cloudflareTimeout();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
     const trialed = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
@@ -646,9 +651,8 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
       if (cfBehavior === "not-configured") throw notConfigured;
       throw timeoutError();
     });
-    const primaryExecute = primaryRateLimited();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
     cfBehavior = "timeout";
@@ -661,9 +665,8 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
 
   it("does not count a timeout that never reached the network (zero transport)", async () => {
     const cloudflareExecute = vi.fn(async () => { throw timeoutError(0); });
-    const primaryExecute = primaryRateLimited();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 2_000 });
@@ -671,10 +674,9 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
   });
 
   it("delivers the third route through the streaming variant while the second-route breaker is open", async () => {
-    const primaryExecute = primaryRateLimited();
     const cloudflareExecute = cloudflareTimeout();
     const groqExecute = groqOk();
-    const options = { primaryExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit };
+    const options = { cloudflareExecute, groqExecute };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
     expect(cloudflareExecute).toHaveBeenCalledTimes(2);
@@ -685,7 +687,7 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
       { onDelta: (text: string) => { deltas.push(text); } },
       bothEnv,
       fetch,
-      { nowMs: NOW_MS + 2_000, streamExecute, cloudflareExecute, groqExecute, ...noPrimaryCircuit },
+      { nowMs: NOW_MS + 2_000, streamExecute, cloudflareExecute, groqExecute },
     );
     expect(cloudflareExecute).toHaveBeenCalledTimes(2);
     expect(result.text).toBe("第3経路の回答です。");
@@ -758,10 +760,10 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     expect(result.text).toBe("第3経路の回答です。");
     expect(cloudflareExecute).not.toHaveBeenCalled();
     expect(result.attempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
       { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
-    expect(result.transportRequestCount).toBe(2);
+    expect(result.transportRequestCount).toBe(1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
@@ -773,11 +775,11 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     });
     expect(result.text).toBe("第2経路の回答です。");
     expect(result.attempts).toEqual([
-      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
       { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
       { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "succeeded", transportRequestCount: 4, durationMs: expect.any(Number) },
     ]);
-    expect(result.transportRequestCount).toBe(1 + 1 + 4);
+    expect(result.transportRequestCount).toBe(0 + 1 + 4);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
@@ -796,7 +798,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       transportRequestCount: 0,
     });
     expect(result.attempts).toHaveLength(3);
-    expect(result.transportRequestCount).toBe(1 + 0 + 4);
+    expect(result.transportRequestCount).toBe(0 + 0 + 4);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
@@ -826,14 +828,14 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("chains through a circuit-open primary skip to Groq first on the next request", async () => {
+  it("records the route-stopped skip and serves Groq first on every request (PKG-4 PR-2)", async () => {
     const cloudflareExecute = cloudflareOk();
+    const primaryExecute = vi.fn(async () => { throw new Error("primary must not be attempted under the stopped disposition"); });
     const first = await executeOriginProviderWithFailover(directRequest, groqFirstEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute: primaryRateLimited(), cloudflareExecute, groqExecute: groqOk(),
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute: groqOk(),
     });
     expect(first.text).toBe("第3経路の回答です。");
 
-    const primaryExecute = vi.fn(async () => { throw new Error("primary must not be attempted while the circuit is open"); });
     const result = await executeOriginProviderWithFailover(directRequest, groqFirstEnv, fetch, {
       nowMs: NOW_MS + 1_000, primaryExecute, cloudflareExecute, groqExecute: groqOk(),
     });
@@ -843,8 +845,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       providerId: "openrouter-free",
       modelId: ORIGIN_OPENROUTER_FREE_MODEL,
       outcome: "skipped",
-      skipReason: "primary-circuit-open",
-      errorCode: "PROVIDER_RATE_LIMITED",
+      skipReason: "route-stopped",
       transportRequestCount: 0,
     });
     expect(result.attempts).toHaveLength(2);
@@ -886,7 +887,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     expect(groqExecute).not.toHaveBeenCalled();
   });
 
-  it("streams the Groq answer first when the primary stream fails before any byte, without touching Cloudflare", async () => {
+  it("streams the Groq answer first without starting the stopped primary stream, without touching Cloudflare", async () => {
     const cloudflareExecute = cloudflareOk();
     const groqExecute = groqOk();
     const streamExecute = vi.fn(async () => { throw rateLimitedError(1); });
@@ -898,10 +899,12 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       fetch,
       { nowMs: NOW_MS, streamExecute, cloudflareExecute, groqExecute },
     );
+    expect(streamExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第3経路の回答です。");
     expect(deltas).toEqual(["第3経路の回答です。"]);
     expect(cloudflareExecute).not.toHaveBeenCalled();
     expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
     expect(result.attempts?.[1]).toMatchObject({ providerId: "groq-free", outcome: "succeeded" });
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
@@ -958,7 +961,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     ]);
   });
 
-  it("streams Groq first through the circuit-open primary skip as well", async () => {
+  it("streams Groq first through the route-stopped primary skip as well (PKG-4 PR-2)", async () => {
     const streamExecute = vi.fn(async () => { throw rateLimitedError(1); });
     const cloudflareExecute = cloudflareOk();
     const first = await executeOriginProviderStreamWithFailover(
@@ -969,7 +972,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       { nowMs: NOW_MS, streamExecute, cloudflareExecute, groqExecute: groqOk() },
     );
     expect(first.text).toBe("第3経路の回答です。");
-    expect(streamExecute).toHaveBeenCalledTimes(1);
+    expect(streamExecute).not.toHaveBeenCalled();
 
     const deltas: string[] = [];
     const result = await executeOriginProviderStreamWithFailover(
@@ -979,10 +982,10 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       fetch,
       { nowMs: NOW_MS + 1_000, streamExecute, cloudflareExecute, groqExecute: groqOk() },
     );
-    expect(streamExecute).toHaveBeenCalledTimes(1);
+    expect(streamExecute).not.toHaveBeenCalled();
     expect(cloudflareExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第3経路の回答です。");
-    expect(result.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
+    expect(result.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
     expect(result.attempts).toHaveLength(2);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
@@ -996,7 +999,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       return cloudflareSuccessResult();
     });
     const options = {
-      primaryExecute: primaryRateLimited(), cloudflareExecute, groqExecute: groqOk(), primaryCircuitCooldownMs: 1,
+      cloudflareExecute, groqExecute: groqOk(),
     };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
@@ -1013,7 +1016,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     });
     expect(result.text).toBe("第2経路の回答です。");
     expect(cloudflareExecute).toHaveBeenCalledTimes(3);
-    expect(result.attempts?.map((attempt) => attempt.outcome)).toEqual(["availability-error", "availability-error", "succeeded"]);
+    expect(result.attempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "availability-error", "succeeded"]);
     expect(result.attempts?.[2]).toMatchObject({ providerId: "cloudflare-workers-ai-free", outcome: "succeeded" });
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
 
@@ -1028,7 +1031,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
   it("records a counted failure of the final route executed while its breaker is open, keeping the breaker open", async () => {
     const cloudflareExecute = vi.fn(async () => { throw cloudflareTimeoutError(); });
     const options = {
-      primaryExecute: primaryRateLimited(), cloudflareExecute, groqExecute: groqOk(), primaryCircuitCooldownMs: 1,
+      cloudflareExecute, groqExecute: groqOk(),
     };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...options, nowMs: NOW_MS + 1_000 });
@@ -1062,7 +1065,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
   it("streams the final Cloudflare route even while its circuit breaker is open", async () => {
     const cloudflareExecute = vi.fn(async () => { throw cloudflareTimeoutError(); });
     const setupOptions = {
-      primaryExecute: primaryRateLimited(), cloudflareExecute, groqExecute: groqOk(), primaryCircuitCooldownMs: 1,
+      cloudflareExecute, groqExecute: groqOk(),
     };
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...setupOptions, nowMs: NOW_MS });
     await executeOriginProviderWithFailover(request, bothEnv, fetch, { ...setupOptions, nowMs: NOW_MS + 1_000 });
@@ -1077,7 +1080,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
       { onDelta: (text: string) => { deltas.push(text); } },
       groqFirstEnv,
       fetch,
-      { nowMs: NOW_MS + 2_000, streamExecute, cloudflareExecute: cloudflareStreamOk, groqStreamExecute, primaryCircuitCooldownMs: 1 },
+      { nowMs: NOW_MS + 2_000, streamExecute, cloudflareExecute: cloudflareStreamOk, groqStreamExecute },
     );
     expect(result.text).toBe("第2経路の回答です。");
     expect(deltas).toEqual(["第2経路の回答です。"]);
@@ -1106,6 +1109,22 @@ describe("assertOriginZeroCostExecutionResultWithFailover with the Groq-first or
       attempts: [primaryFailed, groqServed],
     };
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("accepts the route-stopped Groq-first shapes (PKG-4 PR-2)", () => {
+    const routeStopped = { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped" as const, skipReason: "route-stopped", transportRequestCount: 0 };
+    const twoAttempt: OriginProviderExecutionResult = {
+      ...groqSuccessResult(),
+      transportRequestCount: 1,
+      attempts: [routeStopped, groqServed],
+    };
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(twoAttempt, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+    const threeAttempt: OriginProviderExecutionResult = {
+      ...cloudflareSuccessResult(),
+      transportRequestCount: 0 + 1 + 4,
+      attempts: [routeStopped, groqFailed, cfServed],
+    };
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(threeAttempt, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
   it("accepts the three-attempt Groq-first shape (Groq failed, Cloudflare served)", () => {
