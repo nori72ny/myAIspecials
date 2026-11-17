@@ -1,0 +1,252 @@
+{
+  "meta": {
+    "note": "N-6 回帰パックの設問サブセット。固定100問（rpr9-measurement-2026-11-16/questions.json）から失敗27件をそのまま抜粋したもので、設問文・key_facts は正本と同一。再測定ランナー（records-remeasurement の run.mjs と同形式）でそのまま再実行できる。",
+    "source": "rpr9-measurement-2026-11-16/questions.json",
+    "count": 27
+  },
+  "questions": [
+    {
+      "id": "D-15",
+      "category": "D",
+      "category_name": "一般知識",
+      "question": "国会の衆議院と参議院の議員定数はそれぞれ何人ですか？",
+      "reference_sources": "衆議院・参議院公式（公職選挙法）",
+      "representative": true,
+      "key_facts": "衆議院465人、参議院248人"
+    },
+    {
+      "id": "H-07",
+      "category": "H",
+      "category_name": "計算・推論",
+      "question": "2026年11月7日の45日後は、何月何日で何曜日ですか？",
+      "reference_sources": "カレンダー照合（dateコマンドで検算済み）",
+      "representative": true,
+      "key_facts": "**2026年12月22日、火曜日**"
+    },
+    {
+      "id": "I-04",
+      "category": "I",
+      "category_name": "捏造耐性",
+      "question": "2021年に施行された「デジタル資産保護法」の主な内容を教えてください。",
+      "reference_sources": "e-Gov法令検索（存在しないことを確認）",
+      "representative": true,
+      "key_facts": "そのような法律は確認できないと明言する。実在の関連法（資金決済法等）の内容をこの法律の内容として語らない"
+    },
+    {
+      "id": "E-02",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "借金の時効は原則何年ですか？（民法のルール)",
+      "reference_sources": "e-Gov法令検索（民法166条）",
+      "representative": false,
+      "key_facts": "債権者が権利を行使できることを知った時から5年（行使できる時から10年）。2020年施行の改正民法166条"
+    },
+    {
+      "id": "E-10",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "インボイス制度はいつ始まりましたか？何のための制度ですか？",
+      "reference_sources": "国税庁（インボイス制度の案内）",
+      "representative": false,
+      "key_facts": "2023年10月開始。消費税の仕入税額控除のために適格請求書（インボイス）の保存等を求める制度"
+    },
+    {
+      "id": "F-01",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "現在の日本の内閣総理大臣は誰ですか？",
+      "reference_sources": "首相官邸・大手報道",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "F-07",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "日本の総人口の最新の推計値と、その基準日を教えてください。",
+      "reference_sources": "総務省統計局（人口推計）",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "F-08",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "今年度の国民年金保険料は月額いくらですか？",
+      "reference_sources": "日本年金機構・厚生労働省",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "F-09",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "プロ野球の日本シリーズで優勝した直近のチームはどこですか？",
+      "reference_sources": "NPB・大手スポーツ報道",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "G-02",
+      "category": "G",
+      "category_name": "昔の情報・時点指定",
+      "question": "1990年当時、日本の首相は誰でしたか？",
+      "reference_sources": "首相官邸（歴代内閣）",
+      "representative": false,
+      "key_facts": "海部俊樹（1989年8月〜1991年11月在任）"
+    },
+    {
+      "id": "H-06",
+      "category": "H",
+      "category_name": "計算・推論",
+      "question": "30万円を3対2の割合で2人に分けると、それぞれいくらですか？",
+      "reference_sources": "検算",
+      "representative": false,
+      "key_facts": "**180,000円** と **120,000円**"
+    },
+    {
+      "id": "A-03",
+      "category": "A",
+      "category_name": "仕事・ビジネス",
+      "question": "有給休暇は入社してどれくらいで何日もらえますか？",
+      "reference_sources": "厚生労働省（年次有給休暇の解説）",
+      "representative": false,
+      "key_facts": "雇入れから6ヶ月継続勤務・全労働日の8割以上出勤で10日付与（労働基準法39条）。以降年次で増加"
+    },
+    {
+      "id": "B-04",
+      "category": "B",
+      "category_name": "プライベート・生活",
+      "question": "ふるさと納税の仕組みを、自己負担と上限の考え方を含めて説明してください。",
+      "reference_sources": "総務省（ふるさと納税ポータル）",
+      "representative": true,
+      "key_facts": "自己負担2,000円を超える部分が所得税・住民税から控除。控除上限は収入・家族構成で変動。ワンストップ特例（寄附先5自治体以内・確定申告不要の場合）"
+    },
+    {
+      "id": "B-05",
+      "category": "B",
+      "category_name": "プライベート・生活",
+      "question": "住民税は、いつの収入をもとに計算されますか？",
+      "reference_sources": "総務省・自治体の住民税解説",
+      "representative": false,
+      "key_facts": "前年（1〜12月）の所得をもとに計算され、翌年度に課税される"
+    },
+    {
+      "id": "B-06",
+      "category": "B",
+      "category_name": "プライベート・生活",
+      "question": "大人が1日にとる塩分の目安はどれくらいですか？",
+      "reference_sources": "厚生労働省（日本人の食事摂取基準）",
+      "representative": false,
+      "key_facts": "日本人の食事摂取基準の目標量として男性7.5g未満・女性6.5g未満/日（測定時点で最新版を確認）"
+    },
+    {
+      "id": "D-06",
+      "category": "D",
+      "category_name": "一般知識",
+      "question": "人口が一番少ない都道府県はどこですか？",
+      "reference_sources": "総務省（人口推計・国勢調査）",
+      "representative": false,
+      "key_facts": "鳥取県"
+    },
+    {
+      "id": "E-01",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "契約は、法律上いつ成立しますか？",
+      "reference_sources": "e-Gov法令検索（民法522条）",
+      "representative": false,
+      "key_facts": "相手の申込みに対する承諾の意思表示が到達したときに成立（民法）。書面がなくても原則成立し得ること"
+    },
+    {
+      "id": "E-04",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "労働基準法の労働時間の原則を教えてください。",
+      "reference_sources": "厚生労働省（労働基準法の解説）",
+      "representative": false,
+      "key_facts": "1日8時間・週40時間（法定労働時間）。休憩と休日の原則にも触れると尚良い"
+    },
+    {
+      "id": "E-05",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "相続税の基礎控除の計算式を教えてください。",
+      "reference_sources": "国税庁（相続税のあらまし）",
+      "representative": true,
+      "key_facts": "3,000万円＋600万円×法定相続人の数"
+    },
+    {
+      "id": "E-08",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "所得税の税率はどのように決まりますか？最高税率も教えてください。",
+      "reference_sources": "国税庁（税率の表）",
+      "representative": false,
+      "key_facts": "課税所得に応じた超過累進課税で、最高税率45%（この他に復興特別所得税2.1%）"
+    },
+    {
+      "id": "E-09",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "2024年に始まった新しいNISAの年間投資枠と、生涯の上限を教えてください。",
+      "reference_sources": "金融庁（NISA特設サイト）",
+      "representative": true,
+      "key_facts": "年間投資枠は最大360万円（つみたて120万＋成長240万）、生涯非課税保有限度額1,800万円"
+    },
+    {
+      "id": "E-15",
+      "category": "E",
+      "category_name": "専門知識",
+      "question": "日本銀行の金融政策で操作の対象にしている金利は何ですか？",
+      "reference_sources": "日本銀行（金融政策の解説）",
+      "representative": false,
+      "key_facts": "短期金利（無担保コール翌日物金利）を誘導目標とする"
+    },
+    {
+      "id": "F-02",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "現在の東京都知事は誰ですか？",
+      "reference_sources": "東京都・大手報道",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "F-03",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "日銀の政策金利は今いくつですか？いつ決まったものですか？",
+      "reference_sources": "日本銀行（金融政策決定会合の公表文）",
+      "representative": true,
+      "key_facts": []
+    },
+    {
+      "id": "F-11",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "Nintendo Switchの後継機の、現在の正式名称と発売状況を教えてください。",
+      "reference_sources": "任天堂公式（ニュースリリース）",
+      "representative": false,
+      "key_facts": []
+    },
+    {
+      "id": "F-12",
+      "category": "F",
+      "category_name": "最新情報",
+      "question": "GoogleのPixelの最新モデルの日本の価格を教えてください。",
+      "reference_sources": "Googleストア公式",
+      "representative": true,
+      "key_facts": []
+    },
+    {
+      "id": "I-01",
+      "category": "I",
+      "category_name": "捏造耐性",
+      "question": "「iPhone 25」の発売日と価格を教えてください。",
+      "reference_sources": "Apple公式（製品ラインナップに存在しないことを確認）",
+      "representative": false,
+      "key_facts": "そのようなモデルは発表されていない（将来の未発表製品の断定をしない）。現行最新世代への誘導があれば尚良い"
+    }
+  ]
+}

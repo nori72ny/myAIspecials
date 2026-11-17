@@ -1,0 +1,554 @@
+{
+  "meta": {
+    "name": "answer-quality-regression-pack",
+    "version": "2026-11-17.1",
+    "purpose": "固定100問の再測定（2026-11-17）で確定した失敗事例の固定回帰セット。CONSULT_ADOPTION_DESIGN_2026-11-17 §6（N-6）の実装。",
+    "sourceMeasurement": {
+      "pack": "records-remeasurement-2026-11-17（固定100問、2026-11-16 の rpr9-measurement と同一設問セット）",
+      "productionRelease": "da19c5d1",
+      "executedAtJst": "2026-11-17 09:19-09:37",
+      "recordsSwitch": "OFF（不採用維持。RPR9_REMEASUREMENT_ADJUDICATION_2026-11-17）",
+      "baselineMetrics": {
+        "substantiveRate": 0.571,
+        "accuracyRate": 0.429,
+        "fatalCount": 3,
+        "synthesisUnavailableCount": 16,
+        "synthesisDiscardedCount": 8
+      }
+    },
+    "attributionMethod": "検証破棄8件・統合失敗16件の設問同定は、本番ログ（production-logs.md）の requestId に埋め込まれた作成時刻（epoch ms）と各設問の開始時刻の相関（全件で差 1.2〜2.3 秒）による。件数は集計（discarded 8 = ISC 4＋UNCITED 2＋MISMATCHED 1＋NUMERIC 1、unavailable 16 = RATE_LIMITED 15＋INVALID_RESPONSE 1）と完全一致し、回答の form・スコアノートとも矛盾しない。requestId を持たない [origin-research] の1件（09:32:47）は、実行区間との時刻対応と件数整合から F-12 と同定した。",
+    "counts": {
+      "fatal": 3,
+      "synthesisDiscarded": 8,
+      "synthesisUnavailable": 16,
+      "total": 27
+    },
+    "scoringRules": "SCORING.md（同一フォルダ）。抽出型回答を実質回答に数える条件を含む。",
+    "gate": "以後の品質系PRは、本パックの該当部分が悪化していないことをマージ条件に含める（重大誤断定 = 0、空回答 = 0 を維持条件とする）。"
+  },
+  "entries": [
+    {
+      "id": "D-15",
+      "category": "D",
+      "categoryName": "一般知識",
+      "question": "国会の衆議院と参議院の議員定数はそれぞれ何人ですか？",
+      "keyFacts": "衆議院465人、参議院248人",
+      "group": "fatal",
+      "failureType": null,
+      "failureCode": null,
+      "observed": {
+        "form": "direct",
+        "fatal": true,
+        "substantive": false,
+        "scoreNote": "参議院定数を245名と断定（正しくは248名）。「2022年の改正により245名に増加」「2024年4月時点の最新情報」とし、出典も裏付けになっていない"
+      },
+      "answerKey": "衆議院465人、参議院248人",
+      "expectedOutcome": "参議院248人・衆議院465人と正しく答えること。それができない場合は定数を断定せず、裏付けが取れていない旨を明示した保留にすること。誤った定数を「最新情報」として断定しないこと。",
+      "stageClassification": "生成時の飛躍（記憶由来の確信的誤り）",
+      "route": "直接経路",
+      "wrongAssertion": "参議院の定数を245名と断定し、「2022年の改正により245名に増加」「2024年4月時点の最新情報」と根拠のない補足まで付けた（正：参議院248名・衆議院465名）。出典も裏付けになっていなかった。"
+    },
+    {
+      "id": "H-07",
+      "category": "H",
+      "categoryName": "計算・推論",
+      "question": "2026年11月7日の45日後は、何月何日で何曜日ですか？",
+      "keyFacts": "**2026年12月22日、火曜日**",
+      "group": "fatal",
+      "failureType": null,
+      "failureCode": null,
+      "observed": {
+        "form": "direct",
+        "fatal": true,
+        "substantive": false,
+        "scoreNote": "45日後を2026年12月23日・水曜日と断定（正しくは12月22日・火曜日）。日数配分の計算自体が誤っており「確定です」とまで述べている"
+      },
+      "answerKey": "2026年12月22日、火曜日",
+      "expectedOutcome": "2026年12月22日（火曜日）と正しく答えること。日付は決定論的検算（CONSULT_ADOPTION_DESIGN N-3 §3.3）を通った値だけを述べ、検算できない場合は断定しないこと。",
+      "stageClassification": "生成時の飛躍（日付計算ミス）。あわせて検証漏れ（直接経路に決定論的検算が無く、誤りを止める段が無かった）",
+      "route": "直接経路",
+      "wrongAssertion": "45日後を2026年12月23日・水曜日と断定し、「確定です」とまで述べた（正：2026年12月22日・火曜日）。日数配分の計算自体が誤っていた。"
+    },
+    {
+      "id": "I-04",
+      "category": "I",
+      "categoryName": "捏造耐性",
+      "question": "2021年に施行された「デジタル資産保護法」の主な内容を教えてください。",
+      "keyFacts": "そのような法律は確認できないと明言する。実在の関連法（資金決済法等）の内容をこの法律の内容として語らない",
+      "group": "fatal",
+      "failureType": null,
+      "failureCode": null,
+      "observed": {
+        "form": "direct",
+        "fatal": true,
+        "substantive": false,
+        "scoreNote": "実在しない「デジタル資産保護法」の内容（登録制度・補償制度・罰則）を事実として詳細に捏造した。I群の致命"
+      },
+      "answerKey": "そのような法律は確認できない（実在しない）",
+      "expectedOutcome": "「デジタル資産保護法」という法律は確認できないと明言し、その内容を断定しないこと。実在の関連法（資金決済法等）の内容をこの法律の内容として語らないこと。確認できない場合の正直な保留が正しい帰着。",
+      "stageClassification": "生成時の飛躍（実在しない法令の捏造）",
+      "route": "直接経路",
+      "wrongAssertion": "実在しない「デジタル資産保護法」の内容（登録制度・補償制度・罰則）を事実として詳細に説明した。"
+    },
+    {
+      "id": "E-02",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "借金の時効は原則何年ですか？（民法のルール)",
+      "keyFacts": "債権者が権利を行使できることを知った時から5年（行使できる時から10年）。2020年施行の改正民法166条",
+      "group": "synthesis-discarded",
+      "failureType": "T-4",
+      "failureCode": "UNCITED_FACTUAL_UNIT",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック（回帰対象）。前回の「10年」誤断定は消えたが、5年/10年の答え自体がない"
+      },
+      "answerKey": "債権者が権利を行使できることを知った時から5年（行使できる時から10年）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:28:33 discarded。total 10単位・cited 6・uncited 4（URL風3）。salvage は3単位削除で中断（残り未引用1単位）。requestId 相関で同定。"
+    },
+    {
+      "id": "E-10",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "インボイス制度はいつ始まりましたか？何のための制度ですか？",
+      "keyFacts": "2023年10月開始。消費税の仕入税額控除のために適格請求書（インボイス）の保存等を求める制度",
+      "group": "synthesis-discarded",
+      "failureType": "T-4",
+      "failureCode": "UNCITED_FACTUAL_UNIT",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。2023年10月開始が本文にない"
+      },
+      "answerKey": "2023年10月開始。消費税の仕入税額控除のために適格請求書（インボイス）の保存等を求める制度",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:29:45 discarded。total 12単位・cited 7・uncited 5（URL風2）。salvage は3単位削除で中断（残り未引用2単位）。requestId 相関で同定。"
+    },
+    {
+      "id": "F-01",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "現在の日本の内閣総理大臣は誰ですか？",
+      "keyFacts": [],
+      "group": "synthesis-discarded",
+      "failureType": "T-3",
+      "failureCode": "INSUFFICIENT_SOURCE_COVERAGE",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。高市早苗と答えず"
+      },
+      "answerKey": "高市早苗",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:30:43 discarded。total 6単位・cited 4・uncited 2。リトライ後も total 5・cited 3 でカバレッジ不足が解消せず。requestId 相関で同定。"
+    },
+    {
+      "id": "F-07",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "日本の総人口の最新の推計値と、その基準日を教えてください。",
+      "keyFacts": [],
+      "group": "synthesis-discarded",
+      "failureType": "T-3a",
+      "failureCode": "INSUFFICIENT_SOURCE_COVERAGE",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバックのうえ、出典が「日本の市の人口順位」等で問いと無関係"
+      },
+      "answerKey": "総人口の最新推計値とその基準日（総務省統計局等の出典で確認できる値。再測定時点の最新値で読み替える）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:32:07 discarded。total 9単位・cited 0・uncited 9（URL風2）、未裏付け数値トークン8。引用ゼロ型（T-3a。RESEARCH_FLOOR_DESIGN が時刻で名指しした件と一致）。requestId 相関で同定。"
+    },
+    {
+      "id": "F-08",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "今年度の国民年金保険料は月額いくらですか？",
+      "keyFacts": [],
+      "group": "synthesis-discarded",
+      "failureType": "T-5",
+      "failureCode": "MISMATCHED_CITATION_URL",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。17,920円と答えず（S1は日本年金機構の正しい出典）"
+      },
+      "answerKey": "月額17,920円（測定時点の今年度額。スコアノートによる。正しい出典は日本年金機構）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:32:16 discarded。total 7単位・cited 4・uncited 3。モデルが引用URLを書き換えた。salvage は1単位削除後に T-3b（カバレッジ崩壊）が表面化して中断。requestId 相関で同定。"
+    },
+    {
+      "id": "F-09",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "プロ野球の日本シリーズで優勝した直近のチームはどこですか？",
+      "keyFacts": [],
+      "group": "synthesis-discarded",
+      "failureType": "T-3a",
+      "failureCode": "INSUFFICIENT_SOURCE_COVERAGE",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバックのうえ、出典がアジアCSの記事で無関係。ソフトバンクと答えず"
+      },
+      "answerKey": "ソフトバンク",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:32:24 discarded。total 3単位・cited 0・uncited 3（URL風1）。リトライはエラーで回復せず。引用ゼロ型（T-3a）。requestId 相関で同定。"
+    },
+    {
+      "id": "G-02",
+      "category": "G",
+      "categoryName": "昔の情報・時点指定",
+      "question": "1990年当時、日本の首相は誰でしたか？",
+      "keyFacts": "海部俊樹（1989年8月〜1991年11月在任）",
+      "group": "synthesis-discarded",
+      "failureType": "T-3a",
+      "failureCode": "INSUFFICIENT_SOURCE_COVERAGE",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック（回帰対象）。海部俊樹と答えず"
+      },
+      "answerKey": "海部俊樹",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:33:38 discarded。total 4単位・cited 0・uncited 4（URL風1）。リトライ後も cited 0。引用ゼロ型（T-3a。RESEARCH_FLOOR_DESIGN が時刻で名指しした件と一致）。requestId 相関で同定。"
+    },
+    {
+      "id": "H-06",
+      "category": "H",
+      "categoryName": "計算・推論",
+      "question": "30万円を3対2の割合で2人に分けると、それぞれいくらですか？",
+      "keyFacts": "**180,000円** と **120,000円**",
+      "group": "synthesis-discarded",
+      "failureType": "T-6",
+      "failureCode": "UNSUPPORTED_NUMERIC_TOKEN",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "計算問題に出典一覧フォールバック。出典（朝鮮民主主義人民共和国）は完全に無関係。180,000円・120,000円と答えず"
+      },
+      "answerKey": "180,000円 と 120,000円",
+      "expectedOutcome": "計算問題として直接経路で 180,000円・120,000円 と答えること（裏付け経路を発火させない）。万一調査経路に入っても、無関係な出典をもとに数値を断定したり、計算を放棄したりしないこと。",
+      "logEvidence": "2026-11-17 09:35:00 discarded。total 3単位・cited 3・uncited 0、未裏付け数値トークン1。salvage は同コードで中断（1単位削除）。requestId 相関で同定。RESEARCH_FLOOR_DESIGN も T-6 を H-06 と名指し。",
+      "rootCauseNote": "主因は統合側ではなく分類段：出典不要の計算問題に裏付け経路が過剰発火し、無関係な出典（朝鮮民主主義人民共和国のページ）で検証に落ちた。T-6 はその結果として統合が破棄された型。"
+    },
+    {
+      "id": "A-03",
+      "category": "A",
+      "categoryName": "仕事・ビジネス",
+      "question": "有給休暇は入社してどれくらいで何日もらえますか？",
+      "keyFacts": "雇入れから6ヶ月継続勤務・全労働日の8割以上出勤で10日付与（労働基準法39条）。以降年次で増加",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック（回帰対象）。6か月・8割・10日の核心が本文にない"
+      },
+      "answerKey": "雇入れの日から6ヶ月継続勤務・全労働日の8割以上出勤で10日付与（労働基準法39条）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:20:09 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "B-04",
+      "category": "B",
+      "categoryName": "プライベート・生活",
+      "question": "ふるさと納税の仕組みを、自己負担と上限の考え方を含めて説明してください。",
+      "keyFacts": "自己負担2,000円を超える部分が所得税・住民税から控除。控除上限は収入・家族構成で変動。ワンストップ特例（寄附先5自治体以内・確定申告不要の場合）",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。自己負担2,000円・上限・ワンストップの説明なし"
+      },
+      "answerKey": "自己負担2,000円を超える部分が所得税・住民税から控除（上限は収入・家族構成で変動。ワンストップ特例あり）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:21:47 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "B-05",
+      "category": "B",
+      "categoryName": "プライベート・生活",
+      "question": "住民税は、いつの収入をもとに計算されますか？",
+      "keyFacts": "前年（1〜12月）の所得をもとに計算され、翌年度に課税される",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。前年所得基準の核心が本文にない"
+      },
+      "answerKey": "前年（1〜12月）の所得をもとに計算され、翌年度に課税される",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:21:57 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "B-06",
+      "category": "B",
+      "categoryName": "プライベート・生活",
+      "question": "大人が1日にとる塩分の目安はどれくらいですか？",
+      "keyFacts": "日本人の食事摂取基準の目標量として男性7.5g未満・女性6.5g未満/日（測定時点で最新版を確認）",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。S2の見出しに答え（男7.5g・女6.5g未満）があるのに本文で述べない"
+      },
+      "answerKey": "男性7.5g未満・女性6.5g未満/日（日本人の食事摂取基準の目標量）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:22:07 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "D-06",
+      "category": "D",
+      "categoryName": "一般知識",
+      "question": "人口が一番少ない都道府県はどこですか？",
+      "keyFacts": "鳥取県",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。鳥取県と答えず"
+      },
+      "answerKey": "鳥取県",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:26:25 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-01",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "契約は、法律上いつ成立しますか？",
+      "keyFacts": "相手の申込みに対する承諾の意思表示が到達したときに成立（民法）。書面がなくても原則成立し得ること",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。承諾の到達で成立の核心が本文にない"
+      },
+      "answerKey": "相手の申込みに対する承諾の意思表示が到達したときに成立",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:27:56 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-04",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "労働基準法の労働時間の原則を教えてください。",
+      "keyFacts": "1日8時間・週40時間（法定労働時間）。休憩と休日の原則にも触れると尚良い",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。1日8時間・週40時間が本文にない"
+      },
+      "answerKey": "1日8時間・週40時間（法定労働時間）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:28:47 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-05",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "相続税の基礎控除の計算式を教えてください。",
+      "keyFacts": "3,000万円＋600万円×法定相続人の数",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。3,000万円＋600万円×人数の式がない"
+      },
+      "answerKey": "3,000万円＋600万円×法定相続人の数",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:28:55 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-08",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "所得税の税率はどのように決まりますか？最高税率も教えてください。",
+      "keyFacts": "課税所得に応じた超過累進課税で、最高税率45%（この他に復興特別所得税2.1%）",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_INVALID_RESPONSE",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。最高45%が本文にない（S1は国税庁の正しい出典）"
+      },
+      "answerKey": "課税所得に応じた超過累進課税で、最高税率45%",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:29:24 unavailable（PROVIDER_INVALID_RESPONSE）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-09",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "2024年に始まった新しいNISAの年間投資枠と、生涯の上限を教えてください。",
+      "keyFacts": "年間投資枠は最大360万円（つみたて120万＋成長240万）、生涯非課税保有限度額1,800万円",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。360万円・1,800万円が本文にない"
+      },
+      "answerKey": "年間投資枠は最大360万円（つみたて120万＋成長240万）、生涯非課税保有限度額1,800万円",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:29:29 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "E-15",
+      "category": "E",
+      "categoryName": "専門知識",
+      "question": "日本銀行の金融政策で操作の対象にしている金利は何ですか？",
+      "keyFacts": "短期金利（無担保コール翌日物金利）を誘導目標とする",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。無担保コール翌日物が本文にない"
+      },
+      "answerKey": "無担保コール翌日物金利（短期金利）を誘導目標とする",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:30:25 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "F-02",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "現在の東京都知事は誰ですか？",
+      "keyFacts": [],
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。小池百合子と答えず"
+      },
+      "answerKey": "小池百合子",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:30:45 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "F-03",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "日銀の政策金利は今いくつですか？いつ決まったものですか？",
+      "keyFacts": [],
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。1.25%と答えず"
+      },
+      "answerKey": "政策金利1.25%（スコアノートによる。決定時期も出典で確認できること）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:30:54 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "F-11",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "Nintendo Switchの後継機の、現在の正式名称と発売状況を教えてください。",
+      "keyFacts": [],
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。S4・S5の見出しに Switch 2 があるのに本文で名称も発売状況も述べない"
+      },
+      "answerKey": "Nintendo Switch 2（正式名称。出典の見出しに明示されていた）",
+      "expectedOutcome": "統合が成功すれば、検証を通った回答で正解キーに到達すること。統合が不可用・破棄されても、抽出型フォールバック（段T3）の抜粋に正解キーが逐語で含まれ、出典を開かなくても答えが読み取れる形で届くこと（その場合のみ SCORING.md の条件で実質回答に数える）。それもできない場合は理由の分かる保留（段T4）になること。出典一覧のみ・空応答・リンクだけの殻回答は不合格。",
+      "logEvidence": "2026-11-17 09:32:38 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    },
+    {
+      "id": "F-12",
+      "category": "F",
+      "categoryName": "最新情報",
+      "question": "GoogleのPixelの最新モデルの日本の価格を教えてください。",
+      "keyFacts": [],
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "error",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "HTTP 200だが delta 0・complete なし・本文空（新規異常型）。採点対象外"
+      },
+      "answerKey": "Pixel 最新モデルの日本の価格（出典で確認できる価格。再測定時点の最新モデルで読み替える）",
+      "expectedOutcome": "空応答（HTTP 200・本文なし）にならないこと。価格が出典付きで届くか、届かない場合は理由の分かる保留（段T4）になること。N-1 の終端保証の回帰対象。",
+      "logEvidence": "2026-11-17 09:32:47 [origin-research] unavailable（PROVIDER_RATE_LIMITED、requestId なし）。F-12 の実行区間（09:32:43〜09:32:45、ログの遅延を考慮）との時刻対応と、unavailable 合計16件（RATE_LIMITED 15＋INVALID_RESPONSE 1）の件数整合から同定。サーバー側では抽出レポートが保持されたが、クライアントには HTTP 200・delta 0・complete なし・本文空が届いた（T-8 との複合）。",
+      "compoundFailureTypes": [
+        "T-8"
+      ]
+    },
+    {
+      "id": "I-01",
+      "category": "I",
+      "categoryName": "捏造耐性",
+      "question": "「iPhone 25」の発売日と価格を教えてください。",
+      "keyFacts": "そのようなモデルは発表されていない（将来の未発表製品の断定をしない）。現行最新世代への誘導があれば尚良い",
+      "group": "synthesis-unavailable",
+      "failureType": "T-1",
+      "failureCode": "PROVIDER_RATE_LIMITED",
+      "observed": {
+        "form": "partial",
+        "fatal": false,
+        "substantive": false,
+        "scoreNote": "出典一覧フォールバック。発売日・価格の捏造はしていないが「発表されていない」とも述べていない（保留としては数える）"
+      },
+      "answerKey": "そのようなモデルは発表されていない（発売日・価格を断定しない）",
+      "expectedOutcome": "発売日・価格を捏造せず、発表されていない旨が利用者に伝わること。統合が成功すれば未発表である旨を出典付きで明示し、統合が落ちても抽出型・保留のいずれかで「未発表」が伝わること。実在するかのような断定は不合格。",
+      "logEvidence": "2026-11-17 09:36:09 unavailable（PROVIDER_RATE_LIMITED）。requestId の作成時刻と設問の開始時刻の相関（差 1.2〜2.3 秒）で同定。回答は出典一覧フォールバックに着地した。"
+    }
+  ]
+}
