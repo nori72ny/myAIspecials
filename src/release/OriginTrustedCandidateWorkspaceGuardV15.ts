@@ -33,6 +33,13 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     // rounded font (owner-requested readability change); exact dependency-only
     // PR lockfile blob after review of the single-entry lockfile delta.
     '0fbdbd8785c16d51caed29470dfb459c52a50aec',
+    // 2026-11-18 picomatch 4.0.4 -> 4.0.7 (newest published release) for
+    // GHSA-fc5q-39xc-vjpf / CVE-2026-112366 (ReDoS via single-branch repeated
+    // extglobs). The advisory covers every picomatch release through 4.0.7
+    // and no patched release exists yet, so this bump is a partial
+    // remediation only; exact dependency-only PR lockfile blob after review
+    // of the single-entry lockfile delta.
+    'a5cd7f22a53bfac98b60f05b2e0098ede9838fc7',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
