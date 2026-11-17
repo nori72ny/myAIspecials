@@ -505,6 +505,145 @@ export function diagnoseGroundedResearchSynthesisUnits(
 }
 
 // ---------------------------------------------------------------------------
+// Redaction-remnant scrub (2026-11-17 re-measurement, defect A-02).
+//
+// The pre-egress sanitizer (services/securitySanitizer) masks
+// secret-shaped and high-entropy tokens in every provider payload —
+// including the evidence packet this module's prompt builds — by
+// replacing the token's core with [REDACTED_SECRET] while PRESERVING
+// the punctuation around it. A parenthesised source URL in an excerpt
+// therefore reaches the synthesis model as "([REDACTED_SECRET])", and
+// the model copies such fragments into its draft next to real
+// citations. The validator above has no rule against the marker — it
+// is neither a citation token nor an HTTPS URL — so in the 2026-11-17
+// production measurement (A-02) the fragment "[[REDACTED_SECRET])"
+// shipped to the user three times, embedded in otherwise correct,
+// fully cited sentences.
+//
+// The scrub runs at the top of the adoption gate, before the unchanged
+// validator: every marker occurrence is removed together with the
+// bracket debris the masking left around it. A removal is treated as
+// safe only where the sentence is verifiably intact without it — the
+// debris sat immediately before a citation token or at the end of the
+// line, the A-02 shape. A unit whose marker tore content out of the
+// middle of a sentence, or that the scrub leaves broken (stray
+// brackets) or contentless (a citation with no claim left), is dropped
+// as a whole line, exactly like a salvage removal; the unchanged
+// validator then re-judges the surviving text, so a scrub can never
+// lower the delivered standard — it can only route a text to the same
+// fallback an invalid text already takes. Counts only are reported,
+// never the removed text.
+
+const REDACTION_MARKER_PATTERN = /\[REDACTED(?:_[A-Z0-9]+)?\]/;
+const REDACTION_DEBRIS_PATTERN = /[\[(]*\[REDACTED(?:_[A-Z0-9]+)?\][\])]*/g;
+const CITATION_TOKEN_START_PATTERN = /^\[S\d+\]\(https:\/\//;
+const SUBSTANTIVE_CHARACTER_PATTERN = /[\p{L}\p{N}]/u;
+
+export interface GroundedResearchSynthesisRedactionScrub {
+  /** Text with every redaction remnant removed (the input, unchanged, when no marker was present). */
+  text: string;
+  /** Marker occurrences removed, including those on dropped lines. */
+  markersRemoved: number;
+  /** Unit lines dropped because a removal tore the sentence or left it broken / contentless. */
+  unitsDropped: number;
+}
+
+export function scrubGroundedResearchSynthesisRedactionRemnants(
+  text: string,
+): GroundedResearchSynthesisRedactionScrub {
+  if (!REDACTION_MARKER_PATTERN.test(text)) {
+    return { text, markersRemoved: 0, unitsDropped: 0 };
+  }
+  let markersRemoved = 0;
+  let unitsDropped = 0;
+  interface ScrubbedLine {
+    raw: string;
+    kind: SynthesisTextLineKind;
+    dropped: boolean;
+  }
+  const lines: ScrubbedLine[] = [];
+  for (const line of classifySynthesisTextLines(text.replace(/\r\n/g, "\n").trim())) {
+    if (!REDACTION_MARKER_PATTERN.test(line.raw)) {
+      lines.push({ raw: line.raw, kind: line.kind, dropped: false });
+      continue;
+    }
+    markersRemoved += line.raw.match(/\[REDACTED(?:_[A-Z0-9]+)?\]/g)?.length ?? 0;
+    // Removal-site safety: every debris match must sit immediately
+    // before a citation token or at the end of the line. Anything else
+    // means the masked token was part of the sentence itself, and the
+    // sentence cannot be verified intact without it.
+    let sitesSafe = true;
+    REDACTION_DEBRIS_PATTERN.lastIndex = 0;
+    let debris: RegExpExecArray | null;
+    while ((debris = REDACTION_DEBRIS_PATTERN.exec(line.raw))) {
+      const rest = line.raw.slice(debris.index + debris[0].length).replace(/^\s+/, "");
+      if (rest !== "" && !CITATION_TOKEN_START_PATTERN.test(rest)) {
+        sitesSafe = false;
+        break;
+      }
+    }
+    const cleaned = line.raw
+      .replace(REDACTION_DEBRIS_PATTERN, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\s+$/, "");
+    if (line.kind === "heading" || line.kind === "label") {
+      const body = cleaned.replace(HEADING_PATTERN, "");
+      const broken = /[[\]]/.test(body) || !SUBSTANTIVE_CHARACTER_PATTERN.test(body);
+      lines.push({ raw: cleaned, kind: line.kind, dropped: broken });
+      continue;
+    }
+    if (line.kind === "blank") {
+      lines.push({ raw: cleaned, kind: line.kind, dropped: false });
+      continue;
+    }
+    // Unit lines (and any other content line): after cleaning, the
+    // remainder beyond the citation tokens must be a whole sentence —
+    // no stray brackets, and some substantive character left.
+    const remainder = cleaned
+      .replace(CITATION_PATTERN, " ")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "");
+    const broken = !sitesSafe
+      || /[[\]]/.test(remainder)
+      || !SUBSTANTIVE_CHARACTER_PATTERN.test(remainder);
+    if (broken) unitsDropped += 1;
+    lines.push({ raw: cleaned, kind: line.kind, dropped: broken });
+  }
+  // Orphan-heading cleanup, mirroring the salvage's §3.5 rule: a
+  // heading whose section the scrub emptied (it held units, all of
+  // them dropped) is removed as structural cleanup. A heading whose
+  // section never held units is left exactly as it was.
+  {
+    let headingIndex = -1;
+    let sectionKeptUnits = 0;
+    let sectionDroppedUnits = 0;
+    const closeSection = () => {
+      if (headingIndex >= 0 && sectionKeptUnits === 0 && sectionDroppedUnits > 0) {
+        lines[headingIndex].dropped = true;
+      }
+      headingIndex = -1;
+      sectionKeptUnits = 0;
+      sectionDroppedUnits = 0;
+    };
+    lines.forEach((line, index) => {
+      if (line.kind === "heading") {
+        closeSection();
+        headingIndex = index;
+      } else if (line.kind === "unit") {
+        if (line.dropped) sectionDroppedUnits += 1;
+        else sectionKeptUnits += 1;
+      }
+    });
+    closeSection();
+  }
+  return {
+    text: lines.filter((line) => !line.dropped).map((line) => line.raw).join("\n"),
+    markersRemoved,
+    unitsDropped,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Line-local salvage (SYNTHESIS_SALVAGE_DESIGN_2026-11-14 §3, generalized by
 // ANSWER_DELIVERY_INVESTIGATION_2026-11-16 item 2).
 //
@@ -564,6 +703,10 @@ export type GroundedResearchSynthesisAdoption =
       usedSourceIds: string[];
       salvaged: boolean;
       removedUnits: number;
+      /** Redaction remnants the pre-validation scrub removed (A-02 fix); present only when at least one marker was found. */
+      redactionRemnantsRemoved?: number;
+      /** Unit lines the redaction scrub dropped as broken / contentless. */
+      redactionUnitsDropped?: number;
     }
   | {
       adopted: false;
@@ -574,6 +717,10 @@ export type GroundedResearchSynthesisAdoption =
       salvageAbortCode?: GroundedResearchSynthesisValidationCode;
       /** Uncited factual units still present when the salvage aborted (counts only). */
       remainingUncitedUnits?: number;
+      /** Redaction remnants the pre-validation scrub removed (A-02 fix); present only when at least one marker was found. */
+      redactionRemnantsRemoved?: number;
+      /** Unit lines the redaction scrub dropped as broken / contentless. */
+      redactionUnitsDropped?: number;
     };
 
 type SynthesisTextLineKind = "blank" | "heading" | "label" | "unit" | "other";
@@ -748,18 +895,34 @@ export function adoptGroundedResearchSynthesis(
   text: string,
   sources: readonly SynthesisSource[],
 ): GroundedResearchSynthesisAdoption {
-  const initial = validateGroundedResearchSynthesis(text, sources);
+  // Redaction-remnant scrub (A-02 fix): the sanitizer's markers can be
+  // echoed from the evidence packet into the draft; they are removed —
+  // or the broken unit carrying one is dropped — BEFORE the unchanged
+  // validator judges the text, so no delivered text can contain one.
+  const scrub = scrubGroundedResearchSynthesisRedactionRemnants(text);
+  const workingText = scrub.text;
+  const redactionFields = scrub.markersRemoved > 0
+    ? { redactionRemnantsRemoved: scrub.markersRemoved, redactionUnitsDropped: scrub.unitsDropped }
+    : {};
+  const initial = validateGroundedResearchSynthesis(workingText, sources);
   if (initial.ok === true) {
-    return { adopted: true, text, usedSourceIds: initial.usedSourceIds, salvaged: false, removedUnits: 0 };
+    return {
+      adopted: true,
+      text: workingText,
+      usedSourceIds: initial.usedSourceIds,
+      salvaged: scrub.unitsDropped > 0,
+      removedUnits: scrub.unitsDropped,
+      ...redactionFields,
+    };
   }
   if (!GROUNDED_RESEARCH_SYNTHESIS_SALVAGEABLE_CODES.has(initial.code)) {
     // Salvage is defined for line-local failures only. Every other failure
     // (empty text, insufficient coverage) keeps the existing discard path
     // untouched: removing lines cannot repair it.
-    return { adopted: false, failureCode: initial.code, salvageAttempted: false, salvageRemovedUnits: 0 };
+    return { adopted: false, failureCode: initial.code, salvageAttempted: false, salvageRemovedUnits: 0, ...redactionFields };
   }
   const sourceMaps = buildSynthesisSourceMaps(sources);
-  let lines = classifySynthesisTextLines(text.replace(/\r\n/g, "\n").trim());
+  let lines = classifySynthesisTextLines(workingText.replace(/\r\n/g, "\n").trim());
   const totalUnits = lines.filter((line) => line.kind === "unit").length;
   const firstUnitLine = lines.find((line) => line.kind === "unit");
   // Orphan-heading bookkeeping (§3.4): how many unit lines each heading's
@@ -792,6 +955,7 @@ export function adoptGroundedResearchSynthesis(
     remainingUncitedUnits: diagnoseGroundedResearchSynthesisUnits(
       lines.map((line) => line.raw).join("\n"),
     ).uncitedUnits,
+    ...redactionFields,
   });
   let removed = 0;
   let firstUnitRemoved = false;
@@ -803,7 +967,17 @@ export function adoptGroundedResearchSynthesis(
       if (removed === 0) {
         // Defensive: the initial validation already failed, so the first
         // loop pass cannot succeed; never report a zero-removal "salvage".
-        return { adopted: true, text, usedSourceIds: validation.usedSourceIds, salvaged: false, removedUnits: 0 };
+        // The delivered text is the scrubbed working text, never the
+        // original: the original may carry the redaction remnants the
+        // scrub removed.
+        return {
+          adopted: true,
+          text: workingText,
+          usedSourceIds: validation.usedSourceIds,
+          salvaged: scrub.unitsDropped > 0,
+          removedUnits: scrub.unitsDropped,
+          ...redactionFields,
+        };
       }
       if (firstUnitRemoved && lines.filter((line) => line.kind === "unit").length < 2) {
         // §3.4 condition 5: when the lead unit (usually the direct answer)
@@ -817,7 +991,8 @@ export function adoptGroundedResearchSynthesis(
         text: currentText,
         usedSourceIds: validation.usedSourceIds,
         salvaged: true,
-        removedUnits: removed,
+        removedUnits: removed + scrub.unitsDropped,
+        ...redactionFields,
       };
     }
     if (!GROUNDED_RESEARCH_SYNTHESIS_SALVAGEABLE_CODES.has(validation.code)) {

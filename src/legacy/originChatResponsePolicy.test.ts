@@ -655,6 +655,20 @@ describe("routing calibration (2026-11-16 measurement)", () => {
     ["15%引きで8,500円だった商品の、元の値段はいくらですか？", false], // H-05
     ["定員40人の75%は何人いますか？", false], // H-09
     ["原価800円に25%の利益を乗せると、売値はいくらですか？", false], // H-10
+    // Self-contained calculation / conversion (2026-11-17
+    // re-measurement): every input is inside the question — a ratio
+    // split and a supplied-rate conversion. Both were promoted by the
+    // bare いくらですか fallback and self-destructed on unrelated
+    // sources (H-06 discarded over a Wikipedia page about North
+    // Korea; H-08 answered that the sources held no exchange rate).
+    ["30万円を3対2の割合で2人に分けると、それぞれいくらですか？", false], // H-06
+    ["1ドル=150円のとき、350ドルは日本円でいくらですか？", false], // H-08
+    // Counter-shapes: a question that names the exchange rate itself
+    // as its subject, or demands the latest rate, is a rate
+    // verification demand and stays grounded.
+    ["現在のドル円の為替レートはいくらですか？", true],
+    ["最新の為替レートで、350ドルは日本円でいくらですか？", true],
+    ["為替レートが1ドル=150円のとき、350ドルは日本円でいくらですか？", true],
     // Personal deliberation: no published fact to ground.
     ["今の仕事を続けるか転職するか迷っています。考え方の整理を手伝ってください。", false], // J-01
     // Counter-shapes that must not move.
