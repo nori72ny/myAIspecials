@@ -166,6 +166,33 @@ import {
  * is best-effort in-process state only — losing it reverts to attempting the
  * route under its slice. Breaker open/close transitions are logged with numbers
  * and fixed codes only.
+ *
+ * Groq-first order for direct chat (S-1, 2026-11-17; audit
+ * CAPACITY_SPEED_AUDIT_2026-11-17 §5): the production measurement showed the
+ * order above costs 24-28s on ordinary/planning answers because the slow
+ * second route is always tried before the fast third route (0.7-2.0s). While
+ * ORIGIN_GROQ_FIRST_ENABLED is exactly "true", a DIRECT CHAT dispatch runs the
+ * failover routes in the opposite order after a primary availability failure:
+ * Groq first, under ORIGIN_GROQ_ATTEMPT_BUDGET_MS, then Cloudflare as the
+ * final route with its usual attempt cap and circuit-breaker recording but no
+ * third-route reserve (there is no later route to protect). As the last route
+ * it is never skipped by its breaker — the same rule the current order
+ * applies when no third route is configured — so a Groq outage cannot turn
+ * into a hard failure of every request while the breaker happens to be open. The switch defaults to OFF:
+ * unset or any other value reproduces the order above exactly, and flipping it
+ * back is the whole rollback. Only direct chat is reordered. A dispatch is a
+ * direct chat dispatch when the request carries the route-3 substitute
+ * instruction the two chat routers (blocking and streaming) attach
+ * (`groqSystemInstruction`); the grounded-research synthesis, the records
+ * paths, and the research router never set it — the same documented convention
+ * the field itself carries — so their dispatches keep the order above even
+ * while the switch is on. Required-tool requests never reach either order
+ * (pass-through, unchanged). Integrity failures still never switch routes in
+ * either order. The zero-cost result assertion is order-independent: the
+ * serving route is the last attempt, every earlier failover attempt shows its
+ * route did not serve (an availability failure, or a pre-execution skip with
+ * zero transport requests), and each route's own $0/free-route verification
+ * runs unchanged on the serving result.
  */
 
 export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode> = new Set([
@@ -210,6 +237,24 @@ export const ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD = 2;
 export const ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS = 180_000;
 /** skipReason recorded on the Cloudflare attempt evidence while its circuit breaker is open. */
 export const ORIGIN_CLOUDFLARE_CIRCUIT_SKIP_REASON = "cloudflare-circuit-open";
+/** Environment switch for the Groq-first direct-chat order (S-1). Only the exact value "true" enables it. */
+export const ORIGIN_GROQ_FIRST_ENV = "ORIGIN_GROQ_FIRST_ENABLED" as const;
+
+/** True only for the exact value "true"; unset or any other value keeps the current route order. */
+export function isOriginGroqFirstEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_GROQ_FIRST_ENV] === "true";
+}
+
+/**
+ * Budget for one Groq attempt while the Groq route runs FIRST (Groq-first
+ * mode, S-1): ~4x the 0.7-2.0s healthy success measured in production on
+ * 2026-11-16, and the same value as the primary attempt budget. A Groq attempt
+ * that exceeds it (or fails with an availability error) moves on to the
+ * Cloudflare route; the total budget is unchanged. While Groq runs last (the
+ * current order) this cap does not apply: the route keeps the full remainder,
+ * exactly as before.
+ */
+export const ORIGIN_GROQ_ATTEMPT_BUDGET_MS = 8_000;
 
 export interface OriginProviderFailoverOptions {
   nowMs?: number;
@@ -237,6 +282,8 @@ export interface OriginProviderFailoverOptions {
   groqReserveMs?: number;
   /** Overrides ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS (tests and tuning). */
   cloudflareAttemptBudgetMs?: number;
+  /** Overrides ORIGIN_GROQ_ATTEMPT_BUDGET_MS (tests and tuning). */
+  groqAttemptBudgetMs?: number;
   /** Overrides ORIGIN_CLOUDFLARE_CIRCUIT_COOLDOWN_MS (tests and tuning). */
   cloudflareCircuitCooldownMs?: number;
   /** Overrides ORIGIN_CLOUDFLARE_CIRCUIT_FAILURE_THRESHOLD (tests and tuning). */
@@ -588,6 +635,31 @@ function totalBudgetTimeoutError(transportRequestCount?: number): OriginProvider
 }
 
 /**
+ * A dispatch is a direct chat dispatch when the request carries the route-3
+ * substitute instruction. Only the two direct chat routers (blocking and
+ * streaming) attach it; the grounded-research synthesis, the records paths,
+ * and the research router never do — the convention the field's own
+ * documentation in originProviderClient.ts already states. This is the
+ * failover layer's only signal for the caller's answer mode, and it fails
+ * safe: a request without the shaping keeps the current order.
+ */
+function isDirectChatDispatch(request: OriginProviderExecutionRequest): boolean {
+  return typeof request.groqSystemInstruction === "string";
+}
+
+/**
+ * Whether the Groq-first order (S-1) governs this dispatch: the owner switch
+ * is on, the Groq route exists, and the dispatch is a direct chat dispatch.
+ * Every other dispatch — switch off, no Groq route, or any non-direct caller —
+ * follows the current order exactly.
+ */
+function groqFirstOrderApplies(request: OriginProviderExecutionRequest, env: NodeJS.ProcessEnv): boolean {
+  return isOriginGroqFirstEnabled(env)
+    && isOriginGroqRouteConfigured(env)
+    && isDirectChatDispatch(request);
+}
+
+/**
  * The slice of the remaining budget the second route may consume. While the
  * third (Groq) route is configured, the reserve for that route is subtracted so
  * the third route always starts with at least the reserve left (PKG-4 PR-1);
@@ -597,13 +669,36 @@ function totalBudgetTimeoutError(transportRequestCount?: number): OriginProvider
  * budget while the third route is configured, so a hanging second route stops
  * costing the whole remainder-minus-reserve; the cap never extends the slice
  * beyond what the reserve leaves, and the total budget is unchanged.
+ *
+ * Groq-first mode (S-1): the second route is the FINAL route, so there is no
+ * later route to reserve time for; its slice is its own attempt cap clamped to
+ * the remaining total budget, with no reserve subtracted.
  */
-function cloudflareSliceMs(options: OriginProviderFailoverOptions, env: NodeJS.ProcessEnv): number {
+function cloudflareSliceMs(request: OriginProviderExecutionRequest, options: OriginProviderFailoverOptions, env: NodeJS.ProcessEnv): number {
   const remainingMs = totalBudgetRemainingMs(options);
+  if (groqFirstOrderApplies(request, env)) {
+    const attemptBudgetMs = Math.max(1, options.cloudflareAttemptBudgetMs ?? ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS);
+    return Math.min(remainingMs, attemptBudgetMs);
+  }
   if (!isOriginGroqRouteConfigured(env)) return remainingMs;
   const reserveMs = Math.max(0, options.groqReserveMs ?? ORIGIN_GROQ_ROUTE_RESERVE_MS);
   const attemptBudgetMs = Math.max(1, options.cloudflareAttemptBudgetMs ?? ORIGIN_CLOUDFLARE_ATTEMPT_BUDGET_MS);
   return Math.min(remainingMs - reserveMs, attemptBudgetMs);
+}
+
+/**
+ * The slice of the remaining budget the Groq route may consume. While the
+ * route runs last (the current order) it keeps the full remainder, exactly as
+ * before. In Groq-first mode (S-1) the attempt is additionally capped at
+ * ORIGIN_GROQ_ATTEMPT_BUDGET_MS so a hanging fast route cannot eat the final
+ * route's time; the cap never extends the slice beyond the remainder, and the
+ * total budget is unchanged.
+ */
+function groqSliceMs(request: OriginProviderExecutionRequest, options: OriginProviderFailoverOptions, env: NodeJS.ProcessEnv): number {
+  const remainingMs = totalBudgetRemainingMs(options);
+  if (!groqFirstOrderApplies(request, env)) return remainingMs;
+  const attemptBudgetMs = Math.max(1, options.groqAttemptBudgetMs ?? ORIGIN_GROQ_ATTEMPT_BUDGET_MS);
+  return Math.min(remainingMs, attemptBudgetMs);
 }
 
 /**
@@ -624,7 +719,7 @@ async function runCloudflareRouteBounded(
   options: OriginProviderFailoverOptions,
 ): Promise<OriginProviderExecutionResult> {
   if (!options.totalBudgetWindow) return runCloudflareRoute(request, env, fetchImpl, options);
-  const sliceMs = cloudflareSliceMs(options, env);
+  const sliceMs = cloudflareSliceMs(request, options, env);
   if (sliceMs <= 0) throw totalBudgetTimeoutError(0);
   const routeController = new AbortController();
   const transport = { count: 0 };
@@ -654,17 +749,18 @@ async function runCloudflareRouteBounded(
 
 function composeFailoverResult(
   cloudflareResult: OriginProviderExecutionResult,
-  primaryAttempt: OriginProviderAttemptEvidence,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
   cloudflareDurationMs?: number,
 ): OriginProviderExecutionResult {
   const cloudflareAttempt = cloudflareAttemptEvidence("succeeded", {
     transportRequestCount: cloudflareResult.transportRequestCount,
     ...(cloudflareDurationMs !== undefined ? { durationMs: cloudflareDurationMs } : {}),
   });
+  const priorTransport = priorAttempts.reduce((sum, attempt) => sum + (attempt.transportRequestCount ?? 0), 0);
   return {
     ...cloudflareResult,
-    transportRequestCount: (primaryAttempt.transportRequestCount ?? 0) + (cloudflareResult.transportRequestCount ?? 0),
-    attempts: [primaryAttempt, cloudflareAttempt],
+    transportRequestCount: priorTransport + (cloudflareResult.transportRequestCount ?? 0),
+    attempts: [...priorAttempts, cloudflareAttempt],
   };
 }
 
@@ -700,8 +796,10 @@ async function runGroqRoute(
 
 /**
  * Runs the Groq route inside the dispatch's total budget, with the same semantics as
- * the bounded Cloudflare route: raced against the time remaining in the window and
- * aborted when the total expires. Without a window (direct internal use only) the
+ * the bounded Cloudflare route: raced against its slice of the window and
+ * aborted when the slice expires. The slice is the time remaining in the
+ * window, additionally capped at the Groq attempt budget in Groq-first mode
+ * (see groqSliceMs). Without a window (direct internal use only) the
  * route runs exactly as the unbounded helper.
  */
 async function runGroqRouteBounded(
@@ -711,8 +809,8 @@ async function runGroqRouteBounded(
   options: OriginProviderFailoverOptions,
 ): Promise<OriginProviderExecutionResult> {
   if (!options.totalBudgetWindow) return runGroqRoute(request, env, fetchImpl, options);
-  const remainingMs = totalBudgetRemainingMs(options);
-  if (remainingMs <= 0) throw totalBudgetTimeoutError(0);
+  const sliceMs = groqSliceMs(request, options, env);
+  if (sliceMs <= 0) throw totalBudgetTimeoutError(0);
   const routeController = new AbortController();
   const transport = { count: 0 };
   const boundedFetch = createAttemptBoundedFetch(fetchImpl, routeController, transport);
@@ -727,7 +825,7 @@ async function runGroqRouteBounded(
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<"budget">((resolve) => {
-    timer = setTimeout(() => resolve("budget"), remainingMs);
+    timer = setTimeout(() => resolve("budget"), sliceMs);
   });
   const winner = await Promise.race([settled, budget]);
   if (winner === "budget") {
@@ -797,6 +895,106 @@ async function attemptGroqRoute(
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
       );
       throw withFailoverAttempts(error, [...priorAttempts, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Final-route attempt of the Cloudflare route in Groq-first mode (S-1): the
+ * mirror of attemptGroqRoute with the roles exchanged. The route runs bounded
+ * (its slice carries no third-route reserve in this order; see
+ * cloudflareSliceMs), its outcome is recorded on its circuit breaker exactly
+ * as in the current order, and there is no later route: a success is composed
+ * over the prior attempts, a pre-execution skip surfaces the fallback error
+ * (the error of the route that executed before it, or the primary error when
+ * nothing executed), and an executed failure surfaces the route's own error.
+ * The route's circuit breaker never skips it here: as the last route it runs
+ * even while the breaker is open, exactly like the current order's second
+ * route when no third route is configured. That matters most in the situation
+ * Groq-first creates — when the Groq route is at its own limits, skipping the
+ * final route as well would hard-fail every request instead of giving the
+ * last chance its attempt. The outcome is still recorded on the breaker as
+ * usual: a success closes it, and a counted failure re-opens it at once (the
+ * record function's executed-while-open case).
+ */
+async function attemptCloudflareRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  fallbackError: OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const cloudflareStartedAtMs = Date.now();
+  try {
+    const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
+    recordCloudflareRouteSuccess();
+    return composeFailoverResult(cloudflareResult, priorAttempts, Date.now() - cloudflareStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginCloudflarePreflightError) {
+      const skipped = cloudflareAttemptEvidence("skipped", {
+        skipReason: error.reason === "plan-proof-failed" && error.proofReason
+          ? `plan-proof-failed:${error.proofReason}`
+          : error.reason,
+        transportRequestCount: 0,
+      });
+      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+    }
+    if (error instanceof OriginProviderError) {
+      recordCloudflareRouteFailure(error, options);
+      const failed = cloudflareAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
+      );
+      throw withFailoverAttempts(error, [...priorAttempts, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Groq-first phase (S-1), entered from a primary availability failure or a
+ * circuit-open primary skip while groqFirstOrderApplies holds: the Groq route
+ * runs first, bounded by its attempt budget (see groqSliceMs). A success is
+ * composed over the primary attempt alone, so the Cloudflare route is never
+ * attempted and sends nothing. An availability failure — including the
+ * attempt budget expiring — and a pre-execution skip both move on to the
+ * Cloudflare route as the final route; an integrity failure fails closed on
+ * the spot, exactly as in the current order. The error surfaced when the
+ * final route is skipped before execution is the Groq route's own error when
+ * it executed and failed, or the caller's fallback error (built lazily by
+ * `skippedFallbackError`) when the Groq route was skipped too.
+ */
+async function failOverFromGroqRoute(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  primaryAttempt: OriginProviderAttemptEvidence,
+  skippedFallbackError: () => OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const groqStartedAtMs = Date.now();
+  try {
+    const groqResult = await runGroqRouteBounded(request, env, fetchImpl, options);
+    return composeGroqResult(groqResult, [primaryAttempt], Date.now() - groqStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginGroqPreflightError) {
+      const skipped = groqAttemptEvidence("skipped", {
+        skipReason: error.reason,
+        transportRequestCount: 0,
+      });
+      return attemptCloudflareRoute(request, env, fetchImpl, options, [primaryAttempt, skipped], skippedFallbackError());
+    }
+    if (error instanceof OriginProviderError) {
+      const failed = groqAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
+      );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+        return attemptCloudflareRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
+      }
+      throw withFailoverAttempts(error, [primaryAttempt, failed]);
     }
     throw error;
   }
@@ -978,7 +1176,7 @@ async function runCloudflareRouteStreamBounded(
   return raceRouteStreamAgainstSlice(
     (guardedHandlers) => runCloudflareRouteStream(request, guardedHandlers, env, boundedFetch, options),
     handlers,
-    cloudflareSliceMs(options, env),
+    cloudflareSliceMs(request, options, env),
     transport,
     () => routeController.abort(),
     delivery,
@@ -1001,7 +1199,7 @@ async function runGroqRouteStreamBounded(
   return raceRouteStreamAgainstSlice(
     (guardedHandlers) => runGroqRouteStream(request, guardedHandlers, env, boundedFetch, options),
     handlers,
-    totalBudgetRemainingMs(options),
+    groqSliceMs(request, options, env),
     transport,
     () => routeController.abort(),
     delivery,
@@ -1050,6 +1248,104 @@ async function attemptGroqStreamRoute(
 }
 
 /**
+ * Streaming mirror of attemptCloudflareRoute: the Cloudflare route runs as
+ * the final route of the Groq-first order, as a stream. Circuit-breaker
+ * recording, attempt evidence, and error surfacing are identical to the
+ * blocking final-route attempt; there is no later route to switch to, so a
+ * failure is always surfaced (with the fallback error taking its place when
+ * the route was skipped before execution). Like the blocking attempt, the
+ * route runs even while its circuit breaker is open — the breaker records
+ * the outcome but never skips the last route.
+ */
+async function attemptCloudflareStreamRoute(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  delivery: { delivered: boolean },
+  priorAttempts: readonly OriginProviderAttemptEvidence[],
+  fallbackError: OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const cloudflareStartedAtMs = Date.now();
+  try {
+    const cloudflareResult = await runCloudflareRouteStreamBounded(request, handlers, env, fetchImpl, options, delivery);
+    recordCloudflareRouteSuccess();
+    return composeFailoverResult(cloudflareResult, priorAttempts, Date.now() - cloudflareStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginCloudflarePreflightError) {
+      const skipped = cloudflareAttemptEvidence("skipped", {
+        skipReason: error.reason === "plan-proof-failed" && error.proofReason
+          ? `plan-proof-failed:${error.proofReason}`
+          : error.reason,
+        transportRequestCount: 0,
+      });
+      throw withFailoverAttempts(fallbackError, [...priorAttempts, skipped]);
+    }
+    if (error instanceof OriginProviderError) {
+      recordCloudflareRouteFailure(error, options);
+      const failed = cloudflareAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
+      );
+      throw withFailoverAttempts(error, [...priorAttempts, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Streaming mirror of failOverFromGroqRoute: the Groq route streams first
+ * under its attempt budget, and its fragments reach the client as they are
+ * generated. The switch to the Cloudflare route happens only before the
+ * first delivered fragment — once any fragment of the Groq route's answer
+ * has been delivered, an availability failure no longer switches (switching
+ * would duplicate the displayed text) and the failure is surfaced instead,
+ * exactly like the current order's mid-stream guard on the second route.
+ */
+async function failOverStreamFromGroqRoute(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+  primaryAttempt: OriginProviderAttemptEvidence,
+  skippedFallbackError: () => OriginProviderError,
+): Promise<OriginProviderExecutionResult> {
+  const delivery = { delivered: false };
+  const trackingHandlers: OriginProviderStreamHandlers = {
+    onDelta: (text: string) => {
+      if (text) delivery.delivered = true;
+      handlers.onDelta(text);
+    },
+  };
+  const groqStartedAtMs = Date.now();
+  try {
+    const groqResult = await runGroqRouteStreamBounded(request, trackingHandlers, env, fetchImpl, options, delivery);
+    return composeGroqResult(groqResult, [primaryAttempt], Date.now() - groqStartedAtMs);
+  } catch (error) {
+    if (error instanceof OriginGroqPreflightError) {
+      const skipped = groqAttemptEvidence("skipped", {
+        skipReason: error.reason,
+        transportRequestCount: 0,
+      });
+      return attemptCloudflareStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, skipped], skippedFallbackError());
+    }
+    if (error instanceof OriginProviderError) {
+      const failed = groqAttemptEvidence(
+        ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
+        { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
+      );
+      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) && !delivery.delivered) {
+        return attemptCloudflareStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, failed], error);
+      }
+      throw withFailoverAttempts(error, [primaryAttempt, failed]);
+    }
+    throw error;
+  }
+}
+
+/**
  * Streaming mirror of failOverFromCloudflareRoute: the second route runs as
  * a stream and its fragments reach the client as they are generated, under
  * the request's stream-release policy. Circuit-breaker recording, attempt
@@ -1088,7 +1384,7 @@ async function failOverStreamFromCloudflareRoute(
   try {
     const cloudflareResult = await runCloudflareRouteStreamBounded(request, trackingHandlers, env, fetchImpl, options, delivery);
     recordCloudflareRouteSuccess();
-    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
+    return composeFailoverResult(cloudflareResult, [primaryAttempt], Date.now() - cloudflareStartedAtMs);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
       const skipped = cloudflareAttemptEvidence("skipped", {
@@ -1125,6 +1421,9 @@ async function failOverStreamFromPrimaryError(
   primaryDurationMs?: number,
 ): Promise<OriginProviderExecutionResult> {
   const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError, primaryDurationMs);
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverStreamFromGroqRoute(request, handlers, env, fetchImpl, options, primaryAttempt, () => primaryError);
+  }
   return failOverStreamFromCloudflareRoute(request, handlers, env, fetchImpl, options, primaryAttempt, () => primaryError);
 }
 
@@ -1145,6 +1444,17 @@ async function failOverStreamFromOpenCircuit(
     errorCode: circuit.errorCode,
     transportRequestCount: 0,
   };
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverStreamFromGroqRoute(
+      request,
+      handlers,
+      env,
+      fetchImpl,
+      options,
+      primaryAttempt,
+      () => circuitPrimaryError(circuit, options),
+    );
+  }
   return failOverStreamFromCloudflareRoute(
     request,
     handlers,
@@ -1197,7 +1507,7 @@ async function failOverFromCloudflareRoute(
   try {
     const cloudflareResult = await runCloudflareRouteBounded(request, env, fetchImpl, options);
     recordCloudflareRouteSuccess();
-    return composeFailoverResult(cloudflareResult, primaryAttempt, Date.now() - cloudflareStartedAtMs);
+    return composeFailoverResult(cloudflareResult, [primaryAttempt], Date.now() - cloudflareStartedAtMs);
   } catch (error) {
     if (error instanceof OriginCloudflarePreflightError) {
       const skipped = cloudflareAttemptEvidence("skipped", {
@@ -1238,6 +1548,9 @@ async function failOverFromPrimaryError(
   primaryDurationMs?: number,
 ): Promise<OriginProviderExecutionResult> {
   const primaryAttempt = primaryAttemptEvidence(request, "availability-error", primaryError, primaryDurationMs);
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverFromGroqRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryError);
+  }
   return failOverFromCloudflareRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryError);
 }
 
@@ -1300,6 +1613,16 @@ async function failOverFromOpenCircuit(
     errorCode: circuit.errorCode,
     transportRequestCount: 0,
   };
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverFromGroqRoute(
+      request,
+      env,
+      fetchImpl,
+      options,
+      primaryAttempt,
+      () => circuitPrimaryError(circuit, options),
+    );
+  }
   return failOverFromCloudflareRoute(
     request,
     env,
@@ -1458,14 +1781,37 @@ function routingFailure(message: string): never {
 }
 
 /**
+ * Whether an attempt's evidence shows its route did not serve: it either
+ * failed with an availability error (a failover trigger code), or it was
+ * skipped before execution — a named skip reason and exactly zero transport
+ * requests, proving nothing was sent. Any other shape (a claimed success, an
+ * integrity failure, a skip that sent requests) means the route may have
+ * produced an answer, so a later route's success cannot be verified against
+ * it.
+ */
+function attemptDidNotServe(attempt: OriginProviderAttemptEvidence): boolean {
+  const isAvailabilityFailure = attempt.outcome === "availability-error"
+    && Boolean(attempt.errorCode)
+    && ORIGIN_FAILOVER_TRIGGER_CODES.has(attempt.errorCode as OriginProviderErrorCode);
+  const isPreExecutionSkip = attempt.outcome === "skipped"
+    && typeof attempt.skipReason === "string"
+    && attempt.skipReason.length > 0
+    && attempt.transportRequestCount === 0;
+  return isAvailabilityFailure || isPreExecutionSkip;
+}
+
+/**
  * Generalized zero-cost result verification. Results without an `attempts` record are
  * verified by the original single-route assertion, unchanged. Composite failover results
  * must prove that every executed attempt stayed on an approved free route, that the first
  * route stopped only for an availability reason, that the serving route passed its own
  * route-specific verification, and that the transport count equals the sum of attempts.
- * A three-attempt result is a Groq-served result: the middle (Cloudflare) attempt must
- * show the route did not serve — an availability failure or a pre-execution skip with
- * zero transport — and the third attempt must be the Groq route's success.
+ * The rule is order-independent (S-1): the serving route is the LAST attempt, every
+ * earlier failover attempt must show its route did not serve — an availability failure
+ * or a pre-execution skip with zero transport — and each failover route appears at
+ * most once. Both orders therefore verify: Cloudflare-then-Groq (the current order)
+ * and Groq-then-Cloudflare (Groq-first direct chat), as do the two-attempt shapes
+ * where the first failover route tried already served.
  */
 export function assertOriginZeroCostExecutionResultWithFailover(
   result: OriginProviderExecutionResult,
@@ -1501,7 +1847,7 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     assertOriginZeroCostExecutionResult(result, expectedPrimaryModel);
     return;
   }
-  const [first, second] = attempts;
+  const [first] = attempts;
   // The first attempt is either a real availability failure, or a circuit-breaker
   // skip: the primary was not attempted at all because a recent rate-limit/timeout
   // failure opened the breaker. A skip is accepted only with the exact breaker skip
@@ -1520,37 +1866,45 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     || (expectedPrimaryModel !== undefined && first.modelId !== expectedPrimaryModel)) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
-  if (attempts.length === 2) {
-    if (second.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
-      || second.outcome !== "succeeded"
-      || second.modelId !== ORIGIN_CLOUDFLARE_FREE_MODEL) {
+  // The serving route is the last attempt. Every failover attempt before it
+  // must show its route did not serve (attemptDidNotServe), and each failover
+  // route may appear at most once across the whole record: a dispatch tries
+  // each route at most once, in one of the two orders. Any other shape —
+  // including a "succeeded" middle attempt, which would mean a later route
+  // ran after an answer already existed, or the same route recorded twice —
+  // is unverified.
+  const serving = attempts[attempts.length - 1];
+  const seenFailoverProviders = new Set<string>();
+  for (const attempt of attempts.slice(1)) {
+    if (attempt.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
+      && attempt.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID) {
+      routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
+    }
+    if (seenFailoverProviders.has(attempt.providerId)) {
+      routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
+    }
+    seenFailoverProviders.add(attempt.providerId);
+  }
+  for (const attempt of attempts.slice(1, -1)) {
+    if (!attemptDidNotServe(attempt)) {
+      routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
+    }
+  }
+  if (serving.providerId === ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID) {
+    if (serving.outcome !== "succeeded" || serving.modelId !== ORIGIN_CLOUDFLARE_FREE_MODEL) {
       routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
     }
     assertOriginCloudflareExecutionResult(result);
     return;
   }
-  // Three attempts: the Cloudflare route did not serve (it either failed with an
-  // availability error or was skipped before execution with zero transport), and the
-  // Groq route served. The Groq attempt may name either catalog model: the primary
-  // openai/gpt-oss-120b, or openai/gpt-oss-20b when the route rotated inside itself
-  // after the primary model's rate-limit/overload failure; the result's own routing
-  // evidence must match the attempt's model exactly. Any other shape — including a
-  // "succeeded" middle attempt, which would mean the third route ran after an
-  // answer already existed — is unverified.
-  const secondIsAvailabilityFailure = second.outcome === "availability-error"
-    && Boolean(second.errorCode)
-    && ORIGIN_FAILOVER_TRIGGER_CODES.has(second.errorCode as OriginProviderErrorCode);
-  const secondIsPreExecutionSkip = second.outcome === "skipped"
-    && typeof second.skipReason === "string"
-    && second.skipReason.length > 0
-    && second.transportRequestCount === 0;
-  const third = attempts[2];
-  if (second.providerId !== ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID
-    || (!secondIsAvailabilityFailure && !secondIsPreExecutionSkip)
-    || third.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
-    || third.outcome !== "succeeded"
-    || !isOriginGroqFreeModelId(third.modelId)) {
+  // The serving route is Groq. Its attempt may name either catalog model: the
+  // primary openai/gpt-oss-120b, or openai/gpt-oss-20b when the route rotated
+  // inside itself after the primary model's rate-limit/overload failure; the
+  // result's own routing evidence must match the attempt's model exactly.
+  if (serving.providerId !== ORIGIN_GROQ_FREE_PROVIDER_ID
+    || serving.outcome !== "succeeded"
+    || !isOriginGroqFreeModelId(serving.modelId)) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
-  assertOriginGroqExecutionResult(result, third.modelId as OriginGroqFreeModelId);
+  assertOriginGroqExecutionResult(result, serving.modelId as OriginGroqFreeModelId);
 }
