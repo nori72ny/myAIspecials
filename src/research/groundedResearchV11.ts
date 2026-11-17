@@ -47,6 +47,32 @@ function displayTitle(source: OriginResearchSource): string {
   return title || domainOf(source);
 }
 
+/** Maximum characters of a source excerpt quoted in the partial answer (R-1). */
+const PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS = 240;
+
+/**
+ * Excerpt as it may appear inside an attribution line of the partial
+ * answer (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1): whitespace collapsed
+ * and bounded to 240 characters — the same compression rule as the
+ * synthesis packet's excerpt compaction — and neutralized so the quoted
+ * text stays data, never presentation or instruction: Markdown link
+ * syntax flattens to its label text, bare URLs are dropped (the source
+ * list below already carries each URL), and quote marks, heading
+ * markers, and code fences are stripped so nothing inside the excerpt
+ * can break out of the quoting or pose as the answer's own structure.
+ * Returns "" when nothing quotable remains.
+ */
+function displayExcerptQuote(source: OriginResearchSource): string {
+  const flattened = source.excerpt
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/[^\s)]+/g, " ");
+  const neutralized = flattened
+    .replace(/[『』「」“”"‘’'#`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return neutralized.slice(0, PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS);
+}
+
 function retrievedDateLabel(value: string | undefined, language: "ja" | "en"): string | null {
   if (!value) return null;
   const ms = Date.parse(value);
@@ -201,12 +227,18 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  * matter why synthesis was not adopted:
  * - an honest lead stating that no summarized answer could be produced;
  * - a "confirmed scope" section attributing each of the top sources (at
- *   most three) by title and domain — the only facts used are the ones
- *   the title itself states, quoted verbatim, plus the retrieval date
- *   when known;
+ *   most three) by title and domain — the facts the title itself states,
+ *   quoted verbatim, plus the retrieval date when known;
  * - the compact source list (id, title, domain, URL).
- * Retrieved page text and the internal cross-check breakdown never
- * appear in this body; they stay in logs and structured payload fields.
+ * Since RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1, each attribution line
+ * also carries the source's excerpt as a verbatim quote inside the same
+ * attribution ("the source states: '…'"), so the core of the answer
+ * reaches the user even when synthesis never ran. The quote is
+ * presented strictly as what the source says — never as a confirmed
+ * fact — and is neutralized and bounded by displayExcerptQuote; the
+ * lead keeps directing the user to verify details at the sources. The
+ * internal cross-check breakdown never appears in this body; it stays
+ * in logs and structured payload fields.
  */
 export function buildGroundedResearchPartialAnswer(
   sources: readonly OriginResearchSource[],
@@ -225,11 +257,12 @@ export function buildGroundedResearchPartialAnswer(
     const id = `S${index + 1}`;
     const domain = domainForList(source);
     const title = displayTitle(source);
+    const quote = displayExcerptQuote(source);
     const retrieved = retrievedDateLabel(source.retrievedAt, language);
     if (language === "en") {
-      return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;
+      return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${quote ? ` It states: "${quote}"` : ""}${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;
     }
-    return `- ${id}${domain ? `（${domain}）` : ""}では『${title}』と示されています。${retrieved ? `（取得日: ${retrieved}）` : ""}`;
+    return `- ${id}${domain ? `（${domain}）` : ""}では『${title}』と示されています。${quote ? `『${quote}』` : ""}${retrieved ? `（取得日: ${retrieved}）` : ""}`;
   });
   const sourceList = bounded.map((source, index) => {
     const id = `S${index + 1}`;

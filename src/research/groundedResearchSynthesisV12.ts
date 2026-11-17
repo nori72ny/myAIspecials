@@ -60,8 +60,74 @@ function safeHttpsUrl(value: string): string | null {
   }
 }
 
+/**
+ * Per-source excerpt cap inside the synthesis evidence packet. Lowered
+ * from 1,200 to 600 characters (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-2):
+ * the grounding side already treats a 600-character snippet as sufficient
+ * (EXTRACT_SNIPPET_THRESHOLD), and the packet is the dominant term of the
+ * synthesis input — a smaller packet cuts route-2 input Neurons and
+ * restores route-3 completion headroom under its per-model TPM gate, so
+ * the synthesis is less likely to end PROVIDER_RATE_LIMITED (failure
+ * type T-1). Reversible as a single constant: if a re-measurement shows
+ * discards shifting toward INSUFFICIENT_SOURCE_COVERAGE, restore 800.
+ * Within the cap, compactExcerpt selects coverage-first (see below):
+ * answer-bearing sentences are kept before general context.
+ */
+const GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS = 600;
+
+/**
+ * Markers of an answer-determining sentence (R-2 follow-up: coverage
+ * over compression ratio). A sentence carrying a number, a unit, a
+ * target period, a condition, or an exception is the evidence a
+ * synthesis most often stands or falls on, so when the cap forces a
+ * choice, those sentences are kept before general context — a plain
+ * head truncation could cut exactly the sentence the answer depends
+ * on merely because it sits past character 600.
+ */
+const ANSWER_BEARING_NUMBER_PATTERN = /[0-9０-９]/;
+const ANSWER_BEARING_TERM_PATTERN = /円|％|%|パーセント|期間|対象|条件|ただし|例外|以降|以前|以上|以下|未満|上限|下限|最大|最小|ドル|ユーロ|usd|jpy/i;
+
+function excerptSentenceScore(sentence: string): number {
+  let score = 0;
+  if (ANSWER_BEARING_NUMBER_PATTERN.test(sentence)) score += 2;
+  if (ANSWER_BEARING_TERM_PATTERN.test(sentence)) score += 1;
+  return score;
+}
+
 function compactExcerpt(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, 1200);
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS) return normalized;
+  const sentences = (normalized.match(/[^。．.!?！？]+(?:[。．.!?！？]+|$)/g) ?? [])
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const scored = sentences
+    .map((sentence, index) => ({ sentence, index, score: excerptSentenceScore(sentence) }))
+    .filter((entry) => entry.score > 0);
+  // No answer-bearing sentence to protect: the head of the excerpt is
+  // the context that matters, exactly as a plain truncation kept it.
+  if (scored.length === 0) return normalized.slice(0, GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS);
+  // Coverage-first selection within the same cap: answer-bearing
+  // sentences first (highest score, earliest first), then the remaining
+  // context in original order while budget remains. Chosen sentences
+  // are reassembled in their original order, so the excerpt still reads
+  // as the source wrote it; sentences are kept whole or not at all.
+  const chosen = new Set<number>();
+  let usedChars = 0;
+  const tryAdd = (entry: { sentence: string; index: number }): void => {
+    if (chosen.has(entry.index)) return;
+    const cost = entry.sentence.length + (chosen.size > 0 ? 1 : 0);
+    if (usedChars + cost > GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS) return;
+    chosen.add(entry.index);
+    usedChars += cost;
+  };
+  [...scored]
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .forEach(tryAdd);
+  sentences
+    .map((sentence, index) => ({ sentence, index }))
+    .forEach(tryAdd);
+  if (chosen.size === 0) return normalized.slice(0, GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS);
+  return sentences.filter((_, index) => chosen.has(index)).join(" ");
 }
 
 const INLINE_RESEARCH_OUTPUT_LABELS: Readonly<Record<string, { ja: string; en: string }>> = {
@@ -744,6 +810,43 @@ function findSalvageTargetLineIndex(
   return -1;
 }
 
+/**
+ * Salvage floor guard (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-3). The
+ * validator counts a line carrying only a citation token as a cited
+ * factual unit, so a salvage can "succeed" into a shell: a heading plus
+ * citation links with no statement left (production type T-7 — I-03's
+ * link-only shell, H-08's evidence-only residue). Such a residue is
+ * worse than the fallback, so salvage adoption additionally requires at
+ * least one substantive unit in the conclusion zone: a unit whose text,
+ * after removing citation tokens and bare URLs, still holds at least
+ * this many characters. The validator itself is unchanged; this is an
+ * adoption-side condition only, and a text that fails it falls back
+ * exactly as a salvage abort does.
+ */
+const GROUNDED_RESEARCH_SALVAGE_FLOOR_MIN_SUBSTANTIVE_CHARS = 12;
+
+/**
+ * Headings that close the conclusion zone: the mandated structure puts
+ * the conclusion first, so every unit before the first evidence /
+ * sources heading counts as conclusion-zone. A text without those
+ * headings is one zone throughout.
+ */
+const CONCLUSION_ZONE_END_HEADING_PATTERN = /根拠|出典|evidence|sources?|references?/i;
+
+function hasSubstantiveConclusionUnit(lines: readonly SynthesisTextLine[]): boolean {
+  for (const line of lines) {
+    if (line.kind === "heading" && CONCLUSION_ZONE_END_HEADING_PATTERN.test(line.raw)) return false;
+    if (line.kind !== "unit") continue;
+    const remainder = line.unit
+      .replace(CITATION_PATTERN, " ")
+      .replace(URL_PATTERN, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (remainder.length >= GROUNDED_RESEARCH_SALVAGE_FLOOR_MIN_SUBSTANTIVE_CHARS) return true;
+  }
+  return false;
+}
+
 export function adoptGroundedResearchSynthesis(
   text: string,
   sources: readonly SynthesisSource[],
@@ -810,6 +913,15 @@ export function adoptGroundedResearchSynthesis(
         // was removed, at least two units must survive, so a bare residue
         // cannot pass as the answer. No validation code describes this
         // abort, so salvageAbortCode is omitted.
+        return abort(removed);
+      }
+      if (!hasSubstantiveConclusionUnit(lines)) {
+        // Salvage floor guard (R-3): the surviving text validates, but
+        // its conclusion zone holds no substantive unit — only citation
+        // links or an evidence-section residue. Delivering that shell is
+        // worse than the fallback, so the salvage aborts here. Like
+        // condition 5 above, no validation code describes this abort, so
+        // salvageAbortCode is omitted.
         return abort(removed);
       }
       return {

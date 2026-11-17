@@ -9,10 +9,15 @@ import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExe
 // Synthesis-hygiene (2026-11-14): when the bounded synthesis stage's
 // answer is discarded by citation validation, the user-facing fallback
 // must have ONE hygienic shape regardless of the discard code — an
-// honest lead, a confirmed-scope section built only from source titles,
-// and the compact source list. The internal cross-check section
-// (照合メモ) and retrieved page text (excerpts, boilerplate included)
+// honest lead, a confirmed-scope section of attributions, and the
+// compact source list. The internal cross-check section (照合メモ)
 // must never appear in the answer body.
+// R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the attributions
+// now carry each top source's excerpt as a bounded, neutralized
+// verbatim quote inside the attribution ("the source states: '…'"), so
+// page text appears ONLY in that quoted, attributed form — never as
+// the answer's own statements, and never for sources beyond the top
+// three attributions.
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedCatalogTime = Date.parse(verifiedEvidence.verifiedAt) + 1;
@@ -112,12 +117,16 @@ function expectHygienicFallback(body: { content: string; routing: Record<string,
   expect(content.match(/と示されています/g)).toHaveLength(3);
   expect(content).not.toContain("では『首相動静』と示されています");
   expect(content).toContain("https://www.jiji.com/jc/article?k=1");
-  // No internal cross-check section and no retrieved page text anywhere.
+  // R-1: each attribution carries its source's excerpt as a verbatim
+  // quote inside the attribution; the fourth source's excerpt never
+  // appears (attributions stop at three), and no internal cross-check
+  // section appears anywhere.
+  expect(content).toContain("『抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー』");
+  expect(content).toContain("『抜粋マーカー2 サイドバー おすすめ記事 フッター案内』");
+  expect(content).toContain("『抜粋マーカー3 目次 編集リンク』");
+  expect(content).not.toContain("抜粋マーカー4");
   expect(content).not.toContain("照合メモ");
   expect(content).not.toContain("Cross-check");
-  expect(content).not.toContain("抜粋マーカー");
-  expect(content).not.toContain("ナビゲーション");
-  expect(content).not.toContain("広告バナー");
 }
 
 describe("synthesis-discard fallback hygiene", () => {
@@ -178,12 +187,16 @@ describe("synthesis-discard fallback hygiene", () => {
 });
 
 describe("buildGroundedResearchPartialAnswer", () => {
-  it("builds the confirmed scope from titles only, capped at three attributions", () => {
+  it("builds the confirmed scope from titles plus attributed excerpt quotes, capped at three attributions", () => {
     const text = buildGroundedResearchPartialAnswer(hygieneSources, "ja");
     expect(text).toContain("## 確認できた範囲");
     expect(text).toContain("S2（nhk.or.jp）では『高市総理大臣 記者会見の概要』と示されています");
     expect(text.match(/と示されています/g)).toHaveLength(3);
-    expect(text).not.toContain("抜粋マーカー");
+    // R-1: the excerpt rides inside its own source's attribution line.
+    const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));
+    expect(s1Line).toContain("『内閣総理大臣 高市 早苗 - 首相官邸ホームページ』と示されています");
+    expect(s1Line).toContain("『抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー』");
+    expect(text).not.toContain("抜粋マーカー4");
     expect(text).not.toContain("照合メモ");
   });
 
@@ -199,13 +212,72 @@ describe("buildGroundedResearchPartialAnswer", () => {
     expect(buildGroundedResearchPartialAnswer([], "en")).toBe("");
   });
 
-  it("builds the English shape without internal sections or excerpts", () => {
+  it("builds the English shape with attributed excerpt quotes and no internal sections", () => {
     const text = buildGroundedResearchPartialAnswer(hygieneSources, "en");
     expect(text).toContain("## What could be confirmed");
     expect(text).toContain("is titled \"内閣総理大臣 高市 早苗 - 首相官邸ホームページ\"");
+    expect(text).toContain("It states: \"抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー\"");
     expect(text).toContain("(Retrieved 2026-11-14.)");
     expect(text).toContain("## Sources");
     expect(text).not.toContain("Cross-check");
-    expect(text).not.toContain("抜粋マーカー");
+    expect(text).not.toContain("抜粋マーカー4");
+  });
+
+  it("R-1: neutralizes quote marks, heading markers, and link syntax inside the excerpt quote", () => {
+    const hostile: OriginResearchSource[] = [{
+      title: "案内ページ",
+      url: "https://example.com/source",
+      excerpt: "『重要』 # 見出し [案内ラベル](https://example.org/page) https://example.org/other の内容です。",
+      sourceType: "web-search",
+      domain: "example.com",
+      rank: 1,
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-11-14T03:00:00.000Z",
+      freshness: "recent",
+    }];
+    const text = buildGroundedResearchPartialAnswer(hostile, "ja");
+    // The quote survives as flattened data: label text and heading words
+    // remain, but no quote marks, heading markers, link syntax, or bare
+    // URLs from the excerpt do. (The "#" check is scoped to the
+    // attribution line — the answer's own section headings legitimately
+    // use "##".)
+    expect(text).toContain("『重要 見出し 案内ラベル の内容です。』");
+    expect(text).not.toContain("example.org/page");
+    expect(text).not.toContain("example.org/other");
+    const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));
+    expect(s1Line).not.toContain("#");
+  });
+
+  it("R-1: bounds the excerpt quote at 240 characters", () => {
+    const long: OriginResearchSource[] = [{
+      title: "長い抜粋",
+      url: "https://example.com/long",
+      excerpt: "あ".repeat(300),
+      sourceType: "web-search",
+      domain: "example.com",
+      rank: 1,
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-11-14T03:00:00.000Z",
+      freshness: "recent",
+    }];
+    const text = buildGroundedResearchPartialAnswer(long, "ja");
+    expect(text).toContain(`『${"あ".repeat(240)}』`);
+    expect(text).not.toContain("あ".repeat(241));
+  });
+
+  it("R-1: keeps the title-only attribution when a source has no quotable excerpt", () => {
+    const bare: OriginResearchSource[] = [{
+      title: "抜粋なし資料",
+      url: "https://example.com/bare",
+      excerpt: "",
+      sourceType: "web-search",
+      domain: "example.com",
+      rank: 1,
+      evidenceLevel: "snippet",
+      retrievedAt: "2026-11-14T03:00:00.000Z",
+      freshness: "recent",
+    }];
+    const text = buildGroundedResearchPartialAnswer(bare, "ja");
+    expect(text).toContain("- S1（example.com）では『抜粋なし資料』と示されています。（取得日: 2026年11月14日）");
   });
 });

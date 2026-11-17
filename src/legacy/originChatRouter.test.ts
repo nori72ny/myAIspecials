@@ -279,7 +279,9 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
-    expect(response.body.content).not.toContain("現在確認できた公開情報の要点です。");
+    // R-1 (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the excerpt appears
+    // only as a verbatim quote inside its source's attribution line.
+    expect(response.body.content).toContain("『現在確認できた公開情報の要点です。』");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
     expect(response.body.routing).toEqual(expect.objectContaining({
       model: "ORIGIN アプリ内処理",
@@ -569,8 +571,10 @@ describe("createOriginChatRouter", () => {
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/one");
     expect(response.body.content).toContain("https://example.org/two");
-    expect(response.body.content).not.toContain("公開情報その1です。");
-    expect(response.body.content).not.toContain("公開情報その2です。");
+    // R-1: excerpts appear only as verbatim quotes inside their own
+    // sources' attribution lines.
+    expect(response.body.content).toContain("『公開情報その1です。』");
+    expect(response.body.content).toContain("『公開情報その2です。』");
     expect(response.body.content).not.toContain("捏造された統合結果");
     expect(response.body.content).not.toContain("outside.invalid");
     expect(response.body.routing).toEqual(expect.objectContaining({
@@ -617,7 +621,9 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
-    expect(response.body.content).not.toContain("現在確認できた公開情報です。");
+    // R-1: the excerpt appears only as a verbatim quote inside its
+    // source's attribution line.
+    expect(response.body.content).toContain("『現在確認できた公開情報です。』");
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "provider-failed",
       synthesisFailureCode: "PROVIDER_RATE_LIMITED",
@@ -642,9 +648,15 @@ describe("createOriginChatRouter", () => {
     // Mirrors the production defect (chat 100-question inspection batch 1,
     // A-02 / B-01 / B-05): for number-critical question types the grounding
     // layer replaces the snippet with a full extracted page, navigation and
-    // advertising text included. When synthesis then fails, the fallback
-    // answer must list compact citations only — the extracted page text,
-    // boilerplate included, must not leak into the answer body.
+    // advertising text included. When synthesis then fails, the extracted
+    // page text must not pose as the answer.
+    // R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the fallback's
+    // attribution lines now carry the excerpt as a bounded (240 chars),
+    // neutralized verbatim quote inside the attribution itself, so the
+    // PKG-9 guarantee is narrowed to its substance — page text may appear
+    // ONLY inside its own source's attribution line, as quoted source
+    // speech under a lead that says no summarized answer was produced;
+    // it never appears as the answer's own statements anywhere else.
     const rawPageText = "サービス紹介 資料ダウンロード お問い合わせ 退職の基礎知識を確認したい人事担当者も、ぜひ最後までチェックしてみてください。退職の予告は民法により、原則として2週間前の申し出で退職が可能です。資料を無料ダウンロード";
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -676,16 +688,21 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.routing.synthesisStatus).toBe("provider-failed");
-    // No fragment of the extracted page — fact sentence or boilerplate — is
-    // presented as the answer.
-    expect(response.body.content).not.toContain("退職の予告は民法により");
-    expect(response.body.content).not.toContain("お問い合わせ");
-    expect(response.body.content).not.toContain("無料ダウンロード");
+    // The extracted page appears only as the verbatim quote inside the
+    // S1 attribution line (R-1); outside that line, no fragment of it —
+    // fact sentence or boilerplate — appears anywhere in the body.
+    const attributionLine = response.body.content.split("\n").find((line: string) => line.startsWith("- S1"));
+    expect(attributionLine).toContain(`『${rawPageText}』`);
+    const outsideAttribution = response.body.content.split("\n").filter((line: string) => !line.startsWith("- S1")).join("\n");
+    expect(outsideAttribution).not.toContain("退職の予告は民法により");
+    expect(outsideAttribution).not.toContain("お問い合わせ");
+    expect(outsideAttribution).not.toContain("無料ダウンロード");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
     // The fallback states its own limit first, shows the confirmed scope
-    // as a title-only attribution, and cites the source compactly (title,
-    // domain, URL). The internal cross-check section (照合メモ) never
-    // appears in the user-facing body (synthesis-hygiene).
+    // as attributions (title plus the bounded excerpt quote), and cites
+    // the source compactly (title, domain, URL). The internal cross-check
+    // section (照合メモ) never appears in the user-facing body
+    // (synthesis-hygiene).
     expect(response.body.content).toContain("要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).not.toContain("照合メモ");
     expect(response.body.content).toContain("## 確認できた範囲");
@@ -728,7 +745,9 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
-    expect(response.body.content).not.toContain("現在確認できた公開情報です。");
+    // R-1: the excerpt appears only as a verbatim quote inside its
+    // source's attribution line.
+    expect(response.body.content).toContain("『現在確認できた公開情報です。』");
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "plan-unavailable",
       synthesisFailureCode: "FREE_PROVIDER_NOT_CONFIGURED",

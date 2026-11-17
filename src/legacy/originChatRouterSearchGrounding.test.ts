@@ -242,8 +242,11 @@ describe("createOriginChatRouter with search grounding (default research composi
     }));
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("mhlw.go.jp");
-    expect(response.body.content).not.toContain("1,177円");
-    expect(response.body.content).not.toContain("全国加重平均");
+    // R-1 (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the retrieved figures
+    // reach the user only as a verbatim quote inside the source's
+    // attribution line — the answer still does not state them from
+    // memory or in its own voice.
+    expect(response.body.content).toContain("『令和8年度の地域別最低賃金は、全国加重平均1,177円、東京都は1,280円となり、2026年10月1日から発効しました。』");
     expect(response.body.answer.evidence).toHaveLength(1);
     expect(executeMock).not.toHaveBeenCalled();
   });
