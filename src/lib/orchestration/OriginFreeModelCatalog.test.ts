@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ORIGIN_FREE_MODEL_CATALOG,
+  ORIGIN_OPENROUTER_ROUTE_DISPOSITION,
   selectCurrentOriginFreeModel,
+  selectOriginFreeModelForStoppedRoute,
   type OriginFreeModelEvidence,
 } from "./OriginFreeModelCatalog";
 
@@ -78,5 +80,30 @@ describe("selectCurrentOriginFreeModel", () => {
     expect(selectCurrentOriginFreeModel(DEFAULT_ORIGIN_FREE_MODEL_CATALOG, deadline + 1)).toEqual(
       expect.objectContaining({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" }),
     );
+  });
+});
+
+describe("stopped route disposition (PKG-4 PR-2)", () => {
+  it("pins the OpenRouter route disposition as stopped", () => {
+    expect(ORIGIN_OPENROUTER_ROUTE_DISPOSITION).toBe("stopped");
+  });
+
+  it("returns the catalog entry as the evidence record regardless of freshness", () => {
+    // The freshness window no longer matters for the stopped route: the
+    // entry is carried as the record even after reviewAfter has passed,
+    // while selectCurrentOriginFreeModel above keeps failing closed.
+    expect(selectOriginFreeModelForStoppedRoute()).toEqual(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0]);
+    expect(selectOriginFreeModelForStoppedRoute(DEFAULT_ORIGIN_FREE_MODEL_CATALOG)).toEqual(
+      DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
+    );
+  });
+
+  it("returns null for a malformed or empty catalog: validity is still enforced", () => {
+    expect(selectOriginFreeModelForStoppedRoute([])).toBeNull();
+    const invalidCatalog = [{
+      ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0],
+      modelId: "openrouter/auto",
+    }] as unknown as readonly OriginFreeModelEvidence[];
+    expect(selectOriginFreeModelForStoppedRoute(invalidCatalog)).toBeNull();
   });
 });

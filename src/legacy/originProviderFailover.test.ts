@@ -4,6 +4,7 @@ import {
   executeOriginProviderStreamWithFailover,
   executeOriginProviderWithFailover,
   ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS,
+  ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON,
   resetOriginProviderFailoverCircuitForTests,
 } from "./originProviderFailover";
 
@@ -100,41 +101,55 @@ describe("executeOriginProviderWithFailover", () => {
     expect(cloudflareExecute).not.toHaveBeenCalled();
   });
 
-  it("records a single successful primary attempt when the flag is enabled", async () => {
+  it("records the route-stopped skip and serves from the Cloudflare route without attempting the primary (PKG-4 PR-2)", async () => {
+    // The primary route is dispositioned stopped: even a primary executor
+    // that would succeed is never invoked, and the first attempt record is
+    // the route-stopped skip (no error code, zero transport requests).
     const primaryExecute = vi.fn(async () => primarySuccessResult());
     const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
     const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     });
-    expect(result.text).toBe("第1経路の回答です。");
-    expect(result.attempts).toEqual([{
-      providerId: "openrouter-free",
-      modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-      outcome: "succeeded",
-      transportRequestCount: 1,
-      durationMs: expect.any(Number),
-    }]);
-    expect(cloudflareExecute).not.toHaveBeenCalled();
+    expect(primaryExecute).not.toHaveBeenCalled();
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(result.transportRequestCount).toBe(4);
+    expect(result.attempts).toEqual([
+      {
+        providerId: "openrouter-free",
+        modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+        outcome: "skipped",
+        skipReason: "route-stopped",
+        transportRequestCount: 0,
+      },
+      {
+        providerId: "cloudflare-workers-ai-free",
+        modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
+        outcome: "succeeded",
+        transportRequestCount: 4,
+        durationMs: expect.any(Number),
+      },
+    ]);
+    expect(ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON).toBe("route-stopped");
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("fails over to the Cloudflare route on a primary rate limit and records both attempts", async () => {
+  it("records the route-stopped primary skip and serves from the Cloudflare route", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async (_injectedRequest: OriginProviderExecutionRequest) => cloudflareSuccessResult());
     const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第2経路の回答です。");
     expect(result.routingEvidence.fallbackUsed).toBe(true);
-    expect(result.transportRequestCount).toBe(5);
+    expect(result.transportRequestCount).toBe(4);
     expect(result.attempts).toEqual([
       {
         providerId: "openrouter-free",
         modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-        outcome: "availability-error",
-        errorCode: "PROVIDER_RATE_LIMITED",
-        transportRequestCount: 1,
-        durationMs: expect.any(Number),
+        outcome: "skipped",
+        skipReason: "route-stopped",
+        transportRequestCount: 0,
       },
       {
         providerId: "cloudflare-workers-ai-free",
@@ -162,13 +177,14 @@ describe("executeOriginProviderWithFailover", () => {
     const result = await executeOriginProviderWithFailover(dedupedRequest, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第2経路の回答です。");
     const cloudflareRequest = cloudflareExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
     expect(cloudflareRequest.cloudflareSystemInstruction).toBe("経路2向け重複除去済み指示");
     expect(cloudflareRequest.systemInstruction).toBe(request.systemInstruction);
   });
 
-  it("surfaces the primary error when the Cloudflare route is skipped by its plan proof", async () => {
+  it("surfaces the route-stopped unavailability when the Cloudflare route is skipped by its plan proof", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => {
       throw new OriginCloudflarePreflightError("plan-proof-failed", "CLOUDFLARE_WORKERS_PAID_PLAN_DETECTED");
@@ -176,16 +192,18 @@ describe("executeOriginProviderWithFailover", () => {
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(error).toBeInstanceOf(OriginProviderError);
-    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    // No primary attempt ran in this request, so the honest surfaced error
+    // is the synthesized route-stopped unavailability (503, zero transport).
+    expect(error.code).toBe("PROVIDER_UNAVAILABLE");
     expect(error.diagnostic?.failoverAttempts).toEqual([
       {
         providerId: "openrouter-free",
         modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-        outcome: "availability-error",
-        errorCode: "PROVIDER_RATE_LIMITED",
-        transportRequestCount: 1,
-        durationMs: expect.any(Number),
+        outcome: "skipped",
+        skipReason: "route-stopped",
+        transportRequestCount: 0,
       },
       {
         providerId: "cloudflare-workers-ai-free",
@@ -197,7 +215,7 @@ describe("executeOriginProviderWithFailover", () => {
     ]);
   });
 
-  it("records a pool-exhausted Cloudflare skip and surfaces the primary error", async () => {
+  it("records a pool-exhausted Cloudflare skip and surfaces the route-stopped unavailability", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => {
       throw new OriginCloudflarePreflightError("pool-exhausted");
@@ -205,16 +223,16 @@ describe("executeOriginProviderWithFailover", () => {
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(error).toBeInstanceOf(OriginProviderError);
-    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.code).toBe("PROVIDER_UNAVAILABLE");
     expect(error.diagnostic?.failoverAttempts).toEqual([
       {
         providerId: "openrouter-free",
         modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-        outcome: "availability-error",
-        errorCode: "PROVIDER_RATE_LIMITED",
-        transportRequestCount: 1,
-        durationMs: expect.any(Number),
+        outcome: "skipped",
+        skipReason: "route-stopped",
+        transportRequestCount: 0,
       },
       {
         providerId: "cloudflare-workers-ai-free",
@@ -226,7 +244,7 @@ describe("executeOriginProviderWithFailover", () => {
     ]);
   });
 
-  it("surfaces the Cloudflare error when both routes fail with availability errors", async () => {
+  it("surfaces the Cloudflare error when the second route fails with an availability error", async () => {
     const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => {
       throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportRequestCount: 3 });
@@ -234,22 +252,24 @@ describe("executeOriginProviderWithFailover", () => {
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(error.code).toBe("PROVIDER_UNAVAILABLE");
-    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["availability-error", "availability-error"]);
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "availability-error"]);
   });
 
   it.each(["PROVIDER_COST_UNVERIFIED", "PROVIDER_POLICY_VIOLATION", "PROVIDER_ROUTING_UNVERIFIED"] as const)(
-    "never fails over an integrity failure (%s)",
+    "never fails over an integrity failure on the Cloudflare route (%s)",
     async (code) => {
-      const primaryExecute = vi.fn(async () => {
-        throw new OriginProviderError(code, "integrity failure", 502, false, undefined, { transportRequestCount: 1 });
+      const primaryExecute = vi.fn(async () => primarySuccessResult());
+      const cloudflareExecute = vi.fn(async () => {
+        throw new OriginProviderError(code, "integrity failure", 502, false, undefined, { transportRequestCount: 4 });
       });
-      const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
       const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
         nowMs: NOW_MS, primaryExecute, cloudflareExecute,
       }).catch((caught: unknown) => caught) as OriginProviderError;
+      expect(primaryExecute).not.toHaveBeenCalled();
       expect(error.code).toBe(code);
-      expect(cloudflareExecute).not.toHaveBeenCalled();
+      expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "failed"]);
     },
   );
 
@@ -270,18 +290,18 @@ describe("executeOriginProviderWithFailover", () => {
 
   it("rethrows unexpected non-provider errors untouched", async () => {
     const boom = new Error("boom");
-    const primaryExecute = vi.fn(async () => { throw boom; });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
+    const primaryExecute = vi.fn(async () => primarySuccessResult());
+    const cloudflareExecute = vi.fn(async () => { throw boom; });
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     }).catch((caught: unknown) => caught);
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(error).toBe(boom);
-    expect(cloudflareExecute).not.toHaveBeenCalled();
   });
 });
 
 describe("executeOriginProviderStreamWithFailover", () => {
-  it("fails over before the first byte when the primary stream hits a rate limit", async () => {
+  it("streams the second route without ever starting the stopped primary stream (PKG-4 PR-2)", async () => {
     const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
     const deltas: string[] = [];
@@ -292,26 +312,40 @@ describe("executeOriginProviderStreamWithFailover", () => {
       fetch,
       { nowMs: NOW_MS, streamExecute, cloudflareExecute },
     );
+    expect(streamExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第2経路の回答です。");
     expect(deltas).toEqual(["第2経路の回答です。"]);
     expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toEqual({
+      providerId: "openrouter-free",
+      modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+      outcome: "skipped",
+      skipReason: "route-stopped",
+      transportRequestCount: 0,
+    });
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("never switches after a byte was delivered downstream", async () => {
+  it("never starts the primary stream even when it would deliver a fragment before failing", async () => {
+    // The mid-delivery no-switch guard now applies to the failover routes
+    // themselves (covered by the progressive-failover describe below); the
+    // stopped primary stream is not started at all, whatever it would do.
     const streamExecute = vi.fn(async (_req: OriginProviderExecutionRequest, handlers: { onDelta: (text: string) => void }) => {
       handlers.onDelta("部分的な回答");
       throw rateLimitedError();
     });
     const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const error = await executeOriginProviderStreamWithFailover(
+    const deltas: string[] = [];
+    const result = await executeOriginProviderStreamWithFailover(
       request,
-      { onDelta: () => undefined },
+      { onDelta: (text) => { deltas.push(text); } },
       enabledEnv,
       fetch,
       { nowMs: NOW_MS, streamExecute, cloudflareExecute },
-    ).catch((caught: unknown) => caught) as OriginProviderError;
-    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
-    expect(cloudflareExecute).not.toHaveBeenCalled();
+    );
+    expect(streamExecute).not.toHaveBeenCalled();
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(deltas).toEqual(["第2経路の回答です。"]);
   });
 
   it("is a transparent pass-through when the failover flag is unset", async () => {
@@ -395,61 +429,32 @@ describe("assertOriginZeroCostExecutionResultWithFailover", () => {
   });
 });
 
-describe("primary attempt budget", () => {
-  it("cuts off a hanging primary within the budget and answers from the Cloudflare route", async () => {
-    const primaryExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+describe("primary route disposition (PKG-4 PR-2)", () => {
+  // The primary attempt budget and circuit-breaker entry tests that used to
+  // live here covered machinery that is dormant while the route carries the
+  // stopped disposition: the entries never reach it. The circuit-skip
+  // assertion shapes stay covered by the dedicated assertion describes
+  // below; if the disposition is ever reverted (with renewed evidence), the
+  // entry-level budget/breaker tests must be restored with it.
+
+  it("never attempts the primary across repeated requests: every first attempt is the route-stopped skip", async () => {
+    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const startedAt = Date.now();
-    const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, primaryAttemptBudgetMs: 50,
-    });
-    const elapsedMs = Date.now() - startedAt;
-    expect(result.text).toBe("第2経路の回答です。");
-    expect(elapsedMs).toBeLessThan(1_500);
-    expect(result.attempts).toEqual([
-      {
+    for (const nowMs of [NOW_MS, NOW_MS + 60_000, NOW_MS + 600_000]) {
+      const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
+        nowMs, primaryExecute, cloudflareExecute,
+      });
+      expect(result.attempts?.[0]).toEqual({
         providerId: "openrouter-free",
         modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-        outcome: "availability-error",
-        errorCode: "PROVIDER_TIMEOUT",
+        outcome: "skipped",
+        skipReason: "route-stopped",
         transportRequestCount: 0,
-        durationMs: expect.any(Number),
-      },
-      {
-        providerId: "cloudflare-workers-ai-free",
-        modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
-        outcome: "succeeded",
-        transportRequestCount: 4,
-        durationMs: expect.any(Number),
-      },
-    ]);
-    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
-  });
-
-  it("aborts the hanging attempt's in-flight fetch and counts the requests it actually sent", async () => {
-    const signals: AbortSignal[] = [];
-    const hangingFetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.signal) signals.push(init.signal);
-      return new Promise<Response>(() => undefined);
-    }) as unknown as typeof fetch;
-    const primaryExecute = vi.fn(async (
-      _injectedRequest: OriginProviderExecutionRequest,
-      _env: NodeJS.ProcessEnv,
-      fetchImpl: typeof fetch,
-    ) => {
-      await fetchImpl("https://openrouter.invalid/api/v1/chat/completions", { method: "POST" });
-      return primarySuccessResult();
-    });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const result = await executeOriginProviderWithFailover(request, enabledEnv, hangingFetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, primaryAttemptBudgetMs: 50,
-    });
-    expect(result.text).toBe("第2経路の回答です。");
-    expect(signals).toHaveLength(1);
-    expect(signals[0]?.aborted).toBe(true);
-    expect(result.attempts?.[0]).toMatchObject({ outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT", transportRequestCount: 1 });
-    expect(result.transportRequestCount).toBe(5);
-    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+      });
+      expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+    }
+    expect(primaryExecute).not.toHaveBeenCalled();
+    expect(cloudflareExecute).toHaveBeenCalledTimes(3);
   });
 
   it("raises the Cloudflare route plan timeout without modifying the primary plan", async () => {
@@ -458,87 +463,56 @@ describe("primary attempt budget", () => {
     await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute,
     });
+    expect(primaryExecute).not.toHaveBeenCalled();
     const cloudflareRequest = cloudflareExecute.mock.calls[0]?.[0] as OriginProviderExecutionRequest;
     expect(cloudflareRequest.plan.timeoutMs).toBe(ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS);
     expect(request.plan.timeoutMs).toBe(30_000);
-  });
-
-  it("cuts off a hanging primary stream before the first byte and fails over", async () => {
-    const streamExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const deltas: string[] = [];
-    const result = await executeOriginProviderStreamWithFailover(
-      request,
-      { onDelta: (text) => { deltas.push(text); } },
-      enabledEnv,
-      fetch,
-      { nowMs: NOW_MS, streamExecute, cloudflareExecute, primaryAttemptBudgetMs: 50 },
-    );
-    expect(result.text).toBe("第2経路の回答です。");
-    expect(deltas).toEqual(["第2経路の回答です。"]);
-    expect(result.attempts?.[0]).toMatchObject({ outcome: "availability-error", errorCode: "PROVIDER_TIMEOUT" });
-  });
-
-  it("never abandons a primary stream after a byte was delivered, even past the budget", async () => {
-    const streamExecute = vi.fn(async (
-      _injectedRequest: OriginProviderExecutionRequest,
-      handlers: { onDelta: (text: string) => void },
-    ) => {
-      handlers.onDelta("部分的な回答");
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return primarySuccessResult();
-    });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const deltas: string[] = [];
-    const result = await executeOriginProviderStreamWithFailover(
-      request,
-      { onDelta: (text) => { deltas.push(text); } },
-      enabledEnv,
-      fetch,
-      { nowMs: NOW_MS, streamExecute, cloudflareExecute, primaryAttemptBudgetMs: 50 },
-    );
-    expect(result.text).toBe("第1経路の回答です。");
-    expect(deltas).toEqual(["部分的な回答"]);
-    expect(cloudflareExecute).not.toHaveBeenCalled();
   });
 });
 
 describe("chat total time budget", () => {
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  it("reaches the second route inside the total budget when the primary fails slowly", async () => {
-    const primaryExecute = vi.fn(async () => { await delay(120); throw rateLimitedError(); });
+  it("reaches the second route inside the total budget", async () => {
+    const primaryExecute = vi.fn(async () => primarySuccessResult());
     const cloudflareExecute = vi.fn(async () => { await delay(120); return cloudflareSuccessResult(); });
     const startedAt = Date.now();
     const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 2_000,
     });
     const elapsedMs = Date.now() - startedAt;
+    expect(primaryExecute).not.toHaveBeenCalled();
     expect(result.text).toBe("第2経路の回答です。");
     expect(elapsedMs).toBeLessThan(2_000);
     expect(result.attempts).toHaveLength(2);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("spends no extra attempt when the primary is healthy", async () => {
+  it("sends nothing to the stopped primary: the second route is the first executed attempt (PKG-4 PR-2)", async () => {
     const primaryExecute = vi.fn(async () => primarySuccessResult());
     const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
     const result = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
       nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 2_000,
     });
-    expect(result.text).toBe("第1経路の回答です。");
-    expect(primaryExecute).toHaveBeenCalledTimes(1);
-    expect(cloudflareExecute).not.toHaveBeenCalled();
-    expect(result.attempts).toHaveLength(1);
-    expect(result.attempts?.[0]?.outcome).toBe("succeeded");
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(primaryExecute).not.toHaveBeenCalled();
+    expect(cloudflareExecute).toHaveBeenCalledTimes(1);
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toEqual({
+      providerId: "openrouter-free",
+      modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+      outcome: "skipped",
+      skipReason: "route-stopped",
+      transportRequestCount: 0,
+    });
+    expect(result.attempts?.[1]?.outcome).toBe("succeeded");
   });
 
   it("stops waiting at the total budget when the second route hangs", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
     const startedAt = Date.now();
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+      nowMs: NOW_MS, cloudflareExecute, totalBudgetMs: 300,
     }).catch((caught: unknown) => caught);
     const elapsedMs = Date.now() - startedAt;
     expect(error).toBeInstanceOf(OriginProviderError);
@@ -553,12 +527,11 @@ describe("chat total time budget", () => {
     });
   });
 
-  it("bounds the composed stack: a hanging primary plus a hanging second route still ends at the total budget", async () => {
-    const primaryExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
+  it("bounds the composed stack: a hanging second route still ends at the total budget", async () => {
     const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
     const startedAt = Date.now();
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, primaryAttemptBudgetMs: 100, totalBudgetMs: 400,
+      nowMs: NOW_MS, cloudflareExecute, totalBudgetMs: 400,
     }).catch((caught: unknown) => caught);
     const elapsedMs = Date.now() - startedAt;
     expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
@@ -572,7 +545,6 @@ describe("chat total time budget", () => {
       if (init?.signal) signals.push(init.signal);
       return new Promise<Response>(() => undefined);
     }) as unknown as typeof fetch;
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async (
       _injectedRequest: OriginProviderExecutionRequest,
       _env: NodeJS.ProcessEnv,
@@ -583,7 +555,7 @@ describe("chat total time budget", () => {
     });
     const startedAt = Date.now();
     const error = await executeOriginProviderWithFailover(request, enabledEnv, hangingFetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+      nowMs: NOW_MS, cloudflareExecute, totalBudgetMs: 300,
     }).catch((caught: unknown) => caught);
     const elapsedMs = Date.now() - startedAt;
     expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
@@ -593,11 +565,10 @@ describe("chat total time budget", () => {
   });
 
   it("applies no third-route reserve while the Groq route is not configured: the second route keeps the full remaining budget (PKG-4 PR-1)", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareExecute = vi.fn(async () => new Promise<OriginProviderExecutionResult>(() => undefined));
     const startedAt = Date.now();
     const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute, totalBudgetMs: 300,
+      nowMs: NOW_MS, cloudflareExecute, totalBudgetMs: 300,
     }).catch((caught: unknown) => caught);
     const elapsedMs = Date.now() - startedAt;
     expect((error as OriginProviderError).code).toBe("PROVIDER_TIMEOUT");
@@ -611,116 +582,13 @@ describe("chat total time budget", () => {
   });
 });
 
-describe("primary circuit breaker", () => {
-  const COOLDOWN_MS = 300_000;
-
-  it("skips the primary during the cooldown after a rate-limit failure and records the skip", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    const first = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
-    });
-    expect(first.attempts?.[0]?.outcome).toBe("availability-error");
-    expect(primaryExecute).toHaveBeenCalledTimes(1);
-
-    const second = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + 60_000, primaryExecute, cloudflareExecute,
-    });
-    expect(primaryExecute).toHaveBeenCalledTimes(1);
-    expect(second.text).toBe("第2経路の回答です。");
-    expect(second.transportRequestCount).toBe(4);
-    expect(second.attempts).toEqual([
-      {
-        providerId: "openrouter-free",
-        modelId: ORIGIN_OPENROUTER_FREE_MODEL,
-        outcome: "skipped",
-        skipReason: "primary-circuit-open",
-        errorCode: "PROVIDER_RATE_LIMITED",
-        transportRequestCount: 0,
-      },
-      {
-        providerId: "cloudflare-workers-ai-free",
-        modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
-        outcome: "succeeded",
-        transportRequestCount: 4,
-        durationMs: expect.any(Number),
-      },
-    ]);
-    expect(() => assertOriginZeroCostExecutionResultWithFailover(second, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
-  });
-
-  it("half-opens after the cooldown: a primary success closes the breaker", async () => {
-    let primaryBehavior: "fail" | "succeed" = "fail";
-    const primaryExecute = vi.fn(async () => {
-      if (primaryBehavior === "fail") throw rateLimitedError();
-      return primarySuccessResult();
-    });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
-    });
-    primaryBehavior = "succeed";
-    const trialed = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + COOLDOWN_MS + 1, primaryExecute, cloudflareExecute,
-    });
-    expect(trialed.text).toBe("第1経路の回答です。");
-    expect(primaryExecute).toHaveBeenCalledTimes(2);
-    const after = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + COOLDOWN_MS + 2, primaryExecute, cloudflareExecute,
-    });
-    expect(after.text).toBe("第1経路の回答です。");
-    expect(primaryExecute).toHaveBeenCalledTimes(3);
-  });
-
-  it("re-opens the breaker when the half-open trial fails with a rate limit again", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
-    });
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + COOLDOWN_MS + 1, primaryExecute, cloudflareExecute,
-    });
-    expect(primaryExecute).toHaveBeenCalledTimes(2);
-    const skipped = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + COOLDOWN_MS + 2, primaryExecute, cloudflareExecute,
-    });
-    expect(primaryExecute).toHaveBeenCalledTimes(2);
-    expect(skipped.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
-  });
-
-  it("does not open the breaker for a non-rate-limit availability failure", async () => {
-    const primaryExecute = vi.fn(async () => {
-      throw new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, { transportRequestCount: 1 });
-    });
-    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute,
-    });
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + 1_000, primaryExecute, cloudflareExecute,
-    });
-    expect(primaryExecute).toHaveBeenCalledTimes(2);
-  });
-
-  it("surfaces the opening failure code when both routes are unavailable during the cooldown", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
-    const okCloudflare = vi.fn(async () => cloudflareSuccessResult());
-    await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS, primaryExecute, cloudflareExecute: okCloudflare,
-    });
-    const proofSkippedCloudflare = vi.fn(async () => {
-      throw new OriginCloudflarePreflightError("plan-proof-failed", "CLOUDFLARE_WORKERS_PLAN_UNVERIFIED");
-    });
-    const error = await executeOriginProviderWithFailover(request, enabledEnv, fetch, {
-      nowMs: NOW_MS + 30_000, primaryExecute, cloudflareExecute: proofSkippedCloudflare,
-    }).catch((caught: unknown) => caught) as OriginProviderError;
-    expect(error).toBeInstanceOf(OriginProviderError);
-    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
-    expect(error.retryAfterSeconds).toBe(270);
-    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "skipped"]);
-  });
-});
+// The entry-level "primary circuit breaker" tests were removed by PKG-4
+// PR-2: while the primary route carries the stopped disposition the entries
+// never consult the breaker (it stays dormant in the dispatcher). The
+// circuit-skip evidence shapes remain pinned by the assertion describes
+// below and in originProviderFailoverGroq.test.ts; restoring the route
+// (reverting the disposition, with renewed evidence) must restore those
+// entry tests with it.
 
 describe("assertOriginZeroCostExecutionResultWithFailover circuit-skip shapes", () => {
   function circuitSkipResult(): OriginProviderExecutionResult {
@@ -782,9 +650,67 @@ describe("assertOriginZeroCostExecutionResultWithFailover circuit-skip shapes", 
   });
 });
 
+describe("assertOriginZeroCostExecutionResultWithFailover route-stopped shapes (PKG-4 PR-2)", () => {
+  function routeStoppedResult(): OriginProviderExecutionResult {
+    return {
+      ...cloudflareSuccessResult(),
+      transportRequestCount: 4,
+      attempts: [
+        {
+          providerId: "openrouter-free",
+          modelId: ORIGIN_OPENROUTER_FREE_MODEL,
+          outcome: "skipped",
+          skipReason: "route-stopped",
+          transportRequestCount: 0,
+        },
+        {
+          providerId: "cloudflare-workers-ai-free",
+          modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
+          outcome: "succeeded",
+          transportRequestCount: 4,
+        },
+      ],
+    };
+  }
+
+  it("accepts a verified route-stopped composite", () => {
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(routeStoppedResult(), ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+
+  it("rejects a route-stopped skip that carries an error code", () => {
+    const result = routeStoppedResult();
+    result.attempts = [
+      { ...result.attempts![0], errorCode: "PROVIDER_RATE_LIMITED" },
+      result.attempts![1],
+    ];
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
+      .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
+  });
+
+  it("rejects a route-stopped skip that claims transport requests were sent", () => {
+    const result = routeStoppedResult();
+    result.attempts = [
+      { ...result.attempts![0], transportRequestCount: 1 },
+      result.attempts![1],
+    ];
+    result.transportRequestCount = 5;
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
+      .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
+  });
+
+  it("rejects a first-attempt skip with an unrecognized skip reason", () => {
+    const result = routeStoppedResult();
+    result.attempts = [
+      { ...result.attempts![0], skipReason: "route_stopped" },
+      result.attempts![1],
+    ];
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
+      .toThrow("許可された無料Provider/Modelの証跡を確認できません。");
+  });
+});
+
 describe("second-route circuit breaker without a third route (speed wave 1)", () => {
   it("never skips the second route while the Groq route is not configured: it is the last route", async () => {
-    const primaryExecute = vi.fn(async () => { throw rateLimitedError(); });
     let cfBehavior: "timeout" | "ok" = "timeout";
     const cloudflareExecute = vi.fn(async () => {
       if (cfBehavior === "timeout") {
@@ -795,9 +721,9 @@ describe("second-route circuit breaker without a third route (speed wave 1)", ()
       }
       return cloudflareSuccessResult();
     });
-    // enabledEnv carries no GROQ_API_KEY. The primary cooldown override keeps
-    // every request on the primary-error entry.
-    const options = { primaryExecute, cloudflareExecute, primaryCircuitCooldownMs: 1 };
+    // enabledEnv carries no GROQ_API_KEY. Every request enters through the
+    // route-stopped primary skip (PKG-4 PR-2).
+    const options = { cloudflareExecute };
     const first = await executeOriginProviderWithFailover(request, enabledEnv, fetch, { ...options, nowMs: NOW_MS })
       .catch((caught: unknown) => caught) as OriginProviderError;
     expect(first.code).toBe("PROVIDER_TIMEOUT");
@@ -849,7 +775,7 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
     });
   }
 
-  it("streams the second route's fragments progressively after a primary stream failure", async () => {
+  it("streams the second route's fragments progressively without starting the stopped primary stream", async () => {
     const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareStreamExecute = cloudflareStreamOk(["第2", "経路の", "回答です。"]);
     const deltas: string[] = [];
@@ -860,12 +786,14 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
       fetch,
       { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
     );
+    expect(streamExecute).not.toHaveBeenCalled();
     // The failover route's own fragments reach the client as they are
     // generated — not one composed full-text delta after the generation.
     expect(deltas).toEqual(["第2", "経路の", "回答です。"]);
     expect(deltas.join("")).toBe(result.text);
     expect(result.text).toBe("第2経路の回答です。");
     expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
     // The route plan conversion and the release policy both reach the
     // streaming route executor.
@@ -926,7 +854,7 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
       { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute, groqStreamExecute },
     ).catch((caught: unknown) => caught) as OriginProviderError;
     expect(error.code).toBe("PROVIDER_UNAVAILABLE");
-    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["availability-error", "availability-error"]);
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "availability-error"]);
     expect(deltas).toEqual(["第2経路の途中まで"]);
     expect(groqStreamExecute).not.toHaveBeenCalled();
   });
@@ -958,11 +886,11 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
   });
 
-  it("skips an open-circuited primary and streams the second route directly", async () => {
+  it("records the route-stopped skip and streams the second route directly on every request", async () => {
     const streamExecute = vi.fn(async () => { throw rateLimitedError(); });
     const cloudflareStreamExecute = cloudflareStreamOk(["第2", "経路の回答です。"]);
     const firstDeltas: string[] = [];
-    await executeOriginProviderStreamWithFailover(
+    const first = await executeOriginProviderStreamWithFailover(
       { ...request, streamRelease: "incremental" },
       { onDelta: (text) => { firstDeltas.push(text); } },
       enabledEnv,
@@ -970,9 +898,9 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
       { nowMs: NOW_MS, streamExecute, cloudflareStreamExecute },
     );
     expect(firstDeltas).toEqual(["第2", "経路の回答です。"]);
-    // The rate limit opened the primary circuit: the next request never
-    // attempts the primary stream and goes straight to the second route's
-    // stream.
+    expect(first.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
+    // The primary stream is never attempted on the next request either: the
+    // route-stopped skip leads the evidence again (PKG-4 PR-2).
     const secondDeltas: string[] = [];
     const second = await executeOriginProviderStreamWithFailover(
       { ...request, streamRelease: "incremental" },
@@ -981,8 +909,8 @@ describe("executeOriginProviderStreamWithFailover progressive failover routes", 
       fetch,
       { nowMs: NOW_MS + 1_000, streamExecute, cloudflareStreamExecute },
     );
-    expect(streamExecute).toHaveBeenCalledTimes(1);
+    expect(streamExecute).not.toHaveBeenCalled();
     expect(secondDeltas).toEqual(["第2", "経路の回答です。"]);
-    expect(second.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "primary-circuit-open" });
+    expect(second.attempts?.[0]).toMatchObject({ outcome: "skipped", skipReason: "route-stopped" });
   });
 });

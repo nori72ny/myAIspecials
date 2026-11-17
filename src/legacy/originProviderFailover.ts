@@ -15,6 +15,7 @@ import {
   type OriginGroqFreeModelEvidence,
   type OriginGroqFreeModelId,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog.js";
+import { ORIGIN_OPENROUTER_ROUTE_DISPOSITION } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import {
   assertOriginZeroCostExecutionResult,
   executeOriginProvider,
@@ -193,6 +194,30 @@ import {
  * route did not serve (an availability failure, or a pre-execution skip with
  * zero transport requests), and each route's own $0/free-route verification
  * runs unchanged on the serving result.
+ *
+ * Primary route disposition (PKG-4 PR-2, 2026-11-17; audit
+ * CAPACITY_SPEED_AUDIT_2026-11-17 §5 S-2): the primary (OpenRouter) route is
+ * STOPPED and is never attempted by the failover entries. The owner enabled
+ * OpenRouter's ZDR enforcement on 2026-11-15 and the model's sole endpoint
+ * does not support ZDR (55-day retention), so the endpoint vanished and every
+ * dispatch since has paid a measured 92-208ms dead attempt that fails with a
+ * 404 before the real routes run. While the disposition stands (declared as
+ * ORIGIN_OPENROUTER_ROUTE_DISPOSITION in the route's catalog module), both
+ * entries record the primary attempt as outcome "skipped" with skipReason
+ * "route-stopped" and a transport count of 0 — the same pre-execution skip
+ * shape the circuit breaker already used — and enter the failover phase
+ * directly, in whichever order governs the dispatch. Direct chat is
+ * therefore served by the Cloudflare and Groq routes only. When every later
+ * route is also skipped before execution, the surfaced error is a
+ * synthesized PROVIDER_UNAVAILABLE carrying zero transport, mirroring the
+ * circuit path's synthesized error. The zero-cost assertion accepts the
+ * route-stopped first attempt only in this exact shape (the exact skip
+ * reason, no error code, zero transport requests); every per-attempt
+ * $0/free-route check is unchanged. Required-tool requests are untouched:
+ * they still pass through to the primary executor alone, exactly as before.
+ * The primary attempt budget and circuit breaker below are dormant while
+ * the disposition stands; restarting the route means reverting the
+ * disposition and renewing the route's catalog evidence first.
  */
 
 export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode> = new Set([
@@ -224,6 +249,20 @@ export const ORIGIN_CLOUDFLARE_ROUTE_TIMEOUT_MS = 52_000;
 export const ORIGIN_GROQ_ROUTE_RESERVE_MS = 10_000;
 /** skipReason recorded on the primary attempt evidence while the circuit breaker is open. */
 export const ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON = "primary-circuit-open";
+/** skipReason recorded on the primary attempt evidence under the stopped route disposition (PKG-4 PR-2). */
+export const ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON = "route-stopped";
+/**
+ * Whether the primary (OpenRouter) route carries the "stopped" disposition
+ * (PKG-4 PR-2; the disposition itself is declared in OriginFreeModelCatalog).
+ * While stopped, the failover entries never attempt the primary: they record
+ * it as skipped with ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON and zero
+ * transport requests, and enter the failover phase directly — in whichever
+ * order governs the dispatch (the current order, or Groq-first under S-1).
+ * The primary attempt machinery below (attempt budget, circuit breaker) is
+ * dormant while the disposition stands and returns if it is ever reverted
+ * together with renewed route evidence.
+ */
+const ORIGIN_PRIMARY_ROUTE_STOPPED = ORIGIN_OPENROUTER_ROUTE_DISPOSITION === "stopped";
 /**
  * Cap on the second route's slice of the total budget while the third route is
  * configured (speed wave 1): ~1.5x the 16.6s healthy success measured in
@@ -1633,6 +1672,50 @@ async function failOverFromOpenCircuit(
   );
 }
 
+/** The primary attempt record under the stopped disposition: nothing was executed. */
+function primaryRouteStoppedAttempt(request: OriginProviderExecutionRequest): OriginProviderAttemptEvidence {
+  return {
+    providerId: ORIGIN_OPENROUTER_FREE_PROVIDER_ID,
+    modelId: request.plan.modelId,
+    outcome: "skipped",
+    skipReason: ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON,
+    transportRequestCount: 0,
+  };
+}
+
+/**
+ * The honest error while the primary route is stopped and no primary attempt
+ * ran in this request: the route is unavailable by disposition (503, zero
+ * transport requests). Mirrors circuitPrimaryError; it surfaces only
+ * when every later route is skipped before execution, and the route-stopped
+ * skip stays the first attempt in the evidence. When a later route did run,
+ * that route's own error is what surfaces, exactly as on the circuit path.
+ */
+function primaryRouteStoppedError(): OriginProviderError {
+  return new OriginProviderError("PROVIDER_UNAVAILABLE", "無料AIを現在利用できません。", 503, true, undefined, {
+    transportRequestCount: 0,
+  });
+}
+
+/**
+ * Enters the failover phase from the route-stopped primary skip (PKG-4
+ * PR-2), mirroring failOverFromOpenCircuit: the phase runs in whichever
+ * order governs the dispatch — Groq-first under S-1, the current order
+ * otherwise — and the stopped attempt leads the evidence either way.
+ */
+async function failOverFromRouteStopped(
+  request: OriginProviderExecutionRequest,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  const primaryAttempt = primaryRouteStoppedAttempt(request);
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverFromGroqRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
+  }
+  return failOverFromCloudflareRoute(request, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
+}
+
 export async function executeOriginProviderWithFailover(
   providerRequest: OriginProviderExecutionRequest,
   env: NodeJS.ProcessEnv = process.env,
@@ -1644,6 +1727,12 @@ export async function executeOriginProviderWithFailover(
     return primary(providerRequest, env, fetchImpl);
   }
   const scopedOptions = withTotalBudgetWindow(options);
+  if (ORIGIN_PRIMARY_ROUTE_STOPPED) {
+    // Route disposition (PKG-4 PR-2): the primary route is stopped and is
+    // never attempted. Record the skip and enter the failover phase; the
+    // circuit breaker below stays dormant while the disposition stands.
+    return failOverFromRouteStopped(providerRequest, env, fetchImpl, scopedOptions);
+  }
   const circuit = primaryCircuitOpen(scopedOptions);
   if (circuit) {
     return failOverFromOpenCircuit(providerRequest, env, fetchImpl, scopedOptions, circuit);
@@ -1674,6 +1763,25 @@ export async function executeOriginProviderWithFailover(
 }
 
 /**
+ * Streaming counterpart of failOverFromRouteStopped (PKG-4 PR-2): the
+ * primary stream is never started; the failover phase streams in whichever
+ * order governs the dispatch.
+ */
+async function failOverStreamFromRouteStopped(
+  request: OriginProviderExecutionRequest,
+  handlers: OriginProviderStreamHandlers,
+  env: NodeJS.ProcessEnv,
+  fetchImpl: OriginFetch,
+  options: OriginProviderFailoverOptions,
+): Promise<OriginProviderExecutionResult> {
+  const primaryAttempt = primaryRouteStoppedAttempt(request);
+  if (groqFirstOrderApplies(request, env)) {
+    return failOverStreamFromGroqRoute(request, handlers, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
+  }
+  return failOverStreamFromCloudflareRoute(request, handlers, env, fetchImpl, options, primaryAttempt, () => primaryRouteStoppedError());
+}
+
+/**
  * Streaming variant. Failover here happens strictly before the first downstream
  * byte: if the primary stream fails with an availability error and nothing was
  * delivered, the failover routes run as streams themselves — the Cloudflare and
@@ -1695,6 +1803,11 @@ export async function executeOriginProviderStreamWithFailover(
     return stream(providerRequest, handlers, env, fetchImpl);
   }
   const scopedOptions = withTotalBudgetWindow(options);
+  if (ORIGIN_PRIMARY_ROUTE_STOPPED) {
+    // Route disposition (PKG-4 PR-2): the primary stream is never started.
+    // Record the skip and enter the streaming failover phase directly.
+    return failOverStreamFromRouteStopped(providerRequest, handlers, env, fetchImpl, scopedOptions);
+  }
   const circuit = primaryCircuitOpen(scopedOptions);
   if (circuit) {
     return failOverStreamFromOpenCircuit(providerRequest, handlers, env, fetchImpl, scopedOptions, circuit);
@@ -1806,6 +1919,9 @@ function attemptDidNotServe(attempt: OriginProviderAttemptEvidence): boolean {
  * must prove that every executed attempt stayed on an approved free route, that the first
  * route stopped only for an availability reason, that the serving route passed its own
  * route-specific verification, and that the transport count equals the sum of attempts.
+ * The first attempt may also be a route-stopped skip (PKG-4 PR-2): the primary route's
+ * stopped disposition recorded with the exact skip reason, no error code, and zero
+ * transport requests — the only skip shape accepted without a circuit error code.
  * The rule is order-independent (S-1): the serving route is the LAST attempt, every
  * earlier failover attempt must show its route did not serve — an availability failure
  * or a pre-execution skip with zero transport — and each failover route appears at
@@ -1848,12 +1964,15 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     return;
   }
   const [first] = attempts;
-  // The first attempt is either a real availability failure, or a circuit-breaker
-  // skip: the primary was not attempted at all because a recent rate-limit/timeout
-  // failure opened the breaker. A skip is accepted only with the exact breaker skip
-  // reason, one of the two circuit-opening error codes, and zero transport requests
-  // (proof nothing was sent); every other skipped or ambiguous shape stays
-  // unverified, exactly as before.
+  // The first attempt is a real availability failure, a circuit-breaker skip,
+  // or — while the primary route carries the stopped disposition (PKG-4
+  // PR-2) — a route-stopped skip. A circuit skip is accepted only with the
+  // exact breaker skip reason, one of the two circuit-opening error codes,
+  // and zero transport requests (proof nothing was sent); a route-stopped
+  // skip only with the exact disposition skip reason, NO error code (no
+  // attempt ran, so no failure exists to report), and zero transport
+  // requests. Every other skipped or ambiguous shape stays unverified,
+  // exactly as before.
   const firstIsAvailabilityFailure = first.outcome === "availability-error"
     && Boolean(first.errorCode)
     && ORIGIN_FAILOVER_TRIGGER_CODES.has(first.errorCode as OriginProviderErrorCode);
@@ -1861,8 +1980,12 @@ export function assertOriginZeroCostExecutionResultWithFailover(
     && first.skipReason === ORIGIN_PRIMARY_CIRCUIT_SKIP_REASON
     && (first.errorCode === "PROVIDER_RATE_LIMITED" || first.errorCode === "PROVIDER_TIMEOUT")
     && first.transportRequestCount === 0;
+  const firstIsRouteStoppedSkip = first.outcome === "skipped"
+    && first.skipReason === ORIGIN_PRIMARY_ROUTE_STOPPED_SKIP_REASON
+    && first.errorCode === undefined
+    && first.transportRequestCount === 0;
   if (first.providerId !== ORIGIN_OPENROUTER_FREE_PROVIDER_ID
-    || (!firstIsAvailabilityFailure && !firstIsCircuitSkip)
+    || (!firstIsAvailabilityFailure && !firstIsCircuitSkip && !firstIsRouteStoppedSkip)
     || (expectedPrimaryModel !== undefined && first.modelId !== expectedPrimaryModel)) {
     routingFailure("許可された無料Provider/Modelの証跡を確認できません。");
   }
