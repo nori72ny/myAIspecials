@@ -309,3 +309,62 @@ describe("OriginBusinessPlanning route-3 compact instruction", () => {
     }
   });
 });
+
+describe("OriginBusinessPlanning calendar anchor & premise table (external-consult adoption 2026-11-17)", () => {
+  // Adoption items 1-2: the full instruction (routes 1-2) gains the
+  // premise-table structure and, at its very end, the system-computed JST
+  // calendar anchor. A fixed "now" (2026-11-17 12:00 JST, a Tuesday) pins
+  // the exact anchor text.
+  const fixedNow = new Date("2026-11-17T03:00:00Z");
+  const profile = resolveOriginBusinessPlanning(ORIGIN_BUSINESS_PLANNING_BRIEFS[0].prompt)!;
+  const instruction = buildOriginBusinessPlanningInstruction(profile, fixedNow);
+
+  it("opens the answer structure with the premise table: provenance classes, basis column, body reference-only", () => {
+    expect(instruction).toContain("premise table first");
+    expect(instruction).toContain("指標 / 値 / 単位 / 対象期間 / 種別 / 根拠");
+    for (const provenance of ["入力事実", "仮置き（仮定）", "計算結果", "未確定"]) {
+      expect(instruction).toContain(provenance);
+    }
+    // A rate's basis shows the division it comes from (numerator/denominator).
+    expect(instruction).toContain("受注 120件 ÷ 商談 600件");
+    expect(instruction).toContain("introduce no new number in the body");
+    expect(instruction).toContain("never restate a figure with a different value");
+    // The premise table precedes the body-shaping rules it constrains.
+    expect(instruction.indexOf("premise table first")).toBeLessThan(instruction.indexOf("Funnel vocabulary is fixed"));
+  });
+
+  it("fixes the money unit to 円 or 万円 for the whole answer and bans 千円 amounts", () => {
+    expect(instruction).toContain("円 or 万円, chosen once");
+    expect(instruction).toContain("千円 amounts are never written");
+    expect(instruction).toContain("50,000円");
+  });
+
+  it("ends the instruction with the calendar anchor computed for the execution date", () => {
+    for (const expected of [
+      "カレンダー基準",
+      "- 基準日：2026-11-17（火）",
+      "- 今月末：2026-11-30",
+      "- 来月：2026年12月（2026-12-01〜2026-12-31）",
+      "- 2ヶ月後：2027年1月（2027-01-01〜2027-01-31）",
+      "- 次の四半期：2027年Q1（2027年1月〜3月）",
+      "ユーザーが指定した日付が基準日より過去の場合は、勝手に未来の日付へ置き換えず",
+    ]) {
+      expect(instruction).toContain(expected);
+    }
+    // The anchor is the last block of the instruction (recency position).
+    expect(instruction.trimEnd().endsWith("日付には必ず西暦4桁を付ける（例：2027年1月15日）。")).toBe(true);
+  });
+
+  it("reaches the assembled routes 1-2 instruction through the answer quality policy", () => {
+    const policy = resolveOriginAnswerQualityPolicy({ intent: intent(), taskType: "documentation", independentReviewRequired: false, promptText: ORIGIN_BUSINESS_PLANNING_BRIEFS[0].prompt });
+    const assembled = originAnswerQualityInstruction(policy);
+    expect(assembled).toContain("premise table first");
+    expect(assembled).toContain("カレンダー基準");
+  });
+
+  it("is not carried on the route-3 compact form (its addendum budget is pinned at 1,700 characters and already full)", () => {
+    const compact = buildOriginGroqBusinessPlanningInstruction(profile);
+    expect(compact).not.toContain("カレンダー基準");
+    expect(compact).not.toContain("premise table");
+  });
+});
