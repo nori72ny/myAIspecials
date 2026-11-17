@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildOriginExecutionPlan, ORIGIN_OPENROUTER_FREE_MODEL } from "./OriginExecutionPolicy";
-import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "./OriginFreeModelCatalog";
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG, type OriginFreeModelEvidence } from "./OriginFreeModelCatalog";
 
 const request = { goal: "認証処理の安全性を確認してください" };
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
@@ -72,7 +72,7 @@ describe("buildOriginExecutionPlan", () => {
   });
 
   it("fails closed on a malformed OpenRouter catalog even under the stopped disposition", () => {
-    const malformed = [{ ...verifiedEvidence, modelId: "someone/else:free" }];
+    const malformed = [{ ...verifiedEvidence, modelId: "someone/else:free" }] as unknown as readonly OriginFreeModelEvidence[];
     const result = buildOriginExecutionPlan(request, { openRouterConfigured: true }, undefined, { nowMs: verifiedNow, freeModelCatalog: malformed });
     expect(result).toEqual(expect.objectContaining({ ok: false, code: "FREE_MODEL_CATALOG_INVALID" }));
   });
