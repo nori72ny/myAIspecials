@@ -76,6 +76,11 @@
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
   --scrim: oklch(0.23 0.02 250 / 0.36);
+  /* Panel motion (design refinement 2026-11-17): one decelerating
+     curve for the sidebar / drawer and its scrim — fast start, long
+     quiet settle, never a bounce or overshoot. */
+  --ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-panel: 300ms;
 }
 
 :root[data-theme="light"][data-design-theme="luxury"] {
@@ -202,10 +207,13 @@
     transition: background-color 160ms ease, color 160ms ease;
   }
   button, textarea, input, select { font: inherit; }
-  /* Two-layer typography: brand type (M PLUS Rounded 1c) is reserved for
-     headings and brand elements; body and UI text use --font-sans
-     (Noto Sans JP). Markdown answer headings inherit this rule. */
-  h1, h2, h3 { font-family: var(--font-brand); }
+  /* Typography (design refinement 2026-11-17): headings and UI text
+     share --font-sans (Noto Sans JP) and take their hierarchy from the
+     400 / 500 / 700 weight steps plus size and spacing, not from a
+     rounded display face. --font-brand (M PLUS Rounded 1c) survives
+     only in the brand wordmark itself (splash-brand.css). Markdown
+     answer headings inherit this rule. */
+  h1, h2, h3 { font-family: var(--font-sans); }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
   :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
@@ -266,8 +274,46 @@
    solid primary fill, so the current screen reads clearly without a
    heavy block of color. Contrast of --accent-strong on --accent-soft
    measures ~7.2:1 in the default theme. */
-.origin-nav-active { background: var(--accent-soft); color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.origin-nav-active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .origin-nav-active:hover:not(:disabled) { background: color-mix(in oklch, var(--accent-primary) 12%, var(--accent-soft)); }
+/* Sidebar (design refinement 2026-11-17): a flat, border-led panel —
+   no card radius and no drop shadow (the .origin-surface treatment it
+   used to inherit read as a floating toy card). Items are quiet rows:
+   transparent until hover, medium weight, small radius; only the
+   active row carries the pale accent wash above. Motion is a single
+   decelerating slide on --ease-panel; visibility flips after the
+   slide-out so closing animates too, and the scrim fades in with a
+   light blur on the same duration. On desktop the sidebar is a static
+   flex item toggled with lg:hidden, so the transition is disabled
+   there and the layout change stays instant and honest. */
+.origin-sidebar {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg-surface);
+  visibility: hidden;
+  transition: transform var(--duration-panel) var(--ease-panel), visibility 0s linear var(--duration-panel);
+}
+.origin-sidebar[data-open="true"] {
+  visibility: visible;
+  transition: transform var(--duration-panel) var(--ease-panel), visibility 0s;
+}
+@media (min-width: 1024px) {
+  .origin-sidebar, .origin-sidebar[data-open="true"] { transition: none; }
+}
+.origin-sidebar-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: origin-scrim-in var(--duration-panel) ease both;
+}
+@keyframes origin-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+.origin-sidebar-item {
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.origin-sidebar-item:hover:not(:disabled) { background: var(--bg-surface-muted); color: var(--text-primary); }
 /* Disabled primary actions keep a readable glyph: --text-secondary on
    --bg-surface-muted measures ~5.9:1, while the enabled state stays
    unmistakable (accent background with on-accent glyph). Do not re-add a
@@ -317,19 +363,19 @@
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 760; line-height: 1.28; letter-spacing: -0.005em; text-wrap: balance; }
-.origin-answer-markdown h1 { font-size: clamp(1.48rem, 2.4vw, 1.68rem); }
-.origin-answer-markdown h2 { font-size: clamp(1.28rem, 2vw, 1.42rem); }
-.origin-answer-markdown h3 { font-size: clamp(1.1rem, 1.6vw, 1.2rem); }
+.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; text-wrap: balance; }
+.origin-answer-markdown h1 { font-size: clamp(1.3rem, 2vw, 1.45rem); }
+.origin-answer-markdown h2 { font-size: clamp(1.15rem, 1.7vw, 1.25rem); }
+.origin-answer-markdown h3 { font-size: clamp(1.02rem, 1.4vw, 1.1rem); }
 .origin-answer-markdown p { margin: 0 0 1.05rem; line-height: 1.84; text-wrap: pretty; }
 .origin-answer-markdown ul,
 .origin-answer-markdown ol { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
 .origin-answer-markdown ul { list-style: disc; }
 .origin-answer-markdown ol { list-style: decimal; }
 .origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.76; }
-.origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 700; }
-.origin-answer-markdown strong { color: var(--text-primary); font-weight: 750; }
-.origin-answer-markdown a { color: var(--accent-strong); font-weight: 650; text-decoration: underline; text-underline-offset: 0.18em; }
+.origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 600; }
+.origin-answer-markdown strong { color: var(--text-primary); font-weight: 700; }
+.origin-answer-markdown a { color: var(--accent-strong); font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; }
 .origin-answer-markdown blockquote { margin: 1rem 0; border-left: 3px solid var(--accent-primary); padding: 0.15rem 0 0.15rem 1rem; color: var(--text-secondary); }
 .origin-answer-markdown hr { margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border-default); }
 .origin-answer-markdown pre { max-width: 100%; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-primary); padding: 1rem; font-size: 0.875rem; line-height: 1.65; }

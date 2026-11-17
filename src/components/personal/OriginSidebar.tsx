@@ -54,7 +54,7 @@ export default function OriginSidebar({
           aria-hidden="true"
           tabIndex={-1}
           onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="origin-sidebar-scrim fixed inset-0 z-40 lg:hidden"
         />
       )}
       <aside
@@ -62,8 +62,9 @@ export default function OriginSidebar({
         aria-label={isEn ? 'Sidebar' : 'サイドバー'}
         aria-hidden={!open}
         inert={!open}
-        className={`origin-sidebar-safe-area origin-surface fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[85vw] flex-col border-r border-origin-border transition-transform duration-200 lg:static lg:z-auto lg:shrink-0 lg:translate-x-0 ${
-          open ? 'translate-x-0' : 'invisible -translate-x-full lg:hidden'
+        data-open={open}
+        className={`origin-sidebar-safe-area origin-sidebar fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[85vw] flex-col border-r border-origin-border lg:static lg:z-auto lg:shrink-0 lg:translate-x-0 ${
+          open ? 'translate-x-0' : '-translate-x-full lg:hidden'
         }`}
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -73,9 +74,9 @@ export default function OriginSidebar({
             data-testid="sidebar-close"
             aria-label={isEn ? 'Close sidebar' : 'サイドバーを閉じる'}
             onClick={onClose}
-            className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center"
+            className="origin-sidebar-item inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center"
           >
-            <PanelLeftClose aria-hidden="true" size={18} strokeWidth={2.1} />
+            <PanelLeftClose aria-hidden="true" size={18} strokeWidth={1.9} />
           </button>
         </div>
 
@@ -84,9 +85,9 @@ export default function OriginSidebar({
             type="button"
             data-testid="sidebar-new-conversation"
             onClick={onNewConversation}
-            className="origin-secondary-button flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm font-semibold"
+            className="origin-sidebar-item flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm"
           >
-            <Plus aria-hidden="true" size={18} strokeWidth={2.1} />
+            <Plus aria-hidden="true" size={18} strokeWidth={1.9} />
             {isEn ? 'New conversation' : '新しい会話'}
           </button>
         </div>
@@ -102,10 +103,10 @@ export default function OriginSidebar({
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onNavigate(mode)}
                 className={`${
-                  active ? 'origin-nav-active' : 'origin-secondary-button'
-                } flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm font-semibold`}
+                  active ? 'origin-nav-active' : 'origin-sidebar-item'
+                } flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm`}
               >
-                <Icon aria-hidden="true" size={18} strokeWidth={2.1} />
+                <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
                 {isEn ? en : ja}
               </button>
             );
@@ -117,9 +118,9 @@ export default function OriginSidebar({
             type="button"
             data-testid="sidebar-settings"
             onClick={onOpenSettings}
-            className="origin-secondary-button flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm font-semibold"
+            className="origin-sidebar-item flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm"
           >
-            <Settings aria-hidden="true" size={18} strokeWidth={2.1} />
+            <Settings aria-hidden="true" size={18} strokeWidth={1.9} />
             {isEn ? 'Settings' : '設定'}
           </button>
         </div>
