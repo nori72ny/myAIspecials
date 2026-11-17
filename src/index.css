@@ -3,7 +3,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "M PLUS Rounded 1c", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif;
+  --font-sans: "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
+  --font-brand: "M PLUS Rounded 1c", "Noto Sans JP", system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --color-origin-paper: var(--bg-primary);
   --color-origin-surface: var(--bg-surface);
@@ -14,6 +15,7 @@
   --color-origin-border: var(--border-default);
   --color-origin-control: var(--border-strong);
   --color-origin-brand: var(--accent-primary);
+  --color-origin-brand-strong: var(--accent-strong);
   --color-origin-brand-hover: var(--accent-hover);
   --color-origin-brand-soft: var(--accent-soft);
   --color-origin-brand-border: var(--accent-border);
@@ -51,11 +53,12 @@
   --text-on-accent: oklch(0.99 0.004 260);
   --border-default: oklch(0.60 0.012 250);
   --border-strong: oklch(0.67 0.018 250);
-  --accent-primary: oklch(0.37 0.115 272);
-  --accent-hover: oklch(0.31 0.115 272);
-  --accent-soft: oklch(0.95 0.028 272);
-  --accent-border: oklch(0.80 0.05 268);
-  --accent-glow: oklch(0.78 0.10 252 / 0.36);
+  --accent-primary: oklch(0.53 0.09 262);
+  --accent-hover: oklch(0.47 0.09 262);
+  --accent-strong: oklch(0.43 0.095 262);
+  --accent-soft: oklch(0.955 0.02 262);
+  --accent-border: oklch(0.83 0.038 262);
+  --accent-glow: oklch(0.80 0.065 255 / 0.32);
   /* User bubbles (PR-α): pale low-chroma tint + dark text, the
      first-class chat pattern. No dark saturated gradients. */
   --bubble-from: oklch(0.955 0.012 268);
@@ -79,6 +82,7 @@
   --border-strong: oklch(0.66 0.041 72);
   --accent-primary: oklch(0.445 0.112 35);
   --accent-hover: oklch(0.385 0.108 35);
+  --accent-strong: oklch(0.40 0.11 35);
   --accent-soft: oklch(0.936 0.041 70);
   --accent-border: oklch(0.78 0.065 68);
   --accent-glow: oklch(0.76 0.104 72 / 0.32);
@@ -103,6 +107,7 @@
   --border-strong: oklch(0.53 0.052 60);
   --accent-primary: oklch(0.83 0.11 78);
   --accent-hover: oklch(0.89 0.09 82);
+  --accent-strong: oklch(0.83 0.11 78);
   --accent-soft: oklch(0.31 0.058 58);
   --accent-border: oklch(0.48 0.075 67);
   --accent-glow: oklch(0.78 0.11 75 / 0.32);
@@ -125,8 +130,9 @@
   --text-on-accent: oklch(0.99 0.003 250);
   --border-default: oklch(0.55 0.033 225 / 0.86);
   --border-strong: oklch(0.64 0.052 230);
-  --accent-primary: oklch(0.44 0.13 262);
-  --accent-hover: oklch(0.38 0.125 264);
+  --accent-primary: oklch(0.52 0.095 262);
+  --accent-hover: oklch(0.46 0.09 262);
+  --accent-strong: oklch(0.42 0.095 262);
   --accent-soft: oklch(0.93 0.04 255 / 0.92);
   --accent-border: oklch(0.78 0.06 255);
   --accent-glow: oklch(0.76 0.12 238 / 0.34);
@@ -151,6 +157,7 @@
   --border-strong: oklch(0.55 0.071 230);
   --accent-primary: oklch(0.81 0.10 255);
   --accent-hover: oklch(0.87 0.085 255);
+  --accent-strong: oklch(0.81 0.10 255);
   --accent-soft: oklch(0.31 0.07 258 / 0.9);
   --accent-border: oklch(0.50 0.09 255);
   --accent-glow: oklch(0.79 0.12 232 / 0.32);
@@ -187,6 +194,10 @@
     transition: background-color 160ms ease, color 160ms ease;
   }
   button, textarea, input, select { font: inherit; }
+  /* Two-layer typography: brand type (M PLUS Rounded 1c) is reserved for
+     headings and brand elements; body and UI text use --font-sans
+     (Noto Sans JP). Markdown answer headings inherit this rule. */
+  h1, h2, h3 { font-family: var(--font-brand); }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
   :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
@@ -228,20 +239,27 @@
   content: "◈";
   font-size: 0.875rem;
 }
-.origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 16px 36px var(--shadow-color); }
+.origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 8px 24px var(--shadow-color); }
 .origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); border-radius: var(--radius-card); }
 .origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
 .origin-card:hover { background: var(--bg-surface-muted); border-color: var(--accent-border); }
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
 .origin-muted { color: var(--text-secondary); }
-.origin-primary-button, .origin-secondary-button, .origin-danger-button, .origin-stop-button {
+.origin-primary-button, .origin-secondary-button, .origin-danger-button, .origin-stop-button, .origin-nav-active {
   min-height: 44px;
   min-width: 44px;
   border-radius: var(--radius-control);
 }
 .origin-primary-button { background: var(--accent-primary); color: var(--text-on-accent); }
 .origin-primary-button:hover:not(:disabled) { background: var(--accent-hover); }
+/* Sidebar navigation's active item: a pale blue wash with text-grade
+   accent lettering (the quiet first-class sidebar pattern) instead of a
+   solid primary fill, so the current screen reads clearly without a
+   heavy block of color. Contrast of --accent-strong on --accent-soft
+   measures ~7.2:1 in the default theme. */
+.origin-nav-active { background: var(--accent-soft); color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.origin-nav-active:hover:not(:disabled) { background: color-mix(in oklch, var(--accent-primary) 12%, var(--accent-soft)); }
 /* Disabled primary actions keep a readable glyph: --text-secondary on
    --bg-surface-muted measures ~5.9:1, while the enabled state stays
    unmistakable (accent background with on-accent glyph). Do not re-add a
@@ -256,7 +274,7 @@
    the danger class above (PR-α2). The danger class itself stays for
    genuinely destructive actions such as clearing history. */
 .origin-stop-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-secondary); }
-.origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-primary); }
+.origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
 .origin-chat-user {
   background-color: var(--bubble-from);
   background-image: linear-gradient(135deg, var(--bubble-from), var(--bubble-to));
@@ -284,14 +302,14 @@
   background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
   border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
   color: var(--text-primary);
-  box-shadow: 0 14px 38px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
 }
 .origin-answer-markdown { min-width: 0; max-width: 45rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 760; line-height: 1.28; letter-spacing: -0.018em; text-wrap: balance; }
+.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 760; line-height: 1.28; letter-spacing: -0.005em; text-wrap: balance; }
 .origin-answer-markdown h1 { font-size: clamp(1.48rem, 2.4vw, 1.68rem); }
 .origin-answer-markdown h2 { font-size: clamp(1.28rem, 2vw, 1.42rem); }
 .origin-answer-markdown h3 { font-size: clamp(1.1rem, 1.6vw, 1.2rem); }
@@ -303,7 +321,7 @@
 .origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.76; }
 .origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 700; }
 .origin-answer-markdown strong { color: var(--text-primary); font-weight: 750; }
-.origin-answer-markdown a { color: var(--accent-primary); font-weight: 650; text-decoration: underline; text-underline-offset: 0.18em; }
+.origin-answer-markdown a { color: var(--accent-strong); font-weight: 650; text-decoration: underline; text-underline-offset: 0.18em; }
 .origin-answer-markdown blockquote { margin: 1rem 0; border-left: 3px solid var(--accent-primary); padding: 0.15rem 0 0.15rem 1rem; color: var(--text-secondary); }
 .origin-answer-markdown hr { margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border-default); }
 .origin-answer-markdown pre { max-width: 100%; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-primary); padding: 1rem; font-size: 0.875rem; line-height: 1.65; }
@@ -480,6 +498,7 @@ a[href]:focus-visible {
   --border-strong: #50627f;
   --accent-primary: oklch(0.80 0.095 262);
   --accent-hover: oklch(0.86 0.08 262);
+  --accent-strong: oklch(0.82 0.09 262);
   --accent-soft: oklch(0.30 0.07 265);
   --accent-border: oklch(0.48 0.09 262);
   --accent-glow: oklch(0.78 0.11 248 / 0.32);
