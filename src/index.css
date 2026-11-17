@@ -53,6 +53,10 @@
   --text-on-accent: oklch(0.99 0.004 260);
   --border-default: oklch(0.60 0.012 250);
   --border-strong: oklch(0.67 0.018 250);
+  /* White text on --accent-primary measures 5.31:1: WCAG AA holds,
+     but with half the former headroom, so white-on-primary text is
+     reserved for bold labels of 14px or larger. --accent-hover is
+     darker (6.88:1), so hover is never the constraint. */
   --accent-primary: oklch(0.53 0.09 262);
   --accent-hover: oklch(0.47 0.09 262);
   --accent-strong: oklch(0.43 0.095 262);
@@ -64,7 +68,11 @@
   --bubble-from: oklch(0.955 0.012 268);
   --bubble-to: oklch(0.94 0.015 272);
   --bubble-text: oklch(0.235 0.012 250);
-  --success: oklch(0.48 0.12 155);
+  /* Status color, reserved for status displays only (ready / done /
+     waiting). The blue-leaning teal hue (190) keeps it inside the
+     blue token system instead of the former pure green (hue 152-155):
+     5.26:1 on white, 4.76:1 on --bg-surface-muted. */
+  --success: oklch(0.52 0.09 190);
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
   --scrim: oklch(0.23 0.02 250 / 0.36);
@@ -89,7 +97,7 @@
   --bubble-from: oklch(0.955 0.013 78);
   --bubble-to: oklch(0.94 0.016 74);
   --bubble-text: oklch(0.245 0.026 35);
-  --success: oklch(0.48 0.115 152);
+  --success: oklch(0.52 0.09 190);
   --danger: oklch(0.52 0.17 25);
   --shadow-color: oklch(0.29 0.035 45 / 0.14);
   --scrim: oklch(0.25 0.03 45 / 0.36);
@@ -114,7 +122,7 @@
   --bubble-from: oklch(0.95 0.014 78);
   --bubble-to: oklch(0.935 0.017 74);
   --bubble-text: oklch(0.25 0.03 40);
-  --success: oklch(0.76 0.115 155);
+  --success: oklch(0.78 0.09 190);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.08 0.025 35 / 0.5);
   --scrim: oklch(0.06 0.02 35 / 0.56);
@@ -139,7 +147,7 @@
   --bubble-from: oklch(0.955 0.012 248);
   --bubble-to: oklch(0.94 0.015 252);
   --bubble-text: oklch(0.24 0.028 240);
-  --success: oklch(0.48 0.12 155);
+  --success: oklch(0.52 0.09 190);
   --danger: oklch(0.53 0.17 25);
   --shadow-color: oklch(0.28 0.045 240 / 0.13);
   --scrim: oklch(0.24 0.03 240 / 0.36);
@@ -164,7 +172,7 @@
   --bubble-from: oklch(0.95 0.012 248 / 0.97);
   --bubble-to: oklch(0.935 0.015 252 / 0.97);
   --bubble-text: oklch(0.24 0.028 240);
-  --success: oklch(0.76 0.12 155);
+  --success: oklch(0.78 0.09 190);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.09 0.035 245 / 0.45);
   --scrim: oklch(0.05 0.02 245 / 0.56);
@@ -342,6 +350,16 @@
 .origin-composer { min-height: 64px; border-radius: var(--radius-composer); }
 .origin-composer--compact { min-height: 60px; box-shadow: 0 8px 20px var(--shadow-color); }
 .origin-composer--compact textarea { min-height: 44px; }
+/* Home hero placement (design evaluation 2026-11-17, layout axis):
+   the heading used to float at the vertical centre of its zone with
+   empty space pooled below it. The intro block now starts at the top
+   of its zone (App.tsx) with a little breathing room under the Orin
+   band, so Orin, heading and description read as one raised group.
+   The composer stays anchored to the bottom edge of the scroll
+   viewport (owner decision 2026-11-12, pinned by E2E), and the
+   mobile geometry contracts in origin-top-ui.css override this
+   padding there. */
+.origin-home-intro { padding-top: 5vh; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
 .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: clamp(1rem, 1.1vw, 1.04rem); line-height: 1.8; }
@@ -439,14 +457,22 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-answer-code pre code { padding: 0; background: transparent; }
 .origin-copy-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.8rem; }
-.origin-answer-code-toolbar button, .origin-answer-actions button { min-height: 44px; padding: 0.4rem 0.65rem; border-radius: var(--radius-control); color: var(--text-secondary); cursor: pointer; }
-.origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-surface-muted); }
+/* Answer tool buttons (copy / wrap / refine) must read as pressable:
+   a 1px border, a muted surface fill and an icon next to the label,
+   on top of the 44px touch height (design evaluation 2026-11-17,
+   regression axis). The refinement pills override the fill below. */
+.origin-answer-code-toolbar button, .origin-answer-actions button { min-height: 44px; padding: 0.4rem 0.65rem; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; }
+.origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-elevated); }
 .origin-answer-code-toolbar button:focus-visible, .origin-answer-actions button:focus-visible, .origin-answer-code pre:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
-.origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); }
+.origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); background: var(--accent-soft); border-color: var(--accent-border); }
 .origin-answer-actions { display: grid; gap: 0.55rem; margin-top: 1.35rem; border-top: 1px solid var(--border-default); padding-top: 0.85rem; font-size: 0.85rem; }
 .origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0; }
 .origin-verification { max-width: 52rem; margin-inline: auto; }
-.origin-answer-refinements button { border: 1px solid var(--border-default); background: var(--bg-surface-muted); }
+/* Equal-width refinement pills: one shared flex basis per row on
+   wide screens, a two-column split on narrow ones, so the four
+   labels stop measuring at four different widths. */
+.origin-answer-refinements button { flex: 1 1 0; min-width: 0; border: 1px solid var(--border-default); background: var(--bg-surface-muted); }
+@media (max-width: 639px) { .origin-answer-refinements button { flex-basis: calc(50% - 0.25rem); } }
 
 
 .origin-mobile-agent-controls {
@@ -505,7 +531,7 @@ a[href]:focus-visible {
   --bubble-from: oklch(0.955 0.012 268);
   --bubble-to: oklch(0.94 0.015 272);
   --bubble-text: oklch(0.235 0.012 250);
-  --success: #86efac;
+  --success: oklch(0.78 0.09 190);
   --danger: #fca5a5;
   --shadow-color: rgb(0 0 0 / 40%);
   --scrim: rgb(0 0 0 / 0.55);

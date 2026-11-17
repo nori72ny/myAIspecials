@@ -1,4 +1,5 @@
 import { Children, isValidElement, useState, type ReactNode } from 'react';
+import { Copy, WrapText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { OriginLanguage } from '../../i18n';
@@ -23,7 +24,7 @@ function CopyButton({ text, language, label }: { text: string; language: OriginL
         await navigator.clipboard.writeText(text);
         setStatus('copied');
       } catch { setStatus('failed'); }
-    }}>{label}</button>
+    }}><Copy aria-hidden="true" size={14} strokeWidth={2.1} />{label}</button>
     <span role="status" aria-live="polite">{status === 'copied'
       ? (language === 'en' ? 'Copied' : 'コピーしました')
       : status === 'failed' ? (language === 'en' ? 'Select and copy the text manually.' : '本文を選択してコピーしてください。') : ''}</span>
@@ -40,7 +41,7 @@ function AnswerCodeBlock({ children, language }: { children: ReactNode; language
     <div className="origin-answer-code-toolbar">
       <span>{codeLanguage}</span>
       <div>
-        <button type="button" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>{language === 'en' ? 'Wrap lines' : '折り返し'}</button>
+        <button type="button" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText aria-hidden="true" size={14} strokeWidth={2.1} />{language === 'en' ? 'Wrap lines' : '折り返し'}</button>
         <CopyButton text={code} language={language} label={language === 'en' ? 'Copy code' : 'コードをコピー'} />
       </div>
     </div>

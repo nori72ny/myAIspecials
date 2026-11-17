@@ -499,8 +499,8 @@ export default function AgentWorkspaceView() {
     return catStateForPhase(phase, checkingCapability, ready);
   })();
 
-  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
-    <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
+  return <section className="flex min-h-full flex-col bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
+    <div className="mx-auto grid w-full max-w-6xl flex-1 gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
@@ -516,7 +516,7 @@ export default function AgentWorkspaceView() {
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
-            <span className={ready ? 'font-bold text-emerald-700 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>
+            <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>
               {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
             </span>
           </span>
@@ -597,7 +597,7 @@ export default function AgentWorkspaceView() {
       </main>
     </div>
 
-    <div className="mx-auto mt-4 max-w-6xl">
+    <div className="mx-auto mt-4 w-full max-w-6xl">
       <AgentTaskBoard browserPlanToken={boardPlanToken} />
     </div>
   </section>;

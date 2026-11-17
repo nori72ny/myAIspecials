@@ -143,7 +143,7 @@ function formatTime(value: string | undefined): string {
 function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; cancelRequested: boolean }) {
   const terminal = !ACTIVE.has(status);
   const tone = status === 'verified'
-    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200'
+    ? 'border-origin-success bg-origin-success/10 text-origin-success'
     : status === 'blocked' || status === 'failed'
       ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
       : status === 'cancelled' || cancelRequested
@@ -315,8 +315,8 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
   const ready = capability?.ready === true;
 
-  return <section className="min-h-full bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="コード">
-    <div className="mx-auto max-w-4xl space-y-4">
+  return <section className="flex min-h-full flex-col justify-center bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="コード">
+    <div className="mx-auto w-full max-w-4xl space-y-4">
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-xl font-black">コードを作る・直す</h1>
@@ -363,7 +363,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : '今は利用できません'}</span>
-          <span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
+          <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-origin-border pt-2 text-xs" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
@@ -371,7 +371,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           <p className="leading-5 text-origin-muted">認証情報は端末に保存せず、実行中に必要な範囲だけで使います。</p>
 
           <div className="mt-3 rounded-xl border border-origin-border p-3">
-            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境</span><span className={ready ? 'font-bold text-emerald-600 dark:text-emerald-300' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '準備できています' : '準備を確認できません'}</span></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境</span><span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '準備できています' : '準備を確認できません'}</span></div>
           </div>
         </details>
 

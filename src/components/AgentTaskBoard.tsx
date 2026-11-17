@@ -223,7 +223,7 @@ function resumeConditionText(condition: ResumeConditionView): string {
 function statusChipClass(status: string): string {
   if (status === 'awaiting_approval') return 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300';
   if (status === 'running' || status === 'queued' || status === 'planning') return 'border-origin-brand-border text-origin-brand';
-  if (status === 'completed') return 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300';
+  if (status === 'completed') return 'border-origin-success text-origin-success';
   if (status === 'failed') return 'border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-300';
   return 'border-origin-border text-origin-muted';
 }
