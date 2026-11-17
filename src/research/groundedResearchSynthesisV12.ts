@@ -87,19 +87,30 @@ const GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS = 600;
 const ANSWER_BEARING_NUMBER_PATTERN = /[0-9０-９]/;
 const ANSWER_BEARING_TERM_PATTERN = /円|％|%|パーセント|期間|対象|条件|ただし|例外|以降|以前|以上|以下|未満|上限|下限|最大|最小|ドル|ユーロ|usd|jpy/i;
 
-function excerptSentenceScore(sentence: string): number {
+export function excerptSentenceScore(sentence: string): number {
   let score = 0;
   if (ANSWER_BEARING_NUMBER_PATTERN.test(sentence)) score += 2;
   if (ANSWER_BEARING_TERM_PATTERN.test(sentence)) score += 1;
   return score;
 }
 
-function compactExcerpt(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS) return normalized;
-  const sentences = (normalized.match(/[^。．.!?！？]+(?:[。．.!?！？]+|$)/g) ?? [])
+/**
+ * Sentence splitting shared by the packet excerpt compaction below and
+ * the evidence-card claim selection (N-2a,
+ * N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.3): one rule, so a
+ * "sentence" means the same thing in the excerpt a synthesis sees and
+ * in the claim sentences a card presents.
+ */
+export function splitGroundedResearchSentences(value: string): string[] {
+  return (value.match(/[^。．.!?！？]+(?:[。．.!?！？]+|$)/g) ?? [])
     .map((sentence) => sentence.trim())
     .filter(Boolean);
+}
+
+export function compactExcerpt(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= GROUNDED_RESEARCH_SYNTHESIS_EXCERPT_CHARS) return normalized;
+  const sentences = splitGroundedResearchSentences(normalized);
   const scored = sentences
     .map((sentence, index) => ({ sentence, index, score: excerptSentenceScore(sentence) }))
     .filter((entry) => entry.score > 0);
