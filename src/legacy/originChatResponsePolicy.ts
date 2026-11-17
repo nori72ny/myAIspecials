@@ -126,12 +126,19 @@ function isSelfContainedCalculationRequest(message: string): boolean {
   // ("最新の為替レートで…", "為替レートが今いくらか") keeps the
   // grounded path exactly as before.
   if (hasExplicitExternalFreshnessIntent(message)) return false;
-  const normalized = message.normalize("NFKC");
+  const normalized = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
   if (!/\d/.test(normalized)) return false;
-  const suppliedAmountPattern = /(?:\d[\d,.]*\s*(?:万|億)?\s*(?:円|ドル|ユーロ|ポンド|USD|JPY|EUR|GBP)|[$€£]\s*\d[\d,.]*)/gi;
+  // Thousands separators were stripped in the normalization above, so
+  // the amount pattern only faces a plain digit run plus an optional
+  // single trailing separator — no overlapping quantifiers (CodeQL
+  // js/polynomial-redos). A decimal amount still counts, and counts
+  // once: its final digit run sits next to the unit. The ratio check
+  // below needs only a digit on each side of the separator, because a
+  // ratio number always starts and ends with a digit.
+  const suppliedAmountPattern = /(?:\d+[.,]?\s*(?:万|億)?\s*(?:円|ドル|ユーロ|ポンド|USD|JPY|EUR|GBP)|[$€£]\s*\d+[.,]?)/gi;
   const suppliedAmounts = normalized.match(suppliedAmountPattern) ?? [];
   if (suppliedAmounts.length === 0) return false;
-  const ratioSplit = /\d+(?:\.\d+)?\s*(?:対|:)\s*\d+(?:\.\d+)?/.test(normalized)
+  const ratioSplit = /\d\s*(?:対|:)\s*\d/.test(normalized)
     && /(?:分け|配分|それぞれ|いくら|何円|何ドル)|\b(?:split|divide|each)\b/i.test(normalized);
   const rateEquation = /(?:1\s*(?:ドル|ユーロ|ポンド|USD|EUR|GBP)\s*=\s*\d[\d,.]*\s*(?:円|JPY)|1\s*(?:円|JPY)\s*=\s*\d[\d,.]*\s*(?:ドル|ユーロ|ポンド|USD|EUR|GBP))/i.test(normalized);
   const rateConversion = rateEquation && suppliedAmounts.length >= 2

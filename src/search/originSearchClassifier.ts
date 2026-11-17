@@ -142,10 +142,20 @@ if (hasDigits && hasSuppliedValue && asksResultAmount) return true;
 // demanding the CURRENT rate never reaches here, and a bare price
 // question supplies neither a ratio nor a rate equation and still
 // falls through to price_spec below.
-const suppliedCurrencyAmount = /\d[\d,.]*\s*(?:万|億)?\s*(?:円|ドル|ユーロ|ポンド)/.test(message)
-|| /(?:USD|JPY|EUR|GBP)\s*\d[\d,.]*|\d[\d,.]*\s*(?:USD|JPY|EUR|GBP)/i.test(message);
+// The amount patterns run on a copy with thousands separators stripped
+// in a single linear pass (the hasSuppliedCalculationValue treatment
+// above), so they only ever face a plain digit run plus an optional
+// single trailing separator before the unit — no overlapping
+// quantifiers (CodeQL js/polynomial-redos). A decimal amount still
+// counts, because its final digit run sits next to the unit. The ratio
+// check needs only a digit on each side of the separator: a ratio
+// number always starts and ends with a digit, so that is the same
+// test without quantified number tokens.
+const calculationNormalized = message.replace(/(\d),(?=\d)/g, "$1");
+const suppliedCurrencyAmount = /\d+[.,]?\s*(?:万|億)?\s*(?:円|ドル|ユーロ|ポンド)/.test(calculationNormalized)
+|| /(?:USD|JPY|EUR|GBP)\s*\d|\d+[.,]?\s*(?:USD|JPY|EUR|GBP)/i.test(calculationNormalized);
 const ratioSplit = suppliedCurrencyAmount
-&& /\d+(?:\.\d+)?\s*(?:対|:)\s*\d+(?:\.\d+)?/.test(message)
+&& /\d\s*(?:対|:)\s*\d/.test(message)
 && /(?:分け|配分|それぞれ|いくら|何円|何ドル)/.test(message);
 const rateEquation = /(?:1\s*(?:ドル|ユーロ|ポンド)\s*=\s*\d[\d,.]*\s*円|1\s*円\s*=\s*\d[\d,.]*\s*(?:ドル|ユーロ|ポンド)|1\s*(?:USD|EUR|GBP)\s*=\s*\d[\d,.]*\s*JPY|1\s*JPY\s*=\s*\d[\d,.]*\s*(?:USD|EUR|GBP))/i.test(message);
 const rateConversion = rateEquation
