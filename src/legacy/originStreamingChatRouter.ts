@@ -16,6 +16,13 @@ import {
 } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { logOriginPublicationGateShadow } from "../lib/orchestration/OriginPublicationGate.js";
+import {
+  applyOriginDateWeekdayVerificationGate,
+  logOriginDateWeekdayVerificationShadow,
+  originDateWeekdayVerificationMayApply,
+  resolveOriginDateWeekdayVerificationMode,
+  type OriginDateWeekdayVerificationOutcome,
+} from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
@@ -221,6 +228,20 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         Boolean(answerQualityPolicy.businessPlanning) &&
         !deckRequested &&
         !deckRecordsPlan;
+      // Date/weekday verification, enforcement: with
+      // ORIGIN_DATE_WEEKDAY_VERIFICATION_MODE=enforce, an answer to a
+      // date-bearing question (a date expression, an N日後/日前
+      // offset, or a weekday question) is buffered like an
+      // assertion-gated one so the deterministic verifier can correct
+      // date/weekday errors before anything is released. Questions
+      // without date material keep progressive streaming; their
+      // answers are still detection-logged by the shadow hook below.
+      // In shadow mode (the default) nothing is buffered here.
+      const dateGateArmed =
+        resolveOriginDateWeekdayVerificationMode(env) === "enforce" &&
+        !deckRequested &&
+        !deckRecordsPlan &&
+        originDateWeekdayVerificationMayApply(lastUserMessage);
       const bufferedDeltas: string[] = [];
       const emitDelta = (delta: string) => {
         if (!downstreamStarted) {
@@ -249,7 +270,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           // are buffered like the assertion-gate ones and replaced
           // after completion by the deterministic chat rendering
           // (design §5, §13-5 (a): hold until complete).
-          if (assertionGateArmed || deckRecordsPlan || auditGateArmed) {
+          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || dateGateArmed) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -262,6 +283,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       }
       let assertionGateReplaced = false;
       let auditGateOutcome: OriginBusinessPlanningAuditGateOutcome | null = null;
+      let dateGateOutcome: OriginDateWeekdayVerificationOutcome | null = null;
       // Publication gate, stage 1 shadow (EXTERNAL_CONSULT_STALE_ADOPTION
       // _2026-11-17 adoptions 1–2): the exact text this branch delivers
       // as the answer body, captured for the log-only detector below.
@@ -299,14 +321,17 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
         }
         emitDelta(outcome.chatText);
-      } else if (assertionGateArmed || auditGateArmed) {
+      } else if (assertionGateArmed || auditGateArmed || dateGateArmed) {
         const assertionGate = assertionGateArmed
           ? applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false)
           : { replaced: false, text: result.text };
         assertionGateReplaced = assertionGate.replaced;
+        // The text a gate decided to deliver, if any. Null means no
+        // gate rewrote the answer, and the buffered deltas are flushed
+        // in order exactly as before this branch grew the date gate.
+        let gatedText: string | null = null;
         if (assertionGate.replaced) {
-          publicationGateAnswerText = assertionGate.text;
-          emitDelta(assertionGate.text);
+          gatedText = assertionGate.text;
         } else if (auditGateArmed) {
           auditGateOutcome = applyOriginBusinessPlanningAuditGate({
             requestId,
@@ -317,8 +342,24 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
             now: new Date(now()),
             language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
           });
-          publicationGateAnswerText = auditGateOutcome.answerText;
-          emitDelta(auditGateOutcome.answerText);
+          gatedText = auditGateOutcome.answerText;
+        }
+        // Date/weekday verification runs last, on the text the other
+        // gates decided to deliver (or on the raw answer when none of
+        // them fired) — the same order as the non-streaming router.
+        if (dateGateArmed) {
+          dateGateOutcome = applyOriginDateWeekdayVerificationGate({
+            requestId,
+            answerText: gatedText ?? result.text,
+            requestText: lastUserMessage,
+            env,
+            now: new Date(now()),
+          });
+          gatedText = dateGateOutcome.answerText;
+        }
+        if (gatedText !== null) {
+          publicationGateAnswerText = gatedText;
+          emitDelta(gatedText);
         } else {
           publicationGateAnswerText = result.text;
           for (const buffered of bufferedDeltas) emitDelta(buffered);
@@ -378,6 +419,22 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       if (publicationGateAnswerText !== null && !deckRequested) {
         logOriginPublicationGateShadow({ requestId, answerText: publicationGateAnswerText });
       }
+      // Date/weekday verification, log-only hook: when the enforce
+      // gate in the buffered branch already processed this answer it
+      // logged its own summary, so this detection runs only for
+      // deliveries the gate did not touch (shadow mode generally, or
+      // enforce mode on a question the arming heuristic left
+      // streaming). Counts and codes only, never text; the delivered
+      // stream above is never altered by it.
+      if (publicationGateAnswerText !== null && !deckRequested && dateGateOutcome === null) {
+        logOriginDateWeekdayVerificationShadow({
+          requestId,
+          answerText: publicationGateAnswerText,
+          questionText: lastUserMessage,
+          env,
+          now: new Date(now()),
+        });
+      }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
         durationMs: Math.max(0, now() - startedAt),
@@ -399,6 +456,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
         ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
+        ...(dateGateOutcome ? { dateWeekdayVerificationMode: "enforce" as const, dateWeekdayVerificationCorrectedCount: dateGateOutcome.summary?.correctedCount ?? 0 } : {}),
         proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
