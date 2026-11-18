@@ -127,6 +127,15 @@ describe("detectNamedEntity / detectNamedEntities", () => {
   it("does not treat a technique word ending in 法 as a law name", () => {
     expect(detectNamedEntity("問題の解決方法を教えてください。")).toBeNull();
   });
+
+  it("stays linear on pathological letter runs (CodeQL polynomial-redos regression)", () => {
+    // The model-like patterns bound their brand run; an unbounded
+    // run made this scan polynomial. Completion inside the test
+    // timeout is the practical guard.
+    expect(detectNamedEntities("A".repeat(20000))).toEqual([]);
+    expect(detectNamedEntities(`${"Galaxy ".repeat(2000)}の価格`)).toEqual([]);
+    expect(detectNamedEntity("Galaxy S25の価格を教えてください。")).toBe("Galaxy S25");
+  });
 });
 
 describe("entityAppearsInSources", () => {

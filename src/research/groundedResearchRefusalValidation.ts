@@ -312,8 +312,13 @@ const LAW_LIKE_EXCLUDED_SUFFIX = /(方法|手法|技法)$/;
  * letter+number model code ("Galaxy S25").
  */
 const MODEL_LIKE_PATTERNS: readonly RegExp[] = [
-  /[A-Za-z][A-Za-z0-9-]*\s+\d{1,3}(?:\.\d+)?/g,
-  /[A-Za-z][A-Za-z0-9-]*\s+[A-Za-z]\d[\w.]*/g,
+  // The brand run is length-bounded on purpose: an unbounded
+  // [A-Za-z0-9-]* before the required whitespace makes the scan
+  // polynomial on non-matching inputs (long letter runs), which
+  // CodeQL flags as js/polynomial-redos. Real brand tokens are far
+  // shorter than 31 characters, so the bound changes no match.
+  /[A-Za-z][A-Za-z0-9-]{0,30}\s+\d{1,3}(?:\.\d+)?/g,
+  /[A-Za-z][A-Za-z0-9-]{0,30}\s+[A-Za-z]\d[\w.]{0,20}/g,
 ];
 
 /**
