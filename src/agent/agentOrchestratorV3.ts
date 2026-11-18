@@ -30,6 +30,28 @@ import {
   type AgentRunResumeCondition,
 } from './agentRunRecord.js';
 import { createOriginChatRateLimiter } from '../server/originSecurity.js';
+import {
+  agentAttachmentsEnabled,
+  agentAttachmentSetTotals,
+  computeAgentAttachmentSetDigest,
+  normalizeAgentAttachmentFileName,
+  normalizeAgentAttachmentMediaType,
+  resolveAgentAttachmentKind,
+  validateAgentAttachmentFileText,
+  AGENT_ATTACHMENT_SET_ID_PATTERN,
+  AGENT_ATTACHMENT_SET_TTL_MS,
+  MAX_AGENT_ATTACHMENT_FILE_TEXT_CHARS,
+  MAX_AGENT_ATTACHMENT_SET_FILES,
+  MAX_AGENT_ATTACHMENT_SET_TEXT_CHARS,
+  type AgentAttachmentFileMeta,
+  type AgentAttachmentSetRecord,
+  type AgentAttachmentStore,
+} from './agentAttachmentRecord.js';
+import {
+  attachmentUploadTokenDigest,
+  issueAttachmentUploadCapability,
+  verifyAttachmentUploadCapability,
+} from './agentAttachmentCapability.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
@@ -305,6 +327,20 @@ function logAgentRunAdvanceFailed(errorCode: string): void {
   });
 }
 
+/**
+ * Records an attachment-store infrastructure failure for production
+ * triage, under the same name/code-only policy as the run-store
+ * failure log. Attachment bodies, file names and tokens are never
+ * logged.
+ */
+function logAgentAttachmentStoreFailure(operation: string, error: unknown): void {
+  console.error('ORIGIN_AGENT_ATTACHMENT_STORE_FAILED', {
+    operation,
+    name: safeRunStoreErrorField(error, 'name'),
+    code: safeRunStoreErrorField(error, 'code'),
+  });
+}
+
 /** The longest reservation expiry the consumption store contract accepts,
  * measured from the reservation instant. The Postgres implementation
  * validates against this same constant, so callers and store can never
@@ -345,7 +381,7 @@ export interface AgentRunConsumptionStore {
   consume(runId: string, expiresAt: number): Promise<boolean>;
 }
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore; writeLockStore?: AgentRunWriteLockStore }): Router {
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore; writeLockStore?: AgentRunWriteLockStore; attachmentStore?: AgentAttachmentStore }): Router {
   const router = express.Router();
   // Outer guard: express-rate-limit, the standard library that static
   // analysis (CodeQL js/missing-rate-limiting) recognizes as rate limiting.
@@ -386,6 +422,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
   const runStore = deps?.runStore;
   const writeLockStore = deps?.writeLockStore;
+  const attachmentStore = deps?.attachmentStore;
 
   router.get('/api/agent/v3/status', agentV3RateLimitGuard, (req, res) => {
     const approvalSigningConfigured = v3CapabilityConfigured(env);
@@ -425,10 +462,22 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     });
   });
 
-  router.post('/api/agent/v3/plan', agentV3RateLimitGuard, agentV3RateLimiter, (req, res) => {
+  router.post('/api/agent/v3/plan', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
     if (!v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
     const goal = req.body?.goal;
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 4000) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_GOAL' });
+    // Attachment binding (file-input foundation F1, design §1.2): when
+    // the caller names an attachment set, the set is loaded under the
+    // caller's ownership proof and its content digest is bound into
+    // the plan's params below, so the approval digest covers the data
+    // itself. Without an attachmentSetId this handler produces exactly
+    // the plan it produced before the foundation existed.
+    let boundAttachment: { set: AgentAttachmentSetRecord; setDigest: string } | null = null;
+    if (req.body?.attachmentSetId !== undefined) {
+      const resolved = await resolvePlanAttachment(req, req.body.attachmentSetId);
+      if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+      boundAttachment = resolved.attachment;
+    }
     const planned = planAgentToolsV3(goal.trim());
     if ('code' in planned) {
       return res.status(422).json({ ok: false, code: planned.code, protocolVersion: 3, candidates: planned.candidates });
@@ -437,6 +486,21 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     run.transition('planning');
     run.transition('awaiting_approval');
     const steps: AgentStepInputV3[] = plannedStepsForGoal(goal.trim(), planned.steps);
+    if (boundAttachment) {
+      // F1 threads the binding through the primary step's params; the
+      // data steps that will consume it arrive in F2. The pair is part
+      // of the params the canonical digest is computed over, so
+      // replacing a file after approval breaks the digest chain and
+      // the plan can no longer be approved or executed as-is.
+      steps[0] = {
+        ...steps[0],
+        params: {
+          ...steps[0].params,
+          attachmentSetId: boundAttachment.set.setId,
+          setDigest: boundAttachment.setDigest,
+        },
+      };
+    }
     const capability = issuePlanCapability(
       run.runId,
       digestGoal(goal.trim()),
@@ -466,6 +530,15 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       })),
       toolChoice: { source: 'deterministic-local', reasonCode: planned.steps[0].reasonCode, mode: steps.length > 1 ? 'multi-step' : 'single-step' },
       plan: steps.map((step, index) => ({ id: `task-${index + 1}`, title: STEP_TITLES[step.toolName] })),
+      ...(boundAttachment ? {
+        attachments: {
+          setId: boundAttachment.set.setId,
+          setDigest: boundAttachment.setDigest,
+          fileCount: boundAttachment.set.files.length,
+          totalChars: agentAttachmentSetTotals(boundAttachment.set.files).totalChars,
+          files: boundAttachment.set.files.map((file) => ({ name: file.name, charCount: file.charCount })),
+        },
+      } : {}),
     });
   });
 
@@ -702,6 +775,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   // returned or logged.
   const OPERATOR_RUN_OWNER_BINDING = createHash('sha256').update('origin.agent.runs.owner.operator.v1').digest('hex');
   const browserRunOwnerBinding = (planToken: string) => createHash('sha256').update(`origin.agent.runs.owner.browser.v1:${planToken}`).digest('hex');
+  // Attachment sets use the same two owner namespaces: operator sets
+  // bind to the operator namespace digest, browser sets bind to a
+  // digest of their upload token (the token is per-set and is the
+  // browser-side capability for the set, exactly as a plan token is
+  // for a run). Bindings and tokens are never returned or logged.
+  const browserAttachmentOwnerBinding = (uploadToken: string) => createHash('sha256').update(`origin.agent.attachments.owner.browser.v1:${uploadToken}`).digest('hex');
   const runEnvelope = { freeOnly: true, costUsd: 0, paidFallbackUsed: false } as const;
   const publicAgentRunView = (record: AgentRunRecord) => ({
     runId: record.runId,
@@ -743,6 +822,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     logAgentRunStoreFailure(operation, error);
     return runsStoreUnavailable(res);
   };
+  const attachmentStoreUnavailable = (res: express.Response) => res.status(503).json({ ok: false, code: 'AGENT_ATTACHMENT_STORE_UNAVAILABLE' });
+  const attachmentStoreFailure = (res: express.Response, operation: string, error: unknown) => {
+    logAgentAttachmentStoreFailure(operation, error);
+    return attachmentStoreUnavailable(res);
+  };
 
   // Piggyback evaluation (multitask Phase 1, PR 1-G; design §2.3, §8.5):
   // the owner-scoped run reads below first re-examine the owner's held
@@ -763,6 +847,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     },
   };
   const runPiggybackEvaluation = async (ownerBinding: string): Promise<AgentRunPiggybackSummary | null> => {
+    // Attachment expiry sweep (file-input foundation F1, design §2.3):
+    // expired sets are reclaimed on the same piggyback opportunity as
+    // the run evaluation. Best-effort and fire-and-forget — the lazy
+    // deletion on every attachment read is the correctness guarantee;
+    // this only reclaims storage sooner.
+    if (attachmentStore) void attachmentStore.sweepExpired().catch(() => 0);
     if (!runStore) return null;
     return evaluateAgentRunPiggyback({ runStore, replan: runReplanPort }, ownerBinding, Date.now()).catch(() => null);
   };
@@ -1317,6 +1407,280 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
     }
     return res.json({ ok: true, protocolVersion: 3, runId, status: 'queued', confirmed: true, run: publicAgentRunView(queued), ...runEnvelope });
+  });
+
+  // ---------------------------------------------------------------------
+  // Attachment sets (agent file-input foundation, F1; design
+  // AGENT_FILE_INPUT_DESIGN_2026-11-18 §1.1, §2): the storage and
+  // intake layer for files a user hands to the agent. Data steps that
+  // read the bodies arrive in F2; F1 ships the four endpoints, the
+  // store, ingestion validation, expiry/deletion, and the /plan
+  // binding (above) that threads a set's content digest into the
+  // approved params.
+  //
+  // Everything here is gated by ORIGIN_AGENT_ATTACHMENTS_ENABLED
+  // (default OFF): with the switch off the endpoints answer 503 and
+  // the rest of the v3 API behaves exactly as before.
+  //
+  // Ownership has the same two shapes as runs. Operator requests use
+  // the operator credential and the operator namespace binding.
+  // Browser requests prove ownership of a set with its upload token:
+  // the token is HMAC-signed, names exactly one set, and the set row
+  // stores only its digest; a browser-created set's owner binding is
+  // derived from the token itself. A set is invisible under any other
+  // binding — including the operator's, for browser-created sets.
+  type AttachmentAuth = { ownerBinding: string; viaToken: boolean; token: string };
+  type AttachmentAuthFailure = { status: number; code: string };
+  function resolveAttachmentAuth(req: express.Request, expectedSetId?: string): AttachmentAuth | AttachmentAuthFailure {
+    if (agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env)) {
+      return { ownerBinding: OPERATOR_RUN_OWNER_BINDING, viaToken: false, token: '' };
+    }
+    const token = req.get('x-agent-attachment-token');
+    if (typeof token === 'string' && token.length > 0) {
+      const payload = verifyAttachmentUploadCapability(token, env);
+      if (!payload) return { status: 403, code: 'AGENT_ATTACHMENT_TOKEN_INVALID' };
+      if (expectedSetId !== undefined && payload.setId !== expectedSetId) return { status: 404, code: 'AGENT_ATTACHMENT_SET_NOT_FOUND' };
+      return { ownerBinding: browserAttachmentOwnerBinding(token), viaToken: true, token };
+    }
+    if (!agentOperatorConfiguredV3(env) && !v3CapabilityConfigured(env)) return { status: 503, code: 'AGENT_APPROVAL_NOT_CONFIGURED' };
+    if (agentOperatorConfiguredV3(env)) return { status: 401, code: 'AGENT_AUTHENTICATION_REQUIRED' };
+    return { status: 403, code: 'AGENT_ATTACHMENT_TOKEN_REQUIRED' };
+  }
+
+  /** Loads a set for an authenticated caller, applying the token
+   * digest check that makes the upload token single-issuance. A set
+   * that is missing, expired, or bound to another owner is reported
+   * uniformly as not found. */
+  async function loadAttachmentSet(
+    setId: string,
+    auth: AttachmentAuth,
+  ): Promise<{ set: AgentAttachmentSetRecord } | { failure: { status: number; code: string; error?: unknown } }> {
+    let set: AgentAttachmentSetRecord | null;
+    try {
+      set = await attachmentStore!.getSet(setId, auth.ownerBinding);
+    } catch (error) {
+      return { failure: { status: 503, code: 'AGENT_ATTACHMENT_STORE_UNAVAILABLE', error } };
+    }
+    if (!set || (auth.viaToken && set.uploadTokenDigest !== attachmentUploadTokenDigest(auth.token))) {
+      return { failure: { status: 404, code: 'AGENT_ATTACHMENT_SET_NOT_FOUND' } };
+    }
+    return { set };
+  }
+
+  /**
+   * Resolves the attachment binding for /plan (design §1.2). Declared
+   * as a function so the /plan handler above can use it; it runs at
+   * request time, after every factory binding exists.
+   */
+  async function resolvePlanAttachment(
+    req: express.Request,
+    attachmentSetId: unknown,
+  ): Promise<{ attachment: { set: AgentAttachmentSetRecord; setDigest: string } } | AttachmentAuthFailure> {
+    if (typeof attachmentSetId !== 'string' || !AGENT_ATTACHMENT_SET_ID_PATTERN.test(attachmentSetId)) {
+      return { status: 400, code: 'AGENT_ATTACHMENT_SET_ID_INVALID' };
+    }
+    if (!agentAttachmentsEnabled(env)) return { status: 503, code: 'AGENT_ATTACHMENTS_DISABLED' };
+    if (!attachmentStore) return { status: 503, code: 'AGENT_ATTACHMENT_STORE_UNAVAILABLE' };
+    const auth = resolveAttachmentAuth(req, attachmentSetId);
+    if ('status' in auth) return auth;
+    const loaded = await loadAttachmentSet(attachmentSetId, auth);
+    if ('failure' in loaded) {
+      if (loaded.failure.error !== undefined) logAgentAttachmentStoreFailure('attachment-plan-bind', loaded.failure.error);
+      return { status: loaded.failure.status, code: loaded.failure.code };
+    }
+    const { set } = loaded;
+    if (set.status !== 'open') return { status: 409, code: 'AGENT_ATTACHMENT_SET_NOT_OPEN' };
+    if (set.files.length === 0) return { status: 422, code: 'AGENT_ATTACHMENT_SET_EMPTY' };
+    return { attachment: { set, setDigest: computeAgentAttachmentSetDigest(set.files) } };
+  }
+
+  const publicAttachmentFileMeta = (file: AgentAttachmentFileMeta) => ({
+    idx: file.idx,
+    name: file.name,
+    mediaType: file.mediaType,
+    kind: file.kind,
+    byteSize: file.byteSize,
+    charCount: file.charCount,
+    sha256: file.sha256,
+    extractionStatus: file.extractionStatus,
+  });
+  const publicAttachmentSetView = (set: AgentAttachmentSetRecord) => {
+    const totals = agentAttachmentSetTotals(set.files);
+    return {
+      setId: set.setId,
+      status: set.status,
+      claimedRunId: set.claimedRunId,
+      fileCount: totals.fileCount,
+      totalChars: totals.totalChars,
+      setDigest: computeAgentAttachmentSetDigest(set.files),
+      files: set.files.map(publicAttachmentFileMeta),
+      createdAt: new Date(set.createdAt).toISOString(),
+      updatedAt: new Date(set.updatedAt).toISOString(),
+      expiresAt: new Date(set.expiresAt).toISOString(),
+    };
+  };
+  const attachmentsDisabled = (res: express.Response) => res.status(503).json({ ok: false, code: 'AGENT_ATTACHMENTS_DISABLED' });
+
+  router.post('/api/agent/v3/attachment-sets', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!agentAttachmentsEnabled(env)) return attachmentsDisabled(res);
+    if (!attachmentStore) return attachmentStoreUnavailable(res);
+    // Creation is authorized like /plan — operator credential, or a
+    // same-origin browser request — because what is issued is only an
+    // upload capability: the data itself is used solely inside a plan
+    // a human approves afterwards.
+    const operatorAuthenticated = agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env);
+    const browserEligible = !operatorAuthenticated && isSameOriginBrowserRequest(req, env);
+    if (!operatorAuthenticated && !browserEligible) {
+      if (!agentOperatorConfiguredV3(env) && !v3CapabilityConfigured(env)) return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
+      if (agentOperatorConfiguredV3(env)) return res.status(401).json({ ok: false, code: 'AGENT_AUTHENTICATION_REQUIRED' });
+      return res.status(403).json({ ok: false, code: 'AGENT_BROWSER_ORIGIN_REQUIRED' });
+    }
+    const now = Date.now();
+    const setId = `att-${randomUUID()}`;
+    let issued: { token: string; expiresAt: number };
+    try {
+      issued = issueAttachmentUploadCapability(setId, env, now);
+    } catch {
+      return res.status(503).json({ ok: false, code: 'AGENT_APPROVAL_NOT_CONFIGURED' });
+    }
+    const ownerBinding = operatorAuthenticated ? OPERATOR_RUN_OWNER_BINDING : browserAttachmentOwnerBinding(issued.token);
+    try {
+      const created = await attachmentStore.createSet({
+        setId,
+        ownerBinding,
+        uploadTokenDigest: attachmentUploadTokenDigest(issued.token),
+        expiresAt: now + AGENT_ATTACHMENT_SET_TTL_MS,
+      }, now);
+      if (!created) return res.status(409).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_ALREADY_EXISTS' });
+      return res.status(201).json({
+        ok: true,
+        protocolVersion: 3,
+        attachmentSetId: setId,
+        uploadToken: issued.token,
+        expiresAt: new Date(created.expiresAt).toISOString(),
+        ...runEnvelope,
+      });
+    } catch (error) {
+      return attachmentStoreFailure(res, 'attachment-set-create', error);
+    }
+  });
+
+  router.post('/api/agent/v3/attachment-sets/:setId/files', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {
+    if (!agentAttachmentsEnabled(env)) return attachmentsDisabled(res);
+    if (!attachmentStore) return attachmentStoreUnavailable(res);
+    const setId = typeof req.params.setId === 'string' ? req.params.setId : '';
+    if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId)) return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_ID_INVALID' });
+    const auth = resolveAttachmentAuth(req, setId);
+    if ('status' in auth) return res.status(auth.status).json({ ok: false, code: auth.code });
+    const loaded = await loadAttachmentSet(setId, auth);
+    if ('failure' in loaded) {
+      if (loaded.failure.error !== undefined) return attachmentStoreFailure(res, 'attachment-file-add', loaded.failure.error);
+      return res.status(loaded.failure.status).json({ ok: false, code: loaded.failure.code });
+    }
+    const { set } = loaded;
+    if (set.status !== 'open') return res.status(409).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_NOT_OPEN' });
+    const body = (req.body ?? {}) as { name?: unknown; mediaType?: unknown; contentText?: unknown };
+    let name: string;
+    try {
+      name = normalizeAgentAttachmentFileName(body.name);
+    } catch {
+      return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_FILE_INVALID' });
+    }
+    if (typeof body.contentText !== 'string') return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_FILE_INVALID' });
+    const kind = resolveAgentAttachmentKind(name, typeof body.mediaType === 'string' ? body.mediaType : undefined);
+    if (!kind) return res.status(415).json({ ok: false, code: 'AGENT_ATTACHMENT_KIND_UNSUPPORTED', fileName: name });
+    const mediaType = normalizeAgentAttachmentMediaType(name, body.mediaType);
+    // Ingestion validation (design §2.1, §4.3): oversize and secret
+    // screening reject the file as a whole — with the numbers in the
+    // response — instead of truncating it into compliance.
+    let measured: { byteSize: number; charCount: number; sha256: string };
+    try {
+      measured = validateAgentAttachmentFileText(body.contentText);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'AGENT_ATTACHMENT_FILE_TOO_LARGE') {
+        return res.status(413).json({ ok: false, code, fileName: name, charCount: body.contentText.length, limit: MAX_AGENT_ATTACHMENT_FILE_TEXT_CHARS });
+      }
+      if (code === 'AGENT_ATTACHMENT_SECRET_CONTENT_BLOCKED') return res.status(422).json({ ok: false, code, fileName: name });
+      return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_FILE_INVALID' });
+    }
+    const totals = agentAttachmentSetTotals(set.files);
+    if (totals.fileCount >= MAX_AGENT_ATTACHMENT_SET_FILES) {
+      return res.status(409).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_FILE_LIMIT', fileName: name, fileCount: totals.fileCount, limit: MAX_AGENT_ATTACHMENT_SET_FILES });
+    }
+    if (totals.totalChars + measured.charCount > MAX_AGENT_ATTACHMENT_SET_TEXT_CHARS) {
+      return res.status(413).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_TOO_LARGE', fileName: name, totalChars: totals.totalChars + measured.charCount, limit: MAX_AGENT_ATTACHMENT_SET_TEXT_CHARS });
+    }
+    try {
+      const meta = await attachmentStore.addFile(setId, auth.ownerBinding, {
+        name,
+        mediaType,
+        kind,
+        byteSize: measured.byteSize,
+        charCount: measured.charCount,
+        sha256: measured.sha256,
+        extractedText: body.contentText,
+      });
+      const files = [...set.files, meta];
+      const nextTotals = agentAttachmentSetTotals(files);
+      return res.status(201).json({
+        ok: true,
+        protocolVersion: 3,
+        attachmentSetId: setId,
+        file: publicAttachmentFileMeta(meta),
+        setDigest: computeAgentAttachmentSetDigest(files),
+        fileCount: nextTotals.fileCount,
+        totalChars: nextTotals.totalChars,
+        ...runEnvelope,
+      });
+    } catch (error) {
+      // The store re-checks the set-level limits atomically; map its
+      // refusal codes onto the same responses as the pre-checks above.
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'AGENT_ATTACHMENT_SET_NOT_FOUND') return res.status(404).json({ ok: false, code });
+      if (code === 'AGENT_ATTACHMENT_SET_NOT_OPEN') return res.status(409).json({ ok: false, code });
+      if (code === 'AGENT_ATTACHMENT_SET_FILE_LIMIT') return res.status(409).json({ ok: false, code, fileName: name });
+      if (code === 'AGENT_ATTACHMENT_SET_TOO_LARGE') return res.status(413).json({ ok: false, code, fileName: name });
+      if (code === 'AGENT_ATTACHMENT_SECRET_CONTENT_BLOCKED') return res.status(422).json({ ok: false, code, fileName: name });
+      return attachmentStoreFailure(res, 'attachment-file-add', error);
+    }
+  });
+
+  router.get('/api/agent/v3/attachment-sets/:setId', agentV3RateLimitGuard, async (req, res) => {
+    if (!agentAttachmentsEnabled(env)) return attachmentsDisabled(res);
+    if (!attachmentStore) return attachmentStoreUnavailable(res);
+    const setId = typeof req.params.setId === 'string' ? req.params.setId : '';
+    if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId)) return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_ID_INVALID' });
+    const auth = resolveAttachmentAuth(req, setId);
+    if ('status' in auth) return res.status(auth.status).json({ ok: false, code: auth.code });
+    const loaded = await loadAttachmentSet(setId, auth);
+    if ('failure' in loaded) {
+      if (loaded.failure.error !== undefined) return attachmentStoreFailure(res, 'attachment-set-get', loaded.failure.error);
+      return res.status(loaded.failure.status).json({ ok: false, code: loaded.failure.code });
+    }
+    // Metadata only: this endpoint never returns a file body.
+    return res.json({ ok: true, protocolVersion: 3, attachmentSet: publicAttachmentSetView(loaded.set), ...runEnvelope });
+  });
+
+  router.delete('/api/agent/v3/attachment-sets/:setId', agentV3RateLimitGuard, async (req, res) => {
+    if (!agentAttachmentsEnabled(env)) return attachmentsDisabled(res);
+    if (!attachmentStore) return attachmentStoreUnavailable(res);
+    const setId = typeof req.params.setId === 'string' ? req.params.setId : '';
+    if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId)) return res.status(400).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_ID_INVALID' });
+    const auth = resolveAttachmentAuth(req, setId);
+    if ('status' in auth) return res.status(auth.status).json({ ok: false, code: auth.code });
+    const loaded = await loadAttachmentSet(setId, auth);
+    if ('failure' in loaded) {
+      if (loaded.failure.error !== undefined) return attachmentStoreFailure(res, 'attachment-set-delete', loaded.failure.error);
+      return res.status(loaded.failure.status).json({ ok: false, code: loaded.failure.code });
+    }
+    try {
+      const deleted = await attachmentStore.deleteSet(setId, auth.ownerBinding);
+      if (!deleted) return res.status(404).json({ ok: false, code: 'AGENT_ATTACHMENT_SET_NOT_FOUND' });
+      return res.json({ ok: true, protocolVersion: 3, attachmentSetId: setId, deleted: true, ...runEnvelope });
+    } catch (error) {
+      return attachmentStoreFailure(res, 'attachment-set-delete', error);
+    }
   });
 
   return router;

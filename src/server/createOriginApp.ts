@@ -10,6 +10,7 @@ import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
 import { createAgentRunConsumptionStoreFromEnv } from "../agent/supabaseRunConsumptionStore.js";
 import { createAgentRunStoreFromEnv } from "../agent/supabaseAgentRunStore.js";
+import { createAgentAttachmentStoreFromEnv } from "../agent/supabaseAgentAttachmentStore.js";
 import { createAgentRunWriteLockStoreFromEnv } from "../agent/supabaseAgentRunWriteLockStore.js";
 import { createCodingDatabaseStoresFromEnvV14 } from "../agent/codingDatabaseStoresV14.js";
 import { createAgentCodingDelegationV14 } from "../agent/agentCodingDelegationV14.js";
@@ -70,6 +71,13 @@ export function createOriginApp(
   // The router applies stricter decoded-image count/size/dimension checks before provider execution.
   app.use("/api/creative/v1.5/raster/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));
   app.use("/api/creative/v1.6/world-class/edit", express.json({ limit: "3mb", strict: true, type: ["application/json", "application/*+json"] }));
+  // Agent attachment uploads carry extracted file text (up to 200k
+  // characters per file, several files per request in stage 2's base64
+  // form), so the attachment-set routes get an 8mb JSON boundary in the
+  // same isolated style as the reference-image edits above. The global
+  // 64kb boundary below is unchanged for every other route; the router
+  // applies the stricter per-file and per-set checks itself.
+  app.use("/api/agent/v3/attachment-sets", express.json({ limit: "8mb", strict: true, type: ["application/json", "application/*+json"] }));
   app.use(express.json({ limit: "64kb", strict: true, type: ["application/json", "application/*+json"] }));
 
   const invalidJsonHandler: ErrorRequestHandler = (error, _req, res, next) => {
@@ -82,6 +90,7 @@ export function createOriginApp(
 
   const agentRunConsumptionStore = createAgentRunConsumptionStoreFromEnv(env);
   const agentRunStore = createAgentRunStoreFromEnv(env);
+  const agentAttachmentStore = createAgentAttachmentStoreFromEnv(env);
   const agentWriteLockStore = createAgentRunWriteLockStoreFromEnv(env);
   const webPublicationStore = createWebPublicationStoreFromEnv(env);
   const codingStores = createCodingDatabaseStoresFromEnvV14(env);
@@ -95,6 +104,7 @@ export function createOriginApp(
     codeDelegation: createAgentCodingDelegationV14({ env, jobStore: codingStores.jobStore }),
     runStore: agentRunStore,
     writeLockStore: agentWriteLockStore,
+    attachmentStore: agentAttachmentStore,
   }));
   app.use(createAgentOrchestratorRouter());
   app.use(createOriginLegacyProviderBoundaryRouter());
