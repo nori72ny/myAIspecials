@@ -249,6 +249,32 @@ export class PostgresAgentAttachmentStore implements AgentAttachmentStore {
     return { ...record, files: await this.loadFiles(setId) };
   }
 
+  async claimSetForRun(setId: string, fromOwnerBinding: string, toOwnerBinding: string, runId: string, expiresAt: number, now = Date.now()): Promise<AgentAttachmentSetRecord | null> {
+    if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId) || !AGENT_RUN_OWNER_BINDING_PATTERN.test(fromOwnerBinding) || !AGENT_RUN_OWNER_BINDING_PATTERN.test(toOwnerBinding)) return null;
+    if (!AGENT_RUN_ID_PATTERN.test(runId)) throw new Error('AGENT_ATTACHMENT_CLAIM_INPUT_INVALID');
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new Error('AGENT_ATTACHMENT_CLAIM_INPUT_INVALID');
+    // One atomic update: re-bind and claim together, so the set is
+    // never observable under both bindings or under neither, and a
+    // set that is not open under the source binding does not move.
+    const result = await this.database.query(
+      `update public.origin_agent_attachment_sets
+       set owner_binding = $2, status = 'claimed', claimed_run_id = $3, expires_at = to_timestamp($4 / 1000.0),
+           updated_at = clock_timestamp(), version = version + 1
+       where set_id = $1 and owner_binding = $5 and status = 'open'
+         and expires_at > clock_timestamp()
+       returning ${SET_RETURNING}`,
+      [setId, toOwnerBinding, runId, expiresAt, fromOwnerBinding],
+    );
+    if (!result.rows[0]) {
+      // Keep the lazy-deletion invariant for a set that lapsed before
+      // it could be claimed.
+      await this.getSet(setId, fromOwnerBinding, now);
+      return null;
+    }
+    const record = parseSetRow(result.rows[0], []);
+    return { ...record, files: await this.loadFiles(setId) };
+  }
+
   async deleteSet(setId: string, ownerBinding: string): Promise<boolean> {
     if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId) || !AGENT_RUN_OWNER_BINDING_PATTERN.test(ownerBinding)) return false;
     return this.deleteSetRow(setId, ownerBinding);

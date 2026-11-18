@@ -14,12 +14,14 @@ import {
   type AgentRunView,
 } from '../agent/agentRunClient';
 import { reportAgentActivity, type AgentActivityStepStatus } from '../agent/agentActivityStore';
+import { detectSensitiveInput } from '../lib/orchestration/SensitiveInputDetector';
 
 type AgentCapability = {
   ready: boolean;
   approvalSigningConfigured: boolean;
   replayProtectionConfigured: boolean;
   browserApprovalEnabled: boolean;
+  attachmentsEnabled: boolean;
   freeOnly: boolean;
   costUsd: number;
   paidFallbackEnabled: boolean;
@@ -42,6 +44,15 @@ const isAgentTool = (value: unknown): value is AgentTool => typeof value === 'st
 
 type AgentPlanStep = { id: string; title: string };
 type AgentToolStep = { toolName: AgentTool; params: Record<string, unknown> };
+// The attachment summary a plan was bound to (file-input foundation
+// F3, design §1.2): names and counts only — the bodies never come
+// back to this screen. Shown in the plan so the approver can see the
+// data itself is part of what the approval covers.
+type AgentPlanAttachments = {
+  fileCount: number;
+  totalChars: number;
+  files: Array<{ name: string; charCount: number }>;
+};
 type AgentPlan = {
   runId: string;
   planToken: string;
@@ -51,7 +62,21 @@ type AgentPlan = {
   steps: AgentToolStep[];
   goal: string;
   plan: AgentPlanStep[];
+  attachments?: AgentPlanAttachments;
 };
+
+function parsePlanAttachments(value: unknown): AgentPlanAttachments | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.fileCount !== 'number' || typeof record.totalChars !== 'number' || !Array.isArray(record.files)) return undefined;
+  const files: AgentPlanAttachments['files'] = [];
+  for (const raw of record.files) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const file = raw as Record<string, unknown>;
+    if (typeof file.name === 'string' && typeof file.charCount === 'number') files.push({ name: file.name, charCount: file.charCount });
+  }
+  return { fileCount: record.fileCount, totalChars: record.totalChars, files };
+}
 
 // 'held' and 'recorded' are the runs-path end states (PR-D2/D3): the
 // work now lives in the durable record on the task board, not in this
@@ -144,6 +169,28 @@ function hasExecutableSteps(plan: AgentPlan): boolean {
   return plan.steps.length > 0 && plan.steps.every((step) => hasExecutableParams(step.toolName, step.params));
 }
 
+// Attachment intake (file-input foundation F3, design §1.3, §2.2).
+// The limits repeat the server's numbers (agentAttachmentRecord.ts)
+// instead of importing them: that module is server-side, and this
+// screen runs in the browser. The server re-checks every limit (and
+// the secret screening) on upload, so these local checks only spare
+// the round trip — a file over a limit is refused whole, with the
+// numbers shown, never truncated into compliance (design §4.3). The
+// kind rule mirrors the chat's isTextLike, with tsv named explicitly
+// as the design requires for the agent side.
+const MAX_AGENT_ATTACHMENT_FILE_CHARS = 200_000;
+const MAX_AGENT_ATTACHMENT_FILES = 10;
+const MAX_AGENT_ATTACHMENT_TOTAL_CHARS = 500_000;
+const AGENT_ATTACHMENT_TEXT_EXTENSIONS = /\.(txt|csv|tsv|md|json)$/i;
+
+function isAgentAttachmentTextLike(file: File): boolean {
+  return file.type.startsWith('text/')
+    || file.type === 'application/json'
+    || AGENT_ATTACHMENT_TEXT_EXTENSIONS.test(file.name);
+}
+
+type AgentAttachmentChip = { name: string; charCount: number };
+
 export function catStateForPhase(phase: Phase, checkingCapability: boolean, ready: boolean): OriginCatStateKind {
   if (checkingCapability) return 'thinking';
   if (!ready) return 'sorry';
@@ -198,7 +245,17 @@ export default function AgentWorkspaceView() {
   const [artifact, setArtifact] = useState(ARTIFACT_PLACEHOLDER);
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
+  // Attachment intake state (F3, design §1.3): the set id and upload
+  // token are capabilities and live in memory only — never persisted,
+  // exactly like the plan token. The chips carry names and counts;
+  // file bodies are read at selection time, uploaded, and not kept.
+  const [attachmentFiles, setAttachmentFiles] = useState<AgentAttachmentChip[]>([]);
+  const [attachmentSetId, setAttachmentSetId] = useState<string | null>(null);
+  const [attachmentUploadToken, setAttachmentUploadToken] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const credentialInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -213,6 +270,7 @@ export default function AgentWorkspaceView() {
           approvalSigningConfigured: data.approvalSigningConfigured === true,
           replayProtectionConfigured: data.replayProtectionConfigured === true,
           browserApprovalEnabled: data.browserApprovalEnabled === true,
+          attachmentsEnabled: data.attachmentsEnabled === true,
           freeOnly: data.freeOnly === true,
           costUsd: typeof data.costUsd === 'number' ? data.costUsd : -1,
           paidFallbackEnabled: data.paidFallbackEnabled === true,
@@ -293,6 +351,112 @@ export default function AgentWorkspaceView() {
     });
   }, [liveSession, phase, liveRunView]);
 
+  // Attachment intake (F3, design §1.3): read each selected file as
+  // text on this device, screen it (file name + body, the same
+  // detector chat uses — a hit means the file never leaves the
+  // device), check the limits with the numbers attached, then upload
+  // it into the set (creating the set on first use). The server
+  // repeats every check; its refusals map onto the same plain
+  // wording. One file's refusal stops the batch at that file — files
+  // already uploaded stay attached and are listed as chips.
+  const addAttachmentFiles = useCallback(async (selected: File[]) => {
+    if (selected.length === 0 || attachmentBusy || plan) return;
+    setAttachmentBusy(true);
+    setAttachmentError(null);
+    try {
+      let setId = attachmentSetId;
+      let token = attachmentUploadToken;
+      let chips = attachmentFiles;
+      for (const file of selected) {
+        if (!isAgentAttachmentTextLike(file)) {
+          setAttachmentError(`「${file.name}」はテキスト形式のファイルではないため、添付できません。`);
+          break;
+        }
+        const text = await file.text();
+        if (text.length > MAX_AGENT_ATTACHMENT_FILE_CHARS) {
+          setAttachmentError(`「${file.name}」は${text.length.toLocaleString()}文字で、上限の${MAX_AGENT_ATTACHMENT_FILE_CHARS.toLocaleString()}文字を${(text.length - MAX_AGENT_ATTACHMENT_FILE_CHARS).toLocaleString()}文字超えています。`);
+          break;
+        }
+        if (chips.length >= MAX_AGENT_ATTACHMENT_FILES) {
+          setAttachmentError(`添付できるのは${MAX_AGENT_ATTACHMENT_FILES}件までです。`);
+          break;
+        }
+        const totalChars = chips.reduce((sum, chip) => sum + chip.charCount, 0);
+        if (totalChars + text.length > MAX_AGENT_ATTACHMENT_TOTAL_CHARS) {
+          setAttachmentError(`添付データの合計が上限の${MAX_AGENT_ATTACHMENT_TOTAL_CHARS.toLocaleString()}文字を超えます（「${file.name}」を加えると${(totalChars + text.length).toLocaleString()}文字になります）。`);
+          break;
+        }
+        if (detectSensitiveInput(`${file.name}\n${text}`).containsSensitiveInput) {
+          setAttachmentError(`「${file.name}」には、パスワードや個人情報が含まれる可能性があるため、添付できません。`);
+          break;
+        }
+        if (!setId || !token) {
+          const createResponse = await fetch('/api/agent/v3/attachment-sets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({}),
+          });
+          const created = await createResponse.json() as { attachmentSetId?: string; uploadToken?: string; code?: string };
+          if (!createResponse.ok || typeof created.attachmentSetId !== 'string' || typeof created.uploadToken !== 'string') {
+            throw new Error(created.code ?? 'AGENT_ATTACHMENT_CREATE_FAILED');
+          }
+          setId = created.attachmentSetId;
+          token = created.uploadToken;
+          setAttachmentSetId(setId);
+          setAttachmentUploadToken(token);
+        }
+        const addResponse = await fetch(`/api/agent/v3/attachment-sets/${encodeURIComponent(setId)}/files`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-agent-attachment-token': token },
+          cache: 'no-store',
+          body: JSON.stringify({ name: file.name, mediaType: file.type || undefined, contentText: text }),
+        });
+        const added = await addResponse.json() as { ok?: boolean; code?: string };
+        if (!addResponse.ok || added.ok !== true) {
+          if (added.code === 'AGENT_ATTACHMENT_SECRET_CONTENT_BLOCKED') {
+            setAttachmentError(`「${file.name}」には、パスワードや個人情報が含まれる可能性があるため、添付できません。`);
+          } else if (added.code === 'AGENT_ATTACHMENT_FILE_TOO_LARGE') {
+            setAttachmentError(`「${file.name}」は上限の${MAX_AGENT_ATTACHMENT_FILE_CHARS.toLocaleString()}文字を超えているため、添付できません。`);
+          } else if (added.code === 'AGENT_ATTACHMENT_KIND_UNSUPPORTED') {
+            setAttachmentError(`「${file.name}」はテキスト形式のファイルではないため、添付できません。`);
+          } else {
+            setAttachmentError(`「${file.name}」を添付できませんでした。`);
+          }
+          break;
+        }
+        chips = [...chips, { name: file.name, charCount: text.length }];
+        setAttachmentFiles(chips);
+      }
+    } catch {
+      setAttachmentError('添付データを用意できませんでした。少し待ってから、もう一度お試しください。');
+    } finally {
+      setAttachmentBusy(false);
+    }
+  }, [attachmentBusy, attachmentFiles, attachmentSetId, attachmentUploadToken, plan]);
+
+  // 「添付を取り消す」(design §2.3): the set is deleted on the server
+  // immediately, not just hidden here. Files are removed as a set —
+  // there is no per-file removal — and the chips say so. Best-effort:
+  // even if the delete request fails, an unclaimed set expires on its
+  // own within 24 hours.
+  const removeAttachments = useCallback(async () => {
+    const setId = attachmentSetId;
+    const token = attachmentUploadToken;
+    setAttachmentFiles([]);
+    setAttachmentSetId(null);
+    setAttachmentUploadToken(null);
+    setAttachmentError(null);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+    if (setId && token) {
+      await fetch(`/api/agent/v3/attachment-sets/${encodeURIComponent(setId)}`, {
+        method: 'DELETE',
+        headers: { 'x-agent-attachment-token': token },
+        cache: 'no-store',
+      }).catch(() => undefined);
+    }
+  }, [attachmentSetId, attachmentUploadToken]);
+
   const requestPlan = useCallback(async () => {
     const trimmed = goal.trim();
     const planCapable = capability?.ready === true || capability?.browserApprovalEnabled === true;
@@ -309,12 +473,18 @@ export default function AgentWorkspaceView() {
     try {
       const response = await fetch('/api/agent/v3/plan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // The upload token is the ownership proof for the set being
+          // bound into this plan (design §1.2); without a set, the
+          // request is exactly the one this screen has always sent.
+          ...(attachmentSetId && attachmentUploadToken ? { 'x-agent-attachment-token': attachmentUploadToken } : {}),
+        },
         cache: 'no-store',
-        body: JSON.stringify({ goal: trimmed }),
+        body: JSON.stringify({ goal: trimmed, ...(attachmentSetId ? { attachmentSetId } : {}) }),
         signal: controller.signal,
       });
-      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string; steps?: Array<{ toolName?: unknown; params?: unknown }> };
+      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string; steps?: Array<{ toolName?: unknown; params?: unknown }>; attachments?: unknown };
       if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool) || !data.params || typeof data.params !== 'object' || Array.isArray(data.params)) {
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
@@ -332,6 +502,7 @@ export default function AgentWorkspaceView() {
         steps: parsedSteps.length > 0 ? parsedSteps : [{ toolName: data.selectedTool, params: data.params as Record<string, unknown> }],
         goal: trimmed,
         plan: data.plan.filter((step): step is AgentPlanStep => Boolean(step) && typeof step.id === 'string' && typeof step.title === 'string').slice(0, 12),
+        attachments: parsePlanAttachments(data.attachments),
       };
       setPlan(next);
       setBoardPlanToken(next.planToken);
@@ -341,6 +512,9 @@ export default function AgentWorkspaceView() {
         '',
         `依頼: ${next.goal}`,
         `行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
+        // The data is part of the approval (design §1.2): its line
+        // names the files and the total size, never the contents.
+        ...(next.attachments ? [`添付データ: ${next.attachments.fileCount}件（${next.attachments.files.map((file) => file.name).join('、')}、合計${next.attachments.totalChars.toLocaleString()}文字）`] : []),
         '',
         ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
         '',
@@ -356,7 +530,7 @@ export default function AgentWorkspaceView() {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [capability?.browserApprovalEnabled, capability?.ready, goal, phase]);
+  }, [attachmentSetId, attachmentUploadToken, capability?.browserApprovalEnabled, capability?.ready, goal, phase]);
 
   const approveAndExecute = useCallback(async () => {
     if (!plan || phase !== 'awaiting_approval') return;
@@ -418,7 +592,17 @@ export default function AgentWorkspaceView() {
         ? { kind: 'operator', credential }
         : { kind: 'browser', planToken: plan.planToken };
       const creation = await createAgentRunRecord(
-        { runId: plan.runId, goal: plan.goal, planToken: plan.planToken, steps: plan.steps },
+        {
+          runId: plan.runId,
+          goal: plan.goal,
+          planToken: plan.planToken,
+          steps: plan.steps,
+          // The claim bridge's proof of set ownership (F3): the
+          // server re-binds the browser-owned set to this run as it
+          // claims it. Operator-created sets already share the run's
+          // binding, so for them the token is simply never needed.
+          ...(plan.attachments && attachmentUploadToken ? { attachmentUploadToken } : {}),
+        },
         approval.approvalToken,
         runAuth,
         controller.signal,
@@ -428,6 +612,16 @@ export default function AgentWorkspaceView() {
         setArtifact('実行は始めていません。作業の記録が使えないため、止まりました。');
         setLog((current) => [...current, '作業の記録が使えないため、止まりました。実行は始めていません。']);
         return;
+      }
+      if (plan.attachments) {
+        // The set now belongs to the recorded run (claimed at
+        // creation); this screen's upload capability has done its
+        // job and is dropped, so a later plan starts from a fresh set.
+        setAttachmentFiles([]);
+        setAttachmentSetId(null);
+        setAttachmentUploadToken(null);
+        setAttachmentError(null);
+        if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       }
       setLog((current) => [...current, '実行を記録しました。進み具合は下の「これまでの作業」にも表示されます。']);
       // Live view (PR-L2): from here the 「いまの作業」 panel follows
@@ -482,7 +676,7 @@ export default function AgentWorkspaceView() {
       if (credentialInputRef.current) credentialInputRef.current.value = '';
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [persistCheckpoint, phase, plan]);
+  }, [attachmentUploadToken, persistCheckpoint, phase, plan]);
 
   const resetPlan = () => {
     abortRef.current?.abort();
@@ -539,6 +733,34 @@ export default function AgentWorkspaceView() {
           placeholder="例：このテーマを調べて要点をまとめ、文書案を作ってください"
           className="mt-2 min-h-28 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand disabled:cursor-not-allowed disabled:opacity-70" />
 
+        {capability?.attachmentsEnabled && <div className="mt-3">
+          <span className="block text-sm font-bold">添付データ</span>
+          <p className="mt-1 text-xs leading-5 text-origin-muted">作業に使うデータを添付できます。テキスト形式のファイルを{MAX_AGENT_ATTACHMENT_FILES}件まで、合計{MAX_AGENT_ATTACHMENT_TOTAL_CHARS.toLocaleString()}文字まで。添付したデータも、計画の承認の対象になります。</p>
+          <input ref={attachmentInputRef} type="file" multiple accept=".txt,.csv,.tsv,.md,.json,text/*" className="hidden" aria-label="添付ファイルを選ぶ"
+            onChange={(event) => {
+              const selected = Array.from(event.target.files ?? []);
+              event.target.value = '';
+              void addAttachmentFiles(selected);
+            }} />
+          <button type="button" onClick={() => attachmentInputRef.current?.click()}
+            disabled={Boolean(plan) || phase === 'planning' || phase === 'executing' || attachmentBusy}
+            className="origin-secondary-button mt-2 min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+            {attachmentBusy ? '添付しています…' : 'ファイルを選ぶ'}
+          </button>
+          {attachmentFiles.length > 0 && <>
+            <ul className="mt-2 flex flex-wrap gap-2" aria-label="添付したファイル">
+              {attachmentFiles.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-full border border-origin-border bg-origin-surface py-1 pl-3 pr-1 text-xs font-semibold">
+                <span>{file.name}（{file.charCount.toLocaleString()}文字）</span>
+                <button type="button" onClick={() => void removeAttachments()} aria-label="添付を取り消す"
+                  disabled={Boolean(plan) || phase === 'planning' || phase === 'executing'}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold text-origin-muted disabled:cursor-not-allowed disabled:opacity-50">×</button>
+              </li>)}
+            </ul>
+            <p className="mt-1 text-xs leading-5 text-origin-muted">取り消すと、添付したファイルはすべて削除されます。</p>
+          </>}
+          {attachmentError && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-warning">{attachmentError}</p>}
+        </div>}
+
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
@@ -568,6 +790,7 @@ export default function AgentWorkspaceView() {
           <div aria-label="行う作業" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
+          {plan.attachments && <p className="mt-2 text-xs leading-5 text-origin-muted">添付データ: {plan.attachments.fileCount}件（{plan.attachments.files.map((file) => file.name).join('、')}、合計{plan.attachments.totalChars.toLocaleString()}文字）。このデータも承認の対象です。</p>}
           <p className="mt-1 text-xs leading-5 text-origin-muted">承認すると、上に表示された作業だけを行います。内容を変えたいときは、計画をやめて作り直してください。</p>
           {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-warning">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
 

@@ -681,6 +681,187 @@ describe('AgentWorkspaceView v3', () => {
   });
 });
 
+describe('AgentWorkspaceView attachments (F3)', () => {
+  const FRUITS = 'id,item,amount\nA-1,りんご,120';
+  const SET_DIGEST = 'd'.repeat(64);
+
+  function attachmentPlanResponse() {
+    return {
+      ok: true,
+      protocolVersion: 3,
+      runId: 'run-test-1',
+      status: 'awaiting_approval',
+      planToken: 'signed-plan-token',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      freeOnly: true,
+      costUsd: 0,
+      paidFallbackUsed: false,
+      selectedTool: 'attachment_reader',
+      params: { attachmentSetId: 'att-test-1', setDigest: SET_DIGEST },
+      steps: [
+        { toolName: 'attachment_reader', params: { attachmentSetId: 'att-test-1', setDigest: SET_DIGEST } },
+        { toolName: 'attachment_analyzer', params: { attachmentSetId: 'att-test-1', setDigest: SET_DIGEST, outputKind: 'rows', chunkOffset: 0, chunkCount: 1, instruction: '各行を分類してレポートを作成してください' } },
+        { toolName: 'document_generator', params: { title: '分類レポート', dataGrounded: true, contentFromStep: 1 } },
+      ],
+      plan: [
+        { id: 'task-1', title: 'Read the attached data' },
+        { id: 'task-2', title: 'Analyze the attached data' },
+        { id: 'task-3', title: 'Document' },
+      ],
+      attachments: {
+        setId: 'att-test-1',
+        setDigest: SET_DIGEST,
+        fileCount: 1,
+        totalChars: FRUITS.length,
+        files: [{ name: 'fruits.csv', charCount: FRUITS.length }],
+      },
+    };
+  }
+
+  function attachmentStatus() {
+    return { ...readyStatus(), browserApprovalEnabled: true, attachmentsEnabled: true };
+  }
+
+  it('hides the attachment UI while the server switch is off', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    expect(screen.queryByText('添付データ')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ファイルを選ぶ' })).toBeNull();
+  });
+
+  it('attaches a file, binds it into the plan, and hands the upload token to run creation for the claim bridge', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(attachmentStatus());
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/attachment-sets') {
+        expect(init?.method).toBe('POST');
+        return json({ ok: true, protocolVersion: 3, attachmentSetId: 'att-test-1', uploadToken: 'upload-token-1', expiresAt: new Date(Date.now() + 60_000).toISOString() }, 201);
+      }
+      if (url === '/api/agent/v3/attachment-sets/att-test-1/files') {
+        expect(new Headers(init?.headers).get('x-agent-attachment-token')).toBe('upload-token-1');
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({ name: 'fruits.csv', mediaType: 'text/csv', contentText: FRUITS });
+        return json({ ok: true, protocolVersion: 3, attachmentSetId: 'att-test-1', file: { name: 'fruits.csv', charCount: FRUITS.length } }, 201);
+      }
+      if (url === '/api/agent/v3/plan') {
+        expect(new Headers(init?.headers).get('x-agent-attachment-token')).toBe('upload-token-1');
+        expect(JSON.parse(String(init?.body))).toEqual({ goal: '各行を分類してレポートを作成してください', attachmentSetId: 'att-test-1' });
+        return json(attachmentPlanResponse(), 201);
+      }
+      if (url === '/api/agent/v3/browser-approval') return json({ ok: true, approvalToken: 'signed-browser-approval-token' }, 201);
+      if (url === '/api/agent/v3/runs') {
+        // The claim bridge: run creation presents the set's upload
+        // token so the server can re-bind the set to this run.
+        expect(new Headers(init?.headers).get('x-agent-attachment-token')).toBe('upload-token-1');
+        const body = JSON.parse(String(init?.body));
+        expect(body.steps.map((step: { toolName: string }) => step.toolName)).toEqual(['attachment_reader', 'attachment_analyzer', 'document_generator']);
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'queued', run: { runId: 'run-test-1', status: 'queued' } }, 201);
+      }
+      if (url === '/api/agent/v3/runs/run-test-1/advance') {
+        return json({ ok: true, protocolVersion: 3, runId: 'run-test-1', status: 'completed', artifact: '# 分類レポート', run: { runId: 'run-test-1', status: 'completed' } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '各行を分類してレポートを作成してください' } });
+
+    const file = new File([FRUITS], 'fruits.csv', { type: 'text/csv' });
+    fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
+    await screen.findByText(`fruits.csv（${FRUITS.length}文字）`);
+
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+    await screen.findByText('まだ実行していません · 承認待ち');
+    // The plan names the attached data as part of the approval — in
+    // the plan section and in the plan text shown in the result area.
+    expect(screen.getAllByText(new RegExp(`添付データ: 1件（fruits\\.csv、合計${FRUITS.length}文字）`))).toHaveLength(2);
+    expect(screen.getByLabelText('行う作業').textContent).toContain('添付データを読む');
+
+    fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
+    await screen.findByRole('heading', { name: '分類レポート' });
+    // The upload capability is dropped once the run owns the set.
+    expect(screen.queryByText(`fruits.csv（${FRUITS.length}文字）`)).toBeNull();
+  });
+
+  it('refuses an oversize file on the device, with the numbers, and uploads nothing', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(attachmentStatus());
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    const file = new File(['a'.repeat(200_001)], 'big.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
+
+    await screen.findByText(/「big\.txt」は200,001文字で、上限の200,000文字を1文字超えています/);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('attachment-sets'))).toBe(false);
+  });
+
+  it('blocks a file whose contents trip the sensitive-input screening before any upload', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(attachmentStatus());
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    const file = new File(['key: sk-abcdefghijklmnop1234'], 'keys.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
+
+    await screen.findByText(/「keys\.txt」には、パスワードや個人情報が含まれる可能性があるため、添付できません/);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('attachment-sets'))).toBe(false);
+  });
+
+  it('deletes the set on the server when the attachments are removed', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(attachmentStatus());
+      if (url.startsWith('/api/agent/v3/runs?')) return json({ ok: true, runs: [] });
+      if (url === '/api/agent/v3/attachment-sets') {
+        return json({ ok: true, attachmentSetId: 'att-test-1', uploadToken: 'upload-token-1' }, 201);
+      }
+      if (url === '/api/agent/v3/attachment-sets/att-test-1/files') {
+        return json({ ok: true, file: { name: 'fruits.csv', charCount: FRUITS.length } }, 201);
+      }
+      if (url === '/api/agent/v3/attachment-sets/att-test-1') {
+        expect(init?.method).toBe('DELETE');
+        expect(new Headers(init?.headers).get('x-agent-attachment-token')).toBe('upload-token-1');
+        return json({ ok: true, attachmentSetId: 'att-test-1', deleted: true });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    const file = new File([FRUITS], 'fruits.csv', { type: 'text/csv' });
+    fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
+    await screen.findByText(`fruits.csv（${FRUITS.length}文字）`);
+
+    fireEvent.click(screen.getByRole('button', { name: '添付を取り消す' }));
+    await waitFor(() => expect(screen.queryByText(`fruits.csv（${FRUITS.length}文字）`)).toBeNull());
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url) === '/api/agent/v3/attachment-sets/att-test-1' && init?.method === 'DELETE')).toBe(true);
+  });
+});
+
 describe('catStateForPhase', () => {
   it('maps agent phases to cat character states', () => {
     expect(catStateForPhase('idle', true, true)).toBe('thinking');
