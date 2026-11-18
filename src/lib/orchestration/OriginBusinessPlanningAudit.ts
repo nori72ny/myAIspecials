@@ -40,6 +40,19 @@ import {
 // Violation details carry numbers and fixed vocabulary only (part names,
 // stage names) — never excerpts of the answer text — so the audit logs
 // hold no personal information.
+//
+// Premise-table extension (round 5, detection only): since the premise
+// table (前提表) became a standard part of planning answers, the table
+// itself is re-checked — the arithmetic stated in a row's basis cell is
+// recomputed against the row's value cell (operands may be other rows,
+// referenced by name), rows labelled as input facts are compared with
+// the figures the request itself supplied, and a revenue goal that
+// exceeds the table's own market-size estimate is recorded. Round 5
+// showed the defect centre moving into the table (a basis formula
+// contradicting its own value cell, a digit slip shrinking a funnel, a
+// budget restated at 10x), which the line-based checks cannot reach.
+// The new codes are never auto-corrected by the stage-2 fixer: which
+// cell of a row is wrong cannot be decided deterministically.
 
 export type OriginBusinessPlanningAuditViolationCode =
   | "FORMULA_RESULT_MISMATCH"
@@ -52,7 +65,10 @@ export type OriginBusinessPlanningAuditViolationCode =
   | "REQUIRED_PART_MISSING"
   | "ASSUMPTION_LABELLING_MISSING"
   | "OWNER_MISSING"
-  | "DEADLINE_MISSING";
+  | "DEADLINE_MISSING"
+  | "PREMISE_FORMULA_MISMATCH"
+  | "PREMISE_INPUT_FACT_MISMATCH"
+  | "PREMISE_ESTIMATE_GOAL_MISMATCH";
 
 export interface OriginBusinessPlanningAuditViolation {
   code: OriginBusinessPlanningAuditViolationCode;
@@ -67,6 +83,9 @@ export interface OriginBusinessPlanningAuditChecks {
   shares: number;
   currencyMixes: number;
   deadlineDates: number;
+  premiseFormulas: number;
+  premiseInputFacts: number;
+  premiseEstimateGoals: number;
   partsPresent: number;
   partsRequired: number;
 }
@@ -795,13 +814,494 @@ function checkParts(
 }
 
 // ---------------------------------------------------------------------------
+// 9. Premise-table checks: the premise table （前提表） is located by its
+// header （指標 / 値 / 単位 / 種別 / 根拠）, in pipe form or in the
+// degraded space-separated form one round-5 answer used, and its rows
+// are re-checked three ways (formula vs value, input-fact fidelity
+// against the request, estimate vs goal). See the file header for why
+// these are detection-only.
+// ---------------------------------------------------------------------------
+
+type PremiseKindClass = "input" | "computed" | "estimate" | "assumption" | "other";
+
+interface PremiseValue {
+  /** The number as written in the value cell, before unit scaling. */
+  raw: number;
+  /** Unit-normalised value (yen scaled, % as a ratio). */
+  value: number;
+  dimension: Dimension;
+}
+
+interface PremiseRow {
+  name: string;
+  kindClass: PremiseKindClass;
+  basis: string;
+  value: PremiseValue | null;
+}
+
+function classifyPremiseKind(kindCell: string): PremiseKindClass {
+  if (kindCell.includes("入力事実")) return "input";
+  if (kindCell.includes("計算結果")) return "computed";
+  if (kindCell.includes("推定")) return "estimate";
+  if (kindCell.includes("仮置き") || kindCell.includes("仮定")) return "assumption";
+  return "other";
+}
+
+const PREMISE_VALUE_RE = /(\d[\d,]*\.?\d*)\s*(億円|万円|千円|円|億|万|％|%|件|社|人|校|名|店舗|回)?/;
+
+/** A row's value is the first figure of its value cell, denominated by
+ * the unit the value cell or the unit cell states ("800,000" + 円,
+ * "100" + 万円, "50% (0.5)" + %). */
+function parsePremiseValue(valueCell: string, unitCell: string): PremiseValue | null {
+  const combined = `${valueCell.replace(/\*/g, "")} ${unitCell.replace(/\*/g, "")}`;
+  const match = combined.match(PREMISE_VALUE_RE);
+  if (!match) return null;
+  const raw = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(raw)) return null;
+  const unit = match[2];
+  if (unit && unit in YEN_UNIT_VALUES) return { raw, value: raw * YEN_UNIT_VALUES[unit], dimension: "yen" };
+  if (unit === "%" || unit === "％") return { raw, value: raw / 100, dimension: "ratio" };
+  if (unit && (COUNT_UNITS.has(unit) || unit === "店")) return { raw, value: raw, dimension: "count" };
+  return { raw, value: raw, dimension: "plain" };
+}
+
+interface PremiseColumns {
+  name: number;
+  value: number;
+  unit: number;
+  kind: number;
+  basis: number;
+}
+
+function premiseColumnsOf(headerCells: readonly string[]): PremiseColumns | null {
+  const find = (needle: string) => headerCells.findIndex((cell) => cell.includes(needle));
+  const name = find("指標");
+  const kind = find("種別");
+  const value = find("値");
+  if (name < 0 || kind < 0 || value < 0) return null;
+  return { name, value, unit: find("単位"), kind, basis: find("根拠") };
+}
+
+function premiseRowFromCells(cells: readonly string[], columns: PremiseColumns): PremiseRow | null {
+  const cell = (index: number) => (index >= 0 ? (cells[index] ?? "").trim() : "");
+  const name = cell(columns.name).replace(/\*/g, "").trim();
+  if (!name) return null;
+  return {
+    name,
+    kindClass: classifyPremiseKind(cell(columns.kind)),
+    basis: cell(columns.basis),
+    value: parsePremiseValue(cell(columns.value), cell(columns.unit)),
+  };
+}
+
+const TABLE_SEPARATOR_CELL_RE = /^:?-*:?$/;
+
+function parsePremiseRows(lines: readonly string[]): PremiseRow[] {
+  // Pipe form: the table whose header carries 指標 and 種別.
+  for (const table of parseTables(lines)) {
+    if (table.rows.length < 2) continue;
+    const columns = premiseColumnsOf(table.rows[0]);
+    if (!columns) continue;
+    const rows: PremiseRow[] = [];
+    for (const cells of table.rows.slice(1)) {
+      if (cells.every((cell) => TABLE_SEPARATOR_CELL_RE.test(cell.trim()))) continue;
+      const row = premiseRowFromCells(cells, columns);
+      if (row) rows.push(row);
+    }
+    if (rows.length > 0) return rows;
+  }
+  // Degraded form (round 5 BP-5): no pipes and no heading — a header
+  // line whose fields are separated by runs of spaces, followed by
+  // rows in the same shape whose 種別 field classifies.
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^\s*\|/.test(lines[i])) continue;
+    const fields = lines[i].split(/\s{2,}/).map((field) => field.trim()).filter((field) => field.length > 0);
+    if (fields.length < 5) continue;
+    const columns = premiseColumnsOf(fields);
+    if (!columns) continue;
+    const rows: PremiseRow[] = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const rowFields = lines[j].split(/\s{2,}/).map((field) => field.trim()).filter((field) => field.length > 0);
+      if (rowFields.length < 5) break;
+      const row = premiseRowFromCells(rowFields, columns);
+      if (!row || row.kindClass === "other") break;
+      rows.push(row);
+    }
+    if (rows.length > 0) return rows;
+  }
+  return [];
+}
+
+// --- Arithmetic over a basis cell -----------------------------------------
+
+interface EvaluatedExpression {
+  value: number;
+  dimension: Dimension;
+}
+
+type ExpressionToken =
+  | { type: "num"; value: number; dimension: Dimension }
+  | { type: "op"; op: "×" | "÷" | "+" | "-" }
+  | { type: "open" }
+  | { type: "close" };
+
+const EXPRESSION_NUMBER_RE = /^(\d[\d,]*\.?\d*)\s*(億円|万円|千円|円|億|万|％|%|件|社|人|校|名|店舗|回)?/;
+
+function readExpressionNumber(
+  text: string,
+  start: number,
+): { value: number; dimension: Dimension; length: number } | null {
+  const match = text.slice(start).match(EXPRESSION_NUMBER_RE);
+  if (!match) return null;
+  const raw = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(raw)) return null;
+  const unit = match[2];
+  let value = raw;
+  let dimension: Dimension = "plain";
+  if (unit && unit in YEN_UNIT_VALUES) {
+    value = raw * YEN_UNIT_VALUES[unit];
+    dimension = "yen";
+  } else if (unit === "%" || unit === "％") {
+    value = raw / 100;
+    dimension = "ratio";
+  } else if (unit && (COUNT_UNITS.has(unit) || unit === "店")) {
+    dimension = "count";
+  }
+  return { value, dimension, length: match[0].length };
+}
+
+/** Tokenises a string that must be nothing but numbers, units,
+ * operators and parentheses; any other character rejects it, so prose
+ * is never mistaken for a formula. */
+function tokenizeNumericExpression(text: string): ExpressionToken[] | null {
+  const tokens: ExpressionToken[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === " " || ch === "　" || ch === "\t") { i += 1; continue; }
+    if (ch === "(" || ch === "（") { tokens.push({ type: "open" }); i += 1; continue; }
+    if (ch === ")" || ch === "）") { tokens.push({ type: "close" }); i += 1; continue; }
+    if (ch === "×" || ch === "✕" || ch === "*") { tokens.push({ type: "op", op: "×" }); i += 1; continue; }
+    if (ch === "÷" || ch === "/") { tokens.push({ type: "op", op: "÷" }); i += 1; continue; }
+    if (ch === "+") { tokens.push({ type: "op", op: "+" }); i += 1; continue; }
+    if (ch === "-" || ch === "−" || ch === "－") { tokens.push({ type: "op", op: "-" }); i += 1; continue; }
+    if (ch >= "0" && ch <= "9") {
+      const number = readExpressionNumber(text, i);
+      if (!number) return null;
+      tokens.push({ type: "num", value: number.value, dimension: number.dimension });
+      i += number.length;
+      continue;
+    }
+    return null;
+  }
+  return tokens;
+}
+
+function sumDimension(a: Dimension, b: Dimension): Dimension | null {
+  if (a === b) return a;
+  if (a === "plain") return b;
+  if (b === "plain") return a;
+  return null;
+}
+
+function evaluateExpressionTokens(tokens: readonly ExpressionToken[]): EvaluatedExpression | null {
+  let pos = 0;
+  const peek = () => tokens[pos];
+  function parseFactor(): EvaluatedExpression | null {
+    const token = peek();
+    if (!token) return null;
+    if (token.type === "num") {
+      pos += 1;
+      return { value: token.value, dimension: token.dimension };
+    }
+    if (token.type === "open") {
+      pos += 1;
+      const inner = parseExpression();
+      if (!inner || peek()?.type !== "close") return null;
+      pos += 1;
+      return inner;
+    }
+    return null;
+  }
+  function parseTerm(): EvaluatedExpression | null {
+    let left = parseFactor();
+    if (!left) return null;
+    for (;;) {
+      const token = peek();
+      if (!token || token.type !== "op" || (token.op !== "×" && token.op !== "÷")) return left;
+      pos += 1;
+      const right = parseFactor();
+      if (!right) return null;
+      if (token.op === "÷") {
+        if (right.value === 0) return null;
+        left = { value: left.value / right.value, dimension: divideDimension(left.dimension, right.dimension) };
+      } else {
+        left = { value: left.value * right.value, dimension: multiplyDimension(left.dimension, right.dimension) };
+      }
+    }
+  }
+  function parseExpression(): EvaluatedExpression | null {
+    let left = parseTerm();
+    if (!left) return null;
+    for (;;) {
+      const token = peek();
+      if (!token || token.type !== "op" || (token.op !== "+" && token.op !== "-")) return left;
+      pos += 1;
+      const right = parseTerm();
+      if (!right) return null;
+      const dimension = sumDimension(left.dimension, right.dimension);
+      if (dimension === null) return null;
+      left = { value: token.op === "+" ? left.value + right.value : left.value - right.value, dimension };
+    }
+  }
+  const result = parseExpression();
+  if (!result || pos !== tokens.length || !Number.isFinite(result.value)) return null;
+  return result;
+}
+
+function evaluatePureNumericExpression(text: string): EvaluatedExpression | null {
+  const tokens = tokenizeNumericExpression(text);
+  if (!tokens || tokens.length === 0) return null;
+  return evaluateExpressionTokens(tokens);
+}
+
+/** Rows are referenced from other rows' basis cells by name; the
+ * registered keys are the full name and the name with a trailing
+ * parenthesised qualifier stripped ("受注単価（平均）" → "受注単価",
+ * "商談数（計算結果）" → "商談数"). Longest keys win at scan time. */
+function buildPremiseNameIndex(rows: readonly PremiseRow[]): Map<string, PremiseRow> {
+  const entries: [string, PremiseRow][] = [];
+  for (const row of rows) {
+    if (!row.value) continue;
+    entries.push([row.name, row]);
+    const stripped = row.name.replace(/[（(][^）)]*[）)]$/, "").trim();
+    if (stripped && stripped !== row.name) entries.push([stripped, row]);
+  }
+  entries.sort((a, b) => b[0].length - a[0].length);
+  const index = new Map<string, PremiseRow>();
+  for (const [key, row] of entries) if (!index.has(key)) index.set(key, row);
+  return index;
+}
+
+/** Scans a basis cell that names its operands ("商談目標 ÷ 0.30",
+ * "受注目標 ÷ 商談→受注 コンバージョン率 (0.5)") into an evaluable
+ * expression. A parenthesised group counts only when its content is a
+ * self-contained numeric expression. An operand that directly follows
+ * another operand is an annotation — the rate restated in parentheses,
+ * or the worked example "(200 ÷ 0.5)" — never a second operand, and an
+ * operator counts only between operands. */
+function scanPremiseBasis(basis: string, nameIndex: Map<string, PremiseRow>): EvaluatedExpression | null {
+  const items: ExpressionToken[] = [];
+  let i = 0;
+  while (i < basis.length) {
+    const ch = basis[i];
+    if (ch === " " || ch === "　" || ch === "\t") { i += 1; continue; }
+    if (ch === "(" || ch === "（") {
+      let depth = 0;
+      let j = i;
+      for (; j < basis.length; j += 1) {
+        if (basis[j] === "(" || basis[j] === "（") depth += 1;
+        else if (basis[j] === ")" || basis[j] === "）") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      if (j >= basis.length) return null;
+      const inner = evaluatePureNumericExpression(basis.slice(i + 1, j));
+      if (inner) items.push({ type: "num", value: inner.value, dimension: inner.dimension });
+      i = j + 1;
+      continue;
+    }
+    if (ch === "×" || ch === "✕" || ch === "*") { items.push({ type: "op", op: "×" }); i += 1; continue; }
+    if (ch === "÷") { items.push({ type: "op", op: "÷" }); i += 1; continue; }
+    if (ch === "+") { items.push({ type: "op", op: "+" }); i += 1; continue; }
+    if (ch >= "0" && ch <= "9") {
+      const number = readExpressionNumber(basis, i);
+      if (!number) return null;
+      items.push({ type: "num", value: number.value, dimension: number.dimension });
+      i += number.length;
+      continue;
+    }
+    let matched = false;
+    for (const [name, row] of nameIndex) {
+      if (row.value && basis.startsWith(name, i)) {
+        items.push({ type: "num", value: row.value.value, dimension: row.value.dimension });
+        i += name.length;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) i += 1;
+  }
+  const reduced: ExpressionToken[] = [];
+  for (const item of items) {
+    const last = reduced[reduced.length - 1];
+    if (item.type === "op") {
+      if (last && last.type === "num") reduced.push(item);
+    } else if (item.type === "num") {
+      if (!last || last.type === "op") reduced.push(item);
+    }
+  }
+  if (reduced.length > 0 && reduced[reduced.length - 1].type === "op") reduced.pop();
+  if (!reduced.some((item) => item.type === "op")) return null;
+  return evaluateExpressionTokens(reduced);
+}
+
+/** The arithmetic a row's basis states, when it states any: a literal
+ * formula written after "=" ("… = 3,400 ÷ 0.02") wins; otherwise the
+ * basis is scanned for named operands. A bare number after "=" is the
+ * result restated, not a formula, and is skipped. */
+function evaluatePremiseBasis(row: PremiseRow, nameIndex: Map<string, PremiseRow>): EvaluatedExpression | null {
+  const basis = row.basis;
+  if (!basis || basis === "-") return null;
+  if (/[=＝]/.test(basis)) {
+    for (const segment of basis.split(/[=＝]/).slice(1)) {
+      const trimmed = segment.trim();
+      if (!/\d/.test(trimmed) || !/[×÷+*/]/.test(trimmed)) continue;
+      const evaluated = evaluatePureNumericExpression(trimmed);
+      if (evaluated) return evaluated;
+    }
+  }
+  return scanPremiseBasis(basis, nameIndex);
+}
+
+function checkPremiseFormulas(
+  rows: readonly PremiseRow[],
+  nameIndex: Map<string, PremiseRow>,
+  violations: OriginBusinessPlanningAuditViolation[],
+): number {
+  let checked = 0;
+  for (const row of rows) {
+    if (!row.value) continue;
+    const evaluated = evaluatePremiseBasis(row, nameIndex);
+    if (!evaluated) continue;
+    checked += 1;
+    // A formula written without units is denominated in the value
+    // cell's own unit, so it is compared with the figure as written;
+    // a dimensioned formula is compared after unit normalisation.
+    const stated = evaluated.dimension === "plain" ? row.value.raw : row.value.value;
+    const statedToken: NumToken = { value: row.value.value, dimension: row.value.dimension, start: 0, end: 0 };
+    const agrees =
+      evaluated.dimension === "plain"
+        ? numbersAgree(evaluated.value, stated)
+        : formulaResultsAgree(evaluated.value, stated, statedToken);
+    if (!agrees) {
+      violations.push({
+        code: "PREMISE_FORMULA_MISMATCH",
+        detail: { computed: roundForDetail(evaluated.value), stated: roundForDetail(stated), dimension: evaluated.dimension },
+      });
+    }
+  }
+  return checked;
+}
+
+// --- Input-fact fidelity ----------------------------------------------------
+
+function checkPremiseInputFacts(
+  rows: readonly PremiseRow[],
+  requestText: string,
+  violations: OriginBusinessPlanningAuditViolation[],
+): number {
+  const briefTokens: NumToken[] = [];
+  for (const line of normalizeAuditText(requestText).split("\n")) briefTokens.push(...tokenizeLine(line));
+  let checked = 0;
+  for (const row of rows) {
+    if (row.kindClass !== "input" || !row.value) continue;
+    checked += 1;
+    const stated = row.value;
+    const compatible = briefTokens.filter(
+      (token) => stated.dimension === token.dimension || stated.dimension === "plain" || token.dimension === "plain",
+    );
+    if (compatible.some((token) => numbersAgree(stated.value, token.value))) continue;
+    // A digit slip (10x / 1/10 against a figure the request did state)
+    // is the round-5 BP-5 shape; it is reported with the brief's own
+    // figure so the shadow log shows the size of the slip.
+    const shifted = compatible.find((token) => {
+      if (token.value === 0) return false;
+      const ratio = stated.value / token.value;
+      return numbersAgree(ratio, 10) || numbersAgree(ratio, 0.1);
+    });
+    if (shifted) {
+      violations.push({
+        code: "PREMISE_INPUT_FACT_MISMATCH",
+        detail: {
+          stated: roundForDetail(stated.value),
+          briefValue: roundForDetail(shifted.value),
+          factor: roundForDetail(stated.value / shifted.value),
+          dimension: stated.dimension,
+        },
+      });
+    } else {
+      violations.push({
+        code: "PREMISE_INPUT_FACT_MISMATCH",
+        detail: { stated: roundForDetail(stated.value), dimension: stated.dimension },
+      });
+    }
+  }
+  return checked;
+}
+
+// --- Estimate vs goal -------------------------------------------------------
+
+function checkPremiseEstimateGoal(
+  rows: readonly PremiseRow[],
+  violations: OriginBusinessPlanningAuditViolation[],
+): number {
+  const markets = rows.filter(
+    (row) =>
+      row.value?.dimension === "yen" &&
+      row.name.includes("市場規模") &&
+      (row.kindClass === "estimate" || row.name.includes("推定")),
+  );
+  const goals = rows.filter(
+    (row) =>
+      row.value?.dimension === "yen" &&
+      row.name.includes("売上") &&
+      (row.name.includes("目標") || row.name.includes("ゴール")) &&
+      row.kindClass !== "estimate",
+  );
+  let checked = 0;
+  for (const market of markets) {
+    for (const goal of goals) {
+      if (!market.value || !goal.value) continue;
+      checked += 1;
+      if (goal.value.value > market.value.value && !numbersAgree(goal.value.value, market.value.value)) {
+        violations.push({
+          code: "PREMISE_ESTIMATE_GOAL_MISMATCH",
+          detail: {
+            marketEstimate: roundForDetail(market.value.value),
+            goalAmount: roundForDetail(goal.value.value),
+          },
+        });
+      }
+    }
+  }
+  return checked;
+}
+
+function checkPremiseTable(
+  lines: readonly string[],
+  requestText: string | undefined,
+  violations: OriginBusinessPlanningAuditViolation[],
+): { formulas: number; inputFacts: number; estimateGoals: number } {
+  const rows = parsePremiseRows(lines);
+  if (rows.length === 0) return { formulas: 0, inputFacts: 0, estimateGoals: 0 };
+  const nameIndex = buildPremiseNameIndex(rows);
+  return {
+    formulas: checkPremiseFormulas(rows, nameIndex, violations),
+    inputFacts: requestText ? checkPremiseInputFacts(rows, requestText, violations) : 0,
+    estimateGoals: checkPremiseEstimateGoal(rows, violations),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Entry points.
 // ---------------------------------------------------------------------------
 
 export function auditOriginBusinessPlanningAnswer(
   profile: OriginBusinessPlanningProfile,
   answerText: string,
-  options?: { now?: Date },
+  options?: { now?: Date; requestText?: string },
 ): OriginBusinessPlanningAuditResult {
   const text = normalizeAuditText(answerText);
   const lines = text.split("\n");
@@ -813,6 +1313,7 @@ export function auditOriginBusinessPlanningAnswer(
   const shares = checkPopulationShares(text, violations);
   const currencyMixes = checkCurrencyMix(text, violations);
   const deadlineDates = options?.now ? checkPastDeadlines(lines, options.now, violations) : 0;
+  const premise = checkPremiseTable(lines, options?.requestText, violations);
   const parts = checkParts(profile.kind, text, violations);
   return {
     kind: profile.kind,
@@ -825,6 +1326,9 @@ export function auditOriginBusinessPlanningAnswer(
       shares,
       currencyMixes,
       deadlineDates,
+      premiseFormulas: premise.formulas,
+      premiseInputFacts: premise.inputFacts,
+      premiseEstimateGoals: premise.estimateGoals,
       partsPresent: parts.present,
       partsRequired: parts.required,
     },
@@ -865,12 +1369,15 @@ export function logOriginBusinessPlanningAuditShadow(input: {
   requestId: string;
   profile: OriginBusinessPlanningProfile | null;
   answerText: string;
+  requestText?: string;
   logger?: (message: string, fields: Record<string, unknown>) => void;
 }): OriginBusinessPlanningAuditResult | null {
   if (!input.profile) return null;
   const logger = input.logger ?? ((message, fields) => console.info(message, fields));
   try {
-    const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText);
+    const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText, {
+      requestText: input.requestText,
+    });
     emitOriginBusinessPlanningAuditShadowLog(logger, input.requestId, result);
     return result;
   } catch (error) {
@@ -1064,6 +1571,9 @@ const NUMERIC_VIOLATION_CODES: readonly OriginBusinessPlanningAuditViolationCode
   "BREAKDOWN_SUM_MISMATCH",
   "FUNNEL_RATE_MISMATCH",
   "POPULATION_SHARE_MISMATCH",
+  "PREMISE_FORMULA_MISMATCH",
+  "PREMISE_INPUT_FACT_MISMATCH",
+  "PREMISE_ESTIMATE_GOAL_MISMATCH",
 ];
 
 function buildAuditDisclosureNote(
@@ -1193,6 +1703,7 @@ export function applyOriginBusinessPlanningAuditGate(input: {
   requestId: string;
   profile: OriginBusinessPlanningProfile | null;
   answerText: string;
+  requestText?: string;
   env?: NodeJS.ProcessEnv;
   now?: Date;
   language?: "ja" | "en";
@@ -1210,7 +1721,10 @@ export function applyOriginBusinessPlanningAuditGate(input: {
   if (!input.profile) return unchanged;
   const logger = input.logger ?? ((message, fields) => console.info(message, fields));
   try {
-    const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText, { now: input.now });
+    const result = auditOriginBusinessPlanningAnswer(input.profile, input.answerText, {
+      now: input.now,
+      requestText: input.requestText,
+    });
     if (mode === "shadow") {
       emitOriginBusinessPlanningAuditShadowLog(logger, input.requestId, result);
       return { ...unchanged, result, remainingViolations: result.violations };
@@ -1221,7 +1735,10 @@ export function applyOriginBusinessPlanningAuditGate(input: {
     const candidates = findFormulaFixCandidates(input.answerText, result.violations);
     if (candidates.length > 0) {
       const fixedText = applyFormulaFixCandidates(input.answerText, candidates);
-      const after = auditOriginBusinessPlanningAnswer(input.profile, fixedText, { now: input.now });
+      const after = auditOriginBusinessPlanningAnswer(input.profile, fixedText, {
+        now: input.now,
+        requestText: input.requestText,
+      });
       if (formulaFixesAreSafe(result.violations, candidates, after.violations)) {
         answerText = fixedText;
         remaining = after.violations;
