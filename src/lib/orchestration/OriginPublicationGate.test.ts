@@ -31,6 +31,21 @@ describe("detectOriginPublicationClaims — claim shapes", () => {
     expect(kindCount("この教室の定員は40人です。", "statutory-capacity")).toBe(1);
   });
 
+  it("detects the P-02 wording: bare 議員 keyword and 人 unit (G1)", () => {
+    // The exact delivered text of expansion run P-02 run3. Before G1 it
+    // matched neither pattern: no 数 keyword for the keyword pattern and
+    // no 名／議席 unit for the institution-anchor pattern. Both patterns
+    // now reach it; their overlapping spans merge into one claim.
+    expect(kindCount("参議院の議員は242人です。", "statutory-capacity")).toBe(1);
+    // Each widened pattern also reaches the shape on its own.
+    expect(kindCount("議員は242人です。", "statutory-capacity")).toBe(1);
+    expect(kindCount("参議院は248人です。", "statutory-capacity")).toBe(1);
+    expect(kindCount("委員会の委員は12人です。", "statutory-capacity")).toBe(1);
+    // The gate stops unverified assertions, not wrong ones: the correct
+    // current figure fires in exactly the same way.
+    expect(kindCount("参議院の議員は248人です。", "statutory-capacity")).toBe(1);
+  });
+
   it("detects age conditions and merges overlapping spans", () => {
     // 満20歳 and 20歳以上 overlap; they are one claim, counted once.
     expect(kindCount("10年用は満20歳以上で取得できます。", "age-condition")).toBe(1);

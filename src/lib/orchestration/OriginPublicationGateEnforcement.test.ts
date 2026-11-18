@@ -61,6 +61,7 @@ describe("publicationGateFiringKinds", () => {
   it("fires per evidence-required kind, and never on amount-fee alone", () => {
     const cases: [string, string[]][] = [
       ["参議院の定数は245名です。", ["statutory-capacity"]],
+      ["参議院の議員は242人です。", ["statutory-capacity"]],
       ["この制度は満65歳から利用できます。", ["age-condition"]],
       ["この制度は2024年4月1日に施行されました。", ["law-enforcement"]],
       ["現在の首相は石破茂です。", ["position-status"]],
