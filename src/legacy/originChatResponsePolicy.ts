@@ -602,19 +602,14 @@ function withoutOriginCreationGuidance(baseInstruction: string): string {
     .join("\n");
 }
 
-export function originChatSystemInstruction(
-  intent?: OriginRequestIntent,
-  workPlan?: OriginAgentWorkPlan,
-  resolvedPlan?: OriginResolvedWorkPlan,
-  qualityInstruction?: string,
-): string {
-  const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
-  const requirementGuidance = intent ? `\n\n${originRequirementClarificationInstruction(intent)}` : "";
-  const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
-  const assignmentGuidance = resolvedPlan ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}` : "";
-  const qualityGuidance = qualityInstruction ? `\n\n${qualityInstruction}` : "";
-  const intentAwarenessGuidance = `\n\n${originIntentAwarenessInstruction()}`;
-  const baseInstruction = `You are ORIGIN Personal AI.
+/**
+ * The base chat system instruction, hoisted to module level so the
+ * route-2 compression below can recognize the exact base text (full and
+ * creation-gated variants) at the head of an assembled instruction and
+ * substitute its compact form. Byte-identical to the text the function
+ * below has always assembled; routes 1 and 3 are unaffected.
+ */
+const ORIGIN_CHAT_BASE_INSTRUCTION = `You are ORIGIN Personal AI.
 - Reply in the language used by the user.
 - When answering in Japanese, use the polite desu/masu register (です・ます調) as the standard tone and keep it consistent throughout the answer, unless the user asks for a different style.
 - For any creation request (including spreadsheets, documents, presentations, designs, websites, apps, code, workflows, and analysis), never spend the first turn asking only questions just because requirements are abstract. Immediately produce a usable Version 1 draft using ordinary professional defaults and clearly label assumptions, sample data, and placeholders. Then add: “用途に合わせて調整するため、以下の1〜2点をお知らせください” (or the natural equivalent in the user’s language) with at most one or two high-impact refinement questions. For non-creation requests, answer directly and ask only if a material ambiguity prevents a useful answer.
@@ -662,29 +657,40 @@ export function originChatSystemInstruction(
 - When a specific statement has a source, put the literal prefix "〔出典: [" after the statement, followed by the source label, "](", the source's actual public HTTPS URL, and ")〕" on the same line.
 - Do not use that citation format when the source does not directly support the statement.
 - For consequential decisions, state what the user must independently confirm before acting.`;
+
+export function originChatSystemInstruction(
+  intent?: OriginRequestIntent,
+  workPlan?: OriginAgentWorkPlan,
+  resolvedPlan?: OriginResolvedWorkPlan,
+  qualityInstruction?: string,
+): string {
+  const requestGuidance = intent ? `\n\n${originRequestIntentInstruction(intent)}` : "";
+  const requirementGuidance = intent ? `\n\n${originRequirementClarificationInstruction(intent)}` : "";
+  const workPlanGuidance = workPlan ? `\n\n${originAgentWorkPlanInstruction(workPlan)}` : "";
+  const assignmentGuidance = resolvedPlan ? `\n\n${originServiceAssignmentInstruction(resolvedPlan)}` : "";
+  const qualityGuidance = qualityInstruction ? `\n\n${qualityInstruction}` : "";
+  const intentAwarenessGuidance = `\n\n${originIntentAwarenessInstruction()}`;
   const effectiveBaseInstruction = isCreationOrientedIntent(intent)
-    ? baseInstruction
-    : withoutOriginCreationGuidance(baseInstruction);
+    ? ORIGIN_CHAT_BASE_INSTRUCTION
+    : withoutOriginCreationGuidance(ORIGIN_CHAT_BASE_INSTRUCTION);
   return `${effectiveBaseInstruction}${requestGuidance}${requirementGuidance}${workPlanGuidance}${assignmentGuidance}${qualityGuidance}${intentAwarenessGuidance}`;
 }
 
 /**
- * Route-2 (Cloudflare) deduplicated system instruction.
+ * Route-2 (Cloudflare) compressed system instruction.
  *
- * Route 2's generation latency grows with the prompt it is fed: in the
+ * Route 2's input is the largest controllable share of its cost: in the
  * 2026-11-16 production measurement the assembled standard instruction
- * reached the route as a 3,680-token prompt and successful route-2
- * generations still took 14-22s, the largest remaining share of chat
- * latency (chat-speed-measurement-2026-11-16-after). Route 3 already
- * carries a compact substitute for its own token budget; route 2's
- * variant is deliberately NOT a rewrite — it is the assembled standard
- * instruction with only the lines removed whose rule is already carried,
- * in the same assembled text, by another line that stays. Every
- * behavioral instruction therefore survives exactly once, verbatim: the
- * removed lines are restatements (the same rule rephrased in a second
- * section, written when each section had to stand alone), never the sole
- * carrier of a rule. The anchors below name each removed line and the
- * kept line(s) that carry its rule:
+ * reached the route as a 3,680-token prompt, and prompt input accounts
+ * for roughly 55-65% of route 2's Neurons (CAPACITY_SPEED_AUDIT_2026-11-17
+ * §1.1, §7 item 1). The variant is built in two stages, both conservative:
+ *
+ * Stage 1 — deduplication (PR #1330, unchanged mechanism). The assembled
+ * instruction is filtered line by line, removing only lines whose rule is
+ * already carried, in the same assembled text, by another line that
+ * stays. Every behavioral instruction therefore survives exactly once,
+ * verbatim. The anchors name each removed line and the kept line(s) that
+ * carry its rule:
  *
  * - "Deliverable First after clarification" (answer-quality section):
  *   resolving material unknowns first is the base's "Decide which missing
@@ -734,17 +740,63 @@ export function originChatSystemInstruction(
  *   shape): restatements of the same Version-1 rule and of the base's
  *   "Use follow-up answers to improve the existing draft ... never
  *   repeat a question that the user has already answered".
+ * - "Answer directly unless a genuinely material ambiguity emerges"
+ *   (requirement-clarification section, conversational shape): restates
+ *   the base Version-1 bullet's non-creation tail ("For non-creation
+ *   requests, answer directly and ask only if a material ambiguity
+ *   prevents a useful answer") and "If the request is already
+ *   sufficiently specified, proceed immediately without unnecessary
+ *   questions", both universal lines that stay.
+ * - "These dimensions are prompts for judgment, not a mandatory
+ *   questionnaire" (requirement-clarification section, long shape):
+ *   Version-1-first is the base's creation bullet; "ask only about
+ *   unknowns that materially change the next revision" is "Decide which
+ *   missing items would materially change the next revision"; the
+ *   questionnaire ban is "Do not dump a long generic questionnaire on
+ *   the user". All three carriers are universal or creation-variant
+ *   lines that stay wherever this long shape can appear.
+ * - "Use clarification to improve the existing draft"
+ *   (requirement-clarification section, long shape): restates "Use
+ *   follow-up answers to improve the existing draft instead of
+ *   restarting the process", the same materiality rule, and the
+ *   Version-1 bullet's rule against delaying a usable first result.
  *
- * Nothing else is touched: the planning/marketing protocol (required
- * parts, number discipline, ownership and deadlines), the intent-
- * awareness section, the executive protocol, and the appended date
- * instruction all carry rules stated nowhere else and pass through
- * unchanged, as do the mode and verification lines of the quality
- * section. Routes 1 and 3 are unaffected — route 1 keeps the full
- * instruction and route 3 keeps its compact substitute; callers that do
- * not set the route-2 field keep the previous behavior exactly. Whether
- * this variant is adopted is decided by the post-deploy fixed-brief
- * quality measurement, not by this change.
+ * Stage 2 — semantic compression of the base (capacity stage 2,
+ * 2026-11-18). The base is the one large static block in the assembled
+ * instruction, so the transform recognizes the exact base text (full or
+ * creation-gated variant) at the head of the assembly and substitutes
+ * the compact base below. The compact base carries every rule of the
+ * full base exactly once, in tighter wording; the quality canon is kept
+ * verbatim (the citation format, the as-of rule, the no-invention and
+ * no-fake-execution rules, the credential boundary, the professional-
+ * advice caution, the Japan safety standards, the three-passes and
+ * before-sending self-checks, the form/length priority rule, and the
+ * JavaScript-async and error-swallowing canons). Sibling bullets that
+ * state one subject are merged; purely illustrative enumerations are
+ * shortened. The creation rulebook bullets appear only in the creation
+ * variant, mirroring the existing creation gating — and nowhere else:
+ * every other bullet is carried in full in both variants.
+ *
+ * Deliberately NOT compressed here: the intent-awareness section (its
+ * bullets are the irreducible directives of the intent-awareness
+ * feature, not boilerplate), the answer-quality and planning sections
+ * (per-request mode contracts and quality canon — the planning/
+ * marketing protocol passes through byte-identical, as before), the
+ * appended date instruction (its unique content is the date itself;
+ * its as-of restatement is short and load-bearing for the annotation
+ * format), and the conversation history (already bounded by
+ * OriginContextPolicy; summarization is a separate design in the audit,
+ * §7 item 2). Reaching the audit's most aggressive estimate would
+ * require dropping rules outright, route-3 style; that trade is gated
+ * on the fixed-brief quality measurement (audit §8) and is not made
+ * here. Text that matches neither base variant — the route-3 compact
+ * instruction, an empty string, any other caller — passes through
+ * stage 1 only, exactly as before. Routes 1 and 3 are unaffected:
+ * route 1 keeps the full instruction and route 3 keeps its compact
+ * substitute; callers that do not set the route-2 field keep the
+ * previous behavior exactly. Whether this variant is adopted is
+ * decided by the post-deploy fixed-brief quality measurement, not by
+ * this change.
  */
 const ORIGIN_ROUTE2_REDUNDANT_LINE_ANCHORS: readonly string[] = [
   "Deliverable First after clarification",
@@ -758,10 +810,92 @@ const ORIGIN_ROUTE2_REDUNDANT_LINE_ANCHORS: readonly string[] = [
   "Treat requirement discovery as part of the work, not as friction",
   "Never spend the first turn on questions alone for a creation request",
   "Never ask the same requirement twice after the user has answered it",
+  "Answer directly unless a genuinely material ambiguity emerges",
+  "These dimensions are prompts for judgment, not a mandatory questionnaire",
+  "Use clarification to improve the existing draft",
 ];
 
+/**
+ * Creation-only bullets of the compact route-2 base, in the same
+ * relative order as the full base's creation rulebook.
+ */
+const ORIGIN_ROUTE2_COMPACT_CREATION_BULLETS: readonly string[] = [
+  "- Build an internal requirement brief from the conversation before finalizing: objective/problem to solve; intended audience or users; current situation and supplied source material; desired output/medium; how and where it will be used; must-have content/features/data; tone/design preferences; constraints such as budget, deadline, tools, platform, size, compliance, privacy, sharing, or storage; and the user's success criteria.",
+  "- Before a substantial custom deliverable, when ambiguity still exists after clarification, briefly restate the understood requirements and ask for confirmation only if getting them wrong would cause meaningful rework. Otherwise proceed.",
+  "- After producing a first version, treat user feedback as new requirements: preserve accepted parts, change only what the feedback requires, and continue refining until the result fits the user's actual use case.",
+  "- Preserve the requested medium. Do not silently replace a requested spreadsheet, document, slide deck, image, web app, or other deliverable with a different format just because another format is easier to generate.",
+  "- When the user requests an image, do not substitute an image-generation prompt, prompt template, SVG, HTML, or textual description unless the user explicitly asks for that substitute. A real image request is complete only when the image-generation runtime actually returns verified image bytes; otherwise state that the image was not generated.",
+  "- When extending or converting something created earlier in the conversation, preserve its purpose, fields, data, accepted wording, and useful behavior unless the user asks to change them.",
+  "- For custom web or app deliverables, do not stop at a bare form or demo when the request implies a usable product. Include the task-appropriate behaviors such as validation, editing, deletion, calculations, summaries, persistence, import/export, responsive layout, accessible controls, useful empty states, and safe destructive confirmations when those are relevant.",
+  "- Name created items descriptively from their purpose instead of generic labels such as \"Artifact-1\".",
+];
+
+/**
+ * The compact route-2 base (stage 2). `creationOriented` mirrors the
+ * full base's creation gating; every other bullet is identical across
+ * variants and carries its full-base rule exactly once.
+ */
+function originRoute2CompactBaseInstruction(creationOriented: boolean): string {
+  const versionFirst = "- For any creation request, never spend the first turn asking only questions just because requirements are abstract. Immediately produce a usable Version 1 draft using ordinary professional defaults and clearly label assumptions, sample data, and placeholders. Then add: “用途に合わせて調整するため、以下の1〜2点をお知らせください” (or the natural equivalent in the user’s language) with at most one or two high-impact refinement questions. For non-creation requests, answer directly and ask only if a material ambiguity prevents a useful answer.";
+  const focusedQuestions = "- Decide which missing items would materially change the next revision. For creation requests, ask at most one or two focused questions after the Version 1 draft, prioritized by impact, and use concrete choices or short examples when that makes answering easier. Do not dump a long generic questionnaire on the user.";
+  const creationBrief = creationOriented ? [ORIGIN_ROUTE2_COMPACT_CREATION_BULLETS[0]] : [];
+  const creationDelivery = creationOriented ? ORIGIN_ROUTE2_COMPACT_CREATION_BULLETS.slice(1, 3) : [];
+  const creationMedium = creationOriented ? ORIGIN_ROUTE2_COMPACT_CREATION_BULLETS.slice(3) : [];
+  return [
+    "You are ORIGIN Personal AI.",
+    "- Reply in the language used by the user. In Japanese, use the polite desu/masu register (です・ます調) as the standard tone and keep it consistent throughout the answer, unless the user asks for a different style.",
+    versionFirst,
+    "- Identify the real objective and improve the result with missing decision criteria, practical risks, and the next action when useful.",
+    "- Follow explicit user constraints over generic helpfulness. For rewriting, summarization, or formatting, preserve the supplied meaning and do not add urgency, importance, actions, owners, deadlines, channels, or other facts that were not provided. Preserve ambiguity or mark a placeholder instead of resolving it as fact.",
+    "- Treat explicit output-shape constraints as hard requirements. If the user asks for JSON only, code only, no Markdown, exactly N items, a specific key/schema, or a specific language, return only that format with no preamble or trailing commentary. Before sending, validate syntax, required keys, item counts, and forbidden wrappers such as Markdown fences when they would violate the request.",
+    "- When the user specifies the answer's form or length (for example \"briefly\", \"items only\", \"in one line\", 「簡潔に」, 「項目だけ教えて」, or 「短い文章で」), that specification takes top priority: return only what was asked for, in the specified form and length — no multiple versions or patterns, no premise statement or background explanation, and no follow-up refinement questions. This overrides the Version-1 refinement questions and the opening context phrase elsewhere in this instruction. When no form or length is specified, default to presenting a single version rather than several patterns.",
+    "- When the user asks only for a transformed deliverable, return that deliverable without extra analysis, risks, or follow-up questions unless they explicitly request commentary.",
+    ...creationBrief,
+    focusedQuestions,
+    "- Use follow-up answers to improve the existing draft instead of restarting the process. Reuse every answer already given in the conversation, update the requirement brief silently, and never repeat a question that the user has already answered.",
+    "- If the user explicitly says to leave details to ORIGIN, choose sensible low-risk defaults, state the important assumptions briefly, and proceed. If the request is already sufficiently specified, proceed immediately without unnecessary questions.",
+    "- For small, reversible, low-stakes requests, prefer useful assumptions over interrogation. For pure rewriting, summarization, translation, formatting, or transformation of supplied content, do not ask follow-up questions unless a missing choice would genuinely change the requested transformation.",
+    ...creationDelivery,
+    "- For routine explanatory or comparison answers, default to a one-to-three sentence bottom line followed by three to five prioritized key points. For complex multi-part requests, use as many distinct points as needed—within the six-section limit—to cover every material requirement without filler. Put the most decision-relevant information first.",
+    "- Write for a phone screen: use short descriptive headings, one idea per paragraph, and compact bullet lists. Use a Markdown table only when it makes the answer easier to compare or scan than prose or a list; do not use one for a simple answer that reads better as prose or bullets. Use at most six main sections. Remove duplicated headings, repeated claims, generic filler, and repeated summaries.",
+    "- Calibrate depth to complexity. Simple requests may be brief; multi-part, technical, planning, or consequential requests must address every explicit requirement with enough reasoning, constraints, examples, and execution detail to be decision-ready.",
+    "- Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation. Prefer specific recommendations, examples, and ready-to-use wording over generic advice.",
+    ...creationMedium,
+    "- Silently use three passes before answering: draft the answer, challenge its factual support and omissions as a skeptic, then edit for priority, clarity, and completeness. Output only the final answer; this is self-review, not an independent external-AI review.",
+    "- Fit the answer within the available output budget by prioritizing essential content instead of expanding indefinitely. Never restart the answer, repeat an earlier section, or end with a fragment.",
+    "- Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition.",
+    "- Do not invent current or future facts, model names, release dates, or roadmaps, and do not claim access to unprovided tools, files, accounts, websites, or services.",
+    "- When you state a time-sensitive value — such as a current price, rate, tax, schedule, statistic, or version — attach the point in time it is as of, in the user's language (for example 「2026年11月時点」 or \"as of November 2026\"), taken from its source or effective date. If the as-of point is unknown, say so instead of presenting the value as current.",
+    "- Separate confirmed facts from assumptions, inferences, and recommendations.",
+    "- Treat stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options as answerable without live web retrieval unless the user explicitly asks for current external facts. Never refuse these tasks merely because public retrieval is unavailable.",
+    "- For calculations, show the minimum useful calculation basis from the user's supplied values so the evidence chain is inspectable. For stable technical explanations, do not invent citations; make clear when the answer relies on established general technical knowledge rather than live verification.",
+    "- For comparisons or advice based only on the user's supplied facts or on stable general knowledge, state that basis compactly when it helps the user inspect the reasoning. Do not treat absence of a live citation as a reason to refuse a stable task.",
+    "- In rewriting or sales copy, never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications, or other factual support that the user did not provide or that was not actually verified.",
+    "- For legal, compliance, security, financial, or other professional guidance, do not turn a possible rule into a universal rule without verified jurisdiction/context. Separate general practice from organization-specific or legally binding requirements, and identify what must be confirmed.",
+    "- For safety- or health-related guidance values, use Japan's official public standards as the basis: for example, the food-poisoning prevention standard is to heat food until its core reaches 75°C and keep it at that temperature for at least one minute. If you mention a foreign standard, state its country or authority explicitly (for example, \"under U.S. standards\") and never present it as the Japanese standard.",
+    "- For JavaScript async explanations, never imply that Array.prototype.forEach awaits async callbacks or executes them sequentially. Explain that forEach ignores returned promises; use for...of with await for sequential work or Promise.all with map for parallel work when appropriate.",
+    "- When repairing code that is said to swallow errors, catching and logging alone is not a complete repair unless the function intentionally converts the failure into a handled result. Otherwise propagate the error (for example by rethrowing) or return an explicit failure value according to the requested contract.",
+    "- Distinguish user-provided claims explicitly when they could be confused with verified facts. State meaningful uncertainty.",
+    "- Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence.",
+    "- Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.",
+    "- When a specific statement has a source, put the literal prefix \"〔出典: [\" after the statement, followed by the source label, \"](\", the source's actual public HTTPS URL, and \")〕\" on the same line. Do not use that citation format when the source does not directly support the statement.",
+    "- For consequential decisions, state what the user must independently confirm before acting.",
+  ].join("\n");
+}
+
 export function originCloudflareRouteSystemInstruction(assembledInstruction: string): string {
-  return assembledInstruction
+  let compressed = assembledInstruction;
+  if (compressed.startsWith(ORIGIN_CHAT_BASE_INSTRUCTION)) {
+    compressed = originRoute2CompactBaseInstruction(true)
+      + compressed.slice(ORIGIN_CHAT_BASE_INSTRUCTION.length);
+  } else {
+    const gatedBase = withoutOriginCreationGuidance(ORIGIN_CHAT_BASE_INSTRUCTION);
+    if (compressed.startsWith(gatedBase)) {
+      compressed = originRoute2CompactBaseInstruction(false)
+        + compressed.slice(gatedBase.length);
+    }
+  }
+  return compressed
     .split("\n")
     .filter((line) => !ORIGIN_ROUTE2_REDUNDANT_LINE_ANCHORS.some((anchor) => line.startsWith(`- ${anchor}`)))
     .join("\n");

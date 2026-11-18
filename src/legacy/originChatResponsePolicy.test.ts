@@ -770,7 +770,7 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
   });
 });
 
-describe("originCloudflareRouteSystemInstruction (route-2 deduplicated instruction)", () => {
+describe("originCloudflareRouteSystemInstruction (route-2 compressed instruction)", () => {
   // Mirrors how both chat routers assemble the routes 1-2 instruction —
   // base + intent, requirement, work-plan, assignment, and quality
   // sections, with the current-date instruction appended — and then derive
@@ -792,9 +792,12 @@ describe("originCloudflareRouteSystemInstruction (route-2 deduplicated instructi
   };
 
   // Lines the route-2 variant removes for every request shape. Each one is
-  // a restatement whose rule stays in the assembled text verbatim (the
-  // kept carriers are pinned by the next test); removing any OTHER line,
-  // or one of these lines losing its kept carrier, must fail loudly here.
+  // a restatement whose rule stays in the variant (the kept carriers are
+  // pinned by the next test); removing any OTHER dynamic-section line, or
+  // one of these lines losing its kept carrier, must fail loudly here.
+  // Since capacity stage 2 the variant additionally substitutes a compact
+  // base for the full base text; the base region is therefore checked by
+  // the rule-preservation test below instead of line identity.
   const REDUNDANT_LINES_ALWAYS = [
     "- Do not say that an agent, specialist, tool, search, service, or artifact was used unless the execution record proves it.",
     "- Never present an uncreated file, uncalled service, unverified search, or unexecuted review as completed.",
@@ -811,6 +814,13 @@ describe("originCloudflareRouteSystemInstruction (route-2 deduplicated instructi
     "- Treat requirement discovery as part of the work, not as friction, but it must not delay a useful first result. For custom creations, produce a working Version 1 first using low-risk defaults, mark assumptions and sample data, then request only one or two refinements. Do not make a question-only first turn.",
     "- Never spend the first turn on questions alone for a creation request. After the first draft, ask at most one or two focused questions, ordered by impact. Prefer concrete choices or examples when that reduces user effort.",
     "- Never ask the same requirement twice after the user has answered it. Carry accepted requirements forward into later turns and into the final deliverable.",
+    "- These dimensions are prompts for judgment, not a mandatory questionnaire. For creation requests, produce a usable Version 1 first with low-risk defaults; ask only about unknowns that materially change the next revision.",
+    "- Use clarification to improve the existing draft. Continue only while material uncertainty remains; do not delay an initial usable result while waiting for complete requirements.",
+  ];
+  // Restatement that only exists in the plain conversational assembly
+  // (the requirement section's short form).
+  const REDUNDANT_LINES_CONVERSATIONAL = [
+    "- Answer directly unless a genuinely material ambiguity emerges.",
   ];
 
   const countLines = (text: string) => {
@@ -819,22 +829,98 @@ describe("originCloudflareRouteSystemInstruction (route-2 deduplicated instructi
     return counts;
   };
 
-  it("removes exactly the redundant restatements for a plain conversational request, and nothing else", () => {
+  // The base's last line; everything after it in an assembly is dynamic
+  // per-request content (intent, requirement, work-plan, assignment,
+  // quality, and awareness sections plus the date instruction).
+  const BASE_TAIL_MARKER = "- For consequential decisions, state what the user must independently confirm before acting.";
+  const tailOf = (text: string) => text.slice(text.indexOf(BASE_TAIL_MARKER) + BASE_TAIL_MARKER.length);
+
+  it("removes the redundant restatements and leaves every dynamic-section line untouched (conversational)", () => {
     const full = assemble("1から100までの素数をすべて教えてください。", "review");
     const variant = originCloudflareRouteSystemInstruction(full);
-    for (const line of REDUNDANT_LINES_ALWAYS) {
+    const redundant = [...REDUNDANT_LINES_ALWAYS, ...REDUNDANT_LINES_CONVERSATIONAL];
+    for (const line of redundant) {
       expect(full.split(line).length - 1).toBe(1);
       expect(variant).not.toContain(line);
     }
-    // Removal only: every surviving line is a line of the full instruction,
-    // with multiplicities preserved, and the line count drops by exactly
-    // the number of removed restatements.
-    const fullCounts = countLines(full);
-    for (const [line, count] of countLines(variant)) {
-      expect(count).toBeLessThanOrEqual(fullCounts.get(line) ?? 0);
-    }
-    expect(full.split("\n").length - variant.split("\n").length).toBe(REDUNDANT_LINES_ALWAYS.length);
+    // The dynamic tail survives byte-identically except for the removed
+    // restatements: compression never rewrites per-request content.
+    const expectedTail = tailOf(full)
+      .split("\n")
+      .filter((line) => !redundant.includes(line))
+      .join("\n");
+    expect(tailOf(variant)).toBe(expectedTail);
+    expect(variant.startsWith("You are ORIGIN Personal AI.")).toBe(true);
     expect(full.length - variant.length).toBeGreaterThanOrEqual(1_400);
+  });
+
+  it("carries every base rule in the compact variant, with the creation rulebook gated as in the full base", () => {
+    const conversational = originCloudflareRouteSystemInstruction(assemble("1から100までの素数をすべて教えてください。", "review"));
+    const creation = originCloudflareRouteSystemInstruction(assemble("新商品の企画書を作ってください。", "documentation"));
+    // One phrase per rule of the full base: if compression ever drops or
+    // weakens a rule, the missing phrase fails here. Quality canon
+    // (evidence, verification, wording discipline) is pinned verbatim.
+    for (const phrase of [
+      "Reply in the language used by the user",
+      "polite desu/masu register (です・ます調) as the standard tone",
+      "never spend the first turn asking only questions",
+      "用途に合わせて調整するため、以下の1〜2点をお知らせください",
+      "Identify the real objective and improve the result with missing decision criteria",
+      "Follow explicit user constraints over generic helpfulness",
+      "Preserve ambiguity or mark a placeholder instead of resolving it as fact",
+      "Treat explicit output-shape constraints as hard requirements",
+      "that specification takes top priority",
+      "When the user asks only for a transformed deliverable, return that deliverable without extra analysis",
+      "Decide which missing items would materially change the next revision",
+      "Do not dump a long generic questionnaire on the user",
+      "Use follow-up answers to improve the existing draft instead of restarting the process",
+      "never repeat a question that the user has already answered",
+      "choose sensible low-risk defaults, state the important assumptions briefly, and proceed",
+      "prefer useful assumptions over interrogation",
+      "default to a one-to-three sentence bottom line followed by three to five prioritized key points",
+      "Write for a phone screen",
+      "Use at most six main sections",
+      "Calibrate depth to complexity. Simple requests may be brief",
+      "Use professional, domain-appropriate language. Do not oversimplify important nuance unless the user asks for a beginner explanation.",
+      "Prefer specific recommendations, examples, and ready-to-use wording over generic advice",
+      "Silently use three passes before answering",
+      "Fit the answer within the available output budget",
+      "Before sending, silently check goal fit, completeness, internal consistency, usability, factual support, mobile readability, and unnecessary repetition",
+      "Do not invent current or future facts, model names, release dates, or roadmaps",
+      "attach the point in time it is as of",
+      "Separate confirmed facts from assumptions, inferences, and recommendations",
+      "answerable without live web retrieval unless the user explicitly asks for current external facts",
+      "show the minimum useful calculation basis from the user's supplied values",
+      "state that basis compactly when it helps the user inspect the reasoning",
+      "never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications",
+      "do not turn a possible rule into a universal rule without verified jurisdiction/context",
+      "core reaches 75°C",
+      "Array.prototype.forEach awaits async callbacks",
+      "catching and logging alone is not a complete repair",
+      "Distinguish user-provided claims explicitly when they could be confused with verified facts",
+      "Do not claim code, deployment, purchase, configuration, search, file creation, specialist review, or other execution without evidence",
+      "Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys",
+      "〔出典: [",
+      "For consequential decisions, state what the user must independently confirm before acting",
+    ]) {
+      expect(conversational).toContain(phrase);
+      expect(creation).toContain(phrase);
+    }
+    // The creation rulebook is present in the creation variant and gated
+    // out of the conversational one, exactly as in the full instruction.
+    for (const phrase of [
+      "Build an internal requirement brief from the conversation before finalizing",
+      "ask for confirmation only if getting them wrong would cause meaningful rework",
+      "After producing a first version, treat user feedback as new requirements",
+      "Preserve the requested medium",
+      "When the user requests an image, do not substitute an image-generation prompt",
+      "preserve its purpose, fields, data, accepted wording, and useful behavior",
+      "do not stop at a bare form or demo when the request implies a usable product",
+      "Name created items descriptively from their purpose",
+    ]) {
+      expect(creation).toContain(phrase);
+      expect(conversational).not.toContain(phrase);
+    }
   });
 
   it("keeps the carrier line of every removed restatement, and the behavioral core, exactly once", () => {
