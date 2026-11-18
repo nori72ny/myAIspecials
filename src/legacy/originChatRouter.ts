@@ -12,6 +12,7 @@ import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { applyOriginBusinessPlanningAuditGate } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { applyOriginPublicationGate } from "../lib/orchestration/OriginPublicationGate.js";
+import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -1104,11 +1105,25 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         now: new Date(now()),
         language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
       });
-      const answerText = auditGate.answerText;
+      // Date/weekday verification: deterministically check the
+      // answer's date+weekday pairs and any relative-date (base ± N
+      // days) result against the calendar. In shadow mode (the
+      // default, ORIGIN_DATE_WEEKDAY_VERIFICATION_MODE) the outcome is
+      // only logged and the text below is delivered as assembled; in
+      // enforce mode the gate returns the re-verified corrected text.
+      const dateGate = applyOriginDateWeekdayVerificationGate({
+        requestId,
+        answerText: auditGate.answerText,
+        requestText: lastUserMessage,
+        env,
+        now: new Date(now()),
+      });
+      const answerText = dateGate.answerText;
       // Publication gate (EXTERNAL_CONSULT_STALE_ADOPTION_2026-11-17
       // adoptions 1–2; enforcement connection N-5b): scan the final
-      // direct answer — after the assertion gate and the numeric audit
-      // gate — for evidence-required claim shapes and check its statute
+      // direct answer — after the assertion gate, the numeric audit
+      // gate and the date/weekday verification — for
+      // evidence-required claim shapes and check its statute
       // names against the bundled e-Gov list. In shadow mode (the
       // default) this is log-only (kinds and counts, never text) and
       // the answer below is delivered exactly as assembled. In enforce
