@@ -36,6 +36,7 @@ import {
   type AgentRunWriteLockStore,
 } from './agentRunWriteLock.js';
 import { agentRunConsumptionReservationExpiresAt, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
+import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
 
 /**
  * The persistent-run execution core (multitask Phase 1, PR 1-B).
@@ -92,14 +93,61 @@ const EXECUTION_RESERVED_PROVIDER = 'origin';
 const EXECUTION_RESERVED_COUNTER = 'execution_reserved';
 const createExecutionId = () => `exec-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-/** Resolves the cross-step dataflow marker at execution time. The approval
- * binding covers the planned params (marker included); resolution is a
- * deterministic local substitution of the previous step's textual artifact. */
-export function resolveStepParams(step: { params: ToolParams }, previousText: string | undefined): { params: ToolParams } | { error: string } {
+/**
+ * The cross-step artifact lookup the dataflow resolution reads: the
+ * most recent textual artifact (`previousText`, the historical shape),
+ * the textual artifact of each completed step by index (`byStep`), and
+ * the raw artifact string of each completed step (`rawByStep`). A bare
+ * string argument is accepted for the historical call shape and means
+ * `{ previousText }`.
+ */
+export type StepArtifactLookup = {
+  previousText?: string;
+  byStep?: ReadonlyMap<number, string>;
+  rawByStep?: ReadonlyMap<number, string>;
+};
+
+/** Resolves the cross-step dataflow markers at execution time. The approval
+ * binding covers the planned params (markers included); resolution is a
+ * deterministic local substitution of an earlier step's artifact.
+ *
+ * Two markers exist (file-input foundation F2, design §3.6):
+ * - `contentFromPreviousArtifact: true` — the most recent textual
+ *   artifact, the original single-source dataflow.
+ * - `contentFromStep: <index>` — the textual artifact of one specific
+ *   earlier step, so a plan with several producers can name exactly
+ *   which output a step consumes (a second deliverable no longer
+ *   receives the first one's content by position alone).
+ * One consumer resolves differently: `attachment_analyzer` chains its
+ * structured bundle from the previous analyzer step, so for that tool
+ * the markers resolve to the RAW artifact string — the bundle JSON —
+ * instead of its rendered `content` field. Every other consumer takes
+ * the rendered text, which is what a document or file step must embed. */
+export function resolveStepParams(
+  step: { toolName?: ToolName; params: ToolParams },
+  artifacts: StepArtifactLookup | string | undefined,
+): { params: ToolParams } | { error: string } {
+  let lookup: StepArtifactLookup;
+  if (artifacts === undefined) lookup = { previousText: undefined };
+  else if (typeof artifacts === 'string') lookup = { previousText: artifacts };
+  else lookup = artifacts;
+  const raw = step.toolName === 'attachment_analyzer';
+  const fromStep = step.params.contentFromStep;
+  if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0) {
+    const content = raw ? lookup.rawByStep?.get(fromStep) : lookup.byStep?.get(fromStep);
+    if (content === undefined) return { error: 'AGENT_STEP_INPUT_UNAVAILABLE' };
+    const { contentFromStep: _from, contentFromPreviousArtifact: _marker, ...rest } = step.params;
+    return { params: { ...rest, content } };
+  }
   if (step.params.contentFromPreviousArtifact !== true) return { params: step.params };
-  if (previousText === undefined) return { error: 'AGENT_STEP_INPUT_UNAVAILABLE' };
+  // The raw bundle form of "the previous artifact" is not defined —
+  // analyzer chains always name their source step — so an analyzer
+  // step carrying only the legacy marker cannot resolve and fails
+  // closed like any other unresolvable input.
+  const content = raw ? undefined : lookup.previousText;
+  if (content === undefined) return { error: 'AGENT_STEP_INPUT_UNAVAILABLE' };
   const { contentFromPreviousArtifact: _marker, ...rest } = step.params;
-  return { params: { ...rest, content: previousText } };
+  return { params: { ...rest, content } };
 }
 
 const TOOL_FAILURE_CODE_PATTERN = /[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+/;
@@ -124,7 +172,7 @@ export function toolFailureCodeFromMessage(message: string | undefined): string 
 
 export function textualArtifactOf(toolName: ToolName, artifact: string): string | undefined {
   if (toolName === 'file_reader') return artifact;
-  if (toolName === 'document_generator') {
+  if (toolName === 'document_generator' || toolName === 'attachment_reader' || toolName === 'attachment_analyzer') {
     try {
       const parsed = JSON.parse(artifact) as { content?: unknown };
       return typeof parsed.content === 'string' ? parsed.content : undefined;
@@ -230,6 +278,12 @@ export interface AgentRunAdvancerDeps {
    * the completion verification may run; without it those steps refuse
    * (fail closed) while read-only steps advance as before. */
   writeLockStore?: AgentRunWriteLockStore;
+  /** Attachment store for the data tools (file-input foundation F2).
+   * When present, the default tool runner binds it — scoped to this
+   * record's owner binding — into the execution context, which is the
+   * only way attachment_reader / attachment_analyzer can reach a file
+   * body. Without it those steps fail closed as unavailable. */
+  attachmentStore?: AgentAttachmentStore;
   toolContext?: ToolExecutionContext;
   runTool?: AgentRunToolRunner;
   verifyArtifact?: AgentRunArtifactVerifier;
@@ -316,7 +370,12 @@ export async function advanceAgentRun(
   const stepsState: AgentRunStepState[] = plan.map((_, index) => stepStateFor(record, index));
   const executionApproval = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
   const runTool: AgentRunToolRunner = deps.runTool
-    ?? ((name, input) => executeToolWithPermission(name, input, executionApproval, deps.toolContext));
+    ?? ((name, input) => executeToolWithPermission(name, input, executionApproval, {
+      ...deps.toolContext,
+      ...(deps.attachmentStore
+        ? { attachments: { store: deps.attachmentStore, ownerBinding: record.ownerBinding } }
+        : {}),
+    }));
   const verifyArtifact: AgentRunArtifactVerifier = deps.verifyArtifact
     ?? ((artifact, toolName, runner, params) => verifyAndSelfFixArtifact(artifact, toolName, runner, params));
   const verifyCompletion = deps.verifyCompletion ?? (() => verifyBeforeReportingCompletion(process.cwd()));
@@ -412,6 +471,15 @@ export async function advanceAgentRun(
   let graph = graphForRecord(record, stepsState);
   const executionId = createExecutionId();
   let previousText: string | undefined;
+  /** Textual artifact per completed step index (for `contentFromStep`)
+   * and the raw artifact strings (for analyzer bundle chaining). Only
+   * steps completed in THIS advance are present; a resumed advance
+   * rebuilds them as it re-walks the plan, and a step whose source
+   * completed in an earlier advance cannot resolve — the same
+   * chunk-boundary discipline that already kept a step and its
+   * consumer inside one advance. */
+  const textualByStep = new Map<number, string>();
+  const rawByStep = new Map<number, string>();
   let finalArtifact: string | undefined;
   const startIndex = stepsState.findIndex((step) => step.status !== 'completed');
 
@@ -425,7 +493,7 @@ export async function advanceAgentRun(
   // back to the queue like other transient driver failures.
   const remainingSteps = startIndex >= 0 ? plan.slice(startIndex) : [];
   const gateEngaged = remainingSteps.some(
-    (step) => agentRunStepQuotaCharge(step.toolName) !== null
+    (step) => agentRunStepQuotaCharge(step.toolName, step.params) !== null
       || agentRunStepCostClass(step.toolName) === 'delegated-job',
   );
   let quotaSnapshot: AgentRunQuotaUsageSnapshot | null = null;
@@ -448,7 +516,9 @@ export async function advanceAgentRun(
       if (index > startIndex) {
         // Chunk boundary: stop between steps when the budget is spent, but
         // never between a step and the step consuming its artifact.
-        const consumesPreviousArtifact = step.params.contentFromPreviousArtifact === true && previousText !== undefined;
+        const consumesPreviousArtifact = (step.params.contentFromPreviousArtifact === true && previousText !== undefined)
+          || (typeof step.params.contentFromStep === 'number'
+            && (textualByStep.has(step.params.contentFromStep) || rawByStep.has(step.params.contentFromStep)));
         if (elapsed > budgetMs && !consumesPreviousArtifact) {
           await releaseWriteLock();
           return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
@@ -476,7 +546,7 @@ export async function advanceAgentRun(
       // consumption is unmeasured — see agentRunQuotaGate.ts). A blocked
       // step is never executed: the run is parked as held at this step
       // boundary with its progress intact (design §8.3 entry 4, §9.4).
-      const stepCharge = agentRunStepQuotaCharge(step.toolName);
+      const stepCharge = agentRunStepQuotaCharge(step.toolName, step.params);
       if (agentRunStepCostClass(step.toolName) === 'delegated-job'
         && delegatedThisAdvance >= AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE) {
         await releaseWriteLock();
@@ -516,7 +586,7 @@ export async function advanceAgentRun(
           return writeLockBusyOutcome();
         }
       }
-      const resolved = resolveStepParams(step, previousText);
+      const resolved = resolveStepParams(step, { previousText, byStep: textualByStep, rawByStep });
       const stepParams = 'params' in resolved ? resolved.params : step.params;
       const stepStartedAt = now();
       const execution = await executeNextTask(graph, async () => {
@@ -591,7 +661,10 @@ export async function advanceAgentRun(
         artifact: executionRecord.artifact,
         mutation: executionRecord.mutation,
       });
-      previousText = textualArtifactOf(step.toolName, executionRecord.artifact) ?? previousText;
+      const stepText = textualArtifactOf(step.toolName, executionRecord.artifact);
+      if (stepText !== undefined) textualByStep.set(index, stepText);
+      rawByStep.set(index, executionRecord.artifact);
+      previousText = stepText ?? previousText;
       finalArtifact = executionRecord.artifact;
     }
   } catch {

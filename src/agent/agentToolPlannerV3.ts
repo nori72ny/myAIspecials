@@ -110,17 +110,29 @@ export type AgentMultiToolPlanV3 =
   | { ok: true; steps: AgentToolStepV3[] }
   | { ok: false; code: 'AGENT_TOOL_SELECTION_AMBIGUOUS'; candidates: ToolName[] };
 
-const MAX_PLAN_STEPS = 4;
+/**
+ * Raised 4 → 6 with the file-input foundation (design §3.6, J7): the
+ * smallest attachment plan — reader + analyzer + one generative step —
+ * plus the steps a goal legitimately combines no longer fits in four.
+ * The record-side ceiling (20) and the 32KiB plan cap are unchanged,
+ * and both the planner and the executor move together so a plan the
+ * planner emits is always executable.
+ */
+const MAX_PLAN_STEPS = 6;
 
 // Sequential execution order: gather context first, produce artifacts next,
 // persist to files after generation, and verify last. This mirrors the
 // dependency direction of the agent task graph (each step may consume the
-// previous step's artifact).
+// previous step's artifact). The attachment steps lead the order: the
+// reader profiles the user's data before anything else runs, and the
+// analyzer's grounded output is what the generative steps consume.
 const CANONICAL_STEP_ORDER: readonly ToolName[] = [
+  'attachment_reader',
   'repository_explorer',
   'file_reader',
   'web_search_grounding',
   'code_interpreter',
+  'attachment_analyzer',
   'document_generator',
   'image_prompt_compiler',
   'file_writer',

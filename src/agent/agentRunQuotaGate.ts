@@ -1,5 +1,6 @@
 import type { AgentRunHold, AgentRunQuotaLedger, AgentRunRecord } from './agentRunRecord.js';
-import type { ToolName } from './toolRegistry.js';
+import type { ToolName, ToolParams } from './toolRegistry.js';
+import { AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP } from './agentAttachmentData.js';
 
 /**
  * Quota gate for durable agent runs (multitask Phase 1, PR 1-D; design
@@ -33,8 +34,20 @@ import type { ToolName } from './toolRegistry.js';
  *   until it is measured.
  * The model providers (OpenRouter, Cloudflare, Groq) are defined below
  * with their confirmed limits so a future `model:<provider>` cost class
- * (design §2.4) plugs into the same gate without new machinery; no
- * current step charges them, because no current step calls them.
+ * (design §2.4) plugs into the same gate without new machinery.
+ *
+ * Update (file-input foundation F2, design AGENT_FILE_INPUT §3.4): the
+ * `model` cost class now exists — `attachment_analyzer` calls the model
+ * once per data chunk and declares the calls against the synthetic
+ * `origin-llm` counter. That counter deliberately has NO window limit
+ * defined below: per-call Neurons accounting belongs to the chat /
+ * image surfaces that own the provider accounts, and inventing a
+ * number here would gate on a guess. The charge is journaled into the
+ * run ledger (so consumption is measured from day one), the gate's
+ * decision for an undefined counter is `allowed`, and the binding
+ * control is the plan-time cap the design prescribes instead — at
+ * most 48 chunks per run, refused at /plan time, never discovered
+ * mid-run.
  *
  * Counter drift (design §8.5, §9.4): ledger-based usage can drift from
  * the providers' own counters (chat shares the same accounts and does
@@ -113,7 +126,7 @@ export const AGENT_RUN_QUOTA_PROVIDERS: Readonly<Record<string, AgentRunQuotaPro
 /** Design §9.3 interim control for unmeasured delegated jobs: serialize. */
 export const AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE = 1;
 
-export type AgentRunStepCostClass = 'local' | 'search' | 'delegated-job';
+export type AgentRunStepCostClass = 'local' | 'search' | 'delegated-job' | 'model';
 
 /** The design §2.4 cost-class declaration for every agent tool. */
 export function agentRunStepCostClass(toolName: ToolName): AgentRunStepCostClass {
@@ -122,6 +135,8 @@ export function agentRunStepCostClass(toolName: ToolName): AgentRunStepCostClass
       return 'search';
     case 'code_interpreter':
       return 'delegated-job';
+    case 'attachment_analyzer':
+      return 'model';
     default:
       return 'local';
   }
@@ -135,13 +150,26 @@ export interface AgentRunQuotaCharge {
 
 /**
  * The numeric charge a step declares against a provider quota, or null
- * when the step declares none. Only `search` declares one today (see the
- * module header for why, and for why `delegated-job` deliberately does
- * not invent a number).
+ * when the step declares none. `search` declares its Tavily credit;
+ * `attachment_analyzer` declares its chunk count against the
+ * (deliberately unlimited, journal-only) `origin-llm` calls counter —
+ * the units come from the step's approved params, since the chunk
+ * count is a property of the plan, not of the tool. `delegated-job`
+ * deliberately does not invent a number (see the module header).
  */
-export function agentRunStepQuotaCharge(toolName: ToolName): AgentRunQuotaCharge | null {
+export function agentRunStepQuotaCharge(toolName: ToolName, params?: ToolParams): AgentRunQuotaCharge | null {
   if (agentRunStepCostClass(toolName) === 'search') {
     return { provider: 'tavily', counter: 'credits', units: 1 };
+  }
+  if (toolName === 'attachment_analyzer') {
+    const declared = typeof params?.chunkCount === 'number' && Number.isFinite(params.chunkCount)
+      ? Math.floor(params.chunkCount)
+      : 1;
+    return {
+      provider: 'origin-llm',
+      counter: 'calls',
+      units: Math.max(1, Math.min(declared, AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP)),
+    };
   }
   return null;
 }

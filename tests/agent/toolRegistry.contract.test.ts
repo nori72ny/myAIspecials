@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { executeToolWithPermission, toolRegistry, type ToolName } from '../../src/agent/toolRegistry.js';
 
 describe('Agent tool registry security contract', () => {
-  const expectedTools: ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
+  const expectedTools: ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner', 'attachment_reader', 'attachment_analyzer'];
 
   it('enumerates every registered tool and requires approval', () => {
     expect(Object.keys(toolRegistry).sort()).toEqual([...expectedTools].sort());

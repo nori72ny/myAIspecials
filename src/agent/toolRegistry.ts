@@ -10,11 +10,27 @@ import { researchCurrentInformation } from '../legacy/originResearchSource.js';
 import { createDefaultOriginResearchExecutor } from '../search/originSearchGrounding.js';
 import { generateArtifactV12Async, type ArtifactType } from '../artifacts/artifactGeneratorV12.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
+import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
+import type { AgentModelExecutor } from './agentModelCall.js';
+import { executeAttachmentAnalyzer, executeAttachmentReader } from './agentAttachmentTools.js';
 
-export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner';
+export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer';
 export type ToolParams = Record<string, unknown>;
 export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
-export type ToolExecutionContext = { codeDelegation?: AgentCodeDelegationPort };
+export type ToolExecutionContext = {
+  codeDelegation?: AgentCodeDelegationPort;
+  /**
+   * Attachment access for the data tools (file-input foundation F2):
+   * the attachment store plus the owner binding of the run being
+   * executed. Bound per run by the run advancer; absent everywhere
+   * else, where the data tools fail closed (AGENT_ATTACHMENT_UNAVAILABLE).
+   */
+  attachments?: { store: AgentAttachmentStore; ownerBinding: string };
+  /** Model executor override for the analyzer; production leaves this
+   * unset and the failover-backed executor is built from `env`. */
+  modelCall?: AgentModelExecutor;
+  env?: NodeJS.ProcessEnv;
+};
 
 type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams, context?: ToolExecutionContext) => Promise<ToolResult> };
 const MAX_TEXT = 12000;
@@ -150,6 +166,17 @@ const registry: Record<ToolName, ToolDefinition> = {
         || stringListParam(params, 'outline').length > 0,
       );
       if (!hasInput) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+      // Data-grounded documents (file-input foundation F2, design
+      // §3.5.2): when a plan grounds this step in attachment data, the
+      // template fallback in composeDocumentContent is disabled — a
+      // document assembled from title/brief/outline boilerplate would
+      // present invented prose as if it were the data's content. The
+      // resolved data content is the only acceptable body; without it
+      // the step fails closed here (the advancer's input resolution
+      // normally fails even earlier with AGENT_STEP_INPUT_UNAVAILABLE).
+      if (params.dataGrounded === true && !(typeof params.content === 'string' && params.content.trim())) {
+        return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+      }
       const title = textParam(params, 'title').trim().slice(0, 120) || '文書';
       const content = composeDocumentContent(params, title);
       if (!content.trim()) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
@@ -224,6 +251,22 @@ const registry: Record<ToolName, ToolDefinition> = {
     return { ok: true, tool: 'file_writer', artifact: result.path, message: `New repository file created atomically without replacement (${result.bytes} bytes).`, mutation: { path: result.path, beforeExists: false, afterSha256: sha256(content) } };
   } },
   verification_runner: { name: 'verification_runner', capability: 'run_tests', description: 'Runs only the repository allowlisted test, typecheck, lint, or build command with bounded output, timeout, no repository-controlled npm lifecycle execution, and a sanitized environment.', sideEffects: 'none', requiresApproval: true, execute: async (params) => { const kind = textParam(params, 'kind') as VerificationKind; if (kind !== 'test' && kind !== 'typecheck' && kind !== 'lint' && kind !== 'build') return { ok: false, tool: 'verification_runner', message: 'Verification kind must be test, typecheck, lint, or build.' }; const result = await runVerification(repositoryRoot(), kind); return { ok: result.ok, tool: 'verification_runner', artifact: JSON.stringify(result), message: result.ok ? `${kind} verification passed.` : `${kind} verification failed (exit=${result.exitCode}, timeout=${result.timedOut}).` }; } },
+  attachment_reader: {
+    name: 'attachment_reader',
+    capability: 'read_input_data',
+    description: 'Profiles the files of an approved attachment set deterministically (structure, key column, chunk map) without calling a model. Reads bodies only through the execution context\'s owner-bound attachment port; fails closed without it.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params, context) => executeAttachmentReader(params, context),
+  },
+  attachment_analyzer: {
+    name: 'attachment_analyzer',
+    capability: 'read_input_data',
+    description: 'Reads an approved attachment set in bounded chunks and processes each chunk through the shared free-provider failover (classification / extraction / consistency findings / text), merging chained steps and verifying key coverage deterministically before anything flows downstream.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params, context) => executeAttachmentAnalyzer(params, context),
+  },
 };
 
 export const toolRegistry = Object.freeze(registry);

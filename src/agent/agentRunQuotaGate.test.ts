@@ -49,6 +49,8 @@ describe('agentRunQuotaGate cost classes and charges', () => {
       verification_runner: 'local',
       web_search_grounding: 'search',
       code_interpreter: 'delegated-job',
+      attachment_reader: 'local',
+      attachment_analyzer: 'model',
     };
     for (const [toolName, costClass] of Object.entries(expected)) {
       expect(agentRunStepCostClass(toolName as ToolName)).toBe(costClass);
@@ -60,6 +62,16 @@ describe('agentRunQuotaGate cost classes and charges', () => {
     expect(agentRunStepQuotaCharge('code_interpreter')).toBeNull();
     expect(agentRunStepQuotaCharge('file_writer')).toBeNull();
     expect(AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE).toBe(1);
+  });
+
+  it('charges the analyzer one journal-only model call per chunk (F2)', () => {
+    expect(agentRunStepQuotaCharge('attachment_analyzer', { chunkCount: 3 })).toEqual({ provider: 'origin-llm', counter: 'calls', units: 3 });
+    expect(agentRunStepQuotaCharge('attachment_analyzer', { chunkCount: 99 })).toEqual({ provider: 'origin-llm', counter: 'calls', units: 8 });
+    expect(agentRunStepQuotaCharge('attachment_analyzer', {})).toEqual({ provider: 'origin-llm', counter: 'calls', units: 1 });
+    expect(agentRunStepQuotaCharge('attachment_reader', { chunkCount: 3 })).toBeNull();
+    // Journal-only: no provider limit entry exists for origin-llm, so
+    // the binding control stays the plan-time 48-chunk ceiling.
+    expect(AGENT_RUN_QUOTA_PROVIDERS['origin-llm' as keyof typeof AGENT_RUN_QUOTA_PROVIDERS]).toBeUndefined();
   });
 
   it('defines only evidence-backed limits', () => {
