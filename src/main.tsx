@@ -14,7 +14,6 @@ import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import { refreshVoiceAvailability } from './voice/voiceAvailability';
-import { refreshVoiceOutputAvailability } from './voice/voiceOutputAvailability';
 import '@fontsource/m-plus-rounded-1c/400.css';
 import '@fontsource/m-plus-rounded-1c/500.css';
 import '@fontsource/m-plus-rounded-1c/700.css';
@@ -34,11 +33,6 @@ installActiveContextChatBridge();
 // and shows the microphone button only when the endpoint proves it is
 // enabled; components never probe on mount.
 void refreshVoiceAvailability();
-// Voice output (VC-1): probe the health status' voiceOutputEnabled
-// switch the same way. The read-aloud button and the "Orin's voice"
-// settings section read the store and stay hidden until the server
-// proves the switch is on.
-void refreshVoiceOutputAvailability();
 
 const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';
@@ -247,6 +241,14 @@ function PersonalReleaseRoot() {
   const [sessions, setSessions] = useState<ConversationSession[]>(loadStoredSessions);
   const [artifacts, setArtifacts] = useState<PersistedArtifact[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  // スプラッシュの切り替えは「トップ画面の初回描画が終わったこと」を
+  // 準備完了とする。保存データの移行（isHydrated）は requestIdleCallback
+  // 経由で始まるため完了時刻が端末負荷で大きくぶれ、それを待つと
+  // スプラッシュの表示時間が起動ごとに変わってしまう。トップ画面は
+  // スプラッシュの背後で初回描画の時点で完成しており、移行の完了は
+  // 画面の見た目を変えない（進行中会話は開かず履歴へ退避されるだけ）
+  // ため、移行は背後で静かに終わらせる。
+  const [hasPainted, setHasPainted] = useState(false);
   const [storageReadFailed, setStorageReadFailed] = useState(false);
   const [storageHealth, setStorageHealth] = useState<StorageHealth>('ready');
   const [resetSignal, setResetSignal] = useState(0);
@@ -259,6 +261,7 @@ function PersonalReleaseRoot() {
   useEffect(() => { const announceUpdate = () => setUpdateReady(true); window.addEventListener('origin:pwa-update-ready', announceUpdate); return () => window.removeEventListener('origin:pwa-update-ready', announceUpdate); }, []);
   useEffect(() => { const root = document.documentElement; const isDark = resolvedTheme === 'dark'; root.lang = settings.language; root.dataset.theme = resolvedTheme; root.dataset.designTheme = settings.designTheme === 'luxury' || settings.designTheme === 'glass' ? settings.designTheme : 'minimal'; root.classList.toggle('dark', isDark); root.classList.toggle('light', !isDark); document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#0b1024' : '#ffffff'); }, [resolvedTheme, settings.language, settings.designTheme]);
   useEffect(() => { document.documentElement.dataset.originStorageState = !isHydrated ? 'hydrating' : storageHealth === 'ready' ? 'ready' : 'degraded'; }, [isHydrated, storageHealth]);
+  useEffect(() => { let second = 0; const first = window.requestAnimationFrame(() => { second = window.requestAnimationFrame(() => setHasPainted(true)); }); return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); }; }, []);
   useEffect(() => { let active = true; const legacy = loadLegacySnapshot(); const cancelIdle = scheduleIdle(() => { void migrateOriginLegacySnapshot(originIndexedDbAdapter, legacy, () => { window.localStorage.removeItem(HISTORY_STORAGE_KEY); window.localStorage.removeItem(SESSION_STORAGE_KEY); }).then((result) => { if (!active) return; if (result.snapshot) { // 保存されていた進行中会話は開かず、履歴セッションへ退避する（起動時は必ずトップ画面）。
         let storedMessages: ConversationMessage[] = []; try { storedMessages = parseImportedHistory({ messages: result.snapshot.messages }); } catch { storedMessages = []; }
         const archivedAt = typeof result.snapshot.updatedAt === 'number' && Number.isFinite(result.snapshot.updatedAt) && result.snapshot.updatedAt > 0 ? result.snapshot.updatedAt : Date.now();
@@ -276,7 +279,7 @@ function PersonalReleaseRoot() {
 
   return <>
     <FocusModeController />
-    <SplashScreen ready={isHydrated} oncePerSession />
+    <SplashScreen ready={hasPainted} oncePerSession />
     <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={restoreSession} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} sourceSessionIds={new Set(sessions.map((session) => session.id))} onOpenSourceSession={openSourceSession} />
