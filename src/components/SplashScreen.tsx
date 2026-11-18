@@ -11,8 +11,14 @@ export interface SplashScreenProps {
 const SESSION_KEY = 'origin_personal_splash_seen_v1';
 const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261108';
 
-/** The entrance sequence (mark, letters, gold line) completes within this. */
-export const SPLASH_MIN_DISPLAY_MS = 1550;
+/**
+ * The entrance sequence (mark, letters, gold line) completes within this:
+ * the sequence itself ends at ~800ms (see splash-brand.css), and the
+ * splash then leaves at exactly this mark whenever the app is ready, so
+ * the handoff timing is the same on every launch instead of stretching
+ * to whenever hydration happens to finish.
+ */
+export const SPLASH_MIN_DISPLAY_MS = 900;
 /** Reduced motion shows the lockup statically, only briefly. */
 export const SPLASH_REDUCED_MIN_DISPLAY_MS = 400;
 /** Fail-safe: the splash always closes by this point, ready or not. */
