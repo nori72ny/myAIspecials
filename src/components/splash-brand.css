@@ -42,13 +42,21 @@
   height: 100%;
   user-select: none;
   -webkit-user-drag: none;
-  border-radius: 24%;
+  /* Circular presentation (owner request 2026-11-19): the mark asset
+     carries its cream plate baked in as a near-full-bleed rounded square,
+     which read as a tacky orange tile behind the ribbon. Clipping the
+     mark to a circle drops the square silhouette entirely — the ribbon
+     artwork itself sits well inside the inscribed circle (max radius
+     ~211 of 256 in the 512px asset), so nothing of the mark is cut —
+     and the soft drop-shadow below lets the round mark float slightly
+     off the surface instead of sitting on a plate. */
+  border-radius: 50%;
   filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));
 }
 
 /* The header shows the mark at bar size, so its shadow quiets down there. */
 .origin-brand-lockup--header .origin-ribbon-logo__mark {
-  filter: drop-shadow(0 2px 5px rgb(9 34 76 / 20%));
+  filter: drop-shadow(0 3px 8px rgb(9 34 76 / 20%));
 }
 
 /* In the dark theme the navy wordmark would sink into the dark header, so
