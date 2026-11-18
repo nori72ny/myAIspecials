@@ -3,6 +3,7 @@ import {
   buildGroundedResearchEvidenceCards,
   type GroundedResearchEvidenceCard,
 } from "./groundedResearchEvidenceCards.js";
+import { buildGroundedResearchEvidencePacket } from "./groundedResearchEvidencePacket.js";
 
 export type GroundedResearchConfidence = "strong" | "moderate" | "limited";
 
@@ -91,10 +92,12 @@ function neutralizePartialAnswerQuote(text: string): string {
  * separately could strand half a Markdown link past the neutralization
  * below, so the span is reconstituted before the R-1 rules apply. The
  * 240-character bound and the neutralization are exactly the R-1 rules
- * above. Returns "" when the card selected no claim sentence (e.g. an
- * empty excerpt), leaving the title-only attribution.
+ * above, applied by the caller to whichever raw quote wins (the PR-2
+ * packet quote or this span). Returns "" when the card selected no
+ * claim sentence (e.g. an empty excerpt), leaving the title-only
+ * attribution.
  */
-function displayClaimQuote(card: GroundedResearchEvidenceCard): string {
+function claimQuoteSpan(card: GroundedResearchEvidenceCard): string {
   if (card.claimSentences.length === 0) return "";
   let start = Number.POSITIVE_INFINITY;
   let end = -1;
@@ -105,7 +108,7 @@ function displayClaimQuote(card: GroundedResearchEvidenceCard): string {
     end = Math.max(end, index + sentence.length);
   }
   if (end < 0) return "";
-  return neutralizePartialAnswerQuote(card.excerpt.slice(start, end));
+  return card.excerpt.slice(start, end);
 }
 
 function retrievedDateLabel(value: string | undefined, language: "ja" | "en"): string | null {
@@ -279,6 +282,17 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  * lead keeps directing the user to verify details at the sources. The
  * internal cross-check breakdown never appears in this body; it stays
  * in logs and structured payload fields.
+ * Since the recovery build Stage 1 PR-2, the quote prefers the
+ * sentence-level evidence packet (groundedResearchEvidencePacket.ts):
+ * the packet splits the RAW excerpt with a period-protecting splitter
+ * (decimals, URLs and quoted periods stay intact) and selects up to
+ * eight answer-bearing sentences per source list, so a fact such as
+ * "1.25%" is quoted whole instead of as the "1." / "25%…" fragments
+ * the N-2b claim splitter produced. Title-origin packet sentences
+ * are not quoted here — the title is already shown in the same line.
+ * When the packet has no excerpt sentence for a source, the quote
+ * falls back to that source's N-2b claim span, so the 240-character
+ * bound and the R-1 neutralization are unchanged.
  */
 export function buildGroundedResearchPartialAnswer(
   sources: readonly OriginResearchSource[],
@@ -288,6 +302,15 @@ export function buildGroundedResearchPartialAnswer(
   const bounded = sources.slice(0, 8);
   if (bounded.length === 0) return "";
   const cards = buildGroundedResearchEvidenceCards(question, bounded).cards;
+  const packet = buildGroundedResearchEvidencePacket(bounded, question);
+  // The packet quote for one source: its excerpt-origin sentences, in
+  // original order. Empty when the packet found nothing answer-bearing
+  // for that source — the caller then falls back to the claim span.
+  const packetQuoteForSource = (sourceIndex: number): string =>
+    packet.sentences
+      .filter((sentence) => sentence.sourceIndex === sourceIndex && sentence.origin === "excerpt")
+      .map((sentence) => sentence.text)
+      .join(" ");
   const domainForList = (source: OriginResearchSource): string => {
     let domain = source.domain ?? "";
     if (!domain) {
@@ -299,7 +322,13 @@ export function buildGroundedResearchPartialAnswer(
     const id = `S${index + 1}`;
     const domain = domainForList(source);
     const title = displayTitle(source);
-    const quote = displayClaimQuote(cards[index]);
+    // PR-2: prefer the packet's sentences for the quote; fall back to
+    // the N-2b claim span when the packet has nothing for this source.
+    // Either raw quote goes through the same R-1 neutralization and
+    // 240-character bound, exactly once.
+    const quote = neutralizePartialAnswerQuote(
+      packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
+    );
     const retrieved = retrievedDateLabel(source.retrievedAt, language);
     if (language === "en") {
       return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${quote ? ` It states: "${quote}"` : ""}${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;
