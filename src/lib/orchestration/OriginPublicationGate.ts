@@ -283,10 +283,15 @@ const LAW_ENFORCEMENT_PATTERNS: readonly RegExp[] = [
  * （定数・定員・議席…) or to a legislative body （衆議院・参議院・議会…).
  * The institution anchor is what catches D-15's lead sentence
  * (「衆議院は465名、参議院は245名です」), which names no 定数 keyword.
+ * The 人 unit and the bare 議員 keyword close the P-02 wording gap
+ * (「参議院の議員は242人です」), which neither pattern reached before:
+ * the anchor pattern had no 人 unit and the keyword pattern required
+ * 議員数. The gate stops unverified assertions regardless of whether
+ * the figure happens to be correct.
  */
 const STATUTORY_CAPACITY_PATTERNS: readonly RegExp[] = [
-  /(?:定数|定員|議席数|議員数|委員数)[^\n。]{0,16}?\d[\d,]*\s*(?:名|人|議席)/g,
-  /(?:衆議院|参議院|国会|都議会|県議会|市議会|町議会|村議会|区議会|議会|委員会)[^\n。]{0,20}?\d[\d,]*\s*(?:名|議席)/g,
+  /(?:定数|定員|議席数|議員数|議員|委員数)[^\n。]{0,16}?\d[\d,]*\s*(?:名|人|議席)/g,
+  /(?:衆議院|参議院|国会|都議会|県議会|市議会|町議会|村議会|区議会|議会|委員会)[^\n。]{0,20}?\d[\d,]*\s*(?:名|人|議席)/g,
 ];
 
 /** Age-condition assertions: 満N歳, N歳以上／未満／以下, N歳から. */
