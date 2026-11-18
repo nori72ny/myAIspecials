@@ -133,6 +133,23 @@ export interface AgentAttachmentStore {
    * missing, not open, or expired.
    */
   claimSet(setId: string, ownerBinding: string, runId: string, expiresAt: number, now?: number): Promise<AgentAttachmentSetRecord | null>;
+  /**
+   * The claim bridge (file-input foundation F3): like claimSet, but
+   * the set is uploaded under one owner binding and claimed by a run
+   * that lives under another. A browser-created set binds to its
+   * upload token, while the browser run it feeds binds to the run's
+   * plan token — the two bindings never coincide, so a plain claimSet
+   * under the run's binding cannot see the set. This operation moves
+   * the set's owner binding to the run's binding in the same atomic
+   * step that claims it, so every later read (execution included)
+   * stays scoped by exactly one owner binding and no cross-binding
+   * read path ever exists. The caller must already have proven
+   * ownership of the set under `fromOwnerBinding` (the upload token)
+   * and of the run under `toOwnerBinding` (the plan/approval chain).
+   * Returns null when the set is missing, not open, or expired under
+   * the source binding.
+   */
+  claimSetForRun(setId: string, fromOwnerBinding: string, toOwnerBinding: string, runId: string, expiresAt: number, now?: number): Promise<AgentAttachmentSetRecord | null>;
   deleteSet(setId: string, ownerBinding: string): Promise<boolean>;
   sweepExpired(limit?: number, now?: number): Promise<number>;
 }

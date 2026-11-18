@@ -457,6 +457,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       approvalSigningConfigured,
       replayProtectionConfigured,
       browserApprovalEnabled: approvalSigningConfigured && replayProtectionConfigured,
+      // File-input foundation (F3, design §1.3): the agent screen
+      // renders its attachment UI only when the server switch is on,
+      // so a disabled feature is never shown as if it existed.
+      attachmentsEnabled: agentAttachmentsEnabled(env),
       freeOnly: true,
       costUsd: 0,
       paidFallbackEnabled: false,
@@ -961,25 +965,33 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       // its lifetime follows the run (record expiry + grace) instead of
       // the 24-hour unclaimed expiry. Best-effort by design: the claim
       // resolves under the run's owner binding, which is the binding
-      // the data steps will read through — a set owned under a
-      // different binding (a browser set, whose binding derives from
-      // its upload token) is invisible here and simply stays unclaimed
-      // until the browser flow's own claim wiring lands with the UI
-      // stage; execution then fails closed as unavailable rather than
-      // reading across bindings.
+      // the data steps will read through.
       const claimedSetId = created.plan
         ?.map((step) => step.params.attachmentSetId)
         .find((value): value is string => typeof value === 'string' && value.length > 0);
       if (attachmentStore && claimedSetId) {
-        await attachmentStore.claimSet(
+        const claimExpiresAt = created.expiresAt + AGENT_ATTACHMENT_CLAIMED_GRACE_MS;
+        const claimed = await attachmentStore.claimSet(
           claimedSetId,
           ownerBinding,
           runId,
-          created.expiresAt + AGENT_ATTACHMENT_CLAIMED_GRACE_MS,
+          claimExpiresAt,
         ).catch((error: unknown) => {
           logAgentAttachmentStoreFailure('attachment-claim', error);
           return null;
         });
+        // Claim bridge (F3, design §1.3): a browser-created set lives
+        // under its upload token's binding, never the run's, so the
+        // claim above cannot see it. When the creation request
+        // presents the set's upload token, the bridge proves set
+        // ownership with that token and re-binds the set to the run's
+        // binding in the same step that claims it. Without the token —
+        // or with one naming a different set — nothing moves, the set
+        // stays unclaimed under its own binding, and execution fails
+        // closed as unavailable rather than reading across bindings.
+        if (!claimed) {
+          await bridgeAttachmentClaimByUploadToken(req, claimedSetId, ownerBinding, runId, claimExpiresAt);
+        }
       }
       return res.status(201).json({ ok: true, protocolVersion: 3, persistence: 'durable-run-record', run: publicAgentRunView(created), ...runEnvelope });
     } catch (error) {
@@ -1534,6 +1546,51 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       return { failure: { status: 404, code: 'AGENT_ATTACHMENT_SET_NOT_FOUND' } };
     }
     return { set };
+  }
+
+  /**
+   * The claim bridge (file-input foundation F3, design §1.3).
+   * Declared as a function so the run-creation handler above can use
+   * it; it runs at request time, after every factory binding exists.
+   *
+   * A browser-created set binds to its upload token, while the run it
+   * feeds binds to the run's own capability (a browser run) or to the
+   * operator namespace (an operator run driven from the browser
+   * screen) — the bindings never coincide, so the plain claim under
+   * the run's binding cannot see the set. Ownership of the set is
+   * proven exactly as on the attachment endpoints: the upload token
+   * must verify (HMAC, timing-safe), must name this set, and must
+   * match the digest stored on the set row (loadAttachmentSet applies
+   * that check under the token-derived binding). Only then does the
+   * store re-bind the set to the run's owner binding while claiming
+   * it, so execution reads stay scoped by the run's binding alone.
+   * Any failure collapses to null — the claim stays best-effort and
+   * nothing is read across bindings.
+   */
+  async function bridgeAttachmentClaimByUploadToken(
+    req: express.Request,
+    setId: string,
+    runOwnerBinding: string,
+    runId: string,
+    expiresAt: number,
+  ): Promise<AgentAttachmentSetRecord | null> {
+    if (!attachmentStore) return null;
+    const token = req.get('x-agent-attachment-token') ?? '';
+    const payload = verifyAttachmentUploadCapability(token, env);
+    if (!payload || payload.setId !== setId) return null;
+    const auth: AttachmentAuth = { ownerBinding: browserAttachmentOwnerBinding(token), viaToken: true, token };
+    const loaded = await loadAttachmentSet(setId, auth);
+    if ('failure' in loaded) {
+      if (loaded.failure.error !== undefined) logAgentAttachmentStoreFailure('attachment-claim-bridge', loaded.failure.error);
+      return null;
+    }
+    if (loaded.set.status !== 'open') return null;
+    try {
+      return await attachmentStore.claimSetForRun(setId, auth.ownerBinding, runOwnerBinding, runId, expiresAt);
+    } catch (error) {
+      logAgentAttachmentStoreFailure('attachment-claim-bridge', error);
+      return null;
+    }
   }
 
   /**

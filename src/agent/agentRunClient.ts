@@ -27,6 +27,17 @@ export type AgentRunCreateInput = {
   goal: string;
   planToken: string;
   steps: Array<{ toolName: string; params: Record<string, unknown> }>;
+  /**
+   * The upload token of the attachment set the approved plan names
+   * (file-input foundation F3). A browser-created set is owned under
+   * its upload token, not under the run's own binding, so run
+   * creation presents the token once — as the claim bridge's proof of
+   * set ownership — and the server re-binds the set to the run as it
+   * claims it. Held in memory only, like every other capability here;
+   * never persisted. Operator-created sets already share the run's
+   * binding and never need it.
+   */
+  attachmentUploadToken?: string;
 };
 
 /**
@@ -194,7 +205,10 @@ export async function createAgentRunRecord(
 ): Promise<'created' | 'store_unavailable'> {
   const response = await fetch('/api/agent/v3/runs', {
     method: 'POST',
-    headers: runAuthHeaders(auth),
+    headers: {
+      ...runAuthHeaders(auth),
+      ...(input.attachmentUploadToken ? { 'x-agent-attachment-token': input.attachmentUploadToken } : {}),
+    },
     cache: 'no-store',
     body: JSON.stringify({
       runId: input.runId,
