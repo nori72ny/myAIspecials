@@ -15,9 +15,11 @@ import { sanitizePreEgress } from "../services/securitySanitizer.js";
 import {
   originCompletionTokenBudget,
   OriginProviderError,
+  safeOriginFinishReason,
   safeOriginUpstreamErrorCode,
   type OriginChatMessage,
   type OriginFetch,
+  type OriginProviderDiagnostic,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
@@ -278,8 +280,8 @@ export function assertOriginGroqExecutionResult(result: OriginProviderExecutionR
 
 interface GroqChatCompletionEnvelope {
   model?: unknown;
-  choices?: Array<{ message?: { content?: unknown } }>;
-  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
+  choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; completion_tokens_details?: { reasoning_tokens?: unknown } };
   error?: { code?: unknown; type?: unknown; message?: unknown };
 }
 
@@ -325,6 +327,35 @@ function extractUsage(body: GroqChatCompletionEnvelope): { promptTokens: number;
   const completionTokens = Number.isSafeInteger(usage?.completion_tokens) && Number(usage?.completion_tokens) >= 0 ? Number(usage?.completion_tokens) : 0;
   const totalTokens = Number.isSafeInteger(usage?.total_tokens) && Number(usage?.total_tokens) >= 0 ? Number(usage?.total_tokens) : promptTokens + completionTokens;
   return { promptTokens, completionTokens, totalTokens };
+}
+
+/**
+ * The reasoning-token count the provider broke out of the completion total,
+ * when it reported one. gpt-oss generations spend on reasoning before any
+ * answer text exists, so this is the number that tells "the completion
+ * budget went to reasoning" apart from "nothing was generated".
+ */
+function extractReasoningTokens(usage: { completion_tokens_details?: { reasoning_tokens?: unknown } } | undefined): number | undefined {
+  const value = usage?.completion_tokens_details?.reasoning_tokens;
+  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
+}
+
+/**
+ * The usage fields a failed attempt records on its error diagnostic: the
+ * prompt/completion counts from the same extraction the success path uses
+ * (an unreported usage reads as zeros, exactly as it would on a result),
+ * plus the reasoning count when the provider reported one. Counts only —
+ * never payload content — matching the diagnostic style of the other routes.
+ */
+function usageDiagnosticFields(
+  usage: { promptTokens: number; completionTokens: number },
+  reasoningTokens: number | undefined,
+): Partial<OriginProviderDiagnostic> {
+  return {
+    usagePromptTokens: usage.promptTokens,
+    usageCompletionTokens: usage.completionTokens,
+    ...(reasoningTokens !== undefined ? { usageReasoningTokens: reasoningTokens } : {}),
+  };
 }
 
 export interface OriginGroqExecutionOptions {
@@ -488,10 +519,20 @@ async function executeGroqModelAttempt(
   if (body.model !== modelId) {
     throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status });
   }
+  const usage = extractUsage(body);
   const content = body.choices?.[0]?.message?.content;
   const text = typeof content === "string" ? content.trim() : "";
-  if (!text) throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
-  const usage = extractUsage(body);
+  if (!text) {
+    // The classification is unchanged; the diagnostic now records why the
+    // body carried no answer — most importantly a "length" finish whose
+    // completion tokens went to reasoning, which is indistinguishable from
+    // a bare empty body without the finish reason and usage.
+    const finishReason = safeOriginFinishReason(body.choices?.[0]?.finish_reason);
+    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
+      ...(finishReason ? { finishReason } : {}),
+      ...usageDiagnosticFields(usage, extractReasoningTokens(body.usage)),
+    });
+  }
   return composeGroqAttemptResult(text, plan, modelId, transport, usage);
 }
 
@@ -603,7 +644,7 @@ export type OriginGroqStreamExecutor = (
 interface GroqStreamChunk {
   model?: unknown;
   choices?: Array<{ delta?: { content?: unknown }; finish_reason?: unknown }>;
-  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown };
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; completion_tokens_details?: { reasoning_tokens?: unknown } };
   error?: { code?: unknown; type?: unknown; message?: unknown };
 }
 
@@ -707,6 +748,8 @@ async function executeGroqModelAttemptStream(
     let doneSeen = false;
     let servedModelSeen = false;
     let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    let finishReason: string | undefined;
+    let reasoningTokens: number | undefined;
     await consumeGroqSseStream(response, (payload) => {
       if (payload === "[DONE]") { doneSeen = true; return; }
       let chunk: GroqStreamChunk;
@@ -729,7 +772,13 @@ async function executeGroqModelAttemptStream(
       }
       if (chunk.usage) {
         usage = extractUsage({ usage: chunk.usage });
+        const observedReasoningTokens = extractReasoningTokens(chunk.usage);
+        if (observedReasoningTokens !== undefined) reasoningTokens = observedReasoningTokens;
       }
+      // The finish reason is observed for failure diagnostics only: it
+      // never changes what is forwarded or how the stream is judged.
+      const observedFinishReason = safeOriginFinishReason(chunk.choices?.[0]?.finish_reason);
+      if (observedFinishReason) finishReason = observedFinishReason;
       const content = chunk.choices?.[0]?.delta?.content;
       if (typeof content === "string" && content) {
         if (!servedModelSeen) {
@@ -740,7 +789,18 @@ async function executeGroqModelAttemptStream(
       }
     });
     if (!doneSeen || !servedModelSeen || !output.trim()) {
-      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      // The classification is unchanged; the diagnostic now says which of
+      // the three terminal conditions failed, with the finish reason and
+      // the reported usage, so a reasoning-only "length" finish (the
+      // long-input failure mode) is distinguishable from a truncated or
+      // model-less stream at a glance. The breakdown follows the stream's
+      // own order of guarantees: termination, then identity, then content.
+      const streamFailure = !doneSeen ? "no-done" : !servedModelSeen ? "no-model" : "empty-content";
+      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
+        streamFailure,
+        ...(finishReason ? { finishReason } : {}),
+        ...usageDiagnosticFields(usage, reasoningTokens),
+      });
     }
     const result = composeGroqAttemptResult(output.trim(), plan, modelId, transport, usage);
     // Hold mode releases the verified full text once, at the end, exactly

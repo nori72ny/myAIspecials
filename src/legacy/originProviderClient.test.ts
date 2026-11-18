@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginUpstreamErrorCode, type OriginFetch } from "./originProviderClient";
+import { assertOriginZeroCostExecutionResult, buildOriginProviderFailureDiagnostic, executeOriginProvider, originCompletionTokenBudget, OriginProviderError, resetOriginProviderCooldownForTests, safeOriginFinishReason, safeOriginUpstreamErrorCode, type OriginFetch } from "./originProviderClient";
 import { ORIGIN_OPENROUTER_FREE_MODEL, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy";
 
 const plan: OriginExecutionPlan = {
@@ -317,5 +317,45 @@ describe("buildOriginProviderFailureDiagnostic", () => {
     expect(safeOriginUpstreamErrorCode(undefined)).toBeUndefined();
     const typed = new OriginProviderError("PROVIDER_TIMEOUT", "無料AIの応答が時間内に返りませんでした。", 504, true, undefined, { upstreamErrorType: "timeout", transportFailure: "timeout" });
     expect(buildOriginProviderFailureDiagnostic(typed)).toEqual({ upstreamErrorType: "timeout", transportFailure: "timeout", failoverAttempts: [] });
+  });
+
+  it("passes the stream-failure breakdown and usage counts through the whitelist", () => {
+    const error = new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
+      streamFailure: "empty-content",
+      finishReason: "length",
+      usagePromptTokens: 7_400,
+      usageCompletionTokens: 620,
+      usageReasoningTokens: 620,
+    });
+    expect(buildOriginProviderFailureDiagnostic(error)).toEqual({
+      streamFailure: "empty-content",
+      finishReason: "length",
+      usagePromptTokens: 7_400,
+      usageCompletionTokens: 620,
+      usageReasoningTokens: 620,
+      failoverAttempts: [],
+    });
+    expect(safeOriginFinishReason("stop")).toBe("stop");
+    expect(safeOriginFinishReason("length")).toBe("length");
+    expect(safeOriginFinishReason("tool_calls")).toBe("tool_calls");
+  });
+
+  it("drops poisoned stream-failure, finish-reason and usage values instead of passing them through", () => {
+    const poisoned = {
+      streamFailure: "empty-content; the user prompt was about secrets",
+      finishReason: "length — see the private prompt for details",
+      usagePromptTokens: -1,
+      usageCompletionTokens: 1.5,
+      usageReasoningTokens: "620",
+    } as unknown as ConstructorParameters<typeof OriginProviderError>[5];
+    const error = new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, poisoned);
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary).toEqual({ failoverAttempts: [] });
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain("secrets");
+    expect(serialized).not.toContain("private");
+    expect(safeOriginFinishReason("length — see the private prompt")).toBeUndefined();
+    expect(safeOriginFinishReason("STOP")).toBeUndefined();
+    expect(safeOriginFinishReason(undefined)).toBeUndefined();
   });
 });

@@ -16,6 +16,7 @@ import {
 } from "./originChatResponsePolicy";
 import { sanitizePreEgress } from "../services/securitySanitizer";
 import {
+  buildOriginProviderFailureDiagnostic,
   OriginProviderError,
   type OriginFetch,
   type OriginProviderExecutionRequest,
@@ -148,6 +149,54 @@ describe("executeOriginGroqProvider", () => {
     expect(body.max_tokens).toBe(4096);
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[1]).toEqual({ role: "user", content: "確認してください" });
+  });
+
+  it("returns exactly the pre-diagnostics result shape on success (observation-only change)", async () => {
+    const fetchMock = vi.fn(async () => groqJson(successBody())) as unknown as OriginFetch;
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS });
+    expect(result).toEqual({
+      text: "第3経路の回答です。",
+      transportRequestCount: 1,
+      actualCostUsd: 0,
+      providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        servedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        strategy: "verified-free-failover",
+        provider: "Groq",
+        attempt: 3,
+        fallbackUsed: true,
+      },
+      usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160, costUsd: 0 },
+    });
+  });
+
+  it("records the finish reason and usage on the diagnostic when the completion body is empty", async () => {
+    // The long-input failure mode: the TPM gate compressed max_tokens, the
+    // model spent the whole completion on reasoning, and the body came back
+    // empty with finish_reason "length". The classification is the same
+    // PROVIDER_INVALID_RESPONSE as before; only the diagnostic is new.
+    const fetchMock = vi.fn(async () => groqJson({
+      model: ORIGIN_GROQ_FREE_MODEL_ID,
+      choices: [{ message: { content: "" }, finish_reason: "length" }],
+      usage: {
+        prompt_tokens: 7_400,
+        completion_tokens: 620,
+        total_tokens: 8_020,
+        completion_tokens_details: { reasoning_tokens: 620 },
+      },
+    })) as unknown as OriginFetch;
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock, { nowMs: NOW_MS })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error).toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", status: 502, retryable: true });
+    expect((error as OriginProviderError).diagnostic).toEqual({
+      finishReason: "length",
+      usagePromptTokens: 7_400,
+      usageCompletionTokens: 620,
+      usageReasoningTokens: 620,
+      transportRequestCount: 1,
+    });
   });
 
   it("caps max_tokens so input plus completion stays under the TPM ceiling", async () => {
@@ -773,6 +822,133 @@ describe("executeOriginGroqProviderStream", () => {
     // fragment; the failure is surfaced instead.
     expect(deltas).toEqual(["表示済みの"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an empty-content breakdown with finish reason and usage when reasoning consumes the whole completion", async () => {
+    // The diagnosed long-input failure as an SSE fixture: the model is
+    // named and the stream terminates cleanly, but no content delta ever
+    // arrives — the finish reason is "length" and every completion token
+    // was spent on reasoning. Before the diagnostics existed this was a
+    // bare PROVIDER_INVALID_RESPONSE with no way to confirm the mechanism.
+    const fetchMock = vi.fn(async () => groqSseResponse([
+      groqEvent({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [{ delta: {}, finish_reason: null }] }),
+      groqEvent({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [{ delta: {}, finish_reason: "length" }] }),
+      groqEvent({
+        model: ORIGIN_GROQ_FREE_MODEL_ID,
+        choices: [],
+        usage: {
+          prompt_tokens: 7_400,
+          completion_tokens: 620,
+          total_tokens: 8_020,
+          completion_tokens_details: { reasoning_tokens: 620 },
+        },
+      }),
+      "data: [DONE]\n\n",
+    ]));
+    const error = await executeOriginGroqProviderStream(
+      request,
+      { onDelta: () => undefined },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error).toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", status: 502, retryable: true });
+    expect((error as OriginProviderError).diagnostic).toEqual({
+      streamFailure: "empty-content",
+      finishReason: "length",
+      usagePromptTokens: 7_400,
+      usageCompletionTokens: 620,
+      usageReasoningTokens: 620,
+      transportRequestCount: 1,
+    });
+    // The breakdown reaches the surfaced failure diagnostic (the log line
+    // and the failure response) unchanged: numbers and fixed codes only.
+    expect(buildOriginProviderFailureDiagnostic(error as OriginProviderError)).toEqual({
+      streamFailure: "empty-content",
+      finishReason: "length",
+      usagePromptTokens: 7_400,
+      usageCompletionTokens: 620,
+      usageReasoningTokens: 620,
+      transportRequestCount: 1,
+      failoverAttempts: [],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a no-done breakdown when the stream ends without its [DONE] terminator", async () => {
+    const fetchMock = vi.fn(async () => groqSseResponse([
+      contentChunk(ORIGIN_GROQ_FREE_MODEL_ID, "途中で切れた"),
+      groqEvent({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [{ delta: {}, finish_reason: "stop" }] }),
+    ]));
+    const error = await executeOriginGroqProviderStream(
+      request,
+      { onDelta: () => undefined },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error).toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", status: 502, retryable: true });
+    // Termination outranks content in the breakdown: text did arrive, but
+    // the stream never terminated, and no usage was ever reported.
+    expect((error as OriginProviderError).diagnostic).toEqual({
+      streamFailure: "no-done",
+      finishReason: "stop",
+      usagePromptTokens: 0,
+      usageCompletionTokens: 0,
+      transportRequestCount: 1,
+    });
+  });
+
+  it("records a no-model breakdown when no chunk ever names the served model", async () => {
+    const fetchMock = vi.fn(async () => groqSseResponse([
+      groqEvent({ choices: [{ delta: {}, finish_reason: "stop" }] }),
+      groqEvent({ choices: [], usage: { prompt_tokens: 90, completion_tokens: 12, total_tokens: 102 } }),
+      "data: [DONE]\n\n",
+    ]));
+    const error = await executeOriginGroqProviderStream(
+      request,
+      { onDelta: () => undefined },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect(error).toMatchObject({ code: "PROVIDER_INVALID_RESPONSE", status: 502, retryable: true });
+    expect((error as OriginProviderError).diagnostic).toEqual({
+      streamFailure: "no-model",
+      finishReason: "stop",
+      usagePromptTokens: 90,
+      usageCompletionTokens: 12,
+      transportRequestCount: 1,
+    });
+  });
+
+  it("returns exactly the pre-diagnostics result shape on a successful stream", async () => {
+    const fetchMock = vi.fn(async () => successStream());
+    const result = await executeOriginGroqProviderStream(
+      request,
+      { onDelta: () => undefined },
+      groqEnv,
+      fetchMock as unknown as OriginFetch,
+      { nowMs: NOW_MS },
+    );
+    expect(result).toEqual({
+      text: "第3経路の回答です。",
+      transportRequestCount: 1,
+      actualCostUsd: 0,
+      providerDataPolicy: request.plan.providerDataPolicy,
+      routingEvidence: {
+        requestedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        servedModel: ORIGIN_GROQ_FREE_MODEL_ID,
+        strategy: "verified-free-failover",
+        provider: "Groq",
+        attempt: 3,
+        fallbackUsed: true,
+      },
+      usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160, costUsd: 0 },
+    });
   });
 
   it("is completely disabled without GROQ_API_KEY, exactly like the blocking executor", async () => {
