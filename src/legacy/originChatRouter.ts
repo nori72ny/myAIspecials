@@ -37,6 +37,7 @@ import {
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
+import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -372,7 +373,81 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           sources: grounded.sources,
         });
       }
-      if (grounded.sourceCount === 0) {
+      // Recovery build Stage 1, PR-4: the template direct-answer
+      // fallback. When the normal path produced no substantive
+      // answer — the tier-T4 hold here (sourceCount 0), or the
+      // tier-T3 extractive partial answer at the final assembly
+      // below — a scalar value confirmed by PR-3's cross-source vote
+      // over the FULL source set may be stated directly by a
+      // deterministic template, with its as-of date and its sources.
+      // The T4 site reads the freshness gate's dropped candidates
+      // (researchResult.droppedSources): round 5's freshness
+      // refusals were periodic official values discarded for the
+      // page's age, and the fallback re-judges them by the value's
+      // own publication point under PR-3/PR-4's confirmation rules.
+      // Switch ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: off (default)
+      // does nothing; shadow computes and logs the attempt and the
+      // original answer is delivered byte-identically; enforce
+      // delivers the template — but only after the publication gate
+      // has also passed the template text, so the gate is never
+      // bypassed (a held template does not fire, and the original
+      // answer stands exactly as before this PR).
+      const recoveryTemplateMode = resolveRecoveryTemplateFallbackMode(env);
+      let recoveryTemplate: {
+        content: string;
+        attempt: RecoveryTemplateFallbackResult;
+      } | null = null;
+      const tryRecoveryTemplateAtSite = (
+        site: "t4" | "t3",
+        sources: readonly OriginResearchSource[],
+      ): void => {
+        if (recoveryTemplate || sources.length === 0) return;
+        const attempt = tryRecoveryTemplateFallback({
+          question: lastUserMessage,
+          sources,
+          mode: recoveryTemplateMode,
+          nowMs: now(),
+          language: grounded.language,
+        });
+        console.info("[origin-chat] recovery template fallback", {
+          requestId,
+          recoveryTemplateSite: site,
+          recoveryTemplateMode,
+          recoveryTemplateFired: attempt.fired,
+          recoveryTemplateType: attempt.type,
+          ...(attempt.voteStatus ? { recoveryVoteStatus: attempt.voteStatus } : {}),
+          ...(attempt.reason ? { recoveryTemplateReason: attempt.reason } : {}),
+          ...(attempt.resolution ? { recoveryTemplateResolution: attempt.resolution } : {}),
+          recoveryTemplateDomainCount: attempt.domains.length,
+          // The confirmed value is a number/code for the scalar
+          // types (the same discipline as PR-3's shadow log); team
+          // names are recorded as status and counts only.
+          ...(attempt.fired && attempt.type !== "team_name"
+            ? { recoveryTemplateValue: attempt.normalizedValue?.slice(0, 40) }
+            : {}),
+        });
+        if (recoveryTemplateMode !== "enforce" || !attempt.fired || !attempt.text) return;
+        const gate = applyOriginPublicationGate({
+          requestId,
+          answerText: attempt.text,
+          query: lastUserMessage,
+          language: grounded.language,
+          env,
+        });
+        if (gate.held) {
+          console.warn("[origin-chat] recovery template held by publication gate", {
+            requestId,
+            recoveryTemplateSite: site,
+            publicationGateFiringKinds: gate.firingKinds,
+          });
+          return;
+        }
+        recoveryTemplate = { content: attempt.text, attempt };
+      };
+      if (recoveryTemplateMode !== "off" && grounded.sourceCount === 0) {
+        tryRecoveryTemplateAtSite("t4", safeOriginResearchSources(researchResult.droppedSources ?? []));
+      }
+      if (grounded.sourceCount === 0 && !recoveryTemplate) {
         // Failure classification (synthesis-hygiene): record why this
         // request fail-closed to the could-not-confirm answer, without
         // logging any message or answer text. monthly-cap-reached means
@@ -970,16 +1045,46 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         synthesisStatus = "disabled";
       }
 
-      const digestReason = synthesisStatus === "not-run"
-        ? grounded.reason
-        : grounded.language === "en"
-          ? `${grounded.reason} AI synthesis was not adopted; the retrieved source list is shown instead.`
-          : `${grounded.reason} AI統合は採用せず、取得した出典の一覧を表示しています。`;
-      const digestLimitations = researchNeedsDownstreamDeliverable
-        ? [...grounded.limitations, grounded.language === "en"
-          ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
-          : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"]
-        : grounded.limitations;
+      // PR-4, T3 site: reaching this assembly means the synthesis
+      // was not adopted (an adopted answer returns earlier), so the
+      // body would be the tier-T3 extractive partial answer. Try the
+      // template over ALL kept sources — not the partial answer's
+      // top-three slice, whose cap is what starved round 5's F-03 of
+      // its current value (PR-2 correction).
+      if (recoveryTemplateMode !== "off" && grounded.sourceCount > 0) {
+        tryRecoveryTemplateAtSite("t3", grounded.sources);
+      }
+      const digestReason = recoveryTemplate
+        ? (grounded.language === "en"
+          ? "Answered directly with the latest published value confirmed across multiple independent sources, with the sources shown."
+          : "複数の独立した出典で一致した直近の公表値を、出典を明示して直接回答しました。")
+        : synthesisStatus === "not-run"
+          ? grounded.reason
+          : grounded.language === "en"
+            ? `${grounded.reason} AI synthesis was not adopted; the retrieved source list is shown instead.`
+            : `${grounded.reason} AI統合は採用せず、取得した出典の一覧を表示しています。`;
+      const digestLimitations = recoveryTemplate
+        ? [grounded.language === "en"
+          ? "The value shown is the latest published figure confirmed across multiple sources. Please check the official announcement for the definitive information."
+          : "表示した値は、複数の出典で一致した直近の公表値です。確定の情報は公式の発表でご確認ください。"]
+        : researchNeedsDownstreamDeliverable
+          ? [...grounded.limitations, grounded.language === "en"
+            ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
+            : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"]
+          : grounded.limitations;
+      const responseEvidence = recoveryTemplate
+        ? recoveryTemplate.attempt.confirmingSources.map((source) => ({
+            label: source.title,
+            sourceUrl: source.url,
+            evidenceLevel: "provided" as const,
+            checks: {
+              safeUrl: "passed" as const,
+              content: "not-run" as const,
+              freshness: "not-run" as const,
+              claimSupport: "not-run" as const,
+            },
+          }))
+        : grounded.evidence;
       // Terminal guarantee (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17
       // §1.4): this return is the research path's final assembly, and it
       // structurally cannot emit an empty or shell-only body (failure
@@ -988,11 +1093,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // partial answer otherwise — both substantive by construction —
       // and the guard replaces anything else with the tier-T4 hold text
       // and re-lands the outcome on ABSTAIN.
-      const terminal = ensureGroundedResearchTerminalBody(grounded.content, () =>
+      const terminal = ensureGroundedResearchTerminalBody(recoveryTemplate?.content ?? grounded.content, () =>
         buildGroundedResearchAbstainAnswer({ query: lastUserMessage, language: grounded.language, reason: "provider-error" }));
       const landing: OriginResearchLanding = terminal.guardFired
         ? researchLandingForAbstain("provider-error")
-        : grounded.landing;
+        : recoveryTemplate
+          ? researchLandingForAdopted(false)
+          : grounded.landing;
       if (terminal.guardFired) {
         console.warn("[origin-chat] research terminal guard fired", {
           requestId,
@@ -1013,6 +1120,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         synthesisStatus,
         ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
         sourceCount: grounded.sourceCount,
+        ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
       });
       return res.json({
         content: terminal.content,
@@ -1026,8 +1134,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           steps: [
             {
               id: "research",
-              status: grounded.sourceCount > 0 ? "completed" : "blocked",
-              evidenceCount: grounded.sourceCount,
+              status: grounded.sourceCount > 0 || recoveryTemplate ? "completed" : "blocked",
+              evidenceCount: Math.max(grounded.sourceCount, recoveryTemplate?.attempt.confirmingSources.length ?? 0),
               provider: grounded.provider,
             },
             {
@@ -1045,7 +1153,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             },
           ],
         },
-        answer: answerEnvelope(terminal.content, grounded.language, "not-run", digestReason, grounded.evidence, digestLimitations, grounded.nextActions),
+        answer: answerEnvelope(terminal.content, grounded.language, "not-run", digestReason, responseEvidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),
           answerMode: "research",
@@ -1059,6 +1167,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           researchTier: landing.tier,
           researchOutcome: landing.outcome,
           ...(landing.abstainReason ? { researchAbstainReason: landing.abstainReason } : {}),
+          ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,

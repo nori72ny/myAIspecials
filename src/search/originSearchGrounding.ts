@@ -168,6 +168,19 @@ export type OriginSearchGroundingOutcome =
       reason: "no-sources" | "no-fresh-sources" | "provider-error" | "monthly-cap-reached";
       freshness: OriginSearchGroundingFreshnessStats;
       candidateStats?: OriginSearchCandidateStats;
+      /**
+       * Recovery build Stage 1, PR-4: when the freshness gate dropped
+       * every candidate (reason "no-fresh-sources"), up to five of the
+       * candidates that REACHED the gate are carried here — title,
+       * excerpt, domain, publication date and tier intact — so the
+       * template direct-answer fallback can re-judge the values by
+       * their own publication points instead of the gate's window.
+       * Absent for the other reasons (no candidates reached the gate).
+       * These sources are NOT citable evidence: they failed the gate,
+       * and only the PR-4 fallback may read them, under its own
+       * confirmation rules.
+       */
+      droppedSources?: OriginSearchSource[];
     }
   | { kind: "not-applicable"; reason: "no-search-needed" | "no-route-enabled" };
 
@@ -584,6 +597,9 @@ export async function executeOriginSearchGrounding(
       reason: "no-fresh-sources",
       freshness: stats,
       candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, stats),
+      // PR-4: every candidate here reached the freshness gate and was
+      // dropped by it; carry the first five for the template fallback.
+      droppedSources: candidates.slice(0, 5),
     };
   }
 
@@ -836,6 +852,30 @@ export function createDefaultOriginResearchExecutor(
           outcome.freshness,
           outcome.candidateStats,
         ),
+        // PR-4: the freshness-dropped candidates travel in their own
+        // field (never in `sources`, which is the citable set), in
+        // the same field mapping as the grounded conversion, so the
+        // template fallback can re-judge their values by publication
+        // point. `retrievedAt` is the moment of this conversion —
+        // the retrieval just happened.
+        ...(outcome.droppedSources && outcome.droppedSources.length > 0
+          ? {
+              droppedSources: outcome.droppedSources.map((source, index) => ({
+                title: source.title,
+                url: source.url,
+                excerpt: source.excerpt,
+                revisionTimestamp: source.publishedAt,
+                sourceType: source.providerId === "wikipedia" ? "encyclopedia" as const : "web-search" as const,
+                sourceAuthority: source.providerId === "wikipedia" ? "secondary-reference" as const : "unclassified" as const,
+                authorityTier: source.authorityTier,
+                domain: source.domain,
+                rank: index + 1,
+                evidenceLevel: source.evidenceLevel === "extracted" ? "page-verified" as const : "snippet" as const,
+                retrievedAt: new Date().toISOString(),
+                freshness: "unknown" as const,
+              })),
+            }
+          : {}),
       };
     }
     return legacyResearch(query);

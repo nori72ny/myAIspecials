@@ -175,6 +175,14 @@ describe("executeOriginSearchGrounding", () => {
     if (outcome.kind === "unavailable") {
       expect(outcome.reason).toBe("no-fresh-sources");
       expect(outcome.freshness.droppedStaleCount).toBe(1);
+      // PR-4: the candidate that reached the freshness gate is
+      // carried as a dropped source (title/excerpt/domain/date/tier).
+      expect(outcome.droppedSources).toHaveLength(1);
+      expect(outcome.droppedSources?.[0]).toEqual(expect.objectContaining({
+        title: "古いニュース",
+        domain: "www3.nhk.or.jp",
+      }));
+      expect(outcome.droppedSources?.[0]?.publishedAt).toContain("2026-10-01");
     }
   });
 
@@ -408,6 +416,36 @@ describe("createDefaultOriginResearchExecutor", () => {
     expect(result.grounding?.candidateStats?.droppedByFreshnessCount).toBe(1);
     expect(JSON.stringify(result.grounding)).not.toContain("https://");
     expect(JSON.stringify(result.grounding)).not.toContain("古いニュース");
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("carries the freshness-dropped candidates as droppedSources for the PR-4 template fallback", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.gdeltproject.org",
+        respond: () => ({
+          articles: [
+            { url: "https://www3.nhk.or.jp/news/html/old.html", title: "古いニュース", domain: "nhk.or.jp", seendate: "20261001T000000Z" },
+          ],
+        }),
+      },
+    ]);
+    const legacy = vi.fn(async () => legacyResult);
+    const execute = createDefaultOriginResearchExecutor(makeDeps({ env: {}, fetchImpl }), legacy);
+    const result = await execute(NEWS_QUESTION);
+    expect(result.ok).toBe(false);
+    expect(result.groundingFailure).toBe("no-fresh-sources");
+    // The citable set stays empty; the dropped candidate travels in
+    // its own field with title/excerpt/domain/publication date, in
+    // the research-source shape (publication date as revisionTimestamp).
+    expect(result.sources).toEqual([]);
+    expect(result.droppedSources).toHaveLength(1);
+    expect(result.droppedSources?.[0]).toEqual(expect.objectContaining({
+      title: "古いニュース",
+      url: "https://www3.nhk.or.jp/news/html/old.html",
+      domain: "www3.nhk.or.jp",
+    }));
+    expect(result.droppedSources?.[0]?.revisionTimestamp).toContain("2026-10-01");
     expect(legacy).not.toHaveBeenCalled();
   });
 });

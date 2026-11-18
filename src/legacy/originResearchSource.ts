@@ -78,6 +78,16 @@ export interface OriginResearchGroundingMetadata {
 export interface OriginResearchResult {
   ok: boolean;
   sources: OriginResearchSource[];
+  /**
+   * Recovery build Stage 1, PR-4: candidates the search layer's
+   * freshness gate dropped (at most five, present only on a
+   * "no-fresh-sources" grounding failure). Kept strictly apart from
+   * `sources` — the citable set — because these failed the gate;
+   * the only reader is the template direct-answer fallback, which
+   * re-judges their values under its own confirmation rules
+   * (independent-domain vote + 365-day publication window).
+   */
+  droppedSources?: OriginResearchSource[];
   failure?: OriginResearchFailure;
   fallback?: OriginResearchFailure;
   searchProvider?: ResearchProviderName;

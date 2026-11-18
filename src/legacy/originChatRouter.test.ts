@@ -218,6 +218,169 @@ describe("createOriginChatRouter", () => {
       info.mockRestore();
     }
   });
+  // PR-4 (recovery template fallback): the router tests below use a
+  // fixed realistic clock, because the fallback's 365-day publication
+  // window is judged against the router's now().
+  const PR4_NOW = Date.parse("2026-11-19T00:00:00.000Z");
+  function createPr4App(
+    env: NodeJS.ProcessEnv,
+    research: OriginResearchExecutor,
+  ) {
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env,
+      execute,
+      research,
+      researchSynthesis: null,
+      now: () => PR4_NOW,
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+    }));
+    return app;
+  }
+  const droppedGasolineSource = (domain: string, url: string) => ({
+    title: "ガソリン価格調査",
+    url,
+    excerpt: "資源エネルギー庁が2026年11月16日に公表した調査では、レギュラーガソリンの全国平均価格は170.0円でした。",
+    revisionTimestamp: "2026-11-17T00:00:00.000Z",
+    sourceType: "web-search" as const,
+    domain,
+    evidenceLevel: "snippet" as const,
+    retrievedAt: "2026-11-19T00:00:00.000Z",
+    freshness: "older" as const,
+  });
+  const GASOLINE_QUESTION = { messages: [{ role: "user", content: "レギュラーガソリンの全国平均価格は今いくらくらいですか？" }] };
+
+  it("recovery template fallback (T4, enforce) answers from freshness-dropped sources and lands T0/ANSWERED (PR-4)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [
+        droppedGasolineSource("enecho.example", "https://enecho.example/a"),
+        droppedGasolineSource("news.example", "https://news.example/b"),
+      ],
+    });
+    const response = await request(createPr4App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: "enforce", ORIGIN_PUBLICATION_GATE_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(GASOLINE_QUESTION);
+    expect(response.status).toBe(200);
+    // The template states the confirmed value with its as-of date and
+    // sources, instead of the tier-T4 freshness refusal. The
+    // publication gate is in enforce mode here and passes the
+    // template (the gate is a veto over the template, never bypassed).
+    expect(response.body.content).toContain("170.0円");
+    // The as-of date is the value's newest publication point: the
+    // sources' publication date (11/17) precedes the survey date the
+    // sentences state (11/16).
+    expect(response.body.content).toContain("2026年11月17日");
+    expect(response.body.content).toContain("## 出典");
+    expect(response.body.routing.recoveryTemplate).toBe(true);
+    expect(response.body.routing.researchTier).toBe("T0");
+    expect(response.body.routing.researchOutcome).toBe("ANSWERED");
+    expect(response.body.answer.evidence).toHaveLength(2);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("recovery template fallback (T4, shadow) logs the attempt and delivers the refusal byte-identically (PR-4)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [
+        droppedGasolineSource("enecho.example", "https://enecho.example/a"),
+        droppedGasolineSource("news.example", "https://news.example/b"),
+      ],
+    });
+    const baseline = await request(createPr4App({ OPENROUTER_API_KEY: "synthetic-test-key" }, researchMock))
+      .post("/api/chat").send(GASOLINE_QUESTION);
+    expect(baseline.status).toBe(200);
+    expect(baseline.body.content).not.toContain("170.0円");
+    expect(baseline.body.routing.recoveryTemplate).toBeUndefined();
+
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const shadowed = await request(createPr4App(
+        { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: "shadow" },
+        researchMock,
+      )).post("/api/chat").send(GASOLINE_QUESTION);
+      expect(shadowed.status).toBe(200);
+      expect(shadowed.body.content).toBe(baseline.body.content);
+      expect(shadowed.body.routing.recoveryTemplate).toBeUndefined();
+      const attemptLog = info.mock.calls.find((call) => String(call[0]).includes("recovery template fallback"));
+      expect(attemptLog).toBeDefined();
+      const fields = attemptLog?.[1] as { recoveryTemplateFired?: boolean; recoveryTemplateSite?: string; recoveryTemplateValue?: string } | undefined;
+      expect(fields?.recoveryTemplateFired).toBe(true);
+      expect(fields?.recoveryTemplateSite).toBe("t4");
+      expect(fields?.recoveryTemplateValue).toBe("170");
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("recovery template fallback (T4, enforce) does not fire on a single dropped source (PR-4)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [droppedGasolineSource("enecho.example", "https://enecho.example/a")],
+    });
+    const response = await request(createPr4App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(GASOLINE_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).not.toContain("170.0円");
+    expect(response.body.content).toContain("推測で回答しません");
+    expect(response.body.routing.recoveryTemplate).toBeUndefined();
+    expect(response.body.routing.researchTier).toBe("T4");
+  });
+
+  it("recovery template fallback (T3, enforce) replaces the partial answer using ALL kept sources; shadow stays byte-identical (PR-4)", async () => {
+    const rateSource = (domain: string, url: string) => ({
+      title: "労働力調査",
+      url,
+      excerpt: "総務省統計局が2026年10月30日に公表した労働力調査では、2026年9月の完全失業率は2.4%でした。",
+      revisionTimestamp: "2026-10-30T00:00:00.000Z",
+      sourceType: "web-search" as const,
+      domain,
+      evidenceLevel: "page-verified" as const,
+      retrievedAt: "2026-11-19T00:00:00.000Z",
+      freshness: "recent" as const,
+    });
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      sources: [rateSource("stat.example", "https://stat.example/a"), rateSource("news.example", "https://news.example/b")],
+    });
+    const question = { messages: [{ role: "user", content: "最新の完全失業率を教えてください。いつの分ですか？" }] };
+    const baseline = await request(createPr4App({ OPENROUTER_API_KEY: "synthetic-test-key" }, researchMock))
+      .post("/api/chat").send(question);
+    expect(baseline.status).toBe(200);
+    expect(baseline.body.routing.researchTier).toBe("T3");
+    expect(baseline.body.routing.recoveryTemplate).toBeUndefined();
+
+    const shadowed = await request(createPr4App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: "shadow" },
+      researchMock,
+    )).post("/api/chat").send(question);
+    expect(shadowed.body.content).toBe(baseline.body.content);
+
+    const enforced = await request(createPr4App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_TEMPLATE_FALLBACK_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(question);
+    expect(enforced.status).toBe(200);
+    expect(enforced.body.content).toContain("公表情報では2.4%です");
+    expect(enforced.body.content).not.toBe(baseline.body.content);
+    expect(enforced.body.routing.recoveryTemplate).toBe(true);
+    expect(enforced.body.routing.researchTier).toBe("T0");
+    expect(enforced.body.routing.researchOutcome).toBe("ANSWERED");
+  });
   // S-PR-1 note: this test pins context windowing only. Its final message
   // used to be 「最新の依頼」, which under the unified needs-freshness
   // determination now routes to grounded research (fresh_general fails
