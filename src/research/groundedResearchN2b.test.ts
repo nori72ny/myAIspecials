@@ -156,17 +156,25 @@ describe("N-2b tier-T3 partial answer claim quotes", () => {
       excerpt: "詳細は[案内ページ](https://example.org/x)を見てください。定員は248人です。",
     })];
     const text = buildGroundedResearchPartialAnswer(hostile, "ja", "定員は何人ですか？");
-    expect(text).toContain("案内ページ");
+    // PR-2: the packet now quotes only the answering sentence, so the
+    // link-bearing sentence no longer rides the quote at all (it does
+    // not answer the question); the neutralization properties below
+    // are unchanged — no URL and no link syntax survive in the quote.
+    expect(text).not.toContain("案内ページ");
     expect(text).not.toContain("example.org/x");
     expect(text).not.toContain("](");
     expect(text).toContain("定員は248人です。");
   });
 
   it("still bounds the claim quote at 240 characters", () => {
+    // PR-2: the bound now applies to the packet quote. The long
+    // sentence must carry a question key to be selected at all — a
+    // long non-answering sentence is dropped by the packet instead of
+    // being quoted — so the key and the number ride inside it.
     const long = [source({
       title: "長い資料",
       url: "https://example.com/long",
-      excerpt: `${"あ".repeat(300)}。定員は248人です。`,
+      excerpt: `${"あ".repeat(300)}定員は248人です。`,
     })];
     const text = buildGroundedResearchPartialAnswer(long, "ja", "定員は何人ですか？");
     expect(text).toContain(`『${"あ".repeat(240)}』`);
@@ -184,5 +192,42 @@ describe("N-2b tier-T3 partial answer claim quotes", () => {
     const second = buildGroundedResearchPartialAnswer(t3Sources, "ja");
     expect(first).toBe(second);
     expect(first).toContain("参議院の定数は248人です。");
+  });
+});
+
+describe("PR-2 recovery packet partial-answer regression (round 5)", () => {
+  it("quotes the 1.25% fact whole (F-03): the old splitter cut it into fragments", () => {
+    // Round 5, F-03: the source body stated the September hike to
+    // 1.25%, but the N-2b claim splitter cut "1.25%" into "1." and
+    // "25%…", so the partial answer never quoted the current rate.
+    const sources = [source({
+      title: "日銀の金融政策について",
+      url: "https://example.com/boj",
+      domain: "example.com",
+      excerpt:
+        "2026年6月には1.0％へ引き上げていた。日本銀行は2026年9月に政策金利を1.00％から1.25％へ引き上げた。",
+    })];
+    const text = buildGroundedResearchPartialAnswer(
+      sources, "ja", "現在の日本の政策金利は何％ですか？",
+    );
+    expect(text).toContain("1.25％");
+    expect(text).not.toContain("1. 25％");
+    expect(text).not.toContain("1. 0％");
+    expect(text).toContain("2026年9月に政策金利を1.00％から1.25％へ引き上げた。");
+  });
+
+  it("quotes both validity periods (E-02): 5 years and 10 years", () => {
+    const sources = [source({
+      title: "パスポートの有効期間について",
+      url: "https://example.com/passport",
+      domain: "example.com",
+      excerpt:
+        "パスポートの申請方法はこちらです。パスポートの有効期間は、18歳以上の方は10年間、18歳未満の方は5年間です。",
+    })];
+    const text = buildGroundedResearchPartialAnswer(
+      sources, "ja", "パスポートの有効期間は何年ですか？",
+    );
+    expect(text).toContain("10年間");
+    expect(text).toContain("5年間");
   });
 });

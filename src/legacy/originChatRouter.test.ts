@@ -696,8 +696,14 @@ describe("createOriginChatRouter", () => {
     // claim sentences, not the excerpt head — the trailing download
     // boilerplate sentence is outside the selection and no longer
     // rides the quote at all. The PKG-9 substance is unchanged.
+    // PR-2 note: the quote is now the evidence packet's sentences, so
+    // the navigation/advertising lead sentence no longer rides the
+    // quote either — only the sentence answering the question does.
+    // Less raw page text is pasted than before, which is the PKG-9
+    // guarantee itself.
     const attributionLine = response.body.content.split("\n").find((line: string) => line.startsWith("- S1"));
-    expect(attributionLine).toContain("『サービス紹介 資料ダウンロード お問い合わせ 退職の基礎知識を確認したい人事担当者も、ぜひ最後までチェックしてみてください。退職の予告は民法により、原則として2週間前の申し出で退職が可能です。』");
+    expect(attributionLine).toContain("『退職の予告は民法により、原則として2週間前の申し出で退職が可能です。』");
+    expect(attributionLine).not.toContain("サービス紹介");
     expect(attributionLine).not.toContain("資料を無料ダウンロード");
     const outsideAttribution = response.body.content.split("\n").filter((line: string) => !line.startsWith("- S1")).join("\n");
     expect(outsideAttribution).not.toContain("退職の予告は民法により");
