@@ -20,6 +20,8 @@
   --color-origin-brand-soft: var(--accent-soft);
   --color-origin-brand-border: var(--accent-border);
   --color-origin-success: var(--success);
+  --color-origin-warning: var(--warning);
+  --color-origin-danger: var(--danger);
   --radius-control: 10px;
   --radius-card: 16px;
   --radius-composer: 24px;
@@ -68,11 +70,23 @@
   --bubble-from: oklch(0.955 0.012 268);
   --bubble-to: oklch(0.94 0.015 272);
   --bubble-text: oklch(0.235 0.012 250);
-  /* Status color, reserved for status displays only (ready / done /
-     waiting). The blue-leaning teal hue (190) keeps it inside the
-     blue token system instead of the former pure green (hue 152-155):
-     5.26:1 on white, 4.76:1 on --bg-surface-muted. */
-  --success: oklch(0.52 0.09 190);
+  /* Status palette — the only colors allowed for status displays
+     (design evaluation round 3, 2026-11-17: raw Tailwind palette
+     colors such as amber / rose read as foreign bodies next to the
+     blue system, so every status display goes through these tokens):
+       --success  ready / done / verified. Hue 215 keeps it inside
+                  the blue family (accent is 262) while staying
+                  distinguishable from the accent itself:
+                  5.33:1 on white.
+       --warning  checking / waiting / needs attention. A defined
+                  amber (hue 65): 5.68:1 on white, 5.28:1 on its own
+                  10% tint.
+       --danger   failed / stopped / destructive.
+     Use them via the origin-* utilities (text-origin-success,
+     text-origin-warning, text-origin-danger, and the bg-/border-
+     forms with opacity modifiers for soft fills). */
+  --success: oklch(0.52 0.09 215);
+  --warning: oklch(0.52 0.12 65);
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
   --scrim: oklch(0.23 0.02 250 / 0.36);
@@ -102,7 +116,8 @@
   --bubble-from: oklch(0.955 0.013 78);
   --bubble-to: oklch(0.94 0.016 74);
   --bubble-text: oklch(0.245 0.026 35);
-  --success: oklch(0.52 0.09 190);
+  --success: oklch(0.52 0.09 215);
+  --warning: oklch(0.52 0.12 65);
   --danger: oklch(0.52 0.17 25);
   --shadow-color: oklch(0.29 0.035 45 / 0.14);
   --scrim: oklch(0.25 0.03 45 / 0.36);
@@ -127,7 +142,8 @@
   --bubble-from: oklch(0.95 0.014 78);
   --bubble-to: oklch(0.935 0.017 74);
   --bubble-text: oklch(0.25 0.03 40);
-  --success: oklch(0.78 0.09 190);
+  --success: oklch(0.78 0.09 215);
+  --warning: oklch(0.79 0.11 70);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.08 0.025 35 / 0.5);
   --scrim: oklch(0.06 0.02 35 / 0.56);
@@ -152,7 +168,8 @@
   --bubble-from: oklch(0.955 0.012 248);
   --bubble-to: oklch(0.94 0.015 252);
   --bubble-text: oklch(0.24 0.028 240);
-  --success: oklch(0.52 0.09 190);
+  --success: oklch(0.52 0.09 215);
+  --warning: oklch(0.52 0.12 65);
   --danger: oklch(0.53 0.17 25);
   --shadow-color: oklch(0.28 0.045 240 / 0.13);
   --scrim: oklch(0.24 0.03 240 / 0.36);
@@ -177,7 +194,8 @@
   --bubble-from: oklch(0.95 0.012 248 / 0.97);
   --bubble-to: oklch(0.935 0.015 252 / 0.97);
   --bubble-text: oklch(0.24 0.028 240);
-  --success: oklch(0.78 0.09 190);
+  --success: oklch(0.78 0.09 215);
+  --warning: oklch(0.79 0.11 70);
   --danger: oklch(0.74 0.15 25);
   --shadow-color: oklch(0.09 0.035 245 / 0.45);
   --scrim: oklch(0.05 0.02 245 / 0.56);
@@ -296,6 +314,14 @@
   border-radius: 0;
   box-shadow: none;
   background: var(--bg-surface);
+  /* Drawer layering (design evaluation round 3, 2026-11-17): the app
+     header also carries z-index 50 and comes later in the DOM, so at
+     equal z-index it painted over the drawer's top strip and blocked
+     clicks on the sidebar's own close button. The drawer therefore
+     sits at 60 — above the header (50), below the settings modal
+     (70) and the skip link (100). On desktop the sidebar is static,
+     where z-index has no effect, so the push layout is unchanged. */
+  z-index: 60;
   visibility: hidden;
   transition: transform var(--duration-panel) var(--ease-panel), visibility 0s linear var(--duration-panel);
 }
@@ -598,7 +624,8 @@ a[href]:focus-visible {
   --bubble-from: oklch(0.955 0.012 268);
   --bubble-to: oklch(0.94 0.015 272);
   --bubble-text: oklch(0.235 0.012 250);
-  --success: oklch(0.78 0.09 190);
+  --success: oklch(0.78 0.09 215);
+  --warning: oklch(0.79 0.11 70);
   --danger: #fca5a5;
   --shadow-color: rgb(0 0 0 / 40%);
   --scrim: rgb(0 0 0 / 0.55);

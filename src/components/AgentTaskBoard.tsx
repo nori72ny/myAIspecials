@@ -273,10 +273,10 @@ function resumeConditionText(condition: ResumeConditionView): string {
 }
 
 function statusChipClass(status: string): string {
-  if (status === 'awaiting_approval') return 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300';
+  if (status === 'awaiting_approval') return 'border-origin-warning/50 text-origin-warning';
   if (status === 'running' || status === 'queued' || status === 'planning') return 'border-origin-brand-border text-origin-brand';
   if (status === 'completed') return 'border-origin-success text-origin-success';
-  if (status === 'failed') return 'border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-300';
+  if (status === 'failed') return 'border-origin-danger/50 text-origin-danger';
   return 'border-origin-border text-origin-muted';
 }
 
@@ -652,11 +652,11 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
 
   const renderResumePanel = (run: RunView, session: ResumeSession) => {
     const lines = diffLines(session.diffSteps);
-    return <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30" role="group" aria-label="再開する計画の承認">
+    return <div className="mt-3 rounded-xl border border-origin-warning/40 bg-origin-warning/10 p-3" role="group" aria-label="再開する計画の承認">
       <p className="text-sm font-black">再開する計画</p>
       {session.planChanged
         ? <>
-          <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">計画が前回から変わっています。内容を確認してから承認してください。</p>
+          <p className="mt-1 text-xs font-semibold text-origin-warning">計画が前回から変わっています。内容を確認してから承認してください。</p>
           {lines.length > 0 && <ul className="mt-1 space-y-1 text-xs leading-5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>}
         </>
         : <p className="mt-1 text-xs leading-5">計画は前回と同じ内容です。</p>}
@@ -666,7 +666,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         ))}
       </ol>
       <p className="mt-2 text-xs leading-5 text-origin-muted">再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。</p>
-      {session.message && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">{session.message}</p>}
+      {session.message && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-danger">{session.message}</p>}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={() => void approveResume(session)} disabled={session.busy}
           className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
@@ -695,7 +695,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         {run.status === 'held' && run.hold ? `${total > 0 ? ' · ' : ''}${HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'} · ${resumeConditionText(run.hold.resumeCondition)}` : ''}
       </p>
       {actionMessage?.runId === run.runId && (
-        <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">{actionMessage.text}</p>
+        <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-danger">{actionMessage.text}</p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" onClick={() => setExpandedRunId(expanded ? null : run.runId)}
@@ -711,7 +711,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         {CANCELLABLE_STATUSES.has(run.status) && (confirmingCancelRunId === run.runId ? (
           <>
             <button type="button" onClick={() => void cancelRun(run)} disabled={busyRunId === run.runId}
-              className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-3 text-xs font-bold text-rose-900 disabled:opacity-50 dark:bg-rose-950/30 dark:text-rose-200">
+              className="min-h-11 rounded-xl border border-origin-danger/50 bg-origin-danger/10 px-3 text-xs font-bold text-origin-danger disabled:opacity-50">
               {busyRunId === run.runId ? '取り消し中…' : '本当に取り消す'}
             </button>
             <button type="button" onClick={() => setConfirmingCancelRunId(null)}
@@ -754,8 +754,8 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
 
     {notice && <p role="status" className="mt-2 text-xs leading-5 text-origin-muted">{notice}</p>}
     {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
-    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
-    {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">作業を読み込めませんでした。</p>}
+    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
+    {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">作業を読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
       <p className="mt-2 text-sm text-origin-muted">表示できる作業はありません。</p>
     )}

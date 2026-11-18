@@ -230,7 +230,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
   const pngDownloadName = artifact ? pngFilenameFromSvg(artifact.downloadName) : 'origin-creative.png';
 
   return (
-    <aside aria-label="作る（カード・ポスターの作成）" data-testid="creative-panel" className="origin-workspace fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l shadow-2xl sm:w-[76vw] sm:max-w-[880px]">
+    <aside aria-label="作る（カード・ポスターの作成）" data-testid="creative-panel" className="origin-workspace fixed inset-y-0 right-0 z-[65] flex w-full flex-col border-l shadow-2xl sm:w-[76vw] sm:max-w-[880px]">
       <div className="flex min-h-16 items-start justify-between gap-3 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-black">カード・ポスターを作る</h2>

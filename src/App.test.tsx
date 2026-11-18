@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1589,6 +1589,21 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(searchOriginLocalSnapshot('IndexedDB', [session], [indexedArtifact]).map((result) => result.kind)).toContain('session');
     expect(searchOriginLocalSnapshot('quota safe', [session], [indexedArtifact])).toEqual([expect.objectContaining({ kind: 'artifact', id: 'artifact-search' })]);
     expect(searchOriginLocalSnapshot('network request', [session], [indexedArtifact])).toEqual([]);
+  });
+
+  it('cuts history excerpts at a sentence or phrase boundary instead of mid-word', () => {
+    // Short enough: returned as-is, without an ellipsis.
+    expect(excerptAtBoundary('短い文です。', 160)).toBe('短い文です。');
+    // A sentence end inside the limit wins over a raw character cut.
+    const sentence = `${'あ'.repeat(50)}。${'い'.repeat(120)}`;
+    expect(excerptAtBoundary(sentence, 100)).toBe(`${'あ'.repeat(50)}。…`);
+    // Without a sentence end, a 読点 boundary is used.
+    const phrase = `${'う'.repeat(60)}、${'え'.repeat(80)}`;
+    expect(excerptAtBoundary(phrase, 100)).toBe(`${'う'.repeat(60)}…`);
+    // No boundary at all: hard cut plus ellipsis, never longer than max + 1.
+    const hard = excerptAtBoundary('お'.repeat(200), 100);
+    expect(hard).toBe(`${'お'.repeat(100)}…`);
+    expect(hard.length).toBe(101);
   });
 
   it('builds a display-only current-conversation session without duplicating an identical stored session', () => {

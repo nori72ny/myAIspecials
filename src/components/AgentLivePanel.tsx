@@ -177,7 +177,7 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
           </div>
           {focusHref
             ? <a href={focusHref} target="_blank" rel="noreferrer" className="origin-touch-link mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent-primary)] underline">原文を開く</a>
-            : <p className="mt-1 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
+            : <p className="mt-1 text-xs font-semibold leading-5 text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
         </div>
         {focusQuery && <p className="px-3 pt-2 text-xs text-origin-muted">「{focusQuery}」で{focusResearch.state?.status === 'running' ? '調べています' : '調べました'}</p>}
         {focusSource.excerpt && <p className="whitespace-pre-wrap break-words px-3 py-2 text-sm leading-6">{focusSource.excerpt}</p>}
@@ -293,7 +293,7 @@ export function AgentResearchSourceCards({ sources }: { sources: AgentResearchAr
           {source.excerpt && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{source.excerpt}</p>}
           {href
             ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent-primary)] underline">原文を開く</a>
-            : <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
+            : <p className="mt-2 text-xs font-semibold text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
         </article>;
       })}</div>}
   </section>;

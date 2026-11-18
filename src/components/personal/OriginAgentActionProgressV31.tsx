@@ -62,7 +62,7 @@ function stateLabel(state: StepState): string {
 function stateClass(state: StepState): string {
   if (state === 'done') return 'text-origin-success';
   if (state === 'current') return 'text-origin-brand';
-  if (state === 'unknown') return 'text-amber-700 dark:text-amber-300';
+  if (state === 'unknown') return 'text-origin-warning';
   return 'text-origin-placeholder';
 }
 

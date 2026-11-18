@@ -164,6 +164,10 @@ function checkpointStatusLabel(status: string): string {
   return '保存済み';
 }
 
+// 作業結果欄の初期値。実際の結果が入るまでは、この文字列との一致で
+// 「まだ結果が無い」空状態を判定する（結果として保存されることはない）。
+const ARTIFACT_PLACEHOLDER = '終わると、結果がここに表示されます。';
+
 function phaseLabel(phase: Phase): string {
   if (phase === 'planning') return '計画を作っています';
   if (phase === 'awaiting_approval') return '承認待ち';
@@ -191,7 +195,7 @@ export default function AgentWorkspaceView() {
   // callback (then by polling once driving hands over at the caps).
   const [liveSession, setLiveSession] = useState<LiveSession | null>(null);
   const [liveRunView, setLiveRunView] = useState<AgentRunView | null>(null);
-  const [artifact, setArtifact] = useState('終わると、結果がここに表示されます。');
+  const [artifact, setArtifact] = useState(ARTIFACT_PLACEHOLDER);
   const [checkpoints, setCheckpoints] = useState<CheckpointState[]>([]);
   const [restoring, setRestoring] = useState(true);
   const credentialInputRef = useRef<HTMLInputElement>(null);
@@ -539,7 +543,7 @@ export default function AgentWorkspaceView() {
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
-            <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>
+            <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>
               {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
             </span>
           </span>
@@ -553,7 +557,7 @@ export default function AgentWorkspaceView() {
         {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-black">実行の流れ</h2>
-            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">まだ実行していません · 承認待ち</span>
+            <span className="text-xs font-bold text-origin-warning">まだ実行していません · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 text-sm">{plan.plan.map((step, index) => <li key={step.id} className="flex gap-2">
             <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[11px] font-black text-origin-brand">{index + 1}</span>
@@ -565,7 +569,7 @@ export default function AgentWorkspaceView() {
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
           <p className="mt-1 text-xs leading-5 text-origin-muted">承認すると、上に表示された作業だけを行います。内容を変えたいときは、計画をやめて作り直してください。</p>
-          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-amber-700 dark:text-amber-300">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
+          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-warning">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
 
           <details className="mt-2">
             <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者キー（必要な場合だけ）</summary>
@@ -604,13 +608,24 @@ export default function AgentWorkspaceView() {
         <div className="max-h-[60dvh] overflow-auto p-5">
           {researchArtifact
             ? <AgentResearchSourceCards sources={researchArtifact.sources} />
-            : <FormattedMarkdown text={artifact} />}
+            : artifact === ARTIFACT_PLACEHOLDER && !liveSession && phase === 'idle'
+              ? <div>
+                  <p className="text-sm font-bold">まだ結果はありません</p>
+                  <p className="mt-1 text-sm leading-6 text-origin-muted">「任せたいこと」に書いて「実行計画を作る」を押すと、計画の確認のあとに作業が始まり、結果がここに表示されます。</p>
+                  <ol className="mt-3 space-y-1 text-sm leading-6 text-origin-muted">
+                    <li>1. 実行計画を作ります</li>
+                    <li>2. 内容を確認して承認します</li>
+                    <li>3. 計画に沿って作業し、確認します</li>
+                    <li>4. 結果がここに表示されます</li>
+                  </ol>
+                </div>
+              : <FormattedMarkdown text={artifact} />}
         </div>
 
         <section className="border-t border-origin-border p-4">
           <h3 className="text-sm font-black">この端末に保存した結果</h3>
           {restoring ? <p className="mt-2 text-xs text-origin-muted">読み込み中…</p> : checkpoints.length === 0
-            ? <p className="mt-2 text-xs text-origin-muted">終わった作業の結果がここに保存されます。</p>
+            ? <p className="mt-2 text-xs text-origin-muted">終わった作業の結果がここに保存されます。選ぶと、上の欄に表示されます。</p>
             : <div className="mt-2 flex flex-wrap gap-2">{checkpoints.slice().reverse().slice(0, 8).map((item) =>
               <button type="button" key={item.checkpointId} onClick={() => restoreLocalCheckpoint(item)}
                 className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">
