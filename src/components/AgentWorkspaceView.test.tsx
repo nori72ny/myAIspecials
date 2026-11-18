@@ -823,7 +823,9 @@ describe('AgentWorkspaceView attachments (F3)', () => {
 
     render(<AgentWorkspaceView />);
     await screen.findByText('利用できます');
-    const file = new File(['key: sk-abcdefghijklmnop1234'], 'keys.txt', { type: 'text/plain' });
+    // 秘密スキャン（Gitleaks）の誤検出を避けるため、キー風の合成文字列は実行時に組み立てる
+    const fakeApiKey = ['sk', 'abcdefghijklmnop1234'].join('-');
+    const file = new File([`key: ${fakeApiKey}`], 'keys.txt', { type: 'text/plain' });
     fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
 
     await screen.findByText(/「keys\.txt」には、パスワードや個人情報が含まれる可能性があるため、添付できません/);
