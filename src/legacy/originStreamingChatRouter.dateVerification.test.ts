@@ -63,6 +63,16 @@ function gateCall(infoSpy: ReturnType<typeof vi.spyOn>, marker: string) {
   return infoSpy.mock.calls.find(([message]) => String(message).includes(marker));
 }
 
+function deliveredText(sseBody: string): string {
+  return sseBody
+    .split("\n")
+    .filter((line) => line.startsWith("data: {"))
+    .map((line) => JSON.parse(line.slice("data: ".length)) as { type?: string; text?: string })
+    .filter((event) => event.type === "delta" && typeof event.text === "string")
+    .map((event) => event.text as string)
+    .join("");
+}
+
 describe("date/weekday verification gate (streaming router)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -99,6 +109,9 @@ describe("date/weekday verification gate (streaming router)", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain("2026年12月22日（火曜日）が45日後です");
     expect(response.text).not.toContain("12月23日");
+    // The full delivered body is exactly the corrected H-07 text,
+    // matching the non-streaming router's whole-body assertion.
+    expect(deliveredText(response.text)).toBe(H07_CORRECTED);
     const call = gateCall(infoSpy, "date weekday verification (enforce)");
     expect(call).toBeDefined();
     const fields = call?.[1] as Record<string, unknown>;
