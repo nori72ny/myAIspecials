@@ -721,7 +721,7 @@ export default function AgentWorkspaceView() {
   })();
 
   return <section className="flex min-h-full flex-col bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
-    <div className="mx-auto grid w-full max-w-6xl flex-1 gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
+    <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
@@ -816,7 +816,7 @@ export default function AgentWorkspaceView() {
         </div>
       </aside>
 
-      <main className="origin-workspace min-h-[28rem] overflow-hidden rounded-2xl">
+      <main className="origin-workspace overflow-hidden rounded-2xl">
         {liveSession && <div className="border-b border-origin-border">
           <AgentLivePanel
             steps={liveSession.steps}
