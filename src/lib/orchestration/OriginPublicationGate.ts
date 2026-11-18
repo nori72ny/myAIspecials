@@ -66,6 +66,26 @@ import { JAPANESE_LAW_NAMES } from "./japaneseLawNames.js";
  * pipeline), and input-side escalation is N-5c's stage-1 connection.
  * The T4 hold is the conservative landing the design names for the
  * no-budget case, applied uniformly.
+ *
+ * PR-G3-b (GATE_SLIP_COUNTERMEASURE_DESIGN_2026-11-19): the amount-fee
+ * carve-out above also let bare assertions of institutional prices
+ * through — the expansion set's P-18/P-19 fatals asserted a stale
+ * 70-yen postcard rate five times. The detector therefore also
+ * classifies an "official-price" subclass: an amount-fee hit whose own
+ * sentence names a price domain (postage, fares, institutional fees…)
+ * in an answer carrying no arithmetic trace. Calculation answers are
+ * the shape the N-3 carve-out protects, and they are recognised by
+ * their traces (an equals sign, a computation or tax/discount word, a
+ * stated result total) — a bare fee assertion has none. Like every
+ * other class here, the subclass cannot judge whether the figure is
+ * correct (a correct 85-yen assertion is classified exactly like the
+ * stale 70-yen one); correctness is the research path's job, reached
+ * through the input-side escalation (PR-G3-a). The subclass is
+ * governed by its own sub-switch, ORIGIN_PUBLICATION_GATE_PRICE_MODE
+ * (default shadow): it is logged with the other counts but fires only
+ * when that switch is set to enforce, so the false-positive surface
+ * can be measured in production shadow logs and on the dedicated
+ * price fixture set before any answer is held for it.
  */
 
 export type OriginPublicationClaimKind =
@@ -74,6 +94,7 @@ export type OriginPublicationClaimKind =
   | "statutory-capacity"
   | "age-condition"
   | "amount-fee"
+  | "official-price"
   | "position-status";
 
 export interface OriginPublicationClaimHit {
@@ -406,6 +427,84 @@ const KIND_PATTERNS: readonly (readonly [OriginPublicationClaimKind, readonly Re
   ["position-status", POSITION_STATUS_PATTERNS],
 ];
 
+// ---------------------------------------------------------------------------
+// Official-price subclass (PR-G3-b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Price-domain keywords: institutional prices set outside the
+ * conversation (postage, fares, administrative fees). Deliberately
+ * narrower than 価格／料金 in general — a commercial price the user
+ * supplied or a shop's price is not an institutional fact of this
+ * shape, and the generic words appear throughout calculation answers.
+ */
+const OFFICIAL_PRICE_DOMAIN_KEYWORDS: readonly string[] = [
+  "切手", "郵便", "はがき", "送料", "運賃", "手数料",
+  "入場料", "受験料", "交付手数料", "通行料", "駐車料金",
+];
+
+/**
+ * Arithmetic traces, checked over the whole answer: the marks a
+ * calculation answer leaves — an equals sign or division sign, a
+ * computation / tax / discount word, or a result total stated as such
+ * （合計は・元利合計は…). The design's relaxation: if any trace exists
+ * anywhere in the answer, the answer is treated as a calculation (its
+ * conclusion sentence may state the result without a trace of its
+ * own) and the subclass stays silent. Two measured exclusions:
+ * - The dimension notation × (「3.5 cm × 4.5 cm」) is NOT a trace —
+ *   counting it would miss P-19 run1, whose only "operator" is a size.
+ * - A bare 合計 directly followed by an amount in a DIFFERENT sentence
+ *   (「複数枚の切手で合計70円にしてください」 — an instruction to make
+ *   the stamps add up to the fee) is not a result total and not a
+ *   trace; a 合計 inside the hit's own sentence IS treated as one
+ *   (「送料800円の商品を2つ買うと、合計1,600円です」 is a calculation).
+ */
+const OFFICIAL_PRICE_ARITHMETIC_TRACE_PATTERN =
+  /[=＝÷]|計算|税込|税抜|割引|値引き|合計は|合計金額|元利合計/;
+
+/**
+ * Computation words checked inside the hit's own sentence only: a
+ * sentence that itself adds figures up (合計・合わせ・足すと) is doing
+ * arithmetic with supplied values, whatever the rest of the answer
+ * looks like. Kept sentence-local so that P-18 run1's separate
+ * payment instruction (「複数枚の切手で合計70円にしてください」) does
+ * not mask the fee assertion in its first sentence.
+ */
+const OFFICIAL_PRICE_SENTENCE_COMPUTATION_PATTERN = /合計|合わせ|足すと/;
+
+const SENTENCE_BOUNDARY_CHARS: readonly string[] = ["。", "！", "？", "?", "\n"];
+
+/** The sentence (or line) containing the character at `index`. */
+function sentenceSlice(text: string, index: number): string {
+  let start = 0;
+  for (const ch of SENTENCE_BOUNDARY_CHARS) {
+    const at = text.lastIndexOf(ch, Math.max(0, index - 1));
+    if (at + 1 > start) start = at + 1;
+  }
+  let end = text.length;
+  for (const ch of SENTENCE_BOUNDARY_CHARS) {
+    const at = text.indexOf(ch, index);
+    if (at !== -1 && at < end) end = at;
+  }
+  return text.slice(start, end);
+}
+
+/**
+ * The official-price subclass of the amount-fee hits: an amount whose
+ * own sentence names a price domain, in an answer with no arithmetic
+ * trace. Returns the qualifying amount spans (spans only, as with
+ * every other kind).
+ */
+function detectOfficialPriceSpans(text: string, amountSpans: readonly Span[]): Span[] {
+  if (amountSpans.length === 0) return [];
+  if (OFFICIAL_PRICE_ARITHMETIC_TRACE_PATTERN.test(text)) return [];
+  return amountSpans.filter((span) => {
+    const sentence = sentenceSlice(text, span.index);
+    if (OFFICIAL_PRICE_SENTENCE_COMPUTATION_PATTERN.test(sentence)) return false;
+    return OFFICIAL_PRICE_DOMAIN_KEYWORDS.some((keyword) => sentence.includes(keyword));
+  });
+}
+
 /**
  * Scan a finished direct answer for evidence-required claim shapes and
  * check its statute-name candidates against the bundled law list.
@@ -421,13 +520,19 @@ export function detectOriginPublicationClaims(text: string): OriginPublicationGa
     "statutory-capacity": 0,
     "age-condition": 0,
     "amount-fee": 0,
+    "official-price": 0,
     "position-status": 0,
   };
+  let amountFeeSpans: Span[] = [];
   for (const [kind, patterns] of KIND_PATTERNS) {
     const spans = mergeSpans(patterns.flatMap((pattern) => collectSpans(scanned, pattern)));
     counts[kind] = spans.length;
+    if (kind === "amount-fee") amountFeeSpans = spans;
     for (const span of spans) hits.push({ kind, index: span.index, length: span.length });
   }
+  const officialPriceSpans = detectOfficialPriceSpans(scanned, amountFeeSpans);
+  counts["official-price"] = officialPriceSpans.length;
+  for (const span of officialPriceSpans) hits.push({ kind: "official-price", index: span.index, length: span.length });
   hits.sort((a, b) => a.index - b.index);
   return { hits, counts, totalCount: hits.length, lawCheck: lawScan.lawCheck };
 }
@@ -442,6 +547,7 @@ function publicationGateLogFields(summary: OriginPublicationGateSummary): Record
     publicationGateStatutoryCapacityCount: summary.counts["statutory-capacity"],
     publicationGateAgeConditionCount: summary.counts["age-condition"],
     publicationGateAmountFeeCount: summary.counts["amount-fee"],
+    publicationGateOfficialPriceCount: summary.counts["official-price"],
     publicationGatePositionStatusCount: summary.counts["position-status"],
     publicationGateTotalCount: summary.totalCount,
     lawNameCandidateCount: summary.lawCheck.candidateCount,
@@ -495,6 +601,29 @@ export function resolveOriginPublicationGateMode(
 }
 
 /**
+ * The official-price subclass's own sub-switch (PR-G3-b):
+ * ORIGIN_PUBLICATION_GATE_PRICE_MODE, default shadow. The subclass is
+ * new, and the existing measurement sets contain no correct
+ * official-price direct answer to measure its true-positive cost
+ * against, so it starts in shadow (detected and logged, never held)
+ * even while the main gate enforces. "off" silences the subclass's
+ * firing path entirely (detection and its count still run, like every
+ * other kind); "enforce" lets it hold an answer like the other firing
+ * kinds — a step to take only after the shadow distribution and the
+ * price fixture set have been reviewed.
+ */
+export type OriginPublicationGatePriceMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginPublicationGatePriceMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginPublicationGatePriceMode {
+  const value = env?.ORIGIN_PUBLICATION_GATE_PRICE_MODE;
+  if (value === "enforce") return "enforce";
+  if (value === "off") return "off";
+  return "shadow";
+}
+
+/**
  * The claim kinds whose presence in a finished direct answer blocks
  * publication in enforce mode, in a fixed order:
  * - law-name fires only through an UNVERIFIED candidate. A verified
@@ -508,6 +637,10 @@ export function resolveOriginPublicationGateMode(
  *   header): its shadow hits concentrate on correct calculation
  *   answers, and amount correctness belongs to deterministic
  *   re-computation, not to this gate.
+ * - official-price is NOT decided here either: the subclass carved
+ *   out of amount-fee (PR-G3-b) fires only under its own sub-switch
+ *   (ORIGIN_PUBLICATION_GATE_PRICE_MODE=enforce, default shadow),
+ *   applied by applyOriginPublicationGate on top of this list.
  */
 export function publicationGateFiringKinds(
   summary: OriginPublicationGateSummary,
@@ -575,13 +708,19 @@ export function applyOriginPublicationGate(input: {
       });
       return { ...unchanged, summary };
     }
-    const firingKinds = publicationGateFiringKinds(summary);
+    const baseFiringKinds = publicationGateFiringKinds(summary);
+    const priceMode = resolveOriginPublicationGatePriceMode(input.env);
+    const firingKinds: OriginPublicationClaimKind[] =
+      priceMode === "enforce" && summary.counts["official-price"] > 0
+        ? [...baseFiringKinds, "official-price"]
+        : baseFiringKinds;
     const held = firingKinds.length > 0;
     const landing = held ? researchLandingForAbstain("high-risk-insufficient-sources") : null;
     logger("[origin-chat] publication gate (enforce)", {
       requestId: input.requestId,
       ...publicationGateLogFields(summary),
       publicationGateMode: mode,
+      publicationGatePriceMode: priceMode,
       publicationGateHeld: held,
       publicationGateFiringKinds: firingKinds,
       ...(landing

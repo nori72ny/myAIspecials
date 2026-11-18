@@ -59,6 +59,32 @@ describe("detectOriginPublicationClaims — claim shapes", () => {
     expect(kindCount("予算は30万円で、ドル換算では350ドルです。", "amount-fee")).toBe(2);
   });
 
+  it("classifies the official-price subclass of amount-fee hits (G3-b)", () => {
+    // The P-19 shape: a price domain and an amount in one sentence, no
+    // arithmetic trace anywhere in the answer.
+    expect(kindCount("通常の切手料金は70円です。", "official-price")).toBe(1);
+    expect(kindCount("はがきの料金は85円です。", "official-price")).toBe(1);
+    // Correctness is not judged: the correct rate classifies exactly
+    // like the stale one (cf. the correct 248 for statutory-capacity).
+    // The dimension × is not an arithmetic trace (P-19 run1's shape).
+    expect(kindCount("はがき1枚（最大3.5 cm × 4.5 cm）で70円です。", "official-price")).toBe(1);
+    // P-18 run1's shape: the fee assertion fires even though a later
+    // sentence carries a bare 合計70円 payment instruction.
+    expect(kindCount("はがきを送るには、70円の切手が必要です。複数枚の切手で合計70円にしてください。", "official-price")).toBe(1);
+  });
+
+  it("keeps the official-price subclass silent on calculation answers", () => {
+    // Equals sign / computation words / stated result totals anywhere
+    // in the answer mark it as a calculation (the N-3 carve-out).
+    expect(kindCount("送料800円の商品を2つ買うと、合計1,600円です。", "official-price")).toBe(0);
+    expect(kindCount("切手代は85円×3枚分で、合計255円になりました。", "official-price")).toBe(0);
+    expect(kindCount("手数料200円と送料500円を合わせると700円です。", "official-price")).toBe(0);
+    expect(kindCount("元利合計は530,000円です。手数料は30,000円でした。", "official-price")).toBe(0);
+    expect(kindCount("計算すると送料は1,600円です。", "official-price")).toBe(0);
+    // An amount with no price domain in its sentence is not the subclass.
+    expect(kindCount("この本は1,500円で買いました。", "official-price")).toBe(0);
+  });
+
   it("detects enforcement-date assertions", () => {
     expect(kindCount("この法律は2021年4月1日から施行されました。", "law-enforcement")).toBe(1);
     expect(kindCount("施行日は2020年4月1日です。", "law-enforcement")).toBe(1);

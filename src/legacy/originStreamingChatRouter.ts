@@ -36,7 +36,7 @@ import {
   RECOVERY_REFUSAL_RETRY_INSTRUCTION,
 } from "../research/groundedResearchRefusalValidation.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
-import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
+import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
 import {
   buildProposalDeckChatArtifact,
   isProposalDeckChatRequest,
@@ -72,7 +72,7 @@ export interface OriginStreamingChatRouterOptions {
 
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 
-function requiresGroundedResearch(message: string): boolean { return requiresOriginGroundedResearch(message); }
+function requiresGroundedResearch(message: string, env?: NodeJS.ProcessEnv): boolean { return requiresOriginGroundedResearchRouted(message, { env }); }
 
 function systemInstruction(
   intent?: OriginRequestIntent,
@@ -119,7 +119,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     const lastUserMessage = messages.at(-1)?.content ?? "";
     if (isOriginWeatherRequest(lastUserMessage)
       || isOriginCapabilityQuestion(lastUserMessage)
-      || requiresGroundedResearch(lastUserMessage)
+      || requiresGroundedResearch(lastUserMessage, env)
       || detectSensitiveConversation(messages).length > 0) {
       return next();
     }
