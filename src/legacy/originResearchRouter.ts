@@ -257,8 +257,12 @@ export const RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS = 4_000;
 export function buildResearchRecordsValidationFailureAnswer(
   sources: readonly OriginResearchSource[],
   language: "ja" | "en",
+  question = "",
 ): string {
-  const partial = buildGroundedResearchPartialAnswer(sources, language);
+  // N-2b: the partial answer's quotes are the sources' evidence-card
+  // claim sentences, selected against the question when the caller
+  // has it (the route handler below does).
+  const partial = buildGroundedResearchPartialAnswer(sources, language, question);
   const cappedLines = partial.split("\n").map((line) =>
     line.length <= RECORDS_PACKET_EXCERPT_CHARS
       ? line
@@ -685,7 +689,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     // reports not-attempted and cannot throw) keeps the historical
     // extractive body byte-for-byte.
     const recordsFailureAnswer = recordsFailure
-      ? buildResearchRecordsValidationFailureAnswer(safeSources, language)
+      ? buildResearchRecordsValidationFailureAnswer(safeSources, language, query)
       : undefined;
     const content = recordsFailureAnswer ?? `${report.markdown}\n\n${sourceContent}`;
     const evidence = extractProvidedOriginEvidence(content);
