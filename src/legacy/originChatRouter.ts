@@ -1096,6 +1096,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         requestId,
         profile: answerQualityPolicy.businessPlanning,
         answerText: assertionGate.text,
+        requestText: lastUserMessage,
         env,
         now: new Date(now()),
         language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",

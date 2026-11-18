@@ -40,6 +40,29 @@ function syntheticProfile(kind: OriginBusinessPlanningKind): OriginBusinessPlann
   return { kind, figures: {}, backcast: null };
 }
 
+const PREMISE_CODES: readonly OriginBusinessPlanningAuditViolationCode[] = [
+  "PREMISE_FORMULA_MISMATCH",
+  "PREMISE_INPUT_FACT_MISMATCH",
+  "PREMISE_ESTIMATE_GOAL_MISMATCH",
+];
+
+function premiseCodesOf(result: ReturnType<typeof auditOriginBusinessPlanningAnswer>): OriginBusinessPlanningAuditViolationCode[] {
+  return codesOf(result).filter((code) => PREMISE_CODES.includes(code));
+}
+
+function auditRound5(id: string, withRequestText = true) {
+  const fixture = ORIGIN_BUSINESS_PLANNING_MEASURED_ANSWERS.find((entry) => entry.round === "round5" && entry.id === id);
+  if (!fixture) throw new Error(`fixture round5/${id} missing`);
+  const profile = resolveOriginBusinessPlanning(fixture.prompt);
+  if (!profile) throw new Error(`profile for round5/${id} not resolved`);
+  expect(profile.kind).toBe(fixture.expectedKind as OriginBusinessPlanningKind);
+  return auditOriginBusinessPlanningAnswer(
+    profile,
+    fixture.answerText,
+    withRequestText ? { requestText: fixture.prompt } : undefined,
+  );
+}
+
 describe("measured production answers (fixtures from the 2026-11-16 rounds)", () => {
   it("audits every measured answer under its expected kind", () => {
     for (const fixture of ORIGIN_BUSINESS_PLANNING_MEASURED_ANSWERS) {
@@ -146,6 +169,128 @@ describe("measured production answers (fixtures from the 2026-11-16 rounds)", ()
   it("round 2 BP-2 and BP-5: no deadline form appears either", () => {
     expect(codesOf(auditFixture("round2", "BP-2"))).toContain("DEADLINE_MISSING");
     expect(codesOf(auditFixture("round2", "BP-5"))).toContain("DEADLINE_MISSING");
+  });
+});
+
+describe("round 5 measured answers: premise-table checks (production 95552823)", () => {
+  it("BP-2: the reach row's own basis formula (3,400 / 0.02 = 170,000) contradicts its value (30,000)", () => {
+    const result = auditRound5("BP-2");
+    const violations = result.violations.filter((v) => v.code === "PREMISE_FORMULA_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.computed).toBe(170000);
+    expect(violations[0]?.detail.stated).toBe(30000);
+    // The rest of the chain (34 / 68 / 340 / 3,400) recomputes cleanly.
+    expect(premiseCodesOf(result)).toEqual(["PREMISE_FORMULA_MISMATCH"]);
+  });
+
+  it("BP-6: the SQL row drops a digit (500 / 0.30 = 1,667, the table says 167) and the chain below it stays consistent", () => {
+    const result = auditRound5("BP-6");
+    const violations = result.violations.filter((v) => v.code === "PREMISE_FORMULA_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.computed).toBeCloseTo(1666.6667, 3);
+    expect(violations[0]?.detail.stated).toBe(167);
+    expect(result.checks.premiseFormulas).toBe(6);
+  });
+
+  it("BP-3: the revenue goal (3,000万円) exceeds the table's own market-size estimate (200万円); its stated formula itself agrees", () => {
+    const result = auditRound5("BP-3");
+    const violations = result.violations.filter((v) => v.code === "PREMISE_ESTIMATE_GOAL_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.marketEstimate).toBe(2000000);
+    expect(violations[0]?.detail.goalAmount).toBe(30000000);
+    expect(premiseCodesOf(result)).toEqual(["PREMISE_ESTIMATE_GOAL_MISMATCH"]);
+  });
+
+  it("BP-5: the budget input fact restates the brief's 月10万円 as 100万円 (10x), in the degraded space-separated table", () => {
+    const result = auditRound5("BP-5");
+    const violations = result.violations.filter((v) => v.code === "PREMISE_INPUT_FACT_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.stated).toBe(1000000);
+    expect(violations[0]?.detail.briefValue).toBe(100000);
+    expect(violations[0]?.detail.factor).toBe(10);
+    // The store count (5) does restate the brief, and the one stated
+    // formula (200 x (1+20/100) = 240) recomputes cleanly.
+    expect(result.checks.premiseInputFacts).toBe(2);
+    expect(premiseCodesOf(result)).toEqual(["PREMISE_INPUT_FACT_MISMATCH"]);
+  });
+
+  it("BP-5 without the request text: the input-fact pass is skipped, not guessed", () => {
+    const result = auditRound5("BP-5", false);
+    expect(result.checks.premiseInputFacts).toBe(0);
+    expect(premiseCodesOf(result)).toEqual([]);
+  });
+
+  it("BP-1: a fully consistent premise table produces no premise violation", () => {
+    const result = auditRound5("BP-1");
+    expect(premiseCodesOf(result)).toEqual([]);
+    expect(result.checks.premiseFormulas).toBe(6);
+    expect(result.checks.premiseInputFacts).toBe(2);
+  });
+
+  it("BP-4: the parenthesised worked examples do not double-count as operands", () => {
+    const result = auditRound5("BP-4");
+    expect(premiseCodesOf(result)).toEqual([]);
+    expect(result.checks.premiseFormulas).toBe(5);
+  });
+
+  it("BP-7: input facts restated in different units (6,000万円 as 60,000,000円) match the brief, and every stated formula agrees", () => {
+    const result = auditRound5("BP-7");
+    expect(premiseCodesOf(result)).toEqual([]);
+    expect(result.checks.premiseFormulas).toBe(4);
+    expect(result.checks.premiseInputFacts).toBe(3);
+  });
+});
+
+describe("premise-table checks on synthetic answers", () => {
+  const TABLE_HEADER = "| 指標 | 値 | 単位 | 対象期間 | 種別 | 根拠 |\n|------|----|------|----------|------|------|";
+
+  it("flags a named-operand formula whose value cell disagrees", () => {
+    const result = auditOriginBusinessPlanningAnswer(
+      syntheticProfile("marketing-spec"),
+      [
+        TABLE_HEADER,
+        "| 受注目標 | 100 | 件 | 2027 Q1 | 仮置き（仮定） | 目標設定 |",
+        "| 商談目標 | 500 | 件 | 2027 Q1 | 計算結果 | 受注目標 ÷ 0.20 |",
+        "| SQL目標 | 167 | 件 | 2027 Q1 | 計算結果 | 商談目標 ÷ 0.30 |",
+      ].join("\n"),
+    );
+    const violations = result.violations.filter((v) => v.code === "PREMISE_FORMULA_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.stated).toBe(167);
+  });
+
+  it("flags an input fact the request never stated (no digit-shift candidate)", () => {
+    const result = auditOriginBusinessPlanningAnswer(
+      syntheticProfile("promotion-ideas"),
+      [TABLE_HEADER, "| 予算 | 30 | 万円 | 2026年11月 | 入力事実 | ユーザー情報 |"].join("\n"),
+      { requestText: "カフェの販促案を考えて。予算は月10万円まで。" },
+    );
+    const violations = result.violations.filter((v) => v.code === "PREMISE_INPUT_FACT_MISMATCH");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.detail.stated).toBe(300000);
+    expect(violations[0]?.detail.briefValue).toBeUndefined();
+  });
+
+  it("does not fire the estimate-goal check when the goal fits inside the estimated market", () => {
+    const result = auditOriginBusinessPlanningAnswer(
+      syntheticProfile("market-competition"),
+      [
+        TABLE_HEADER,
+        "| 市場規模（推定） | 3,000 | 万円 | 2026年 | 推定 | 類似市場から類推 |",
+        "| 目標売上 | 300 | 万円 | 2027年Q1 | 計算結果 | 受注件数 × 受注単価 = 10×30 |",
+      ].join("\n"),
+    );
+    expect(premiseCodesOf(result)).toEqual([]);
+    expect(result.checks.premiseEstimateGoals).toBe(1);
+  });
+
+  it("ignores tables that are not premise tables (no 指標/種別 header)", () => {
+    const result = auditOriginBusinessPlanningAnswer(
+      syntheticProfile("campaign-plan"),
+      "| 施策 | 月額費用 |\n|---|---|\n| A | 2万円 |\n| B | 3万円 |",
+    );
+    expect(result.checks.premiseFormulas).toBe(0);
+    expect(premiseCodesOf(result)).toEqual([]);
   });
 });
 

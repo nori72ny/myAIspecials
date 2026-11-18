@@ -312,6 +312,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
             requestId,
             profile: answerQualityPolicy.businessPlanning,
             answerText: result.text,
+            requestText: lastUserMessage,
             env,
             now: new Date(now()),
             language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
@@ -364,7 +365,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // enforced text was emitted there, so this log-only hook is
       // skipped to avoid counting the same answer twice.
       if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced && !auditGateArmed) {
-        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text });
+        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text, requestText: lastUserMessage });
       }
       // Publication gate, stage 1 shadow: scan the delivered direct
       // answer for evidence-required claim shapes and check its statute
