@@ -66,6 +66,11 @@ describe("publicationGateFiringKinds", () => {
       ["この制度は2024年4月1日に施行されました。", ["law-enforcement"]],
       ["現在の首相は石破茂です。", ["position-status"]],
       ["デジタル資産保護法という法律があります。", ["law-name"]],
+      // Q-12 (PR-G2): the full official name is on the list, so the
+      // extended match verifies it and law-name no longer fires.
+      ["空家等対策の推進に関する特別措置法は、空家等に関する対策を推進するための法律です。", []],
+      // The fabricated embedding of the same tail still fires.
+      ["新空家等対策の推進に関する特別措置法という法律があります。", ["law-name"]],
       ["合計は42,240円です。", []],
       ["手数料は16,000円で、手続きは労働基準法に基づきます。", []],
     ];

@@ -126,6 +126,61 @@ describe("statute-name check against the bundled e-Gov list", () => {
     expect(summary.lawCheck).toEqual({ candidateCount: 1, verifiedCount: 0, unverifiedCount: 1 });
   });
 
+  it("verifies a hiragana-containing official name via the extended match (Q-12 shape, PR-G2)", () => {
+    // The candidate pattern cannot span the hiragana in
+    // 「空家等対策の推進に関する特別措置法」, so the strict check only
+    // sees the tail fragment 「特別措置法」. The extended match finds
+    // the full list entry written out in the text and verifies it.
+    // This is the exact delivered text of Q-12 run 1 in the round-5
+    // expansion set (a tier-T4 hold echoing the question), which the
+    // pre-G2 detector itself flagged as unverified.
+    const delivered =
+      "「空家等対策の推進に関する特別措置法は、いつ全面施行されましたか?」について、出典による裏付けが取れなかったため、推測で回答しません。\n\n重要な内容のため複数の独立した出典による裏付けが必要ですが、十分な出典が揃いませんでした。確認できた情報はありませんでした。\n\n時間をおいて再度お試しいただくか、確認したい公開情報源があれば提示してください。";
+    expect(detectOriginPublicationClaims(delivered).lawCheck).toEqual({
+      candidateCount: 1,
+      verifiedCount: 1,
+      unverifiedCount: 0,
+    });
+    // A draft-shaped answer naming the statute in full verifies too
+    // (its enforcement-date claim is a separate kind, handled by G4).
+    const draft = detectOriginPublicationClaims(
+      "空家等対策の推進に関する特別措置法は、2015年2月26日に施行され、同年5月26日に全面施行されました。",
+    );
+    expect(draft.lawCheck).toEqual({ candidateCount: 1, verifiedCount: 1, unverifiedCount: 0 });
+    // The same mechanism covers other 〜に関する特別措置法 names, and
+    // a clause boundary (、) before the name does not block it.
+    for (const text of [
+      "原子力発電施設等立地地域の振興に関する特別措置法に基づく措置です。",
+      "根拠となるのは、空家等対策の推進に関する特別措置法です。",
+    ]) {
+      const summary = detectOriginPublicationClaims(text);
+      expect(summary.lawCheck, text).toEqual({ candidateCount: 1, verifiedCount: 1, unverifiedCount: 0 });
+    }
+  });
+
+  it("does not let a fabricated name verify by embedding a real name's tail (PR-G2 boundary)", () => {
+    for (const text of [
+      // Kanji prefix: the real name is embedded in a longer coinage.
+      "新空家等対策の推進に関する特別措置法では、次のように定められています。",
+      // Katakana prefix: same embedding, katakana continuation.
+      "テスト空家等対策の推進に関する特別措置法では、次のように定められています。",
+      // Tail-only coinage: no full list entry appears in the text.
+      "架空推進に関する特別措置法では、次のように定められています。",
+    ]) {
+      const summary = detectOriginPublicationClaims(text);
+      expect(summary.lawCheck, text).toEqual({ candidateCount: 1, verifiedCount: 0, unverifiedCount: 1 });
+    }
+  });
+
+  it("does not extend across a sentence boundary (PR-G2 window limit)", () => {
+    // The full name in one sentence does not verify a bare fragment
+    // used as a standalone reference in the next sentence.
+    const summary = detectOriginPublicationClaims(
+      "空家等対策の推進に関する特別措置法があります。特別措置法では、次のように定められています。",
+    );
+    expect(summary.lawCheck).toEqual({ candidateCount: 2, verifiedCount: 1, unverifiedCount: 1 });
+  });
+
   it("does not treat non-law 法 words as statute candidates", () => {
     const text = "この計算方法と英文法を確認し、対処法をまとめました。ポモドーロ法も有効です。理学療法の説明も含まれます。";
     const summary = detectOriginPublicationClaims(text);

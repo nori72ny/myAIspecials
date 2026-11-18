@@ -22,7 +22,13 @@ import { JAPANESE_LAW_NAMES } from "./japaneseLawNames.js";
  * external evidence (statute names and enforcement dates, statutory
  * capacities, age conditions, amounts/fees, position/status holders)
  * and checks every statute-name candidate against the bundled e-Gov
- * list of current Japanese statutes (see japaneseLawNames.ts).
+ * list of current Japanese statutes (see japaneseLawNames.ts). A
+ * candidate the strict check cannot confirm gets one extended match
+ * (PR-G2): if the full official name — which may contain hiragana the
+ * candidate pattern cannot span — is written out contiguously in the
+ * text ending at the candidate, the candidate counts as verified. The
+ * extension only ever resolves the Q-12 fragmentation over-defence; it
+ * creates no candidates and never makes a verified name unverified.
  *
  * Shadow-mode contract (this stage):
  * - The detector NEVER alters the answer. Callers log the summary and
@@ -210,6 +216,72 @@ function isVerifiedLawName(candidate: string): boolean {
   return stripped !== null && lookupLawName(stripped[1]);
 }
 
+/** Normalised list entries in list form, for the extended match below. */
+const LAW_NAME_LIST_NORMALIZED: readonly string[] = [...LAW_NAME_SET];
+
+/** How far left of an unverified candidate the extended match may look. */
+const LAW_NAME_EXTENSION_MAX_CHARS = 40;
+
+/** Characters that end the leftward extension window: sentence/clause
+ * boundaries and line starts, per the G2 design. */
+const LAW_NAME_EXTENSION_BOUNDARIES: ReadonlySet<string> = new Set(["。", "、", "「", "\n"]);
+
+/** A character that continues a kanji/katakana compound. When the
+ * character immediately before a matched list name is one of these, the
+ * name is embedded as the tail of a longer (possibly fabricated) name
+ * and must not verify the candidate. */
+const LAW_NAME_EMBEDDING_CHAR = /[一-龠ァ-ヶ々ヶ]/;
+
+/**
+ * Extended match (PR-G2, GATE_SLIP_COUNTERMEASURE_DESIGN_2026-11-19):
+ * the candidate pattern above deliberately excludes hiragana, so an
+ * official name that contains hiragana (「空家等対策の推進に関する
+ * 特別措置法」) reaches the check only as its kanji tail fragment
+ * (「特別措置法」) and reads as unverified even though the full name is
+ * on the list — the Q-12 over-defence. When (and only when) the strict
+ * check fails, extend left from the candidate's start, up to the
+ * nearest sentence boundary (。・、・「・line start) or 40 characters,
+ * and treat the candidate as verified if a list entry appears in that
+ * window as a contiguous substring ending exactly at the candidate's
+ * end — i.e. the candidate is the tail fragment of a full official
+ * name written out in the text. The extension is used for verification
+ * only: it creates no new candidate and can only move a candidate from
+ * unverified to verified, never the other way.
+ *
+ * Boundary condition against fabricated names: if the character
+ * immediately before the matched list name continues a kanji/katakana
+ * compound, the name is embedded as the tail of a longer name
+ * (「新空家等対策の推進に関する特別措置法」) and does NOT verify.
+ */
+function isVerifiedLawNameByExtension(
+  text: string,
+  candidateIndex: number,
+  candidateEnd: number,
+): boolean {
+  let windowStart = Math.max(0, candidateIndex - LAW_NAME_EXTENSION_MAX_CHARS);
+  for (let i = candidateIndex - 1; i >= windowStart; i -= 1) {
+    if (LAW_NAME_EXTENSION_BOUNDARIES.has(text[i])) {
+      windowStart = i + 1;
+      break;
+    }
+  }
+  const windowNormalized = normalizeLawName(text.slice(windowStart, candidateEnd));
+  for (const name of LAW_NAME_LIST_NORMALIZED) {
+    if (name.length > windowNormalized.length) continue;
+    if (!windowNormalized.endsWith(name)) continue;
+    const matchStart = windowNormalized.length - name.length;
+    const preceding =
+      matchStart > 0
+        ? windowNormalized[matchStart - 1]
+        : windowStart > 0
+          ? text[windowStart - 1]
+          : "";
+    if (preceding !== "" && LAW_NAME_EMBEDDING_CHAR.test(preceding)) continue;
+    return true;
+  }
+  return false;
+}
+
 /**
  * Candidate statute names: a run of kanji/katakana (plus ・, 々, ヶ, ー)
  * ending in 法， at least 2 characters in total — the quantifier is
@@ -258,8 +330,14 @@ function scanLawNames(text: string): LawScan {
     if (!/[一-龠]/.test(body) && LAW_NAME_ALIASES[candidate] === undefined) continue;
     if (isNonLawCandidate(candidate)) continue;
     hits.push({ kind: "law-name", index, length: candidate.length });
-    if (isVerifiedLawName(candidate)) verifiedCount += 1;
-    else unverifiedCount += 1;
+    if (
+      isVerifiedLawName(candidate) ||
+      isVerifiedLawNameByExtension(text, index, index + candidate.length)
+    ) {
+      verifiedCount += 1;
+    } else {
+      unverifiedCount += 1;
+    }
   }
   return {
     hits,
