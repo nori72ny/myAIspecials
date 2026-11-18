@@ -119,22 +119,23 @@
 /* Splash variant: the same lockup, larger, with the entrance sequence.
    The mark settles in, the letters rise one by one, then the gold line is
    drawn; SplashScreen fades the whole overlay out afterwards. The lockup
-   is sized at ~80% of the original splash scale (owner request
-   2026-11-18: the startup logo felt a little big), and the sequence is
-   timed to complete within ~800ms so SplashScreen can hand off at a
-   fixed 900ms whenever the app is ready. */
+   is sized at ~68% of the original splash scale (owner requests
+   2026-11-18 and 2026-11-19: the startup logo felt a little big, then
+   still a little big at ~80%, so it was reduced by a further ~15%).
+   The sequence is timed to complete within ~800ms so SplashScreen can
+   hand off at a fixed 900ms whenever the app is ready. */
 .origin-brand-lockup--splash {
   gap: 10px;
 }
 
 .origin-brand-lockup--splash .origin-ribbon-logo {
-  width: 62px;
-  height: 62px;
+  width: 53px;
+  height: 53px;
   animation: origin-brand-mark-in 400ms cubic-bezier(.22, .8, .3, 1) both;
 }
 
 .origin-brand-lockup--splash .origin-ribbon-wordmark {
-  font-size: clamp(22px, 6.4vw, 29px);
+  font-size: clamp(18.7px, 5.44vw, 24.7px);
 }
 
 .origin-brand-lockup--splash .origin-ribbon-wordmark__letter {
@@ -183,8 +184,8 @@
   }
 
   .origin-brand-lockup--splash .origin-ribbon-logo {
-    width: 51px;
-    height: 51px;
+    width: 43px;
+    height: 43px;
   }
 
   .origin-ribbon-logo__halo {
