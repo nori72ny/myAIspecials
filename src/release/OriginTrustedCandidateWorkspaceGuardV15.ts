@@ -40,6 +40,14 @@ const TRUSTED_VERIFICATION_BASELINE_V15 = new Map<string, readonly string[]>([
     // remediation only; exact dependency-only PR lockfile blob after review
     // of the single-entry lockfile delta.
     'a5cd7f22a53bfac98b60f05b2e0098ede9838fc7',
+    // 2026-11-18 vite 6.4.5 -> 6.4.6 security patch for GHSA-p4f5-76q4-ffq7
+    // (Critical 9.1 RCE via the __vite-browser-external virtual module;
+    // dev server only, exposed only when the dev server is published to
+    // the network with --host / server.host. Production serves the vite
+    // build output via Express and is not affected); exact
+    // dependency-only PR lockfile blob after review of the single-entry
+    // lockfile delta.
+    'da8e606138207c1543c5c46cb9e10337b196f014',
   ]],
   ['vite.config.ts', [
     'fa396109dd321106533a27070567fb77f30b6e90',
