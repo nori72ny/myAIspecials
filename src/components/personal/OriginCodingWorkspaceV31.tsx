@@ -45,7 +45,7 @@ function EmptyEvidence({ children }: { children: React.ReactNode }) {
 }
 
 function UnavailableNotice({ children }: { children: React.ReactNode }) {
-  return <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">{children}</div>;
+  return <div role="status" className="rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-4 text-sm leading-6 text-origin-warning">{children}</div>;
 }
 
 function verificationState(result: OriginCodingResultV31 | null, state: OriginCodingResultStateV31, kind: OriginCodingVerificationKindV31) {
@@ -83,14 +83,14 @@ function DiffPanel({ result, state, changedPaths }: Props) {
         ? <p className="p-4 text-xs leading-5 text-origin-muted">変更内容のプレビューは表示できません。ファイル名だけを表示します。</p>
         : <div className="grid md:grid-cols-2">
             <div className="min-w-0 border-b border-origin-border md:border-b-0 md:border-r">
-              <div className="border-b border-origin-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300">変更前</div>
+              <div className="border-b border-origin-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-origin-danger">変更前</div>
               <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.before ?? '（新規ファイル）'}</pre>
-              {diff.beforeTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-amber-700 dark:text-amber-300">一部だけ表示しています</p>}
+              {diff.beforeTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-origin-warning">一部だけ表示しています</p>}
             </div>
             <div className="min-w-0">
               <div className="border-b border-origin-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-origin-success">変更後</div>
               <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.after ?? '（取得できませんでした）'}</pre>
-              {diff.afterTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-amber-700 dark:text-amber-300">一部だけ表示しています</p>}
+              {diff.afterTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-origin-warning">一部だけ表示しています</p>}
             </div>
           </div>}
     </article>)}
@@ -106,7 +106,7 @@ function TestsPanel({ result, state }: Pick<Props, 'result' | 'state'>) {
       return <div key={kind} className="rounded-xl border border-origin-border p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold tracking-wide text-origin-muted">{CHECK_KIND_LABELS[kind]}</span>
-          <span className={`text-sm font-black ${check?.ok ? 'text-origin-success' : check ? 'text-rose-600 dark:text-rose-300' : 'text-origin-placeholder'}`}>{label}</span>
+          <span className={`text-sm font-black ${check?.ok ? 'text-origin-success' : check ? 'text-origin-danger' : 'text-origin-placeholder'}`}>{label}</span>
         </div>
         <p className="mt-2 text-xs text-origin-muted">{detail}</p>
       </div>;
@@ -119,7 +119,7 @@ function VerificationSnapshot({ result, state }: Pick<Props, 'result' | 'state'>
     const { check, label } = verificationState(result, state, kind);
     return <span key={kind} className="inline-flex items-center gap-2 rounded-full border border-origin-border px-2 py-1 text-[10px] font-bold">
       <span className="text-origin-muted">{CHECK_KIND_LABELS[kind]}</span>
-      <span className={check?.ok ? 'text-origin-success' : check ? 'text-rose-600 dark:text-rose-300' : 'text-origin-muted'}>{label}</span>
+      <span className={check?.ok ? 'text-origin-success' : check ? 'text-origin-danger' : 'text-origin-muted'}>{label}</span>
     </span>;
   })}</div>;
 }

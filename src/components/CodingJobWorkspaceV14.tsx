@@ -115,7 +115,7 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 function ErrorNotice({ code }: { code: string }) {
-  return <div role="alert" className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs leading-5 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+  return <div role="alert" className="mt-4 rounded-xl border border-origin-danger/50 bg-origin-danger/10 p-3 text-xs leading-5 text-origin-danger">
     <p className="font-semibold">{ERROR_MESSAGES[code] ?? '処理を完了できませんでした。サポート用コードを表示しています。'}</p>
     <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">サポート用コード</summary><p className="mb-1">問い合わせるときは、このコードもお伝えください。</p><code className="block break-all">{code}</code></details>
   </div>;
@@ -145,9 +145,9 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
   const tone = status === 'verified'
     ? 'border-origin-success bg-origin-success/10 text-origin-success'
     : status === 'blocked' || status === 'failed'
-      ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
+      ? 'border-origin-danger/50 bg-origin-danger/10 text-origin-danger'
       : status === 'cancelled' || cancelRequested
-        ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
+        ? 'border-origin-warning/50 bg-origin-warning/10 text-origin-warning'
         : 'border-origin-brand-border bg-origin-brand-soft text-origin-brand';
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${tone}`}>
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
@@ -363,7 +363,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
         <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : '今は利用できません'}</span>
-          <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
+          <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
         </div>
 
         <details className="mt-2 border-t border-origin-border pt-2 text-xs" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
@@ -371,18 +371,39 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           <p className="leading-5 text-origin-muted">認証情報は端末に保存せず、実行中に必要な範囲だけで使います。</p>
 
           <div className="mt-3 rounded-xl border border-origin-border p-3">
-            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境</span><span className={ready ? 'font-bold text-origin-success' : 'font-bold text-amber-700 dark:text-amber-300'}>{checkingCapability ? '確認中…' : ready ? '準備できています' : '準備を確認できません'}</span></div>
+            <div className="flex items-center justify-between gap-2"><span className="font-bold">実行環境</span><span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>{checkingCapability ? '確認中…' : ready ? '準備できています' : '準備を確認できません'}</span></div>
           </div>
         </details>
 
-        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-3 text-xs font-semibold leading-5 text-origin-warning">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
         {error && <ErrorNotice code={error} />}
       </section>
+
+      {/* 空状態（デザイン評価 第3回 2026-11-17）：依頼がまだ無いときは、
+          進み方を先に示して「何が起きるか」が分かるようにする。依頼が
+          始まると、この枠は進み具合（OriginAgentActionProgressV31）に
+          置き換わる。 */}
+      {!job && <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-label="進み方">
+        <h2 className="text-sm font-black">進み方</h2>
+        <ol className="mt-2 grid gap-2 sm:grid-cols-5">
+          {[
+            ['計画', '何を作る・直すか確認'],
+            ['作成・変更', 'コードを作成・変更'],
+            ['確認', '確認と、必要な修正'],
+            ['最終確認', '結果をまとめる'],
+            ['結果表示', '結果と変更内容を表示'],
+          ].map(([label, detail]) => <li key={label} className="rounded-xl border border-origin-border p-3">
+            <span className="text-xs font-black tracking-wide">{label}</span>
+            <p className="mt-1 text-[11px] leading-4 text-origin-muted">{detail}</p>
+          </li>)}
+        </ol>
+        <p className="mt-3 text-xs leading-5 text-origin-muted">上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。</p>
+      </section>}
 
       {job && <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-live="polite">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <StatusBadge status={job.status} cancelRequested={job.cancelRequested} />
-          {ACTIVE.has(job.status) && <button type="button" onClick={() => void cancelJob()} disabled={job.cancelRequested || busy} className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-bold text-rose-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">{job.cancelRequested ? '取り消しを確認中…' : '依頼を取り消す'}</button>}
+          {ACTIVE.has(job.status) && <button type="button" onClick={() => void cancelJob()} disabled={job.cancelRequested || busy} className="min-h-11 rounded-xl border border-origin-danger/50 bg-origin-danger/10 px-4 text-sm font-bold text-origin-danger disabled:cursor-not-allowed disabled:opacity-50">{job.cancelRequested ? '取り消しを確認中…' : '依頼を取り消す'}</button>}
         </div>
         <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しています。止まったか確認しています。' : STATUS_DETAILS[job.status]}</p>
         <details className="mt-2 border-t border-origin-border pt-2 text-xs">
