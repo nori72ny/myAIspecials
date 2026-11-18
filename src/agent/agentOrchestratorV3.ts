@@ -1435,13 +1435,20 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     if (agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env)) {
       return { ownerBinding: OPERATOR_RUN_OWNER_BINDING, viaToken: false, token: '' };
     }
-    const token = req.get('x-agent-attachment-token');
-    if (typeof token === 'string' && token.length > 0) {
-      const payload = verifyAttachmentUploadCapability(token, env);
-      if (!payload) return { status: 403, code: 'AGENT_ATTACHMENT_TOKEN_INVALID' };
+    // Dispatch on the verification outcome, never on the mere
+    // presence of the header: presenting any non-empty value grants
+    // nothing by itself. verifyAttachmentUploadCapability checks the
+    // HMAC signature (timing-safe), the payload shape and the expiry,
+    // and returns null for absent, empty or forged tokens alike; the
+    // set lookup afterwards (loadAttachmentSet) additionally scopes
+    // by the token-derived owner binding and the stored token digest.
+    const token = req.get('x-agent-attachment-token') ?? '';
+    const payload = verifyAttachmentUploadCapability(token, env);
+    if (payload) {
       if (expectedSetId !== undefined && payload.setId !== expectedSetId) return { status: 404, code: 'AGENT_ATTACHMENT_SET_NOT_FOUND' };
       return { ownerBinding: browserAttachmentOwnerBinding(token), viaToken: true, token };
     }
+    if (token.length > 0) return { status: 403, code: 'AGENT_ATTACHMENT_TOKEN_INVALID' };
     if (!agentOperatorConfiguredV3(env) && !v3CapabilityConfigured(env)) return { status: 503, code: 'AGENT_APPROVAL_NOT_CONFIGURED' };
     if (agentOperatorConfiguredV3(env)) return { status: 401, code: 'AGENT_AUTHENTICATION_REQUIRED' };
     return { status: 403, code: 'AGENT_ATTACHMENT_TOKEN_REQUIRED' };
