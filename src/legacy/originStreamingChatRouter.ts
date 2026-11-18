@@ -29,7 +29,12 @@ import {
   type OriginDateWeekdayVerificationOutcome,
 } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
-import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
+import { type OriginProviderStreamExecutor, type OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
+import {
+  analyzeRefusalLikeOutput,
+  resolveRecoveryRefusalValidationMode,
+  RECOVERY_REFUSAL_RETRY_INSTRUCTION,
+} from "../research/groundedResearchRefusalValidation.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
 import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import {
@@ -282,7 +287,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         res.write(`data: ${JSON.stringify({ type: "delta", text: delta })}\n\n`);
       };
 
-      const result = await streamExecute(providerRequest, {
+      const streamHandlers: OriginProviderStreamHandlers = {
         onDelta: (delta) => {
           if (!delta) return;
           // D-PR-6: on the records path the raw generation (a tag
@@ -296,10 +301,81 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           }
           emitDelta(delta);
         },
-      });
+      };
+      const result = await streamExecute(providerRequest, streamHandlers);
 
       if (!result.text.trim()) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
+      }
+      // PR-5: the result the gates and the delivery below consume.
+      // It stays the first execution's result unless the bounded
+      // refusal retry adopts its re-execution (see below); the
+      // canonical first call above keeps its shape deliberately.
+      let adoptedResult = result;
+
+      // Recovery build Stage 1, PR-5: refusal output validation
+      // with ONE bounded re-execution (J-05). A streamed answer can
+      // be re-executed only when nothing has reached the client yet
+      // — i.e. when one of the gates armed the buffered delivery
+      // above (in production the publication gate's enforce mode
+      // buffers every non-deck direct answer). On an incrementally
+      // released stream the refusal is already on the user's
+      // screen and the retry does not apply, exactly as the design
+      // bounds it. The retry carries the design's fixed minimal
+      // instruction (the compact route-3 instruction is left
+      // untouched, as in the non-streaming router); its output
+      // replaces the original only when it is not itself
+      // refusal-like, and a failed or refused retry restores the
+      // original text AND its buffered deltas, so the gates below
+      // see exactly the first answer (never worse). Deck paths are
+      // out of scope: their raw generation is a draft/placement,
+      // not an answer. Switch ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE:
+      // off (default) does nothing; shadow logs the detection only;
+      // enforce runs the single retry.
+      const refusalValidationMode = resolveRecoveryRefusalValidationMode(env);
+      const refusalRetryBuffered = assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed;
+      if (refusalValidationMode !== "off" && refusalRetryBuffered && !deckRequested && !deckRecordsPlan) {
+        const streamLanguage = /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en";
+        const refusalAnalysis = analyzeRefusalLikeOutput(result.text, streamLanguage);
+        if (refusalAnalysis.isRefusal) {
+          console.info("[origin-chat] recovery refusal validation", {
+            requestId,
+            recoveryRefusalSite: "direct-stream",
+            recoveryRefusalMode: refusalValidationMode,
+            recoveryRefusalKind: "direct-retry",
+            recoveryRefusalTooShort: refusalAnalysis.signals.tooShort,
+            recoveryRefusalLanguageMismatch: refusalAnalysis.signals.languageMismatch,
+            recoveryRefusalFired: refusalValidationMode === "enforce",
+          });
+          if (refusalValidationMode === "enforce") {
+            const firstAttemptDeltas = bufferedDeltas.slice();
+            try {
+              bufferedDeltas.length = 0;
+              const retryResult = await streamExecute(
+                {
+                  ...providerRequest,
+                  systemInstruction: `${providerRequest.systemInstruction}\n\n${RECOVERY_REFUSAL_RETRY_INSTRUCTION}`,
+                  cloudflareSystemInstruction: providerRequest.cloudflareSystemInstruction
+                    ? `${providerRequest.cloudflareSystemInstruction}\n\n${RECOVERY_REFUSAL_RETRY_INSTRUCTION}`
+                    : providerRequest.cloudflareSystemInstruction,
+                },
+                streamHandlers,
+              );
+              if (retryResult.text.trim() && !analyzeRefusalLikeOutput(retryResult.text, streamLanguage).isRefusal) {
+                adoptedResult = retryResult;
+                console.info("[origin-chat] recovery refusal retry adopted", { requestId });
+              } else {
+                bufferedDeltas.length = 0;
+                bufferedDeltas.push(...firstAttemptDeltas);
+                console.info("[origin-chat] recovery refusal retry also refusal-like; original kept", { requestId });
+              }
+            } catch {
+              bufferedDeltas.length = 0;
+              bufferedDeltas.push(...firstAttemptDeltas);
+              console.warn("[origin-chat] recovery refusal retry failed; original kept", { requestId });
+            }
+          }
+        }
       }
       let assertionGateReplaced = false;
       let auditGateOutcome: OriginBusinessPlanningAuditGateOutcome | null = null;
@@ -330,7 +406,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         // to the skeleton path (fail-closed, adjudication §13-2 (a)).
         const outcome = buildDeckRecordsChatArtifact({
           requestText: lastUserMessage,
-          answerText: result.text,
+          answerText: adoptedResult.text,
           plan: deckRecordsPlan,
           durationMs: Math.max(0, now() - startedAt),
         });
@@ -344,8 +420,8 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         emitDelta(outcome.chatText);
       } else if (assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed) {
         const assertionGate = assertionGateArmed
-          ? applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false)
-          : { replaced: false, text: result.text };
+          ? applyOriginUngroundedAssertionGate(lastUserMessage, adoptedResult.text, false)
+          : { replaced: false, text: adoptedResult.text };
         assertionGateReplaced = assertionGate.replaced;
         // The text the earlier gates leave for delivery, and whether
         // delivering it means flushing the buffered deltas in order
@@ -358,7 +434,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           auditGateOutcome = applyOriginBusinessPlanningAuditGate({
             requestId,
             profile: answerQualityPolicy.businessPlanning,
-            answerText: result.text,
+            answerText: adoptedResult.text,
             requestText: lastUserMessage,
             env,
             now: new Date(now()),
@@ -366,7 +442,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           });
           gatedText = auditGateOutcome.answerText;
         } else {
-          gatedText = result.text;
+          gatedText = adoptedResult.text;
           flushBuffered = true;
         }
         // Date/weekday verification runs on the text the earlier
@@ -419,7 +495,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       } else if (!deckRequested) {
         // Plain incremental streaming: the delivered body is the model
         // answer itself, already forwarded delta by delta above.
-        publicationGateAnswerText = result.text;
+        publicationGateAnswerText = adoptedResult.text;
       }
       if (!downstreamStarted) {
         throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true);
@@ -440,7 +516,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // when the deck-records kill switch is OFF; the records path
       // above already filled the same outcome fields when it is ON.
       if (deckRequested && !deckRecordsPlan) {
-        const outcome = buildProposalDeckChatArtifact(result.text);
+        const outcome = buildProposalDeckChatArtifact(adoptedResult.text);
         if (outcome.status === "created") {
           deckArtifact = outcome.artifact;
         } else {
@@ -458,7 +534,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // enforced text was emitted there, so this log-only hook is
       // skipped to avoid counting the same answer twice.
       if (!deckRecordsPlan && !deckRequested && !assertionGateReplaced && !auditGateArmed) {
-        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: result.text, requestText: lastUserMessage });
+        logOriginBusinessPlanningAuditShadow({ requestId, profile: answerQualityPolicy.businessPlanning, answerText: adoptedResult.text, requestText: lastUserMessage });
       }
       // Publication gate, stage 1 shadow: scan the delivered direct
       // answer for evidence-required claim shapes and check its statute
@@ -497,9 +573,9 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         // text, which route actually served, and how long each executed
         // route attempt took. Numbers and fixed codes only; no text.
         firstDeltaMs: firstDeltaAtMs === null ? null : Math.max(0, firstDeltaAtMs - startedAt),
-        servedModel: result.routingEvidence.servedModel,
-        fallbackUsed: result.routingEvidence.fallbackUsed,
-        routeAttempts: (result.attempts ?? []).map((attempt) => ({
+        servedModel: adoptedResult.routingEvidence.servedModel,
+        fallbackUsed: adoptedResult.routingEvidence.fallbackUsed,
+        routeAttempts: (adoptedResult.attempts ?? []).map((attempt) => ({
           providerId: attempt.providerId,
           outcome: attempt.outcome,
           ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}),
@@ -507,7 +583,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         modelId: planningResult.plan.modelId,
         costEvidenceStatus: "NOT_MEASURED",
         providerDeltaCount,
-        truncated: result.truncated === true,
+        truncated: adoptedResult.truncated === true,
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
         ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
@@ -525,10 +601,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       res.write(`data: ${JSON.stringify({
         type: "complete",
         modelId: planningResult.plan.modelId,
-        servedModel: result.routingEvidence.servedModel,
+        servedModel: adoptedResult.routingEvidence.servedModel,
         costEvidenceStatus: "NOT_MEASURED",
-        fallbackUsed: result.routingEvidence.fallbackUsed,
-        ...(result.truncated === true && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
+        fallbackUsed: adoptedResult.routingEvidence.fallbackUsed,
+        ...(adoptedResult.truncated === true && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");

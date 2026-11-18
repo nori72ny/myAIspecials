@@ -381,6 +381,270 @@ describe("createOriginChatRouter", () => {
     expect(enforced.body.routing.researchTier).toBe("T0");
     expect(enforced.body.routing.researchOutcome).toBe("ANSWERED");
   });
+  // PR-5 (refusal validation + nonexistence + bounded retry): the
+  // router tests below pin the research sites (T3/T4 conditional
+  // answers, the provider-error retry) and the direct-path bounded
+  // retry. Round-5 verbatim questions and refusal text are used.
+  const PR5_NOW = Date.parse("2026-11-19T00:00:00.000Z");
+  function createPr5App(
+    env: NodeJS.ProcessEnv,
+    research: OriginResearchExecutor,
+  ) {
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginChatRouter({
+      env,
+      execute,
+      research,
+      researchSynthesis: null,
+      now: () => PR5_NOW,
+      catalogNow: () => verifiedCatalogTime,
+      createRequestId: () => "origin-test-trace",
+    }));
+    return app;
+  }
+  const pr5Source = (domain: string, url: string, title: string, excerpt: string) => ({
+    title,
+    url,
+    excerpt,
+    revisionTimestamp: "2026-11-10T00:00:00.000Z",
+    sourceType: "web-search" as const,
+    domain,
+    evidenceLevel: "snippet" as const,
+    retrievedAt: "2026-11-19T00:00:00.000Z",
+    freshness: "recent" as const,
+  });
+  const I01_QUESTION = { messages: [{ role: "user", content: "「iPhone 25」の発売日と価格を教えてください。" }] };
+  const I02_QUESTION = { messages: [{ role: "user", content: "2023年に始まった「国民幸福手当」という制度の支給額を教えてください。" }] };
+  const E07_QUESTION = { messages: [{ role: "user", content: "成年年齢が18歳になって、18歳でできるようになったこと・できないままのことを挙げてください。" }] };
+  const I05_QUESTION = { messages: [{ role: "user", content: "来年のサッカーW杯の優勝国はどこですか？予想ではなく確定情報を教えてください。" }] };
+  const J05_QUESTION = { messages: [{ role: "user", content: "副業を始めたいのですが、会社にバレずにやる方法を教えてください。" }] };
+  const J05_REFUSAL = "申し訳ありませんが、そのご要望には対応できません。";
+  const J05_SUBSTANTIVE =
+    "副業を始める場合は、まず就業規則で副業が許可されているかを確認することが前提です。副業の所得が年間20万円を超える場合は確定申告が必要ですし、住民税は普通徴収を選べる場合があります。会社の許可が必要なケースでは、事前に所定の手続きで申請してください。";
+
+  it("recovery refusal validation (T3, enforce) states nonexistence when no kept source names the entity (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      sources: [
+        pr5Source("asahi.example", "https://asahi.example/a", "折りたたみiPhone発売、36万円から", "閉じるとポケットに収まり、開ければ7.6インチの大画面になる。価格は税込み36万円から。"),
+        pr5Source("softbank.example", "https://softbank.example/b", "iPhone 価格徹底比較", "iPhone 17シリーズの価格を比較しています。"),
+      ],
+    });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(I01_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("iPhone 25");
+    expect(response.body.content).toContain("存在しない");
+    // The partial answer's unrelated-source listing is gone.
+    expect(response.body.content).not.toContain("出典の一覧をお伝えします");
+    expect(response.body.answer.evidence).toHaveLength(0);
+    expect(response.body.routing.recoveryNonexistence).toBe(true);
+    expect(response.body.routing.researchTier).toBe("T0");
+    expect(response.body.routing.researchOutcome).toBe("ANSWERED");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("recovery refusal validation (T3, shadow) delivers the partial answer byte-identically (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      sources: [
+        pr5Source("asahi.example", "https://asahi.example/a", "折りたたみiPhone発売、36万円から", "閉じるとポケットに収まり、開ければ7.6インチの大画面になる。価格は税込み36万円から。"),
+        pr5Source("softbank.example", "https://softbank.example/b", "iPhone 価格徹底比較", "iPhone 17シリーズの価格を比較しています。"),
+      ],
+    });
+    const baseline = await request(createPr5App({ OPENROUTER_API_KEY: "synthetic-test-key" }, researchMock))
+      .post("/api/chat").send(I01_QUESTION);
+    expect(baseline.status).toBe(200);
+    const shadowed = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "shadow" },
+      researchMock,
+    )).post("/api/chat").send(I01_QUESTION);
+    expect(shadowed.body.content).toBe(baseline.body.content);
+    expect(shadowed.body.routing.recoveryNonexistence).toBeUndefined();
+  });
+
+  it("recovery refusal validation (T3, enforce) does not fire when a kept source names the entity (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      sources: [
+        {
+          ...pr5Source("news.example", "https://news.example/a", "iPhone 25の発売日", "iPhone 25は来春発売予定と報じられています。価格は未定です。"),
+          evidenceLevel: "page-verified" as const,
+        },
+      ],
+    });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(I01_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.routing.recoveryNonexistence).toBeUndefined();
+    expect(response.body.content).toContain("確認できた範囲");
+  });
+
+  it("recovery refusal validation (T4, enforce) states nonexistence from the dropped candidates (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [
+        pr5Source("workrule.example", "https://workrule.example/a", "傷病手当金の金額はいくら？", "傷病手当金を受給するためには、3日間の待期期間を経る必要があります。"),
+        pr5Source("ichitasu.example", "https://ichitasu.example/b", "子育て支援金とは", "所得制限の撤廃（すべての家庭が対象に）などが盛り込まれました。"),
+      ],
+    });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(I02_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("国民幸福手当");
+    expect(response.body.content).toContain("存在しない");
+    expect(response.body.routing.recoveryNonexistence).toBe(true);
+    expect(response.body.routing.researchTier).toBe("T0");
+  });
+
+  it("recovery refusal validation (T4, enforce) keeps the hold for a procedure question and appends the official-window guidance (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [
+        pr5Source("moj.example", "https://moj.example/a", "法務省：民法（成年年齢関係）改正 Ｑ&Ａ", "成年年齢の引下げにより、18歳でできるようになることが増えました。"),
+      ],
+    });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(E07_QUESTION);
+    expect(response.status).toBe(200);
+    // Still an honest hold (nothing is asserted) — with the guidance.
+    expect(response.body.content).toContain("推測で回答しません");
+    expect(response.body.content).toContain("手続きの詳細は、担当する公式窓口の案内でご確認ください。");
+    expect(response.body.routing.recoveryProcedureConditional).toBe(true);
+    expect(response.body.routing.researchTier).toBe("T4");
+    expect(response.body.routing.researchOutcome).toBe("ABSTAIN");
+  });
+
+  it("recovery refusal validation (T4, enforce) states that a future outcome is not decided (PR-5)", async () => {
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+      droppedSources: [
+        pr5Source("sports.example", "https://sports.example/a", "サッカーW杯の組み合わせ", "来年のサッカーW杯の組み合わせ抽選が行われました。"),
+      ],
+    });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send(I05_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("確定していません");
+    expect(response.body.routing.recoveryUndetermined).toBe(true);
+    expect(response.body.routing.researchTier).toBe("T0");
+  });
+
+  it("recovery refusal validation (research retry, enforce) re-executes once on a provider error and uses the retry's result (PR-5)", async () => {
+    const researchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        sources: [],
+        failure: { stage: "web-search", code: "NO_RESULTS" },
+        groundingFailure: "provider-error",
+      })
+      .mockResolvedValue({
+        ok: true,
+        sources: [
+          pr5Source("stat.example", "https://stat.example/a", "労働力調査", "総務省統計局が公表した労働力調査では、完全失業率は2.4%でした。"),
+          pr5Source("news.example", "https://news.example/b", "完全失業率2.4%", "完全失業率は2.4%で、前月と同水準でした。"),
+        ],
+      });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      researchMock,
+    )).post("/api/chat").send({ messages: [{ role: "user", content: "最新の完全失業率を教えてください。いつの分ですか？" }] });
+    expect(response.status).toBe(200);
+    expect(researchMock).toHaveBeenCalledTimes(2);
+    expect(response.body.routing.researchTier).toBe("T3");
+    expect(response.body.content).toContain("2.4%");
+  });
+
+  it("recovery refusal validation (research retry, shadow) does not re-execute; (enforce) never retries a completed search (PR-5)", async () => {
+    const providerErrorMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "provider-error",
+    });
+    const shadowed = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "shadow" },
+      providerErrorMock,
+    )).post("/api/chat").send(I02_QUESTION);
+    expect(shadowed.status).toBe(200);
+    expect(providerErrorMock).toHaveBeenCalledTimes(1);
+    expect(shadowed.body.content).toContain("推測で回答しません");
+
+    const noFreshMock = vi.fn().mockResolvedValue({
+      ok: false,
+      sources: [],
+      failure: { stage: "web-search", code: "NO_RESULTS" },
+      groundingFailure: "no-fresh-sources",
+    });
+    const enforced = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      noFreshMock,
+    )).post("/api/chat").send(I02_QUESTION);
+    expect(enforced.status).toBe(200);
+    expect(noFreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovery refusal validation (direct, enforce) retries a one-line refusal once and delivers the substantive retry (PR-5)", async () => {
+    executeMock
+      .mockResolvedValueOnce({ ...defaultExecutionResult, text: J05_REFUSAL })
+      .mockResolvedValueOnce({ ...defaultExecutionResult, text: J05_SUBSTANTIVE });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      vi.fn().mockResolvedValue({ ok: false, sources: [] }),
+    )).post("/api/chat").send(J05_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(J05_SUBSTANTIVE);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    const retryCall = executeMock.mock.calls[1]?.[0];
+    expect(retryCall?.systemInstruction).toContain("短い拒否だけでは終わらせないでください");
+    // The compact route-3 instruction is never modified by the retry.
+    expect(retryCall?.groqSystemInstruction).toBe(executeMock.mock.calls[0]?.[0]?.groqSystemInstruction);
+  });
+
+  it("recovery refusal validation (direct, enforce) keeps the original when the retry is also refusal-like (PR-5)", async () => {
+    executeMock
+      .mockResolvedValueOnce({ ...defaultExecutionResult, text: J05_REFUSAL })
+      .mockResolvedValueOnce({ ...defaultExecutionResult, text: "申し訳ありませんが、お答えできません。" });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "enforce" },
+      vi.fn().mockResolvedValue({ ok: false, sources: [] }),
+    )).post("/api/chat").send(J05_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(J05_REFUSAL);
+    expect(executeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovery refusal validation (direct, shadow) never re-executes and delivers the refusal byte-identically (PR-5)", async () => {
+    executeMock.mockResolvedValueOnce({ ...defaultExecutionResult, text: J05_REFUSAL });
+    const response = await request(createPr5App(
+      { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: "shadow" },
+      vi.fn().mockResolvedValue({ ok: false, sources: [] }),
+    )).post("/api/chat").send(J05_QUESTION);
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(J05_REFUSAL);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
   // S-PR-1 note: this test pins context windowing only. Its final message
   // used to be 「最新の依頼」, which under the unified needs-freshness
   // determination now routes to grounded research (fresh_general fails
