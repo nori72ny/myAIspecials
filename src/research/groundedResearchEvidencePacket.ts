@@ -133,6 +133,61 @@ interface PacketQuestionKey {
 }
 
 /**
+ * Unit suffixes for a number-with-unit question key, in the same
+ * order as the alternation they replace: the first suffix that
+ * matches wins, so "m" wins over "mm" and "cm", exactly as the
+ * alternation did.
+ */
+const NUMBER_UNIT_SUFFIXES = [
+  "円",
+  "％",
+  "%",
+  "ドル",
+  "人",
+  "年",
+  "月",
+  "日",
+  "回",
+  "位",
+  "票",
+  "議席",
+  "km",
+  "kg",
+  "m",
+  "cm",
+  "mm",
+] as const;
+
+/**
+ * Number-with-unit keys, found without a combined regex: the old
+ * `(\d[\d,.]*)\s*(unit)` pattern backtracked over the whole digit
+ * run whenever no unit followed (CodeQL polynomial ReDoS on a
+ * user-supplied question, e.g. a long run of "0"s), so the number
+ * run and the unit suffix are matched separately with literal
+ * string checks instead. The key text is identical to the old
+ * match: number run + intervening whitespace + unit suffix.
+ */
+function addNumberUnitKeys(
+  question: string,
+  add: (text: string, weight: number) => void,
+): void {
+  for (const match of question.matchAll(/\d[\d,.]*/g)) {
+    const numberText = match[0];
+    const start = match.index ?? 0;
+    let cursor = start + numberText.length;
+    while (cursor < question.length && /\s/.test(question[cursor])) {
+      cursor += 1;
+    }
+    for (const suffix of NUMBER_UNIT_SUFFIXES) {
+      if (question.startsWith(suffix, cursor)) {
+        add(question.slice(start, cursor + suffix.length), 2);
+        break;
+      }
+    }
+  }
+}
+
+/**
  * Question keys, mirroring N-2b's extractQuestionKeys (the same
  * definition of a "key", so the packet and the cards agree): date
  * expressions, numbers with a unit, bare numbers, katakana runs, and
@@ -153,9 +208,7 @@ export function extractPacketQuestionKeys(question: string): PacketQuestionKey[]
   )) {
     add(match[0], 2);
   }
-  for (const match of question.matchAll(/(\d[\d,.]*)\s*(円|％|%|ドル|人|年|月|日|回|位|票|議席|km|kg|m|cm|mm)/g)) {
-    add(match[0], 2);
-  }
+  addNumberUnitKeys(question, add);
   for (const match of question.matchAll(/(\d[\d,.]*)/g)) add(match[0], 2);
   for (const match of question.matchAll(/[ァ-ヶー]{2,}/g)) add(match[0], 2);
   for (const match of question.matchAll(/[\u4e00-\u9faf]{2,}/g)) add(match[0], 1);

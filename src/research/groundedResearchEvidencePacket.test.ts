@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { OriginResearchSource } from "../legacy/originResearchSource";
 import {
   buildGroundedResearchEvidencePacket,
+  extractPacketQuestionKeys,
   splitRecoverySentences,
 } from "./groundedResearchEvidencePacket";
 
@@ -153,5 +154,28 @@ describe("buildGroundedResearchEvidencePacket", () => {
     expect(buildGroundedResearchEvidencePacket(sources, question)).toEqual(
       buildGroundedResearchEvidencePacket(sources, question),
     );
+  });
+});
+
+describe("extractPacketQuestionKeys", () => {
+  it("keeps number-with-unit keys identical to the old combined pattern", () => {
+    const texts = extractPacketQuestionKeys("10mmのネジと1.5 kgの荷物、1,000円の部品").map(
+      (key) => key.text,
+    );
+    // "m" wins over "mm" in the original alternation order, so the
+    // key is "10m", not "10mm".
+    expect(texts).toContain("10m");
+    expect(texts).not.toContain("10mm");
+    expect(texts).toContain("1.5 kg");
+    expect(texts).toContain("1,000円");
+  });
+
+  it("does not hang on a long digit run with no unit after it", () => {
+    // The old combined number+unit regex backtracked over the whole
+    // digit run here (CodeQL polynomial ReDoS); the literal-suffix
+    // lookup must return at once with only the bare number key.
+    const zeros = "0".repeat(5000);
+    const keys = extractPacketQuestionKeys(`${zeros}ですか？`);
+    expect(keys).toEqual([{ text: zeros, weight: 2 }]);
   });
 });
