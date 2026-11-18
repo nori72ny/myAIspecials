@@ -136,18 +136,36 @@ export function buildGroundedResearchAbstainAnswer(input: {
   query: string;
   language: "ja" | "en";
   reason: OriginResearchAbstainReason;
+  /**
+   * Whether a source search was actually performed before landing
+   * here. The research path always searches, so the default (true)
+   * keeps its wording unchanged. The direct path's publication gate
+   * (N-5b) lands on this same tier-T4 hold without having searched,
+   * and passes false so the lead does not claim a search that never
+   * happened; the reason text and the closing are shared.
+   */
+  searched?: boolean;
 }): string {
   const topic = displayQueryTopic(input.query);
   const reasonText = ABSTAIN_REASON_TEXT[input.reason][input.language];
+  const searched = input.searched !== false;
   if (input.language === "en") {
-    const lead = topic
-      ? `I searched public sources for "${topic}", but could not verify reliable backing, so I will not guess an answer.`
-      : "I searched public sources, but could not verify reliable backing, so I will not guess an answer.";
+    const lead = searched
+      ? topic
+        ? `I searched public sources for "${topic}", but could not verify reliable backing, so I will not guess an answer.`
+        : "I searched public sources, but could not verify reliable backing, so I will not guess an answer."
+      : topic
+        ? `I could not verify reliable backing for "${topic}", so I will not guess an answer.`
+        : "I could not verify reliable backing, so I will not guess an answer.";
     return `${lead}\n\n${reasonText}\n\nPlease try again later, or provide a public source you would like checked.`;
   }
-  const lead = topic
-    ? `「${topic}」について公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。`
-    : "公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。";
+  const lead = searched
+    ? topic
+      ? `「${topic}」について公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。`
+      : "公開情報を調べましたが、裏付けが取れなかったため、推測で回答しません。"
+    : topic
+      ? `「${topic}」について、出典による裏付けが取れなかったため、推測で回答しません。`
+      : "出典による裏付けが取れなかったため、推測で回答しません。";
   return `${lead}\n\n${reasonText}\n\n時間をおいて再度お試しいただくか、確認したい公開情報源があれば提示してください。`;
 }
 

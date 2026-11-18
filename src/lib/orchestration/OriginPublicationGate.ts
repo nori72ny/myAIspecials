@@ -1,3 +1,8 @@
+import {
+  buildGroundedResearchAbstainAnswer,
+  researchLandingForAbstain,
+  type OriginResearchLanding,
+} from "../../research/groundedResearchOutcome.js";
 import { JAPANESE_LAW_NAMES } from "./japaneseLawNames.js";
 
 /**
@@ -34,6 +39,27 @@ import { JAPANESE_LAW_NAMES } from "./japaneseLawNames.js";
  * - Detection is pure, synchronous, allocation-bounded regex work: no
  *   model call, no I/O, no cost. Callers still wrap it so a detector
  *   failure skips detection and never delays or breaks the answer.
+ *
+ * Stage 2 (N-5b, N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §2.7 use A):
+ * `applyOriginPublicationGate` connects the summary to the N-1 ladder
+ * when ORIGIN_PUBLICATION_GATE_MODE=enforce. The mode defaults to
+ * shadow, so production behaviour is unchanged until the owner enables
+ * enforcement separately. In enforce mode, an answer carrying an
+ * evidence-required claim — an unverified statute name, an enforcement
+ * date, a statutory capacity, an age condition, or a position/status
+ * assertion — is not published: it lands on the ladder's tier-T4 hold
+ * (outcome ABSTAIN, reason "high-risk-insufficient-sources") with the
+ * app-generated hold text. amount-fee is carved out of enforcement
+ * (the N-3 carve-out): the shadow fixtures showed its hits concentrate
+ * on correct calculation answers, and amount correctness is the
+ * deterministic re-computation layer's job, not this gate's. The
+ * escalation half of use A (re-dispatching the request into the
+ * research path when search budget remains) is deliberately not wired
+ * here: no deterministic budget signal exists at the direct path's
+ * final stage (the monthly cap is only observable inside the grounding
+ * pipeline), and input-side escalation is N-5c's stage-1 connection.
+ * The T4 hold is the conservative landing the design names for the
+ * no-budget case, applied uniformly.
  */
 
 export type OriginPublicationClaimKind =
@@ -323,6 +349,24 @@ export function detectOriginPublicationClaims(text: string): OriginPublicationGa
   return { hits, counts, totalCount: hits.length, lawCheck: lawScan.lawCheck };
 }
 
+/** Flat scalar log fields for a gate summary (kinds and counts only —
+ * never answer text), shared by the shadow logger and the stage-2
+ * gate so both modes report the same measurement surface. */
+function publicationGateLogFields(summary: OriginPublicationGateSummary): Record<string, unknown> {
+  return {
+    publicationGateLawNameCount: summary.counts["law-name"],
+    publicationGateLawEnforcementCount: summary.counts["law-enforcement"],
+    publicationGateStatutoryCapacityCount: summary.counts["statutory-capacity"],
+    publicationGateAgeConditionCount: summary.counts["age-condition"],
+    publicationGateAmountFeeCount: summary.counts["amount-fee"],
+    publicationGatePositionStatusCount: summary.counts["position-status"],
+    publicationGateTotalCount: summary.totalCount,
+    lawNameCandidateCount: summary.lawCheck.candidateCount,
+    lawNameVerifiedCount: summary.lawCheck.verifiedCount,
+    lawNameUnverifiedCount: summary.lawCheck.unverifiedCount,
+  };
+}
+
 /**
  * Shadow-mode hook for the direct-answer paths, mirroring the numeric
  * audit gate's shadow logger: run the detector, log kinds and counts
@@ -341,16 +385,7 @@ export function logOriginPublicationGateShadow(input: {
     const summary = detectOriginPublicationClaims(input.answerText);
     logger("[origin-chat] publication gate (shadow)", {
       requestId: input.requestId,
-      publicationGateLawNameCount: summary.counts["law-name"],
-      publicationGateLawEnforcementCount: summary.counts["law-enforcement"],
-      publicationGateStatutoryCapacityCount: summary.counts["statutory-capacity"],
-      publicationGateAgeConditionCount: summary.counts["age-condition"],
-      publicationGateAmountFeeCount: summary.counts["amount-fee"],
-      publicationGatePositionStatusCount: summary.counts["position-status"],
-      publicationGateTotalCount: summary.totalCount,
-      lawNameCandidateCount: summary.lawCheck.candidateCount,
-      lawNameVerifiedCount: summary.lawCheck.verifiedCount,
-      lawNameUnverifiedCount: summary.lawCheck.unverifiedCount,
+      ...publicationGateLogFields(summary),
     });
     return summary;
   } catch (error) {
@@ -359,5 +394,145 @@ export function logOriginPublicationGateShadow(input: {
       gateError: error instanceof Error ? error.name : "UnknownError",
     });
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: enforcement connection (N-5b). Selected by
+// ORIGIN_PUBLICATION_GATE_MODE (default shadow), mirroring the numeric
+// audit gate's mode switch. See the file header for the contract.
+// ---------------------------------------------------------------------------
+
+export type OriginPublicationGateMode = "shadow" | "enforce";
+
+export function resolveOriginPublicationGateMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginPublicationGateMode {
+  return env?.ORIGIN_PUBLICATION_GATE_MODE === "enforce" ? "enforce" : "shadow";
+}
+
+/**
+ * The claim kinds whose presence in a finished direct answer blocks
+ * publication in enforce mode, in a fixed order:
+ * - law-name fires only through an UNVERIFIED candidate. A verified
+ *   name never fires, and an unverified one is treated as "could not
+ *   be confirmed", never as "does not exist" — the hold text claims
+ *   nothing about the name itself.
+ * - law-enforcement, statutory-capacity, age-condition, and
+ *   position-status fire on any hit: these shapes assert a concrete
+ *   institutional fact that the direct path cannot back with a source.
+ * - amount-fee NEVER fires (the N-3 carve-out recorded in the file
+ *   header): its shadow hits concentrate on correct calculation
+ *   answers, and amount correctness belongs to deterministic
+ *   re-computation, not to this gate.
+ */
+export function publicationGateFiringKinds(
+  summary: OriginPublicationGateSummary,
+): OriginPublicationClaimKind[] {
+  const kinds: OriginPublicationClaimKind[] = [];
+  if (summary.lawCheck.unverifiedCount > 0) kinds.push("law-name");
+  if (summary.counts["law-enforcement"] > 0) kinds.push("law-enforcement");
+  if (summary.counts["statutory-capacity"] > 0) kinds.push("statutory-capacity");
+  if (summary.counts["age-condition"] > 0) kinds.push("age-condition");
+  if (summary.counts["position-status"] > 0) kinds.push("position-status");
+  return kinds;
+}
+
+export interface OriginPublicationGateOutcome {
+  mode: OriginPublicationGateMode;
+  /** The text to deliver: the input unchanged in shadow mode and
+   * whenever nothing fires; the tier-T4 hold text when held. */
+  answerText: string;
+  /** Whether enforcement replaced the answer with the tier-T4 hold. */
+  held: boolean;
+  summary: OriginPublicationGateSummary | null;
+  /** Evidence-required kinds that fired (amount-fee excluded). */
+  firingKinds: readonly OriginPublicationClaimKind[];
+  /** The N-1 ladder landing when held (tier T4, outcome ABSTAIN,
+   * reason "high-risk-insufficient-sources"); null otherwise. The
+   * landing vocabulary is metadata and logs only — it never appears
+   * in the delivered text. */
+  landing: OriginResearchLanding | null;
+}
+
+/**
+ * Router-facing gate for both modes. Shadow mode reproduces the
+ * stage-1 behaviour exactly (detect + log, text untouched). Enforce
+ * mode additionally lands a firing answer on the tier-T4 hold: the
+ * delivered text is the app-generated hold (the ladder's abstain body
+ * for "high-risk-insufficient-sources", with the no-search lead — the
+ * direct path performed no search, so the text must not claim one).
+ * The gate is isolated in a try/catch: any detector or logger failure
+ * delivers the original text, exactly as in shadow mode.
+ */
+export function applyOriginPublicationGate(input: {
+  requestId: string;
+  answerText: string;
+  query: string;
+  language: "ja" | "en";
+  env?: NodeJS.ProcessEnv;
+  logger?: (message: string, fields: Record<string, unknown>) => void;
+}): OriginPublicationGateOutcome {
+  const mode = resolveOriginPublicationGateMode(input.env);
+  const unchanged: OriginPublicationGateOutcome = {
+    mode,
+    answerText: input.answerText,
+    held: false,
+    summary: null,
+    firingKinds: [],
+    landing: null,
+  };
+  const logger = input.logger ?? ((message, fields) => console.info(message, fields));
+  try {
+    const summary = detectOriginPublicationClaims(input.answerText);
+    if (mode === "shadow") {
+      logger("[origin-chat] publication gate (shadow)", {
+        requestId: input.requestId,
+        ...publicationGateLogFields(summary),
+      });
+      return { ...unchanged, summary };
+    }
+    const firingKinds = publicationGateFiringKinds(summary);
+    const held = firingKinds.length > 0;
+    const landing = held ? researchLandingForAbstain("high-risk-insufficient-sources") : null;
+    logger("[origin-chat] publication gate (enforce)", {
+      requestId: input.requestId,
+      ...publicationGateLogFields(summary),
+      publicationGateMode: mode,
+      publicationGateHeld: held,
+      publicationGateFiringKinds: firingKinds,
+      ...(landing
+        ? {
+            researchTier: landing.tier,
+            researchOutcome: landing.outcome,
+            researchAbstainReason: landing.abstainReason,
+          }
+        : {}),
+    });
+    if (!held) return { ...unchanged, summary, firingKinds };
+    return {
+      mode,
+      answerText: buildGroundedResearchAbstainAnswer({
+        query: input.query,
+        language: input.language,
+        reason: "high-risk-insufficient-sources",
+        searched: false,
+      }),
+      held: true,
+      summary,
+      firingKinds,
+      landing,
+    };
+  } catch (error) {
+    try {
+      logger(`[origin-chat] publication gate (${mode}) failed`, {
+        requestId: input.requestId,
+        gateError: error instanceof Error ? error.name : "UnknownError",
+      });
+    } catch {
+      // The gate never throws: even a failing logger must not break
+      // or delay the answer it was asked to check.
+    }
+    return unchanged;
   }
 }

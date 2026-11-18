@@ -11,7 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { applyOriginBusinessPlanningAuditGate } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
-import { logOriginPublicationGateShadow } from "../lib/orchestration/OriginPublicationGate.js";
+import { applyOriginPublicationGate } from "../lib/orchestration/OriginPublicationGate.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -1105,14 +1105,25 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
       });
       const answerText = auditGate.answerText;
-      // Publication gate, stage 1 shadow (EXTERNAL_CONSULT_STALE
-      // _ADOPTION_2026-11-17 adoptions 1–2): scan the final direct
-      // answer — after the assertion gate and the numeric audit gate —
-      // for evidence-required claim shapes and check its statute names
-      // against the bundled e-Gov list. Log-only (kinds and counts,
-      // never text); the answer below is delivered exactly as assembled,
-      // and a detector failure skips detection instead of delaying it.
-      logOriginPublicationGateShadow({ requestId, answerText });
+      // Publication gate (EXTERNAL_CONSULT_STALE_ADOPTION_2026-11-17
+      // adoptions 1–2; enforcement connection N-5b): scan the final
+      // direct answer — after the assertion gate and the numeric audit
+      // gate — for evidence-required claim shapes and check its statute
+      // names against the bundled e-Gov list. In shadow mode (the
+      // default) this is log-only (kinds and counts, never text) and
+      // the answer below is delivered exactly as assembled. In enforce
+      // mode (ORIGIN_PUBLICATION_GATE_MODE=enforce) a firing answer is
+      // not published: the delivered text is the tier-T4 hold and the
+      // landing rides the routing metadata below. A detector failure
+      // skips detection instead of delaying or breaking the answer.
+      const publicationGate = applyOriginPublicationGate({
+        requestId,
+        answerText,
+        query: lastUserMessage,
+        language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+        env,
+      });
+      const deliverableText = publicationGate.answerText;
       const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
@@ -1121,16 +1132,19 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // The wording names the fact without internal vocabulary (no token
       // counts), in the conversation's language, matching the client notice.
       const answerLanguage = /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en";
-      if (result.truncated === true) {
+      // When the publication gate held the answer, the delivered text
+      // is the complete hold text, not a truncated answer — the
+      // incompleteness note below would be wrong for it.
+      if (result.truncated === true && !publicationGate.held) {
         limitations.push(answerLanguage === "ja"
           ? "この回答は長さの上限に達したため、途中で終わっています（未完です）。続きが必要な場合は「続き」と送ってください。"
           : "This answer reached the length limit and ends partway through (it is incomplete). Send \"continue\" if you need the rest.");
         nextActions.push(answerLanguage === "ja" ? "「続き」と送ると、この回答の続きを依頼できます。" : "Send \"continue\" to ask for the rest of this answer.");
       }
-      const evidence = extractProvidedOriginEvidence(answerText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
+      const evidence = extractProvidedOriginEvidence(deliverableText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), servedModel: result.routingEvidence.servedModel, fallbackUsed: result.routingEvidence.fallbackUsed, routeAttempts: (result.attempts ?? []).map((attempt) => ({ providerId: attempt.providerId, outcome: attempt.outcome, ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}) })), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
-      return res.json({ content: answerText, answer: answerEnvelope(answerText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}) } });
+      return res.json({ content: deliverableText, answer: answerEnvelope(deliverableText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}), ...(publicationGate.landing?.abstainReason ? { publicationGateMode: publicationGate.mode, publicationGateAction: "held", researchTier: publicationGate.landing.tier, researchOutcome: publicationGate.landing.outcome, researchAbstainReason: publicationGate.landing.abstainReason } : {}) } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const failureDiagnostic = buildOriginProviderFailureDiagnostic(error);

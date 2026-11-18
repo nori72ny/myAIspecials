@@ -102,3 +102,92 @@ describe("publication gate shadow mode (streaming router)", () => {
     expect(fields.lawNameCandidateCount).toBe(0);
   });
 });
+
+const STALE_CAPACITY_ANSWER = "衆議院は465名、参議院は245名です。";
+const STALE_CAPACITY_QUESTION = "国会の衆議院と参議院の議員定数はそれぞれ何人ですか？";
+const CALCULATION_QUESTION = "税抜12,800円の商品を3個買うと、消費税10%込みでいくらになりますか？";
+const CALCULATION_ANSWER = "税込みで42,240円です。";
+
+function appWithEnv(streamExecute: OriginProviderStreamExecutor, env: NodeJS.ProcessEnv) {
+  const app = express();
+  app.use(express.json());
+  app.use(createOriginStreamingChatRouter({
+    env,
+    streamExecute,
+    catalogNow,
+    createRequestId: () => "origin-stream-publication-gate-test",
+  }));
+  app.post("/api/chat", (_req, res) => res.status(418).json({ delegated: true }));
+  return app;
+}
+
+function streamingExecutor(fullText: string, splitAt: number): OriginProviderStreamExecutor {
+  return vi.fn(async (_providerRequest, handlers) => {
+    handlers.onDelta(fullText.slice(0, splitAt));
+    handlers.onDelta(fullText.slice(splitAt));
+    return result(fullText);
+  }) as unknown as OriginProviderStreamExecutor;
+}
+
+describe("publication gate enforcement mode (streaming router)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("buffers a stale-capacity answer and delivers the tier-T4 hold instead", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const response = await request(appWithEnv(streamingExecutor(STALE_CAPACITY_ANSWER, 8), {
+      OPENROUTER_API_KEY: "synthetic-key",
+      ORIGIN_PUBLICATION_GATE_MODE: "enforce",
+    }))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: STALE_CAPACITY_QUESTION }] });
+
+    expect(response.status).toBe(200);
+    // The stale figure never reaches the client; the hold text does.
+    expect(response.text).not.toContain("245名");
+    expect(response.text).toContain("出典による裏付けが取れなかったため、推測で回答しません");
+    const enforceCall = infoSpy.mock.calls.find(([message]) => String(message).includes("publication gate (enforce)"));
+    expect(enforceCall).toBeDefined();
+    const fields = enforceCall?.[1] as Record<string, unknown>;
+    expect(fields.publicationGateHeld).toBe(true);
+    expect(fields.researchTier).toBe("T4");
+    expect(fields.researchOutcome).toBe("ABSTAIN");
+    expect(fields.researchAbstainReason).toBe("high-risk-insufficient-sources");
+    expect(JSON.stringify(fields)).not.toContain("245名");
+    // The shadow line is not emitted for the same answer (no double count).
+    const shadowCall = infoSpy.mock.calls.find(([message]) => String(message).includes("publication gate (shadow)"));
+    expect(shadowCall).toBeUndefined();
+  });
+
+  it("streams an amount-only calculation answer unchanged in enforce mode", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const response = await request(appWithEnv(streamingExecutor(CALCULATION_ANSWER, 4), {
+      OPENROUTER_API_KEY: "synthetic-key",
+      ORIGIN_PUBLICATION_GATE_MODE: "enforce",
+    }))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: CALCULATION_QUESTION }] });
+
+    expect(response.status).toBe(200);
+    // Delivered as the buffered deltas flushed in order (the split
+    // point sits between the two fragments asserted here).
+    expect(response.text).toContain("税込みで");
+    expect(response.text).toContain("42,240円です");
+  });
+
+  it("without the env switch the same stale-capacity answer streams unchanged (shadow default)", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const response = await request(appWithEnv(streamingExecutor(STALE_CAPACITY_ANSWER, 8), {
+      OPENROUTER_API_KEY: "synthetic-key",
+    }))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: STALE_CAPACITY_QUESTION }] });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("参議院は245名です");
+  });
+});
