@@ -36,6 +36,40 @@ describe("OriginBusinessPlanning detection", () => {
   it("prefers the specification kind over the generic plan kind", () => {
     expect(detectOriginBusinessPlanningKind("マーケティング計画の仕様書を作って")).toBe("marketing-spec");
   });
+
+  it("detects business-noun plan requests as marketing-plan (2026-11-18 coverage gap)", () => {
+    // The 2026-11-17 production check that detected null on every route:
+    // a business noun compounded with a plan noun carries no marketing
+    // vocabulary, yet the request is an execution plan.
+    expect(detectOriginBusinessPlanningKind("小さな焼き菓子店の開業に向けた3ヶ月の運営計画を作って")).toBe("marketing-plan");
+    expect(detectOriginBusinessPlanningKind("事業計画を作ってください")).toBe("marketing-plan");
+    expect(detectOriginBusinessPlanningKind("来年の経営計画を策定したい")).toBe("marketing-plan");
+    expect(detectOriginBusinessPlanningKind("開業計画を立てたい")).toBe("marketing-plan");
+    expect(detectOriginBusinessPlanningKind("店舗の売上計画を考えて")).toBe("marketing-plan");
+    expect(detectOriginBusinessPlanningKind("開業の計画を練りたい")).toBe("marketing-plan");
+    // Business noun tied to a plan verb across a short clause.
+    expect(detectOriginBusinessPlanningKind("事業を始める計画を立てて")).toBe("marketing-plan");
+  });
+
+  it("does not fire the business-plan coverage for everyday plans, bare nouns, or derived nouns", () => {
+    // A bare plan noun without a business noun is personal planning.
+    expect(detectOriginBusinessPlanningKind("旅行の計画を立てて")).toBeNull();
+    expect(detectOriginBusinessPlanningKind("勉強計画を立てて")).toBeNull();
+    expect(detectOriginBusinessPlanningKind("ダイエット計画を考えたい")).toBeNull();
+    expect(detectOriginBusinessPlanningKind("計画を立てて")).toBeNull();
+    // A bare business noun without a plan is not a planning request.
+    expect(detectOriginBusinessPlanningKind("開業したいと思っている")).toBeNull();
+    expect(detectOriginBusinessPlanningKind("お店の売上が下がった。どうすればいい？")).toBeNull();
+    // Definition questions stay knowledge questions, and 事業計画性 is a
+    // derived noun, not a plan compound.
+    expect(detectOriginBusinessPlanningKind("事業計画とは何ですか？")).toBeNull();
+    expect(detectOriginBusinessPlanningKind("事業計画性のない文章を直して")).toBeNull();
+  });
+
+  it("keeps the specific kinds ahead of the business-plan coverage", () => {
+    expect(detectOriginBusinessPlanningKind("キャンペーンの計画を立てて")).toBe("campaign-plan");
+    expect(detectOriginBusinessPlanningKind("マーケティング計画を作って")).toBe("marketing-plan");
+  });
 });
 
 describe("OriginBusinessPlanning figure parsing", () => {
@@ -301,10 +335,18 @@ describe("OriginBusinessPlanning route-3 compact instruction", () => {
     expect(compact).toContain("60,000,000円");
   });
 
-  it("stays compact: at most 1,700 characters for every fixed brief (the full instruction is 4,400+)", () => {
+  it("stays compact: at most 2,400 characters for every fixed brief (the full instruction is 4,400+)", () => {
+    // Pin history: 1,700 until 2026-11-18, when the compressed premise
+    // table (287 characters), the current-date line (88), and the
+    // compact calendar anchor (255) were added on the measured basis of
+    // BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18 — route 3 had served 14/14
+    // measured briefs without them (premise table 0/7, BP-2 shipped ten
+    // past dates). The largest brief (BP-7) now measures 2,301
+    // characters; the pin sits just above that, with headroom only for
+    // the anchor's date-dependent length variation.
     for (const brief of ORIGIN_BUSINESS_PLANNING_BRIEFS) {
       const compact = compactFor(brief.prompt);
-      expect(compact.length, brief.id).toBeLessThanOrEqual(1_700);
+      expect(compact.length, brief.id).toBeLessThanOrEqual(2_400);
       expect(compact.length, brief.id).toBeLessThan(buildOriginBusinessPlanningInstruction(resolveOriginBusinessPlanning(brief.prompt)!).length / 2);
     }
   });
@@ -314,7 +356,8 @@ describe("OriginBusinessPlanning calendar anchor & premise table (external-consu
   // Adoption items 1-2: the full instruction (routes 1-2) gains the
   // premise-table structure and, at its very end, the system-computed JST
   // calendar anchor. A fixed "now" (2026-11-17 12:00 JST, a Tuesday) pins
-  // the exact anchor text.
+  // the exact anchor text. Since 2026-11-18 the route-3 compact form
+  // carries both in compressed form as well (last two tests).
   const fixedNow = new Date("2026-11-17T03:00:00Z");
   const profile = resolveOriginBusinessPlanning(ORIGIN_BUSINESS_PLANNING_BRIEFS[0].prompt)!;
   const instruction = buildOriginBusinessPlanningInstruction(profile, fixedNow);
@@ -362,9 +405,48 @@ describe("OriginBusinessPlanning calendar anchor & premise table (external-consu
     expect(assembled).toContain("カレンダー基準");
   });
 
-  it("is not carried on the route-3 compact form (its addendum budget is pinned at 1,700 characters and already full)", () => {
-    const compact = buildOriginGroqBusinessPlanningInstruction(profile);
-    expect(compact).not.toContain("カレンダー基準");
-    expect(compact).not.toContain("premise table");
+  it("carries the premise table, the current date, and the calendar anchor on the route-3 compact form, compressed (2026-11-18)", () => {
+    // Diagnosis (BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18): route 3 served
+    // 14/14 measured briefs, so the earlier exclusion — the addendum
+    // budget was pinned at 1,700 characters and already full — meant the
+    // premise table appeared in 0/7 answers and BP-2 shipped ten past
+    // dates as future deadlines. The compact form now carries all three
+    // blocks, compressed; the same fixed "now" pins their exact text.
+    const compact = buildOriginGroqBusinessPlanningInstruction(profile, fixedNow);
+    // Premise table: provenance classes, formula-bearing basis, unit rule.
+    expect(compact).toContain("Premise table first");
+    expect(compact).toContain("指標 / 値 / 単位 / 対象期間 / 種別 / 根拠");
+    for (const provenance of ["入力事実", "仮置き（仮定）", "計算結果", "未確定"]) {
+      expect(compact).toContain(provenance);
+    }
+    expect(compact).toContain("numerator ÷ denominator");
+    expect(compact).toContain("The body uses only these figures, unchanged");
+    expect(compact).toContain("never 千円");
+    // Current date: route 3's model is told today, with the as-of rule.
+    expect(compact).toContain("今日の日付（Asia/Tokyo）は2026年11月17日です");
+    expect(compact).toContain("（2026年11月17日時点）");
+    // Compact calendar anchor: the same computed values as the full
+    // table, minus the week range, closed by the two date-role rules.
+    expect(compact).toContain("カレンダー基準");
+    expect(compact).toContain("基準日：2026-11-17（火）");
+    expect(compact).toContain("今月末：2026-11-30");
+    expect(compact).toContain("来月：2026年12月（2026-12-01〜2026-12-31）");
+    expect(compact).toContain("2ヶ月後：2027年1月（2027-01-01〜2027-01-31）");
+    expect(compact).toContain("3ヶ月後：2027年2月（2027-02-01〜2027-02-28）");
+    expect(compact).toContain("次の四半期：2027年Q1（1月〜3月）");
+    expect(compact).toContain("予定・期限の日付は基準日以降とし、西暦4桁を付ける");
+    expect(compact).not.toContain("今週：");
+    // The anchor closes the addendum (recency position, as on routes 1-2).
+    expect(compact.trimEnd().endsWith("過去である旨を明示する。")).toBe(true);
+  });
+
+  it("keeps each compressed route-3 block inside its measured budget", () => {
+    const compact = buildOriginGroqBusinessPlanningInstruction(profile, fixedNow);
+    const premiseLine = compact.split("\n").find((line) => line.includes("Premise table first"))!;
+    expect(premiseLine.length).toBeLessThanOrEqual(300);
+    const dateLine = compact.split("\n").find((line) => line.includes("今日の日付"))!;
+    expect(dateLine.length).toBeLessThanOrEqual(120);
+    const anchorLine = compact.split("\n").find((line) => line.includes("カレンダー基準"))!;
+    expect(anchorLine.length).toBeLessThanOrEqual(320);
   });
 });

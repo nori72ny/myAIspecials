@@ -753,9 +753,19 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       // (instruction + the user's request) estimates to well under the
       // 6,000-token input budget the Groq executor trims history against,
       // leaving most of the 8,000 tokens/minute ceiling for completion.
-      expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(1_700);
-      expect(augmented.length, brief.id).toBeLessThanOrEqual(4_700);
-      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(2_400);
+      // Pin history: the addendum bound was 1,700, the combined bound
+      // 4,700, and the token estimate 2,400 until 2026-11-18, when the
+      // addendum gained the compressed premise table, the current-date
+      // line, and the compact calendar anchor (633 characters) on the
+      // measured basis of BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18 — route 3
+      // had served 14/14 measured briefs without them. Measured after
+      // the change (BP-7, the largest brief): addendum 2,303 characters,
+      // combined 5,275, estimated input 2,678 tokens at the gate's
+      // characters/2. The pins sit just above those maxima, with
+      // headroom only for the anchor's date-dependent length variation.
+      expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(2_400);
+      expect(augmented.length, brief.id).toBeLessThanOrEqual(5_400);
+      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(2_800);
     }
   });
 });
