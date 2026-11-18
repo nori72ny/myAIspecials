@@ -14,6 +14,7 @@ import { isResearchReportResult } from './research/researchReport';
 import { registerOriginServiceWorker } from './pwa/registerServiceWorker';
 import { installActiveContextChatBridge } from './services/activeContextChatBridge';
 import { refreshVoiceAvailability } from './voice/voiceAvailability';
+import { refreshVoiceOutputAvailability } from './voice/voiceOutputAvailability';
 import '@fontsource/m-plus-rounded-1c/400.css';
 import '@fontsource/m-plus-rounded-1c/500.css';
 import '@fontsource/m-plus-rounded-1c/700.css';
@@ -33,6 +34,11 @@ installActiveContextChatBridge();
 // and shows the microphone button only when the endpoint proves it is
 // enabled; components never probe on mount.
 void refreshVoiceAvailability();
+// Voice output (VC-1): probe the health status' voiceOutputEnabled
+// switch the same way. The read-aloud button and the "Orin's voice"
+// settings section read the store and stay hidden until the server
+// proves the switch is on.
+void refreshVoiceOutputAvailability();
 
 const HISTORY_EXPORT_VERSION = 1;
 const HISTORY_STORAGE_KEY = 'origin_personal_history';

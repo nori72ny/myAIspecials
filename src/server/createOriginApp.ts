@@ -27,6 +27,7 @@ import { createWorldClassImageV16Router } from "../creative/worldClassImageV16Ro
 import { createImageGatewayEvalPreflightRouter } from "../creative/imageGatewayEvalPreflightRouter.js";
 import { createMcpManagementRouter, type McpManagementDependencies } from "../mcp/mcpManagementRouter.js";
 import { createOriginVoiceTranscribeRouter } from "../voice/originVoiceTranscribeRouter.js";
+import { voiceOutputEnabled } from "../voice/voiceOutputSwitch.js";
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 export function resolveOriginReleaseSha(env: NodeJS.ProcessEnv = process.env): string { const candidate = env.VERCEL_GIT_COMMIT_SHA ?? env.ORIGIN_RELEASE_SHA; return candidate && FULL_GIT_SHA.test(candidate) ? candidate.toLowerCase() : "unknown"; }
@@ -112,6 +113,10 @@ export function createOriginApp(
     status: "ok",
     service: "acos-2",
     releaseSha: resolveOriginReleaseSha(env),
+    // Voice output (VC-1): the read-aloud surface renders only when
+    // this reads true — the same fail-closed status shape as the
+    // agent status' attachmentsEnabled (F3).
+    voiceOutputEnabled: voiceOutputEnabled(env),
     freeOnly: true,
     paidFallbackEnabled: false,
     secretDelivery: "server-only",
