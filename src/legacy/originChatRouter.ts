@@ -135,7 +135,10 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   // concern above is addressed by the attribution form, the 240-char
   // bound, and the neutralization in buildGroundedResearchPartialAnswer,
   // not by pasting raw page text as the answer.
-  const content = buildGroundedResearchPartialAnswer(sources, isEnglish ? "en" : "ja");
+  // N-2b (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the quote is
+  // the source's evidence-card claim sentences, selected against this
+  // query, so the query is threaded through here.
+  const content = buildGroundedResearchPartialAnswer(sources, isEnglish ? "en" : "ja", query);
   const reason = isEnglish
     ? `Grounded Research retrieved ${grounded.sourceCount} public sources without a paid fallback.`
     : `Grounded Researchで公開情報を${grounded.sourceCount}件取得し、有料fallbackを使わず整理しました。`;

@@ -1,4 +1,8 @@
 import type { OriginResearchSource } from "../legacy/originResearchSource.js";
+import {
+  buildGroundedResearchEvidenceCards,
+  type GroundedResearchEvidenceCard,
+} from "./groundedResearchEvidenceCards.js";
 
 export type GroundedResearchConfidence = "strong" | "moderate" | "limited";
 
@@ -51,19 +55,19 @@ function displayTitle(source: OriginResearchSource): string {
 const PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS = 240;
 
 /**
- * Excerpt as it may appear inside an attribution line of the partial
+ * Text as it may appear inside an attribution line of the partial
  * answer (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1): whitespace collapsed
  * and bounded to 240 characters — the same compression rule as the
  * synthesis packet's excerpt compaction — and neutralized so the quoted
  * text stays data, never presentation or instruction: Markdown link
  * syntax flattens to its label text, bare URLs are dropped (the source
  * list below already carries each URL), and quote marks, heading
- * markers, and code fences are stripped so nothing inside the excerpt
- * can break out of the quoting or pose as the answer's own structure.
- * Returns "" when nothing quotable remains.
+ * markers, and code fences are stripped so nothing inside the quoted
+ * text can break out of the quoting or pose as the answer's own
+ * structure. Returns "" when nothing quotable remains.
  */
-function displayExcerptQuote(source: OriginResearchSource): string {
-  const flattened = source.excerpt
+function neutralizePartialAnswerQuote(text: string): string {
+  const flattened = text
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/[^\s)]+/g, " ");
   const neutralized = flattened
@@ -71,6 +75,37 @@ function displayExcerptQuote(source: OriginResearchSource): string {
     .replace(/\s+/g, " ")
     .trim();
   return neutralized.slice(0, PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS);
+}
+
+/**
+ * The quote an attribution line carries (N-2b,
+ * N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the source's evidence
+ * card claim sentences — the verbatim sentences selected as answering
+ * the question — instead of the excerpt's first 240 characters, so the
+ * quote is the source's answer-bearing core rather than whatever
+ * boilerplate happens to lead the page extract. The quote is the
+ * contiguous span of the card's excerpt covering the selected
+ * sentences (a verbatim substring of the excerpt, itself whole source
+ * sentences): the shared sentence splitter can cut a sentence at a
+ * period inside a URL or a decimal, and quoting the fragments
+ * separately could strand half a Markdown link past the neutralization
+ * below, so the span is reconstituted before the R-1 rules apply. The
+ * 240-character bound and the neutralization are exactly the R-1 rules
+ * above. Returns "" when the card selected no claim sentence (e.g. an
+ * empty excerpt), leaving the title-only attribution.
+ */
+function displayClaimQuote(card: GroundedResearchEvidenceCard): string {
+  if (card.claimSentences.length === 0) return "";
+  let start = Number.POSITIVE_INFINITY;
+  let end = -1;
+  for (const sentence of card.claimSentences) {
+    const index = card.excerpt.indexOf(sentence);
+    if (index < 0) continue;
+    start = Math.min(start, index);
+    end = Math.max(end, index + sentence.length);
+  }
+  if (end < 0) return "";
+  return neutralizePartialAnswerQuote(card.excerpt.slice(start, end));
 }
 
 function retrievedDateLabel(value: string | undefined, language: "ja" | "en"): string | null {
@@ -231,11 +266,16 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  *   quoted verbatim, plus the retrieval date when known;
  * - the compact source list (id, title, domain, URL).
  * Since RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1, each attribution line
- * also carries the source's excerpt as a verbatim quote inside the same
+ * also carries a verbatim quote from the source inside the same
  * attribution ("the source states: '…'"), so the core of the answer
- * reaches the user even when synthesis never ran. The quote is
+ * reaches the user even when synthesis never ran. Since N-2b
+ * (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4), that quote is the
+ * source's evidence-card claim sentences — the sentences selected
+ * deterministically as answering the question — rather than the
+ * excerpt's head, which for full page extracts is navigation or
+ * advertising boilerplate as often as substance. The quote is
  * presented strictly as what the source says — never as a confirmed
- * fact — and is neutralized and bounded by displayExcerptQuote; the
+ * fact — and is neutralized and bounded by the same R-1 rules; the
  * lead keeps directing the user to verify details at the sources. The
  * internal cross-check breakdown never appears in this body; it stays
  * in logs and structured payload fields.
@@ -243,9 +283,11 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
 export function buildGroundedResearchPartialAnswer(
   sources: readonly OriginResearchSource[],
   language: "ja" | "en",
+  question = "",
 ): string {
   const bounded = sources.slice(0, 8);
   if (bounded.length === 0) return "";
+  const cards = buildGroundedResearchEvidenceCards(question, bounded).cards;
   const domainForList = (source: OriginResearchSource): string => {
     let domain = source.domain ?? "";
     if (!domain) {
@@ -257,7 +299,7 @@ export function buildGroundedResearchPartialAnswer(
     const id = `S${index + 1}`;
     const domain = domainForList(source);
     const title = displayTitle(source);
-    const quote = displayExcerptQuote(source);
+    const quote = displayClaimQuote(cards[index]);
     const retrieved = retrievedDateLabel(source.retrievedAt, language);
     if (language === "en") {
       return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${quote ? ` It states: "${quote}"` : ""}${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;

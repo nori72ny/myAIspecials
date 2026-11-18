@@ -4,6 +4,7 @@ import type {
   OriginProviderExecutionResult,
 } from "../legacy/originProviderClient.js";
 import type { GroundedResearchConflict } from "./groundedResearchV11.js";
+import { buildGroundedResearchEvidenceCards } from "./groundedResearchEvidenceCards.js";
 
 export type GroundedResearchSynthesisValidationCode =
   | "EMPTY_SYNTHESIS"
@@ -321,8 +322,23 @@ export function buildGroundedResearchSynthesisPrompt(
   requestedOutputs: readonly string[] = [],
 ): string {
   const bounded = sources.slice(0, 8);
+  // Card presentation (N-2b, N2_N5_IMPLEMENTATION_DESIGN_2026-11-17
+  // §1.4): each source is presented as its evidence card — the
+  // question-answering core sentences (claimSentences, verbatim from
+  // the excerpt) first, then the excerpt itself, with the metadata
+  // fields unchanged. The card is a presentation selection only: the
+  // validator's evidence set stays the full source side (title +
+  // excerpt + date forms), so what validation accepts neither widens
+  // nor narrows. Citation tokens stay S-based exactly as before; the
+  // card's E id rides along as an auxiliary label inside the packet
+  // (E and S numbers denote the same source 1:1, §1.2). Presentation
+  // order stays the sources' order — the coverage selection's
+  // allocation is realized as this claim-first prominence inside each
+  // card, not as reordering, so the S↔E correspondence cannot drift.
+  const cardSet = buildGroundedResearchEvidenceCards(query, bounded);
   const evidence = bounded.map((source, index) => {
     const id = sourceId(index);
+    const card = cardSet.cards[index];
     const domain = source.domain || (() => {
       try { return new URL(source.url).hostname; } catch { return "unknown"; }
     })();
@@ -340,7 +356,9 @@ export function buildGroundedResearchSynthesisPrompt(
       `retrievedDate_json: ${JSON.stringify(retrievedDateForms[0] ?? null)}`,
       `retrievedDateJa_json: ${JSON.stringify(retrievedDateForms[1] ?? null)}`,
       `sourceAuthority_json: ${JSON.stringify(source.sourceAuthority ?? (source.sourceType === "encyclopedia" ? "secondary-reference" : "unclassified"))}`,
-      `excerpt_json: ${JSON.stringify(compactExcerpt(source.excerpt))}`,
+      `evidenceId_json: ${JSON.stringify(card.evidenceId)}`,
+      `claimSentences_json: ${JSON.stringify(card.claimSentences)}`,
+      `excerpt_json: ${JSON.stringify(card.excerpt)}`,
       `citation_token: [${id}](${source.url})`,
       `</source>`,
     ].join("\n");

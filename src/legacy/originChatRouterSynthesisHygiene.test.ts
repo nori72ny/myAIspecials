@@ -241,7 +241,14 @@ describe("buildGroundedResearchPartialAnswer", () => {
     // URLs from the excerpt do. (The "#" check is scoped to the
     // attribution line — the answer's own section headings legitimately
     // use "##".)
-    expect(text).toContain("『重要 見出し 案内ラベル の内容です。』");
+    // N-2b note: the quote is now the excerpt span covering the card's
+    // selected claim sentences (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17
+    // §1.4), not the excerpt head. The shared sentence splitter cuts
+    // this excerpt at the periods inside its URLs, and the trailing
+    // fragment ("…の内容です。") is outside the top-2 selection, so it
+    // no longer rides the quote; every neutralization property above
+    // is unchanged.
+    expect(text).toContain("『重要 見出し 案内ラベル』");
     expect(text).not.toContain("example.org/page");
     expect(text).not.toContain("example.org/other");
     const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));

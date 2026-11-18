@@ -691,8 +691,14 @@ describe("createOriginChatRouter", () => {
     // The extracted page appears only as the verbatim quote inside the
     // S1 attribution line (R-1); outside that line, no fragment of it —
     // fact sentence or boilerplate — appears anywhere in the body.
+    // N-2b note (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the
+    // quote is the excerpt span covering the source's evidence-card
+    // claim sentences, not the excerpt head — the trailing download
+    // boilerplate sentence is outside the selection and no longer
+    // rides the quote at all. The PKG-9 substance is unchanged.
     const attributionLine = response.body.content.split("\n").find((line: string) => line.startsWith("- S1"));
-    expect(attributionLine).toContain(`『${rawPageText}』`);
+    expect(attributionLine).toContain("『サービス紹介 資料ダウンロード お問い合わせ 退職の基礎知識を確認したい人事担当者も、ぜひ最後までチェックしてみてください。退職の予告は民法により、原則として2週間前の申し出で退職が可能です。』");
+    expect(attributionLine).not.toContain("資料を無料ダウンロード");
     const outsideAttribution = response.body.content.split("\n").filter((line: string) => !line.startsWith("- S1")).join("\n");
     expect(outsideAttribution).not.toContain("退職の予告は民法により");
     expect(outsideAttribution).not.toContain("お問い合わせ");
