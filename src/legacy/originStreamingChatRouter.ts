@@ -15,7 +15,12 @@ import {
   type OriginBusinessPlanningAuditGateOutcome,
 } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
-import { logOriginPublicationGateShadow } from "../lib/orchestration/OriginPublicationGate.js";
+import {
+  applyOriginPublicationGate,
+  logOriginPublicationGateShadow,
+  resolveOriginPublicationGateMode,
+  type OriginPublicationGateOutcome,
+} from "../lib/orchestration/OriginPublicationGate.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest } from "./originProviderClient.js";
 import { type OriginProviderStreamExecutor } from "./originProviderStreamClient.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
@@ -221,6 +226,21 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         Boolean(answerQualityPolicy.businessPlanning) &&
         !deckRequested &&
         !deckRecordsPlan;
+      // Publication gate, stage 2 (enforcement connection, N-5b): with
+      // ORIGIN_PUBLICATION_GATE_MODE=enforce, every non-deck direct
+      // answer is buffered like an assertion-gated one so the
+      // deterministic gate can hold an answer carrying an
+      // evidence-required claim (an unverified statute name, an
+      // enforcement date, a statutory capacity, an age condition, a
+      // position/status assertion — never an amount alone) before any
+      // of it reaches the client; the held answer is replaced by the
+      // tier-T4 hold text. In shadow mode (the default) nothing is
+      // buffered here and the gate stays the log-only hook below.
+      // Deck paths stay out of scope, exactly as in shadow mode.
+      const publicationGateArmed =
+        resolveOriginPublicationGateMode(env) === "enforce" &&
+        !deckRequested &&
+        !deckRecordsPlan;
       const bufferedDeltas: string[] = [];
       const emitDelta = (delta: string) => {
         if (!downstreamStarted) {
@@ -249,7 +269,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           // are buffered like the assertion-gate ones and replaced
           // after completion by the deterministic chat rendering
           // (design §5, §13-5 (a): hold until complete).
-          if (assertionGateArmed || deckRecordsPlan || auditGateArmed) {
+          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || publicationGateArmed) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -262,6 +282,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       }
       let assertionGateReplaced = false;
       let auditGateOutcome: OriginBusinessPlanningAuditGateOutcome | null = null;
+      let publicationGateOutcome: OriginPublicationGateOutcome | null = null;
       // Publication gate, stage 1 shadow (EXTERNAL_CONSULT_STALE_ADOPTION
       // _2026-11-17 adoptions 1–2): the exact text this branch delivers
       // as the answer body, captured for the log-only detector below.
@@ -299,14 +320,18 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
         }
         emitDelta(outcome.chatText);
-      } else if (assertionGateArmed || auditGateArmed) {
+      } else if (assertionGateArmed || auditGateArmed || publicationGateArmed) {
         const assertionGate = assertionGateArmed
           ? applyOriginUngroundedAssertionGate(lastUserMessage, result.text, false)
           : { replaced: false, text: result.text };
         assertionGateReplaced = assertionGate.replaced;
+        // The text the earlier gates leave for delivery, and whether
+        // delivering it means flushing the buffered deltas in order
+        // (no earlier gate rewrote the text) or emitting it once.
+        let gatedText: string;
+        let flushBuffered = false;
         if (assertionGate.replaced) {
-          publicationGateAnswerText = assertionGate.text;
-          emitDelta(assertionGate.text);
+          gatedText = assertionGate.text;
         } else if (auditGateArmed) {
           auditGateOutcome = applyOriginBusinessPlanningAuditGate({
             requestId,
@@ -317,11 +342,38 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
             now: new Date(now()),
             language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
           });
-          publicationGateAnswerText = auditGateOutcome.answerText;
-          emitDelta(auditGateOutcome.answerText);
+          gatedText = auditGateOutcome.answerText;
         } else {
-          publicationGateAnswerText = result.text;
-          for (const buffered of bufferedDeltas) emitDelta(buffered);
+          gatedText = result.text;
+          flushBuffered = true;
+        }
+        if (publicationGateArmed) {
+          // Stage-2 enforcement runs on the exact text that would be
+          // delivered: a firing gate replaces it with the tier-T4 hold
+          // before anything is emitted; a passing answer is delivered
+          // exactly as the earlier gates left it.
+          publicationGateOutcome = applyOriginPublicationGate({
+            requestId,
+            answerText: gatedText,
+            query: lastUserMessage,
+            language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+            env,
+          });
+          publicationGateAnswerText = publicationGateOutcome.answerText;
+          if (publicationGateOutcome.held) {
+            emitDelta(publicationGateOutcome.answerText);
+          } else if (flushBuffered) {
+            for (const buffered of bufferedDeltas) emitDelta(buffered);
+          } else {
+            emitDelta(publicationGateOutcome.answerText);
+          }
+        } else {
+          publicationGateAnswerText = gatedText;
+          if (flushBuffered) {
+            for (const buffered of bufferedDeltas) emitDelta(buffered);
+          } else {
+            emitDelta(gatedText);
+          }
         }
       } else if (!deckRequested) {
         // Plain incremental streaming: the delivered body is the model
@@ -374,8 +426,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // altered by it. Runs on every non-deck direct answer (including
       // assertion-gate and audit-gate deliveries, whose final text is
       // what the user actually receives), so the shadow counts measure
-      // the delivered surface, not the raw model output.
-      if (publicationGateAnswerText !== null && !deckRequested) {
+      // the delivered surface, not the raw model output. In enforce
+      // mode the gate already ran (and logged) in the buffered branch
+      // above, so this hook is skipped to avoid counting the same
+      // answer twice — the same treatment as the audit gate's hook.
+      if (publicationGateAnswerText !== null && !deckRequested && publicationGateOutcome === null) {
         logOriginPublicationGateShadow({ requestId, answerText: publicationGateAnswerText });
       }
       console.info("[origin-chat] upstream stream completed", {
@@ -399,6 +454,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(assertionGateArmed ? { ungroundedAssertionGate: assertionGateReplaced ? "replaced" : "passed" } : {}),
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
         ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
+        ...(publicationGateOutcome ? { publicationGateMode: publicationGateOutcome.mode, publicationGateHeld: publicationGateOutcome.held, ...(publicationGateOutcome.landing ? { researchTier: publicationGateOutcome.landing.tier, researchOutcome: publicationGateOutcome.landing.outcome, researchAbstainReason: publicationGateOutcome.landing.abstainReason } : {}) } : {}),
         proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
         ...(deckViolationCodes ? { proposalDeckViolationCodes: deckViolationCodes } : {}),
@@ -414,7 +470,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         servedModel: result.routingEvidence.servedModel,
         costEvidenceStatus: "NOT_MEASURED",
         fallbackUsed: result.routingEvidence.fallbackUsed,
-        ...(result.truncated === true && !assertionGateReplaced ? { truncated: true } : {}),
+        ...(result.truncated === true && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");
