@@ -161,6 +161,26 @@ describe('in-memory attachment store', () => {
     expect(await store.getSet(setId, ownerBinding)).toBeNull();
     expect(await store.deleteSet(setId, ownerBinding)).toBe(false);
   });
+
+  it('bridges a claim across bindings: re-binds and claims in one step (F3)', async () => {
+    const store = await makeStore();
+    await store.addFile(setId, ownerBinding, fileInput('bridged-body'));
+    const claimed = await store.claimSetForRun(setId, ownerBinding, otherBinding, runId, Date.now() + 7 * 24 * 60 * 60 * 1000);
+    expect(claimed?.status).toBe('claimed');
+    expect(claimed?.claimedRunId).toBe(runId);
+    expect(claimed?.ownerBinding).toBe(otherBinding);
+    // The set moved: invisible under the upload binding, and both its
+    // metadata and its body are readable under the run's binding only.
+    expect(await store.getSet(setId, ownerBinding)).toBeNull();
+    expect(await store.getFileText(setId, ownerBinding, 0)).toBeNull();
+    expect((await store.getSet(setId, otherBinding))?.status).toBe('claimed');
+    expect(await store.getFileText(setId, otherBinding, 0)).toBe('bridged-body');
+    // A second bridge attempt finds nothing left to move, and a set
+    // that is not open under the source binding never moves.
+    expect(await store.claimSetForRun(setId, ownerBinding, otherBinding, runId, Date.now() + 60_000)).toBeNull();
+    await expect(store.claimSetForRun(setId, otherBinding, ownerBinding, 'not-a-run', Date.now() + 60_000))
+      .rejects.toThrow('AGENT_ATTACHMENT_CLAIM_INPUT_INVALID');
+  });
 });
 
 // ---------------------------------------------------------------------
@@ -242,6 +262,28 @@ describe('postgres attachment store (fake executor)', () => {
     const store = new PostgresAgentAttachmentStore(executor);
     expect(await store.getSet(setId, ownerBinding)).toBeNull();
     expect(deleted).toHaveLength(1);
+  });
+
+  it('re-binds the set to the run binding in the claim bridge update (F3)', async () => {
+    const executor = new FakeExecutor();
+    executor.handler = (text) => {
+      if (text.includes('update public.origin_agent_attachment_sets')) {
+        return result([setRow({ owner_binding: otherBinding, status: 'claimed', claimed_run_id: runId })]);
+      }
+      if (text.includes('from public.origin_agent_attachments')) return result([]);
+      return result([]);
+    };
+    const store = new PostgresAgentAttachmentStore(executor);
+    const expiresAt = Date.now() + 60_000;
+    const claimed = await store.claimSetForRun(setId, ownerBinding, otherBinding, runId, expiresAt);
+    expect(claimed?.status).toBe('claimed');
+    expect(claimed?.ownerBinding).toBe(otherBinding);
+    expect(claimed?.claimedRunId).toBe(runId);
+    const update = executor.calls.find((call) => call.text.includes('update public.origin_agent_attachment_sets'));
+    expect(update?.text).toContain("status = 'claimed'");
+    // The update is scoped by the source binding and moves the row to
+    // the run's binding in the same statement.
+    expect(update?.values).toEqual([setId, otherBinding, runId, expiresAt, ownerBinding]);
   });
 
   it('rejects malformed rows instead of returning partial records', async () => {

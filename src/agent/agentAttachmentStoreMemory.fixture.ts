@@ -121,6 +121,23 @@ export class InMemoryAgentAttachmentStore implements AgentAttachmentStore {
     return this.toRecord(stored);
   }
 
+  async claimSetForRun(setId: string, fromOwnerBinding: string, toOwnerBinding: string, runId: string, expiresAt: number, now?: number): Promise<AgentAttachmentSetRecord | null> {
+    if (!AGENT_ATTACHMENT_SET_ID_PATTERN.test(setId)) return null;
+    assertAgentAttachmentOwnerBinding(fromOwnerBinding);
+    assertAgentAttachmentOwnerBinding(toOwnerBinding);
+    if (!AGENT_RUN_ID_PATTERN.test(runId)) throw new Error('AGENT_ATTACHMENT_CLAIM_INPUT_INVALID');
+    const timestamp = now ?? this.now();
+    if (!Number.isFinite(expiresAt) || expiresAt <= timestamp) throw new Error('AGENT_ATTACHMENT_CLAIM_INPUT_INVALID');
+    const stored = this.live(setId, fromOwnerBinding, timestamp);
+    if (!stored || stored.status !== 'open') return null;
+    stored.ownerBinding = toOwnerBinding;
+    stored.status = 'claimed';
+    stored.claimedRunId = runId;
+    stored.expiresAt = expiresAt;
+    stored.updatedAt = timestamp;
+    return this.toRecord(stored);
+  }
+
   async deleteSet(setId: string, ownerBinding: string): Promise<boolean> {
     const stored = this.sets.get(setId);
     if (!stored || stored.ownerBinding !== ownerBinding) return false;
