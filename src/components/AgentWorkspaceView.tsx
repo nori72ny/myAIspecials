@@ -34,6 +34,8 @@ const tools = [
   'file_reader',
   'file_writer',
   'verification_runner',
+  'attachment_reader',
+  'attachment_analyzer',
 ] as const;
 type AgentTool = (typeof tools)[number];
 const isAgentTool = (value: unknown): value is AgentTool => typeof value === 'string' && tools.includes(value as AgentTool);
@@ -100,6 +102,8 @@ function toolLabel(tool: AgentTool): string {
     file_reader: 'ファイルを読む',
     file_writer: 'ファイルを作る・直す',
     verification_runner: 'テストと動作確認',
+    attachment_reader: '添付データを読む',
+    attachment_analyzer: 'データを読み解いて処理する',
   };
   return labels[tool];
 }
@@ -108,7 +112,18 @@ function hasExecutableParams(tool: AgentTool, params: Record<string, unknown>): 
   if (tool === 'web_search_grounding') return typeof params.query === 'string' && params.query.trim().length > 0;
   if (tool === 'file_writer') {
     if (typeof params.path !== 'string' || params.path.trim().length === 0) return false;
-    return (typeof params.content === 'string' && params.content.length > 0) || params.contentFromPreviousArtifact === true;
+    return (typeof params.content === 'string' && params.content.length > 0)
+      || params.contentFromPreviousArtifact === true
+      || typeof params.contentFromStep === 'number';
+  }
+  if (tool === 'attachment_reader') {
+    return typeof params.attachmentSetId === 'string' && params.attachmentSetId.trim().length > 0
+      && typeof params.setDigest === 'string' && params.setDigest.trim().length > 0;
+  }
+  if (tool === 'attachment_analyzer') {
+    return typeof params.attachmentSetId === 'string' && params.attachmentSetId.trim().length > 0
+      && typeof params.setDigest === 'string' && params.setDigest.trim().length > 0
+      && typeof params.chunkCount === 'number' && params.chunkCount > 0;
   }
   if (tool === 'file_reader') return typeof params.path === 'string' && params.path.trim().length > 0;
   if (tool === 'verification_runner') return ['test', 'typecheck', 'lint', 'build'].includes(String(params.kind));

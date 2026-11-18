@@ -4,6 +4,8 @@ import { executeToolWithPermission, toolRegistry } from '../src/agent/toolRegist
 describe('tool registry security boundary', () => {
   it('registers exactly the approved tools and requires approval', async () => {
     expect(Object.keys(toolRegistry).sort()).toEqual([
+      'attachment_analyzer',
+      'attachment_reader',
       'code_interpreter',
       'document_generator',
       'file_reader',

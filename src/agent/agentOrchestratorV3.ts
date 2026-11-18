@@ -38,6 +38,7 @@ import {
   normalizeAgentAttachmentMediaType,
   resolveAgentAttachmentKind,
   validateAgentAttachmentFileText,
+  AGENT_ATTACHMENT_CLAIMED_GRACE_MS,
   AGENT_ATTACHMENT_SET_ID_PATTERN,
   AGENT_ATTACHMENT_SET_TTL_MS,
   MAX_AGENT_ATTACHMENT_FILE_TEXT_CHARS,
@@ -52,10 +53,17 @@ import {
   issueAttachmentUploadCapability,
   verifyAttachmentUploadCapability,
 } from './agentAttachmentCapability.js';
+import { buildAgentAttachmentDataView, type AgentAttachmentDataView } from './agentAttachmentData.js';
+import { augmentPlanWithAttachments } from './agentAttachmentPlanning.js';
+import type { AgentModelExecutor } from './agentModelCall.js';
 
-const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner'];
+const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner', 'attachment_reader', 'attachment_analyzer'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
-const MAX_EXECUTION_STEPS = 4;
+/** Raised 4 → 6 together with the planner (file-input foundation F2,
+ * design §3.6, J7): reader + analyzer + generative step is the smallest
+ * attachment plan, and the two ceilings must move together so an
+ * issuable plan is always an executable one. */
+const MAX_EXECUTION_STEPS = 6;
 const STEP_TITLES: Record<ToolName, string> = {
   repository_explorer: 'Explore repository structure',
   file_reader: 'Read the target file',
@@ -65,6 +73,8 @@ const STEP_TITLES: Record<ToolName, string> = {
   image_prompt_compiler: 'Compile the image prompt',
   file_writer: 'Write the file',
   verification_runner: 'Run verification',
+  attachment_reader: 'Read the attached data',
+  attachment_analyzer: 'Analyze the attached data',
 };
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');
@@ -131,7 +141,9 @@ function planSnapshotFromSteps(steps: readonly AgentStepInputV3[]): AgentRunPlan
     toolName: step.toolName,
     params: step.params,
     dependsOn: index === 0 ? [] : [index - 1],
-    ...(step.params.contentFromPreviousArtifact === true && index > 0 ? { inputFrom: index - 1 } : {}),
+    ...(typeof step.params.contentFromStep === 'number' && step.params.contentFromStep >= 0 && step.params.contentFromStep < index
+      ? { inputFrom: step.params.contentFromStep }
+      : step.params.contentFromPreviousArtifact === true && index > 0 ? { inputFrom: index - 1 } : {}),
   }));
 }
 
@@ -381,7 +393,7 @@ export interface AgentRunConsumptionStore {
   consume(runId: string, expiresAt: number): Promise<boolean>;
 }
 
-export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore; writeLockStore?: AgentRunWriteLockStore; attachmentStore?: AgentAttachmentStore }): Router {
+export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process.env, consumptionStore?: AgentRunConsumptionStore, deps?: { codeDelegation?: AgentCodeDelegationPort; runStore?: AgentRunStore; writeLockStore?: AgentRunWriteLockStore; attachmentStore?: AgentAttachmentStore; modelCall?: AgentModelExecutor }): Router {
   const router = express.Router();
   // Outer guard: express-rate-limit, the standard library that static
   // analysis (CodeQL js/missing-rate-limiting) recognizes as rate limiting.
@@ -419,7 +431,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   // credentials, so credential guessing against it must be metered too
   // (CodeQL js/missing-rate-limiting).
   const agentV3RateLimiter = createOriginChatRateLimiter(Date.now, ['POST']);
-  const toolContext: ToolExecutionContext = { codeDelegation: deps?.codeDelegation };
+  const toolContext: ToolExecutionContext = {
+    codeDelegation: deps?.codeDelegation,
+    env,
+    ...(deps?.modelCall ? { modelCall: deps.modelCall } : {}),
+  };
   const runStore = deps?.runStore;
   const writeLockStore = deps?.writeLockStore;
   const attachmentStore = deps?.attachmentStore;
@@ -472,7 +488,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     // the plan's params below, so the approval digest covers the data
     // itself. Without an attachmentSetId this handler produces exactly
     // the plan it produced before the foundation existed.
-    let boundAttachment: { set: AgentAttachmentSetRecord; setDigest: string } | null = null;
+    let boundAttachment: { set: AgentAttachmentSetRecord; setDigest: string; view: AgentAttachmentDataView } | null = null;
     if (req.body?.attachmentSetId !== undefined) {
       const resolved = await resolvePlanAttachment(req, req.body.attachmentSetId);
       if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
@@ -485,21 +501,37 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const run = new AgentRunSession();
     run.transition('planning');
     run.transition('awaiting_approval');
-    const steps: AgentStepInputV3[] = plannedStepsForGoal(goal.trim(), planned.steps);
+    let steps: AgentStepInputV3[] = plannedStepsForGoal(goal.trim(), planned.steps);
+    let effectivePlanned: readonly AgentToolStepV3[] = planned.steps;
     if (boundAttachment) {
-      // F1 threads the binding through the primary step's params; the
-      // data steps that will consume it arrive in F2. The pair is part
-      // of the params the canonical digest is computed over, so
-      // replacing a file after approval breaks the digest chain and
-      // the plan can no longer be approved or executed as-is.
-      steps[0] = {
-        ...steps[0],
-        params: {
-          ...steps[0].params,
-          attachmentSetId: boundAttachment.set.setId,
-          setDigest: boundAttachment.setDigest,
-        },
-      };
+      // F2 augmentation (design §3.6): the reader leads, analyzer
+      // steps carry the data work, and the first generative step is
+      // re-grounded on the analyzer's output. Every data step carries
+      // { attachmentSetId, setDigest } inside the params the canonical
+      // digest is computed over, so replacing a file after approval
+      // breaks the digest chain and the plan can no longer be approved
+      // or executed as-is. Oversize sets are refused here, at plan
+      // time, with the counts attached (design §4.3).
+      const augmented = augmentPlanWithAttachments({
+        goal: goal.trim(),
+        plannedSteps: planned.steps,
+        steps,
+        setId: boundAttachment.set.setId,
+        setDigest: boundAttachment.setDigest,
+        view: boundAttachment.view,
+        maxSteps: MAX_EXECUTION_STEPS,
+      });
+      if (augmented.ok === false) {
+        return res.status(422).json({
+          ok: false,
+          code: augmented.code,
+          protocolVersion: 3,
+          chunkCount: augmented.chunkCount,
+          limit: augmented.limit,
+        });
+      }
+      steps = augmented.steps;
+      effectivePlanned = augmented.plannedSteps;
     }
     const capability = issuePlanCapability(
       run.runId,
@@ -523,12 +555,12 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       persistence: 'stateless-server-signed',
       selectedTool: steps[0].toolName,
       params: steps[0].params,
-      steps: planned.steps.map((step, index) => ({
+      steps: effectivePlanned.map((step, index) => ({
         toolName: step.toolName,
         reasonCode: step.reasonCode,
         params: steps[index].params,
       })),
-      toolChoice: { source: 'deterministic-local', reasonCode: planned.steps[0].reasonCode, mode: steps.length > 1 ? 'multi-step' : 'single-step' },
+      toolChoice: { source: 'deterministic-local', reasonCode: effectivePlanned[0].reasonCode, mode: steps.length > 1 ? 'multi-step' : 'single-step' },
       plan: steps.map((step, index) => ({ id: `task-${index + 1}`, title: STEP_TITLES[step.toolName] })),
       ...(boundAttachment ? {
         attachments: {
@@ -702,9 +734,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         const stepResults: Array<{ toolName: ToolName; status: string; artifact: string }> = [];
         const checkpoints: unknown[] = [];
         let previousText: string | undefined;
+        const textualByStep = new Map<number, string>();
+        const rawByStep = new Map<number, string>();
         let failure: { graph: typeof graph; record?: unknown } | null = null;
         for (const [index, step] of steps.entries()) {
-          const resolved = resolveStepParams(step, previousText);
+          const resolved = resolveStepParams(step, { previousText, byStep: textualByStep, rawByStep });
           const stepParams = resolved && 'params' in resolved ? resolved.params : step.params;
           const execution = await executeNextTask(graph, async () => {
             if ('error' in resolved) return { ok: false, message: resolved.error };
@@ -722,7 +756,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
           assertCanReportCompleted({ state: finalTask.status, verified: record.verified, toolExecuted: record.toolExecuted, repairAttempts: record.verificationAttempts });
           checkpoints.push(saveCheckpoint({ taskId: finalTask.id, executionId, status: record.verificationAttempts > 0 ? 'self_fixed' : 'completed', artifact: record.artifact, mutation: record.mutation }));
           stepResults.push({ toolName: step.toolName, status: record.status, artifact: record.artifact });
-          previousText = textualArtifactOf(step.toolName, record.artifact) ?? previousText;
+          const stepText = textualArtifactOf(step.toolName, record.artifact);
+          if (stepText !== undefined) textualByStep.set(index, stepText);
+          rawByStep.set(index, record.artifact);
+          previousText = stepText ?? previousText;
         }
         if (failure) {
           if (!res.headersSent) return res.status(422).json({ ok: false, code: 'ARTIFACT_VERIFICATION_FAILED', protocolVersion: 3, runId, execution: failure });
@@ -919,6 +956,31 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         }
         return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_EXISTS', runId });
       }
+      // Attachment claim (file-input foundation F2, design J2): a run
+      // whose approved plan names an attachment set claims the set, so
+      // its lifetime follows the run (record expiry + grace) instead of
+      // the 24-hour unclaimed expiry. Best-effort by design: the claim
+      // resolves under the run's owner binding, which is the binding
+      // the data steps will read through — a set owned under a
+      // different binding (a browser set, whose binding derives from
+      // its upload token) is invisible here and simply stays unclaimed
+      // until the browser flow's own claim wiring lands with the UI
+      // stage; execution then fails closed as unavailable rather than
+      // reading across bindings.
+      const claimedSetId = created.plan
+        ?.map((step) => step.params.attachmentSetId)
+        .find((value): value is string => typeof value === 'string' && value.length > 0);
+      if (attachmentStore && claimedSetId) {
+        await attachmentStore.claimSet(
+          claimedSetId,
+          ownerBinding,
+          runId,
+          created.expiresAt + AGENT_ATTACHMENT_CLAIMED_GRACE_MS,
+        ).catch((error: unknown) => {
+          logAgentAttachmentStoreFailure('attachment-claim', error);
+          return null;
+        });
+      }
       return res.status(201).json({ ok: true, protocolVersion: 3, persistence: 'durable-run-record', run: publicAgentRunView(created), ...runEnvelope });
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
@@ -985,7 +1047,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       ? Math.min(110_000, Math.max(1_000, Math.floor(body.budgetMs)))
       : undefined;
     const outcome = await advanceAgentRun(
-      { runStore, consumptionStore, toolContext, writeLockStore },
+      { runStore, consumptionStore, toolContext, writeLockStore, attachmentStore },
       record,
       `driver-${resolved.auth.mode}-${randomUUID()}`,
       { budgetMs },
@@ -1482,7 +1544,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   async function resolvePlanAttachment(
     req: express.Request,
     attachmentSetId: unknown,
-  ): Promise<{ attachment: { set: AgentAttachmentSetRecord; setDigest: string } } | AttachmentAuthFailure> {
+  ): Promise<{ attachment: { set: AgentAttachmentSetRecord; setDigest: string; view: AgentAttachmentDataView } } | AttachmentAuthFailure> {
     if (typeof attachmentSetId !== 'string' || !AGENT_ATTACHMENT_SET_ID_PATTERN.test(attachmentSetId)) {
       return { status: 400, code: 'AGENT_ATTACHMENT_SET_ID_INVALID' };
     }
@@ -1498,7 +1560,31 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     const { set } = loaded;
     if (set.status !== 'open') return { status: 409, code: 'AGENT_ATTACHMENT_SET_NOT_OPEN' };
     if (set.files.length === 0) return { status: 422, code: 'AGENT_ATTACHMENT_SET_EMPTY' };
-    return { attachment: { set, setDigest: computeAgentAttachmentSetDigest(set.files) } };
+    // The F2 plan shape depends on the data itself (chunk counts drive
+    // the analyzer split and the plan-time oversize refusal), so the
+    // deterministic data view is built here, server-side, from the
+    // stored texts. A body the store cannot produce for a set it just
+    // listed is an inconsistency: the plan is refused as unavailable
+    // rather than shaped around a guess.
+    const files: { name: string; text: string }[] = [];
+    for (const file of set.files) {
+      let text: string | null;
+      try {
+        text = await attachmentStore.getFileText(set.setId, auth.ownerBinding, file.idx);
+      } catch (error) {
+        logAgentAttachmentStoreFailure('attachment-plan-bind', error);
+        return { status: 503, code: 'AGENT_ATTACHMENT_STORE_UNAVAILABLE' };
+      }
+      if (text === null) return { status: 409, code: 'AGENT_ATTACHMENT_UNAVAILABLE' };
+      files.push({ name: file.name, text });
+    }
+    return {
+      attachment: {
+        set,
+        setDigest: computeAgentAttachmentSetDigest(set.files),
+        view: buildAgentAttachmentDataView(files),
+      },
+    };
   }
 
   const publicAttachmentFileMeta = (file: AgentAttachmentFileMeta) => ({
