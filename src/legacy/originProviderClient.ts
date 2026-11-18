@@ -73,7 +73,16 @@ export interface OriginProviderExecutionResult { text: string; transportRequestC
    */
   truncated?: boolean; }
 export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLICY_VIOLATION" | "PROVIDER_COST_UNVERIFIED" | "PROVIDER_ROUTING_UNVERIFIED" | "PROVIDER_RATE_LIMITED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_TIMEOUT" | "PROVIDER_INVALID_RESPONSE" | "PROVIDER_REQUIRED_TOOL_MISSING" | "PROVIDER_REQUIRED_TOOL_AMBIGUOUS" | "PROVIDER_REQUIRED_TOOL_INVALID" | "PROVIDER_REQUIRED_TOOL_ARGUMENTS_INVALID" | "PROVIDER_REQUIRED_TOOL_TRUNCATED" | "PROVIDER_TRANSPORT_UNVERIFIED" | "PROVIDER_INTERNAL_ERROR";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; }
+/**
+ * How a streaming response failed its terminal validation, recorded by the
+ * streaming executors that can tell the three apart: the stream ended without
+ * its [DONE] terminator ("no-done"), no chunk ever named the served model
+ * ("no-model"), or the stream terminated cleanly with the right model but
+ * produced no answer text at all ("empty-content" — for reasoning-first
+ * models, the signature of a completion budget spent entirely on reasoning).
+ */
+export type OriginProviderStreamFailure = "no-done" | "no-model" | "empty-content";
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; streamFailure?: OriginProviderStreamFailure; finishReason?: string; usagePromptTokens?: number; usageCompletionTokens?: number; usageReasoningTokens?: number; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -134,6 +143,11 @@ export interface OriginProviderFailureDiagnostic {
   upstreamErrorCode?: string;
   transportFailure?: "timeout" | "network";
   transportRequestCount?: number;
+  streamFailure?: OriginProviderStreamFailure;
+  finishReason?: string;
+  usagePromptTokens?: number;
+  usageCompletionTokens?: number;
+  usageReasoningTokens?: number;
   failoverAttempts: OriginProviderAttemptDiagnostic[];
 }
 
@@ -176,6 +190,33 @@ export function safeOriginUpstreamErrorCode(value: unknown): string | undefined 
   if (typeof value !== "string") return undefined;
   if (/^\d{1,10}$/.test(value)) return value;
   return /^[a-z][a-z0-9_]{0,63}$/.test(value) ? value : undefined;
+}
+
+/**
+ * A provider finish_reason that may be kept in failure diagnostics: the
+ * OpenAI-compatible completion vocabulary is small and public ("stop",
+ * "length", "tool_calls", "content_filter", "function_call"), and anything
+ * outside it — free-form text, injected content — is rejected, exactly like
+ * the upstream error code above. Used both when clients capture a finish
+ * reason from an upstream payload and when the failure summary below
+ * re-validates what it surfaces.
+ */
+export function safeOriginFinishReason(value: unknown): string | undefined {
+  return typeof value === "string" && /^(?:stop|length|tool_calls|content_filter|function_call)$/.test(value)
+    ? value
+    : undefined;
+}
+
+const ORIGIN_PROVIDER_STREAM_FAILURE_SET: ReadonlySet<string> = new Set(["no-done", "no-model", "empty-content"]);
+
+function safeOriginStreamFailure(value: unknown): OriginProviderStreamFailure | undefined {
+  return typeof value === "string" && ORIGIN_PROVIDER_STREAM_FAILURE_SET.has(value)
+    ? value as OriginProviderStreamFailure
+    : undefined;
+}
+
+function safeUsageTokenCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 10_000_000 ? Number(value) : undefined;
 }
 
 function safeRouteIdentifier(value: unknown): string | undefined {
@@ -238,6 +279,16 @@ export function buildOriginProviderFailureDiagnostic(error: OriginProviderError)
   }
   const transportRequestCount = safeTransportRequestCount(diagnostic?.transportRequestCount);
   if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
+  const streamFailure = safeOriginStreamFailure(diagnostic?.streamFailure);
+  if (streamFailure) summary.streamFailure = streamFailure;
+  const finishReason = safeOriginFinishReason(diagnostic?.finishReason);
+  if (finishReason) summary.finishReason = finishReason;
+  const usagePromptTokens = safeUsageTokenCount(diagnostic?.usagePromptTokens);
+  if (usagePromptTokens !== undefined) summary.usagePromptTokens = usagePromptTokens;
+  const usageCompletionTokens = safeUsageTokenCount(diagnostic?.usageCompletionTokens);
+  if (usageCompletionTokens !== undefined) summary.usageCompletionTokens = usageCompletionTokens;
+  const usageReasoningTokens = safeUsageTokenCount(diagnostic?.usageReasoningTokens);
+  if (usageReasoningTokens !== undefined) summary.usageReasoningTokens = usageReasoningTokens;
   if (Array.isArray(diagnostic?.failoverAttempts)) {
     for (const attempt of diagnostic.failoverAttempts) {
       const summarized = summarizeOriginProviderAttempt(attempt);
