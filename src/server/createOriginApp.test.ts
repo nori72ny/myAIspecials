@@ -123,11 +123,24 @@ describe("createOriginApp provider isolation", () => {
       status: "ok",
       service: "acos-2",
       releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
+      voiceOutputEnabled: false,
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: "server-only",
       costUsd: 0,
     });
+  });
+
+  it("reports voiceOutputEnabled only when the exact switch value is set", async () => {
+    const enabled = await request(createOriginApp({
+      ORIGIN_VOICE_OUTPUT_ENABLED: "true",
+    })).get("/api/health");
+    const truthy = await request(createOriginApp({
+      ORIGIN_VOICE_OUTPUT_ENABLED: "1",
+    })).get("/api/health");
+
+    expect(enabled.body.voiceOutputEnabled).toBe(true);
+    expect(truthy.body.voiceOutputEnabled).toBe(false);
   });
 
   it("keeps the local health path aligned with the production API health path", async () => {
