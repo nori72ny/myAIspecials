@@ -36,6 +36,7 @@ import {
 } from "../research/groundedResearchOutcome.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
+import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -360,6 +361,17 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       emitResearchSources(safeOriginResearchSources(researchResult.sources));
       emitResearchPhase("composing");
       const grounded = groundedResearchAnswer(lastUserMessage, researchResult);
+      // Recovery build Stage 1, PR-3 (shadow only): record the
+      // answer-type value vote over the grounded sources so the
+      // confirmed-value quality is observable before PR-4 wires it
+      // into answers. Default off; never alters the answer.
+      if (resolveRecoveryValueVoteMode(env) === "shadow") {
+        logRecoveryValueVoteShadow({
+          requestId,
+          question: lastUserMessage,
+          sources: grounded.sources,
+        });
+      }
       if (grounded.sourceCount === 0) {
         // Failure classification (synthesis-hygiene): record why this
         // request fail-closed to the could-not-confirm answer, without

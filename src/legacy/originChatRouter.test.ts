@@ -178,6 +178,46 @@ describe("createOriginChatRouter", () => {
       warn.mockRestore();
     }
   });
+  it("recovery value vote shadow mode logs the vote and never changes the answer (PR-3)", async () => {
+    const populationSource = (domain: string, url: string, excerpt: string) => ({
+      title: "人口推計",
+      url,
+      excerpt,
+      sourceType: "web-search" as const,
+      domain,
+      evidenceLevel: "page-verified" as const,
+      retrievedAt: "2026-11-18T00:00:00.000Z",
+      freshness: "recent" as const,
+    });
+    const researchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      sources: [
+        populationSource("stat.go.jp", "https://www.stat.go.jp/x", "総人口は１億２２６９万人でした。"),
+        populationSource("news.example", "https://news.example/x", "日本の総人口は1億2269万人でした。"),
+      ],
+    });
+    const question = { messages: [{ role: "user", content: "現在の日本の総人口は何人ですか？" }] };
+    const baseline = await request(createApp(execute, { OPENROUTER_API_KEY: "synthetic-test-key" }, undefined, undefined, researchMock))
+      .post("/api/chat").send(question);
+    expect(baseline.status).toBe(200);
+
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const shadowed = await request(createApp(execute, { OPENROUTER_API_KEY: "synthetic-test-key", ORIGIN_RECOVERY_VALUE_VOTE_MODE: "shadow" }, undefined, undefined, researchMock))
+        .post("/api/chat").send(question);
+      expect(shadowed.status).toBe(200);
+      // Shadow mode is observation only: the delivered answer is
+      // byte-identical to the run without the switch.
+      expect(shadowed.body.content).toBe(baseline.body.content);
+      const voteLog = info.mock.calls.find((call) => String(call[0]).includes("recovery value vote (shadow)"));
+      expect(voteLog).toBeDefined();
+      const fields = voteLog?.[1] as { recoveryVoteStatus?: string; recoveryVoteValue?: string } | undefined;
+      expect(fields?.recoveryVoteStatus).toBe("confirmed");
+      expect(fields?.recoveryVoteValue).toBe("122690000");
+    } finally {
+      info.mockRestore();
+    }
+  });
   // S-PR-1 note: this test pins context windowing only. Its final message
   // used to be 「最新の依頼」, which under the unified needs-freshness
   // determination now routes to grounded research (fresh_general fails
