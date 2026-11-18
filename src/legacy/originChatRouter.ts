@@ -38,6 +38,17 @@ import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstructi
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
+import {
+  analyzeRefusalLikeOutput,
+  buildNonexistenceConditionalAnswer,
+  buildProcedureConditionalAnswer,
+  buildUndeterminedFutureAnswer,
+  classifyRefusalForbiddenCategory,
+  detectNamedEntity,
+  detectUndeterminedFutureQuestion,
+  resolveRecoveryRefusalValidationMode,
+  RECOVERY_REFUSAL_RETRY_INSTRUCTION,
+} from "../research/groundedResearchRefusalValidation.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearch } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
 import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
@@ -341,6 +352,39 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       } catch {
         researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
       }
+      // Recovery build Stage 1, PR-5: one bounded retry of the
+      // research execution when it failed with a provider error
+      // (F-13: the round-5 http_503 was transient by shape — the
+      // same query succeeds on a later attempt). The retry is
+      // deliberately narrow: it fires only when the result carries
+      // BOTH a failure and groundingFailure "provider-error".
+      // no-sources / no-fresh-sources are deterministic outcomes of
+      // a completed search and are never retried, and the retry runs
+      // at most once. Switch ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE:
+      // off (default) does nothing; shadow logs that the retry would
+      // fire and keeps the original result; enforce re-executes once
+      // and continues with the retry's result, success or failure.
+      const recoveryRefusalMode = resolveRecoveryRefusalValidationMode(env);
+      if (
+        recoveryRefusalMode !== "off" &&
+        researchResult.failure &&
+        researchResult.groundingFailure === "provider-error"
+      ) {
+        console.info("[origin-chat] recovery refusal validation", {
+          requestId,
+          recoveryRefusalSite: "research-retry",
+          recoveryRefusalMode,
+          recoveryRefusalKind: "provider-error-retry",
+          recoveryRefusalFired: recoveryRefusalMode === "enforce",
+        });
+        if (recoveryRefusalMode === "enforce") {
+          try {
+            researchResult = await research(lastUserMessage.trim());
+          } catch {
+            researchResult = { ok: false, sources: [], failure: { stage: "web-search", code: "NETWORK_FAILURE" } };
+          }
+        }
+      }
       // Stage timing (speed measurement 2026-11-16): the search stage
       // runs serially before any synthesis, and its duration was not
       // recorded anywhere. Numbers and counts only; no query or text.
@@ -446,6 +490,96 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       };
       if (recoveryTemplateMode !== "off" && grounded.sourceCount === 0) {
         tryRecoveryTemplateAtSite("t4", safeOriginResearchSources(researchResult.droppedSources ?? []));
+      }
+      // Recovery build Stage 1, PR-5: the conditional answers. When
+      // the normal path produced no substantive answer and PR-4's
+      // template did not fire either, a deterministic conditional
+      // answer may replace the uninformative outcome:
+      //  - T4 (and T3 below): the question names an entity that
+      //    appears in NO source — neither the freshness gate's
+      //    dropped candidates here nor the kept sources at the T3
+      //    site — so the answer states nonexistence conditionally
+      //    instead of listing unrelated sources (I-01/I-02/I-03);
+      //  - T4: the question demands confirmed information about a
+      //    future outcome that is not decided yet, so the answer
+      //    states that no confirmed information exists (I-05);
+      //  - T4: the question is in the refusal-forbidden procedure
+      //    category, so the hold text gains the fixed official-
+      //    window guidance (E-07). The landing stays T4/ABSTAIN —
+      //    the conditional form asserts nothing.
+      // Switch ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: off does
+      // nothing; shadow logs the attempt and delivers the original
+      // answer byte-identically; enforce delivers the conditional
+      // answer — but only after the publication gate has also
+      // passed it, so the gate is never bypassed (a held conditional
+      // does not fire, and the original answer stands exactly as
+      // before this PR).
+      let recoveryConditional: {
+        content: string;
+        kind: "nonexistence" | "undetermined";
+      } | null = null;
+      let recoveryProcedureConditional = false;
+      const adoptRecoveryConditional = (
+        site: "t4" | "t3",
+        kind: "nonexistence" | "undetermined",
+        text: string | null,
+      ): void => {
+        console.info("[origin-chat] recovery refusal validation", {
+          requestId,
+          recoveryRefusalSite: site,
+          recoveryRefusalMode,
+          recoveryRefusalKind: kind,
+          recoveryRefusalFired: Boolean(text),
+        });
+        if (recoveryRefusalMode !== "enforce" || !text) return;
+        const gate = applyOriginPublicationGate({
+          requestId,
+          answerText: text,
+          query: lastUserMessage,
+          language: grounded.language,
+          env,
+        });
+        if (gate.held) {
+          console.warn("[origin-chat] recovery conditional held by publication gate", {
+            requestId,
+            recoveryRefusalSite: site,
+            recoveryRefusalKind: kind,
+            publicationGateFiringKinds: gate.firingKinds,
+          });
+          return;
+        }
+        recoveryConditional = { content: text, kind };
+      };
+      if (recoveryRefusalMode !== "off" && grounded.sourceCount === 0 && !recoveryTemplate) {
+        const entity = detectNamedEntity(lastUserMessage);
+        const dropped = safeOriginResearchSources(researchResult.droppedSources ?? []);
+        if (entity && dropped.length > 0) {
+          adoptRecoveryConditional(
+            "t4",
+            "nonexistence",
+            buildNonexistenceConditionalAnswer({
+              question: lastUserMessage,
+              entityName: entity,
+              sources: dropped,
+              language: grounded.language,
+            }),
+          );
+        } else if (detectUndeterminedFutureQuestion(lastUserMessage)) {
+          adoptRecoveryConditional(
+            "t4",
+            "undetermined",
+            buildUndeterminedFutureAnswer({ question: lastUserMessage, language: grounded.language }),
+          );
+        } else if (classifyRefusalForbiddenCategory(lastUserMessage) === "procedure") {
+          console.info("[origin-chat] recovery refusal validation", {
+            requestId,
+            recoveryRefusalSite: "t4",
+            recoveryRefusalMode,
+            recoveryRefusalKind: "procedure",
+            recoveryRefusalFired: recoveryRefusalMode === "enforce",
+          });
+          if (recoveryRefusalMode === "enforce") recoveryProcedureConditional = true;
+        }
       }
       if (grounded.sourceCount === 0 && !recoveryTemplate) {
         // Failure classification (synthesis-hygiene): record why this
@@ -1054,20 +1188,58 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       if (recoveryTemplateMode !== "off" && grounded.sourceCount > 0) {
         tryRecoveryTemplateAtSite("t3", grounded.sources);
       }
+      // PR-5, T3 site: the partial answer below would list excerpts
+      // from the kept sources; when the question names an entity
+      // that appears in NONE of them, those excerpts are about
+      // other things (round 5's I-01/I-02/I-03 listed foldable-phone
+      // articles, a different benefit system, a different subway
+      // line), and the conditional nonexistence statement replaces
+      // the partial answer instead.
+      if (recoveryRefusalMode !== "off" && grounded.sourceCount > 0 && !recoveryTemplate) {
+        const entity = detectNamedEntity(lastUserMessage);
+        if (entity) {
+          adoptRecoveryConditional(
+            "t3",
+            "nonexistence",
+            buildNonexistenceConditionalAnswer({
+              question: lastUserMessage,
+              entityName: entity,
+              sources: grounded.sources,
+              language: grounded.language,
+            }),
+          );
+        }
+      }
       const digestReason = recoveryTemplate
         ? (grounded.language === "en"
           ? "Answered directly with the latest published value confirmed across multiple independent sources, with the sources shown."
           : "複数の独立した出典で一致した直近の公表値を、出典を明示して直接回答しました。")
-        : synthesisStatus === "not-run"
-          ? grounded.reason
-          : grounded.language === "en"
-            ? `${grounded.reason} AI synthesis was not adopted; the retrieved source list is shown instead.`
-            : `${grounded.reason} AI統合は採用せず、取得した出典の一覧を表示しています。`;
+        : recoveryConditional
+          ? recoveryConditional.kind === "nonexistence"
+            ? (grounded.language === "en"
+              ? "Public sources were checked, but none showed that the named entity exists, so the answer states conditionally that it appears not to exist."
+              : "公表情報を確認しましたが、設問の実体の存在を示す出典が見つからなかったため、不存在と考えられる旨を条件付きで明示しました。")
+            : (grounded.language === "en"
+              ? "The outcome is not decided yet, so the answer states that no confirmed information exists."
+              : "結果がまだ確定していない事柄のため、確定情報は存在しない旨を明示しました。")
+          : synthesisStatus === "not-run"
+            ? grounded.reason
+            : grounded.language === "en"
+              ? `${grounded.reason} AI synthesis was not adopted; the retrieved source list is shown instead.`
+              : `${grounded.reason} AI統合は採用せず、取得した出典の一覧を表示しています。`;
       const digestLimitations = recoveryTemplate
         ? [grounded.language === "en"
           ? "The value shown is the latest published figure confirmed across multiple sources. Please check the official announcement for the definitive information."
           : "表示した値は、複数の出典で一致した直近の公表値です。確定の情報は公式の発表でご確認ください。"]
-        : researchNeedsDownstreamDeliverable
+        : recoveryConditional
+          ? [recoveryConditional.kind === "nonexistence"
+            ? (grounded.language === "en"
+              ? "The existence check covered the public sources that could be retrieved; a different name or spelling may not be found."
+              : "存在の確認は、取得できた公開情報の範囲で行っています。名称や表記が異なると、見つけられない場合があります。")
+            : (grounded.language === "en"
+              ? "Please check the official announcement once the result is final."
+              : "結果が確定した後は、公式の発表でご確認ください。")]
+          : researchNeedsDownstreamDeliverable
           ? [...grounded.limitations, grounded.language === "en"
             ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
             : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"]
@@ -1084,7 +1256,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               claimSupport: "not-run" as const,
             },
           }))
-        : grounded.evidence;
+        : recoveryConditional
+          ? // A conditional answer (nonexistence / undetermined)
+            // cites no source: listing the retrieved-but-unrelated
+            // sources as its evidence would repeat the round-5
+            // failure it exists to correct.
+            []
+          : grounded.evidence;
       // Terminal guarantee (N-1, CONSULT_ADOPTION_DESIGN_2026-11-17
       // §1.4): this return is the research path's final assembly, and it
       // structurally cannot emit an empty or shell-only body (failure
@@ -1093,14 +1271,37 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // partial answer otherwise — both substantive by construction —
       // and the guard replaces anything else with the tier-T4 hold text
       // and re-lands the outcome on ABSTAIN.
-      const terminal = ensureGroundedResearchTerminalBody(recoveryTemplate?.content ?? grounded.content, () =>
+      const recoveryBody =
+        recoveryTemplate?.content ??
+        recoveryConditional?.content ??
+        (recoveryProcedureConditional
+          ? buildProcedureConditionalAnswer({ baseText: grounded.content, language: grounded.language })
+          : grounded.content);
+      const terminal = ensureGroundedResearchTerminalBody(recoveryBody, () =>
         buildGroundedResearchAbstainAnswer({ query: lastUserMessage, language: grounded.language, reason: "provider-error" }));
-      const landing: OriginResearchLanding = terminal.guardFired
+      // PR-5 empty-body post-guard (F-12): a second, explicit
+      // defense behind the terminal guard — this final assembly
+      // must not emit an empty body even if the guard's fallback
+      // contract ever changes. Round 5's F-12 was an HTTP 200 with
+      // an empty body; whatever layer produced it, this exit now
+      // rebuilds the tier-T4 hold text instead of delivering
+      // emptiness.
+      let terminalContent = terminal.content;
+      let terminalGuardFired = terminal.guardFired;
+      if (!terminalContent.trim()) {
+        terminalContent = buildGroundedResearchAbstainAnswer({ query: lastUserMessage, language: grounded.language, reason: "provider-error" });
+        terminalGuardFired = true;
+        console.warn("[origin-chat] research terminal post-guard fired", {
+          requestId,
+          sourceCount: grounded.sourceCount,
+        });
+      }
+      const landing: OriginResearchLanding = terminalGuardFired
         ? researchLandingForAbstain("provider-error")
-        : recoveryTemplate
+        : recoveryTemplate || recoveryConditional
           ? researchLandingForAdopted(false)
           : grounded.landing;
-      if (terminal.guardFired) {
+      if (terminalGuardFired) {
         console.warn("[origin-chat] research terminal guard fired", {
           requestId,
           synthesisStatus,
@@ -1121,9 +1322,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
         sourceCount: grounded.sourceCount,
         ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
+        ...(recoveryConditional ? { recoveryRefusalKind: recoveryConditional.kind } : {}),
+        ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
       });
       return res.json({
-        content: terminal.content,
+        content: terminalContent,
         supervisor: {
           version: ORIGIN_SUPERVISOR_VERSION_V2,
           status: researchRequestedOutputs.length > 0 ? "partial" : "not-required",
@@ -1134,7 +1337,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           steps: [
             {
               id: "research",
-              status: grounded.sourceCount > 0 || recoveryTemplate ? "completed" : "blocked",
+              status: grounded.sourceCount > 0 || recoveryTemplate || recoveryConditional ? "completed" : "blocked",
               evidenceCount: Math.max(grounded.sourceCount, recoveryTemplate?.attempt.confirmingSources.length ?? 0),
               provider: grounded.provider,
             },
@@ -1153,7 +1356,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             },
           ],
         },
-        answer: answerEnvelope(terminal.content, grounded.language, "not-run", digestReason, responseEvidence, digestLimitations, grounded.nextActions),
+        answer: answerEnvelope(terminalContent, grounded.language, "not-run", digestReason, responseEvidence, digestLimitations, grounded.nextActions),
         routing: {
           ...applicationRouting(requestId, digestReason, "not-run"),
           answerMode: "research",
@@ -1168,6 +1371,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           researchOutcome: landing.outcome,
           ...(landing.abstainReason ? { researchAbstainReason: landing.abstainReason } : {}),
           ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
+          ...(recoveryConditional?.kind === "nonexistence" ? { recoveryNonexistence: true } : {}),
+          ...(recoveryConditional?.kind === "undetermined" ? { recoveryUndetermined: true } : {}),
+          ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
@@ -1202,7 +1408,62 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required, promptText: intentInput });
       const fullSystemInstruction = systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en");
       const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction), groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) };
-      const result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
+      let result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
+      // Recovery build Stage 1, PR-5: refusal output validation
+      // with ONE bounded re-execution (J-05: the round-5 direct path
+      // ended in a one-line model refusal for a benign question with
+      // a lawful framing). When the finished output is refusal-like
+      // — a fixed refusal phrase that IS the answer — the request is
+      // re-executed once with the design's fixed minimal instruction
+      // attached; the retry's output replaces the original only when
+      // it is not itself refusal-like, and a failed retry likewise
+      // keeps the original, which then goes through the gates below
+      // exactly as before (never worse). The compact route-3
+      // instruction is deliberately left untouched (its character
+      // budget is a hard contract); a route-3 retry is a fresh
+      // generation under the unchanged compact instruction. Switch
+      // ORIGIN_RECOVERY_REFUSAL_VALIDATION_MODE: off (default) does
+      // nothing; shadow logs the detection only — no extra provider
+      // call, the answer is delivered byte-identically; enforce runs
+      // the single retry. The publication gate's hold (I-04's shape)
+      // is a gate outcome, not a model refusal, and is out of scope
+      // here by design.
+      const directRefusalMode = resolveRecoveryRefusalValidationMode(env);
+      if (directRefusalMode !== "off") {
+        const directLanguage = /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en";
+        const refusalAnalysis = analyzeRefusalLikeOutput(result.text, directLanguage);
+        if (refusalAnalysis.isRefusal) {
+          console.info("[origin-chat] recovery refusal validation", {
+            requestId,
+            recoveryRefusalSite: "direct",
+            recoveryRefusalMode: directRefusalMode,
+            recoveryRefusalKind: "direct-retry",
+            recoveryRefusalTooShort: refusalAnalysis.signals.tooShort,
+            recoveryRefusalLanguageMismatch: refusalAnalysis.signals.languageMismatch,
+            recoveryRefusalFired: directRefusalMode === "enforce",
+          });
+          if (directRefusalMode === "enforce") {
+            try {
+              const retryResult = await execute({
+                ...providerRequest,
+                systemInstruction: `${providerRequest.systemInstruction}\n\n${RECOVERY_REFUSAL_RETRY_INSTRUCTION}`,
+                cloudflareSystemInstruction: providerRequest.cloudflareSystemInstruction
+                  ? `${providerRequest.cloudflareSystemInstruction}\n\n${RECOVERY_REFUSAL_RETRY_INSTRUCTION}`
+                  : providerRequest.cloudflareSystemInstruction,
+              });
+              assertOriginZeroCostExecutionResultWithFailover(retryResult, planningResult.plan.modelId);
+              if (!analyzeRefusalLikeOutput(retryResult.text, directLanguage).isRefusal) {
+                result = retryResult;
+                console.info("[origin-chat] recovery refusal retry adopted", { requestId });
+              } else {
+                console.info("[origin-chat] recovery refusal retry also refusal-like; original kept", { requestId });
+              }
+            } catch {
+              console.warn("[origin-chat] recovery refusal retry failed; original kept", { requestId });
+            }
+          }
+        }
+      }
       // Output-side assertion gate (S-PR-1): this direct path carries no
       // search grounding for the request, so a current-form assertion
       // about a volatile fact in the finished text is replaced with the
