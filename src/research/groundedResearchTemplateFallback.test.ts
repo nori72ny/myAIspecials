@@ -20,7 +20,7 @@ function source(domain: string, excerpt: string, title = `${domain} の記事`):
 
 const GASOLINE_QUESTION = "レギュラーガソリンの全国平均価格は今いくらくらいですか？";
 const gasolineSources = (): RecoveryValueSourceInput[] => [
-  source("enecho.example", "資源エネルギー庁が2026年11月16日に公表した調査では、レギュラーガソリンの全国平均価格は170.0円でした。"),
+  source("enecho.meti.go.jp", "資源エネルギー庁が2026年11月16日に公表した調査では、レギュラーガソリンの全国平均価格は170.0円でした。"),
   source("news.example", "ガソリン価格の全国平均は、2026年11月16日時点で170.0円となっています。"),
 ];
 
@@ -62,12 +62,12 @@ describe("tryRecoveryTemplateFallback", () => {
     expect(shadow.resolution).toBe("vote");
     expect(shadow.value).toBe("170.0円");
     expect(shadow.asOf).toBe("2026-11-16");
-    expect(shadow.domains).toEqual(expect.arrayContaining(["enecho.example", "news.example"]));
+    expect(shadow.domains).toEqual(expect.arrayContaining(["enecho.meti.go.jp", "news.example"]));
     expect(shadow.text).toContain("170.0円");
     expect(shadow.text).toContain("2026年11月16日の公表情報では");
     expect(shadow.text).toContain("## 出典");
     // Only the sources stating the confirmed value are listed.
-    expect(shadow.text).toContain("enecho.example");
+    expect(shadow.text).toContain("enecho.meti.go.jp");
     expect(shadow.text).not.toContain("blog.example");
     expect(shadow.confirmingSources).toHaveLength(2);
     // Shadow and enforce compute the identical result; delivery is
@@ -102,7 +102,9 @@ describe("tryRecoveryTemplateFallback", () => {
       source("b.example", "政策金利は2026年6月に1.00%へ引き上げられました。"),
       source("c.example", "2026年6月時点の政策金利は1.00%です。"),
       // The current 1.25%: two domains, September, three statements.
-      source("d.example", "日本銀行は2026年9月に政策金利を1.25%へ引き上げることを決定しました。政策金利は1.25%です。"),
+      // One supporter is the BOJ itself — the §4 guard requires an
+      // official-domain supporter for the winner to be stated.
+      source("boj.or.jp", "日本銀行は2026年9月に政策金利を1.25%へ引き上げることを決定しました。政策金利は1.25%です。"),
       source("e.example", "2026年9月の決定で、政策金利は1.25%となりました。"),
       // The fringe 2% (the inflation target): two domains, October —
       // newest of all, but neither the leader nor its top challenger.
@@ -169,8 +171,11 @@ describe("tryRecoveryTemplateFallback", () => {
 
   it("does not fire when the confirmed value's newest publication point is over 365 days old", () => {
     const question = "最新の完全失業率を教えてください。いつの分ですか？";
+    // The Statistics Bureau (stat.go.jp) is one supporter, so the
+    // §4 official-support guard passes and the freshness window is
+    // the condition under test.
     const stale: RecoveryValueSourceInput[] = [
-      source("a.example", "2025年11月18日の公表では、完全失業率は2.4%でした。"),
+      source("stat.go.jp", "2025年11月18日の公表では、完全失業率は2.4%でした。"),
       source("b.example", "完全失業率は2025年11月18日時点で2.4%です。"),
     ];
     const result = tryRecoveryTemplateFallback({ question, sources: stale, mode: "enforce", nowMs: NOW });
@@ -178,7 +183,7 @@ describe("tryRecoveryTemplateFallback", () => {
     expect(result.reason).toBe("value-stale");
 
     const boundary: RecoveryValueSourceInput[] = [
-      source("a.example", "2025年11月19日の公表では、完全失業率は2.4%でした。"),
+      source("stat.go.jp", "2025年11月19日の公表では、完全失業率は2.4%でした。"),
       source("b.example", "完全失業率は2025年11月19日時点で2.4%です。"),
     ];
     const atBoundary = tryRecoveryTemplateFallback({ question, sources: boundary, mode: "enforce", nowMs: NOW });
@@ -214,9 +219,9 @@ describe("tryRecoveryTemplateFallback", () => {
     const sources: RecoveryValueSourceInput[] = [
       {
         title: "人口推計",
-        url: "https://stat.example/a",
+        url: "https://stat.go.jp/a",
         excerpt: "総人口は1億2269万人でした。",
-        domain: "stat.example",
+        domain: "stat.go.jp",
         revisionTimestamp: "2026-11-10T00:00:00.000Z",
       },
       {
@@ -231,5 +236,107 @@ describe("tryRecoveryTemplateFallback", () => {
     expect(result.fired).toBe(true);
     expect(result.value).toBe("1億2269万人");
     expect(result.asOf).toBe("2026-11-11");
+  });
+});
+
+describe("official-support guard (F_GROUP_SOURCE_FIX_DESIGN §4)", () => {
+  it("does not fire on a confirmed statistical value backed only by unofficial domains", () => {
+    // The pre-guard gasoline fixture shape: two independent
+    // general-tier domains confirm the value, none is official.
+    const sources: RecoveryValueSourceInput[] = [
+      source("enecho.example", "資源エネルギー庁が2026年11月16日に公表した調査では、レギュラーガソリンの全国平均価格は170.0円でした。"),
+      source("news.example", "ガソリン価格の全国平均は、2026年11月16日時点で170.0円となっています。"),
+    ];
+    const result = tryRecoveryTemplateFallback({
+      question: GASOLINE_QUESTION,
+      sources,
+      mode: "enforce",
+      nowMs: NOW,
+    });
+    expect(result.voteStatus).toBe("confirmed");
+    expect(result.fired).toBe(false);
+    expect(result.reason).toBe("no-official-support");
+    expect(result.text).toBeUndefined();
+  });
+
+  it("does not count a title-only official occurrence as support", () => {
+    const question = "日銀の政策金利は今いくつですか？いつ決まったものですか？";
+    const sources: RecoveryValueSourceInput[] = [
+      // The BOJ states the value in its title only; the body
+      // occurrence comes from a general-tier domain. The group is
+      // eligible overall, but no official BODY supports the value.
+      source("boj.or.jp", "金融政策決定会合の結果を公表しました。", "政策金利は0.25%に決定"),
+      source("news.example", "政策金利は0.25%です。2026年9月1日に公表されました。"),
+    ];
+    const result = tryRecoveryTemplateFallback({ question, sources, mode: "enforce", nowMs: NOW });
+    expect(result.voteStatus).toBe("confirmed");
+    expect(result.fired).toBe(false);
+    expect(result.reason).toBe("no-official-support");
+  });
+
+  it("leaves non-statistical templated types outside the guard's scope", () => {
+    // team_name is templated but not a statistical scalar type:
+    // an unofficial-only confirmation still fires, exactly as
+    // before the guard (the F-09 dated shape).
+    const question = "プロ野球の日本シリーズで優勝した直近のチームはどこですか？";
+    const sources: RecoveryValueSourceInput[] = [
+      source("a.example", "2026年11月1日、ソフトバンクホークスが日本シリーズで優勝し、日本一になりました。"),
+      source("b.example", "ソフトバンクが2026年11月1日に4連勝で日本一を決めました。"),
+    ];
+    const result = tryRecoveryTemplateFallback({ question, sources, mode: "enforce", nowMs: NOW });
+    expect(result.type).toBe("team_name");
+    expect(result.fired).toBe(true);
+  });
+
+  it("blocks the round-6 F-03 fatal shape: a stale policy rate confirmed on an unofficial-only pool", () => {
+    // Round 6 production: the live pool held no boj.or.jp at all
+    // (a securities firm's explainer, a video site, a broker) and
+    // the template stated the stale 0.25% as of 2026-09-01. The
+    // vote still confirms it — the guard is what stops the
+    // template from stating it.
+    const question = "日銀の政策金利は今いくつですか？いつ決まったものですか？";
+    const sources: RecoveryValueSourceInput[] = [
+      source("nomura.example", "日銀は2026年9月1日に公表した資料で、政策金利は0.25%としています。政策金利は0.25%です。"),
+      source("matsui.example", "2026年9月1日公表の解説によると、政策金利は0.25%です。"),
+      source("video.example", "政策金利は0.25%です（2026年9月1日公表）。"),
+    ];
+    const result = tryRecoveryTemplateFallback({ question, sources, mode: "enforce", nowMs: NOW });
+    expect(result.voteStatus).toBe("confirmed");
+    expect(result.fired).toBe(false);
+    expect(result.reason).toBe("no-official-support");
+    expect(result.text).toBeUndefined();
+  });
+
+  it("fires the F-03 value once the pool carries official support for it", () => {
+    // The same question with the pool fixed the way §2 intends:
+    // the BOJ itself plus one news domain state the current rate.
+    const question = "日銀の政策金利は今いくつですか？いつ決まったものですか？";
+    const sources: RecoveryValueSourceInput[] = [
+      source("boj.or.jp", "日本銀行は2026年9月に政策金利を1.25%へ引き上げることを決定しました。政策金利は1.25%です。"),
+      source("news.example", "2026年9月の決定で、政策金利は1.25%となりました。"),
+      source("blog.example", "政策金利は0.25%でした。"),
+    ];
+    const result = tryRecoveryTemplateFallback({ question, sources, mode: "enforce", nowMs: NOW });
+    expect(result.fired).toBe(true);
+    expect(result.value).toBe("1.25%");
+  });
+
+  it("blocks the round-6 F-15 fatal shape: a forecast growth rate confirmed on an unofficial-only pool", () => {
+    // Round 6 production, mirrored from the measured record: the
+    // template presented the annual growth FORECAST "1.0%" as the
+    // quarterly GDP actual, confirmed by a research house
+    // (dir.co.jp, general) and a major newspaper (nikkei.com,
+    // major-news) — no esri.cao.go.jp anywhere in the pool.
+    const question = "直近に公表された日本の実質GDP成長率（四半期）を教えてください。";
+    const sources: RecoveryValueSourceInput[] = [
+      source("dir.co.jp", "2026年11月12日に公表したレポートでは、25年度の実質成長率は1.0%としています。"),
+      source("nikkei.com", "実質成長率は1.0%と予測しています（2026年11月12日公表）。"),
+    ];
+    const result = tryRecoveryTemplateFallback({ question, sources, mode: "enforce", nowMs: NOW });
+    expect(result.type).toBe("rate_percent");
+    expect(result.voteStatus).toBe("confirmed");
+    expect(result.fired).toBe(false);
+    expect(result.reason).toBe("no-official-support");
+    expect(result.text).toBeUndefined();
   });
 });

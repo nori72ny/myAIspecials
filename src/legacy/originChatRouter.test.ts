@@ -259,7 +259,10 @@ describe("createOriginChatRouter", () => {
       failure: { stage: "web-search", code: "NO_RESULTS" },
       groundingFailure: "no-fresh-sources",
       droppedSources: [
-        droppedGasolineSource("enecho.example", "https://enecho.example/a"),
+        // The §4 official-support guard requires an official-domain
+        // supporter for a statistical value: the survey's publisher
+        // (enecho.meti.go.jp) is one of the two dropped sources.
+        droppedGasolineSource("enecho.meti.go.jp", "https://enecho.meti.go.jp/a"),
         droppedGasolineSource("news.example", "https://news.example/b"),
       ],
     });
@@ -292,7 +295,7 @@ describe("createOriginChatRouter", () => {
       failure: { stage: "web-search", code: "NO_RESULTS" },
       groundingFailure: "no-fresh-sources",
       droppedSources: [
-        droppedGasolineSource("enecho.example", "https://enecho.example/a"),
+        droppedGasolineSource("enecho.meti.go.jp", "https://enecho.meti.go.jp/a"),
         droppedGasolineSource("news.example", "https://news.example/b"),
       ],
     });
@@ -355,7 +358,9 @@ describe("createOriginChatRouter", () => {
     });
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
-      sources: [rateSource("stat.example", "https://stat.example/a"), rateSource("news.example", "https://news.example/b")],
+      // stat.go.jp (the survey's publisher) is the §4 official
+      // supporter; without it the guard would hold the template.
+      sources: [rateSource("stat.go.jp", "https://www.stat.go.jp/a"), rateSource("news.example", "https://news.example/b")],
     });
     const question = { messages: [{ role: "user", content: "最新の完全失業率を教えてください。いつの分ですか？" }] };
     const baseline = await request(createPr4App({ OPENROUTER_API_KEY: "synthetic-test-key" }, researchMock))
