@@ -366,3 +366,50 @@ describe("round 3 measured answers under enforcement (now = 2026-11-16)", () => 
     expect(outcome.notedCodes).toEqual(["DEADLINE_PAST"]);
   });
 });
+
+describe("monotonicity check is shadow-only by construction (detection 12, knowhow 案3)", () => {
+  it("enforce mode: an answer whose only violation is MONOTONICITY_MISMATCH is delivered byte-identical, with no note and no fix", () => {
+    const answer = [
+      "## 前提表",
+      "| 指標 | 値 | 単位 | 対象期間 | 種別 | 根拠 |",
+      "|---|---|---|---|---|---|",
+      "| 受注目標 | 100 | 件 | 2027 Q1 | 仮置き（仮定） | 目標設定 |",
+      "| 商談目標 | 500 | 件 | 2027 Q1 | 計算結果 | 受注目標 ÷ 商談→受注転換率 |",
+      "| SQL目標 | 167 | 件 | 2027 Q1 | 計算結果 | 商談目標をSQL→商談転換率で割り戻し |",
+      "| 商談→受注転換率 | 20% | % | 2027 Q1 | 仮置き（仮定） | 過去実績 |",
+      "| SQL→商談転換率 | 30% | % | 2027 Q1 | 仮置き（仮定） | 過去実績 |",
+      "",
+      "## 目的とゴール",
+      "受注目標100件の達成を目的とします。",
+      "",
+      "## 対象",
+      "見込み客を対象とします。",
+      "",
+      "## 提供価値",
+      "短期間で商談を創出します。",
+      "",
+      "## 施策とチャネル",
+      "Web広告を配信します。担当は田中、期限は2027年1月31日です。",
+      "",
+      "## 数値の逆算",
+      "受注目標100件から逆算します。",
+      "",
+      "## KPIと計測方法",
+      "SQL目標と商談目標を週次で計測します。",
+      "",
+      "## リスクと代替案",
+      "転換率が下振れた場合は施策を追加します。",
+      "",
+      "## 次の一手",
+      "まず前提表の数値を確定させます。担当は田中、期限は2027年1月31日です。",
+    ].join("\n");
+    const profile = syntheticProfile("campaign-plan");
+    const audit = auditOriginBusinessPlanningAnswer(profile, answer, { now: NOW });
+    expect(codesOf(audit)).toEqual(["MONOTONICITY_MISMATCH"]);
+    const outcome = gate(profile, answer);
+    expect(outcome.answerText).toBe(answer);
+    expect(outcome.fixedCount).toBe(0);
+    expect(outcome.notedCodes).toEqual([]);
+    expect(outcome.remainingViolations.map((violation) => violation.code)).toEqual(["MONOTONICITY_MISMATCH"]);
+  });
+});

@@ -53,6 +53,25 @@ import {
 // budget restated at 10x), which the line-based checks cannot reach.
 // The new codes are never auto-corrected by the stage-2 fixer: which
 // cell of a row is wrong cannot be decided deterministically.
+//
+// Monotonicity check (detection 12, 2026-11-20 — knowhow 案3,
+// EXTERNAL_KNOWHOW_BUSINESS_DOCS_2026-11-19 §3): a direction sanity
+// check over funnel (stage count, sub-1 rate) pairs, as an extension of
+// the funnel check (detection 4). Dividing a downstream count by a
+// rate below 1 must grow it, and multiplying an upstream count by a
+// rate below 1 must shrink it; an inverted pair is therefore wrong no
+// matter what the exact product is. This reaches the failure type B
+// chain (a digit slip collapsing a funnel — round 5 BP-6: 商談 500
+// backcast at 30% stated as SQL 167) in the shapes the exact checks
+// cannot: a premise row whose basis is prose the formula scanner
+// cannot evaluate, and a body pair whose product still falls inside
+// detection 4's agreement band. The check is SHADOW-ONLY by
+// construction: its code is deliberately absent from the stage-2
+// disclosure note's numeric code set and from the formula fixer's
+// scope, so even in enforce mode it never alters or annotates an
+// answer; it exists to size the defect class in the shadow log before
+// any enforcement decision (which needs the owner's separate approval,
+// like every enforcement step of this gate).
 
 export type OriginBusinessPlanningAuditViolationCode =
   | "FORMULA_RESULT_MISMATCH"
@@ -68,7 +87,8 @@ export type OriginBusinessPlanningAuditViolationCode =
   | "DEADLINE_MISSING"
   | "PREMISE_FORMULA_MISMATCH"
   | "PREMISE_INPUT_FACT_MISMATCH"
-  | "PREMISE_ESTIMATE_GOAL_MISMATCH";
+  | "PREMISE_ESTIMATE_GOAL_MISMATCH"
+  | "MONOTONICITY_MISMATCH";
 
 export interface OriginBusinessPlanningAuditViolation {
   code: OriginBusinessPlanningAuditViolationCode;
@@ -86,6 +106,7 @@ export interface OriginBusinessPlanningAuditChecks {
   premiseFormulas: number;
   premiseInputFacts: number;
   premiseEstimateGoals: number;
+  monotonicityPairs: number;
   partsPresent: number;
   partsRequired: number;
 }
@@ -1295,6 +1316,146 @@ function checkPremiseTable(
 }
 
 // ---------------------------------------------------------------------------
+// 12. Monotonicity (direction sanity over funnel stage/rate pairs).
+//
+// Two surfaces, one rule: with a conversion rate below 1 between two
+// funnel stages, the downstream count must be strictly smaller than the
+// upstream count.
+//
+// - Premise table (direction "backcast"): the upstream stage's row is
+//   derived by dividing the downstream count by the rate, so its value
+//   must exceed the downstream row's value. The connecting rate comes
+//   from a rate row named for the pair ("SQL→商談転換率"), or from a
+//   sub-1 literal divisor stated in the upstream row's basis — the
+//   second source is what lets the check fire when the basis is prose
+//   the premise-formula scanner cannot evaluate (detection 9 silent).
+//   Sensitivity rows are excluded: a sensitivity figure is the same
+//   chain under a varied premise, not the stage's count (its value may
+//   legitimately exceed the next stage's — round 5 BP-7).
+// - Body (direction "forward"): the stated-rate pairs and stage counts
+//   the funnel check already extracts. A pair is reported only when
+//   detection 4 did not already flag it, so the new code measures
+//   exactly the additive reach (a product inside the agreement band
+//   whose direction is still inverted).
+//
+// Equal counts never fire: a stage pair stated at the same count (a
+// 100%-ish handoff written without a rate, or a rounded small chain)
+// is not a direction defect this check can prove.
+// ---------------------------------------------------------------------------
+
+/** Funnel stages in flow order, as premise-table rows name them. */
+const FUNNEL_STAGE_ORDER = ["リーチ", "リード", "MQL", "SQL", "商談", "受注"] as const;
+
+/** One premise row per funnel stage: the first count row whose name
+ * carries the stage, excluding rate rows (name carries 率 or →) and
+ * sensitivity rows (name carries 感度）. */
+function premiseStageCountRows(rows: readonly PremiseRow[]): { stage: string; row: PremiseRow; count: number }[] {
+  const found: { stage: string; row: PremiseRow; count: number }[] = [];
+  for (const stage of FUNNEL_STAGE_ORDER) {
+    const row = rows.find(
+      (candidate) =>
+        candidate.value?.dimension === "count" &&
+        candidate.name.includes(stage) &&
+        !candidate.name.includes("感度") &&
+        !candidate.name.includes("→") &&
+        !candidate.name.includes("率"),
+    );
+    if (row?.value) found.push({ stage, row, count: row.value.value });
+  }
+  return found;
+}
+
+/** The sub-1 rate a rate row assigns to the flow upstream → downstream
+ * ("SQL→商談転換率" at 30%, or a plain decimal 0.30), or null. */
+function premisePairRate(rows: readonly PremiseRow[], upstream: string, downstream: string): number | null {
+  const pair = `${upstream}→${downstream}`;
+  for (const row of rows) {
+    if (!row.value || !row.name.includes(pair)) continue;
+    if (!/(率|コンバージョン)/.test(row.name)) continue;
+    if (row.value.dimension !== "ratio" && row.value.dimension !== "plain") continue;
+    if (row.value.value > 0 && row.value.value < 1) return row.value.value;
+  }
+  return null;
+}
+
+/** The sub-1 rate an upstream row's basis divides by, when the divisor
+ * is stated as a literal after the division sign ("商談目標 ÷ 0.30",
+ * "= 34 ÷ 0.50", the "(0.5)" annotation after a rate name). An integer
+ * divisor is a count, not a rate, and never qualifies. */
+function premiseBasisDivisorRate(row: PremiseRow): number | null {
+  const divAt = row.basis.search(/[÷/]/);
+  if (divAt < 0) return null;
+  const rest = row.basis.slice(divAt + 1);
+  const percent = rest.match(/(\d+\.?\d*)\s*[%％]/);
+  if (percent) {
+    const rate = Number(percent[1]) / 100;
+    if (rate > 0 && rate < 1) return rate;
+  }
+  for (const match of rest.matchAll(/\d+\.\d+/g)) {
+    const value = Number(match[0]);
+    if (value > 0 && value < 1) return value;
+  }
+  return null;
+}
+
+function checkMonotonicity(
+  text: string,
+  lines: readonly string[],
+  violations: OriginBusinessPlanningAuditViolation[],
+): number {
+  let pairs = 0;
+  const firedPairs = new Set<string>();
+  const fire = (stageFrom: string, stageTo: string, rate: number, stageFromCount: number, stageToCount: number, direction: "backcast" | "forward") => {
+    const key = `${stageFrom}->${stageTo}`;
+    if (firedPairs.has(key)) return;
+    firedPairs.add(key);
+    violations.push({
+      code: "MONOTONICITY_MISMATCH",
+      detail: {
+        stageFrom,
+        stageTo,
+        rate: roundForDetail(rate),
+        stageFromCount,
+        stageToCount,
+        direction,
+      },
+    });
+  };
+
+  // Premise-table pairs: adjacent stages among the rows present.
+  const rows = parsePremiseRows(lines);
+  const stageRows = premiseStageCountRows(rows);
+  for (let i = 0; i + 1 < stageRows.length; i += 1) {
+    const upstream = stageRows[i];
+    const downstream = stageRows[i + 1];
+    if (!upstream || !downstream) continue;
+    const rate = premisePairRate(rows, upstream.stage, downstream.stage) ?? premiseBasisDivisorRate(upstream.row);
+    if (rate === null) continue;
+    pairs += 1;
+    if (downstream.count > upstream.count) {
+      fire(upstream.stage, downstream.stage, rate, upstream.count, downstream.count, "backcast");
+    }
+  }
+
+  // Body pairs: the funnel check's own extractions, additive only.
+  const counts = extractStageCounts(text);
+  for (const { from, to, rate } of extractStatedRates(lines)) {
+    if (rate >= 1) continue;
+    const input = counts.get(from);
+    const output = counts.get(to);
+    if (input === undefined || output === undefined) continue;
+    pairs += 1;
+    if (output <= input) continue;
+    const alreadyFlagged = violations.some(
+      (violation) => violation.code === "FUNNEL_RATE_MISMATCH" && violation.detail.stageFrom === from && violation.detail.stageTo === to,
+    );
+    if (alreadyFlagged) continue;
+    fire(from, to, rate, input, output, "forward");
+  }
+  return pairs;
+}
+
+// ---------------------------------------------------------------------------
 // Entry points.
 // ---------------------------------------------------------------------------
 
@@ -1314,6 +1475,7 @@ export function auditOriginBusinessPlanningAnswer(
   const currencyMixes = checkCurrencyMix(text, violations);
   const deadlineDates = options?.now ? checkPastDeadlines(lines, options.now, violations) : 0;
   const premise = checkPremiseTable(lines, options?.requestText, violations);
+  const monotonicityPairs = checkMonotonicity(text, lines, violations);
   const parts = checkParts(profile.kind, text, violations);
   return {
     kind: profile.kind,
@@ -1329,6 +1491,7 @@ export function auditOriginBusinessPlanningAnswer(
       premiseFormulas: premise.formulas,
       premiseInputFacts: premise.inputFacts,
       premiseEstimateGoals: premise.estimateGoals,
+      monotonicityPairs,
       partsPresent: parts.present,
       partsRequired: parts.required,
     },

@@ -392,3 +392,79 @@ describe("shadow-mode logging hook", () => {
     expect(calls[0][1].violationCodes).toContain("FORMULA_RESULT_MISMATCH");
   });
 });
+
+describe("monotonicity check (detection 12 — direction sanity, knowhow 案3 2026-11-20)", () => {
+  const monotonicityOf = (result: ReturnType<typeof auditOriginBusinessPlanningAnswer>) =>
+    result.violations.filter((violation) => violation.code === "MONOTONICITY_MISMATCH");
+
+  it("round 5 BP-6: the collapsed backcast (商談 500 ÷ 0.30 stated as SQL 167) fires exactly once, on the SQL→商談 pair", () => {
+    const result = auditRound5("BP-6");
+    const hits = monotonicityOf(result);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.detail).toMatchObject({
+      stageFrom: "SQL",
+      stageTo: "商談",
+      rate: 0.3,
+      stageFromCount: 167,
+      stageToCount: 500,
+      direction: "backcast",
+    });
+    expect(result.checks.monotonicityPairs).toBeGreaterThanOrEqual(5);
+  });
+
+  it("round 5 BP-1, BP-2, BP-4, BP-5, BP-7: correct backcasts stay silent (BP-7's sensitivity row is not a stage count)", () => {
+    for (const id of ["BP-1", "BP-2", "BP-4", "BP-5", "BP-7"]) {
+      expect(monotonicityOf(auditRound5(id)), id).toEqual([]);
+    }
+  });
+
+  it("rounds 1-3 measured answers: no monotonicity signal anywhere", () => {
+    for (const fixture of ORIGIN_BUSINESS_PLANNING_MEASURED_ANSWERS) {
+      if (fixture.round === "round5") continue;
+      const profile = resolveOriginBusinessPlanning(fixture.prompt);
+      const result = auditOriginBusinessPlanningAnswer(profile as OriginBusinessPlanningProfile, fixture.answerText);
+      expect(monotonicityOf(result), `${fixture.round}/${fixture.id}`).toEqual([]);
+    }
+  });
+
+  it("fires on a premise row whose basis is prose the formula check cannot evaluate (detection 9 stays silent)", () => {
+    const answer = [
+      "| 指標 | 値 | 単位 | 対象期間 | 種別 | 根拠 |",
+      "|---|---|---|---|---|---|",
+      "| 受注目標 | 100 | 件 | 2027 Q1 | 仮置き（仮定） | 目標設定 |",
+      "| 商談目標 | 500 | 件 | 2027 Q1 | 計算結果 | 受注目標 ÷ 商談→受注転換率 |",
+      "| SQL目標 | 167 | 件 | 2027 Q1 | 計算結果 | 商談目標をSQL→商談転換率で割り戻し |",
+      "| 商談→受注転換率 | 20% | % | 2027 Q1 | 仮置き（仮定） | 過去実績 |",
+      "| SQL→商談転換率 | 30% | % | 2027 Q1 | 仮置き（仮定） | 過去実績 |",
+    ].join("\n");
+    const result = auditOriginBusinessPlanningAnswer(syntheticProfile("campaign-plan"), answer);
+    expect(codesOf(result)).not.toContain("PREMISE_FORMULA_MISMATCH");
+    const hits = monotonicityOf(result);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.detail).toMatchObject({ stageFrom: "SQL", stageTo: "商談", rate: 0.3, direction: "backcast" });
+    expect(result.checks.monotonicityPairs).toBe(2);
+  });
+
+  it("body pair: an output above its input under a sub-1 rate fires where the product still sits inside detection 4's agreement band", () => {
+    const answer = ["リードから商談への転換率は99%です。", "必要なリード数は1,000件、必要な商談数は1,005件です。"].join("\n");
+    const result = auditOriginBusinessPlanningAnswer(syntheticProfile("campaign-plan"), answer);
+    expect(codesOf(result)).not.toContain("FUNNEL_RATE_MISMATCH");
+    const hits = monotonicityOf(result);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.detail).toMatchObject({ stageFrom: "リード", stageTo: "商談", direction: "forward" });
+  });
+
+  it("body pair: a gross product mismatch is reported by detection 4 alone (no double signal)", () => {
+    const answer = ["リードから商談への転換率は20%です。", "必要なリード数は1,000件、必要な商談数は1,200件です。"].join("\n");
+    const result = auditOriginBusinessPlanningAnswer(syntheticProfile("campaign-plan"), answer);
+    expect(codesOf(result)).toContain("FUNNEL_RATE_MISMATCH");
+    expect(monotonicityOf(result)).toEqual([]);
+  });
+
+  it("body pair: a correct forward pair stays silent", () => {
+    const answer = ["リードから商談への転換率は20%です。", "必要なリード数は1,000件、必要な商談数は200件です。"].join("\n");
+    const result = auditOriginBusinessPlanningAnswer(syntheticProfile("campaign-plan"), answer);
+    expect(codesOf(result)).not.toContain("FUNNEL_RATE_MISMATCH");
+    expect(monotonicityOf(result)).toEqual([]);
+  });
+});
