@@ -86,6 +86,31 @@ import { JAPANESE_LAW_NAMES } from "./japaneseLawNames.js";
  * when that switch is set to enforce, so the false-positive surface
  * can be measured in production shadow logs and on the dedicated
  * price fixture set before any answer is held for it.
+ *
+ * PR-G4 (same design): law-enforcement fired unconditionally, so a
+ * direct answer naming a REAL statute together with its (long-past)
+ * enforcement date was held even when the statute name itself verified
+ * — the second half of the Q-12 over-defence (G2 resolved the name
+ * fragmentation; a draft of the form 「…は2015年5月26日に施行」 still
+ * fired on the date alone). The detector therefore also evaluates an
+ * accompaniment condition for every law-enforcement hit: the hit's
+ * asserted date lies strictly in the past, at least one statute name
+ * in the answer verified, and no unverified statute-name candidate
+ * exists anywhere in the answer. A hit meeting all three is
+ * "suppressible". The fabricated-statute prototype I-04 keeps firing
+ * under the condition because its name is unverified, and future or
+ * scheduled enforcement, date-only assertions with no verified name,
+ * and answers mixing in an unverified name all keep firing too. The
+ * accepted residual risk, recorded in the design for the coordinator
+ * to judge: a WRONG past enforcement date asserted for a real statute
+ * (the Q-15 shape, in a wording the patterns reach) also becomes
+ * suppressible — the correctness of a date is not deterministically
+ * checkable, exactly like the correctness of a price in PR-G3. The
+ * condition is governed by its own sub-switch,
+ * ORIGIN_PUBLICATION_GATE_LAW_ENFORCEMENT_MODE (default shadow): the
+ * suppressible counts and the would-be suppression are logged with the
+ * other fields, but the firing behaviour changes only when that
+ * switch is set to enforce.
  */
 
 export type OriginPublicationClaimKind =
@@ -114,11 +139,23 @@ export interface OriginPublicationLawCheck {
   unverifiedCount: number;
 }
 
+export interface OriginPublicationLawEnforcementCheck {
+  /** law-enforcement hits whose asserted date lies strictly in the
+   * past (a year-only assertion counts only when its year is over; a
+   * year-month assertion only when its month is over). */
+  pastDateCount: number;
+  /** Hits meeting the full PR-G4 accompaniment condition: past date,
+   * at least one verified statute name in the answer, and no
+   * unverified statute-name candidate anywhere in the answer. */
+  suppressibleCount: number;
+}
+
 export interface OriginPublicationGateSummary {
   hits: readonly OriginPublicationClaimHit[];
   counts: Readonly<Record<OriginPublicationClaimKind, number>>;
   totalCount: number;
   lawCheck: OriginPublicationLawCheck;
+  lawEnforcement: OriginPublicationLawEnforcementCheck;
 }
 
 /** Answers are far below this; the cap only bounds pathological inputs. */
@@ -377,6 +414,50 @@ const LAW_ENFORCEMENT_PATTERNS: readonly RegExp[] = [
   /\d{4}年(?:\d{1,2}月)?(?:に)?施行/g,
 ];
 
+/** The date inside a law-enforcement span: every pattern above opens
+ * with (or contains) a \d{4}年 date, so the first such date in the
+ * span is the asserted enforcement date. */
+const LAW_ENFORCEMENT_DATE_PATTERN = /(\d{4})年(?:(\d{1,2})月)?(?:(\d{1,2})日)?/;
+
+interface CivilDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+/** "Today" as a civil date in Asia/Tokyo: the statutes, the asserted
+ * dates and the readers are Japanese, so the past/future boundary is
+ * the Japanese calendar day, not the server's UTC day. */
+function tokyoCivilDate(nowMs: number): CivilDate {
+  const jst = new Date(nowMs + 9 * 60 * 60 * 1000);
+  return {
+    year: jst.getUTCFullYear(),
+    month: jst.getUTCMonth() + 1,
+    day: jst.getUTCDate(),
+  };
+}
+
+/**
+ * Whether the enforcement date asserted in a law-enforcement span lies
+ * strictly in the past. Precision is honoured conservatively: a
+ * year-only assertion is past only once its year is over, and a
+ * year-month assertion only once its month is over — an assertion
+ * that could still point at a future day (「2026年に施行」 said in
+ * 2026, 「2026年11月に施行」 said that November) is NOT past and
+ * keeps firing, as do today's date and every future date.
+ */
+function isPastEnforcementDate(spanText: string, today: CivilDate): boolean {
+  const match = LAW_ENFORCEMENT_DATE_PATTERN.exec(spanText);
+  if (!match) return false;
+  const year = Number(match[1]);
+  if (year !== today.year) return year < today.year;
+  if (match[2] === undefined) return false;
+  const month = Number(match[2]);
+  if (month !== today.month) return month < today.month;
+  if (match[3] === undefined) return false;
+  return Number(match[3]) < today.day;
+}
+
 /**
  * Statutory-capacity assertions: a headcount tied to a capacity keyword
  * （定数・定員・議席…) or to a legislative body （衆議院・参議院・議会…).
@@ -509,8 +590,13 @@ function detectOfficialPriceSpans(text: string, amountSpans: readonly Span[]): S
  * Scan a finished direct answer for evidence-required claim shapes and
  * check its statute-name candidates against the bundled law list.
  * Pure and deterministic; returns spans and counts only, never text.
+ * `nowMs` exists so the PR-G4 past-date evaluation can be pinned in
+ * fixtures and offline measurement; production callers omit it.
  */
-export function detectOriginPublicationClaims(text: string): OriginPublicationGateSummary {
+export function detectOriginPublicationClaims(
+  text: string,
+  options?: { nowMs?: number },
+): OriginPublicationGateSummary {
   const scanned = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text;
   const lawScan = scanLawNames(scanned);
   const hits: OriginPublicationClaimHit[] = [...lawScan.hits];
@@ -524,17 +610,39 @@ export function detectOriginPublicationClaims(text: string): OriginPublicationGa
     "position-status": 0,
   };
   let amountFeeSpans: Span[] = [];
+  let lawEnforcementSpans: Span[] = [];
   for (const [kind, patterns] of KIND_PATTERNS) {
     const spans = mergeSpans(patterns.flatMap((pattern) => collectSpans(scanned, pattern)));
     counts[kind] = spans.length;
     if (kind === "amount-fee") amountFeeSpans = spans;
+    if (kind === "law-enforcement") lawEnforcementSpans = spans;
     for (const span of spans) hits.push({ kind, index: span.index, length: span.length });
   }
   const officialPriceSpans = detectOfficialPriceSpans(scanned, amountFeeSpans);
   counts["official-price"] = officialPriceSpans.length;
   for (const span of officialPriceSpans) hits.push({ kind: "official-price", index: span.index, length: span.length });
   hits.sort((a, b) => a.index - b.index);
-  return { hits, counts, totalCount: hits.length, lawCheck: lawScan.lawCheck };
+  // PR-G4 accompaniment evaluation: a law-enforcement hit is
+  // suppressible when its own asserted date is past and the answer's
+  // statute names are clean — at least one verified, none unverified.
+  const today = tokyoCivilDate(options?.nowMs ?? Date.now());
+  const accompanimentHolds =
+    lawScan.lawCheck.verifiedCount > 0 && lawScan.lawCheck.unverifiedCount === 0;
+  let pastDateCount = 0;
+  let suppressibleCount = 0;
+  for (const span of lawEnforcementSpans) {
+    const spanText = scanned.slice(span.index, span.index + span.length);
+    if (!isPastEnforcementDate(spanText, today)) continue;
+    pastDateCount += 1;
+    if (accompanimentHolds) suppressibleCount += 1;
+  }
+  return {
+    hits,
+    counts,
+    totalCount: hits.length,
+    lawCheck: lawScan.lawCheck,
+    lawEnforcement: { pastDateCount, suppressibleCount },
+  };
 }
 
 /** Flat scalar log fields for a gate summary (kinds and counts only —
@@ -553,6 +661,8 @@ function publicationGateLogFields(summary: OriginPublicationGateSummary): Record
     lawNameCandidateCount: summary.lawCheck.candidateCount,
     lawNameVerifiedCount: summary.lawCheck.verifiedCount,
     lawNameUnverifiedCount: summary.lawCheck.unverifiedCount,
+    publicationGateLawEnforcementPastDateCount: summary.lawEnforcement.pastDateCount,
+    publicationGateLawEnforcementSuppressibleCount: summary.lawEnforcement.suppressibleCount,
   };
 }
 
@@ -624,6 +734,47 @@ export function resolveOriginPublicationGatePriceMode(
 }
 
 /**
+ * The law-enforcement accompaniment condition's own sub-switch
+ * (PR-G4): ORIGIN_PUBLICATION_GATE_LAW_ENFORCEMENT_MODE, default
+ * shadow. The condition REMOVES a firing kind, so it starts in shadow
+ * (the suppressible counts and the would-be suppression are logged,
+ * the firing behaviour is unchanged) even while the main gate
+ * enforces; "off" silences the condition's log fields and its firing
+ * path entirely (detection and the counts still run, like every other
+ * kind); "enforce" lets the condition drop law-enforcement from the
+ * firing kinds when every hit is suppressible — a step to take only
+ * after the shadow distribution and the law-enforcement fixture set
+ * have been reviewed, because a wrong past enforcement date for a
+ * real statute is suppressible by construction (see the file header).
+ */
+export type OriginPublicationGateLawEnforcementMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginPublicationGateLawEnforcementMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginPublicationGateLawEnforcementMode {
+  const value = env?.ORIGIN_PUBLICATION_GATE_LAW_ENFORCEMENT_MODE;
+  if (value === "enforce") return "enforce";
+  if (value === "off") return "off";
+  return "shadow";
+}
+
+/**
+ * Whether the PR-G4 accompaniment condition suppresses the
+ * law-enforcement kind for this summary: at least one hit, and every
+ * hit suppressible. A single non-suppressible hit (future or
+ * imprecise date, or an answer whose statute names are not clean)
+ * keeps the whole kind firing.
+ */
+export function publicationGateLawEnforcementSuppressed(
+  summary: OriginPublicationGateSummary,
+): boolean {
+  return (
+    summary.counts["law-enforcement"] > 0 &&
+    summary.lawEnforcement.suppressibleCount === summary.counts["law-enforcement"]
+  );
+}
+
+/**
  * The claim kinds whose presence in a finished direct answer blocks
  * publication in enforce mode, in a fixed order:
  * - law-name fires only through an UNVERIFIED candidate. A verified
@@ -641,6 +792,11 @@ export function resolveOriginPublicationGatePriceMode(
  *   out of amount-fee (PR-G3-b) fires only under its own sub-switch
  *   (ORIGIN_PUBLICATION_GATE_PRICE_MODE=enforce, default shadow),
  *   applied by applyOriginPublicationGate on top of this list.
+ * - law-enforcement IS listed here (it fires unconditionally today),
+ *   but applyOriginPublicationGate may remove it again under the
+ *   PR-G4 accompaniment condition's own sub-switch
+ *   (ORIGIN_PUBLICATION_GATE_LAW_ENFORCEMENT_MODE=enforce, default
+ *   shadow) when every hit is suppressible.
  */
 export function publicationGateFiringKinds(
   summary: OriginPublicationGateSummary,
@@ -687,6 +843,9 @@ export function applyOriginPublicationGate(input: {
   query: string;
   language: "ja" | "en";
   env?: NodeJS.ProcessEnv;
+  /** Pins the PR-G4 past-date evaluation in tests and offline
+   * measurement; production callers omit it. */
+  nowMs?: number;
   logger?: (message: string, fields: Record<string, unknown>) => void;
 }): OriginPublicationGateOutcome {
   const mode = resolveOriginPublicationGateMode(input.env);
@@ -700,25 +859,40 @@ export function applyOriginPublicationGate(input: {
   };
   const logger = input.logger ?? ((message, fields) => console.info(message, fields));
   try {
-    const summary = detectOriginPublicationClaims(input.answerText);
+    const summary = detectOriginPublicationClaims(input.answerText, { nowMs: input.nowMs });
+    const lawEnforcementMode = resolveOriginPublicationGateLawEnforcementMode(input.env);
+    const lawEnforcementSuppressed = publicationGateLawEnforcementSuppressed(summary);
+    const lawEnforcementLogFields =
+      lawEnforcementMode === "off"
+        ? { publicationGateLawEnforcementMode: lawEnforcementMode }
+        : {
+            publicationGateLawEnforcementMode: lawEnforcementMode,
+            publicationGateLawEnforcementSuppressed: lawEnforcementSuppressed,
+          };
     if (mode === "shadow") {
       logger("[origin-chat] publication gate (shadow)", {
         requestId: input.requestId,
         ...publicationGateLogFields(summary),
+        ...lawEnforcementLogFields,
       });
       return { ...unchanged, summary };
     }
     const baseFiringKinds = publicationGateFiringKinds(summary);
     const priceMode = resolveOriginPublicationGatePriceMode(input.env);
+    const withoutSuppressedLawEnforcement =
+      lawEnforcementMode === "enforce" && lawEnforcementSuppressed
+        ? baseFiringKinds.filter((kind) => kind !== "law-enforcement")
+        : baseFiringKinds;
     const firingKinds: OriginPublicationClaimKind[] =
       priceMode === "enforce" && summary.counts["official-price"] > 0
-        ? [...baseFiringKinds, "official-price"]
-        : baseFiringKinds;
+        ? [...withoutSuppressedLawEnforcement, "official-price"]
+        : withoutSuppressedLawEnforcement;
     const held = firingKinds.length > 0;
     const landing = held ? researchLandingForAbstain("high-risk-insufficient-sources") : null;
     logger("[origin-chat] publication gate (enforce)", {
       requestId: input.requestId,
       ...publicationGateLogFields(summary),
+      ...lawEnforcementLogFields,
       publicationGateMode: mode,
       publicationGatePriceMode: priceMode,
       publicationGateHeld: held,
