@@ -260,7 +260,12 @@ export function matchesOriginOfficialPriceQuestion(message: string): boolean {
   // A question that itself supplies the price (「85円の切手を3枚買うと
   // いくらかかる？」) is asking for arithmetic over a given value, not
   // for the institutional price — the price is already in the message.
-  if (/\d[\d,]*\s*円/.test(message)) return false;
+  // Thousands separators are stripped before the amount test, the
+  // same normalisation isSelfContainedCalculationRequest uses, so the
+  // test itself stays a single linear digit run (no overlapping
+  // quantifiers over the digit/comma class).
+  const commaStripped = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
+  if (/\d+\s*円/.test(commaStripped)) return false;
   return OFFICIAL_PRICE_QUESTION_PATTERNS.some((pattern) => pattern.test(message));
 }
 
