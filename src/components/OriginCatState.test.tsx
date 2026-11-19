@@ -8,7 +8,9 @@ import OriginCatState, {
   ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
   ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
   ORIGIN_CAT_JOY_DURATION_MS,
+  ORIGIN_CAT_SEARCHING_VIDEO_SRC,
   ORIGIN_CAT_STILL_SRC,
+  ORIGIN_CAT_VIDEO_SRC,
   ORIGIN_CAT_WORKING_VIDEO_SRC,
 } from './OriginCatState';
 
@@ -27,9 +29,9 @@ function stubReducedMotion(matches: boolean) {
 }
 
 describe('OriginCatState', () => {
-  it('renders a still image for non-working states', () => {
+  it('renders a still image for states without a motion video', () => {
     stubReducedMotion(false);
-    for (const state of ['thinking', 'searching', 'making', 'waiting', 'done', 'sorry', 'sleep'] as const) {
+    for (const state of ['thinking', 'making', 'waiting', 'done', 'sorry', 'sleep'] as const) {
       const { unmount } = render(<OriginCatState state={state} />);
       const visual = screen.getByTestId('origin-cat-state');
       expect(visual.tagName).toBe('IMG');
@@ -49,6 +51,11 @@ describe('OriginCatState', () => {
   });
 
   it('ships every referenced cat asset under public/', () => {
+    // searching の動画（ORIGIN_CAT_SEARCHING_VIDEO_SRC）はバイナリ素材の
+    // ため、この PR とは別に GitHub Web から配置する手順になっている。
+    // そのため実在チェックの対象は、既に出荷済みの静止画一式と
+    // working 動画に限る。searching 動画のパス自体は対応表のテスト
+    // （下記）で文字列として固定し、配置先とずれないようにする。
     for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WORKING_VIDEO_SRC]) {
       expect(existsSync(resolve(process.cwd(), 'public', src.replace(/^\//, ''))), src).toBe(true);
     }
@@ -119,14 +126,43 @@ describe('OriginCatState', () => {
     expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.working);
   });
 
-  it('renders the dedicated searching still (no longer shared with thinking, M2)', () => {
+  it('maps exactly the working and searching states to motion videos (M2-3)', () => {
+    expect(Object.keys(ORIGIN_CAT_VIDEO_SRC).sort()).toEqual(['searching', 'working']);
+    expect(ORIGIN_CAT_VIDEO_SRC.working).toBe(ORIGIN_CAT_WORKING_VIDEO_SRC);
+    // searching 動画の配置先パスはこの文字列で固定する（素材ファイルは
+    // バイナリのため GitHub Web から別途このパスへ配置する手順）。
+    expect(ORIGIN_CAT_SEARCHING_VIDEO_SRC).toBe('/brand/origin-cat-searching.mp4');
+    expect(ORIGIN_CAT_VIDEO_SRC.searching).toBe(ORIGIN_CAT_SEARCHING_VIDEO_SRC);
+  });
+
+  it('renders the searching look-around video when motion is allowed (M2-3)', () => {
     stubReducedMotion(false);
+    render(<OriginCatState state="searching" />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('VIDEO');
+    expect(visual.getAttribute('data-state')).toBe('searching');
+    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_SEARCHING_VIDEO_SRC);
+    // poster は専用静止画が兼ねる（動画が再生できない環境ではこの姿になる）。
+    expect(visual.getAttribute('poster')).toBe(ORIGIN_CAT_STILL_SRC.searching);
+  });
+
+  it('falls back to the dedicated searching still under prefers-reduced-motion (M2)', () => {
+    stubReducedMotion(true);
     render(<OriginCatState state="searching" />);
     const visual = screen.getByTestId('origin-cat-state');
     expect(visual.tagName).toBe('IMG');
     expect(visual.getAttribute('data-state')).toBe('searching');
     expect(visual.getAttribute('src')).toBe('/brand/origin-cat-searching.webp');
+    // 専用静止画は thinking と共用しない（M2-2 で差し替え済み）。
     expect(ORIGIN_CAT_STILL_SRC.searching).not.toBe(ORIGIN_CAT_STILL_SRC.thinking);
+  });
+
+  it('keeps the searching state a still when stillOnly is set', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="searching" stillOnly />);
+    const visual = screen.getByTestId('origin-cat-state');
+    expect(visual.tagName).toBe('IMG');
+    expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.searching);
   });
 
   it('renders the making still for artifact creation (M2)', () => {

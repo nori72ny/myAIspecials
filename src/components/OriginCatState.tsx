@@ -3,8 +3,8 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
 /**
  * ORIGIN のキャラクター「猫」の状態表示。
  *
- * 静止画を基本とし、動画は「作業中」が伝わると効果が大きい場面
- * （エージェント実行中とチャットの生成中）に使う。動画はこの状態が
+ * 静止画を基本とし、動画は動き自体が意味を持つ状態（作業中の
+ * タイプ、調べ中の見回し）にだけ使う。動画はこの状態が
  * 表示されるまで読み込まれず（遅延読み込み）、prefers-reduced-motion
  * では動画を再生せず静止画に切り替える。
  *
@@ -65,6 +65,24 @@ export const ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX = 1;
 export const ORIGIN_CAT_JOY_DURATION_MS = 700;
 
 export const ORIGIN_CAT_WORKING_VIDEO_SRC = '/brand/origin-cat-working.mp4';
+export const ORIGIN_CAT_SEARCHING_VIDEO_SRC = '/brand/origin-cat-searching.mp4';
+
+/**
+ * 状態→動画の対応表（動きの作り直し第2段 M2-3、2026-11-19）。
+ * 動画がある状態だけを載せ、無い状態は静止画で表す。working は
+ * 前足でタイプする動き、searching は顔（視線）が左右を見回す動き
+ * （M1-2 で制作し検収合格・全軸9.0以上、5.92秒ループ）。
+ * どちらの動画も poster はその状態の静止画が兼ねるため、動画が
+ * 読み込めない・自動再生できない環境では静止画の見た目に落ちる。
+ * searching の動画ファイルはバイナリ素材のため、この PR とは別に
+ * GitHub Web から public/brand/ へ配置する（コードはこの表の
+ * パスを参照するだけ。ファイルが無い間も poster の静止画で表示
+ * が成立する）。
+ */
+export const ORIGIN_CAT_VIDEO_SRC: Partial<Record<OriginCatStateKind, string>> = {
+  working: ORIGIN_CAT_WORKING_VIDEO_SRC,
+  searching: ORIGIN_CAT_SEARCHING_VIDEO_SRC,
+};
 
 /**
  * 台座の片側リング幅（台座内寸＝絵の寸法に対する比率）。
@@ -122,16 +140,21 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
   // 拡縮できる構造（短い画面でのホーム圧縮など）は従来どおり。
   const style: CSSProperties = { width: size, height: size };
 
+  // 動画は対応表にある状態だけが使う（M2-3 で working 固定の分岐から
+  // 一般化）。動画はこの状態が表示されるまで読み込まれず、poster は
+  // その状態の静止画。prefers-reduced-motion と stillOnly では従来
+  // どおり静止画に切り替える。
+  const videoSrc = ORIGIN_CAT_VIDEO_SRC[state];
   let media: ReactElement;
-  if (state === 'working' && !prefersReducedMotion && !stillOnly) {
+  if (videoSrc !== undefined && !prefersReducedMotion && !stillOnly) {
     media = (
       <video
         data-testid="origin-cat-state"
         data-state={state}
         className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
         style={style}
-        src={ORIGIN_CAT_WORKING_VIDEO_SRC}
-        poster={ORIGIN_CAT_STILL_SRC.working}
+        src={videoSrc}
+        poster={ORIGIN_CAT_STILL_SRC[state]}
         autoPlay
         muted
         loop
