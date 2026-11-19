@@ -289,11 +289,136 @@ export function resolveOriginOfficialPriceRoutingMode(
 }
 
 /**
+ * Procedure questions about benefit programs missing from the bundled
+ * major-programs table (PR-G5, GATE_SLIP_COUNTERMEASURE_DESIGN
+ * _2026-11-19): the expansion set's Q-10 fatal had the direct path
+ * fabricate an application procedure — counter, documents, review —
+ * for 「国民幸福手当」, a program that does not exist. Existence
+ * checks in this codebase cover law names (which end in 法） only; a
+ * program name ending in 手当／給付金／補助金／助成金 has no existence
+ * check anywhere, and no deterministic check can prove nonexistence
+ * either. The honest recovery is routing, not a hold: when a question
+ * asks how to apply for such a program and the program name is not in
+ * the bundled table of major national programs below, the question is
+ * promoted to the grounded path, where missing sources become an
+ * honest hold and PR-5's refusal validation can take over. A real but
+ * unlisted program (a municipality's own benefit, an employer's
+ * allowance) is promoted too — promotion costs delay and research
+ * budget, never correctness — and the table's granularity is tuned
+ * from the shadow logs, exactly as the canon prescribes.
+ *
+ * The table is deliberately small and national-level only: the
+ * programs the canon names （児童手当、児童扶養手当、特別児童扶養
+ * 手当、障害児福祉手当、雇用保険の基本手当）, the other major
+ * employment-insurance benefits, the housing-security benefit, the
+ * employment-adjustment subsidy, and the two major health-insurance
+ * allowances whose names end in 手当金. 生活保護、労災保険 and the
+ * pensions are in the canon's list as well, but their names end in
+ * none of the suffixes below, so they can never be extracted and
+ * need no entry here.
+ */
+export const ORIGIN_MAJOR_BENEFIT_PROGRAMS: readonly string[] = [
+  "児童手当",
+  "児童扶養手当",
+  "特別児童扶養手当",
+  "障害児福祉手当",
+  // The canon's 雇用保険の基本手当： extraction stops at the hiragana
+  // の, so the form a question actually carries is 基本手当.
+  "基本手当",
+  "育児休業給付金",
+  "介護休業給付金",
+  "教育訓練給付金",
+  "住居確保給付金",
+  "雇用調整助成金",
+  "傷病手当金",
+  "出産手当金",
+];
+
+const BENEFIT_PROGRAM_SUFFIX_PATTERN = "(?:手当金|給付金|補助金|助成金|手当)";
+
+/**
+ * Extracts candidate program names: the kanji/katakana run directly
+ * before one of the benefit suffixes. The stem charset excludes
+ * hiragana, so particles and verb endings terminate the run
+ * (「国民幸福手当の申請」 yields 国民幸福手当, and 雇用保険の基本手当
+ * yields 基本手当）; a name whose stem itself contains hiragana
+ * （子育て手当） is not extracted — a known, deterministic limit the
+ * shadow logs can revisit. A bare suffix with no stem （手当の申請）
+ * yields no candidate.
+ */
+export function extractOriginBenefitProgramNames(message: string): string[] {
+  const pattern = new RegExp(
+    `([\\u4E00-\\u9FFF\\u30A1-\\u30F6\\u30FC\\u30FB]{1,24}?)${BENEFIT_PROGRAM_SUFFIX_PATTERN}`,
+    "g",
+  );
+  const names: string[] = [];
+  for (const match of message.matchAll(pattern)) {
+    names.push(match[0]);
+  }
+  return names;
+}
+
+const BENEFIT_PROCEDURE_INTENT_PATTERNS: readonly RegExp[] = [
+  /申請|手続き|手続|申し込み|申込み/,
+  /(?:どうやって|どのように|どうすれば).{0,24}(?:もらえ|受け取れ|受給でき|もらう|受け取る)/s,
+  /(?:もらう|受け取る|もらえる|受け取れる)(?:には|方法)/,
+];
+
+/**
+ * True when the message asks how to apply for (or receive) a benefit
+ * program whose extracted name is missing from the major-programs
+ * table. The same deterministic exemptions the current-information
+ * determination applies run first, so a transform-only request, a
+ * calculation, or a business-planning request is never escalated by
+ * this predicate. A question naming only listed programs does not
+ * match; a question naming a listed AND an unlisted program matches
+ * on the unlisted one.
+ */
+export function matchesOriginUnlistedBenefitProcedureQuestion(message: string): boolean {
+  if (
+    isTransformOnlyRequest(message)
+    || isHypotheticalFreshnessFailureRequest(message)
+    || (isStablePricingConceptRequest(message) && !hasExplicitExternalFreshnessIntent(message))
+    || isStableEnglishTopicExplanationRequest(message)
+    || isSuppliedPriceArithmeticRequest(message)
+    || isDeterministicQuantitativeRequest(message)
+    || isSelfContainedCalculationRequest(message)
+    || isProvidedPriceDecisionRequest(message)
+    || isBusinessPlanningRequest(message)
+  ) return false;
+  if (!BENEFIT_PROCEDURE_INTENT_PATTERNS.some((pattern) => pattern.test(message))) return false;
+  return extractOriginBenefitProgramNames(message).some(
+    (name) => !ORIGIN_MAJOR_BENEFIT_PROGRAMS.includes(name),
+  );
+}
+
+/**
+ * The G5 escalation's dedicated switch: ORIGIN_BENEFIT_PROCEDURE
+ * _ROUTING_MODE, default OFF (the canon's staging for a routing
+ * change). "shadow" logs the comparison — whether the predicate
+ * matched and whether it would have changed the routing — and routes
+ * exactly as before; "enforce" lets a matched question promote to the
+ * grounded path. Logs carry booleans only, never the message text.
+ */
+export type OriginBenefitProcedureRoutingMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginBenefitProcedureRoutingMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginBenefitProcedureRoutingMode {
+  const value = env?.ORIGIN_BENEFIT_PROCEDURE_ROUTING_MODE;
+  if (value === "enforce") return "enforce";
+  if (value === "shadow") return "shadow";
+  return "off";
+}
+
+/**
  * The routing determination both chat routers use: the canonical
- * requiresOriginGroundedResearch result, with the G3-a official-price
- * escalation applied per its switch. With the switch off (the
- * default) this is exactly the canonical result and nothing is
- * logged.
+ * requiresOriginGroundedResearch result, with the input-side
+ * escalations applied per their dedicated switches — G3-a
+ * official-price (ORIGIN_OFFICIAL_PRICE_ROUTING_MODE) and G5
+ * benefit-procedure (ORIGIN_BENEFIT_PROCEDURE_ROUTING_MODE). With
+ * both switches off (the defaults) this is exactly the canonical
+ * result and nothing is logged.
  */
 export function requiresOriginGroundedResearchRouted(
   message: string,
@@ -302,12 +427,13 @@ export function requiresOriginGroundedResearchRouted(
     logger?: (message: string, fields: Record<string, unknown>) => void;
   },
 ): boolean {
+  const env = input?.env ?? process.env;
   const base = requiresOriginGroundedResearch(message);
-  const mode = resolveOriginOfficialPriceRoutingMode(input?.env ?? process.env);
-  if (mode === "off") return base;
-  const matched = matchesOriginOfficialPriceQuestion(message);
-  if (mode === "shadow") {
-    if (matched) {
+  let routed = base;
+
+  const priceMode = resolveOriginOfficialPriceRoutingMode(env);
+  if (priceMode === "shadow") {
+    if (matchesOriginOfficialPriceQuestion(message)) {
       const logger = input?.logger ?? ((logMessage: string, fields: Record<string, unknown>) => console.info(logMessage, fields));
       try {
         logger("[origin-chat] official price routing (shadow)", {
@@ -319,9 +445,29 @@ export function requiresOriginGroundedResearchRouted(
         // A routing shadow log must never break or delay the answer.
       }
     }
-    return base;
+  } else if (priceMode === "enforce") {
+    routed = routed || matchesOriginOfficialPriceQuestion(message);
   }
-  return base || matched;
+
+  const benefitMode = resolveOriginBenefitProcedureRoutingMode(env);
+  if (benefitMode === "shadow") {
+    if (matchesOriginUnlistedBenefitProcedureQuestion(message)) {
+      const logger = input?.logger ?? ((logMessage: string, fields: Record<string, unknown>) => console.info(logMessage, fields));
+      try {
+        logger("[origin-chat] benefit procedure routing (shadow)", {
+          benefitProcedureQuestionMatched: true,
+          groundedResearchRequired: base,
+          benefitProcedureWouldEscalate: !base,
+        });
+      } catch {
+        // A routing shadow log must never break or delay the answer.
+      }
+    }
+  } else if (benefitMode === "enforce") {
+    routed = routed || matchesOriginUnlistedBenefitProcedureQuestion(message);
+  }
+
+  return routed;
 }
 
 /**
