@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1604,6 +1604,39 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const hard = excerptAtBoundary('お'.repeat(200), 100);
     expect(hard).toBe(`${'お'.repeat(100)}…`);
     expect(hard.length).toBe(101);
+  });
+
+  it('falls back to a particle boundary so history excerpts do not split a word', () => {
+    // No punctuation inside the limit: the cut backs off to just after
+    // the particle は instead of splitting 運営計画 mid-word.
+    const bunsetsu = `${'あ'.repeat(45)}運営計画は${'い'.repeat(100)}`;
+    expect(excerptAtBoundary(bunsetsu, 60)).toBe(`${'あ'.repeat(45)}運営計画は…`);
+    // Two-character particles （から） are boundaries too.
+    const suffix = `${'か'.repeat(50)}から${'き'.repeat(80)}`;
+    expect(excerptAtBoundary(suffix, 60)).toBe(`${'か'.repeat(50)}から…`);
+    // A closing bracket is a boundary and stays attached to its phrase.
+    const bracket = `${'さ'.repeat(55)}「補足」${'し'.repeat(80)}`;
+    expect(excerptAtBoundary(bracket, 60)).toBe(`${'さ'.repeat(55)}「補足」…`);
+  });
+
+  it('strips Markdown notation from history display text without touching plain text', () => {
+    // The round-5 design evaluation found a raw ** at the excerpt head.
+    expect(stripMarkdownForDisplay('**2026年の日本の祝日一覧（振替休日含む）** - 1月1日は元日です')).toBe('2026年の日本の祝日一覧（振替休日含む） - 1月1日は元日です');
+    expect(stripMarkdownForDisplay('# 見出し\n本文は[リンク文字](https://example.com)と`code`と~~取消~~です')).toBe('見出し\n本文はリンク文字とcodeと取消です');
+    expect(stripMarkdownForDisplay('- 項目1\n- 項目2')).toBe('項目1\n項目2');
+    expect(stripMarkdownForDisplay('```ts\nconst a = 1;\n```')).toBe('\nconst a = 1;\n');
+    expect(historyExcerptText('```ts\nconst a = 1;\n```', 160)).toBe('const a = 1;');
+    // Identifiers with underscores are not Markdown and stay intact.
+    expect(stripMarkdownForDisplay('ORIGIN_VOICE_OUTPUT_ENABLED を確認する')).toBe('ORIGIN_VOICE_OUTPUT_ENABLED を確認する');
+    expect(stripMarkdownForDisplay('ただの文章です。')).toBe('ただの文章です。');
+  });
+
+  it('formats history titles and excerpts through the same Markdown-free boundary cut', () => {
+    expect(historyExcerptText('短い文です。', 160)).toBe('短い文です。');
+    expect(historyExcerptText('**2026年の日本の祝日一覧（振替休日含む）** - 1月1日は元日です', 160)).toBe('2026年の日本の祝日一覧（振替休日含む） - 1月1日は元日です');
+    const bold = historyExcerptText(`**${'あ'.repeat(45)}運営計画は${'い'.repeat(100)}**`, 60);
+    expect(bold).toBe(`${'あ'.repeat(45)}運営計画は…`);
+    expect(bold).not.toContain('*');
   });
 
   it('builds a display-only current-conversation session without duplicating an identical stored session', () => {
