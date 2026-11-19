@@ -160,7 +160,8 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
       await expect(input).toHaveAttribute('placeholder', 'やりたいことを、そのまま入力してください');
       await expect(add).toHaveText('＋');
-      await expect(send).toHaveText('↑');
+      await expect(send).toHaveText('');
+      await expect(send.locator('svg')).toHaveCount(1);
       const composerBox = await composer.boundingBox();
       const addBox = await add.boundingBox();
       const sendBox = await send.boundingBox();
