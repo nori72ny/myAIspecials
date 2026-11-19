@@ -5,8 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ORIGIN_OPENROUTER_FREE_MODEL } from "../lib/orchestration/OriginExecutionPolicy.js";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import type { OriginProviderExecutionRequest, OriginProviderExecutionResult } from "../legacy/originProviderClient.js";
+import type { ConnectorAuditEntry, ConnectorAuditRecorder } from "./connectorAuditLog.js";
 import type { McpAgentSession } from "./mcpAgentExecution.js";
 import { createMcpAgentRouter } from "./mcpAgentRouter.js";
+import { McpBoundaryError } from "./mcpClient.js";
+import { McpManagementError } from "./mcpConnections.js";
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
 const CONNECTION = "22222222-2222-4222-8222-222222222222";
@@ -35,8 +38,9 @@ function providerResult(text: string): OriginProviderExecutionResult {
   };
 }
 
-function session(): McpAgentSession {
+function session(overrides: Partial<McpAgentSession> = {}): McpAgentSession {
   return {
+    serverId: "github-fixture",
     connect: vi.fn(async () => undefined),
     catalog: vi.fn(() => [{
       alias: ALIAS,
@@ -66,6 +70,7 @@ function session(): McpAgentSession {
     }]),
     dispatch: vi.fn(async () => JSON.stringify({ ok: true, file: "README.md" })),
     close: vi.fn(async () => undefined),
+    ...overrides,
   };
 }
 
@@ -73,9 +78,14 @@ function app(options: {
   authenticated?: boolean;
   enabled?: boolean;
   executeProvider?: (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
+  audit?: ConnectorAuditRecorder;
+  openFailure?: unknown;
+  sessionOverrides?: Partial<McpAgentSession>;
 } = {}) {
-  const target = session();
-  const open = vi.fn(async (_input: { ownerId: string; connectionId: string; version: number }) => target);
+  const target = session(options.sessionOverrides);
+  const open = options.openFailure
+    ? vi.fn(async (_input: { ownerId: string; connectionId: string; version: number }) => { throw options.openFailure; })
+    : vi.fn(async (_input: { ownerId: string; connectionId: string; version: number }) => target);
   const authenticate = vi.fn(async () => options.authenticated === false ? null : { subjectId: OWNER, sessionBinding: "session" });
   const executeProvider = options.executeProvider ?? vi.fn()
     .mockResolvedValueOnce(providerResult(JSON.stringify({ alias: ALIAS, arguments: { path: "README.md" } })))
@@ -92,8 +102,17 @@ function app(options: {
     },
     executeProvider,
     now: () => TEST_NOW,
+    ...(options.audit ? { audit: options.audit } : {}),
   }));
   return { instance, target, open, authenticate, executeProvider };
+}
+
+function auditRecorder() {
+  const entries: ConnectorAuditEntry[] = [];
+  const recorder: ConnectorAuditRecorder = {
+    record: vi.fn(async (entry: ConnectorAuditEntry) => { entries.push(entry); }),
+  };
+  return { entries, recorder };
 }
 
 describe("MCP owner tool-chat router", () => {
@@ -196,5 +215,111 @@ describe("MCP owner tool-chat router", () => {
     expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED");
     expect(fixture.open).not.toHaveBeenCalled();
     expect(fixture.executeProvider).not.toHaveBeenCalled();
+  });
+});
+
+describe("connector audit for MCP tool execution (system A)", () => {
+  const post = (instance: express.Express) => request(instance)
+    .post("/api/mcp/chat")
+    .set("Origin", "https://origin.example.com")
+    .send({
+      connectionId: CONNECTION,
+      version: 3,
+      messages: [{ role: "user", content: "Read README.md and summarize it." }],
+    });
+
+  it("records one entry for a completed tool round, with identifiers and measurements only", async () => {
+    const { entries, recorder } = auditRecorder();
+    const fixture = app({ audit: recorder });
+    const response = await post(fixture.instance);
+
+    expect(response.status).toBe(200);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      ownerId: OWNER,
+      connectorId: "github-fixture",
+      action: "mcp.tool.execute",
+      kind: "read",
+      approved: true,
+      outcome: "succeeded",
+      durationMs: 0,
+      resultSizeBytes: Buffer.byteLength(JSON.stringify({ ok: true, file: "README.md" }), "utf8"),
+      summary: `connection=${CONNECTION} alias=${ALIAS}`,
+    });
+    // Neither the tool result body nor the message text may reach the entry.
+    expect(JSON.stringify(entries[0])).not.toContain("README.md was read");
+    expect(entries[0]?.summary).not.toContain("README");
+  });
+
+  it("records a failed entry with the precise boundary code when dispatch fails", async () => {
+    const { entries, recorder } = auditRecorder();
+    const fixture = app({
+      audit: recorder,
+      sessionOverrides: {
+        dispatch: vi.fn(async () => { throw new McpBoundaryError("MCP_TOOL_TIMEOUT"); }),
+      },
+    });
+    const response = await post(fixture.instance);
+
+    // The client still sees the collapsed unavailable shape; the audit
+    // entry keeps the precise code for triage.
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("MCP_AGENT_UNAVAILABLE");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      ownerId: OWNER,
+      connectorId: "github-fixture",
+      action: "mcp.tool.execute",
+      outcome: "failed",
+      errorCode: "MCP_TOOL_TIMEOUT",
+      summary: `connection=${CONNECTION}`,
+    });
+    expect(entries[0]?.approved ?? false).toBe(false);
+  });
+
+  it("records a failed entry against the management plane when the session cannot open", async () => {
+    const { entries, recorder } = auditRecorder();
+    const fixture = app({
+      audit: recorder,
+      openFailure: new McpManagementError("MCP_CONNECTION_NOT_VERIFIED", 409),
+    });
+    const response = await post(fixture.instance);
+
+    expect(response.status).toBe(409);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      ownerId: OWNER,
+      connectorId: "mcp",
+      action: "mcp.tool.execute",
+      outcome: "failed",
+      errorCode: "MCP_CONNECTION_NOT_VERIFIED",
+      summary: `connection=${CONNECTION}`,
+    });
+  });
+
+  it("records nothing for requests rejected before execution (authentication, kill switch)", async () => {
+    const unauthenticated = auditRecorder();
+    const fixtureA = app({ audit: unauthenticated.recorder, authenticated: false });
+    const responseA = await post(fixtureA.instance);
+    expect(responseA.status).toBe(401);
+    expect(unauthenticated.entries).toHaveLength(0);
+
+    const disabled = auditRecorder();
+    const fixtureB = app({ audit: disabled.recorder, enabled: false });
+    const responseB = await post(fixtureB.instance);
+    expect(responseB.status).toBe(503);
+    expect(disabled.entries).toHaveLength(0);
+  });
+
+  it("still completes the round when the audit recorder throws", async () => {
+    const recorder: ConnectorAuditRecorder = {
+      record: vi.fn(async () => { throw new Error("audit store unavailable"); }),
+    };
+    const fixture = app({ audit: recorder });
+    const response = await post(fixture.instance);
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(recorder.record).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,13 +14,20 @@ export class McpAgentExecutionError extends Error {
   constructor(readonly code: string) { super(code); }
 }
 
-export type McpAgentSession = Pick<OriginMcpSession, "connect" | "catalog" | "functions" | "dispatch" | "close">;
+export type McpAgentSession = Pick<OriginMcpSession, "serverId" | "connect" | "catalog" | "functions" | "dispatch" | "close">;
 export type McpAgentProviderExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 
 export interface OriginMcpToolRoundResult {
   text: string;
   selectedAlias: string;
   toolResult: string;
+  /**
+   * The selected tool's MCP readOnlyHint annotation, when the server
+   * declared one as a boolean. Server-supplied metadata, surfaced only
+   * so the caller can classify the round for audit; undefined when the
+   * tool declared no hint.
+   */
+  toolReadOnlyHint: boolean | undefined;
 }
 
 function fail(code: string): never { throw new McpAgentExecutionError(code); }
@@ -122,6 +129,7 @@ export async function executeOriginMcpToolRound(options: {
     assertOriginZeroCostExecutionResult(selected);
 
     const choice = parseSelection(selected.text, aliases);
+    const readOnlyHint = catalogByAlias.get(choice.alias)?.tool.annotations?.readOnlyHint;
     const toolResult = await options.session.dispatch({
       function: { name: choice.alias, arguments: JSON.stringify(choice.arguments) },
     });
@@ -144,7 +152,12 @@ export async function executeOriginMcpToolRound(options: {
     if (!final.text.trim()) fail("MCP_AGENT_FINAL_RESPONSE_INVALID");
     if (Buffer.byteLength(final.text, "utf8") > MAX_FINAL_TEXT_BYTES) fail("MCP_AGENT_FINAL_RESPONSE_TOO_LARGE");
 
-    return { text: final.text, selectedAlias: choice.alias, toolResult };
+    return {
+      text: final.text,
+      selectedAlias: choice.alias,
+      toolResult,
+      toolReadOnlyHint: typeof readOnlyHint === "boolean" ? readOnlyHint : undefined,
+    };
   } finally {
     if (connected) await options.session.close().catch(() => undefined);
   }

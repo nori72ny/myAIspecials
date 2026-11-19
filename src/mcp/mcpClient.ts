@@ -54,6 +54,11 @@ export class OriginMcpSession {
     this.options = { ...options, grants };
   }
 
+  /** Reviewed server this session is bound to. A server-side identifier, safe to record in audit entries. */
+  get serverId(): string {
+    return this.options.serverId;
+  }
+
   connect(): Promise<void> {
     if (this.closed) return Promise.reject(new McpBoundaryError('MCP_SESSION_CLOSED'));
     if (this.pending) return this.pending;

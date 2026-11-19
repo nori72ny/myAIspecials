@@ -288,6 +288,11 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
 
   const connectionStore = new PostgresMcpConnectionStore(pool);
   const toolGrantStore = new PostgresMcpToolGrantStore(pool);
+  // Connector audit (PR-1a): one recorder on the composition's pool,
+  // shared by the management plane and the agent execution router. The
+  // recorder never throws, so auditing cannot break either surface;
+  // with MCP disabled this composition is never built.
+  const auditLog = new PostgresConnectorAuditLog(pool);
   const management = createNodeMcpManagement({
     appOrigin,
     authenticate,
@@ -295,10 +300,7 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
     toolGrants: toolGrantStore,
     servers: reviewed.servers,
     oauth: broker,
-    // Connector audit (PR-1a): management operations are recorded on the
-    // same pool. The recorder never throws, so auditing cannot break
-    // management; with MCP disabled this composition is never built.
-    audit: new PostgresConnectorAuditLog(pool),
+    audit: auditLog,
     resolveCredential: (ownerId, serverId) => broker.resolveCredential(ownerId, serverId),
     disconnectCredential: async (ownerId, serverId) => { await broker.disconnect(ownerId, serverId); },
     // Consumption-point kill switch (PR-1c): the connection service
@@ -325,7 +327,10 @@ export function createMcpProductionRuntimeFromEnv(env: NodeJS.ProcessEnv = proce
   });
   return {
     ...management,
-    agentRouter: createMcpAgentRouter({ authenticate, sessionFactory, env }),
+    // Execution audit wiring: the agent router records each tool round
+    // (system A) with the same recorder as the management plane, closing
+    // the gap recorded in the activation runbook draft §5.5.
+    agentRouter: createMcpAgentRouter({ authenticate, sessionFactory, env, audit: auditLog }),
   };
 }
 
