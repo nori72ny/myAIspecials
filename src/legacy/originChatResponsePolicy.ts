@@ -222,6 +222,109 @@ export function requiresOriginGroundedResearch(message: string): boolean {
 }
 
 /**
+ * Official-price questions (PR-G3-a, GATE_SLIP_COUNTERMEASURE_DESIGN
+ * _2026-11-19): the bare price branch of requiresOriginCurrent
+ * Information keys on 料金／価格 plus a question marker, or on いくら／
+ * 費用 plus a marker — and missed the colloquial shapes the expansion
+ * set's P-18/P-19 fatals used: 「はがきを出すのに何円の切手が要ります
+ * か？」 (何円 is neither branch's head word) and 「はがき1枚送ると
+ * いくらかかる？」 (かかる is not a marker). Those questions ask for
+ * an institutional price whose correctness can only come from a
+ * source, so the grounded path is their honest home — the recovery is
+ * routing, not a hold. The predicate matches ONLY the newly covered
+ * shapes; everything the existing branches already reach is unchanged.
+ * The same deterministic exemptions the current-information
+ * determination applies run first, so a supplied-price calculation
+ * (「85円の切手を3枚買うといくらかかる？」), a pricing-concept
+ * question, or a planning request is never escalated by this
+ * predicate.
+ */
+const OFFICIAL_PRICE_QUESTION_PATTERNS: readonly RegExp[] = [
+  /何円/,
+  /いくらかかる|いくらかかり/,
+  /(?:切手|送料|運賃|郵便料金).{0,16}(?:ですか|教えて|知りたい|確認|調べ|かかる|いくら|？|\?)/,
+];
+
+export function matchesOriginOfficialPriceQuestion(message: string): boolean {
+  if (
+    isTransformOnlyRequest(message)
+    || isHypotheticalFreshnessFailureRequest(message)
+    || (isStablePricingConceptRequest(message) && !hasExplicitExternalFreshnessIntent(message))
+    || isStableEnglishTopicExplanationRequest(message)
+    || isSuppliedPriceArithmeticRequest(message)
+    || isDeterministicQuantitativeRequest(message)
+    || isSelfContainedCalculationRequest(message)
+    || isProvidedPriceDecisionRequest(message)
+    || isBusinessPlanningRequest(message)
+  ) return false;
+  // A question that itself supplies the price (「85円の切手を3枚買うと
+  // いくらかかる？」) is asking for arithmetic over a given value, not
+  // for the institutional price — the price is already in the message.
+  // Thousands separators are stripped before the amount test, the
+  // same normalisation isSelfContainedCalculationRequest uses, so the
+  // test itself stays a single linear digit run (no overlapping
+  // quantifiers over the digit/comma class).
+  const commaStripped = message.normalize("NFKC").replace(/(\d),(?=\d)/g, "$1");
+  if (/\d+\s*円/.test(commaStripped)) return false;
+  return OFFICIAL_PRICE_QUESTION_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/**
+ * The G3-a escalation's dedicated switch: ORIGIN_OFFICIAL_PRICE
+ * _ROUTING_MODE, default OFF (the canon's staging for a routing
+ * change). "shadow" logs the comparison — whether the new predicate
+ * matched and whether it would have changed the routing — and routes
+ * exactly as before; "enforce" lets a matched question promote to the
+ * grounded path. Logs carry booleans only, never the message text.
+ */
+export type OriginOfficialPriceRoutingMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginOfficialPriceRoutingMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginOfficialPriceRoutingMode {
+  const value = env?.ORIGIN_OFFICIAL_PRICE_ROUTING_MODE;
+  if (value === "enforce") return "enforce";
+  if (value === "shadow") return "shadow";
+  return "off";
+}
+
+/**
+ * The routing determination both chat routers use: the canonical
+ * requiresOriginGroundedResearch result, with the G3-a official-price
+ * escalation applied per its switch. With the switch off (the
+ * default) this is exactly the canonical result and nothing is
+ * logged.
+ */
+export function requiresOriginGroundedResearchRouted(
+  message: string,
+  input?: {
+    env?: NodeJS.ProcessEnv;
+    logger?: (message: string, fields: Record<string, unknown>) => void;
+  },
+): boolean {
+  const base = requiresOriginGroundedResearch(message);
+  const mode = resolveOriginOfficialPriceRoutingMode(input?.env ?? process.env);
+  if (mode === "off") return base;
+  const matched = matchesOriginOfficialPriceQuestion(message);
+  if (mode === "shadow") {
+    if (matched) {
+      const logger = input?.logger ?? ((logMessage: string, fields: Record<string, unknown>) => console.info(logMessage, fields));
+      try {
+        logger("[origin-chat] official price routing (shadow)", {
+          officialPriceQuestionMatched: true,
+          groundedResearchRequired: base,
+          officialPriceWouldEscalate: !base,
+        });
+      } catch {
+        // A routing shadow log must never break or delay the answer.
+      }
+    }
+    return base;
+  }
+  return base || matched;
+}
+
+/**
  * The single canonical needs-freshness determination for the chat paths
  * (S-PR-1, SEARCH_STRENGTHENING_DESIGN_2026-11-12 §3 S-1). Both chat
  * routers reach search exclusively through this function (via
