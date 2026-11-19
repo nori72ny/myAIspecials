@@ -49,15 +49,42 @@ describe("Cloudflare Workers free boundary", () => {
   });
 
   it("keeps production framing and script restrictions on static responses", () => {
-    const headers = readProjectFile("public/_headers");
+    // Static document headers are defined in vercel.json. The former
+    // public/_headers file used a Netlify/Cloudflare Pages format that
+    // Vercel never read, and it was removed in the 2026-11-19 security
+    // follow-up; the assertions below target the live definition instead.
+    // HSTS for static documents is the Vercel platform default
+    // (max-age=63072000; includeSubDomains; preload, measured in the
+    // 2026-11-19 security check) and is not defined in repository config,
+    // so it is no longer asserted here.
+    const vercelConfig = JSON.parse(readProjectFile("vercel.json")) as {
+      headers?: Array<{ headers?: Array<{ key?: string; value?: string }> }>;
+    };
+    const documentRule = (vercelConfig.headers ?? []).find((rule) =>
+      (rule.headers ?? []).some(
+        (header) => header.key === "Content-Security-Policy" && header.value?.startsWith("default-src 'self'"),
+      ),
+    );
+    const staticHeaders = new Map(
+      (documentRule?.headers ?? []).map((header) => [header.key, header.value]),
+    );
+    const contentSecurityPolicy = staticHeaders.get("Content-Security-Policy") ?? "";
 
-    expect(headers).toContain("script-src 'self'");
-    expect(headers).not.toContain("script-src 'self' 'unsafe-inline'");
-    expect(headers).not.toContain("'unsafe-eval'");
-    expect(headers).toContain("connect-src 'self'");
-    expect(headers).toContain("frame-ancestors 'none'");
-    expect(headers).not.toContain("X-Frame-Options");
-    expect(headers).toContain("Strict-Transport-Security");
-    expect(headers).toContain("X-Content-Type-Options: nosniff");
+    expect(contentSecurityPolicy).toContain("script-src 'self'");
+    expect(contentSecurityPolicy).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(contentSecurityPolicy).not.toContain("'unsafe-eval'");
+    expect(contentSecurityPolicy).toContain("connect-src 'self'");
+    expect(contentSecurityPolicy).toContain("frame-ancestors 'none'");
+    expect(staticHeaders.has("X-Frame-Options")).toBe(false);
+    expect(staticHeaders.get("X-Content-Type-Options")).toBe("nosniff");
+    // The statically served document must carry the same Permissions-Policy
+    // and cross-origin isolation headers as API responses (set by
+    // applyOriginSecurityHeaders in src/server/originSecurity.ts), so the
+    // intended policy also applies to the top-level document.
+    expect(staticHeaders.get("Permissions-Policy")).toBe(
+      "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
+    );
+    expect(staticHeaders.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
+    expect(staticHeaders.get("Cross-Origin-Resource-Policy")).toBe("same-origin");
   });
 });

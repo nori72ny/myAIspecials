@@ -181,10 +181,23 @@ describe('ORIGIN PWA boundary', () => {
   });
 
   it('keeps production worker policy same-origin and avoids X-Frame-Options', () => {
-    const headers = read('public/_headers');
+    // Static document headers are defined in vercel.json. The former
+    // public/_headers file used a Netlify/Cloudflare Pages format that
+    // Vercel never read, and it was removed in the 2026-11-19 security
+    // follow-up; the assertions below target the live definition instead.
+    const vercelConfig = JSON.parse(read('vercel.json')) as {
+      headers?: Array<{ headers?: Array<{ key?: string; value?: string }> }>;
+    };
+    const documentRule = (vercelConfig.headers ?? []).find((rule) =>
+      (rule.headers ?? []).some(
+        (header) => header.key === 'Content-Security-Policy' && header.value?.startsWith("default-src 'self'"),
+      ),
+    );
+    const documentHeaders = documentRule?.headers ?? [];
+    const contentSecurityPolicy = documentHeaders.find((header) => header.key === 'Content-Security-Policy')?.value ?? '';
 
-    expect(headers).toContain("worker-src 'self'");
-    expect(headers).toContain("frame-ancestors 'none'");
-    expect(headers.toLowerCase()).not.toContain('x-frame-options');
+    expect(contentSecurityPolicy).toContain("worker-src 'self'");
+    expect(contentSecurityPolicy).toContain("frame-ancestors 'none'");
+    expect(documentHeaders.some((header) => header.key?.toLowerCase() === 'x-frame-options')).toBe(false);
   });
 });
