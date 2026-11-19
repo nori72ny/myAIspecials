@@ -5,7 +5,9 @@ import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPo
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "../legacy/originChatValidation.js";
 import { OriginProviderError, type OriginProviderExecutionRequest } from "../legacy/originProviderClient.js";
 import { createOriginChatRateLimiter, requireSafeOriginChatRequest } from "../server/originSecurity.js";
+import type { ConnectorAuditEntry, ConnectorAuditRecorder } from "./connectorAuditLog.js";
 import { executeOriginMcpToolRound, McpAgentExecutionError, type McpAgentProviderExecutor } from "./mcpAgentExecution.js";
+import { McpBoundaryError } from "./mcpClient.js";
 import { McpManagementError } from "./mcpConnections.js";
 import type { McpManagementDependencies } from "./mcpManagementRouter.js";
 import type { McpAgentSessionFactory } from "./mcpNodeIntegration.js";
@@ -23,6 +25,37 @@ export interface McpAgentRouterDependencies {
   executeProvider?: McpAgentProviderExecutor;
   contextPolicy?: OriginContextPolicy;
   now?: () => number;
+  /** Optional connector audit recorder (PR-1a). Absent = executions are not recorded. */
+  audit?: ConnectorAuditRecorder;
+}
+
+/**
+ * Audit error code for an execution round. Mirrors safeFailure's mapping
+ * for the error types it special-cases, and additionally keeps boundary
+ * codes (for example MCP_TOOL_TIMEOUT) that safeFailure deliberately
+ * collapses into MCP_AGENT_UNAVAILABLE for the client: the audit log is
+ * internal, and the precise code is what makes a failed round triageable.
+ */
+function auditErrorCode(error: unknown): string {
+  if (error instanceof McpManagementError || error instanceof McpAgentExecutionError
+    || error instanceof OriginProviderError || error instanceof McpBoundaryError) {
+    return error.code;
+  }
+  return "MCP_AGENT_UNAVAILABLE";
+}
+
+const MCP_TOOL_ALIAS = /^mcp_[0-9a-f]{48}$/;
+
+/**
+ * Audit summary for an execution round: identifiers only. The alias is a
+ * hash of server id and tool name, echoed only in its exact format —
+ * anything else is dropped rather than recorded, mirroring the
+ * management router's treatment of unvalidated caller input.
+ */
+function executionSummary(connectionId: string, selectedAlias?: string): string {
+  return selectedAlias && MCP_TOOL_ALIAS.test(selectedAlias)
+    ? `connection=${connectionId} alias=${selectedAlias}`
+    : `connection=${connectionId}`;
 }
 
 function safeFailure(res: Response, error: unknown, requestId: string) {
@@ -49,9 +82,27 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
   const now = deps.now ?? Date.now;
   const contextPolicy = deps.contextPolicy ?? DEFAULT_ORIGIN_CONTEXT_POLICY;
 
+  /**
+   * Connector audit (execution wiring): one entry per execution round
+   * that reaches session opening, recorded with identifiers and
+   * measurements only — never message text, tool arguments, or tool
+   * results. The recorder contract is never-throw; a violation is
+   * ignored here as well, so auditing can never break execution.
+   */
+  async function recordAudit(entry: ConnectorAuditEntry): Promise<void> {
+    if (!deps.audit) return;
+    try { await deps.audit.record(entry); } catch { /* auditing must never break execution */ }
+  }
+
   router.use("/api/mcp/chat", requireSafeOriginChatRequest(env), createOriginChatRateLimiter(now, ["POST"]));
   router.post("/api/mcp/chat", async (req, res) => {
     const requestId = `origin-mcp-${now()}-${randomUUID()}`;
+    // Set once the request is authenticated and validated and the
+    // execution round is about to be attempted. Requests rejected
+    // before that point (kill switch, authentication, validation,
+    // sensitive-input and planning gates) are not executions and stay
+    // unrecorded, as on the management plane.
+    let executionAudit: { ownerId: string; connectionId: string; serverId?: string; startedAt: number } | undefined;
     try {
       // Kill-switch gate at the consumption point (PR-1c): when MCP is not
       // explicitly enabled, fail closed before authentication or session
@@ -118,11 +169,13 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
         });
       }
 
+      executionAudit = { ownerId: principal.subjectId, connectionId, startedAt: now() };
       const session = await deps.sessionFactory.open({
         ownerId: principal.subjectId,
         connectionId,
         version,
       });
+      executionAudit.serverId = session.serverId;
 
       const providerRequest: OriginProviderExecutionRequest = {
         plan: planning.plan,
@@ -141,6 +194,25 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
         session,
         request: providerRequest,
         ...(deps.executeProvider ? { executeProvider: deps.executeProvider } : {}),
+      });
+
+      // A completed round ran exactly one tool under the owner's durable,
+      // fingerprint-pinned grant, so it carried the owner's approval. The
+      // kind follows the tool's declared readOnlyHint; without a hint the
+      // round is recorded as a read, which is the only classification the
+      // currently composable execution profiles (reviewed read-only
+      // servers) can produce — the PR-2b generalization must revisit
+      // this when write-capable profiles become composable.
+      await recordAudit({
+        ownerId: principal.subjectId,
+        connectorId: session.serverId,
+        action: "mcp.tool.execute",
+        kind: result.toolReadOnlyHint === false ? "write" : "read",
+        approved: true,
+        outcome: "succeeded",
+        durationMs: now() - executionAudit.startedAt,
+        resultSizeBytes: Buffer.byteLength(result.toolResult, "utf8"),
+        summary: executionSummary(connectionId, result.selectedAlias),
       });
 
       return res.status(200).json({
@@ -163,6 +235,22 @@ export function createMcpAgentRouter(deps: McpAgentRouterDependencies) {
         },
       });
     } catch (error) {
+      if (executionAudit) {
+        await recordAudit({
+          ownerId: executionAudit.ownerId,
+          // The server is known only once the session has opened; a
+          // round that failed during opening is recorded against the
+          // management plane id, as the management router does for
+          // operations whose server cannot be established.
+          connectorId: executionAudit.serverId ?? "mcp",
+          action: "mcp.tool.execute",
+          kind: "read",
+          outcome: "failed",
+          errorCode: auditErrorCode(error),
+          durationMs: now() - executionAudit.startedAt,
+          summary: executionSummary(executionAudit.connectionId),
+        });
+      }
       return safeFailure(res, error, requestId);
     }
   });

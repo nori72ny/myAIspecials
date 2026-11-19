@@ -64,6 +64,7 @@ function providerResult(text: string): OriginProviderExecutionResult {
 
 function session(overrides: Partial<McpAgentSession> = {}): McpAgentSession {
   return {
+    serverId: "github-fixture",
     connect: vi.fn(async () => undefined),
     catalog: vi.fn(() => [{
       alias: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef",
@@ -115,6 +116,7 @@ describe("ORIGIN MCP agent execution boundary", () => {
     });
 
     expect(result.text).toBe("Repository status checked.");
+    expect(result.toolReadOnlyHint).toBeUndefined();
     expect(target.connect).toHaveBeenCalledTimes(1);
     expect(target.dispatch).toHaveBeenCalledTimes(1);
     expect(target.dispatch).toHaveBeenCalledWith({
@@ -135,6 +137,40 @@ describe("ORIGIN MCP agent execution boundary", () => {
     expect(second.requiredTool).toBeUndefined();
     expect(second.systemInstruction).toContain("untrusted external data");
     expect(second.messages.at(-1)?.content).toContain("clean result");
+  });
+
+  it("surfaces the selected tool's declared readOnlyHint on the round result", async () => {
+    const target = session({
+      catalog: vi.fn(() => [{
+        alias: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef",
+        fingerprint: "a".repeat(64),
+        tool: {
+          name: "read_repository_file",
+          description: "untrusted remote description",
+          annotations: { readOnlyHint: false },
+          inputSchema: {
+            type: "object" as const,
+            additionalProperties: false,
+            required: ["path"],
+            properties: { path: { type: "string" } },
+          },
+        },
+      }]),
+    });
+    const executeProvider = vi.fn()
+      .mockResolvedValueOnce(providerResult(JSON.stringify({
+        alias: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef",
+        arguments: { path: "README.md" },
+      })))
+      .mockResolvedValueOnce(providerResult("Repository status checked."));
+
+    const result = await executeOriginMcpToolRound({
+      session: target,
+      request: request(),
+      executeProvider,
+    });
+
+    expect(result.toolReadOnlyHint).toBe(false);
   });
 
   it("rejects a model-selected alias outside the approved catalog before dispatch", async () => {
