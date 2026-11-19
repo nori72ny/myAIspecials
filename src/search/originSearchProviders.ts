@@ -715,6 +715,14 @@ export async function searchTavilySources(
     topic: "general" | "news";
     timeRange: "day" | "week" | "month" | "year" | null;
     maxResults?: number;
+    /**
+     * Restrict results to these domains (Tavily's include_domains).
+     * Used by the official-source routing
+     * (F_GROUP_SOURCE_FIX_DESIGN_2026-11-19, measure B) to aim an
+     * additional query at a topic's official domains; unset on every
+     * ordinary query, which stays unrestricted exactly as before.
+     */
+    includeDomains?: readonly string[];
   },
 ): Promise<TavilySearchOutcome> {
   const body: Record<string, unknown> = {
@@ -732,6 +740,9 @@ export async function searchTavilySources(
     include_images: false,
   };
   if (deps.timeRange) body.time_range = deps.timeRange;
+  if (deps.includeDomains && deps.includeDomains.length > 0) {
+    body.include_domains = [...deps.includeDomains];
+  }
   const payload = await requestJson<TavilySearchResponse>("tavily", deps, "https://api.tavily.com/search", {
     method: "POST",
     headers: {
