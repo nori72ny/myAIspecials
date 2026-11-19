@@ -22,9 +22,13 @@
   --color-origin-success: var(--success);
   --color-origin-warning: var(--warning);
   --color-origin-danger: var(--danger);
-  --radius-control: 10px;
-  --radius-card: 16px;
-  --radius-composer: 24px;
+  --radius-xs: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-panel: 16px;
+  --radius-composer: 20px;
+  --radius-bubble: 16px;
+  --radius-full: 999px;
 }
 
 :root {
@@ -47,29 +51,37 @@
   color-scheme: light only;
   --bg-primary: #FFFFFF;
   --bg-surface: oklch(1 0 0);
-  --bg-surface-muted: oklch(0.965 0.006 250);
-  --bg-elevated: oklch(0.99 0.004 250);
-  --text-primary: oklch(0.235 0.012 250);
-  --text-secondary: oklch(0.465 0.014 250);
-  --text-placeholder: oklch(0.55 0.012 250);
+  --bg-surface-muted: oklch(0.968 0.003 258);
+  --bg-elevated: oklch(0.995 0.002 258);
+  --text-primary: oklch(0.24 0.018 258);
+  --text-secondary: oklch(0.47 0.012 258);
+  --text-placeholder: oklch(0.58 0.010 258);
   --text-on-accent: oklch(0.99 0.004 260);
-  --border-default: oklch(0.60 0.012 250);
-  --border-strong: oklch(0.67 0.018 250);
-  /* White text on --accent-primary measures 5.31:1: WCAG AA holds,
-     but with half the former headroom, so white-on-primary text is
-     reserved for bold labels of 14px or larger. --accent-hover is
-     darker (6.88:1), so hover is never the constraint. */
-  --accent-primary: oklch(0.53 0.09 262);
-  --accent-hover: oklch(0.47 0.09 262);
-  --accent-strong: oklch(0.43 0.095 262);
-  --accent-soft: oklch(0.955 0.02 262);
-  --accent-border: oklch(0.83 0.038 262);
-  --accent-glow: oklch(0.80 0.065 255 / 0.32);
-  /* User bubbles (PR-α): pale low-chroma tint + dark text, the
-     first-class chat pattern. No dark saturated gradients. */
-  --bubble-from: oklch(0.955 0.012 268);
-  --bubble-to: oklch(0.94 0.015 272);
-  --bubble-text: oklch(0.235 0.012 250);
+  /* Hairline borders (design redesign D-PR-1, 2026-11-19): the
+     dividers drop to oklch(0.885) (~1.4:1 on white) and separation is
+     carried by the surface tone steps plus --border-strong on
+     operable elements, replacing the former ~3:1 contrast-led
+     borders (0.60 / 0.67). Measured values and the fallback are
+     recorded in DESIGN_REDESIGN_SPEC_2026-11-19 §4.2 / §8. */
+  --border-default: oklch(0.885 0.006 258);
+  --border-strong: oklch(0.78 0.010 258);
+  /* Accent is derived from the logo navy (#182d5f). Text-on-accent
+     on --accent-primary measures ~10:1 (was 5.31:1 on the retired
+     blue-violet), so the former "bold labels of 14px or larger"
+     restriction on white-on-primary text no longer applies.
+     --accent-hover is darker still (~12.2:1). */
+  --accent-primary: oklch(0.375 0.075 260);
+  --accent-hover: oklch(0.325 0.075 260);
+  --accent-strong: oklch(0.30 0.07 260);
+  --accent-soft: oklch(0.958 0.010 260);
+  --accent-border: oklch(0.85 0.02 260);
+  /* User bubbles: a single flat near-neutral tone with dark text
+     (design redesign D-PR-1). The lavender gradient and the bubble
+     border are retired; --bubble-to is kept equal to --bubble-from
+     because the frozen luxury / glass themes still define the pair. */
+  --bubble-from: oklch(0.958 0.003 258);
+  --bubble-to: oklch(0.958 0.003 258);
+  --bubble-text: oklch(0.24 0.018 258);
   /* Status palette — the only colors allowed for status displays
      (design evaluation round 3, 2026-11-17: raw Tailwind palette
      colors such as amber / rose read as foreign bodies next to the
@@ -89,6 +101,12 @@
   --warning: oklch(0.52 0.12 65);
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
+  /* Elevation scale (design redesign D-PR-1): resting cards carry
+     no shadow (hairline only); --shadow-2 is for popovers,
+     --shadow-3 for modals / drawers only. */
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 5%);
+  --shadow-2: 0 4px 16px rgb(15 23 42 / 8%);
+  --shadow-3: 0 16px 40px rgb(15 23 42 / 12%);
   --scrim: oklch(0.23 0.02 250 / 0.36);
   /* Panel motion (design refinement 2026-11-17): one decelerating
      curve for the sidebar / drawer and its scrim — fast start, long
@@ -273,7 +291,7 @@
   content: "◈";
   font-size: 0.875rem;
 }
-.origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: 0 8px 24px var(--shadow-color); }
+.origin-surface { background: var(--bg-surface); border-color: var(--border-default); border-radius: var(--radius-card); box-shadow: none; }
 .origin-surface-muted { background: var(--bg-surface-muted); border-color: var(--border-default); border-radius: var(--radius-card); }
 .origin-card { background: color-mix(in oklch, var(--bg-surface) 92%, transparent); border-color: var(--border-default); border-radius: var(--radius-card); color: var(--text-primary); transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
 .origin-card:hover { background: var(--bg-surface-muted); border-color: var(--accent-border); }
@@ -291,7 +309,7 @@
    accent lettering (the quiet first-class sidebar pattern) instead of a
    solid primary fill, so the current screen reads clearly without a
    heavy block of color. Contrast of --accent-strong on --accent-soft
-   measures ~7.2:1 in the default theme. */
+   measures ~12.1:1 in the default theme. */
 .origin-nav-active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 .origin-nav-active:hover:not(:disabled) { background: color-mix(in oklch, var(--accent-primary) 12%, var(--accent-soft)); }
 /* Sidebar (design refinement 2026-11-17): a flat, border-led panel —
@@ -368,9 +386,7 @@
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
 .origin-chat-user {
   background-color: var(--bubble-from);
-  background-image: linear-gradient(135deg, var(--bubble-from), var(--bubble-to));
   color: var(--bubble-text, var(--text-primary));
-  border: 1px solid color-mix(in oklch, var(--border-default) 45%, transparent);
   box-shadow: none;
 }
 /* Intermediate status surfaces (thinking / researching / streaming
@@ -605,29 +621,36 @@ a[href]:focus-visible {
    counterbalance was removed; light surfaces are token/component driven. */
 :root[data-theme="dark"] {
   color-scheme: dark !important;
-  --bg-primary: #0b1024;
-  --bg-surface: #111a30;
-  --bg-surface-muted: #17233b;
-  --bg-elevated: #1b2943;
+  --bg-primary: oklch(0.155 0.014 260);
+  --bg-surface: oklch(0.19 0.013 260);
+  --bg-surface-muted: oklch(0.225 0.012 260);
+  --bg-elevated: oklch(0.25 0.012 260);
   --text-primary: #edf2ff;
   --text-secondary: #b1bfd8;
   --text-placeholder: #91a2c0;
   --text-on-accent: oklch(0.16 0.03 270);
-  --border-default: #64779c;
-  --border-strong: #50627f;
-  --accent-primary: oklch(0.80 0.095 262);
+  --border-default: oklch(0.34 0.012 260);
+  --border-strong: oklch(0.42 0.012 260);
+  --accent-primary: oklch(0.78 0.06 260);
   --accent-hover: oklch(0.86 0.08 262);
   --accent-strong: oklch(0.82 0.09 262);
   --accent-soft: oklch(0.30 0.07 265);
   --accent-border: oklch(0.48 0.09 262);
-  --accent-glow: oklch(0.78 0.11 248 / 0.32);
-  --bubble-from: oklch(0.955 0.012 268);
-  --bubble-to: oklch(0.94 0.015 272);
-  --bubble-text: oklch(0.235 0.012 250);
+  /* Dark user bubbles sit on a dark surface with primary text
+     (design redesign D-PR-1); the light lavender bubble is retired. */
+  --bubble-from: oklch(0.27 0.010 260);
+  --bubble-to: oklch(0.27 0.010 260);
+  --bubble-text: #edf2ff;
   --success: oklch(0.78 0.09 215);
   --warning: oklch(0.79 0.11 70);
   --danger: #fca5a5;
   --shadow-color: rgb(0 0 0 / 40%);
+  /* Dark elevation: the redesign spec fixes light values only, so
+     these follow the existing dark shadow convention (black, with
+     --shadow-2 aligned to the 40% of --shadow-color). */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 24%);
+  --shadow-2: 0 4px 16px rgb(0 0 0 / 40%);
+  --shadow-3: 0 16px 40px rgb(0 0 0 / 56%);
   --scrim: rgb(0 0 0 / 0.55);
 }
 :root[data-theme="dark"] body,
