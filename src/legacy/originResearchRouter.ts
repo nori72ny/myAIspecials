@@ -11,7 +11,9 @@ import {
   diagnoseGroundedResearchSynthesisUnits,
   executeGroundedResearchSynthesisWithRetry,
   isGroundedResearchSynthesisRetryEnabled,
+  type QuoteFirstAdoptionContext,
 } from "../research/groundedResearchSynthesisV12.js";
+import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
 import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
@@ -498,6 +500,19 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           });
         }
         if (!recordsSettled) try {
+          // Quote-first generation contract (ORIGIN_QUOTE_FIRST_MODE,
+          // default off; groundedResearchQuoteFirst.ts): same wiring
+          // as the chat router — shadow / enforce add the registry and
+          // contract and run adoption under the quote-first context;
+          // off, or an empty evidence packet, changes nothing.
+          const quoteFirstMode = resolveQuoteFirstMode(env);
+          const quoteFirstRegistry = quoteFirstMode === "off"
+            ? null
+            : buildQuoteFirstRegistry(safeSources, query);
+          const quoteFirstContext: QuoteFirstAdoptionContext | undefined =
+            quoteFirstRegistry && quoteFirstRegistry.entries.length > 0 && quoteFirstMode !== "off"
+              ? { mode: quoteFirstMode, registry: quoteFirstRegistry }
+              : undefined;
           const synthesisRequest: OriginProviderExecutionRequest = {
             plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
             messages: [{
@@ -507,9 +522,15 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                 safeSources,
                 buildGroundedResearchReport(query, safeSources).conflicts,
                 language,
+                [],
+                quoteFirstContext ? buildQuoteFirstRegistrySection(quoteFirstContext.registry, language) : undefined,
               ),
             }],
-            systemInstruction: buildGroundedResearchSynthesisInstruction(language),
+            systemInstruction: buildGroundedResearchSynthesisInstruction(
+              language,
+              [],
+              quoteFirstContext ? buildQuoteFirstContractInstruction(language) : undefined,
+            ),
           };
           const initialSynthesisResult = await researchSynthesis(synthesisRequest);
           assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
@@ -517,7 +538,11 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
           // the unchanged citation validator decides; an
           // UNCITED_FACTUAL_UNIT-only failure may be salvaged by removing
           // the uncited unit lines and re-running the same validator.
-          const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, safeSources);
+          const initialAdoption = adoptGroundedResearchSynthesis(
+            initialSynthesisResult.text,
+            safeSources,
+            quoteFirstContext ? { quoteFirst: quoteFirstContext } : undefined,
+          );
           // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): the
           // same shared helper as the chat router makes at most one
           // corrective retry when the adoption gate still rejects the
@@ -530,6 +555,7 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             language,
             elapsedMs: Math.max(0, catalogNow() - handlerStartedAt),
             enabled: isGroundedResearchSynthesisRetryEnabled(env),
+            quoteFirst: quoteFirstContext,
             assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
             onRetryAttempt: (info) => console.info("[origin-research] research synthesis retry attempted", {
               synthesisRetryAttempted: true,
@@ -537,6 +563,13 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
             }),
           });
           const adoption = retryOutcome.adoption;
+          if (adoption.quoteFirst) {
+            // Quote-first observability: counts, codes, and the mode
+            // only — no answer text, quote text, or question text.
+            console.info("[origin-research] research synthesis quote-first", {
+              ...adoption.quoteFirst,
+            });
+          }
           if (adoption.redactionRemnantsRemoved) {
             // Redaction-remnant scrub observability (A-02 fix):
             // counts only — no answer text, unit text, or marker
