@@ -80,13 +80,13 @@ export default function VoiceOutputSettings({ language }: Props) {
         <Volume2 className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />
         {ja ? 'オリンの声' : "Orin's voice"}
       </h3>
-      <p className="origin-muted text-[13px] leading-5">
+      <p className="origin-muted text-[12.5px] leading-5">
         {ja
           ? '回答を読み上げるときの、オリンの声を選べます。声はこの端末に用意されているものを使います。'
           : "Choose Orin's voice for reading answers aloud. The voices come from this device."}
       </p>
       {voices.length === 0 ? (
-        <p className="origin-muted text-[13px] leading-5" role="status">
+        <p className="origin-muted text-[12.5px] leading-5" role="status">
           {ja
             ? 'この端末では、日本語の声がまだ見つかりませんでした。'
             : 'No Japanese voice was found on this device yet.'}
@@ -113,7 +113,7 @@ export default function VoiceOutputSettings({ language }: Props) {
                   {selected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
                   <span className="min-w-0">
                     <span className="block truncate">{voice.name}</span>
-                    <span className={cn('block text-[12px] font-medium', selected ? '' : 'origin-muted')}>
+                    <span className={cn('block text-[12.5px] font-medium', selected ? '' : 'origin-muted')}>
                       {[
                         voice.gender === 'female' ? (ja ? '女性の声' : 'Female voice') : voice.gender === 'male' ? (ja ? '男性の声' : 'Male voice') : '',
                         voice.localService ? (ja ? 'この端末の声' : 'On-device voice') : '',
@@ -128,7 +128,7 @@ export default function VoiceOutputSettings({ language }: Props) {
             type="button"
             data-testid="orin-voice-preview-button"
             onClick={togglePreview}
-            className="origin-secondary-button inline-flex min-h-12 items-center gap-1.5 rounded-xl border px-3 text-[13px] font-semibold"
+            className="origin-secondary-button inline-flex min-h-12 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold"
           >
             {previewing
               ? <Square className="h-4 w-4" aria-hidden="true" />

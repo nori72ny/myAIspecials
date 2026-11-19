@@ -54,7 +54,7 @@ export default function SpeakAnswerButton({ messageId, text, language }: Props) 
         if (isActive) voiceSpeech.stop();
         else voiceSpeech.speak(messageId, text);
       }}
-      className="origin-secondary-button mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-[10px] px-3 text-[13px] font-semibold"
+      className="origin-secondary-button mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-[10px] px-3 text-sm font-semibold"
     >
       {isActive
         ? <Square className="h-4 w-4" aria-hidden="true" />

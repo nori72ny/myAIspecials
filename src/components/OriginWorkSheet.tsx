@@ -106,7 +106,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
           <span data-testid="origin-orin-profile-art" className="inline-flex">
             <OriginCatState state="waiting" size={ORIN_PROFILE_ART_SIZE_PX} pedestal />
           </span>
-          <h2 data-testid="origin-orin-profile-name" className="m-0 mt-3 text-xl font-black">
+          <h2 data-testid="origin-orin-profile-name" className="m-0 mt-3 text-xl font-bold">
             {ja ? 'オリン' : 'Orin'}
           </h2>
           <p data-testid="origin-orin-profile-intro" className="m-0 mt-2 max-w-xs text-sm leading-6">
@@ -130,8 +130,8 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                       className={`h-2 w-2 shrink-0 rounded-full ${item.status === 'active' ? 'animate-pulse bg-[var(--accent-primary)]' : 'bg-[var(--text-secondary)]'}`}
                     />
                     <span className="min-w-0 flex-1 truncate font-semibold">{item.title}</span>
-                    {item.meta && <span className="origin-muted shrink-0 text-[13px]">{item.meta}</span>}
-                    <span className="origin-muted shrink-0 text-[13px]">{statusText}</span>
+                    {item.meta && <span className="origin-muted shrink-0 text-[12.5px]">{item.meta}</span>}
+                    <span className="origin-muted shrink-0 text-[12.5px]">{statusText}</span>
                   </>
                 );
                 return (
@@ -151,7 +151,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                     {item.steps && item.steps.length > 0 && (
                       <ol data-testid="origin-work-sheet-steps" className="m-0 mb-1 grid list-none gap-0.5 p-0 pl-6 pr-3">
                         {item.steps.map((step, stepIndex) => (
-                          <li key={`${stepIndex}-${step.title}`} className="flex min-h-8 items-center gap-2 text-[13px]">
+                          <li key={`${stepIndex}-${step.title}`} className="flex min-h-8 items-center gap-2 text-sm">
                             <span aria-hidden="true" className="origin-muted shrink-0">{stepIndex + 1}.</span>
                             <span
                               aria-hidden="true"

@@ -24,7 +24,7 @@ export default function FormattedMarkdown({ text }: { text: string }) {
       if (!line.trim()) return <div key={`space-${index}`} className="h-2" aria-hidden="true" />;
       if (line.startsWith('### ')) return <h4 key={`h4-${index}`} className="mt-4 text-sm font-black">{renderInline(line.slice(4))}</h4>;
       if (line.startsWith('## ')) return <h3 key={`h3-${index}`} className="mt-4 text-base font-black">{renderInline(line.slice(3))}</h3>;
-      if (line.startsWith('# ')) return <h3 key={`h2-${index}`} className="mt-1 text-lg font-black">{renderInline(line.slice(2))}</h3>;
+      if (line.startsWith('# ')) return <h3 key={`h2-${index}`} className="mt-1 text-lg font-bold">{renderInline(line.slice(2))}</h3>;
       if (line.startsWith('- ')) {
         return <p key={`bullet-${index}`} className="ml-1 flex gap-2">
           <span aria-hidden="true" className="mt-[0.65rem] h-1.5 w-1.5 shrink-0 rounded-full bg-origin-brand" />

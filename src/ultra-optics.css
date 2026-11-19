@@ -1,7 +1,7 @@
 @theme {
   --font-sans: "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
   --font-brand: "M PLUS Rounded 1c", "Noto Sans JP", system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Noto Sans JP", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 :root {
@@ -23,8 +23,8 @@
 .prose-jp,
 .markdown-body {
   letter-spacing: 0;
-  font-size: 15.5px;
-  line-height: 1.8;
+  font-size: 16px;
+  line-height: 1.75;
 }
 
 .origin-thinking-input,
@@ -114,10 +114,10 @@ html[data-origin-focus-mode="true"] .origin-chat > div:last-child > div {
   .origin-ultra-splash__content { animation: none; }
 }
 
-@media (max-width: 640px) {
-  .prose-jp,
-  .markdown-body { font-size: 15px; line-height: 1.78; }
-}
+/* The former mobile step-down for .markdown-body (15px / 1.78) was
+   removed in design redesign D-PR-2: the type scale
+   (DESIGN_REDESIGN_SPEC_2026-11-19 §4.4) sets one answer size,
+   16px / 1.75, at all widths. */
 
 /* Release 2 ownership note: root theme surfaces and small-screen chat/button geometry
    are canonical in index.css + origin-functional-ui.css + origin-top-ui.css. */

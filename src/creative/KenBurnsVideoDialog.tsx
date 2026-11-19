@@ -317,14 +317,14 @@ export default function KenBurnsVideoDialog({
               />
             </div>
             {status === 'loading' && (
-              <p role="status" className="origin-muted mt-2 text-[12px]">{t.loading}</p>
+              <p role="status" className="origin-muted mt-2 text-[12.5px]">{t.loading}</p>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={status !== 'ready' || recording}
                 onClick={() => setPlaying((value) => !value)}
-                className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {playing ? `⏸ ${t.pause}` : `▶ ${t.play}`}
               </button>
@@ -333,12 +333,12 @@ export default function KenBurnsVideoDialog({
                   type="button"
                   disabled={status !== 'ready' || recording}
                   onClick={startRecording}
-                  className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {recording ? t.recording : `⬇ ${t.save}`}
                 </button>
               )}
-              <span className="origin-muted text-[12px]">{t.note}</span>
+              <span className="origin-muted text-[12.5px]">{t.note}</span>
             </div>
           </>
         )}
