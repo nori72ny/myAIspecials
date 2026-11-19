@@ -449,4 +449,34 @@ describe("OriginBusinessPlanning calendar anchor & premise table (external-consu
     const anchorLine = compact.split("\n").find((line) => line.includes("カレンダー基準"))!;
     expect(anchorLine.length).toBeLessThanOrEqual(320);
   });
+
+  it("案1 (knowhow 2026-11-20): a formula takes the premise table's own rows as operands, referenced by name — never a bare literal for a figure that has its own row", () => {
+    expect(instruction).toContain("referenced by row name");
+    expect(instruction).toContain("never embed a figure's current value as a bare literal in a formula");
+    expect(instruction).toContain("a rate the formula uses is itself a premise-table row and is referenced by name");
+    expect(instruction).toContain("商談必要数 ÷ SQL→商談 コンバージョン率, not ÷ 0.5");
+    // A value shown beside its row name is an annotation in parentheses.
+    expect(instruction).toContain("put it in parentheses as an annotation");
+    expect(instruction).toContain("商談必要数 ÷ SQL→商談 コンバージョン率 (0.5)");
+    // Only non-figure constants may stay literal.
+    expect(instruction).toContain("constants that are not figures of the plan");
+  });
+
+  it("案2 (knowhow 2026-11-20): every derived figure is computed once, in its premise row, and reused by (name, value) reference — a sensitivity figure gets its own named row", () => {
+    expect(instruction).toContain("Compute every derived figure exactly once, in its premise-table row");
+    expect(instruction).toContain("reuse the figure by copying its (指標名, 値) pair from the premise table");
+    expect(instruction).toContain("never recompute a figure outside its row");
+    expect(instruction).toContain("never present one row's value under a different row's name");
+    // The sensitivity row names both the figure and the varied premise
+    // (the round-5 BP-7 type-E defect: a required-meetings count under
+    // an orders-sensitivity name).
+    expect(instruction).toContain("必要商談数（成約率半減時）");
+    expect(instruction).toContain("so a recomputed value can never be read as another stage's count");
+  });
+
+  it("案1・案2 reach route 3 in compressed form, inside the existing addendum budget", () => {
+    const compact = buildOriginGroqBusinessPlanningInstruction(profile, fixedNow);
+    expect(compact).toContain("Formulas name rows, not numbers");
+    expect(compact).toContain("compute once, then cite by name — never recompute or relabel");
+  });
 });

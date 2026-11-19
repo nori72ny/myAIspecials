@@ -446,8 +446,27 @@ function formatRequiredPartsLine(kind: OriginBusinessPlanningKind): string {
 // stated basis. The unit rule (one of 円 / 万円 throughout, never 千円)
 // removes the unit-mixing and digit-slip class the measurements kept
 // hitting (BP-4 currency mixing, 千円/万円 slips).
+//
+// 2026-11-20 (knowhow 案1・案2 — EXTERNAL_KNOWHOW_BUSINESS_DOCS_2026-11-19
+// §3, ICAEW financial-modelling principles 14/15): two further
+// disciplines on top of the reference-only body, targeting failure type
+// A (formula/value disagreement) and type E (a sensitivity
+// recomputation presented under another figure's name, round-5 BP-7).
+// 案1: a 計算結果 row's formula takes the premise table's own rows as
+// operands, referenced by row name — a figure's current value is never
+// embedded as a bare literal, because the value can change while the
+// formula must stay true; a value shown beside its row name for
+// readability goes in parentheses as an annotation (the shape the
+// audit's premise-formula scanner already treats as annotation, and the
+// shape the passing BP-1/BP-4 answers use). 案2: every derived figure
+// is computed exactly once, in its premise-table row; the 要点 summary,
+// the body, and the sensitivity analysis reuse the (指標名, 値) pair by
+// reference — never recomputed, never restated with a different value,
+// never presented under a different row's name — and a sensitivity
+// figure gets its own premise-table row, under a name that states both
+// the figure and the varied premise.
 const PREMISE_TABLE_LINE =
-  "- Answer structure — premise table first: before the first required section, open with a premise table listing every figure the plan uses, one row per figure, under the columns 指標 / 値 / 単位 / 対象期間 / 種別 / 根拠. 種別 is exactly one of 入力事実 (supplied by the user), 仮置き（仮定） (an assumption you are making), 計算結果 (computed from other rows — its 根拠 cell shows the formula, and for a rate the numerator and denominator it divides, e.g. 受注 120件 ÷ 商談 600件), or 未確定 (cannot be fixed from what was supplied — its 値 cell states what is missing instead of a number). After the premise table, the body only references figures that appear in it: introduce no new number in the body, and never restate a figure with a different value from its premise-table row. Amounts use exactly one unit across the whole answer — 円 or 万円, chosen once — and 千円 amounts are never written (rewrite 50千円 as 50,000円, or as 5万円 in the chosen unit).";
+  "- Answer structure — premise table first: before the first required section, open with a premise table listing every figure the plan uses, one row per figure, under the columns 指標 / 値 / 単位 / 対象期間 / 種別 / 根拠. 種別 is exactly one of 入力事実 (supplied by the user), 仮置き（仮定） (an assumption you are making), 計算結果 (computed from other rows — its 根拠 cell shows the formula, and for a rate the numerator and denominator it divides, e.g. 受注 120件 ÷ 商談 600件), or 未確定 (cannot be fixed from what was supplied — its 値 cell states what is missing instead of a number). After the premise table, the body only references figures that appear in it: introduce no new number in the body, and never restate a figure with a different value from its premise-table row. A 計算結果 row's formula takes the premise table's own rows as its operands, referenced by row name: never embed a figure's current value as a bare literal in a formula, because the value can change while the formula must stay true — a rate the formula uses is itself a premise-table row and is referenced by name (write 商談必要数 ÷ SQL→商談 コンバージョン率, not ÷ 0.5); if you show a row's value beside its name for readability, put it in parentheses as an annotation, e.g. 商談必要数 ÷ SQL→商談 コンバージョン率 (0.5). The only literals a formula may contain are constants that are not figures of the plan (12 months in a year, 100 in a percent conversion). Compute every derived figure exactly once, in its premise-table row; everywhere else — the 要点 summary, the body, the sensitivity analysis — reuse the figure by copying its (指標名, 値) pair from the premise table: never recompute a figure outside its row, and never present one row's value under a different row's name. A sensitivity figure is the same chain recomputed with one premise varied: give it its own premise-table row, under a name that states both the figure and the varied premise (e.g. 必要商談数（成約率半減時）), so a recomputed value can never be read as another stage's count. Amounts use exactly one unit across the whole answer — 円 or 万円, chosen once — and 千円 amounts are never written (rewrite 50千円 as 50,000円, or as 5万円 in the chosen unit).";
 
 export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile, now: Date = new Date()): string {
   return [
@@ -514,6 +533,15 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
 // tokens at the gate's characters/2, against the 8,000 tokens/minute
 // Groq ceiling). The budget pins in the tests were raised on exactly
 // that measured basis, and only that far.
+//
+// 2026-11-20 (knowhow 案1・案2, same adoption as PREMISE_TABLE_LINE):
+// the Numbers line below also carries the two disciplines in compressed
+// form — formulas name rows, not numbers; compute once, then cite by
+// name — recovered against small compressions of the same line ("use
+// only user-supplied figures, arithmetic you show from them" → "use
+// user-supplied figures, shown arithmetic from them"). Measured after
+// the change, the largest brief (BP-7) stays inside the existing 2,400
+// pin, so no budget pin moved.
 // ---------------------------------------------------------------------------
 
 // Compressed premise-table line for route 3: the same contract as
@@ -555,7 +583,7 @@ export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusine
     `Business planning rules for this request (kind: ${profile.kind}) — mandatory, not optional structure advice:`,
     `- Required parts: include EVERY part below as its own headed section, in this order, under these exact names: ${sections.join(" / ")}. Never omit or merge a part; a part with little to say still appears, with one line saying why it is small.${assumptionClause}`,
     GROQ_PREMISE_TABLE_LINE,
-    "- Numbers: use only user-supplied figures, arithmetic you show from them, or assumptions labelled 「仮置き（仮定）」. A rate is result ÷ input — write the division beside the rate. A figure presented with a formula must equal that formula's result, and the same quantity must carry the same value in the summary, tables, and body. Never state an unsourced market size, competitor fact, or statistic as fact; label estimates as estimates （推定）.",
+    "- Numbers: use user-supplied figures, shown arithmetic from them, or assumptions labelled 「仮置き（仮定）」. A rate is result ÷ input — write the division beside the rate. A figure presented with a formula must equal that formula's result, and the same quantity must carry the same value in the summary, tables, and body. Formulas name rows, not numbers; compute once, then cite by name — never recompute or relabel. Never state an unsourced market size, competitor fact, or statistic as fact; label estimates as estimates （推定）.",
     "- Funnel order is fixed: リーチ → リード → MQL → SQL → 商談 → 受注. Show the backcast from the goal backwards, with the conversion rate beside the stage it produces.",
     ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines: every measure and every next action must name its 担当 (a role name is enough) and its 期限 (a calendar date or a relative deadline such as 「2週間以内」). A measure or action without both does not count as part of the plan."] : []),
     ...formatGroqBackcastLines(profile),
