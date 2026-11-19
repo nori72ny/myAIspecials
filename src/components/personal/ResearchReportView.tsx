@@ -45,11 +45,11 @@ function renderInlineResearchMarkdown(text: string, sources: readonly ResearchSo
 }
 
 function ResearchReportMarkdown({ report, sources, headingIdPrefix }: { report: string; sources: readonly ResearchSource[]; headingIdPrefix?: string }) {
-  return <div className="break-words text-[15px] leading-7">
+  return <div className="break-words text-base leading-7">
     {report.split('\n').map((line, index) => {
       if (!line.trim()) return <div key={`space-${index}`} className="h-2" aria-hidden="true" />;
-      if (line.startsWith('### ')) return <h4 key={`h4-${index}`} id={headingIdPrefix ? `${headingIdPrefix}-${index}` : undefined} className="mt-5 text-[15px] font-black">{renderInlineResearchMarkdown(line.slice(4), sources)}</h4>;
-      if (line.startsWith('## ')) return <h3 key={`h3-${index}`} id={headingIdPrefix ? `${headingIdPrefix}-${index}` : undefined} className="mt-6 text-[17px] font-black first:mt-0">{renderInlineResearchMarkdown(line.slice(3), sources)}</h3>;
+      if (line.startsWith('### ')) return <h4 key={`h4-${index}`} id={headingIdPrefix ? `${headingIdPrefix}-${index}` : undefined} className="mt-5 text-[15px] font-bold">{renderInlineResearchMarkdown(line.slice(4), sources)}</h4>;
+      if (line.startsWith('## ')) return <h3 key={`h3-${index}`} id={headingIdPrefix ? `${headingIdPrefix}-${index}` : undefined} className="mt-6 text-[17px] font-bold first:mt-0">{renderInlineResearchMarkdown(line.slice(3), sources)}</h3>;
       if (line.startsWith('- ')) return <p key={`bullet-${index}`} className="ml-4 before:mr-2 before:content-['•']">{renderInlineResearchMarkdown(line.slice(2), sources)}</p>;
       return <p key={`line-${index}`}>{renderInlineResearchMarkdown(line, sources)}</p>;
     })}
@@ -85,13 +85,13 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
   const isEn = language === 'en';
   return <section aria-label={isEn ? 'Sources' : '出典'} className="mt-5 border-t border-origin-border pt-4">
     <div className="flex flex-wrap items-center gap-2">
-      <h3 className="m-0 text-sm font-black">{isEn ? 'Sources' : '出典'}</h3>
-      <span className="rounded-full border border-origin-border px-3 py-1 text-xs font-bold">{isEn ? `Confidence: ${researchConfidenceLabel(result.confidence, language)}` : `出典の確かさ: ${researchConfidenceLabel(result.confidence, language)}`}</span>
-      <span className="rounded-full border border-origin-border px-3 py-1 text-xs">{isEn ? `${result.sourceCount} sources` : `${result.sourceCount}件`}</span>
+      <h3 className="m-0 text-sm font-bold">{isEn ? 'Sources' : '出典'}</h3>
+      <span className="rounded-full border border-origin-border px-3 py-1 text-[12.5px] font-bold">{isEn ? `Confidence: ${researchConfidenceLabel(result.confidence, language)}` : `出典の確かさ: ${researchConfidenceLabel(result.confidence, language)}`}</span>
+      <span className="rounded-full border border-origin-border px-3 py-1 text-[12.5px]">{isEn ? `${result.sourceCount} sources` : `${result.sourceCount}件`}</span>
     </div>
     <details className="mt-2">
-      <summary className="origin-muted inline-flex min-h-11 cursor-pointer list-none items-center text-xs font-semibold">{isEn ? 'About source labels' : '出典の表記について'}</summary>
-      <p className="origin-muted mt-1 text-xs leading-5">{isEn
+      <summary className="origin-muted inline-flex min-h-11 cursor-pointer list-none items-center text-[12.5px] font-semibold">{isEn ? 'About source labels' : '出典の表記について'}</summary>
+      <p className="origin-muted mt-1 text-[12.5px] leading-5">{isEn
         ? '"Page verified" means the full text of the source page could be read during the research. Source confidence does not guarantee that the whole answer is correct.'
         : '「本文確認済み」は、調べたときに元のページの中身まで読めた出典です。出典の確かさは、回答全体が正しいことを保証するものではありません。'}</p>
     </details>
@@ -99,12 +99,12 @@ export function ResearchSourcesSection({ result, language }: { result: ResearchR
     <div className="mt-3 space-y-3">{result.sources.map(source => {
       const href = safeExternalUrl(source.url);
       return <article key={source.id} className="rounded-xl border border-origin-border p-3">
-        <p className="m-0 text-xs font-black text-[var(--accent-primary)]">{source.id}</p>
+        <p className="m-0 text-[12.5px] font-bold text-[var(--accent-primary)]">{source.id}</p>
         <h4 className="mt-1 break-words text-sm font-bold">{source.title}</h4>
-        <p className="origin-muted mt-1 text-xs">{source.domain} · {freshnessLabel(source, language)} · {source.evidenceLevel === 'page-verified' ? (isEn ? 'Page verified' : '本文確認済み') : (isEn ? 'Search snippet' : '検索結果の要約')}</p>
+        <p className="origin-muted mt-1 text-[12.5px]">{source.domain} · {freshnessLabel(source, language)} · {source.evidenceLevel === 'page-verified' ? (isEn ? 'Page verified' : '本文確認済み') : (isEn ? 'Search snippet' : '検索結果の要約')}</p>
         {href
           ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center break-all text-sm font-semibold text-[var(--accent-primary)] underline">{isEn ? 'Open original' : '原文を開く'}</a>
-          : <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'The link was disabled because its safety could not be confirmed.' : 'リンク先の安全性を確認できなかったため、リンクを無効にしました。'}</p>}
+          : <p className="mt-2 text-[12.5px] font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'The link was disabled because its safety could not be confirmed.' : 'リンク先の安全性を確認できなかったため、リンクを無効にしました。'}</p>}
       </article>;
     })}</div>
 
@@ -164,7 +164,7 @@ export function ResearchReaderOverlay({ result, title, language, onClose }: {
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
       <div className="mx-auto w-full max-w-3xl">
         {headings.length > 1 && <nav aria-label={isEn ? 'Contents' : '目次'} className="mb-5 rounded-2xl border border-origin-border p-3">
-          <p className="m-0 text-xs font-black">{isEn ? 'Contents' : '目次'}</p>
+          <p className="m-0 text-[12.5px] font-bold">{isEn ? 'Contents' : '目次'}</p>
           <div className="mt-1 flex flex-col">
             {headings.map(heading => <button key={heading.index} type="button" onClick={() => jumpToHeading(heading.index)} className={`min-h-11 rounded-lg px-2 text-left text-sm font-medium transition hover:bg-black/5 dark:hover:bg-white/10 ${heading.level === 3 ? 'pl-6' : ''}`}>{heading.text.replace(/\*\*/g, '')}</button>)}
           </div>

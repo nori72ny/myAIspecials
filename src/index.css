@@ -5,7 +5,7 @@
 @theme {
   --font-sans: "Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
   --font-brand: "M PLUS Rounded 1c", "Noto Sans JP", system-ui, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --color-origin-paper: var(--bg-primary);
   --color-origin-surface: var(--bg-surface);
   --color-origin-surface-muted: var(--bg-surface-muted);
@@ -239,16 +239,23 @@
     line-break: strict;
     overflow-wrap: break-word;
     font-size: 16px;
-    line-height: 1.75;
+    line-height: 1.7;
     transition: background-color 160ms ease, color 160ms ease;
   }
   button, textarea, input, select { font: inherit; }
   /* Typography (design refinement 2026-11-17): headings and UI text
      share --font-sans (Noto Sans JP) and take their hierarchy from the
-     400 / 500 / 700 weight steps plus size and spacing, not from a
+     400 / 500 / 600 / 700 weight steps plus size and spacing, not from a
      rounded display face. --font-brand (M PLUS Rounded 1c) survives
      only in the brand wordmark itself (splash-brand.css). Markdown
-     answer headings inherit this rule. */
+     answer headings inherit this rule.
+     Type scale (design redesign D-PR-2, DESIGN_REDESIGN_SPEC_2026-11-19
+     §4.4): screen heading 28px/600 (mobile 24px), section heading
+     17px/700, small heading / label 14px/600, UI text 14px (500 labels,
+     600 buttons / active), body 16px/1.7, answer markdown 16px/1.75,
+     meta 12.5px/400 in --text-secondary. Weights are fixed by role:
+     500 = UI labels, 600 = buttons / active / small headings,
+     700 = headings. */
   h1, h2, h3 { font-family: var(--font-sans); }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
@@ -416,16 +423,16 @@
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
 .origin-answer-markdown h2,
-.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; text-wrap: balance; }
-.origin-answer-markdown h1 { font-size: clamp(1.3rem, 2vw, 1.45rem); }
-.origin-answer-markdown h2 { font-size: clamp(1.15rem, 1.7vw, 1.25rem); }
-.origin-answer-markdown h3 { font-size: clamp(1.02rem, 1.4vw, 1.1rem); }
-.origin-answer-markdown p { margin: 0 0 1.05rem; line-height: 1.84; text-wrap: pretty; }
+.origin-answer-markdown h3 { margin: 1.8rem 0 0.72rem; scroll-margin-top: 5rem; font-weight: 700; line-height: 1.4; letter-spacing: -0.01em; text-wrap: balance; }
+.origin-answer-markdown h1 { font-size: 1.35rem; }
+.origin-answer-markdown h2 { font-size: 1.2rem; }
+.origin-answer-markdown h3 { font-size: 1.08rem; }
+.origin-answer-markdown p { margin: 0 0 0.9rem; line-height: 1.75; text-wrap: pretty; }
 .origin-answer-markdown ul,
 .origin-answer-markdown ol { margin: 0.5rem 0 1rem; padding-left: 1.35rem; }
 .origin-answer-markdown ul { list-style: disc; }
 .origin-answer-markdown ol { list-style: decimal; }
-.origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.76; }
+.origin-answer-markdown li { margin: 0.42rem 0; padding-left: 0.18rem; line-height: 1.75; }
 .origin-answer-markdown li::marker { color: var(--accent-primary); font-weight: 600; }
 .origin-answer-markdown strong { color: var(--text-primary); font-weight: 700; }
 .origin-answer-markdown a { color: var(--accent-strong); font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; }
@@ -438,7 +445,7 @@
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
-.origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
+.origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.78125rem; }
 .origin-dialog-overlay { background: oklch(0.12 0.015 255 / 0.56); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; top: 0 !important; }
@@ -471,7 +478,7 @@
 .origin-home-description { word-break: keep-all; overflow-wrap: break-word; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
-.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: clamp(1rem, 1.1vw, 1.04rem); line-height: 1.8; }
+.origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.75; }
 
 .safe-area-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 @media (min-width: 640px) { .safe-area-bottom { padding-bottom: 1.25rem; } }
@@ -538,7 +545,7 @@
   color: var(--text-primary);
   box-shadow: 0 12px 28px var(--shadow-color);
   padding: 0.75rem 1rem;
-  font-size: 0.8125rem;
+  font-size: 0.78125rem;
   line-height: 1.45;
 }
 
@@ -559,13 +566,13 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 
 /* Answer tools stay within the reading column, including on narrow screens. */
 .origin-answer-code { min-width: 0; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); overflow: hidden; }
-.origin-answer-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-surface-muted); font-size: 0.8rem; }
+.origin-answer-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-surface-muted); font-size: 0.78125rem; }
 .origin-answer-code-toolbar > div { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .origin-answer-code pre { margin: 0; border: 0; border-radius: 0; }
 .origin-answer-code pre.origin-code-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .origin-answer-code pre code { padding: 0; background: transparent; }
 .origin-copy-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.8rem; }
+.origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.78125rem; }
 /* Answer tool buttons (copy / wrap / refine) must read as pressable:
    a 1px border, a muted surface fill and an icon next to the label,
    on top of the 44px touch height (design evaluation 2026-11-17,
@@ -574,7 +581,7 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 .origin-answer-code-toolbar button:hover, .origin-answer-actions button:hover { color: var(--text-primary); background: var(--bg-elevated); }
 .origin-answer-code-toolbar button:focus-visible, .origin-answer-actions button:focus-visible, .origin-answer-code pre:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .origin-answer-code-toolbar button[aria-pressed="true"] { color: var(--accent-primary); background: var(--accent-soft); border-color: var(--accent-border); }
-.origin-answer-actions { display: grid; gap: 0.55rem; margin-top: 1.35rem; border-top: 1px solid var(--border-default); padding-top: 0.85rem; font-size: 0.85rem; }
+.origin-answer-actions { display: grid; gap: 0.55rem; margin-top: 1.35rem; border-top: 1px solid var(--border-default); padding-top: 0.85rem; font-size: 0.875rem; }
 .origin-answer-refinements { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0; }
 .origin-verification { max-width: 52rem; margin-inline: auto; }
 /* Equal-width refinement pills: one shared flex basis per row on
