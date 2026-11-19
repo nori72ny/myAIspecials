@@ -168,9 +168,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
       expect(control.className).toMatch(/\b(?:min-w-11|w-11)\b/);
     }
-    // The primary send action is 48px (h-12/w-12), above the 44px floor.
-    expect(sendControl.className).toMatch(/\bh-12\b/);
-    expect(sendControl.className).toMatch(/\bw-12\b/);
+    // D-PR-3: the primary send action is a 44px circle (h-11/w-11),
+    // exactly the 44px touch-target floor of spec §0.
+    expect(sendControl.className).toMatch(/\bh-11\b/);
+    expect(sendControl.className).toMatch(/\bw-11\b/);
     fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
     expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
@@ -188,7 +189,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByTestId('history-drawer')).toBeTruthy();
   });
 
-  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving touch targets (send action at 48px)', () => {
+  it('keeps the composer wide, icon-only, and minimally self-explanatory while preserving touch targets (send action at 44px)', () => {
     render(<App language="ja" />);
 
     const composer = document.querySelector('.origin-composer') as HTMLElement;
@@ -201,11 +202,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(input.className).toContain('px-2');
     expect(composer.className).toContain('gap-1');
     expect(add.textContent).toBe('＋');
-    expect(send.textContent).toBe('↑');
+    // D-PR-3: the send glyph is a Lucide ArrowUp, not the '↑' text glyph.
+    expect(send.textContent).toBe('');
+    expect(send.querySelector('svg.lucide-arrow-up')).toBeTruthy();
     expect(add.className).toContain('h-11');
     expect(add.className).toContain('w-11');
-    expect(send.className).toContain('h-12');
-    expect(send.className).toContain('w-12');
+    expect(send.className).toContain('h-11');
+    expect(send.className).toContain('w-11');
     expect(send.textContent).not.toContain('開始');
     expect(send.textContent).not.toContain('送信');
   });

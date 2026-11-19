@@ -296,7 +296,7 @@ export default function KenBurnsVideoDialog({
             type="button"
             onClick={onClose}
             aria-label={t.close}
-            className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-[10px] px-3 text-sm font-semibold"
+            className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-sm font-semibold"
           >
             ✕
           </button>
@@ -324,7 +324,7 @@ export default function KenBurnsVideoDialog({
                 type="button"
                 disabled={status !== 'ready' || recording}
                 onClick={() => setPlaying((value) => !value)}
-                className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {playing ? `⏸ ${t.pause}` : `▶ ${t.play}`}
               </button>
@@ -333,7 +333,7 @@ export default function KenBurnsVideoDialog({
                   type="button"
                   disabled={status !== 'ready' || recording}
                   onClick={startRecording}
-                  className="origin-secondary-button inline-flex min-h-11 items-center rounded-[10px] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {recording ? t.recording : `⬇ ${t.save}`}
                 </button>

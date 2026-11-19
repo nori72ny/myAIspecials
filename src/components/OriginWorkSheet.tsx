@@ -98,7 +98,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
           type="button"
           onClick={onClose}
           aria-label={ja ? '閉じる' : 'Close'}
-          className="origin-secondary-button absolute right-3 top-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px]"
+          className="origin-secondary-button absolute right-3 top-3 inline-flex h-11 w-11 shrink-0 items-center justify-center "
         >
           <X aria-hidden="true" size={17} strokeWidth={2.1} />
         </button>
@@ -141,7 +141,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                         type="button"
                         data-testid="origin-work-sheet-agent-link"
                         onClick={() => { onClose(); onOpenAgent(); }}
-                        className="origin-secondary-button flex min-h-11 w-full items-center gap-2 rounded-[10px] px-3 text-left text-sm"
+                        className="origin-secondary-button flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm"
                       >
                         {body}
                       </button>

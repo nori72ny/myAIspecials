@@ -381,9 +381,9 @@
    unmistakable (accent background with on-accent glyph). Do not re-add a
    blanket opacity here; it dropped the send glyph to ~1.5:1 effective. */
 .origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-secondary); }
-.origin-secondary-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-primary); }
-.origin-secondary-button:hover:not(:disabled) { background: var(--bg-elevated); border-color: var(--border-strong); }
-.origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface)); border-color: color-mix(in oklch, var(--danger) 46%, var(--border-default)); color: var(--danger); }
+.origin-secondary-button { background: var(--bg-surface); border-color: var(--border-strong); color: var(--text-primary); }
+.origin-secondary-button:hover:not(:disabled) { background: var(--bg-surface-muted); border-color: var(--border-strong); }
+.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
 /* Stopping a generation is a normal working-state control, not a
    destructive action: the composer stop button uses these neutral tones
    (the same values PR-α specified for the generating state) instead of
@@ -454,7 +454,7 @@
 .origin-logo-glow { background: radial-gradient(circle, var(--accent-glow), transparent 68%); }
 .origin-safe-note { color: var(--text-secondary); }
 .origin-composer { min-height: 64px; border-radius: var(--radius-composer); }
-.origin-composer--compact { min-height: 60px; box-shadow: 0 8px 20px var(--shadow-color); }
+.origin-composer--compact { min-height: 60px; box-shadow: var(--shadow-1); }
 .origin-composer--compact textarea { min-height: 44px; }
 /* Home hero placement (design evaluation round 2, 2026-11-17,
    layout axis): the top-anchored intro left the whole void pooled
