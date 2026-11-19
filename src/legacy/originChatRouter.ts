@@ -34,7 +34,8 @@ import {
   researchLandingForPartialAnswer,
   type OriginResearchLanding,
 } from "../research/groundedResearchOutcome.js";
-import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled } from "../research/groundedResearchSynthesisV12.js";
+import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled, type QuoteFirstAdoptionContext } from "../research/groundedResearchSynthesisV12.js";
+import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
@@ -860,6 +861,21 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             }
           }
           if (!recordsSettled) try {
+            // Quote-first generation contract (ORIGIN_QUOTE_FIRST_MODE,
+            // default off; groundedResearchQuoteFirst.ts): in shadow /
+            // enforce the request gains the quote registry and the
+            // contract, and adoption runs under the quote-first
+            // context. Off — or an empty evidence packet, where the
+            // model would have nothing to quote — leaves the request
+            // and the adoption gate exactly as before.
+            const quoteFirstMode = resolveQuoteFirstMode(env);
+            const quoteFirstRegistry = quoteFirstMode === "off"
+              ? null
+              : buildQuoteFirstRegistry(grounded.sources, lastUserMessage);
+            const quoteFirstContext: QuoteFirstAdoptionContext | undefined =
+              quoteFirstRegistry && quoteFirstRegistry.entries.length > 0 && quoteFirstMode !== "off"
+                ? { mode: quoteFirstMode, registry: quoteFirstRegistry }
+                : undefined;
             const synthesisRequest: OriginProviderExecutionRequest = {
               plan: { ...synthesisPlan.plan, timeoutMs: Math.min(synthesisPlan.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) },
               messages: [{
@@ -870,9 +886,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   grounded.conflictDetails,
                   grounded.language,
                   researchRequestedOutputs,
+                  quoteFirstContext ? buildQuoteFirstRegistrySection(quoteFirstContext.registry, grounded.language) : undefined,
                 ),
               }],
-              systemInstruction: buildGroundedResearchSynthesisInstruction(grounded.language, researchRequestedOutputs)
+              systemInstruction: buildGroundedResearchSynthesisInstruction(
+                grounded.language,
+                researchRequestedOutputs,
+                quoteFirstContext ? buildQuoteFirstContractInstruction(grounded.language) : undefined,
+              )
                 + "\n\n"
                 + originCurrentDateInstruction(now(), grounded.language),
             };
@@ -884,7 +905,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             // may remove the unit lines that individually fail validation
             // and re-run the same validator. Adopted text — salvaged or
             // not — has passed the identical gate.
-            const initialAdoption = adoptGroundedResearchSynthesis(initialSynthesisResult.text, grounded.sources);
+            const initialAdoption = adoptGroundedResearchSynthesis(
+              initialSynthesisResult.text,
+              grounded.sources,
+              quoteFirstContext ? { quoteFirst: quoteFirstContext } : undefined,
+            );
             // Feedback retry (SYNTHESIS_RETRY_DESIGN_2026-11-14 §2): when
             // the adoption gate still rejects the synthesis, the shared
             // helper may make exactly one corrective retry — scan-based
@@ -901,6 +926,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               language: grounded.language,
               elapsedMs: Math.max(0, now() - groundedStartedAt),
               enabled: isGroundedResearchSynthesisRetryEnabled(env),
+              quoteFirst: quoteFirstContext,
               assertZeroCost: (result) => assertOriginZeroCostExecutionResultWithFailover(result, synthesisPlan.plan.modelId),
               onRetryAttempt: (info) => console.info("[origin-chat] research synthesis retry attempted", {
                 requestId,
@@ -909,6 +935,18 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
               }),
             });
             const adoption = retryOutcome.adoption;
+            if (adoption.quoteFirst) {
+              // Quote-first observability: the binding report is
+              // counts, codes, and the mode only — no answer text,
+              // quote text, or question text (the same rule as every
+              // synthesis log in this router). In shadow this line is
+              // the ONLY effect the contract has on the request's
+              // outcome; in enforce it also records delivered removals.
+              console.info("[origin-chat] research synthesis quote-first", {
+                requestId,
+                ...adoption.quoteFirst,
+              });
+            }
             if (adoption.redactionRemnantsRemoved) {
               // Redaction-remnant scrub observability (A-02 fix):
               // counts only — no answer text, unit text, or marker
