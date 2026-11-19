@@ -55,6 +55,10 @@ import {
   type OriginSourceAuthorityTier,
   type OriginWeatherForecast,
 } from "./originSearchProviders.js";
+import {
+  planOriginOfficialSourceQueries,
+  resolveOriginOfficialSourceRoutingEnabled,
+} from "./originOfficialSourceRouting.js";
 
 /** §2.5: gate-failure answers must say what happened, not a bare refusal. */
 export const ORIGIN_GROUNDING_UNAVAILABLE_MESSAGE_JA =
@@ -238,6 +242,25 @@ export function evaluateOriginSourceFreshness(
   requirement: OriginSearchFreshnessRequirement,
   questionType: Exclude<OriginSearchQuestionType, "no_search">,
   retrievedAtMs: number,
+  options?: {
+    /**
+     * F-group measure C (F_GROUP_SOURCE_FIX_DESIGN_2026-11-19): an
+     * official-tier source is never dropped merely for having no
+     * extractable publication date. Official statistics pages often
+     * state no date in the extracted text, and their currency is set
+     * by the publication schedule — the page carries the latest
+     * released figure until the next scheduled release — so the
+     * undated drop, applied to this tier, emptied the adopted pool
+     * on every round-6 freshness refusal. The exemption is narrow by
+     * construction: dated official sources still face the age window
+     * (an old dated release is genuinely old), unofficial sources are
+     * judged exactly as before, and the survivor is kept with
+     * dateVerified false — it is "official, undated", never upgraded
+     * to verified-fresh. Set only when the official-source routing
+     * switch is on; unset, the gate is byte-for-byte the old one.
+     */
+    officialUndatedExempt?: boolean;
+  },
 ): { kept: OriginGroundedSource[]; stats: OriginSearchGroundingFreshnessStats } {
   const stats: OriginSearchGroundingFreshnessStats = {
     verifiedFreshCount: 0,
@@ -260,6 +283,11 @@ export function evaluateOriginSourceFreshness(
     }
     // No parseable publication date.
     if (requirement.strictPublicationDate) {
+      if (options?.officialUndatedExempt && source.authorityTier === "official") {
+        stats.unknownDateCount += 1;
+        kept.push({ ...source, dateVerified: false });
+        continue;
+      }
       stats.droppedUndatedCount += 1;
       continue;
     }
@@ -269,7 +297,20 @@ export function evaluateOriginSourceFreshness(
   // fresh_general asserts currency, so an answer may not rest on undated
   // sources alone; price/policy pages (official product/policy pages are
   // commonly undated) may, and are flagged via freshnessVerified instead.
+  // Measure C narrows this wipe the same way as the strict drop above:
+  // with the exemption on, official-tier undated sources may carry a
+  // fresh_general pool (their currency is schedule-based, above), while
+  // unofficial undated sources still cannot carry one alone.
   if (questionType === "fresh_general" && stats.verifiedFreshCount === 0 && kept.length > 0) {
+    if (options?.officialUndatedExempt) {
+      const officialKept = kept.filter((source) => source.authorityTier === "official");
+      const droppedHere = kept.length - officialKept.length;
+      if (droppedHere > 0) {
+        stats.droppedUndatedCount += droppedHere;
+        stats.unknownDateCount -= droppedHere;
+      }
+      return { kept: officialKept, stats };
+    }
     stats.droppedUndatedCount += stats.unknownDateCount;
     return { kept: [], stats };
   }
@@ -365,8 +406,16 @@ async function runTavilyRoute(
   topic: "general" | "news",
   timeRange: "day" | "week" | "month" | "year" | null,
   timeoutMs: number,
+  includeDomains?: readonly string[],
 ): Promise<RouteResult> {
-  const cacheKey = `cand:tavily:${topic}:${timeRange ?? "none"}:${query.toLowerCase()}`;
+  // Domain-restricted runs (official-source routing, measure B) get
+  // their own cache entries: the restricted candidate set is a
+  // different result from the unrestricted one for the same query,
+  // and sharing the key would serve whichever ran first for both.
+  const domainKey = includeDomains && includeDomains.length > 0
+    ? `:domains=${[...includeDomains].sort().join(",")}`
+    : "";
+  const cacheKey = `cand:tavily:${topic}:${timeRange ?? "none"}${domainKey}:${query.toLowerCase()}`;
   let screenedOutCount = 0;
   const result = await cachedCandidates(
     deps,
@@ -379,6 +428,7 @@ async function runTavilyRoute(
         apiKey: tavilyApiKey(deps),
         topic,
         timeRange,
+        ...(includeDomains && includeDomains.length > 0 ? { includeDomains } : {}),
       });
       deps.counter.record("tavily", outcome.creditsUsed, deps.now());
       screenedOutCount = outcome.screenedOutCount;
@@ -510,7 +560,21 @@ export async function executeOriginSearchGrounding(
   const remainingMs = () => Math.max(0, deps.totalMs - (deps.now() - startedAtMs));
   const searchTimeoutMs = () => Math.max(1, Math.min(deps.searchMs, remainingMs()));
 
-  const tavilyAccess = providerAccess("tavily", deps, 1);
+  // Official-source routing (F_GROUP_SOURCE_FIX_DESIGN_2026-11-19,
+  // measures B + C), switch-gated and off by default: for a
+  // statistical value question matching a curated topic, plan up to
+  // two additional domain-restricted Tavily queries. The plan is
+  // computed BEFORE the access check so the monthly self cap is
+  // charged honestly for every credit this request may spend
+  // (1 ordinary + the planned additions); when the cap cannot cover
+  // them, Tavily is disabled for the whole request exactly as if the
+  // cap were reached by the ordinary query alone.
+  const officialRoutingEnabled = resolveOriginOfficialSourceRoutingEnabled(deps.env);
+  const officialPlan = officialRoutingEnabled
+    ? planOriginOfficialSourceQueries(message)
+    : null;
+
+  const tavilyAccess = providerAccess("tavily", deps, 1 + (officialPlan?.queries.length ?? 0));
   const gdeltAccess = providerAccess("gdelt", deps, 0);
   const wikipediaAccess = providerAccess("wikipedia", deps, 0);
   const tavilyEnabled = tavilyAccess.enabled && tavilyApiKey(deps).length > 0;
@@ -558,6 +622,26 @@ export async function executeOriginSearchGrounding(
       break;
   }
 
+  // Measure B: the additional official-domain queries run alongside
+  // the ordinary routes, over the same minimized query (extracted
+  // keywords only — the raw message never leaves the process). Their
+  // candidates join the same pool and face the same relevance screen
+  // and freshness gate as every other candidate; the routing only
+  // steers retrieval toward the primary source, it does not privilege
+  // the results beyond the tier they already carry.
+  if (officialPlan && tavilyEnabled) {
+    for (const officialQuery of officialPlan.queries) {
+      addRoute("tavily", runTavilyRoute(
+        deps,
+        query,
+        requirement.tavilyTopic,
+        requirement.tavilyTimeRange,
+        searchTimeoutMs(),
+        officialQuery.domains,
+      ));
+    }
+  }
+
   if (routes.length === 0) {
     if (capReached) return { kind: "unavailable", questionType, reason: "monthly-cap-reached", freshness: emptyStats };
     return { kind: "not-applicable", reason: "no-route-enabled" };
@@ -565,7 +649,10 @@ export async function executeOriginSearchGrounding(
 
   let results = await Promise.all(routes);
   let candidates = results.flatMap((result) => result.sources);
-  const providersUsed = routeProviders.filter((_, index) => (results[index]?.sources.length ?? 0) > 0);
+  // Deduped: the official-source routes report the same provider id
+  // as the ordinary Tavily route, and the provider list is a set of
+  // who served, not a per-route tally.
+  const providersUsed = [...new Set(routeProviders.filter((_, index) => (results[index]?.sources.length ?? 0) > 0))];
 
   // Stable facts: only when Wikipedia found nothing may the generic route be
   // used (§2.3), and then without a freshness window.
@@ -589,7 +676,15 @@ export async function executeOriginSearchGrounding(
     };
   }
 
-  const { kept, stats } = evaluateOriginSourceFreshness(candidates, requirement, questionType, startedAtMs);
+  const { kept, stats } = evaluateOriginSourceFreshness(
+    candidates,
+    requirement,
+    questionType,
+    startedAtMs,
+    // Measure C: with the routing switch on, official-tier sources
+    // are exempt from the undated drop (see the gate's own note).
+    { officialUndatedExempt: officialRoutingEnabled },
+  );
   if (kept.length === 0) {
     return {
       kind: "unavailable",
