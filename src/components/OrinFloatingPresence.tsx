@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
+import OriginCatState, { ORIGIN_CAT_VIDEO_SRC, type OriginCatStateKind } from './OriginCatState';
 import type { OriginLanguage } from '../i18n';
 
 /**
@@ -157,7 +157,10 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
   const ja = language !== 'en';
   // 待機中（ピルが消えきって・動画でない状態）だけ、台座ごと静かな
   // 呼吸を付ける。ピルのフェードアウト中はまだ付けない。
-  const breathing = pillText === null && state !== 'working';
+  // 「動画でない状態」は OriginCatState の状態→動画対応表で判定する
+  // （M2-3 で working 以外に searching も動画になったため、状態名の
+  // 固定比較ではなく対応表の有無で一般化した）。
+  const breathing = pillText === null && ORIGIN_CAT_VIDEO_SRC[state] === undefined;
   return (
     <div className="origin-orin-presence" data-testid="origin-orin-presence">
       <button
