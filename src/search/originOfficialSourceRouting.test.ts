@@ -308,7 +308,14 @@ function officialAwareFetch() {
       return jsonResponse({ results: [BLOG_RESULT] });
     }
     if (url.includes("api.tavily.com/extract")) return jsonResponse({ results: [], failed_results: [] });
-    if (url.includes("wikipedia.org")) return jsonResponse({ pages: [] });
+    // Exact-host check only: a substring match would also accept
+    // "https://wikipedia.org.evil.example/..." (CodeQL
+    // js/incomplete-url-substring-sanitization). Mirrors the
+    // production host rule in originSearchProviders.ts.
+    const host = new URL(url).hostname;
+    if (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) {
+      return jsonResponse({ pages: [] });
+    }
     throw new Error(`unexpected URL: ${url}`);
   };
   return { fetchImpl, calls };
