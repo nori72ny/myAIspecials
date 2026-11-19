@@ -7,6 +7,7 @@ import {
   type RecoveryCandidateValue,
   type RecoveryValueSourceInput,
 } from "./groundedResearchValueExtraction.js";
+import { ORIGIN_OFFICIAL_SOURCE_TOPICS } from "../search/originOfficialSourceRouting.js";
 
 /**
  * Recovery build Stage 1, PR-4: the template direct-answer fallback
@@ -83,6 +84,36 @@ import {
  * original answer byte-identically; enforce delivers the template
  * after the publication gate has also passed it). Mode "off"
  * short-circuits before any extraction.
+ *
+ * Official-support guard (F_GROUP_SOURCE_FIX_DESIGN_2026-11-19 §4,
+ * the re-activation safety condition): round 6 measured this
+ * template firing on pools that held NO official source at all —
+ * the stale policy rate "0.25%" (F-03) and a forecast presented as
+ * the GDP actual "1.0%" (F-15) both won their votes on unofficial
+ * sources alone, while the offline ledger recovered the correct
+ * values from official ones. The defect was the pool, not the vote,
+ * so the vote itself is unchanged; what changes is whether the
+ * template may state the confirmed value directly. For the
+ * statistical scalar types (price_money / rate_percent /
+ * count_people / count_seats), the winning value must be backed by
+ * at least one official-domain source — a non-title-only candidate
+ * in the winning group that either carries the "official"
+ * authority tier or sits on a domain from the official-source
+ * routing map. Neither existing judgment suffices alone, and no
+ * third definition is introduced: the tier (classifyOriginDomainTier,
+ * the judgment PR-3 weighs at 3) covers go.jp / lg.jp government
+ * surfaces and vendor-official domains, but the Bank of Japan —
+ * F-03's publisher — is not a go.jp host (boj.or.jp tiers
+ * "general"); the routing map (ORIGIN_OFFICIAL_SOURCE_TOPICS,
+ * #1380) is the curated statistical-publisher list that names it,
+ * but covers only its eight topics. Their union is the codebase's
+ * official-domain judgment for this guard. The other templated
+ * types (date / team_name / version) are outside the guard's scope
+ * and behave exactly as before. A winner without official support
+ * does not fire: the question falls back to the ordinary answer
+ * path, and the block is reported with reason
+ * "no-official-support" so the router's structured recovery log
+ * can tell it apart.
  */
 
 export type RecoveryTemplateFallbackMode = "off" | "shadow" | "enforce";
@@ -113,6 +144,43 @@ export const RECOVERY_TEMPLATE_TYPES: ReadonlySet<RecoveryAnswerType> = new Set(
   "version",
 ]);
 
+/**
+ * The statistical scalar types (§4 guard scope): values published
+ * as official statistics, where a stale figure confirmed by
+ * unofficial sources alone is the measured round-6 failure. Only
+ * these types require official-domain support to fire; the other
+ * templated types are unchanged.
+ */
+export const RECOVERY_TEMPLATE_OFFICIAL_SUPPORT_TYPES: ReadonlySet<RecoveryAnswerType> = new Set([
+  "price_money",
+  "rate_percent",
+  "count_people",
+  "count_seats",
+]);
+
+/**
+ * Every domain the official-source routing map (#1380) names, across
+ * all topics — reused verbatim, not re-listed. A candidate domain
+ * matches on the exact host or a dot-boundary suffix, the same
+ * matching classifyOriginDomainTier applies to its own sets.
+ */
+const OFFICIAL_ROUTING_DOMAINS: ReadonlySet<string> = new Set(
+  ORIGIN_OFFICIAL_SOURCE_TOPICS.flatMap((topic) => topic.domains),
+);
+
+function isOfficialRoutingDomain(domain: string): boolean {
+  if (!domain) return false;
+  for (const known of OFFICIAL_ROUTING_DOMAINS) {
+    if (domain === known || domain.endsWith(`.${known}`)) return true;
+  }
+  return false;
+}
+
+/** §4's "official domain": the official tier, or a routing-map domain. */
+function hasOfficialTierOrDomain(candidate: RecoveryCandidateValue): boolean {
+  return candidate.authorityTier === "official" || isOfficialRoutingDomain(candidate.domain);
+}
+
 /** The fresh_general ceiling: a confirmed value older than this is not stated as current. */
 export const RECOVERY_TEMPLATE_MAX_VALUE_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 /** Small tolerance for publication timestamps marginally ahead of the clock. */
@@ -135,6 +203,7 @@ export interface RecoveryTemplateFallbackResult {
     | "no-candidates"
     | "not-confirmed"
     | "contested-without-freshness-winner"
+    | "no-official-support"
     | "value-undated"
     | "value-future-dated"
     | "value-stale";
@@ -197,6 +266,13 @@ interface GroupStats {
   newestText?: string;
   domains: Set<string>;
   titleOnly: boolean;
+  /**
+   * §4 guard input: a body (non-title-only) candidate in this
+   * group is official-domain support (official tier or a
+   * routing-map domain) — the same never-title-only discipline
+   * PR-3's confirmation applies.
+   */
+  officialSupport: boolean;
   sourceIndexes: Set<number>;
   candidateCount: number;
   /** Summed per-domain tier weights (PR-3's base score, before its recency bonus). */
@@ -216,6 +292,7 @@ function groupStatsOf(
         newestMs: Number.NaN,
         domains: new Set(),
         titleOnly: true,
+        officialSupport: false,
         sourceIndexes: new Set(),
         candidateCount: 0,
         baseScore: 0,
@@ -225,6 +302,9 @@ function groupStatsOf(
     }
     if (candidate.domain) entry.domains.add(candidate.domain);
     if (!candidate.inTitleOnly) entry.titleOnly = false;
+    if (!candidate.inTitleOnly && hasOfficialTierOrDomain(candidate)) {
+      entry.officialSupport = true;
+    }
     entry.sourceIndexes.add(candidate.sourceIndex);
     entry.candidateCount += 1;
     const domainKey = candidate.domain || `source-${candidate.sourceIndex}`;
@@ -395,6 +475,18 @@ export function tryRecoveryTemplateFallback(
   );
   if (!winnerStats || !winnerGroup) {
     return { ...base, reason: "not-confirmed", voteStatus: vote.status };
+  }
+
+  // §4 official-support guard: for the statistical scalar types,
+  // a confirmed (or freshness-arbitrated) winner backed only by
+  // unofficial sources must not be stated directly — round 6's
+  // F-03/F-15 fatals were exactly this shape. The vote's outcome
+  // is untouched; only the template's licence to state it is.
+  if (
+    RECOVERY_TEMPLATE_OFFICIAL_SUPPORT_TYPES.has(type) &&
+    !winnerStats.officialSupport
+  ) {
+    return { ...base, reason: "no-official-support", voteStatus: vote.status };
   }
 
   // Freshness window (design): the value's newest publication point
