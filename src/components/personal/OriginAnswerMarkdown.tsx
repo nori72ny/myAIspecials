@@ -10,6 +10,11 @@ export type AnswerRefinementKind = 'depth' | 'example' | 'plan' | 'summary';
 type OriginAnswerMarkdownProps = {
   content: string;
   language: OriginLanguage;
+  // 回答への操作（コピー・調整）の表示可否。生成中（ストリーミング中）の
+  // 回答では false にし、完了後にだけ出す（2026-11-20 外部デザイン評価の
+  // 指摘：まだ回答が無いのに「回答をコピー」が出ている）。既定は true で、
+  // 完了済み回答や成果物プレビューなど従来の呼び出しはそのまま。
+  showActions?: boolean;
   // 第1引数はモデルへ送る完全な内部指示文、第2引数は利用者の吹き出しに
   // 表示する短いラベル（ピルの表示文そのもの）。内部指示文をそのまま
   // 吹き出しに出さないため、表示文は必ず分けて渡す。
@@ -67,7 +72,7 @@ const refinementPrompt = (language: OriginLanguage, kind: AnswerRefinementKind) 
  * external image loading. Semantic elements are styled in index.css so long
  * answers remain readable on narrow screens.
  */
-export default function OriginAnswerMarkdown({ content, language, onRefine }: OriginAnswerMarkdownProps) {
+export default function OriginAnswerMarkdown({ content, language, onRefine, showActions = true }: OriginAnswerMarkdownProps) {
   const refinementOptions: { kind: AnswerRefinementKind; label: string }[] = [
     { kind: 'depth', label: language === 'en' ? 'More depth for practical work' : '実務向けに詳しく' },
     { kind: 'example', label: language === 'en' ? 'Add an example' : '具体例を足す' },
@@ -97,7 +102,7 @@ export default function OriginAnswerMarkdown({ content, language, onRefine }: Or
       >
         {content}
       </ReactMarkdown>
-      {content.trim() && <div className="origin-answer-actions">
+      {showActions && content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
         {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>
           {refinementOptions.map((option) => (

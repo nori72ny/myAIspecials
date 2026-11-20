@@ -94,6 +94,11 @@ describe('answer copy and code controls', () => {
     expect(wrap.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('region', { name: 'コードブロック' }).querySelector('pre')?.className).toBe('origin-code-wrap');
   });
+  it('renders the answer text without actions while generation is in progress', () => {
+    render(<OriginAnswerMarkdown language="ja" content="生成中の回答です。" showActions={false} />);
+    expect(screen.getByText('生成中の回答です。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
+  });
   it('reports clipboard rejection without claiming success', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
     render(<OriginAnswerMarkdown language="en" content="Useful answer" />);

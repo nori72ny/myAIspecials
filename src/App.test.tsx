@@ -2297,6 +2297,11 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('最新の情報を調べています'));
     expect(screen.queryByTestId('origin-stage')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
+    // 回答エリア側には同じ汎用フェーズ文言を重ねない（ピルが担う）。
+    // まだ回答が無いので「回答をコピー」も出ていない（2026-11-20
+    // 外部デザイン評価の指摘を受けた是正の固定）。
+    expect(screen.getByRole('log', { name: '会話履歴' }).textContent).not.toContain('最新の情報を調べています');
+    expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
     push({ type: 'sources', sources: [{ title: '料金の公式ページ', domain: 'example.com' }, { title: '比較記事', domain: 'example.org' }] });
     await waitFor(() => expect(screen.getByTestId('origin-stream-sources')).toBeTruthy());
     expect(screen.getByTestId('origin-stream-sources').textContent).toContain('確認した出典');
@@ -2305,10 +2310,16 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     push({ type: 'phase', phase: 'composing' });
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('回答をまとめています'));
     push({ type: 'delta', text: '検証済みの調査回答です。' });
+    // 本文が流れ始めても、生成が完了するまでは「回答をコピー」を
+    // 出さない。
+    await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
     push({ type: 'complete' });
     push('[DONE]');
     streamController.close();
     await waitFor(() => expect(screen.getByText('検証済みの調査回答です。')).toBeTruthy());
+    // 完了後は「回答をコピー」が出る。
+    await waitFor(() => expect(screen.getByRole('button', { name: '回答をコピー' })).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('origin-stream-sources')).toBeNull());
     // 本文が流れ始めたらピルは引っ込み、完了の合図
     // （「できました」、headerDoneCue の2,600ms）をはさんでピルだけが
