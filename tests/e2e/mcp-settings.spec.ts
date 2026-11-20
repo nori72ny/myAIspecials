@@ -58,7 +58,14 @@ test('MCP settings performs owner login and logout without retaining the passwor
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await expect(page.getByText('ログインしました。', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ログアウト', exact: true })).toBeVisible();
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  // ログイン用のパスワード欄が DOM に残っていないこと（このテストの
+  // 狙い）。設定には PR-D で移設されたセッションキー欄（実行キー／
+  // 管理者キー）が常設され、どちらも type="password" のため、画面に
+  // 残るパスワード欄はその2つだけであることもあわせて固定する。
+  await expect(page.getByLabel('パスワード')).toHaveCount(0);
+  await expect(page.locator('input[type="password"]')).toHaveCount(2);
+  await expect(page.getByLabel('実行キー', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('管理者キー', { exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByText('ログアウトしました。', { exact: true })).toBeVisible();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
@@ -121,7 +128,13 @@ test('MCP settings starts reviewed OAuth without rendering service credentials',
   await page.getByRole('button', { name: '認証を開始', exact: true }).click();
   const link = page.getByRole('link', { name: '公式の認証画面へ進む', exact: true });
   await expect(link).toHaveAttribute('href', authorizationUrl);
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  // サービス側の資格情報を入力・表示する欄が無いこと（このテストの
+  // 狙い）。設定には PR-D で移設されたオーナー自身のセッションキー欄
+  // （実行キー／管理者キー）が常設されるため、パスワード欄はその
+  // 2つだけに限られることを固定する。
+  await expect(page.locator('input[type="password"]')).toHaveCount(2);
+  await expect(page.getByLabel('実行キー', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('管理者キー', { exact: true })).toHaveCount(1);
   await expect(page.getByRole('dialog')).not.toContainText('refresh_token');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });

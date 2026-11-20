@@ -57,6 +57,14 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
   const audit = await page.locator('button, a[href]').evaluateAll((elements) => elements
     .filter((element) => {
       const node = element as HTMLElement;
+      // Controls inside a closed drawer/sheet are not auditable: the
+      // container is inert and aria-hidden, so users can neither
+      // operate nor perceive them. The drawer's close transition
+      // flips visibility 300ms after the slide-out starts, so during
+      // that window geometry alone would misreport the drawer's own
+      // controls as off-screen defects (surfaced by PR #1407, whose
+      // flows close the drawer right before several audits).
+      if (node.closest('[inert], [aria-hidden="true"]')) return false;
       const style = getComputedStyle(node);
       const rect = node.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;

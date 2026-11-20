@@ -545,6 +545,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer).toBeVisible();
 
     const beforeUrl = page.url();
+    // 設定入口は PR-D でサイドバーへ集約された。モバイル幅では
+    // ドロワーが閉じているため、開いてから設定ボタンを押す。
+    if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+      await page.getByTestId('sidebar-toggle').click();
+    }
     await page.getByTestId('sidebar-settings').click();
     await expect(page.getByRole('dialog', { name: /設定|Settings/i })).toBeVisible();
     await expect(answer).toBeVisible();
@@ -552,6 +557,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
 
     await page.getByRole('button', { name: '設定を閉じる', exact: true }).click();
     await expect(answer).toBeVisible();
+    // 新しい会話もサイドバー側にあるため、ドロワーを開いて確認する。
+    if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+      await page.getByTestId('sidebar-toggle').click();
+    }
     await expect(page.getByTestId('sidebar-new-conversation')).toBeVisible();
   });
 
