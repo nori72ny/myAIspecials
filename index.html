@@ -10,9 +10,101 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=ribbon-20261108" />
     <meta name="theme-color" content="#ffffff" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';" />
+    <style>
+      /* Pre-mount splash: painted from this document alone so the first
+         screen is never a blank white page while the JS bundle loads.
+         React replaces #root wholesale on mount, and the app then shows
+         its own splash (SplashScreen) over the same white surface, so
+         this stays minimal — background, brand mark, wordmark — in step
+         with splash-brand.css (mark 53px, navy #182d5f / slate #4f6c9b,
+         gold #d7b253). The dark branch only follows the OS color scheme
+         (the app theme itself is a stored setting the document cannot
+         know yet); it uses the same deep navy the app writes to the
+         theme-color meta when its dark theme resolves. */
+      html {
+        background: #ffffff;
+      }
+      .origin-boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        background: #ffffff;
+      }
+      .origin-boot-splash__inner {
+        display: grid;
+        justify-items: center;
+        gap: 18px;
+      }
+      .origin-boot-splash__lockup {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        line-height: 1;
+        user-select: none;
+      }
+      .origin-boot-splash__mark {
+        display: block;
+        width: 53px;
+        height: 53px;
+        border-radius: 50%;
+        filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));
+        -webkit-user-drag: none;
+      }
+      .origin-boot-splash__word {
+        font-family: "M PLUS Rounded 1c", "Noto Sans JP", system-ui, sans-serif;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: .03em;
+        white-space: nowrap;
+        color: #182d5f;
+      }
+      .origin-boot-splash__word-accent {
+        color: #4f6c9b;
+      }
+      .origin-boot-splash__loading {
+        width: 108px;
+        height: 3px;
+        border-radius: 999px;
+        background: #d7b253;
+        animation: origin-boot-pulse 1.1s ease-in-out infinite alternate;
+      }
+      @keyframes origin-boot-pulse {
+        from { opacity: .35; }
+        to { opacity: 1; }
+      }
+      @media (max-width: 640px) {
+        .origin-boot-splash__lockup {
+          gap: 8px;
+        }
+        .origin-boot-splash__mark {
+          width: 43px;
+          height: 43px;
+        }
+        .origin-boot-splash__word {
+          font-size: 20px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .origin-boot-splash__loading {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="origin-boot-splash" role="status" aria-label="ORIGIN を起動しています">
+        <div class="origin-boot-splash__inner">
+          <span class="origin-boot-splash__lockup">
+            <img class="origin-boot-splash__mark" src="/brand/origin-ribbon-o.webp?v=ribbon-20261108" alt="" draggable="false" />
+            <span class="origin-boot-splash__word" aria-hidden="true">ORI<span class="origin-boot-splash__word-accent">GIN</span></span>
+          </span>
+          <span class="origin-boot-splash__loading" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
