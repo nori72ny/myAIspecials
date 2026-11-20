@@ -98,7 +98,10 @@ function expectSourceListFallback(body: { content: string; routing: Record<strin
   expect(body.content.length).toBeGreaterThan(0);
   expect(body.content).toContain(FALLBACK_LEAD);
   expect(body.content).toContain("## 確認できた範囲");
-  expect(body.content).toContain("## 出典");
+  // Sources-display redesign (2026-11-20): the sources ride as cards
+  // (heading + linked title) instead of a separate 出典 list.
+  expect(body.content).toContain("### S1 ·");
+  expect(body.content).not.toContain("## 出典");
   for (const source of faultSources) expect(body.content).toContain(source.url);
   expect(body.routing.freeOnly).toBe(true);
   expect(body.routing.cost).toBe(0);
@@ -259,7 +262,7 @@ describe("fault injection: phased streaming app path (chat router)", () => {
     const text = deltaText(events);
     expect(text.length).toBeGreaterThan(0);
     expect(text).toContain(FALLBACK_LEAD);
-    expect(text).toContain("## 出典");
+    expect(text).toContain("### S1 ·");
     expect(events.some((event) => event.type === "complete")).toBe(true);
   });
 

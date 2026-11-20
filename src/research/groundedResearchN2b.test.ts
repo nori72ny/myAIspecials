@@ -139,14 +139,19 @@ describe("N-2b tier-T3 partial answer claim quotes", () => {
 
   it("quotes the claim sentences selected for the question, not the excerpt head", () => {
     const text = buildGroundedResearchPartialAnswer(t3Sources, "ja", "参議院の定数は何人ですか？");
-    const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));
-    // The answer-bearing sentence is quoted inside the attribution…
-    expect(s1Line).toContain("参議院の定数は248人です。");
+    // The answer-bearing sentence is quoted on the source's card…
+    expect(text).toContain("『参議院の定数は248人です。』");
     // …and the unselected trailing sentence no longer rides along the
     // way the head-of-excerpt quote carried it.
     expect(text).not.toContain("関連リンク集");
     expect(text).toContain("## 確認できた範囲");
-    expect(text).toContain("## 出典");
+    // Sources-display redesign (2026-11-20): the cards replace both
+    // the attribution boilerplate and the duplicated plain source
+    // list, so there is no separate 出典 section anymore.
+    expect(text).not.toContain("## 出典");
+    expect(text).not.toContain("と示されています");
+    expect(text).toContain("### S1 · example.com");
+    expect(text).toContain("[参議院について](https://example.com/about)");
   });
 
   it("still applies the R-1 neutralization to claim quotes", () => {
@@ -160,31 +165,44 @@ describe("N-2b tier-T3 partial answer claim quotes", () => {
     // link-bearing sentence no longer rides the quote at all (it does
     // not answer the question); the neutralization properties below
     // are unchanged — no URL and no link syntax survive in the quote.
+    // (The card's own title link is the one deliberate exception: it
+    // points at the source itself, so the checks scope to the quote.)
     expect(text).not.toContain("案内ページ");
     expect(text).not.toContain("example.org/x");
-    expect(text).not.toContain("](");
+    const quote = text.match(/『([^』]*)』/)?.[1] ?? "";
+    expect(quote).toBe("定員は248人です。");
+    expect(quote).not.toContain("](");
+    expect(quote).not.toContain("http");
     expect(text).toContain("定員は248人です。");
   });
 
-  it("still bounds the claim quote at 240 characters", () => {
-    // PR-2: the bound now applies to the packet quote. The long
-    // sentence must carry a question key to be selected at all — a
-    // long non-answering sentence is dropped by the packet instead of
+  it("still bounds the claim quote at 120 characters", () => {
+    // PR-2: the bound applies to the packet quote. The long sentence
+    // must carry a question key to be selected at all — a long
+    // non-answering sentence is dropped by the packet instead of
     // being quoted — so the key and the number ride inside it.
+    // Sources-display redesign (2026-11-20): the bound dropped from
+    // 240 to 120 characters, and a mid-sentence cut is marked with
+    // an ellipsis instead of ending silently.
     const long = [source({
       title: "長い資料",
       url: "https://example.com/long",
       excerpt: `${"あ".repeat(300)}定員は248人です。`,
     })];
     const text = buildGroundedResearchPartialAnswer(long, "ja", "定員は何人ですか？");
-    expect(text).toContain(`『${"あ".repeat(240)}』`);
-    expect(text).not.toContain("あ".repeat(241));
+    expect(text).toContain(`『${"あ".repeat(120)}…』`);
+    expect(text).not.toContain("あ".repeat(121));
   });
 
-  it("keeps the title-only attribution when a source has no quotable excerpt", () => {
+  it("keeps the title-only card when a source has no quotable excerpt", () => {
     const bare = [source({ title: "抜粋なし資料", url: "https://example.com/bare", excerpt: "" })];
     const text = buildGroundedResearchPartialAnswer(bare, "ja", "定員は何人ですか？");
-    expect(text).toContain("- S1（example.com）では『抜粋なし資料』と示されています。（取得日: 2026年11月14日）");
+    expect(text).toContain("### S1 · example.com");
+    expect(text).toContain("[抜粋なし資料](https://example.com/bare)");
+    expect(text).not.toContain("『");
+    // The retrieval date is collected once under the section heading
+    // instead of riding on the card.
+    expect(text).toContain("取得日：2026年11月14日");
   });
 
   it("is deterministic and also works without a question (answer-bearing selection only)", () => {
@@ -192,6 +210,110 @@ describe("N-2b tier-T3 partial answer claim quotes", () => {
     const second = buildGroundedResearchPartialAnswer(t3Sources, "ja");
     expect(first).toBe(second);
     expect(first).toContain("参議院の定数は248人です。");
+  });
+});
+
+describe("sources-display redesign: card layout (2026-11-20)", () => {
+  const cardSources: OriginResearchSource[] = [
+    source({
+      title: "首相についての資料",
+      url: "https://example.com/pm",
+      domain: "example.com",
+      excerpt: "現在の首相は山田花子です。就任は2026年10月でした。",
+      retrievedAt: "2026-11-20T01:00:00.000Z",
+    }),
+    source({
+      title: "関連ニュース",
+      url: "https://example.org/news",
+      domain: "example.org",
+      excerpt: "首相は本日、記者会見を開きました。",
+      retrievedAt: "2026-11-20T02:00:00.000Z",
+    }),
+    source({
+      title: "解説ページ",
+      url: "https://example.net/explain",
+      domain: "example.net",
+      excerpt: "首相の経歴を解説します。",
+      retrievedAt: "2026-11-19T02:00:00.000Z",
+    }),
+    source({
+      title: "第四の出典",
+      url: "https://example.info/fourth",
+      domain: "example.info",
+      excerpt: "首相に関する補足です。",
+      retrievedAt: "2026-11-20T03:00:00.000Z",
+    }),
+  ];
+
+  it("renders one card per source with domain heading and linked title, quotes only on the top three", () => {
+    const text = buildGroundedResearchPartialAnswer(cardSources, "ja", "現在の首相は誰ですか？");
+    expect(text).toContain("### S1 · example.com");
+    expect(text).toContain("[首相についての資料](https://example.com/pm)");
+    expect(text).toContain("### S4 · example.info");
+    expect(text).toContain("[第四の出典](https://example.info/fourth)");
+    // The fourth card carries no quote (quotes stay bounded to the
+    // top three, as before the redesign).
+    const s4Block = text.split("### S4")[1];
+    expect(s4Block).not.toContain("『");
+    expect(text).not.toContain("と示されています");
+  });
+
+  it("collects the retrieval dates into a single line, each distinct date once", () => {
+    const text = buildGroundedResearchPartialAnswer(cardSources, "ja", "現在の首相は誰ですか？");
+    expect(text.match(/取得日/g)).toHaveLength(1);
+    expect(text).toContain("取得日：2026年11月20日、2026年11月19日");
+  });
+
+  it("drops site-chrome sentences from the quote instead of quoting the page furniture", () => {
+    // The shape seen in production: the packet selects the page's
+    // header run because it contains the question's keyword (首相).
+    const chrome = [source({
+      title: "首相官邸ホームページ",
+      url: "https://example.com/kantei",
+      domain: "example.com",
+      excerpt:
+        "首相官邸 サイトマップ お問い合わせ 新規ウィンドウが開きます メニュー ホーム 検索 English 中文 首相の動きはこちらです。首相は本日、外国を訪問しました。",
+    })];
+    const text = buildGroundedResearchPartialAnswer(chrome, "ja", "首相は今日何をしましたか？");
+    expect(text).not.toContain("サイトマップ");
+    expect(text).not.toContain("新規ウィンドウ");
+    expect(text).toContain("首相は本日、外国を訪問しました。");
+  });
+
+  it("shows no quote when the whole quote is site chrome", () => {
+    const chromeOnly = [source({
+      title: "案内ページ",
+      url: "https://example.com/nav",
+      domain: "example.com",
+      excerpt: "定員 サイトマップ お問い合わせ メニュー ログイン 会員登録 トップページ 検索 ヘルプ",
+    })];
+    const text = buildGroundedResearchPartialAnswer(chromeOnly, "ja", "定員は何人ですか？");
+    expect(text).toContain("[案内ページ](https://example.com/nav)");
+    expect(text).not.toContain("『");
+  });
+
+  it("ends a long quote at a sentence boundary inside the bound when one is available", () => {
+    const sentence = "定員は248人です。";
+    const long = [source({
+      title: "長い資料",
+      url: "https://example.com/long2",
+      excerpt: sentence.repeat(30),
+    })];
+    const text = buildGroundedResearchPartialAnswer(long, "ja", "定員は何人ですか？");
+    const quote = text.match(/『([^』]*)』/)?.[1] ?? "";
+    expect(quote.length).toBeLessThanOrEqual(120);
+    expect(quote.endsWith("。")).toBe(true);
+    expect(quote).not.toContain("…");
+  });
+
+  it("mirrors the card layout in English", () => {
+    const text = buildGroundedResearchPartialAnswer(cardSources, "en", "Who is the current prime minister?");
+    expect(text).toContain("## What could be confirmed");
+    expect(text).toContain("Retrieved: 2026-11-20, 2026-11-19");
+    expect(text).toContain("### S1 · example.com");
+    expect(text).toContain("[首相についての資料](https://example.com/pm)");
+    expect(text).not.toContain("## Sources");
+    expect(text).not.toContain("is titled");
   });
 });
 
