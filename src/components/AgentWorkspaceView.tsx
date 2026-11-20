@@ -211,6 +211,43 @@ function checkpointStatusLabel(status: string): string {
   return '保存済み';
 }
 
+/** 保存した結果の日時表記（タスクボードと同じ M/D HH:mm 形式）。 */
+function formatSavedResultDate(createdAt: number): string {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * 保存した結果の見出し。結果本文の最初の行（Markdown の見出し記号は
+ * 外す）をそのまま使う。本文が JSON のときは生データを出さず null。
+ */
+function artifactHeadline(artifact: string): string | null {
+  const trimmed = artifact.trim();
+  if (!trimmed || trimmed.startsWith('{') || trimmed.startsWith('[')) return null;
+  for (const rawLine of trimmed.split('\n')) {
+    const line = rawLine.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+    if (line) return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+  }
+  return null;
+}
+
+/**
+ * 保存した結果1件の表示内容。状態語だけが並ばないよう、結果の中身
+ * から分かる「何の結果か・いつ・成果物」を一対一に組み立てる。
+ * 記録に無い項目は作らず、行ごと省く（捏造しない）。
+ */
+function savedResultView(item: CheckpointState): { title: string; meta: string; status: string } {
+  const research = parseAgentResearchArtifact(item.artifact);
+  const title = research ? '調査の結果' : artifactHeadline(item.artifact) ?? '作業の結果';
+  const meta = [
+    formatSavedResultDate(item.createdAt),
+    ...(research ? [`出典${research.sources.length}件`] : []),
+    ...(item.mutation?.path ? [item.mutation.path] : []),
+  ].filter(Boolean).join(' · ');
+  return { title, meta, status: checkpointStatusLabel(item.status) };
+}
+
 // 作業結果欄の初期値。実際の結果が入るまでは、この文字列との一致で
 // 「まだ結果が無い」空状態を判定する（結果として保存されることはない）。
 const ARTIFACT_PLACEHOLDER = '終わると、結果がここに表示されます。';
@@ -849,11 +886,22 @@ export default function AgentWorkspaceView() {
           <h3 className="text-sm font-black">この端末に保存した結果</h3>
           {restoring ? <p className="mt-2 text-xs text-origin-muted">読み込み中…</p> : checkpoints.length === 0
             ? <p className="mt-2 text-xs text-origin-muted">終わった作業の結果がここに保存されます。選ぶと、上の欄に表示されます。</p>
-            : <div className="mt-2 flex flex-wrap gap-2">{checkpoints.slice().reverse().slice(0, 8).map((item) =>
-              <button type="button" key={item.checkpointId} onClick={() => restoreLocalCheckpoint(item)}
-                className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">
-                {checkpointStatusLabel(item.status)}
-              </button>)}</div>}
+            : <>
+              <p className="mt-1 text-xs text-origin-muted">選ぶと、上の欄に表示されます。</p>
+              <ul className="mt-2 space-y-2">{checkpoints.slice().reverse().slice(0, 8).map((item) => {
+                const view = savedResultView(item);
+                return <li key={item.checkpointId}>
+                  <button type="button" onClick={() => restoreLocalCheckpoint(item)}
+                    className="origin-secondary-button flex min-h-11 w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{view.title}</span>
+                      {view.meta && <span className="mt-0.5 block truncate text-xs text-origin-muted">{view.meta}</span>}
+                    </span>
+                    <span className="shrink-0 text-xs font-bold">{view.status}</span>
+                  </button>
+                </li>;
+              })}</ul>
+            </>}
         </section>
       </main>
     </div>

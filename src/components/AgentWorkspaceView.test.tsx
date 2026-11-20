@@ -212,7 +212,10 @@ describe('AgentWorkspaceView v3', () => {
 
     fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
-    await screen.findByText('// verified analysis');
+    // The completed artifact shows in the result area, and the saved
+    // result's card below is titled by the same first line — both are
+    // the same result, so the text legitimately appears twice.
+    expect((await screen.findAllByText('// verified analysis')).length).toBeGreaterThanOrEqual(2);
   });
 
   it('fails closed when owner approval authentication is rejected', async () => {
@@ -898,5 +901,68 @@ describe('catStateForPhase', () => {
     expect(cat.tagName).toBe('IMG');
     // 暗い絵柄が両テーマで沈まないよう、他の配置と同じ明るい台座の上に載る。
     expect(cat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+  });
+
+  it('lists saved results as cards tied to their content, date and artifact — not bare status words', async () => {
+    const dateLabel = (createdAt: number) => new Date(createdAt).toLocaleString('ja-JP', {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const docAt = new Date(2026, 10, 18, 9, 15).getTime();
+    const researchAt = new Date(2026, 10, 19, 14, 2).getTime();
+    const fileAt = new Date(2026, 10, 20, 19, 40).getTime();
+    loadCheckpointsFromIndexedDB.mockResolvedValueOnce([
+      {
+        checkpointId: 'run-a-runs-v1', taskId: 'run-a', executionId: 'agent-run', version: 1,
+        status: 'completed', artifact: '# 完成した文書\n本文です。', createdAt: docAt,
+      },
+      {
+        checkpointId: 'run-b-runs-v1', taskId: 'run-b', executionId: 'agent-run', version: 1,
+        status: 'completed',
+        artifact: JSON.stringify({
+          provider: 'tavily',
+          sources: [
+            { title: '出典その1', url: 'https://example.com/1' },
+            { title: '出典その2', url: 'https://example.com/2' },
+          ],
+        }),
+        createdAt: researchAt,
+      },
+      {
+        checkpointId: 'run-c-runs-v1', taskId: 'run-c', executionId: 'agent-run', version: 1,
+        status: 'self_fixed', artifact: '直した内容の説明です。', createdAt: fileAt,
+        mutation: { path: 'artifacts/report.md', beforeExists: false, afterSha256: 'a'.repeat(64) },
+      },
+    ]);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+
+    // Newest first; each card pairs a content-derived title with its
+    // status, and the meta line carries the date (plus the source
+    // count or the produced file when the record has one).
+    const docCard = await screen.findByRole('button', { name: /完成した文書/ });
+    expect(docCard.textContent).toContain('完了');
+    expect(docCard.textContent).toContain(dateLabel(docAt));
+    const researchCard = screen.getByRole('button', { name: /調査の結果/ });
+    expect(researchCard.textContent).toContain('完了');
+    expect(researchCard.textContent).toContain(dateLabel(researchAt));
+    expect(researchCard.textContent).toContain('出典2件');
+    // The raw sources JSON never leaks into the card.
+    expect(researchCard.textContent).not.toContain('tavily');
+    const fileCard = screen.getByRole('button', { name: /直した内容の説明です/ });
+    expect(fileCard.textContent).toContain('修正済み');
+    expect(fileCard.textContent).toContain(dateLabel(fileAt));
+    expect(fileCard.textContent).toContain('artifacts/report.md');
+
+    // Selecting a card still restores its artifact into the result area.
+    fireEvent.click(docCard);
+    await screen.findByRole('heading', { name: '完成した文書' });
+    expect(screen.getByText('この端末に保存した結果を表示しました（サーバー側の状態は変わりません）。')).toBeTruthy();
   });
 });
