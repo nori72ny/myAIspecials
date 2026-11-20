@@ -252,6 +252,25 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           const phaseAnswerEnvelope = record && record.answer && typeof record.answer === "object" ? record.answer as Record<string, unknown> : null;
           const phaseContent = record && typeof record.content === "string" ? record.content : phaseAnswerEnvelope && typeof phaseAnswerEnvelope.answer === "string" ? phaseAnswerEnvelope.answer : "";
           if (res.statusCode >= 200 && res.statusCode < 400 && phaseContent) {
+            // Landing metadata (evaluation fix batch 2, 2026-11-20): the
+            // phased stream otherwise drops the payload's routing record,
+            // so the client cannot tell a tier-T3 extractive partial
+            // answer (the "confirmed range + sources" fallback) from an
+            // adopted answer. The research landing's tier/outcome are
+            // metadata in the same sense as phases and source titles —
+            // never answer text — and let the client offer a retry action
+            // under a fallback answer. Payloads without a research
+            // landing emit nothing, keeping the event sequence unchanged.
+            const phaseRouting = record.routing && typeof record.routing === "object" ? record.routing as Record<string, unknown> : null;
+            const researchTier = phaseRouting && typeof phaseRouting.researchTier === "string" ? phaseRouting.researchTier : null;
+            const researchOutcome = phaseRouting && typeof phaseRouting.researchOutcome === "string" ? phaseRouting.researchOutcome : null;
+            if (researchTier !== null || researchOutcome !== null) {
+              writePhasedEvent({
+                type: "outcome",
+                ...(researchTier !== null ? { researchTier } : {}),
+                ...(researchOutcome !== null ? { researchOutcome } : {}),
+              });
+            }
             const chunks = phaseContent.match(/.{1,48}(?:\s|$)|.{1,48}/gs) ?? [phaseContent];
             let index = 0;
             const writeNext = () => {

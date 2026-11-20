@@ -77,7 +77,7 @@ test('preserves durable sessions across two reloads without legacy storage or em
   await page.getByTestId('history-search-input').fill('保存済みの会話を保持');
   await expect(page.getByTestId('history-search-results')).toContainText('保存済みの会話を保持');
   await page.getByTestId('history-search-result-0').click();
-  await expect(page.getByText('保存済みの会話を保持', { exact: true })).toBeVisible();
+  await expect(page.getByText('保存済みの会話を保持', { exact: true }).first()).toBeVisible();
 });
 
 test('continues in memory after a read failure without overwriting durable history', async ({ page }) => {
