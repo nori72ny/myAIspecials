@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, summarizeImageSubject, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -2680,10 +2680,12 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(within(presence).queryByTestId('origin-orin-presence-name')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
-    // 状態はプレゼンスのオリンが表す（静止画・台座なし）。
+    // 状態はプレゼンスのオリンが表す。送信中はタイピング動画で
+    // 実際に動く（2026-11-20 18:17：静止画では稼働中か分からない
+    // という実機判定を受けた対応。台座なし）。
     const presenceCat = within(presence).getByTestId('origin-cat-state');
-    expect(presenceCat.tagName).toBe('IMG');
-    expect(presenceCat.getAttribute('data-state')).toBe('thinking');
+    expect(presenceCat.tagName).toBe('VIDEO');
+    expect(presenceCat.getAttribute('data-state')).toBe('working');
     expect(presenceCat.closest('[data-testid="origin-cat-pedestal"]')).toBeNull();
     // ヘッダーにオリンは置かない（浮遊プレゼンスに一本化）。
     expect(screen.queryByTestId('origin-header-orin')).toBeNull();
@@ -2787,8 +2789,9 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     expect(screen.queryByTestId('origin-research-progress')).toBeNull();
     // 状態はプレゼンスの大きなオリンが表し、ヘッダーにオリンは置かない。
+    // 送信中はタイピング動画（working）で稼働を見せる（2026-11-20 18:17）。
     const presenceCat = within(presence).getByTestId('origin-cat-state');
-    expect(presenceCat.getAttribute('data-state')).toBe('thinking');
+    expect(presenceCat.getAttribute('data-state')).toBe('working');
     expect(screen.queryByTestId('origin-header-orin')).toBeNull();
     expect(document.querySelector('.origin-header [data-testid="origin-cat-state"]')).toBeNull();
   });
@@ -2854,7 +2857,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
-    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('48px');
+    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('72px');
   });
 
   it('shrinks Orin while the conversation is scrolled and restores it at the top (2026-11-20 10:10 auto-shrink wiring)', async () => {
@@ -2862,24 +2865,24 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     const presence = await screen.findByTestId('origin-orin-presence');
     const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
     const disc = cat.parentElement as HTMLElement;
-    // 未スクロールの待機中は通常の48px（Muse のアバター相当、
-    // 2026-11-20 15:36 の実機判定）。円盤は薄くなっていない。
-    expect(cat.style.width).toBe('48px');
+    // 未スクロールの待機中は通常の72px（2026-11-20 18:17 の実機
+    // 判定で顔が読める大きさへ拡大）。円盤は薄くなっていない。
+    expect(cat.style.width).toBe('72px');
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
     expect(scroller).toBeTruthy();
     let scrollTop = 120;
     Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
     fireEvent.scroll(scroller);
-    // 閾値（40px）を超えてスクロールされている間は36pxに縮む。
-    await waitFor(() => expect(cat.style.width).toBe('36px'));
+    // 閾値（40px）を超えてスクロールされている間は48pxに縮む。
+    await waitFor(() => expect(cat.style.width).toBe('48px'));
     // スクロール中は円盤が薄くなる（is-scrolling、2026-11-20
     // 15:36 の実機判定を受けた修正）。
     await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(true));
-    // 先頭に戻ると48pxに戻る。
+    // 先頭に戻ると72pxに戻る。
     scrollTop = 0;
     fireEvent.scroll(scroller);
-    await waitFor(() => expect(cat.style.width).toBe('48px'));
+    await waitFor(() => expect(cat.style.width).toBe('72px'));
     // スクロールが止まって約300ms経つと円盤の不透明度も戻る。
     await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(false));
   });
@@ -2914,9 +2917,11 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     try {
       render(<App language="ja" />);
       // チャットが待機中でも、裏で進むエージェントの現在のステップが
-      // 段階名ではなく実際のタイトルでピルに出る。
+      // 段階名ではなく実際のタイトルでピルに出る。作業中の文には
+      // 稼働ドット（…）が末尾に付く（2026-11-20 18:17）。
       const pill = await screen.findByTestId('origin-orin-presence-status');
-      expect(pill.textContent).toBe('ウェブで調べる');
+      expect(pill.textContent).toBe('ウェブで調べる...');
+      expect(within(pill).getByTestId('origin-orin-presence-dots')).toBeTruthy();
       expect(within(screen.getByTestId('origin-orin-presence')).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('working');
       // ステップが進むとピルの文も切り替わる。
       act(() => {
@@ -2934,7 +2939,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
           updatedAt: Date.now(),
         });
       });
-      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('文書を作る'));
+      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('文書を作る...'));
     } finally {
       reportAgentActivity(null);
     }
@@ -2945,7 +2950,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     try {
       render(<App language="ja" />);
       const pill = await screen.findByTestId('origin-orin-presence-status');
-      expect(pill.textContent).toBe('エージェントが作業しています');
+      expect(pill.textContent).toBe('エージェントが作業しています...');
     } finally {
       reportAgentActivity(null);
     }
@@ -2957,7 +2962,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     vi.stubGlobal('fetch', fetchMock);
     try {
       render(<App language="ja" />);
-      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('ウェブで調べる');
+      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('ウェブで調べる...');
       fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '前景の確認' } });
       fireEvent.click(screen.getByTestId('start-request-button'));
       // 送信中は前景の段階文が優先し、エージェント文は引っ込む。
@@ -2983,7 +2988,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     });
     try {
       render(<App language="ja" />);
-      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('文書を作る');
+      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('文書を作る...');
       fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
       expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
       await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
@@ -2992,7 +2997,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     }
   });
 
-  it('names what is being drawn in the pill while an image is generated from the panel (2026-11-20 detail pass)', async () => {
+  it('shows the summarised drawing phase in the pill — never the request text — while an image is generated from the panel (2026-11-20 18:17)', async () => {
     let resolveGeneration: ((response: Response) => void) | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestPath(input);
@@ -3008,8 +3013,12 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
       fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
-      // 描画中は段階名だけでなく、何を描いているかがピルに出る。
-      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('『夕焼けの海辺』を描いています'));
+      // 描画中のピルは作業の要約（絵を描いています）だけを出し、
+      // 依頼文そのものは決して含まない（2026-11-20 18:17 の実機
+      // 判定：入力した文字をそのまま表示しない）。作業中のため
+      // 稼働ドットが末尾に付く。
+      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('絵を描いています...'));
+      expect(screen.getByTestId('origin-orin-presence-status').textContent).not.toContain('夕焼けの海辺');
       resolveGeneration?.(new Response(JSON.stringify({
         code: 'PROVIDER_UNAVAILABLE',
         message: '画像生成Providerが未構成です。',
@@ -3020,39 +3029,28 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
   });
 });
 
-describe('image phase pill text (2026-11-20 detail pass)', () => {
-  it('derives the subject from the first line of the request only', () => {
-    expect(summarizeImageSubject('夕焼けの海辺')).toBe('夕焼けの海辺');
-    // 編集・別案の依頼では内部の指示文が元の依頼の後ろに付く。
-    // 最初の1行だけを主題にし、指示文は表示へ漏らさない。
-    expect(summarizeImageSubject('青い陶器のマグカップ\n\nEdit the verified source image according to the user\'s next instruction.')).toBe('青い陶器のマグカップ');
-    // 継続中の依頼の追加条件も主題には混ぜない。
-    expect(summarizeImageSubject('夕焼けの海辺\n\n追加条件: もっと赤く')).toBe('夕焼けの海辺');
+describe('image phase pill text (2026-11-20 detail pass, summarised 18:17)', () => {
+  it('builds the phase texts as fixed summary phrases, with the real check aspects for checking', () => {
+    expect(buildImagePhaseText('designing', 'ja')).toBe('絵の設計をしています');
+    expect(buildImagePhaseText('drawing', 'ja')).toBe('絵を描いています');
+    expect(buildImagePhaseText('checking', 'ja')).toBe('明るさが潰れていないか、中身が描かれているかを確認しています');
+    expect(buildImagePhaseText('designing', 'en')).toBe('Designing the image');
+    expect(buildImagePhaseText('drawing', 'en')).toBe('Drawing the image');
+    expect(buildImagePhaseText('checking', 'en')).toBe('Checking the brightness and that the content is really there');
   });
 
-  it('collapses whitespace and truncates deterministically at the cap', () => {
-    expect(summarizeImageSubject('  山の  上の\n小さな家  ')).toBe('山の 上の');
-    expect(summarizeImageSubject('あ'.repeat(30))).toBe(`${'あ'.repeat(20)}…`);
-  });
-
-  it('returns null for an empty request', () => {
-    expect(summarizeImageSubject('')).toBeNull();
-    expect(summarizeImageSubject('  \n  ')).toBeNull();
-  });
-
-  it('builds phase texts with the subject for designing and drawing, and the real check aspects for checking', () => {
-    expect(buildImagePhaseText('designing', '夕焼けの海辺', 'ja')).toBe('『夕焼けの海辺』を設計しています');
-    expect(buildImagePhaseText('drawing', '夕焼けの海辺', 'ja')).toBe('『夕焼けの海辺』を描いています');
-    expect(buildImagePhaseText('checking', '夕焼けの海辺', 'ja')).toBe('明るさが潰れていないか、中身が描かれているかを確認しています');
-    expect(buildImagePhaseText('designing', 'seaside at dusk', 'en')).toBe('Designing “seaside at dusk”');
-    expect(buildImagePhaseText('drawing', 'seaside at dusk', 'en')).toBe('Drawing “seaside at dusk”');
-    expect(buildImagePhaseText('checking', null, 'en')).toBe('Checking the brightness and that the content is really there');
-  });
-
-  it('keeps the plain stage texts when there is no subject', () => {
-    expect(buildImagePhaseText('designing', null, 'ja')).toBe('設計しています');
-    expect(buildImagePhaseText('drawing', null, 'ja')).toBe('描いています');
-    expect(buildImagePhaseText('designing', null, 'en')).toBe('Designing the image');
-    expect(buildImagePhaseText('drawing', null, 'en')).toBe('Drawing the image');
+  it('never embeds the request text in a phase text (2026-11-20 18:17: no verbatim input in working comments)', () => {
+    // 依頼文が何であっても、フェーズ文は段階ごとの固定の要約
+    // 表現だけになる。入力の断片が文に混ざらないことを固定する。
+    const requestFragments = ['夕焼けの海辺', '青い陶器のマグカップ', 'seaside at dusk'];
+    for (const language of ['ja', 'en'] as const) {
+      for (const phase of ['designing', 'drawing', 'checking'] as const) {
+        const text = buildImagePhaseText(phase, language);
+        for (const fragment of requestFragments) {
+          expect(text).not.toContain(fragment);
+        }
+        expect(text).not.toContain('『');
+      }
+    }
   });
 });

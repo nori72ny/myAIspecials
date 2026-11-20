@@ -27,7 +27,18 @@ import type { OriginLanguage } from '../i18n';
  * は Muse のアバター相当（待機 48px／作業中・スクロール時
  * 36px、PC・スマホ共通）にし、統括が挙げた2つの注意点
  * （スクロール時に円盤の裏を通る行の数文字が一瞬隠れる／
- * 縮小時のタップの的が小さい）の修正も指示された。現在の形：
+ * 縮小時のタップの的が小さい）の修正も指示された。
+ *
+ * さらに同日 18:17 の実機判定で、PC・スマホともオリンが
+ * 小さすぎて顔が見えず何なのか分かりにくいとされ、サイズを
+ * 待機 72px／作業中・スクロール時 48px へ拡大した（PC・
+ * スマホ共通は維持）。併せて、作業中コメントが入力文の
+ * 丸写しに見える点（画像フェーズ文の主題埋め込みが主因。
+ * 組み立て側で要約表現へ置換済み）と、テキストだけでは
+ * 稼働中か分からない点への対応として、作業中のピル文末尾
+ * に点滅ドットを付け、前景チャットの作業中は静止画では
+ * なくタイピング動画で姿が動くようにした（App 側の状態
+ * 集約）。現在の形：
  * - タップ対象から枠（border・背景・影・パネル角丸）を全て
  *   撤去し、円盤と状態テキストだけが浮く。状態テキストも枠を
  *   持たず、キャンバス色のハロー（text-shadow、CSS 側）で
@@ -53,13 +64,14 @@ import type { OriginLanguage } from '../i18n';
  * （2026-11-15 ノリ指示で削除。名前はタップで開くプロフィール
  * カードの中にだけ出す）。
  *
- * 自動縮小（2026-11-20 10:10、寸法は同日 15:36 の実機判定で改訂）：
- * - 通常時（待機中・未スクロール）：絵は 48px。
+ * 自動縮小（2026-11-20 10:10、寸法は同日 15:36 の実機判定を
+ * 経て同日 18:17 の実機判定で拡大）：
+ * - 通常時（待機中・未スクロール）：絵は 72px。
  * - 作業中（状態テキストが表示されている間。チャットの読み
  *   込み中・エージェント実行中・画像生成中を含む）：絵は
- *   36px に縮む。状態テキストは表示中は常に見える。
+ *   48px に縮む。状態テキストは表示中は常に見える。
  * - 会話がスクロールされている間（scrollTop が閾値超）：絵は
- *   36px。待機中ならオリンだけの小さい形になる。
+ *   48px。待機中ならオリンだけの小さい形になる。
  * サイズ変化は約200msのトランジションで、prefers-reduced-motion
  * では即時切替。会話スクローラ側は、先頭行が円盤の下に隠れ
  * ないよう上部に円盤の下端より深いパディングを確保しつつ、
@@ -109,15 +121,21 @@ export const ORIN_PRESENCE_FADE_MS = 180;
  * 統一した（幅によるサイズ分岐はしない）。作業中・スクロール
  * 中は ORIN_PRESENCE_CAT_SIZE_COMPACT_PX へ自動で縮む（同日
  * 10:10 の refine 指示）。
+ *
+ * しかし同日 18:17 の実機判定で、PC・スマホとも小さすぎて
+ * 顔が見えず何なのか分かりにくいとされ、72px へ拡大した
+ * （全身像のため、顔の読み取りにはこの寸法が要る。幅による
+ * サイズ分岐はしない＝PC・スマホ共通のまま）。
  */
-export const ORIN_PRESENCE_CAT_SIZE_PX = 48;
+export const ORIN_PRESENCE_CAT_SIZE_PX = 72;
 
 /**
  * 自動縮小時の絵の寸法（px）。作業中（状態テキスト表示中）と
  * 会話のスクロール中にこの大きさになり、円盤の下を内容が
- * 読み進められる余地を広げる（2026-11-20 10:10 オーナー指示）。
+ * 読み進められる余地を広げる（2026-11-20 10:10 オーナー指示、
+ * 寸法は同日 18:17 の実機判定で 36px から拡大）。
  */
-export const ORIN_PRESENCE_CAT_SIZE_COMPACT_PX = 36;
+export const ORIN_PRESENCE_CAT_SIZE_COMPACT_PX = 48;
 
 /**
  * 会話スクローラの scrollTop がこの px を超えたら「スクロール
@@ -208,18 +226,41 @@ export interface OrinPillPriority {
   agentText: string | null;
 }
 
+export interface OrinPillState {
+  /** ピルに出す一文。出す文が無い間は null。 */
+  text: string | null;
+  /**
+   * その文が「いま作業中」の文（前景のチャット作業・背景の
+   * エージェント作業）か。完了・失敗の合図は作業の継続では
+   * ないため false。プレゼンスは true の間だけ文末に点滅
+   * ドットを付け、稼働中であることをテキスト自体でも見せる
+   * （2026-11-20 18:17 の実機判定を受けた対応）。
+   */
+  active: boolean;
+}
+
 /**
- * ピルに出す一文の優先順位の正本（2026-11-20 詳細化でエージェント
- * 文を末尾に追加）：シート表示中は出さない → 前景のチャット作業
- * → 失敗 → 完了 → 背景のエージェント作業。呼び出し側は各文を
- * 「出す条件の間だけ非 null」にして渡すこと。
+ * ピルに出す一文と、その文が作業中かどうかの正本（2026-11-20
+ * 詳細化でエージェント文を末尾に追加）：シート表示中は出さ
+ * ない → 前景のチャット作業 → 失敗 → 完了 → 背景のエージェ
+ * ント作業。呼び出し側は各文を「出す条件の間だけ非 null」に
+ * して渡すこと。
+ */
+export function resolveOrinPillState(priority: OrinPillPriority): OrinPillState {
+  if (priority.sheetOpen) return { text: null, active: false };
+  if (priority.workingText !== null) return { text: priority.workingText, active: true };
+  if (priority.failureText !== null) return { text: priority.failureText, active: false };
+  if (priority.doneText !== null) return { text: priority.doneText, active: false };
+  if (priority.agentText !== null) return { text: priority.agentText, active: true };
+  return { text: null, active: false };
+}
+
+/**
+ * ピルに出す一文だけが要る呼び出し向けの従来形
+ * （resolveOrinPillState の text のみを返す）。
  */
 export function resolveOrinPillText(priority: OrinPillPriority): string | null {
-  if (priority.sheetOpen) return null;
-  if (priority.workingText !== null) return priority.workingText;
-  if (priority.failureText !== null) return priority.failureText;
-  if (priority.doneText !== null) return priority.doneText;
-  return priority.agentText;
+  return resolveOrinPillState(priority).text;
 }
 
 function matchesReducedMotion(): boolean {
@@ -244,6 +285,14 @@ function usePrefersReducedMotion(): boolean {
 export interface OrinFloatingPresenceProps {
   /** 円盤の右側に出す状態文。null の間は文を出さず、オリンだけの形になる。 */
   text: string | null;
+  /**
+   * 状態文が「いま作業中」の文か（App 側の resolveOrinPillState
+   * が判定する）。true の間は文末に点滅ドットを付けて稼働中で
+   * あることを見せる。文自体が末尾の省略記号（…）を持つ場合は
+   * ドットがその役割を引き継ぐため、表示では省略記号を外す。
+   * 完了・失敗の合図では付けない。
+   */
+  active?: boolean;
   /** オリンの姿（App 側の状態集約 orinPresenceState をそのまま渡す）。 */
   state: OriginCatStateKind;
   /** 名前のロケール（ja: オリン / en: Orin）。 */
@@ -272,7 +321,7 @@ export interface OrinFloatingPresenceProps {
   scrolling?: boolean;
 }
 
-export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false, scrolling = false }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, active = false, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false, scrolling = false }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -327,6 +376,13 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
   // （M2-3 で working 以外に searching も動画になったため、状態名の
   // 固定比較ではなく対応表の有無で一般化した）。
   const breathing = pillText === null && ORIGIN_CAT_VIDEO_SRC[state] === undefined;
+  // 作業中の文には末尾に点滅ドットを付ける（2026-11-20 18:17）。
+  // 文自体が省略記号（…）で終わる場合はドットがその役割を引き
+  // 継ぐため、表示では省略記号を外す（二重の点々を避ける）。
+  // ドットは装飾であり、読み上げには含めない（aria-hidden）。
+  const pillDisplayText = pillText !== null && active
+    ? pillText.replace(/[…。.]+$/u, '')
+    : pillText;
   return (
     <div className="origin-orin-presence" data-testid="origin-orin-presence">
       <button
@@ -346,7 +402,14 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
             aria-live="polite"
             style={{ opacity: pillRevealed ? 1 : 0 }}
           >
-            {pillText}
+            {pillDisplayText}
+            {active && (
+              <span className="origin-orin-presence__dots" data-testid="origin-orin-presence-dots" aria-hidden="true">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            )}
           </span>
         )}
       </button>

@@ -88,11 +88,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 円盤の中の猫は48pxの円形（待機・未スクロール。Muse の
-    // アバター相当、2026-11-20 15:36）。作業中とスクロール中は
-    // 36pxに自動で縮む（2026-11-20 10:10）。
-    expect(presenceCatStyle.width).toBe('48px');
-    expect(presenceCatStyle.height).toBe('48px');
+    // 円盤の中の猫は72pxの円形（待機・未スクロール。2026-11-20
+    // 18:17 の実機判定で、顔が読める大きさへ拡大）。作業中と
+    // スクロール中は48pxに自動で縮む（2026-11-20 10:10）。
+    expect(presenceCatStyle.width).toBe('72px');
+    expect(presenceCatStyle.height).toBe('72px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
     // 枠なし（2026-11-20 12:06）：タップ対象は窓パネルではなく、
     // 背景・枠・影を持たない。残るのは円盤とテキストだけ。
@@ -126,9 +126,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     // 全体表示の幾何（2026-11-20 15:36）：円盤の上端はヘッダーの
     // 下端より下にあり、円盤がヘッダーに隠れる量は 0（猫の頭が
     // 切れない）。ただしヘッダー直下に寄せた配置で、隙間は
-    // 12px 以内。円盤の下端はスクローラの padding-top（64px）
+    // 12px 以内。円盤の下端はスクローラの padding-top（88px）
     // の内側に収まるため、先頭行が円盤の下に隠れることはない。
-    // scroll-padding-top は 60px。スクロールした内容は円盤の
+    // scroll-padding-top は 84px。スクロールした内容は円盤の
     // 下を通過できる（パディングはスクロール領域の一部）。
     await expect(presence).toHaveCSS('position', 'absolute');
     const headerBox = await page.locator('.origin-header').boundingBox();
@@ -143,11 +143,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     // 隠れる量は 0 が正本。 boundingBox の端数で 1px まで許容。
     expect(hiddenByHeader).toBeLessThanOrEqual(1);
     expect(discBox!.y - headerBottom).toBeLessThanOrEqual(12);
-    expect(discBox!.y + discBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 64 + 1);
-    await expect(scroller).toHaveCSS('padding-top', '64px');
-    await expect(scroller).toHaveCSS('scroll-padding-top', '60px');
+    expect(discBox!.y + discBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 88 + 1);
+    await expect(scroller).toHaveCSS('padding-top', '88px');
+    await expect(scroller).toHaveCSS('scroll-padding-top', '84px');
     // タップの的（2026-11-20 15:36）：待機状態でも的は44px以上
-    // （絵48px＋パディング6px×2＝60px）。
+    // （絵72px＋パディング6px×2＝84px）。
     const tapBox = await tapButton.boundingBox();
     expect(tapBox).not.toBeNull();
     expect(tapBox!.width).toBeGreaterThanOrEqual(44);
@@ -214,12 +214,16 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(presence).toContainText('回答を準備しています');
-    // 作業中は自動縮小で猫が36pxになる（状態テキストは見えたまま）。
+    // 作業中コメントは入力文の丸写しではなく作業の要約だけを
+    // 出し（2026-11-20 18:17）、末尾には稼働ドットが付く。
+    await expect(presence).not.toContainText('思考中の状態を確認');
+    await expect(presence.getByTestId('origin-orin-presence-dots')).toBeVisible();
+    // 作業中は自動縮小で猫が48pxになる（状態テキストは見えたまま）。
     const catDuring = presence.locator('img[data-testid="origin-cat-state"]');
     await expect(catDuring).toBeVisible();
-    await expect.poll(async () => catDuring.evaluate((el) => getComputedStyle(el).width)).toBe('36px');
-    // 縮小状態でもタップの的は44px以上（36px＋パディング6px×2
-    // ＝48px、2026-11-20 15:36）。
+    await expect.poll(async () => catDuring.evaluate((el) => getComputedStyle(el).width)).toBe('48px');
+    // 縮小状態でもタップの的は44px以上（48px＋パディング6px×2
+    // ＝60px、2026-11-20 15:36）。
     const tapDuringBox = await presence.locator('button').boundingBox();
     expect(tapDuringBox).not.toBeNull();
     expect(tapDuringBox!.height).toBeGreaterThanOrEqual(44);
@@ -227,12 +231,12 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
-    // 回答が終わるとピルだけが消え、姿は通常の48pxに戻って残る。
+    // 回答が終わるとピルだけが消え、姿は通常の72pxに戻って残る。
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
     await expect(presence).toBeVisible();
     const catAfter = presence.locator('img[data-testid="origin-cat-state"]');
     await expect(catAfter).toBeVisible();
-    await expect.poll(async () => catAfter.evaluate((el) => getComputedStyle(el).width)).toBe('48px');
+    await expect.poll(async () => catAfter.evaluate((el) => getComputedStyle(el).width)).toBe('72px');
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 
@@ -272,7 +276,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       return disc.evaluate((el) => getComputedStyle(el).opacity);
     }, { timeout: 10_000 }).toBe('0.35');
     // スクロールで縮んだ状態（状態テキストなし）でもタップの的は
-    // 44px以上（36px＋パディング6px×2＝48px）。
+    // 44px以上（48px＋パディング6px×2＝60px）。
     const tapScrolledBox = await presence.locator('button').boundingBox();
     expect(tapScrolledBox).not.toBeNull();
     expect(tapScrolledBox!.width).toBeGreaterThanOrEqual(44);

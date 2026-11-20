@@ -12,6 +12,7 @@ import OrinFloatingPresence, {
   ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX,
   resolveOrinAgentBubbleText,
   resolveOrinBubbleText,
+  resolveOrinPillState,
   resolveOrinPillText,
   type OrinBubbleSignals,
   type OrinPillPriority,
@@ -134,6 +135,30 @@ describe('resolveOrinPillText priority (2026-11-20 detail pass)', () => {
   });
 });
 
+describe('resolveOrinPillState active flag (2026-11-20 18:17 liveness dots)', () => {
+  function priority(overrides: Partial<OrinPillPriority> = {}): OrinPillPriority {
+    return { sheetOpen: false, workingText: null, failureText: null, doneText: null, agentText: null, ...overrides };
+  }
+
+  it('marks foreground chat work as active', () => {
+    expect(resolveOrinPillState(priority({ workingText: '回答を準備しています…' }))).toEqual({ text: '回答を準備しています…', active: true });
+  });
+
+  it('marks background agent work as active', () => {
+    expect(resolveOrinPillState(priority({ agentText: 'ウェブで調べる' }))).toEqual({ text: 'ウェブで調べる', active: true });
+  });
+
+  it('does not mark the completion or failure cues as active', () => {
+    expect(resolveOrinPillState(priority({ doneText: 'できました' }))).toEqual({ text: 'できました', active: false });
+    expect(resolveOrinPillState(priority({ failureText: 'エラーが発生しました' }))).toEqual({ text: 'エラーが発生しました', active: false });
+  });
+
+  it('is inactive when nothing is shown', () => {
+    expect(resolveOrinPillState(priority())).toEqual({ text: null, active: false });
+    expect(resolveOrinPillState(priority({ sheetOpen: true, workingText: '回答を準備しています…' }))).toEqual({ text: null, active: false });
+  });
+});
+
 describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating auto-shrink 2026-11-20, fully visible revision 15:36)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -158,13 +183,13 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // 枠なし方式（2026-11-20 12:06）：台座も窓枠も付けない。
     // 円盤は「穴」質感のラッパー（__disc）に包まれる。
     expect(within(presence).queryByTestId('origin-cat-pedestal')).toBeNull();
-    // 円盤の中のオリン：通常時（待機・未スクロール）は絵48px
-    // （Muse のアバター相当、2026-11-20 15:36 の実機判定）。
+    // 円盤の中のオリン：通常時（待機・未スクロール）は絵72px
+    // （2026-11-20 18:17 の実機判定で、顔が読める大きさへ拡大）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.tagName).toBe('IMG');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
-    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(48);
+    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(72);
     expect(presence.contains(cat)).toBe(true);
     expect(cat.parentElement?.classList.contains('origin-orin-presence__disc')).toBe(true);
     // 待機中はオリンだけの形（is-idle）になり、
@@ -193,14 +218,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
   it('shows the status text beside the disc while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink)', () => {
     const { props, rerender } = renderPresence();
     const idleCat = screen.getByTestId('origin-cat-state');
-    expect((idleCat as HTMLElement).style.width).toBe('48px');
+    expect((idleCat as HTMLElement).style.width).toBe('72px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
     // 状態テキストは段階文をそのまま円盤の右側に出す。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
-    // 作業中は自動縮小が発火し、絵は36pxになる（テキストは常に見える）。
+    // 作業中は自動縮小が発火し、絵は48pxになる（テキストは常に見える）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat).toBe(idleCat);
-    expect(ORIN_PRESENCE_CAT_SIZE_COMPACT_PX).toBe(36);
+    expect(ORIN_PRESENCE_CAT_SIZE_COMPACT_PX).toBe(48);
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     // テキストが出ている間はオリンだけの形ではなく、呼吸も付けない。
@@ -212,7 +237,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
 
   it('shrinks to the compact cat-only form while the conversation is scrolled, and grows back at the top', () => {
     const { props, rerender } = renderPresence({ scrolled: true });
-    // スクロール中は待機でも自動縮小：絵36px、テキストは出ず、
+    // スクロール中は待機でも自動縮小：絵48px、テキストは出ず、
     // オリンだけの小さい形（is-idle かつ is-compact）。
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
@@ -220,7 +245,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(true);
     expect(tap.classList.contains('is-compact')).toBe(true);
-    // 先頭に戻ると通常の48pxに戻る。
+    // 先頭に戻ると通常の72pxに戻る。
     rerender(<OrinFloatingPresence {...props} scrolled={false} />);
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect(screen.getByRole('button', { name: 'いまの作業を表示' }).classList.contains('is-compact')).toBe(false);
@@ -265,6 +290,39 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(cat.getAttribute('data-state')).toBe('working');
   });
 
+  it('moves while searching: the searching state uses the look-around video asset', () => {
+    renderPresence({ text: '最新の情報を調べています…', state: 'searching', active: true });
+    const cat = screen.getByTestId('origin-cat-state');
+    expect(cat.tagName).toBe('VIDEO');
+    expect(cat.getAttribute('data-state')).toBe('searching');
+  });
+
+  it('shows blinking dots after the working text so the text itself shows Orin is running (2026-11-20 18:17)', () => {
+    renderPresence({ text: '回答を準備しています…', state: 'working', active: true });
+    const status = screen.getByTestId('origin-orin-presence-status');
+    const dots = screen.getByTestId('origin-orin-presence-dots');
+    expect(status.contains(dots)).toBe(true);
+    expect(dots.getAttribute('aria-hidden')).toBe('true');
+    expect(dots.querySelectorAll('span')).toHaveLength(3);
+    // 文自体の省略記号（…）はドットが引き継ぐため、表示では
+    // 外れる（二重の点々にしない）。文の内容は要約表現のまま。
+    expect(status.textContent).toBe('回答を準備しています...');
+    expect(status.textContent).not.toContain('…');
+  });
+
+  it('keeps a working text without an ellipsis as-is and still adds the dots', () => {
+    renderPresence({ text: '絵を描いています', state: 'making', active: true });
+    const status = screen.getByTestId('origin-orin-presence-status');
+    expect(status.textContent).toBe('絵を描いています...');
+    expect(screen.getByTestId('origin-orin-presence-dots')).toBeTruthy();
+  });
+
+  it('shows no dots for the completion cue (not active)', () => {
+    renderPresence({ text: 'できました', state: 'done' });
+    expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('できました');
+    expect(screen.queryByTestId('origin-orin-presence-dots')).toBeNull();
+  });
+
   it('swaps the status text without unmounting on phase changes', () => {
     const { props, rerender } = renderPresence({ text: '回答を準備しています…', state: 'thinking' });
     const presence = screen.getByTestId('origin-orin-presence');
@@ -278,14 +336,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
   it('on completion only the status text fades out — the presence and the art stay, and the art grows back to full size', () => {
     const { props, rerender } = renderPresence({ text: '回答を準備しています…', state: 'thinking' });
     act(() => { vi.advanceTimersByTime(50); });
-    // テキスト表示中は自動縮小で36px。
+    // テキスト表示中は自動縮小で48px。
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     rerender(<OrinFloatingPresence {...props} text={null} state="idle" />);
     // フェードアウトの間テキストは残り、尺が過ぎたらテキストだけが消える。
     expect(screen.queryByTestId('origin-orin-presence-status')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_PRESENCE_FADE_MS); });
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    // 姿は残り、絵は通常の48pxに戻る。オリンだけの形に戻り、
+    // 姿は残り、絵は通常の72pxに戻る。オリンだけの形に戻り、
     // 自動縮小も解ける。
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     const cat = screen.getByTestId('origin-cat-state');
@@ -367,7 +425,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(tapRule).toContain('box-shadow: none;');
     expect(tapRule).toContain('padding: 6px;');
     // タップの的は全状態で44px以上（2026-11-20 15:36）：最小寸法
-    // を44pxに置き、36pxの縮小状態でも的は 48px（36＋ padding
+    // を44pxに置き、48pxの縮小状態でも的は 60px（48＋ padding
     // 6px×2）になる。
     expect(tapRule).toContain('min-width: 44px;');
     expect(tapRule).toContain('min-height: 44px;');
@@ -404,14 +462,25 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // 自動縮小のトランジション：絵の寸法変化は約200ms、
     // reduced-motion では即時（既存の media 規則側で無効化）。
     expect(css).toContain('transition: width 200ms ease-out, height 200ms ease-out;');
+    // 作業中ドット（2026-11-20 18:17）：状態文の末尾の3ドットが
+    // 順に点滅するアニメーションを持ち、reduced-motion では
+    // 点滅を止める。
+    expect(css).toContain('.origin-orin-presence__dots {');
+    expect(css).toContain('@keyframes origin-orin-dots');
+    expect(css).toContain('animation: origin-orin-dots 1200ms ease-in-out infinite;');
+    const dotsRules = css.match(/\.origin-orin-presence__dots > span \{[^}]*\}/g) ?? [];
+    expect(dotsRules.some((rule) => rule.includes('animation: origin-orin-dots'))).toBe(true);
+    expect(dotsRules.some((rule) => rule.includes('animation: none;'))).toBe(true);
     // 会話スクローラ：先頭行が円盤の下端（ヘッダー下端から
-    // 54px）より下に来るよう padding-top は 64px のまま、
-    // scroll-padding-top は円盤の下端より下の 60px。スクロール
+    // 78px）より下に来るよう padding-top は 88px、
+    // scroll-padding-top は円盤の下端より下の 84px。スクロール
     // した内容は円盤の下を通過できる（パディングはスクロール
     // 領域の一部）。
     expect(css).toContain('.origin-chat-scroll {');
-    expect(css).toContain('padding-top: 64px;');
-    expect(css).toContain('scroll-padding-top: 60px;');
+    expect(css).toContain('padding-top: 88px;');
+    expect(css).toContain('scroll-padding-top: 84px;');
+    expect(css).not.toContain('padding-top: 64px;');
+    expect(css).not.toContain('scroll-padding-top: 60px;');
     expect(css).not.toContain('scroll-padding-top: 52px;');
     expect(css).not.toContain('padding-top: 82px;');
     expect(css).not.toContain('scroll-padding-top: 64px;');
