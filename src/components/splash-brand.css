@@ -64,11 +64,18 @@
    of recoloring the approved wordmark. The !important declarations are
    required because index.css carries a blanket dark-theme layer that
    forces every header descendant's color and [class*="header"] background
-   with !important; the plate re-asserts the approved brand colors. */
+   with !important; the plate re-asserts the approved brand colors.
+   2026-11-20 external design review follow-up: the full-brightness cream
+   plate read as pasted onto the dark header, so the plate is muted one
+   step toward the dark-muted palette used by the cat pedestal's dark
+   treatment (#f0e2c6 keeps the navy/slate letters at full contrast) and
+   given a soft dark shadow so it sits into the surface. The mark artwork
+   itself is unchanged. */
 :root[data-theme="dark"] .origin-brand-lockup.origin-brand-lockup--header {
-  background: #fdf0e0 !important;
+  background: #f0e2c6 !important;
   border-radius: 10px;
   padding: 3px 9px 4px 4px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 38%);
 }
 
 :root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--navy {
