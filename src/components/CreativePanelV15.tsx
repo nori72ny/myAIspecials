@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Sparkles } from 'lucide-react';
+import { Play, Sparkles, X } from 'lucide-react';
 import {
   pngFilenameFromSvg,
   rasterizeVerifiedSvgToPng,
@@ -234,9 +234,9 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
       <div className="flex min-h-16 items-start justify-between gap-3 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-black">カード・ポスターを作る</h2>
-          <p className={`mt-0.5 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? '' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</p>
+          <p className={`mt-0.5 text-xs font-semibold ${status === 'ready' ? 'text-origin-success' : status === 'loading' ? '' : 'text-origin-warning'}`} role="status">{verificationText}</p>
         </div>
-        <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center text-lg">✕</button>
+        <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
@@ -277,7 +277,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
                 </div>
               )}
             </div>
-            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"><strong>品質を確認済み</strong></p>}
+            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-origin-success/30 bg-origin-success/10 px-3 py-2 text-xs text-origin-success"><strong>品質を確認済み</strong></p>}
           </section>
         </div>
 

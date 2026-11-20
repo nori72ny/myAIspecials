@@ -55,7 +55,7 @@
   --bg-elevated: oklch(0.995 0.002 258);
   --text-primary: oklch(0.24 0.018 258);
   --text-secondary: oklch(0.47 0.012 258);
-  --text-placeholder: oklch(0.58 0.010 258);
+  --text-placeholder: oklch(0.55 0.010 258);
   --text-on-accent: oklch(0.99 0.004 260);
   /* Hairline borders (design redesign D-PR-1, 2026-11-19): the
      dividers drop to oklch(0.885) (~1.4:1 on white) and separation is
@@ -86,19 +86,19 @@
      (design evaluation round 3, 2026-11-17: raw Tailwind palette
      colors such as amber / rose read as foreign bodies next to the
      blue system, so every status display goes through these tokens):
-       --success  ready / done / verified. Hue 215 keeps it inside
-                  the blue family (accent is 262) while staying
+       --success  ready / done / verified. Hue 258 keeps it inside
+                  the brand navy family (accent is 262) while staying
                   distinguishable from the accent itself:
-                  5.33:1 on white.
+                  6.85:1 on white.
        --warning  checking / waiting / needs attention. A defined
-                  amber (hue 65): 5.68:1 on white, 5.28:1 on its own
-                  10% tint.
+                  amber (hue 75, toward the logo gold): 6.11:1 on
+                  white.
        --danger   failed / stopped / destructive.
      Use them via the origin-* utilities (text-origin-success,
      text-origin-warning, text-origin-danger, and the bg-/border-
      forms with opacity modifiers for soft fills). */
-  --success: oklch(0.52 0.09 215);
-  --warning: oklch(0.52 0.12 65);
+  --success: oklch(0.47 0.09 258);
+  --warning: oklch(0.50 0.12 75);
   --danger: oklch(0.53 0.18 25);
   --shadow-color: oklch(0.23 0.02 250 / 0.12);
   /* Elevation scale (design redesign D-PR-1): resting cards carry
@@ -108,6 +108,17 @@
   --shadow-2: 0 4px 16px rgb(15 23 42 / 8%);
   --shadow-3: 0 16px 40px rgb(15 23 42 / 12%);
   --scrim: oklch(0.23 0.02 250 / 0.36);
+  /* Content widths (external design evaluation fix PR-A1, 2026-11-20):
+     exactly two body widths from here on — reading surfaces use
+     --content-reading, work surfaces use --content-wide. The width
+     application itself lands in PR-A2. */
+  --content-reading: 880px;
+  --content-wide: 1280px;
+  /* Logo gold (splash-brand.css brand definition). Backgrounds only:
+     badges and decorative fills, with navy #182d5f text on top
+     (6.57:1). At 2.02:1 on white it must never be a text or icon
+     color. */
+  --brand-gold: #d7b253;
   /* Panel motion (design refinement 2026-11-17): one decelerating
      curve for the sidebar / drawer and its scrim — fast start, long
      quiet settle, never a bounce or overshoot. */
@@ -263,7 +274,7 @@
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 9999px; }
-  * { scrollbar-color: var(--border-strong) transparent; }
+  * { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
 }
 
 .origin-app { background: var(--bg-primary); color: var(--text-primary); }
@@ -383,6 +394,12 @@
 .origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-secondary); }
 .origin-secondary-button { background: var(--bg-surface); border-color: var(--border-strong); color: var(--text-primary); }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-surface-muted); border-color: var(--border-strong); }
+/* The single close-button spec for every dialog / sheet (external
+   design evaluation fix PR-A1, 2026-11-20): 44x44px, a Lucide X icon
+   at 18px, the bordered secondary treatment, and the control radius.
+   Always pair with .origin-secondary-button; per-site size or radius
+   utilities are not added on top. */
+.origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-control); flex-shrink: 0; }
 .origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
 /* Stopping a generation is a normal working-state control, not a
    destructive action: the composer stop button uses these neutral tones
@@ -446,7 +463,7 @@
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
 .origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.78125rem; }
-.origin-dialog-overlay { background: oklch(0.12 0.015 255 / 0.56); }
+.origin-dialog-overlay { background: var(--scrim); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; top: 0 !important; }
 .origin-workspace:fullscreen .origin-code-panel { padding: 0; }
@@ -648,7 +665,7 @@ a[href]:focus-visible {
   --bubble-from: oklch(0.27 0.010 260);
   --bubble-to: oklch(0.27 0.010 260);
   --bubble-text: #edf2ff;
-  --success: oklch(0.78 0.09 215);
+  --success: oklch(0.78 0.09 258);
   --warning: oklch(0.79 0.11 70);
   --danger: #fca5a5;
   --shadow-color: rgb(0 0 0 / 40%);
