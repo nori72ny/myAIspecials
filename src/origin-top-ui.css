@@ -569,7 +569,8 @@
 /* Orin presence (owner revision, 2026-11-14 08:59; band layout
    revision, 2026-11-17; "Orin's window" revision, 2026-11-20;
    floating + auto-shrink refinement, 2026-11-20 10:10;
-   FRAMELESS PEEKING revision, 2026-11-20 12:06).
+   frameless peeking revision, 2026-11-20 12:06; FULLY VISIBLE
+   revision, 2026-11-20 15:36).
    Orin stays resident at the top centre of the main column.
    Layout history: fixed floating circle (covered message text
    while scrolling — production defect, 2026-11-17), in-flow band
@@ -578,30 +579,45 @@
    owner rejected the window's frame on the real device
    (2026-11-20 12:06: "オリンの枠はいらない" — no frame; a
    designed hole/window feel, or Orin peeking in, would be
-   better), so the frame is gone entirely and Orin now PEEKS in
-   from the top edge:
+   better), so the frame went away entirely and the disc peeked
+   in from behind the header's bottom edge. On the next
+   real-device check (2026-11-20 15:36, with a screenshot) the
+   owner rejected the peeking geometry itself: the cat's ears
+   and head were cut off horizontally by the header. The current
+   form keeps the frameless look but shows the WHOLE disc below
+   the header:
    - The tap target carries no border, no background and no
      shadow — just the disc and, while work is in flight, the
      status text beside it. The text has no box either; a soft
      halo in the canvas colour (--bg-primary, the token that
      paints the app background) keeps it readable over the
      conversation scrolling beneath.
-   - The presence sits higher than before (top: 46px against
-     the 60px header + 4px tap padding), so the top ~10px of
-     the 56px disc slides BEHIND the header's bottom edge
-     (header z-50 over presence z-30) — Orin peeks down from
-     behind the header instead of sitting in a frame under it.
-     The header's own controls live at its left/right edges
-     (justify-between), so the centred disc hides no control.
+   - The presence starts at the header's bottom edge (top:
+     60px; the header is 60px tall on desktop and 58px under
+     the 640px breakpoint) and the tap target's 6px padding
+     leaves a small gap, so the disc hangs entirely below the
+     header and the cat's head is never cut. Nothing of the art
+     hides behind the header (hidden amount: 0).
    - The disc reads as set into a shallow hole: no ring or
      border, just an inner shadow overlay (the __disc::after
      inset shadows) plus a soft drop shadow under the disc.
      The same treatment covers stills and videos alike, because
      the overlay sits on the wrapper, not on the media element.
+   - The tap target's hit area is at least 44x44px in every
+     state (6px padding around the art plus 44px minimum
+     dimensions): at the compact 36px size the target is 48px,
+     so the smaller art never shrinks the target.
+   - While the conversation is actively scrolling, the disc
+     fades to opacity 0.35 (the is-scrolling state, driven by
+     the App side's scroll activity) so the text passing
+     beneath stays readable through it; the fade restores
+     ~300ms after scrolling stops.
    Auto-shrink is unchanged (2026-11-20 10:10): while work is
    in flight (status text shown) and while the conversation is
-   scrolled, the art goes from 56px to 36px (the is-compact
-   state, driven by the component); the status text stays
+   scrolled, the art goes from 48px to 36px (the is-compact
+   state, driven by the component; the 48px idle size is the
+   Muse-app avatar size the owner settled on, 2026-11-20
+   15:36, identical on PC and phone); the status text stays
    visible at the compact size. The presence is absolutely
    positioned within the relative main column (not
    viewport-fixed, so it stays centred on the column when the
@@ -615,7 +631,7 @@
    card instead). */
 .origin-orin-presence {
   position: absolute;
-  top: 46px;
+  top: 60px;
   left: 0;
   right: 0;
   z-index: 30;
@@ -629,10 +645,14 @@
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   max-width: min(92vw, 26rem);
+  min-width: 44px;
+  min-height: 44px;
+  box-sizing: border-box;
   margin: 0;
-  padding: 4px;
+  padding: 6px;
   border: none;
   background: transparent;
   box-shadow: none;
@@ -655,6 +675,19 @@
   flex: none;
   border-radius: 50%;
   box-shadow: 0 2px 8px rgba(24, 35, 59, 0.10);
+  /* スクロール中フェード（2026-11-20 15:36）の遷移：不透明度の
+     変化はサイズ変化と同じ約200ms。reduced-motion では下の
+     media 規則で即時に切り替える。 */
+  transition: opacity 200ms ease-out;
+}
+/* スクロール中の円盤（2026-11-20 15:36 の実機判定を受けた
+   修正）：スクロールが続く間は円盤を約0.35まで薄くし、下を
+   通る本文の文字が透けて読めるようにする。状態テキストは
+   円盤の外（横）にあるため薄くならない。復帰は App 側が
+   スクロール停止後 約300ms で is-scrolling を外し、この
+   トランジションで戻る。 */
+.origin-orin-presence__disc.is-scrolling {
+  opacity: 0.35;
 }
 .origin-orin-presence__disc::after {
   content: "";
@@ -691,32 +724,37 @@
   .origin-orin-presence__status {
     transition: none;
   }
+  .origin-orin-presence__disc {
+    transition: none;
+  }
   .origin-orin-presence [data-testid="origin-cat-state"] {
     transition: none;
   }
 }
 
-/* Conversation scroller clearance for Orin's peeking presence
-   (2026-11-20; tightened for the frameless revision, 12:06).
-   Only the disc floats over this scroller now: it peeks from
-   behind the header, so its bottom edge reaches 46px below the
-   header's bottom edge (10px of the 56px disc hides behind the
-   header; the scroller's top edge is the header's bottom edge).
+/* Conversation scroller clearance for Orin's presence
+   (2026-11-20; revised for the fully visible disc, 15:36).
+   Only the disc floats over this scroller now: it hangs
+   entirely below the header (presence top 60px + 6px tap
+   padding + 48px art), so its bottom edge reaches 54px below
+   the header's bottom edge (56px on the 58px mobile header;
+   the scroller's top edge is the header's bottom edge).
    Two clearances keep reading intact:
    - padding-top (64px) holds the first line below the disc's
-     bottom edge (46px) with room to spare, so nothing starts
+     bottom edge (54px) with room to spare, so nothing starts
      out hidden. The padding is part of the scrollable area, so
      once the reader scrolls, content passes beneath the disc —
-     by then the art has shrunk to 36px (bottom edge 26px below
-     the header), which is the requested Muse-app-style
-     read-under behaviour.
-   - scroll-padding-top (52px) stays below the full-size disc's
-     bottom edge and well below the shrunken disc's (26px), so
+     by then the art has shrunk to 36px (bottom edge 42px below
+     the header) and faded to opacity 0.35 while scrolling,
+     which is the requested Muse-app-style read-under
+     behaviour.
+   - scroll-padding-top (60px) stays below the full-size disc's
+     bottom edge and well below the shrunken disc's (42px), so
      messages scrolled into view (scrollIntoView, anchor jumps)
      stop just below the disc instead of sliding under it. */
 .origin-chat-scroll {
   padding-top: 64px;
-  scroll-padding-top: 52px;
+  scroll-padding-top: 60px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar

@@ -7,6 +7,8 @@ import OrinFloatingPresence, {
   ORIN_PRESENCE_FADE_MS,
   ORIN_PRESENCE_CAT_SIZE_PX,
   ORIN_PRESENCE_CAT_SIZE_COMPACT_PX,
+  ORIN_PRESENCE_SCROLL_OPACITY,
+  ORIN_PRESENCE_SCROLL_RESTORE_MS,
   ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX,
   resolveOrinAgentBubbleText,
   resolveOrinBubbleText,
@@ -132,7 +134,7 @@ describe('resolveOrinPillText priority (2026-11-20 detail pass)', () => {
   });
 });
 
-describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + floating auto-shrink 2026-11-20)', () => {
+describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating auto-shrink 2026-11-20, fully visible revision 15:36)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     stubMatchMedia(false);
@@ -156,12 +158,13 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     // 枠なし方式（2026-11-20 12:06）：台座も窓枠も付けない。
     // 円盤は「穴」質感のラッパー（__disc）に包まれる。
     expect(within(presence).queryByTestId('origin-cat-pedestal')).toBeNull();
-    // 円盤の中のオリン：通常時（待機・未スクロール）は絵56px。
+    // 円盤の中のオリン：通常時（待機・未スクロール）は絵48px
+    // （Muse のアバター相当、2026-11-20 15:36 の実機判定）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.tagName).toBe('IMG');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
-    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(56);
+    expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(48);
     expect(presence.contains(cat)).toBe(true);
     expect(cat.parentElement?.classList.contains('origin-orin-presence__disc')).toBe(true);
     // 待機中はオリンだけの形（is-idle）になり、
@@ -190,7 +193,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
   it('shows the status text beside the disc while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink)', () => {
     const { props, rerender } = renderPresence();
     const idleCat = screen.getByTestId('origin-cat-state');
-    expect((idleCat as HTMLElement).style.width).toBe('56px');
+    expect((idleCat as HTMLElement).style.width).toBe('48px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
     // 状態テキストは段階文をそのまま円盤の右側に出す。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
@@ -217,7 +220,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(true);
     expect(tap.classList.contains('is-compact')).toBe(true);
-    // 先頭に戻ると通常の56pxに戻る。
+    // 先頭に戻ると通常の48pxに戻る。
     rerender(<OrinFloatingPresence {...props} scrolled={false} />);
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect(screen.getByRole('button', { name: 'いまの作業を表示' }).classList.contains('is-compact')).toBe(false);
@@ -230,8 +233,29 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
   });
 
+  it('fades the disc while the conversation is actively scrolling (2026-11-20 15:36 real-device fix)', () => {
+    const { props, rerender } = renderPresence();
+    const discOf = () => screen.getByTestId('origin-cat-state').parentElement;
+    // スクロールしていない間は円盤は通常の不透明度（クラスなし）。
+    expect(discOf()?.classList.contains('origin-orin-presence__disc')).toBe(true);
+    expect(discOf()?.classList.contains('is-scrolling')).toBe(false);
+    // スクロール中は円盤だけが薄くなる（is-scrolling）。絵の
+    // サイズや状態テキストには触れない。
+    rerender(<OrinFloatingPresence {...props} scrolling={true} />);
+    expect(discOf()?.classList.contains('is-scrolling')).toBe(true);
+    // スクロールが止まれば（App 側が約300ms後に false に戻す）
+    // クラスが外れて不透明度が戻る。
+    rerender(<OrinFloatingPresence {...props} scrolling={false} />);
+    expect(discOf()?.classList.contains('is-scrolling')).toBe(false);
+  });
+
   it('pins the scroll-shrink threshold the App side uses', () => {
     expect(ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX).toBe(40);
+  });
+
+  it('pins the scroll fade values (opacity + restore delay)', () => {
+    expect(ORIN_PRESENCE_SCROLL_OPACITY).toBe(0.35);
+    expect(ORIN_PRESENCE_SCROLL_RESTORE_MS).toBe(300);
   });
 
   it('moves while working: the working state uses the motion video asset', () => {
@@ -261,7 +285,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     expect(screen.queryByTestId('origin-orin-presence-status')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_PRESENCE_FADE_MS); });
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    // 姿は残り、絵は通常の56pxに戻る。オリンだけの形に戻り、
+    // 姿は残り、絵は通常の48pxに戻る。オリンだけの形に戻り、
     // 自動縮小も解ける。
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     const cat = screen.getByTestId('origin-cat-state');
@@ -306,7 +330,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('pins the presence CSS: frameless peeking disc over the scroller, auto-shrink transition, scroller top clearance', () => {
+  it('pins the presence CSS: frameless fully visible disc over the scroller, auto-shrink transition, scroller top clearance', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).not.toContain('.origin-orin-bubble');
     expect(css).not.toContain('.origin-orin-overlay');
@@ -321,13 +345,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     // fixed にはしない（サイドバーの開閉で列の中心がずれない
     // ようにするため）。列全体に広がる容器はタップを通し、
     // タップ対象だけがタップを受ける。
-    // 覗き配置（2026-11-20 12:06）：top は 46px。ヘッダー 60px ＋
-    // タップのパディング 4px を引くと、円盤の上端はヘッダー下端
-    // から 10px 上に来て、円盤の上部がヘッダー（z-50）の裏に
-    // 隠れる。プレゼンスの z-index は 30 のまま。
+    // 全体表示の配置（2026-11-20 15:36）：top は 60px＝ヘッダー
+    // 下端の位置（デスクトップ60px／モバイル58px）。タップの
+    // パディング 6px 分だけ下に離れ、円盤は全体がヘッダーより
+    // 下に出る（頭が切れない）。プレゼンスの z-index は 30 のまま。
     const floatRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
     expect(floatRule).toContain('position: absolute;');
-    expect(floatRule).toContain('top: 46px;');
+    expect(floatRule).toContain('top: 60px;');
+    expect(floatRule).not.toContain('top: 46px;');
     expect(floatRule).toContain('z-index: 30;');
     expect(floatRule).toContain('display: flex;');
     expect(floatRule).toContain('justify-content: center;');
@@ -340,7 +365,12 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     expect(tapRule).toContain('border: none;');
     expect(tapRule).toContain('background: transparent;');
     expect(tapRule).toContain('box-shadow: none;');
-    expect(tapRule).toContain('padding: 4px;');
+    expect(tapRule).toContain('padding: 6px;');
+    // タップの的は全状態で44px以上（2026-11-20 15:36）：最小寸法
+    // を44pxに置き、36pxの縮小状態でも的は 48px（36＋ padding
+    // 6px×2）になる。
+    expect(tapRule).toContain('min-width: 44px;');
+    expect(tapRule).toContain('min-height: 44px;');
     expect(tapRule).toContain('pointer-events: auto;');
     expect(tapRule).not.toContain('var(--bg-surface)');
     expect(tapRule).not.toContain('var(--radius-panel)');
@@ -359,6 +389,12 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     expect(discAfterRule).toContain('border-radius: 50%;');
     expect(discAfterRule).toContain('pointer-events: none;');
     expect(discAfterRule).toContain('box-shadow: inset 0 2px 5px rgba(24, 35, 59, 0.28), inset 0 -1px 2px rgba(24, 35, 59, 0.12);');
+    // スクロール中フェード（2026-11-20 15:36）：円盤は不透明度
+    // のトランジションを持ち、is-scrolling で約0.35まで薄くなる
+    // （ORIN_PRESENCE_SCROLL_OPACITY と一致させること）。
+    expect(discRule).toContain('transition: opacity 200ms ease-out;');
+    const discScrollRule = css.match(/\.origin-orin-presence__disc\.is-scrolling \{[^}]*\}/)?.[0] ?? '';
+    expect(discScrollRule).toContain(`opacity: ${ORIN_PRESENCE_SCROLL_OPACITY};`);
     // 作業コメントは枠なしテキスト：背景・枠を持たず、
     // キャンバス色（--bg-primary）のハローで読めるようにする。
     const statusRule = css.match(/\.origin-orin-presence__status \{[^}]*\}/)?.[0] ?? '';
@@ -369,12 +405,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless peeking form + flo
     // reduced-motion では即時（既存の media 規則側で無効化）。
     expect(css).toContain('transition: width 200ms ease-out, height 200ms ease-out;');
     // 会話スクローラ：先頭行が円盤の下端（ヘッダー下端から
-    // 46px）より下に来るよう padding-top を 64px に詰め、
-    // scroll-padding-top は 52px。スクロールした内容は円盤の
-    // 下を通過できる（パディングはスクロール領域の一部）。
+    // 54px）より下に来るよう padding-top は 64px のまま、
+    // scroll-padding-top は円盤の下端より下の 60px。スクロール
+    // した内容は円盤の下を通過できる（パディングはスクロール
+    // 領域の一部）。
     expect(css).toContain('.origin-chat-scroll {');
     expect(css).toContain('padding-top: 64px;');
-    expect(css).toContain('scroll-padding-top: 52px;');
+    expect(css).toContain('scroll-padding-top: 60px;');
+    expect(css).not.toContain('scroll-padding-top: 52px;');
     expect(css).not.toContain('padding-top: 82px;');
     expect(css).not.toContain('scroll-padding-top: 64px;');
     expect(css).not.toContain('scroll-padding-top: 96px;');

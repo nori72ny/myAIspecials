@@ -69,8 +69,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
     // オリンはヘッダーに置かず、上部中央のプレゼンスに一本化した
     // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式を経て、
-    // 同日 12:06 にオーナーが窓の枠を却下したため、枠なし＋上端
-    // から覗く形にした：円盤の上部がヘッダーの下端の裏に隠れ、
+    // 同日 12:06 にオーナーが窓の枠を却下したため枠なしにし、
+    // 同日 15:36 の実機判定で「頭が切れている」が不可とされた
+    // ため、円盤の全体がヘッダーの下端より下に見える形にした。
     // 円盤には枠線ではなく内側の影で窪みの質感を付ける。
     await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
     const presence = page.getByTestId('origin-orin-presence');
@@ -87,10 +88,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 円盤の中の猫は56pxの円形（待機・未スクロール）。作業中と
-    // スクロール中は36pxに自動で縮む（2026-11-20 10:10）。
-    expect(presenceCatStyle.width).toBe('56px');
-    expect(presenceCatStyle.height).toBe('56px');
+    // 円盤の中の猫は48pxの円形（待機・未スクロール。Muse の
+    // アバター相当、2026-11-20 15:36）。作業中とスクロール中は
+    // 36pxに自動で縮む（2026-11-20 10:10）。
+    expect(presenceCatStyle.width).toBe('48px');
+    expect(presenceCatStyle.height).toBe('48px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
     // 枠なし（2026-11-20 12:06）：タップ対象は窓パネルではなく、
     // 背景・枠・影を持たない。残るのは円盤とテキストだけ。
@@ -121,11 +123,12 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(discTexture.drop).toContain('rgba(24, 35, 59, 0.1)');
     expect(discTexture.inset).toContain('inset');
     expect(discTexture.inset).toContain('rgba(24, 35, 59, 0.28)');
-    // 覗き配置の幾何（2026-11-20 12:06）：円盤の上端はヘッダーの
-    // 下端より 8〜12px 上にあり、上部がヘッダーの裏に隠れる。
-    // 円盤の下端はスクローラの padding-top（64px）の内側に
-    // 収まるため、先頭行が円盤の下に隠れることはない。
-    // scroll-padding-top は 52px。スクロールした内容は円盤の
+    // 全体表示の幾何（2026-11-20 15:36）：円盤の上端はヘッダーの
+    // 下端より下にあり、円盤がヘッダーに隠れる量は 0（猫の頭が
+    // 切れない）。ただしヘッダー直下に寄せた配置で、隙間は
+    // 12px 以内。円盤の下端はスクローラの padding-top（64px）
+    // の内側に収まるため、先頭行が円盤の下に隠れることはない。
+    // scroll-padding-top は 60px。スクロールした内容は円盤の
     // 下を通過できる（パディングはスクロール領域の一部）。
     await expect(presence).toHaveCSS('position', 'absolute');
     const headerBox = await page.locator('.origin-header').boundingBox();
@@ -136,12 +139,20 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(discBox).not.toBeNull();
     expect(scrollerBox).not.toBeNull();
     const headerBottom = headerBox!.y + headerBox!.height;
-    const peekOverlap = headerBottom - discBox!.y;
-    expect(peekOverlap).toBeGreaterThanOrEqual(8);
-    expect(peekOverlap).toBeLessThanOrEqual(12);
+    const hiddenByHeader = headerBottom - discBox!.y;
+    // 隠れる量は 0 が正本。 boundingBox の端数で 1px まで許容。
+    expect(hiddenByHeader).toBeLessThanOrEqual(1);
+    expect(discBox!.y - headerBottom).toBeLessThanOrEqual(12);
     expect(discBox!.y + discBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 64 + 1);
     await expect(scroller).toHaveCSS('padding-top', '64px');
-    await expect(scroller).toHaveCSS('scroll-padding-top', '52px');
+    await expect(scroller).toHaveCSS('scroll-padding-top', '60px');
+    // タップの的（2026-11-20 15:36）：待機状態でも的は44px以上
+    // （絵48px＋パディング6px×2＝60px）。
+    const tapBox = await tapButton.boundingBox();
+    expect(tapBox).not.toBeNull();
+    expect(tapBox!.width).toBeGreaterThanOrEqual(44);
+    expect(tapBox!.height).toBeGreaterThanOrEqual(44);
+    console.log(`[orin-geometry] headerBottom=${headerBottom} discY=${discBox!.y} discH=${discBox!.height} hiddenByHeader=${hiddenByHeader} tap=${tapBox!.width}x${tapBox!.height}`);
     // 円盤がヘッダー下端に重なっても、ヘッダーの操作要素は
     // 円盤に隠れて押せなくならない（当たり判定で確認する）。
     const settingsButton = page.getByRole('button', { name: '設定を開く', exact: true });
@@ -207,16 +218,68 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     const catDuring = presence.locator('img[data-testid="origin-cat-state"]');
     await expect(catDuring).toBeVisible();
     await expect.poll(async () => catDuring.evaluate((el) => getComputedStyle(el).width)).toBe('36px');
+    // 縮小状態でもタップの的は44px以上（36px＋パディング6px×2
+    // ＝48px、2026-11-20 15:36）。
+    const tapDuringBox = await presence.locator('button').boundingBox();
+    expect(tapDuringBox).not.toBeNull();
+    expect(tapDuringBox!.height).toBeGreaterThanOrEqual(44);
+    console.log(`[orin-geometry] working tap height=${tapDuringBox!.height}`);
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
-    // 回答が終わるとピルだけが消え、姿は通常の56pxに戻って残る。
+    // 回答が終わるとピルだけが消え、姿は通常の48pxに戻って残る。
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
     await expect(presence).toBeVisible();
     const catAfter = presence.locator('img[data-testid="origin-cat-state"]');
     await expect(catAfter).toBeVisible();
-    await expect.poll(async () => catAfter.evaluate((el) => getComputedStyle(el).width)).toBe('56px');
+    await expect.poll(async () => catAfter.evaluate((el) => getComputedStyle(el).width)).toBe('48px');
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
+  });
+
+  test('fades Orin while scrolling so the text underneath stays readable, and restores it after the scroll stops (2026-11-20 15:36)', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const longBody = Array.from({ length: 24 }, (_, i) => `第${i + 1}段落です。スクロール中もオリンの下を通る文字が読めることを確認するための長い回答です。`).join('\n\n');
+    await page.route('**/api/chat', async (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: longBody,
+    }));
+    await page.goto('/');
+    await waitForVisualSurface(page);
+    await page.getByTestId('origin-home-request').fill('長い回答でスクロールを確認');
+    await page.getByTestId('start-request-button').click();
+    const assistant = page.locator('.origin-chat-assistant').last();
+    await expect(assistant).toContainText('第24段落です', { timeout: 15_000 });
+
+    const presence = page.getByTestId('origin-orin-presence');
+    const disc = presence.locator('.origin-orin-presence__disc');
+    await expect(disc).toBeVisible();
+    // スクロール前：円盤は通常の不透明度（1）。
+    await expect.poll(async () => disc.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+
+    const scroller = page.locator('.origin-chat-scroll');
+    // スクロールを続ける間、円盤は約0.35まで薄くなる（reduced-motion
+    // では遷移が即時のため computed opacity がそのまま 0.35 に
+    // なる）。ポーリングのたびにスクロール位置を往復させて活動を
+    // 維持し、停止判定（約300ms）のタイマーを張り直し続ける。
+    await expect.poll(async () => {
+      await scroller.evaluate((el) => {
+        const holder = el as unknown as { __orinFlip?: boolean };
+        holder.__orinFlip = !holder.__orinFlip;
+        el.scrollTop = holder.__orinFlip ? 240 : 300;
+      });
+      return disc.evaluate((el) => getComputedStyle(el).opacity);
+    }, { timeout: 10_000 }).toBe('0.35');
+    // スクロールで縮んだ状態（状態テキストなし）でもタップの的は
+    // 44px以上（36px＋パディング6px×2＝48px）。
+    const tapScrolledBox = await presence.locator('button').boundingBox();
+    expect(tapScrolledBox).not.toBeNull();
+    expect(tapScrolledBox!.width).toBeGreaterThanOrEqual(44);
+    expect(tapScrolledBox!.height).toBeGreaterThanOrEqual(44);
+    console.log(`[orin-geometry] scrolled tap=${tapScrolledBox!.width}x${tapScrolledBox!.height}`);
+    // スクロールを止めると、約300ms後に不透明度が 1 に戻る。
+    await expect.poll(async () => disc.evaluate((el) => getComputedStyle(el).opacity), { timeout: 10_000 }).toBe('1');
   });
 
   test('captures the fail-closed unverified-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
