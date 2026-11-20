@@ -605,20 +605,26 @@
      the overlay sits on the wrapper, not on the media element.
    - The tap target's hit area is at least 44x44px in every
      state (6px padding around the art plus 44px minimum
-     dimensions): at the compact 36px size the target is 48px,
+     dimensions): at the compact 48px size the target is 60px,
      so the smaller art never shrinks the target.
    - While the conversation is actively scrolling, the disc
      fades to opacity 0.35 (the is-scrolling state, driven by
      the App side's scroll activity) so the text passing
      beneath stays readable through it; the fade restores
      ~300ms after scrolling stops.
-   Auto-shrink is unchanged (2026-11-20 10:10): while work is
-   in flight (status text shown) and while the conversation is
-   scrolled, the art goes from 48px to 36px (the is-compact
-   state, driven by the component; the 48px idle size is the
-   Muse-app avatar size the owner settled on, 2026-11-20
-   15:36, identical on PC and phone); the status text stays
-   visible at the compact size. The presence is absolutely
+   - While work is in flight, the status text carries three
+     blinking dots at its end (the __dots element, driven by
+     the component's active flag) so the text itself shows
+     that Orin is running; the animation stops under
+     prefers-reduced-motion (the dots stay, static).
+   Auto-shrink is unchanged in behaviour (2026-11-20 10:10):
+   while work is in flight (status text shown) and while the
+   conversation is scrolled, the art goes from 72px to 48px
+   (the is-compact state, driven by the component). The sizes
+   were enlarged on 2026-11-20 18:17 after the owner found
+   the 48/36px pair too small to read the cat's face on both
+   PC and phone (identical sizes on both, as before); the
+   status text stays visible at the compact size. The presence is absolutely
    positioned within the relative main column (not
    viewport-fixed, so it stays centred on the column when the
    sidebar opens or closes), pointer-events only on the tap
@@ -715,6 +721,33 @@
     0 1px 3px var(--bg-primary);
   transition: opacity 180ms ease-out;
 }
+/* 作業中ドット（2026-11-20 18:17）：作業中の状態文の末尾に
+   3つのドットを順に点滅させ、テキストだけでも稼働中だと
+   分かるようにする。ドットは装飾（aria-hidden）で、文の
+   読み上げには含めない。周期は呼吸（6秒）より速く、作業の
+   リズムとして読める 1.2 秒に置く。prefers-reduced-motion
+   では点滅を止め、ドットは静止したまま残す。 */
+.origin-orin-presence__dots {
+  display: inline-flex;
+  margin-left: 1px;
+}
+.origin-orin-presence__dots > span {
+  animation: origin-orin-dots 1200ms ease-in-out infinite;
+}
+.origin-orin-presence__dots > span:nth-child(2) {
+  animation-delay: 200ms;
+}
+.origin-orin-presence__dots > span:nth-child(3) {
+  animation-delay: 400ms;
+}
+@keyframes origin-orin-dots {
+  0%, 60%, 100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
 /* 自動縮小のトランジション（2026-11-20 10:10）：絵の寸法変化を
    約200msで滑らかにする。対象はプレゼンス内の絵だけに絞る。 */
 .origin-orin-presence [data-testid="origin-cat-state"] {
@@ -730,31 +763,35 @@
   .origin-orin-presence [data-testid="origin-cat-state"] {
     transition: none;
   }
+  .origin-orin-presence__dots > span {
+    animation: none;
+  }
 }
 
 /* Conversation scroller clearance for Orin's presence
-   (2026-11-20; revised for the fully visible disc, 15:36).
+   (2026-11-20; revised for the fully visible disc, 15:36;
+   enlarged disc, 18:17).
    Only the disc floats over this scroller now: it hangs
    entirely below the header (presence top 60px + 6px tap
-   padding + 48px art), so its bottom edge reaches 54px below
-   the header's bottom edge (56px on the 58px mobile header;
+   padding + 72px art), so its bottom edge reaches 78px below
+   the header's bottom edge (80px on the 58px mobile header;
    the scroller's top edge is the header's bottom edge).
    Two clearances keep reading intact:
-   - padding-top (64px) holds the first line below the disc's
-     bottom edge (54px) with room to spare, so nothing starts
+   - padding-top (88px) holds the first line below the disc's
+     bottom edge (78px) with room to spare, so nothing starts
      out hidden. The padding is part of the scrollable area, so
      once the reader scrolls, content passes beneath the disc —
-     by then the art has shrunk to 36px (bottom edge 42px below
+     by then the art has shrunk to 48px (bottom edge 54px below
      the header) and faded to opacity 0.35 while scrolling,
      which is the requested Muse-app-style read-under
      behaviour.
-   - scroll-padding-top (60px) stays below the full-size disc's
-     bottom edge and well below the shrunken disc's (42px), so
+   - scroll-padding-top (84px) stays below the full-size disc's
+     bottom edge and well below the shrunken disc's (54px), so
      messages scrolled into view (scrollIntoView, anchor jumps)
      stop just below the disc instead of sliding under it. */
 .origin-chat-scroll {
-  padding-top: 64px;
-  scroll-padding-top: 60px;
+  padding-top: 88px;
+  scroll-padding-top: 84px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar

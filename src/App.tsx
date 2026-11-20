@@ -24,7 +24,7 @@ import type { CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import CreativeArtifactEditorV15 from './components/CreativeArtifactEditorV15';
 import { type OriginCatStateKind } from './components/OriginCatState';
 import OriginWorkSheet, { type OriginWorkSheetItem, type OriginWorkSheetStep } from './components/OriginWorkSheet';
-import OrinFloatingPresence, { ORIN_PRESENCE_SCROLL_RESTORE_MS, ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX, resolveOrinAgentBubbleText, resolveOrinBubbleText, resolveOrinPillText } from './components/OrinFloatingPresence';
+import OrinFloatingPresence, { ORIN_PRESENCE_SCROLL_RESTORE_MS, ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX, resolveOrinAgentBubbleText, resolveOrinBubbleText, resolveOrinPillState } from './components/OrinFloatingPresence';
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
 import { ingestCompletedChatTurn } from './services/activeContextDecisionIngestion';
@@ -753,36 +753,21 @@ export const buildRasterGuidedEditPrompt = (sourcePrompt: string): string => {
   ].join('\n');
 };
 
-/** 画像フェーズ文に添える依頼の主題の上限（コードポイント数）。 */
-export const IMAGE_SUBJECT_MAX_CHARS = 20;
-
 /**
- * 画像の依頼文から、フェーズ文に添える「何を描いているか」の主題を
- * 決定的に切り出す（2026-11-20 詳細化）。新しい呼び出しはせず、
- * 依頼文そのものだけから作る：最初の1行を取り、空白を畳んで、
- * 長ければ上限で切り詰める。編集・別案の依頼では内部の指示文が
- * 元の依頼の後ろに付くため、最初の1行だけを使うことで指示文が
- * 表示に漏れることもない。空なら null（フェーズ文は段階名のみ）。
- */
-export function summarizeImageSubject(source: string): string | null {
-  const firstLine = source.normalize('NFKC').trim().split('\n')[0]?.replace(/\s+/g, ' ').trim() ?? '';
-  if (!firstLine) return null;
-  const chars = Array.from(firstLine);
-  return chars.length > IMAGE_SUBJECT_MAX_CHARS
-    ? `${chars.slice(0, IMAGE_SUBJECT_MAX_CHARS).join('')}…`
-    : firstLine;
-}
-
-/**
- * 画像フェーズ→ピル文の対応（2026-11-20 詳細化）。設計・描画は
- * 段階名に依頼の主題を足して「何を描いているか」を出し、品質
- * 確認はクライアント側で実際に行う検査（技術品質検査：明るさの
- * 潰れ・中身の有無）の観点をそのまま文にする。主題が無い場合は
- * 従来の段階名のみ。
+ * 画像フェーズ→ピル文の対応。文は段階ごとの決定的な要約表現
+ * だけにし、依頼文（利用者の入力）は一切埋め込まない。
+ *
+ * 2026-11-20 の詳細化では設計・描画に依頼の主題（入力文の
+ * 最初の1行の切り出し）を『…』付きで足していたが、同日
+ * 18:17 の実機判定で「コメントが入力した文字をそのまま表示
+ * している。要約して何をしているか分かる表現に」とされた
+ * ため、主題の埋め込みは撤去した。品質確認はクライアント側
+ * で実際に行う検査（技術品質検査：明るさの潰れ・中身の
+ * 有無）の観点をそのまま文にする（これは入力の写しでは
+ * なく作業内容の要約であるため残す）。
  */
 export function buildImagePhaseText(
   phase: 'designing' | 'drawing' | 'checking',
-  subject: string | null,
   language: OriginLanguage,
 ): string {
   if (phase === 'checking') {
@@ -790,14 +775,9 @@ export function buildImagePhaseText(
       ? '明るさが潰れていないか、中身が描かれているかを確認しています'
       : 'Checking the brightness and that the content is really there';
   }
-  if (subject === null) {
-    return phase === 'designing'
-      ? (language === 'ja' ? '設計しています' : 'Designing the image')
-      : (language === 'ja' ? '描いています' : 'Drawing the image');
-  }
   return phase === 'designing'
-    ? (language === 'ja' ? `『${subject}』を設計しています` : `Designing “${subject}”`)
-    : (language === 'ja' ? `『${subject}』を描いています` : `Drawing “${subject}”`);
+    ? (language === 'ja' ? '絵の設計をしています' : 'Designing the image')
+    : (language === 'ja' ? '絵を描いています' : 'Drawing the image');
 }
 
 export const isExplicitLocalProceduralImageRequest = (input: string): boolean => {
@@ -1499,13 +1479,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // 画像生成のクライアント側で観測できる段階。サーバー側の設計・
   // 生成は1回の要求に含まれるため、段階は実際のコード区間に
   // 対応させる（準備＝設計／要求の実行中＝描画／応答の検証・検査
-  // ＝品質確認）。文言は 2026-11-20 の詳細化で buildImagePhaseText
-  // が組み立てる（主題と確認観点つき）。
+  // ＝品質確認）。文言は buildImagePhaseText が組み立てる
+  // （段階ごとの要約表現のみ。依頼文は埋め込まない）。
   const [imagePhase, setImagePhase] = useState<'designing' | 'drawing' | 'checking' | null>(null);
-  // フェーズ文に添える依頼の主題（2026-11-20 詳細化）。画像の送信を
-  // 開始するときに依頼文から決定的に切り出して保持し、フェーズが
-  // 終わるときに一緒に消す。新しい呼び出しはしない。
-  const [imageSubject, setImageSubject] = useState<string | null>(null);
   // オリンのプロフィールカードの開閉と、タップ時の一回性の
   // 「喜ぶ」動きの合図。
   const [workSheetOpen, setWorkSheetOpen] = useState(false);
@@ -1810,7 +1786,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setImageSubject(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 176)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1989,7 +1965,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     setStreamPhase(null);
     setStreamSources([]);
     setImagePhase(null);
-    setImageSubject(null);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
@@ -2032,9 +2007,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
       if (shouldGenerateImage) {
         setImagePhase('designing');
-        // フェーズ文の主題は、生成に使う依頼文そのもの（継続中の
-        // 依頼があればその元の依頼）から決定的に切り出す。
-        setImageSubject(summarizeImageSubject(pendingImageRequest ? pendingImageRequest.prompt : text));
         const imageRequestText = pendingImageRequest
           ? `${pendingImageRequest.prompt}${text.trim() && text.trim() !== pendingImageRequest.prompt ? `\n\n追加条件: ${text.trim()}` : ''}`
           : text.trim();
@@ -2638,7 +2610,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       setStreamPhase(null);
       setStreamSources([]);
       setImagePhase(null);
-      setImageSubject(null);
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
       if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); isLoadingRef.current = false; if (!controller.signal.aborted) scheduleQueueDrain(); }
     }
@@ -2653,6 +2624,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // 浮遊プレゼンスのオリンの状態集約。いま進んでいる作業を優先し、
   // 裏で続くエージェント作業、最後に待機へ落とす（PR-β の設計 §8 の
   // 集約を、2026-11-14 08:59 の浮遊化でもそのまま流用する）。
+  // 前景チャットの送信中は、2026-11-20 18:17 の実機判定（テキスト
+  // だけでは稼働中か分からない）を受けて 'thinking' の静止画では
+  // なく 'working' にし、タイピング動画で姿が実際に動くように
+  // する。調査中は見回し動画（'searching'）、背景のエージェント
+  // 作業も 'working'。画像生成中は 'making'（描く姿の静止画。
+  // 対応する動画素材は無いため、稼働の合図はピル文末尾の点滅
+  // ドットが担う）。
   const agentActivityFresh = isAgentActivityFresh(agentActivity, Date.now());
   const orinPresenceState: OriginCatStateKind = headerDoneCue
     ? 'done'
@@ -2661,15 +2639,15 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       : researchRun || streamPhase === 'searching'
         ? 'searching'
         : isLoading
-          ? 'thinking'
+          ? 'working'
           : agentActivityFresh && agentActivity?.active
             ? 'working'
             : 'idle';
   const sheetStageTitle = (text: string) => text.replace(/[…。.]+$/u, '');
-  // 画像フェーズ文（2026-11-20 詳細化）：設計・描画は依頼の主題を
-  // 足し、品質確認は実際に確認している観点を文にする。文の組み
-  // 立ては buildImagePhaseText が正本。
-  const imagePhaseText = buildImagePhaseText(imagePhase ?? 'drawing', imageSubject, language);
+  // 画像フェーズ文：段階ごとの要約表現だけにし、依頼文は埋め
+  // 込まない（2026-11-20 18:17 の実機判定）。文の組み立ては
+  // buildImagePhaseText が正本。
+  const imagePhaseText = buildImagePhaseText(imagePhase ?? 'drawing', language);
   // 待ち表示の仕様（2026-11-13 22:03 ノリ指示で吹き出し化し、
   // 2026-11-14 の指示で作業中プレゼンスに置き換え、同日 08:59 の
   // 指示で浮遊プレゼンスに一本化）：全体画面ステージ（PR-δ1）は
@@ -2744,17 +2722,20 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     },
     language === 'ja' ? 'エージェントが作業しています' : 'The agent is working',
   );
-  // プレゼンスのピルに出す一文：優先順位は resolveOrinPillText が
-  // 正本（前景のチャット作業 → 失敗 → 完了 → 背景のエージェント
-  // 作業）。プロフィールカードが開いている間は隠す（カード側が
-  // 同じ内容を持つため）。
-  const bubbleText = resolveOrinPillText({
+  // プレゼンスのピルに出す一文：優先順位は resolveOrinPillState
+  // が正本（前景のチャット作業 → 失敗 → 完了 → 背景のエージェ
+  // ント作業）。プロフィールカードが開いている間は隠す（カード
+  // 側が同じ内容を持つため）。active は「いま作業中の文か」で、
+  // プレゼンスが文末の点滅ドットを付けるかどうかを決める
+  // （2026-11-20 18:17）。
+  const bubblePill = resolveOrinPillState({
     sheetOpen: workSheetOpen,
     workingText: bubbleWaiting ? bubbleWorkingText : null,
     failureText: bubbleFailureCue ? t.error : null,
     doneText: headerDoneCue ? t.workDone : null,
     agentText: agentBubbleText,
   });
+  const bubbleText = bubblePill.text;
   const sourcesMeta = streamSources.length > 0
     ? { meta: language === 'ja' ? `出典${streamSources.length}件` : `${streamSources.length} sources` }
     : {};
@@ -2952,7 +2933,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         「いまの作業を表示」の操作もプレゼンス側だけに残す。 */}
     <div className="flex min-w-0 flex-1 items-center justify-end gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} currentMessages={messages} onRestoreSession={onRestoreSession} /><button type="button" onClick={onOpenSettings} aria-label={t.openSettings} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold sm:w-auto sm:px-3"><Settings aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">{t.settings}</span></button>{messages.length > 0 && <button type="button" onClick={resetConversationWithQueue} aria-label={t.newConversationLabel} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold min-[380px]:w-auto min-[380px]:px-2 sm:px-3"><Plus aria-hidden="true" size={18} strokeWidth={2.1} /><span className="hidden min-[380px]:ml-1 min-[380px]:inline">{t.newConversation}</span></button>}</div>
   </div>
-</HeaderV12><OrinFloatingPresence text={bubbleText} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? waitingText : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12.5px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
+</HeaderV12><OrinFloatingPresence text={bubbleText} active={bubblePill.active} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div className="origin-home-composer mt-3 w-full max-w-4xl sm:mt-7">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <><OriginAnswerMarkdown content={message.content || (isStreamingAssistant ? waitingText : '')} language={language} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[12.5px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-5xl px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
   language={language}
   onClose={() => setIsImageGenerationPanelOpen(false)}
   onGenerate={(prompt, width, height) => {
