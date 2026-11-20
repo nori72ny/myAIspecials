@@ -1683,6 +1683,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(within(list).getByTestId('history-session-item-0').textContent).toContain('現在の会話');
     expect(within(list).getByTestId('history-session-item-0').textContent).toContain('柚子胡椒の使い方を教えて');
     expect(within(list).getByTestId('history-session-item-1').textContent).toContain('先週の旅行計画');
+    // 冗長な「会話 · 」接頭辞は出さない（2026-11-20 外部デザイン評価の
+    // 指摘を受けた是正の固定）。現在の会話の目印だけは残る。
+    expect(within(list).getByTestId('history-session-item-1').textContent).not.toContain('会話 ·');
+    expect(within(list).getByTestId('history-session-item-1').textContent?.trim().startsWith('先週の旅行計画')).toBe(true);
     // 過去セッションは従来どおり復元される。
     fireEvent.click(screen.getByTestId('history-session-item-1'));
     await waitFor(() => expect(restore).toHaveBeenCalledWith(past));
@@ -2367,6 +2371,57 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     await waitFor(() => expect(screen.getByText('回答の受信が途中で終わってしまったため、表示できませんでした。入力した内容は残っています。もう一度お試しください。')).toBeTruthy());
     expect(screen.queryByTestId('response-verification-details')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('offers a retry under a tier-T3 research fallback answer and resends the previous question', async () => {
+    const fallbackText = '公開情報を2件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。';
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'outcome', researchTier: 'T3', researchOutcome: 'PARTIAL' })}`,
+      `data: ${JSON.stringify({ type: 'delta', text: fallbackText })}`,
+      `data: ${JSON.stringify({ type: 'complete' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最新の料金を調べて' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    // フォールバック（T3）着地がサーバーのメタデータで分かった場合だけ、
+    // 回答の下に「もう一度試す」が出る。
+    const retryButton = await screen.findByTestId('chat-research-retry-button');
+    expect(retryButton.textContent).toBe('もう一度試す');
+    fireEvent.click(retryButton);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const secondCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(String(secondCall[1].body)).toContain('最新の料金を調べて');
+    vi.unstubAllGlobals();
+  });
+
+  it('does not offer a retry under an adopted (tier-T0) research answer', async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      `data: ${JSON.stringify({ type: 'outcome', researchTier: 'T0', researchOutcome: 'ANSWERED' })}`,
+      `data: ${JSON.stringify({ type: 'delta', text: '検証済みの調査回答です。' })}`,
+      `data: ${JSON.stringify({ type: 'complete' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最新の料金を調べて' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '回答をコピー' })).toBeTruthy());
+    expect(screen.queryByTestId('chat-research-retry-button')).toBeNull();
     vi.unstubAllGlobals();
   });
 

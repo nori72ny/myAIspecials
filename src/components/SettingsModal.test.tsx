@@ -52,6 +52,23 @@ describe('SettingsModal pointer-event isolation', () => {
   });
 });
 
+describe('SettingsModal layout (evaluation fix batch 2)', () => {
+  it('uses the widened modal width and keeps history action labels on one line', () => {
+    renderSettings();
+    const content = screen.getByTestId('settings-modal');
+    // 窮屈さの解消：最大幅は 660px（w-full でモバイル幅には収まる）。
+    expect(content.className).toContain('max-w-[660px]');
+    expect(content.className).toContain('w-full');
+    // 履歴の操作ボタンは文言が単語の途中で折れない（nowrap＋行は
+    // ボタン単位で折り返す flex-wrap）。
+    for (const name of ['現在の会話を書き出す', 'ファイルから現在の会話を読み込む', '新しく始める']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.className).toContain('whitespace-nowrap');
+      expect(button.parentElement?.className).toContain('flex-wrap');
+    }
+  });
+});
+
 describe('SettingsModal release identity', () => {
   it('shows a verified release ID in shortened and full forms', async () => {
     mockHealth({ releaseSha: RELEASE_SHA.toUpperCase() });

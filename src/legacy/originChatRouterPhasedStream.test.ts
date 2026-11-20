@@ -37,6 +37,7 @@ function createApp(
 type PhasedEvent =
   | { type: "phase"; phase: string }
   | { type: "sources"; sources: Array<{ title: string; domain: string }> }
+  | { type: "outcome"; researchTier?: string; researchOutcome?: string }
   | { type: "delta"; text: string }
   | { type: "complete" }
   | { type: "error"; code?: string };
@@ -145,6 +146,15 @@ describe("createOriginChatRouter phased streaming (origin-phased-sse-v1)", () =>
     expect(kinds.at(-1)).toBe("complete");
     expect(kinds.filter((kind) => kind === "delta").length).toBeGreaterThan(0);
 
+    // Landing metadata: with no synthesis stage the answer lands on the
+    // tier-T3 extractive partial answer, and the outcome event says so
+    // (after the composing phase, before the first delta) so the client
+    // can offer a retry under the fallback answer.
+    const outcomeIndex = kinds.indexOf("outcome");
+    expect(outcomeIndex).toBe(3);
+    expect(events[outcomeIndex]).toEqual({ type: "outcome", researchTier: "T3", researchOutcome: "PARTIAL" });
+    expect(kinds.indexOf("delta")).toBeGreaterThan(outcomeIndex);
+
     // The sources event carries exactly the citable safe set, titles/domains only.
     const sourcesEvent = events[1] as { type: "sources"; sources: Array<{ title: string; domain: string }> };
     expect(sourcesEvent.sources).toEqual([
@@ -192,6 +202,8 @@ describe("createOriginChatRouter phased streaming (origin-phased-sse-v1)", () =>
     const { events, doneSeen } = parsePhasedStream(response.text);
     expect(doneSeen).toBe(true);
     expect(events.map((event) => event.type).slice(0, 3)).toEqual(["phase", "sources", "phase"]);
+    // An adopted synthesis answer reports the T0/ANSWERED landing.
+    expect(events.find((event) => event.type === "outcome")).toEqual({ type: "outcome", researchTier: "T0", researchOutcome: "ANSWERED" });
     expect(deltaText(events)).toBe(synthesisText);
     expect(synthesisMock).toHaveBeenCalledTimes(1);
     expect(executeMock).not.toHaveBeenCalled();
