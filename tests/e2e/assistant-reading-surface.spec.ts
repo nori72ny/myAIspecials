@@ -67,18 +67,18 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.getByTestId('origin-home-request')).toBeVisible({ timeout: 15_000 });
     await waitForVisualSurface(page);
 
-    // オリンはヘッダーに置かず、上部中央に浮く浮遊プレゼンスに
-    // 一本化した（オーナー指示 2026-11-14 08:59）。ホームでも
-    // 明るい円形台座付きの大きな猫が名前とともに常駐する。
+    // オリンはヘッダーに置かず、上部中央のプレゼンスに一本化した
+    // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式では、
+    // 台座付きの丸アバターではなく、不透明な窓パネルの中に猫が
+    // 収まる形で常駐する。
     await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
-    const presenceCat = presence.locator('[data-testid="origin-cat-pedestal"]');
-    await expect(presenceCat).toBeVisible();
-    const presenceCatImage = presenceCat.locator('img[data-testid="origin-cat-state"]');
+    await expect(presence.locator('[data-testid="origin-cat-pedestal"]')).toHaveCount(0);
+    const presenceCatImage = presence.locator('img[data-testid="origin-cat-state"]');
     await expect(presenceCatImage).toBeVisible();
     expect(await presenceCatImage.getAttribute('src')).toContain('origin-cat.webp');
-    const presenceCatStyle = await presenceCat.evaluate((element) => {
+    const presenceCatStyle = await presenceCatImage.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
         width: style.width,
@@ -86,11 +86,35 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 猫96px＋台座のリング4px×2で、台座の外径は104pxになる
-    // （枠線は border-box の内側）。待機・作業で大きさは変わらない。
-    expect(presenceCatStyle.width).toBe('104px');
-    expect(presenceCatStyle.height).toBe('104px');
+    // 窓の中の猫は56pxの円形。待機・作業で大きさは変わらない。
+    expect(presenceCatStyle.width).toBe('56px');
+    expect(presenceCatStyle.height).toBe('56px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
+    // 窓パネル（タップ対象そのもの）：不透明な面＋パネル角丸＋
+    // 最も軽い影だけ。本文が透けたり下に隠れたりしない。
+    const windowButton = presence.locator('button');
+    const windowStyle = await windowButton.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+      };
+    });
+    expect(windowStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(windowStyle.backgroundColor).not.toBe('transparent');
+    expect(windowStyle.borderRadius).toBe('16px');
+    expect(windowStyle.boxShadow).toContain('rgba(15, 23, 42, 0.05)');
+    // 窓は通常フローの帯の中にあり、会話スクローラの上に重ならない
+    // （窓の下端はスクローラの上端より上）。スクローラ側には窓の
+    // 高さ分の scroll padding も確保する。
+    const windowBox = await windowButton.boundingBox();
+    const scroller = page.locator('.origin-chat-scroll');
+    const scrollerBox = await scroller.boundingBox();
+    expect(windowBox).not.toBeNull();
+    expect(scrollerBox).not.toBeNull();
+    expect(windowBox!.y + windowBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 1);
+    await expect(scroller).toHaveCSS('scroll-padding-top', '96px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
@@ -135,10 +159,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
-    // 作業中表示（2026-11-14）：待ちの主表示は上部中央に浮く大きな
-    // オリン＋状態ピル（reduced-motion ではフェードなしで
-    // 出る）。全体画面ステージは出ない。常駐の名前テキストは
-    // 2026-11-15 のオーナー指示で削除済み（カード内表示は残る）。
+    // 作業中表示（2026-11-14、窓方式 2026-11-20）：待ちの主表示は
+    // 上部中央のオリンの窓＋状態テキスト（reduced-motion では
+    // フェードなしで出る）。全体画面ステージは出ない。常駐の
+    // 名前テキストは2026-11-15 のオーナー指示で削除済み
+    // （カード内表示は残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(presence).toContainText('回答を準備しています');
