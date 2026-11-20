@@ -4,7 +4,7 @@ import type { OriginLanguage } from '../i18n';
 
 /**
  * オリンのプレゼンス（2026-11-14 08:59 ノリ指示、2026-11-17 帯方式、
- * 2026-11-20 「オリンの窓」方式へ改訂）。
+ * 2026-11-20 「オリンの窓」方式、同日 10:10 浮遊＋自動縮小へ改訂）。
  *
  * オリンはヘッダーに「設置」されるのではなく、画面上部中央に
  * 常駐する。当初は position: fixed で画面に浮かせていたが、
@@ -14,14 +14,30 @@ import type { OriginLanguage } from '../i18n';
  * オーナー指示（2026-11-20 08:30）で、帯の中身を「オリン専用の
  * 窓」に改めた：不透明な面（--bg-surface）＋1px hairline 罫線＋
  * --radius-panel の角丸＋ --shadow-1 だけの影を持つ小さな
- * パネルが1つのUI要素として帯に収まり、左にオリン（56px、
- * 台座は窓が枠を担うため付けない）、右に状態テキストを置く。
- * 画面切り替えや機能で位置が動いても、窓ごと一体で扱う。
- * テキストが無い待機時は窓はオリンだけの小さな形に縮む。
- * 窓は通常フロー内の帯にあるため本文と重なることはなく、
- * テキストが出ると帯が伸びて本文が下がる。姿の下の名前
- * テキストは出さない（2026-11-15 ノリ指示で削除。名前は
- * タップで開くプロフィールカードの中にだけ出す）。
+ * パネルが1つのUI要素として収まり、左にオリン、右に状態
+ * テキストを置く。姿の下の名前テキストは出さない（2026-11-15
+ * ノリ指示で削除。名前はタップで開くプロフィールカードの中に
+ * だけ出す）。
+ *
+ * その後オーナーが実機スクリーンショット付きで方向を refine
+ * した（2026-11-20 10:10）：手本は Muse アプリの Muse
+ * アバターで、小さく浮遊し、その下をコンテンツがスクロール
+ * して読める形がよい。浮遊自体は可とし、代わりにオリン自体が
+ * 自動的に小さくなること（チャットやエージェントで依頼をして
+ * いるとき、スクロールしているとき）。これを受けて、窓の形は
+ * そのままに配置を浮遊へ戻し（メイン列の相対配置を基準に
+ * absolute で上部中央。列の幅に追随させるため fixed ではなく
+ * 列内 absolute を採る）、自動縮小を入れた：
+ * - 通常時（待機中・未スクロール）：絵は 56px の窓。
+ * - 作業中（状態テキストが表示されている間。チャットの読み
+ *   込み中・エージェント実行中・画像生成中を含む）：絵は
+ *   36px に縮む。状態テキストは表示中は常に見える。
+ * - 会話がスクロールされている間（scrollTop が閾値超）：絵は
+ *   36px。待機中ならオリンだけの小さい窓になる。
+ * サイズ変化は約200msのトランジションで、prefers-reduced-motion
+ * では即時切替。会話スクローラ側は、先頭行が浮遊窓の下に隠れ
+ * ないよう上部に窓の高さ分のパディングを確保しつつ、スクロール
+ * した内容は窓の下を通過できる（.origin-chat-scroll、CSS 側）。
  *
  * 状態文の正本は従来どおり：段階→文の対応は resolveOrinBubbleText
  * の1表に集約し、文そのものは App 側で既存正本（waitingText／
@@ -40,10 +56,10 @@ import type { OriginLanguage } from '../i18n';
  *
  * 姿は App 側の状態集約（orinPresenceState）をそのまま流用する：
  * working 状態では既存の動画アセットで動き、それ以外は状態別の
- * 静止画。待機中（テキストなし）は窓の中で静かな呼吸（上限は
- * OriginCatState の ORIGIN_CAT_IDLE_MOTION_* のとおり）。
- * prefers-reduced-motion では動画を使わず静止画にし、呼吸も
- * テキストのフェードも無くす（即時表示・即時消去）。
+ * 静止画。待機中（テキストなし・未スクロール）は窓の中で静かな
+ * 呼吸（上限は OriginCatState の ORIGIN_CAT_IDLE_MOTION_* の
+ * とおり）。prefers-reduced-motion では動画を使わず静止画にし、
+ * 呼吸もテキストのフェードも無くす（即時表示・即時消去）。
  *
  * タップで小さく喜ぶ動き（跳ねる＋頷く、合図は App 側の
  * joySignal）をして、オリンのプロフィールカードを開く
@@ -59,12 +75,30 @@ import type { OriginLanguage } from '../i18n';
 export const ORIN_PRESENCE_FADE_MS = 180;
 
 /**
- * 窓の中のオリンの絵の寸法（px）。旧・台座付き104pxの常駐は
- * 目立ちすぎるというオーナー指示（2026-11-20）で、窓の枠内に
- * 収まる 56px にした。待機・作業で不変（窓の横幅だけが
- * テキストの有無で変わる）。
+ * 窓の中のオリンの絵の通常時の寸法（px）。旧・台座付き104pxの
+ * 常駐は目立ちすぎるというオーナー指示（2026-11-20）で、窓の
+ * 枠内に収まる 56px にした。作業中・スクロール中は
+ * ORIN_PRESENCE_CAT_SIZE_COMPACT_PX へ自動で縮む（同日 10:10
+ * の refine 指示）。
  */
 export const ORIN_PRESENCE_CAT_SIZE_PX = 56;
+
+/**
+ * 自動縮小時の絵の寸法（px）。作業中（状態テキスト表示中）と
+ * 会話のスクロール中にこの大きさになり、浮遊窓の下を内容が
+ * 読み進められる余地を広げる（2026-11-20 10:10 オーナー指示）。
+ */
+export const ORIN_PRESENCE_CAT_SIZE_COMPACT_PX = 36;
+
+/**
+ * 会話スクローラの scrollTop がこの px を超えたら「スクロール
+ * されている」とみなして絵を縮める閾値（App 側のスクロール
+ * 判定が使う正本）。
+ */
+export const ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX = 40;
+
+/** 絵のサイズ変化のトランジションの尺（CSS 側と一致させる）。 */
+export const ORIN_PRESENCE_RESIZE_MS = 200;
 
 export interface OrinBubbleSignals {
   imagePhase: 'designing' | 'drawing' | 'checking' | null;
@@ -174,9 +208,16 @@ export interface OrinFloatingPresenceProps {
   hidden?: boolean;
   /** タップ時の一回性の「喜ぶ」動きの合図（App 側で数える）。 */
   joySignal?: number;
+  /**
+   * 会話がスクロールされているか（scrollTop が
+   * ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX 超。App 側が
+   * chatScrollRef のスクロールから集約して渡す）。true の間は
+   * 作業中でなくても絵が自動で小さくなる。
+   */
+  scrolled?: boolean;
 }
 
-export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0 }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -219,6 +260,12 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
   if (hidden) return null;
 
   const ja = language !== 'en';
+  // 自動縮小（2026-11-20 10:10）：状態テキストが表示されている間
+  // （作業中。フェードアウトの間もテキストは見えているので含む）
+  // と、会話がスクロールされている間は絵を小さくする。テキスト
+  // 自体は縮小しても常に見える（作業中コメントの詳細化の要件）。
+  const compact = scrolled || pillText !== null;
+  const catSize = compact ? ORIN_PRESENCE_CAT_SIZE_COMPACT_PX : ORIN_PRESENCE_CAT_SIZE_PX;
   // 待機中（テキストが消えきって・動画でない状態）だけ、窓の中で
   // 静かな呼吸を付ける。テキストのフェードアウト中はまだ付けない。
   // 「動画でない状態」は OriginCatState の状態→動画対応表で判定する
@@ -229,12 +276,12 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
     <div className="origin-orin-presence" data-testid="origin-orin-presence">
       <button
         type="button"
-        className={`origin-orin-presence__tap${pillText === null ? ' is-idle' : ''}`}
+        className={`origin-orin-presence__tap${pillText === null ? ' is-idle' : ''}${compact ? ' is-compact' : ''}`}
         onClick={onOpenWorkSheet}
         aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
       >
         <span key={joySignal} className={joySignal > 0 ? 'origin-cat-joy inline-flex' : 'inline-flex'}>
-          <OriginCatState state={state} size={ORIN_PRESENCE_CAT_SIZE_PX} breathing={breathing} />
+          <OriginCatState state={state} size={catSize} breathing={breathing} />
         </span>
         {pillText !== null && (
           <span

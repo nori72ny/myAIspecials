@@ -566,44 +566,59 @@
   }
 }
 
-/* Orin presence band (owner revision, 2026-11-14 08:59; band layout
-   revision, 2026-11-17; "Orin's window" revision, 2026-11-20).
-   Orin stays resident at the top centre of the screen, directly
-   under the header, inside a band in the normal flow. The band
-   holds a single element: Orin's own window — a small opaque
-   panel (surface tone, 1px hairline border, panel radius, the
-   lightest shadow only) with the cat (56px, no pedestal: the
-   window itself is the frame) on the left and the current-work
-   text on its right. The round 104px pedestal avatar read as too
-   prominent (owner instruction, 2026-11-20 08:30), so the window
-   blends into the background instead, and wherever the presence
-   moves (screen or feature changes), the window moves as one
-   element. With no status text the window shrinks to a small
-   cat-only form; the text appears only while work is in flight,
-   and on completion only the text fades away. No name text sits
-   in the window (removed by owner request, 2026-11-15; the name
-   appears inside the profile card instead).
-   Layout: the presence used to float over the conversation as a
-   position: fixed overlay, and the fixed circle covered message
-   text while scrolling (production defect, confirmed 2026-11-17,
-   and again in the 2026-11-20 PC quality check). The band is in
-   the normal flow, so the window can never overlap the
-   conversation; when the text appears, the band grows and the
-   conversation is pushed down instead of being covered, and the
-   conversation scroller additionally carries a scroll padding
-   sized to the window (.origin-chat-scroll in App.tsx). The
-   profile card overlay (z-40) still opens over the band, which
-   stays visible underneath so the tap joy motion can play
+/* Orin presence (owner revision, 2026-11-14 08:59; band layout
+   revision, 2026-11-17; "Orin's window" revision, 2026-11-20;
+   floating + auto-shrink refinement, 2026-11-20 10:10).
+   Orin stays resident at the top centre of the main column,
+   directly under the header, as Orin's own window — a small
+   opaque panel (surface tone, 1px hairline border, panel radius,
+   the lightest shadow only) with the cat on the left and the
+   current-work text on its right. The round 104px pedestal
+   avatar read as too prominent (owner instruction, 2026-11-20
+   08:30), so the window blends into the background instead. With
+   no status text the window shrinks to a small cat-only form;
+   the text appears only while work is in flight, and on
+   completion only the text fades away. No name text sits in the
+   window (removed by owner request, 2026-11-15; the name appears
+   inside the profile card instead).
+   Layout history: the presence first floated as a fixed overlay,
+   and the fixed circle covered message text while scrolling
+   (production defect, confirmed 2026-11-17 and again in the
+   2026-11-20 PC quality check), so it moved into an in-flow band
+   (2026-11-17) and then into the window form (2026-11-20). The
+   owner then refined the direction with device screenshots
+   (2026-11-20 10:10), pointing at the Muse app's avatar: small,
+   floating, with the content scrolling underneath it to be read.
+   Floating is acceptable again, provided Orin itself shrinks
+   automatically — while work is in flight (status text shown)
+   and while the conversation is scrolled, the art goes from
+   56px to 36px (the is-compact state, driven by the component).
+   So the window floats again: absolutely positioned within the
+   relative main column (not viewport-fixed, so it stays centred
+   on the column when the sidebar opens or closes), above the
+   conversation scroller, pointer-events only on the window
+   itself. The scroller keeps the first line clear of the window
+   with top padding, and scrolled content passes beneath the
+   (now small) window — that pass-under is the requested reading
+   behaviour, not the old defect: the window is opaque but small,
+   and shrinks further the moment reading starts. The profile
+   card overlay (z-40) still opens over the presence (z-30),
+   which stays visible underneath so the tap joy motion can play
    (profile card revision, 2026-11-15). The status text's motion
-   is a gentle opacity fade driven by the component;
-   prefers-reduced-motion removes it. */
+   is a gentle opacity fade driven by the component, and the
+   art's size change takes ~200ms; prefers-reduced-motion
+   removes both. */
 .origin-orin-presence {
+  position: absolute;
+  top: 66px;
+  left: 0;
+  right: 0;
+  z-index: 30;
   display: flex;
   justify-content: center;
-  flex: none;
-  width: 100%;
   box-sizing: border-box;
-  padding: 6px 12px 8px;
+  padding: 0 12px;
+  pointer-events: none;
 }
 .origin-orin-presence__tap {
   display: flex;
@@ -641,22 +656,39 @@
   overflow-wrap: break-word;
   transition: opacity 180ms ease-out;
 }
+/* 自動縮小のトランジション（2026-11-20 10:10）：絵の寸法変化を
+   約200msで滑らかにする。対象はプレゼンス内の絵だけに絞る。 */
+.origin-orin-presence [data-testid="origin-cat-state"] {
+  transition: width 200ms ease-out, height 200ms ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
   .origin-orin-presence__status {
     transition: none;
   }
+  .origin-orin-presence [data-testid="origin-cat-state"] {
+    transition: none;
+  }
 }
 
-/* Conversation scroller clearance for Orin's window (2026-11-20).
-   The window sits in the in-flow band above this scroller, so it
-   never overlaps the conversation; the scroll padding is the
-   belt-and-braces half of the fix: if anything ever scrolls a
-   message to the scroller's top edge (scrollIntoView, anchor
-   jumps), the message stops below a full window's height
-   (window 70px + band padding 14px, rounded up) instead of
-   sliding up against — or under — the window. */
+/* Conversation scroller clearance for Orin's floating window
+   (2026-11-20, floating refinement 10:10). The window floats over
+   this scroller's top edge (its top sits 6px below the header,
+   i.e. 6px into the scroller's box). Two clearances keep reading
+   intact:
+   - padding-top holds the first line below the full-size window
+     at rest (window 68px + 6px offset + a small gap = 82px), so
+     nothing starts out hidden. The padding is part of the
+     scrollable area, so once the reader scrolls, content passes
+     beneath the window — by then the art has shrunk to 36px
+     (window ~48px), which is the requested Muse-app-style
+     read-under behaviour.
+   - scroll-padding-top matches the shrunken window (48px + 6px
+     offset + a small gap = 64px), so messages scrolled into view
+     (scrollIntoView, anchor jumps) stop just below the small
+     window instead of sliding under it. */
 .origin-chat-scroll {
-  scroll-padding-top: 96px;
+  padding-top: 82px;
+  scroll-padding-top: 64px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar

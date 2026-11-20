@@ -70,7 +70,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     // オリンはヘッダーに置かず、上部中央のプレゼンスに一本化した
     // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式では、
     // 台座付きの丸アバターではなく、不透明な窓パネルの中に猫が
-    // 収まる形で常駐する。
+    // 収まる形で常駐し、同日 10:10 の refine で窓のまま浮遊配置
+    // （メイン列内 absolute）へ戻した。
     await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
@@ -86,7 +87,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 窓の中の猫は56pxの円形。待機・作業で大きさは変わらない。
+    // 窓の中の猫は56pxの円形（待機・未スクロール）。作業中と
+    // スクロール中は36pxに自動で縮む（2026-11-20 10:10）。
     expect(presenceCatStyle.width).toBe('56px');
     expect(presenceCatStyle.height).toBe('56px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
@@ -105,16 +107,22 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(windowStyle.backgroundColor).not.toBe('transparent');
     expect(windowStyle.borderRadius).toBe('16px');
     expect(windowStyle.boxShadow).toContain('rgba(15, 23, 42, 0.05)');
-    // 窓は通常フローの帯の中にあり、会話スクローラの上に重ならない
-    // （窓の下端はスクローラの上端より上）。スクローラ側には窓の
-    // 高さ分の scroll padding も確保する。
+    // 浮遊配置（2026-11-20 10:10）：窓はメイン列の上部中央に
+    // absolute で浮き、会話スクローラの上端に重なる。ただし
+    // スクローラの上部パディング（82px）の内側に収まるため、
+    // 先頭の内容が窓の下に隠れることはない。scroll-padding-top
+    // は縮小後の窓に合わせた64px。スクロールした内容は窓の
+    // 下を通過できる（パディングはスクロール領域の一部）。
+    await expect(presence).toHaveCSS('position', 'absolute');
     const windowBox = await windowButton.boundingBox();
     const scroller = page.locator('.origin-chat-scroll');
     const scrollerBox = await scroller.boundingBox();
     expect(windowBox).not.toBeNull();
     expect(scrollerBox).not.toBeNull();
-    expect(windowBox!.y + windowBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 1);
-    await expect(scroller).toHaveCSS('scroll-padding-top', '96px');
+    expect(windowBox!.y).toBeGreaterThanOrEqual(scrollerBox!.y);
+    expect(windowBox!.y + windowBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 82 + 1);
+    await expect(scroller).toHaveCSS('padding-top', '82px');
+    await expect(scroller).toHaveCSS('scroll-padding-top', '64px');
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
@@ -167,12 +175,19 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(presence).toContainText('回答を準備しています');
+    // 作業中は自動縮小で猫が36pxになる（状態テキストは見えたまま）。
+    const catDuring = presence.locator('img[data-testid="origin-cat-state"]');
+    await expect(catDuring).toBeVisible();
+    await expect.poll(async () => catDuring.evaluate((el) => getComputedStyle(el).width)).toBe('36px');
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
-    // 回答が終わるとピルだけが消え、姿は残る。
+    // 回答が終わるとピルだけが消え、姿は通常の56pxに戻って残る。
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
     await expect(presence).toBeVisible();
+    const catAfter = presence.locator('img[data-testid="origin-cat-state"]');
+    await expect(catAfter).toBeVisible();
+    await expect.poll(async () => catAfter.evaluate((el) => getComputedStyle(el).width)).toBe('56px');
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 

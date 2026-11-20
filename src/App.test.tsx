@@ -2857,6 +2857,25 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('56px');
   });
 
+  it('shrinks Orin while the conversation is scrolled and restores it at the top (2026-11-20 10:10 auto-shrink wiring)', async () => {
+    const { container } = render(<App language="ja" />);
+    const presence = await screen.findByTestId('origin-orin-presence');
+    const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
+    // 未スクロールの待機中は通常の56px。
+    expect(cat.style.width).toBe('56px');
+    const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    let scrollTop = 120;
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
+    fireEvent.scroll(scroller);
+    // 閾値（40px）を超えてスクロールされている間は36pxに縮む。
+    await waitFor(() => expect(cat.style.width).toBe('36px'));
+    // 先頭に戻ると56pxに戻る。
+    scrollTop = 0;
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(cat.style.width).toBe('56px'));
+  });
+
   it('shows the existing failure text in the presence pill when the send fails', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('network down'); });
     vi.stubGlobal('fetch', fetchMock);

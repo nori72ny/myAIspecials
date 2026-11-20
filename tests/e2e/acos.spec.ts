@@ -84,16 +84,19 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
     });
     await page.goto('/');
-    // 待機中からプレゼンスはヘッダー直下の帯に上部中央で出ている
-    // （姿のみ、状態ピルは作業中だけ）。帯は通常フロー内にあり
-    // 本文と重ならない（2026-11-17 の帯方式。旧：2026-11-14 08:59
-    // の浮遊化）。ヘッダーにオリンは置かない。常駐の名前テキストは
-    // 2026-11-15 のオーナー指示で削除済み（カード内表示は残る）。
+    // 待機中からプレゼンスはヘッダー直下に上部中央で浮遊して
+    // 出ている（姿のみ、状態ピルは作業中だけ）。2026-11-17 に
+    // 帯方式（通常フロー）へ移したが、2026-11-20 10:10 の
+    // オーナー refine で、窓の形のまま浮遊配置（メイン列内
+    // absolute）へ戻し、作業中・スクロール中は自動で小さく
+    // なるようにした。ヘッダーにオリンは置かない。常駐の名前
+    // テキストは2026-11-15 のオーナー指示で削除済み（カード内
+    // 表示は残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0);
-    await expect(presence).toHaveCSS('position', 'static');
+    await expect(presence).toHaveCSS('position', 'absolute');
     await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
@@ -105,8 +108,8 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.getByTestId('origin-orin-bubble')).toHaveCount(0);
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await expect(page.getByTestId('origin-thinking')).toHaveCount(0);
-    // 回答が終わるとピルだけが消え、姿は同じ大きさで残る
-    // （小さなヘッダーアイコンへは縮まない）。
+    // 回答が終わるとピルだけが消え、姿は通常の大きさに戻って
+    // 残る。作業中は自動縮小で小さくなる（2026-11-20 10:10）。
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
     await expect(presence).toBeVisible();
   });

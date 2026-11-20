@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import OrinFloatingPresence, {
   ORIN_PRESENCE_FADE_MS,
   ORIN_PRESENCE_CAT_SIZE_PX,
+  ORIN_PRESENCE_CAT_SIZE_COMPACT_PX,
+  ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX,
   resolveOrinAgentBubbleText,
   resolveOrinBubbleText,
   resolveOrinPillText,
@@ -130,7 +132,7 @@ describe('resolveOrinPillText priority (2026-11-20 detail pass)', () => {
   });
 });
 
-describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-20)', () => {
+describe('Orin presence window (2026-11-14 08:59 revision, window form + floating auto-shrink 2026-11-20)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     stubMatchMedia(false);
@@ -153,16 +155,18 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
     // 窓方式（2026-11-20）：台座は付けない。窓そのものが枠になる。
     expect(within(presence).queryByTestId('origin-cat-pedestal')).toBeNull();
-    // 窓の中のオリン：絵56px（待機・作業で同じ大きさ）。
+    // 窓の中のオリン：通常時（待機・未スクロール）は絵56px。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.tagName).toBe('IMG');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect(ORIN_PRESENCE_CAT_SIZE_PX).toBe(56);
     expect(presence.contains(cat)).toBe(true);
-    // 待機中は窓がオリンだけの小さな形（is-idle）に縮む。
+    // 待機中は窓がオリンだけの小さな形（is-idle）に縮み、
+    // 自動縮小（is-compact）はまだ発火していない。
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(true);
+    expect(tap.classList.contains('is-compact')).toBe(false);
     // 待機中は絵に静かな呼吸が付く。
     expect(cat.classList.contains('origin-cat-breathe')).toBe(true);
   });
@@ -181,21 +185,51 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(screen.getByTestId('origin-cat-state').parentElement?.classList.contains('origin-cat-joy')).toBe(true);
   });
 
-  it('shows the status text inside the window while working, at the same art size as idle', () => {
+  it('shows the status text inside the window while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink)', () => {
     const { props, rerender } = renderPresence();
     const idleCat = screen.getByTestId('origin-cat-state');
     expect((idleCat as HTMLElement).style.width).toBe('56px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
     // 状態テキストは段階文をそのまま窓の右側に出す。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
-    // 作業中も絵の大きさは変わらない（56px）。
+    // 作業中は自動縮小が発火し、絵は36pxになる（テキストは常に見える）。
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat).toBe(idleCat);
-    expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
+    expect(ORIN_PRESENCE_CAT_SIZE_COMPACT_PX).toBe(36);
+    expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
+    expect((cat as HTMLElement).style.height).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     // テキストが出ている間は窓は小形ではなく、呼吸も付けない。
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(false);
+    expect(tap.classList.contains('is-compact')).toBe(true);
     expect(cat.classList.contains('origin-cat-breathe')).toBe(false);
+  });
+
+  it('shrinks to the compact cat-only window while the conversation is scrolled, and grows back at the top', () => {
+    const { props, rerender } = renderPresence({ scrolled: true });
+    // スクロール中は待機でも自動縮小：絵36px、テキストは出ず、
+    // 窓はオリンだけの小さい形（is-idle かつ is-compact）。
+    const cat = screen.getByTestId('origin-cat-state');
+    expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
+    expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
+    const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
+    expect(tap.classList.contains('is-idle')).toBe(true);
+    expect(tap.classList.contains('is-compact')).toBe(true);
+    // 先頭に戻ると通常の56pxに戻る。
+    rerender(<OrinFloatingPresence {...props} scrolled={false} />);
+    expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
+    expect(screen.getByRole('button', { name: 'いまの作業を表示' }).classList.contains('is-compact')).toBe(false);
+  });
+
+  it('keeps the status text visible at the compact size while scrolled during work', () => {
+    renderPresence({ text: '回答を準備しています…', state: 'thinking', scrolled: true });
+    // スクロール＋作業中でも、状態テキストは隠さず絵だけが小さい。
+    expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
+    expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
+  });
+
+  it('pins the scroll-shrink threshold the App side uses', () => {
+    expect(ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX).toBe(40);
   });
 
   it('moves while working: the working state uses the motion video asset', () => {
@@ -215,20 +249,24 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答をまとめています…');
   });
 
-  it('on completion only the status text fades out — the window and the art stay (no shrink back)', () => {
+  it('on completion only the status text fades out — the window and the art stay, and the art grows back to full size', () => {
     const { props, rerender } = renderPresence({ text: '回答を準備しています…', state: 'thinking' });
     act(() => { vi.advanceTimersByTime(50); });
+    // テキスト表示中は自動縮小で36px。
+    expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
     rerender(<OrinFloatingPresence {...props} text={null} state="idle" />);
     // フェードアウトの間テキストは残り、尺が過ぎたらテキストだけが消える。
     expect(screen.queryByTestId('origin-orin-presence-status')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(ORIN_PRESENCE_FADE_MS); });
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    // 窓と姿は残り、絵の大きさも待機・作業と同じ。窓は小形に戻る。
+    // 窓と姿は残り、絵は通常の56pxに戻る。窓は小形に戻り、
+    // 自動縮小も解ける。
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(true);
+    expect(tap.classList.contains('is-compact')).toBe(false);
   });
 
   it('shows and hides the status text immediately under reduced motion, with a still instead of the video', () => {
@@ -266,7 +304,7 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('pins the presence CSS: in-flow band under the header, opaque window panel, no fixed overlay, no conversation clearance', () => {
+  it('pins the presence CSS: floating window panel over the scroller, auto-shrink transition, scroller top clearance', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).not.toContain('.origin-orin-bubble');
     expect(css).not.toContain('.origin-orin-overlay');
@@ -276,17 +314,19 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(css).not.toContain('.origin-orin-presence__name');
     // 旧・濃色ピル（白文字＋強い影＋backdrop blur）は窓方式で廃止した。
     expect(css).not.toContain('.origin-orin-presence__pill');
-    // 帯方式（2026-11-17）：プレゼンスはヘッダー直下の通常フロー内の
-    // 帯として置き、スクロールする本文には決して重ねない。固定配置
-    // だった頃の宣言（fixed／top／transform／z-index）が帯の規則に
-    // 戻っていないことを固定する。
-    const bandRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
-    expect(bandRule).toContain('display: flex;');
-    expect(bandRule).toContain('justify-content: center;');
-    expect(bandRule).not.toContain('position: fixed');
-    expect(bandRule).not.toContain('top:');
-    expect(bandRule).not.toContain('transform');
-    expect(bandRule).not.toContain('z-index');
+    // 浮遊配置（2026-11-20 10:10 refine）：プレゼンスはメイン列の
+    // 相対配置を基準に absolute で上部中央に浮く。ビューポート
+    // fixed にはしない（サイドバーの開閉で列の中心がずれない
+    // ようにするため）。列全体に広がる容器はタップを通し、
+    // 窓（タップ対象）だけがタップを受ける。
+    const floatRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
+    expect(floatRule).toContain('position: absolute;');
+    expect(floatRule).toContain('top: 66px;');
+    expect(floatRule).toContain('z-index: 30;');
+    expect(floatRule).toContain('display: flex;');
+    expect(floatRule).toContain('justify-content: center;');
+    expect(floatRule).toContain('pointer-events: none;');
+    expect(floatRule).not.toContain('position: fixed');
     // 窓方式（2026-11-20）：タップ対象そのものが窓パネルになる。
     // 不透明な面＋1px hairline＋パネル角丸＋最も軽い影だけを持ち、
     // グローや強い影は使わない。
@@ -295,13 +335,20 @@ describe('Orin presence window (2026-11-14 08:59 revision, window form 2026-11-2
     expect(windowRule).toContain('border: 1px solid var(--border-default);');
     expect(windowRule).toContain('border-radius: var(--radius-panel);');
     expect(windowRule).toContain('box-shadow: var(--shadow-1);');
+    expect(windowRule).toContain('pointer-events: auto;');
     expect(windowRule).not.toContain('position: fixed');
-    // 会話スクローラには窓の高さ分の scroll padding を確保し、
-    // 本文が窓の下に隠れないようにする（重なり修正の片翼）。
+    // 自動縮小のトランジション：絵の寸法変化は約200ms、
+    // reduced-motion では即時（既存の media 規則側で無効化）。
+    expect(css).toContain('transition: width 200ms ease-out, height 200ms ease-out;');
+    // 会話スクローラ：先頭行が浮遊窓の下に隠れないよう上部に
+    // 窓の高さ分のパディングを確保し、scroll-padding-top は
+    // 縮小後の窓に合わせる。スクロールした内容は窓の下を
+    // 通過できる（パディングはスクロール領域の一部）。
     expect(css).toContain('.origin-chat-scroll {');
-    expect(css).toContain('scroll-padding-top: 96px;');
-    // 固定配置前提の会話クリアランス（131px）は撤去した。本文は
-    // 帯の下からそのまま始まる。
+    expect(css).toContain('padding-top: 82px;');
+    expect(css).toContain('scroll-padding-top: 64px;');
+    expect(css).not.toContain('scroll-padding-top: 96px;');
+    // 固定配置前提の会話クリアランス（131px）は撤去した。
     expect(css).not.toContain('padding-top: 131px !important;');
   });
 });
