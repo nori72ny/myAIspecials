@@ -2657,11 +2657,12 @@ describe('cat visibility on the top screen and while generating (owner request 2
     render(<App language="ja" />);
     // 初期画面のヒーロー猫は、上部中央に常駐する浮遊プレゼンスと二重に見えるため廃止（2026-11-14）。
     expect(screen.queryByTestId('origin-core-logo')).toBeNull();
-    // 猫は浮遊プレゼンスの1か所だけに、台座付きで常時表示される。
+    // 猫はプレゼンスの窓の1か所だけに常時表示される（窓方式
+    // 2026-11-20：台座は付けず、窓そのものが枠になる）。
     const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
     expect(brandCats).toHaveLength(1);
     expect(brandCats[0].tagName).toBe('IMG');
-    expect(brandCats[0].closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    expect(brandCats[0].closest('[data-testid="origin-cat-pedestal"]')).toBeNull();
     expect(brandCats[0].closest('[data-testid="origin-orin-presence"]')).not.toBeNull();
   });
 
@@ -2679,11 +2680,11 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(within(presence).queryByTestId('origin-orin-presence-name')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
-    // 状態はプレゼンスの大きなオリンが表す（静止画・細リング台座）。
+    // 状態はプレゼンスの窓の中のオリンが表す（静止画・台座なし）。
     const presenceCat = within(presence).getByTestId('origin-cat-state');
     expect(presenceCat.tagName).toBe('IMG');
     expect(presenceCat.getAttribute('data-state')).toBe('thinking');
-    expect(presenceCat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    expect(presenceCat.closest('[data-testid="origin-cat-pedestal"]')).toBeNull();
     // ヘッダーにオリンは置かない（浮遊プレゼンスに一本化）。
     expect(screen.queryByTestId('origin-header-orin')).toBeNull();
     expect(document.querySelector('.origin-header [data-testid="origin-cat-state"]')).toBeNull();
@@ -2847,14 +2848,32 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '完了の合図を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     expect(await screen.findByText('吹き出し確認の回答')).toBeTruthy();
-    // 完了の合図は headerDoneCue（2,600ms）の間だけピルに出て、
-    // その後ピルだけがフェードして消える。姿は同じ大きさで残る
-    // （回答後に小さなヘッダーアイコンへ縮まない）。
+    // 完了の合図は headerDoneCue（2,600ms）の間だけ窓に出て、
+    // その後テキストだけがフェードして消える。姿は同じ大きさで
+    // 残り、窓はオリンだけの小形に戻る。
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
-    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('96px');
-    expect((within(presence).getByTestId('origin-cat-pedestal') as HTMLElement).style.width).toBe('104px');
+    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('56px');
+  });
+
+  it('shrinks Orin while the conversation is scrolled and restores it at the top (2026-11-20 10:10 auto-shrink wiring)', async () => {
+    const { container } = render(<App language="ja" />);
+    const presence = await screen.findByTestId('origin-orin-presence');
+    const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
+    // 未スクロールの待機中は通常の56px。
+    expect(cat.style.width).toBe('56px');
+    const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    let scrollTop = 120;
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
+    fireEvent.scroll(scroller);
+    // 閾値（40px）を超えてスクロールされている間は36pxに縮む。
+    await waitFor(() => expect(cat.style.width).toBe('36px'));
+    // 先頭に戻ると56pxに戻る。
+    scrollTop = 0;
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(cat.style.width).toBe('56px'));
   });
 
   it('shows the existing failure text in the presence pill when the send fails', async () => {

@@ -566,83 +566,129 @@
   }
 }
 
-/* Orin presence band (owner revision, 2026-11-14 08:59; band layout
-   revision, 2026-11-17). Orin no longer sits in the header: a single
-   presence stays resident at the top centre of the screen like the
-   Muse app's avatar, at the same size (104px pedestal) in idle and
-   working states alike — it does not shrink back to a small header
-   icon when an answer completes. The dark status pill appears under
-   the circle only while work is in flight, and on completion only
-   the pill fades away. No name text sits under the circle (removed
-   by owner request, 2026-11-15; the name appears inside the profile
-   card instead).
-   Layout: the presence used to float over the conversation as a
-   position: fixed overlay, but the fixed circle — and the pill,
-   whose height the old 131px conversation clearance never accounted
-   for — covered message text and code while scrolling (production
-   defect, confirmed 2026-11-17). The presence is now a band in the
-   normal flow directly under the header: a non-shrinking row of the
-   main column that centres its tap target (circle + pill). It can
-   never overlap the conversation; when the pill appears, the band
-   grows and the conversation is pushed down instead of being
-   covered. The profile card overlay (z-40) still opens over the
-   band, which stays visible underneath so the tap joy motion can
-   play (profile card revision, 2026-11-15). The pill's motion is
-   a gentle opacity fade plus a slight scale on entry, driven by the
-   component; prefers-reduced-motion removes it. */
+/* Orin presence (owner revision, 2026-11-14 08:59; band layout
+   revision, 2026-11-17; "Orin's window" revision, 2026-11-20;
+   floating + auto-shrink refinement, 2026-11-20 10:10).
+   Orin stays resident at the top centre of the main column,
+   directly under the header, as Orin's own window — a small
+   opaque panel (surface tone, 1px hairline border, panel radius,
+   the lightest shadow only) with the cat on the left and the
+   current-work text on its right. The round 104px pedestal
+   avatar read as too prominent (owner instruction, 2026-11-20
+   08:30), so the window blends into the background instead. With
+   no status text the window shrinks to a small cat-only form;
+   the text appears only while work is in flight, and on
+   completion only the text fades away. No name text sits in the
+   window (removed by owner request, 2026-11-15; the name appears
+   inside the profile card instead).
+   Layout history: the presence first floated as a fixed overlay,
+   and the fixed circle covered message text while scrolling
+   (production defect, confirmed 2026-11-17 and again in the
+   2026-11-20 PC quality check), so it moved into an in-flow band
+   (2026-11-17) and then into the window form (2026-11-20). The
+   owner then refined the direction with device screenshots
+   (2026-11-20 10:10), pointing at the Muse app's avatar: small,
+   floating, with the content scrolling underneath it to be read.
+   Floating is acceptable again, provided Orin itself shrinks
+   automatically — while work is in flight (status text shown)
+   and while the conversation is scrolled, the art goes from
+   56px to 36px (the is-compact state, driven by the component).
+   So the window floats again: absolutely positioned within the
+   relative main column (not viewport-fixed, so it stays centred
+   on the column when the sidebar opens or closes), above the
+   conversation scroller, pointer-events only on the window
+   itself. The scroller keeps the first line clear of the window
+   with top padding, and scrolled content passes beneath the
+   (now small) window — that pass-under is the requested reading
+   behaviour, not the old defect: the window is opaque but small,
+   and shrinks further the moment reading starts. The profile
+   card overlay (z-40) still opens over the presence (z-30),
+   which stays visible underneath so the tap joy motion can play
+   (profile card revision, 2026-11-15). The status text's motion
+   is a gentle opacity fade driven by the component, and the
+   art's size change takes ~200ms; prefers-reduced-motion
+   removes both. */
 .origin-orin-presence {
+  position: absolute;
+  top: 66px;
+  left: 0;
+  right: 0;
+  z-index: 30;
   display: flex;
   justify-content: center;
-  flex: none;
-  width: 100%;
   box-sizing: border-box;
+  padding: 0 12px;
+  pointer-events: none;
 }
 .origin-orin-presence__tap {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
-  max-width: 100%;
+  gap: 10px;
+  max-width: min(92vw, 26rem);
   margin: 0;
-  padding: 4px 10px 6px;
-  border: 0;
-  background: transparent;
+  padding: 6px 14px 6px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-1);
   color: var(--text-primary);
   cursor: pointer;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
+.origin-orin-presence__tap.is-idle {
+  /* 待機時：窓はオリンだけの小さな形に縮む（左右対称のパディング）。 */
+  padding: 6px 8px;
+}
 .origin-orin-presence__tap:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
-  border-radius: 24px;
+  border-radius: var(--radius-panel);
 }
-.origin-orin-presence__pill {
-  max-width: min(88vw, 20rem);
-  padding: 6px 12px;
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: 999px;
-  background: rgb(15 23 42 / 82%);
-  color: #ffffff;
-  box-shadow: 0 6px 18px rgb(15 23 42 / 22%);
-  backdrop-filter: blur(8px);
+.origin-orin-presence__status {
+  min-width: 0;
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
-  line-height: 1.4;
-  text-align: center;
+  line-height: 1.45;
+  text-align: left;
   overflow-wrap: break-word;
-  transform: scale(0.96);
-  transition: opacity 180ms ease-out, transform 180ms ease-out;
+  transition: opacity 180ms ease-out;
 }
-.origin-orin-presence__pill.is-visible {
-  transform: scale(1);
+/* 自動縮小のトランジション（2026-11-20 10:10）：絵の寸法変化を
+   約200msで滑らかにする。対象はプレゼンス内の絵だけに絞る。 */
+.origin-orin-presence [data-testid="origin-cat-state"] {
+  transition: width 200ms ease-out, height 200ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .origin-orin-presence__pill {
+  .origin-orin-presence__status {
     transition: none;
-    transform: scale(1);
   }
+  .origin-orin-presence [data-testid="origin-cat-state"] {
+    transition: none;
+  }
+}
+
+/* Conversation scroller clearance for Orin's floating window
+   (2026-11-20, floating refinement 10:10). The window floats over
+   this scroller's top edge (its top sits 6px below the header,
+   i.e. 6px into the scroller's box). Two clearances keep reading
+   intact:
+   - padding-top holds the first line below the full-size window
+     at rest (window 68px + 6px offset + a small gap = 82px), so
+     nothing starts out hidden. The padding is part of the
+     scrollable area, so once the reader scrolls, content passes
+     beneath the window — by then the art has shrunk to 36px
+     (window ~48px), which is the requested Muse-app-style
+     read-under behaviour.
+   - scroll-padding-top matches the shrunken window (48px + 6px
+     offset + a small gap = 64px), so messages scrolled into view
+     (scrollIntoView, anchor jumps) stop just below the small
+     window instead of sliding under it. */
+.origin-chat-scroll {
+  padding-top: 82px;
+  scroll-padding-top: 64px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar
