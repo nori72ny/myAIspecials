@@ -7,8 +7,11 @@ import OrinFloatingPresence, {
   ORIN_PRESENCE_FADE_MS,
   ORIN_PRESENCE_CAT_SIZE_PX,
   ORIN_PRESENCE_PEDESTAL_SIZE_PX,
+  resolveOrinAgentBubbleText,
   resolveOrinBubbleText,
+  resolveOrinPillText,
   type OrinBubbleSignals,
+  type OrinPillPriority,
 } from './OrinFloatingPresence';
 
 const TEXTS = {
@@ -61,6 +64,70 @@ describe('resolveOrinBubbleText', () => {
 
   it('prefers the image phase text over research and stream signals', () => {
     expect(resolveOrinBubbleText(signals({ isLoading: true, imagePhase: 'drawing', researchStage: 'searching', streamPhase: 'searching' }), TEXTS)).toBe(TEXTS.imagePhaseText);
+  });
+});
+
+describe('resolveOrinAgentBubbleText (2026-11-20 detail pass)', () => {
+  const FALLBACK = 'エージェントが作業しています';
+
+  it('shows the current step title while the agent works and the chat is idle', () => {
+    expect(resolveOrinAgentBubbleText({ agentActive: true, chatLoading: false, stepTitle: 'ウェブで調べる' }, FALLBACK)).toBe('ウェブで調べる');
+  });
+
+  it('switches the text as the step advances', () => {
+    const base = { agentActive: true, chatLoading: false };
+    expect(resolveOrinAgentBubbleText({ ...base, stepTitle: 'ウェブで調べる' }, FALLBACK)).toBe('ウェブで調べる');
+    expect(resolveOrinAgentBubbleText({ ...base, stepTitle: '文書を作る' }, FALLBACK)).toBe('文書を作る');
+    expect(resolveOrinAgentBubbleText({ ...base, stepTitle: 'テストと動作確認' }, FALLBACK)).toBe('テストと動作確認');
+  });
+
+  it('falls back to the generic agent text when there is no step title', () => {
+    expect(resolveOrinAgentBubbleText({ agentActive: true, chatLoading: false, stepTitle: null }, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it('stays silent while a chat send is in flight (the foreground work owns the pill)', () => {
+    expect(resolveOrinAgentBubbleText({ agentActive: true, chatLoading: true, stepTitle: 'ウェブで調べる' }, FALLBACK)).toBeNull();
+  });
+
+  it('stays silent when the agent is not active', () => {
+    expect(resolveOrinAgentBubbleText({ agentActive: false, chatLoading: false, stepTitle: 'ウェブで調べる' }, FALLBACK)).toBeNull();
+    expect(resolveOrinAgentBubbleText({ agentActive: false, chatLoading: false, stepTitle: null }, FALLBACK)).toBeNull();
+  });
+});
+
+describe('resolveOrinPillText priority (2026-11-20 detail pass)', () => {
+  function priority(overrides: Partial<OrinPillPriority> = {}): OrinPillPriority {
+    return { sheetOpen: false, workingText: null, failureText: null, doneText: null, agentText: null, ...overrides };
+  }
+
+  it('returns null when nothing applies', () => {
+    expect(resolveOrinPillText(priority())).toBeNull();
+  });
+
+  it('shows the agent step text when only the agent is working', () => {
+    expect(resolveOrinPillText(priority({ agentText: 'ウェブで調べる' }))).toBe('ウェブで調べる');
+  });
+
+  it('prefers foreground chat work over failure, completion and the agent', () => {
+    expect(resolveOrinPillText(priority({
+      workingText: '回答を準備しています…', failureText: 'エラーが発生しました', doneText: 'できました', agentText: 'ウェブで調べる',
+    }))).toBe('回答を準備しています…');
+  });
+
+  it('prefers the failure cue over completion and the agent', () => {
+    expect(resolveOrinPillText(priority({
+      failureText: 'エラーが発生しました', doneText: 'できました', agentText: 'ウェブで調べる',
+    }))).toBe('エラーが発生しました');
+  });
+
+  it('prefers the completion cue over the agent', () => {
+    expect(resolveOrinPillText(priority({ doneText: 'できました', agentText: 'ウェブで調べる' }))).toBe('できました');
+  });
+
+  it('hides everything while the work sheet is open', () => {
+    expect(resolveOrinPillText(priority({
+      sheetOpen: true, workingText: '回答を準備しています…', failureText: 'エラーが発生しました', doneText: 'できました', agentText: 'ウェブで調べる',
+    }))).toBeNull();
   });
 });
 

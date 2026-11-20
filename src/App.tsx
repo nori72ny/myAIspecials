@@ -24,7 +24,7 @@ import type { CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import CreativeArtifactEditorV15 from './components/CreativeArtifactEditorV15';
 import { type OriginCatStateKind } from './components/OriginCatState';
 import OriginWorkSheet, { type OriginWorkSheetItem, type OriginWorkSheetStep } from './components/OriginWorkSheet';
-import OrinFloatingPresence, { resolveOrinBubbleText } from './components/OrinFloatingPresence';
+import OrinFloatingPresence, { resolveOrinAgentBubbleText, resolveOrinBubbleText, resolveOrinPillText } from './components/OrinFloatingPresence';
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
 import { ingestCompletedChatTurn } from './services/activeContextDecisionIngestion';
@@ -753,6 +753,53 @@ export const buildRasterGuidedEditPrompt = (sourcePrompt: string): string => {
   ].join('\n');
 };
 
+/** 画像フェーズ文に添える依頼の主題の上限（コードポイント数）。 */
+export const IMAGE_SUBJECT_MAX_CHARS = 20;
+
+/**
+ * 画像の依頼文から、フェーズ文に添える「何を描いているか」の主題を
+ * 決定的に切り出す（2026-11-20 詳細化）。新しい呼び出しはせず、
+ * 依頼文そのものだけから作る：最初の1行を取り、空白を畳んで、
+ * 長ければ上限で切り詰める。編集・別案の依頼では内部の指示文が
+ * 元の依頼の後ろに付くため、最初の1行だけを使うことで指示文が
+ * 表示に漏れることもない。空なら null（フェーズ文は段階名のみ）。
+ */
+export function summarizeImageSubject(source: string): string | null {
+  const firstLine = source.normalize('NFKC').trim().split('\n')[0]?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!firstLine) return null;
+  const chars = Array.from(firstLine);
+  return chars.length > IMAGE_SUBJECT_MAX_CHARS
+    ? `${chars.slice(0, IMAGE_SUBJECT_MAX_CHARS).join('')}…`
+    : firstLine;
+}
+
+/**
+ * 画像フェーズ→ピル文の対応（2026-11-20 詳細化）。設計・描画は
+ * 段階名に依頼の主題を足して「何を描いているか」を出し、品質
+ * 確認はクライアント側で実際に行う検査（技術品質検査：明るさの
+ * 潰れ・中身の有無）の観点をそのまま文にする。主題が無い場合は
+ * 従来の段階名のみ。
+ */
+export function buildImagePhaseText(
+  phase: 'designing' | 'drawing' | 'checking',
+  subject: string | null,
+  language: OriginLanguage,
+): string {
+  if (phase === 'checking') {
+    return language === 'ja'
+      ? '明るさが潰れていないか、中身が描かれているかを確認しています'
+      : 'Checking the brightness and that the content is really there';
+  }
+  if (subject === null) {
+    return phase === 'designing'
+      ? (language === 'ja' ? '設計しています' : 'Designing the image')
+      : (language === 'ja' ? '描いています' : 'Drawing the image');
+  }
+  return phase === 'designing'
+    ? (language === 'ja' ? `『${subject}』を設計しています` : `Designing “${subject}”`)
+    : (language === 'ja' ? `『${subject}』を描いています` : `Drawing “${subject}”`);
+}
+
 export const isExplicitLocalProceduralImageRequest = (input: string): boolean => {
   const normalized = input.normalize('NFKC').trim();
   if (!normalized) return false;
@@ -1451,9 +1498,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // PR-β（チャット画面再設計・オリン常駐化、2026-11-13）:
   // 画像生成のクライアント側で観測できる段階。サーバー側の設計・
   // 生成は1回の要求に含まれるため、段階は実際のコード区間に
-  // 対応させる（準備＝設計しています／要求の実行中＝描いています／
-  // 応答の検証・検査＝品質を確認しています）。
+  // 対応させる（準備＝設計／要求の実行中＝描画／応答の検証・検査
+  // ＝品質確認）。文言は 2026-11-20 の詳細化で buildImagePhaseText
+  // が組み立てる（主題と確認観点つき）。
   const [imagePhase, setImagePhase] = useState<'designing' | 'drawing' | 'checking' | null>(null);
+  // フェーズ文に添える依頼の主題（2026-11-20 詳細化）。画像の送信を
+  // 開始するときに依頼文から決定的に切り出して保持し、フェーズが
+  // 終わるときに一緒に消す。新しい呼び出しはしない。
+  const [imageSubject, setImageSubject] = useState<string | null>(null);
   // オリンのプロフィールカードの開閉と、タップ時の一回性の
   // 「喜ぶ」動きの合図。
   const [workSheetOpen, setWorkSheetOpen] = useState(false);
@@ -1723,7 +1775,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setImageSubject(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 176)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1902,6 +1954,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     setStreamPhase(null);
     setStreamSources([]);
     setImagePhase(null);
+    setImageSubject(null);
     const interruptedArtifact = interruptCurrent ? activeArtifact : null;
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
@@ -1944,6 +1997,9 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
       if (shouldGenerateImage) {
         setImagePhase('designing');
+        // フェーズ文の主題は、生成に使う依頼文そのもの（継続中の
+        // 依頼があればその元の依頼）から決定的に切り出す。
+        setImageSubject(summarizeImageSubject(pendingImageRequest ? pendingImageRequest.prompt : text));
         const imageRequestText = pendingImageRequest
           ? `${pendingImageRequest.prompt}${text.trim() && text.trim() !== pendingImageRequest.prompt ? `\n\n追加条件: ${text.trim()}` : ''}`
           : text.trim();
@@ -2547,6 +2603,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       setStreamPhase(null);
       setStreamSources([]);
       setImagePhase(null);
+      setImageSubject(null);
       if (pendingImageRequestRef.current === null) setImageEditTarget(null);
       if (abortRef.current === controller) { abortRef.current = null; setIsLoading(false); isLoadingRef.current = false; if (!controller.signal.aborted) scheduleQueueDrain(); }
     }
@@ -2574,11 +2631,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
             ? 'working'
             : 'idle';
   const sheetStageTitle = (text: string) => text.replace(/[…。.]+$/u, '');
-  const imagePhaseText = imagePhase === 'designing'
-    ? (language === 'ja' ? '設計しています' : 'Designing the image')
-    : imagePhase === 'checking'
-      ? (language === 'ja' ? '品質を確認しています' : 'Checking the quality')
-      : (language === 'ja' ? '描いています' : 'Drawing the image');
+  // 画像フェーズ文（2026-11-20 詳細化）：設計・描画は依頼の主題を
+  // 足し、品質確認は実際に確認している観点を文にする。文の組み
+  // 立ては buildImagePhaseText が正本。
+  const imagePhaseText = buildImagePhaseText(imagePhase ?? 'drawing', imageSubject, language);
   // 待ち表示の仕様（2026-11-13 22:03 ノリ指示で吹き出し化し、
   // 2026-11-14 の指示で作業中プレゼンスに置き換え、同日 08:59 の
   // 指示で浮遊プレゼンスに一本化）：全体画面ステージ（PR-δ1）は
@@ -2642,18 +2698,28 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     { imagePhase, researchStage: researchRun?.stage ?? null, streamPhase, isLoading },
     { waitingText, researchStageText, imagePhaseText },
   );
-  // プレゼンスのピルに出す一文：作業中は段階文、失敗時は既存の
-  // 失敗文、完了時は headerDoneCue の間だけ完了文。プロフィール
-  // カードが開いている間は隠す（カード側が同じ内容を持つため）。
-  const bubbleText = workSheetOpen
-    ? null
-    : bubbleWaiting
-      ? bubbleWorkingText
-      : bubbleFailureCue
-        ? t.error
-        : headerDoneCue
-          ? t.workDone
-          : null;
+  // 背景のエージェント作業文（2026-11-20 詳細化）：チャットが
+  // 待機中のときだけ、現在のステップの平易なタイトルを出す。
+  // 鮮度判定は姿の集約（orinPresenceState）と同じ条件にそろえる。
+  const agentBubbleText = resolveOrinAgentBubbleText(
+    {
+      agentActive: agentActivityFresh && Boolean(agentActivity?.active),
+      chatLoading: isLoading,
+      stepTitle: agentActivity?.stepTitle ?? null,
+    },
+    language === 'ja' ? 'エージェントが作業しています' : 'The agent is working',
+  );
+  // プレゼンスのピルに出す一文：優先順位は resolveOrinPillText が
+  // 正本（前景のチャット作業 → 失敗 → 完了 → 背景のエージェント
+  // 作業）。プロフィールカードが開いている間は隠す（カード側が
+  // 同じ内容を持つため）。
+  const bubbleText = resolveOrinPillText({
+    sheetOpen: workSheetOpen,
+    workingText: bubbleWaiting ? bubbleWorkingText : null,
+    failureText: bubbleFailureCue ? t.error : null,
+    doneText: headerDoneCue ? t.workDone : null,
+    agentText: agentBubbleText,
+  });
   const sourcesMeta = streamSources.length > 0
     ? { meta: language === 'ja' ? `出典${streamSources.length}件` : `${streamSources.length} sources` }
     : {};

@@ -26,6 +26,14 @@ import type { OriginLanguage } from '../i18n';
  * 回答が流れ始めたら引っ込む・完了／失敗キューは既存の尺だけ
  * 出す）も App 側の従来判定（bubbleText）がそのまま担う。
  *
+ * 2026-11-20 の詳細化（オーナー指示）：ピル文の優先順位は
+ * resolveOrinPillText の1表に集約し、末尾に「背景のエージェント
+ * 作業の現在のステップ名」を足した。チャットが待機中でも裏で
+ * エージェントが動いていれば、段階名ではなく実際のステップの
+ * 平易なタイトルがピルに出て、ステップが進むたびに切り替わる。
+ * 画像フェーズ文も、段階名だけでなく依頼の主題（設計・描画）と
+ * 実際に確認している観点（品質確認）を App 側で足す。
+ *
  * 姿は App 側の状態集約（orinPresenceState）をそのまま流用する：
  * working 状態では既存の動画アセットで動き、それ以外は状態別の
  * 静止画。待機中（ピルなし）は台座ごと静かな呼吸（上限は
@@ -76,6 +84,55 @@ export function resolveOrinBubbleText(signals: OrinBubbleSignals, texts: OrinBub
   if (signals.streamPhase !== null) return texts.waitingText;
   if (signals.isLoading) return texts.waitingText;
   return null;
+}
+
+export interface OrinAgentBubbleSignals {
+  /** エージェント実行中であり、要約が新しい（鮮度判定まで読み手側で集約済み）。 */
+  agentActive: boolean;
+  /** チャットの送信が進行中。前景の作業がある間はエージェント文を出さない。 */
+  chatLoading: boolean;
+  /** 現在のステップの平易なタイトル（計画側の正本そのまま）。無い場合は null。 */
+  stepTitle: string | null;
+}
+
+/**
+ * 背景で進むエージェント作業のピル文（2026-11-20 オーナー指示の
+ * 詳細化）。段階名ではなく「いま実際にしていること」を出すため、
+ * 現在のステップの平易なタイトルそのものを文にする。ステップが
+ * 進めばタイトルが変わり、ピルも切り替わる。タイトルが無い場合
+ * だけ汎用の文に落とす。チャットの送信中は前景の作業文が担う
+ * ので出さない（優先順位は resolveOrinPillText が正本）。
+ */
+export function resolveOrinAgentBubbleText(signals: OrinAgentBubbleSignals, fallbackText: string): string | null {
+  if (!signals.agentActive || signals.chatLoading) return null;
+  return signals.stepTitle ?? fallbackText;
+}
+
+export interface OrinPillPriority {
+  /** 作業シート（プロフィールカード）が開いている間はピルを出さない。 */
+  sheetOpen: boolean;
+  /** 前景のチャット作業文（待ち・調査段階・画像フェーズ）。出す条件の間だけ非 null で渡す。 */
+  workingText: string | null;
+  /** 失敗キューの文。キューの間だけ非 null で渡す。 */
+  failureText: string | null;
+  /** 完了キューの文。キューの間だけ非 null で渡す。 */
+  doneText: string | null;
+  /** 背景のエージェント作業文（現在のステップ名）。 */
+  agentText: string | null;
+}
+
+/**
+ * ピルに出す一文の優先順位の正本（2026-11-20 詳細化でエージェント
+ * 文を末尾に追加）：シート表示中は出さない → 前景のチャット作業
+ * → 失敗 → 完了 → 背景のエージェント作業。呼び出し側は各文を
+ * 「出す条件の間だけ非 null」にして渡すこと。
+ */
+export function resolveOrinPillText(priority: OrinPillPriority): string | null {
+  if (priority.sheetOpen) return null;
+  if (priority.workingText !== null) return priority.workingText;
+  if (priority.failureText !== null) return priority.failureText;
+  if (priority.doneText !== null) return priority.doneText;
+  return priority.agentText;
 }
 
 function matchesReducedMotion(): boolean {

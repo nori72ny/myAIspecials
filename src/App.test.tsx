@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, summarizeImageSubject, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -2868,5 +2868,164 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('エラーが発生しました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
+  });
+
+  it('shows the current agent step in the pill while the agent works in the background, and switches as steps advance (2026-11-20 detail pass)', async () => {
+    reportAgentActivity({
+      active: true,
+      outcome: 'running',
+      stepTitle: 'ウェブで調べる',
+      currentStep: 1,
+      totalSteps: 3,
+      steps: [
+        { title: 'ウェブで調べる', status: 'running' },
+        { title: '文書を作る', status: 'queued' },
+        { title: 'テストと動作確認', status: 'queued' },
+      ],
+      updatedAt: Date.now(),
+    });
+    try {
+      render(<App language="ja" />);
+      // チャットが待機中でも、裏で進むエージェントの現在のステップが
+      // 段階名ではなく実際のタイトルでピルに出る。
+      const pill = await screen.findByTestId('origin-orin-presence-status');
+      expect(pill.textContent).toBe('ウェブで調べる');
+      expect(within(screen.getByTestId('origin-orin-presence')).getByTestId('origin-cat-state').getAttribute('data-state')).toBe('working');
+      // ステップが進むとピルの文も切り替わる。
+      act(() => {
+        reportAgentActivity({
+          active: true,
+          outcome: 'running',
+          stepTitle: '文書を作る',
+          currentStep: 2,
+          totalSteps: 3,
+          steps: [
+            { title: 'ウェブで調べる', status: 'completed' },
+            { title: '文書を作る', status: 'running' },
+            { title: 'テストと動作確認', status: 'queued' },
+          ],
+          updatedAt: Date.now(),
+        });
+      });
+      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('文書を作る'));
+    } finally {
+      reportAgentActivity(null);
+    }
+  });
+
+  it('falls back to a generic agent line in the pill when the agent has no step title yet (2026-11-20 detail pass)', async () => {
+    reportAgentActivity({ active: true, outcome: 'running', stepTitle: null, currentStep: 0, totalSteps: 0, updatedAt: Date.now() });
+    try {
+      render(<App language="ja" />);
+      const pill = await screen.findByTestId('origin-orin-presence-status');
+      expect(pill.textContent).toBe('エージェントが作業しています');
+    } finally {
+      reportAgentActivity(null);
+    }
+  });
+
+  it('keeps the foreground chat stage in the pill while a send is in flight, even when the agent is also working (2026-11-20 detail pass)', async () => {
+    reportAgentActivity({ active: true, outcome: 'running', stepTitle: 'ウェブで調べる', currentStep: 1, totalSteps: 2, updatedAt: Date.now() });
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* 応答を保留し、待ち状態を維持する */ }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('ウェブで調べる');
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '前景の確認' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      // 送信中は前景の段階文が優先し、エージェント文は引っ込む。
+      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toContain('回答を準備しています'));
+    } finally {
+      reportAgentActivity(null);
+    }
+  });
+
+  it('hides the agent step pill while the work sheet is open (the sheet shows the steps instead) (2026-11-20 detail pass)', async () => {
+    reportAgentActivity({
+      active: true,
+      outcome: 'running',
+      stepTitle: '文書を作る',
+      currentStep: 2,
+      totalSteps: 3,
+      steps: [
+        { title: 'ウェブで調べる', status: 'completed' },
+        { title: '文書を作る', status: 'running' },
+        { title: 'テストと動作確認', status: 'queued' },
+      ],
+      updatedAt: Date.now(),
+    });
+    try {
+      render(<App language="ja" />);
+      expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('文書を作る');
+      fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+      expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
+      await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
+    } finally {
+      reportAgentActivity(null);
+    }
+  });
+
+  it('names what is being drawn in the pill while an image is generated from the panel (2026-11-20 detail pass)', async () => {
+    let resolveGeneration: ((response: Response) => void) | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestPath(input);
+      if (url === '/api/generate-image') {
+        return new Promise<Response>((resolve) => { resolveGeneration = resolve; });
+      }
+      return new Response(JSON.stringify({ code: 'UNEXPECTED_REQUEST' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+      fireEvent.click(screen.getByTestId('origin-add-menu-toggle'));
+      fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
+      fireEvent.change(screen.getByTestId('origin-image-prompt'), { target: { value: '夕焼けの海辺' } });
+      fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
+      // 描画中は段階名だけでなく、何を描いているかがピルに出る。
+      await waitFor(() => expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('『夕焼けの海辺』を描いています'));
+      resolveGeneration?.(new Response(JSON.stringify({
+        code: 'PROVIDER_UNAVAILABLE',
+        message: '画像生成Providerが未構成です。',
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('image phase pill text (2026-11-20 detail pass)', () => {
+  it('derives the subject from the first line of the request only', () => {
+    expect(summarizeImageSubject('夕焼けの海辺')).toBe('夕焼けの海辺');
+    // 編集・別案の依頼では内部の指示文が元の依頼の後ろに付く。
+    // 最初の1行だけを主題にし、指示文は表示へ漏らさない。
+    expect(summarizeImageSubject('青い陶器のマグカップ\n\nEdit the verified source image according to the user\'s next instruction.')).toBe('青い陶器のマグカップ');
+    // 継続中の依頼の追加条件も主題には混ぜない。
+    expect(summarizeImageSubject('夕焼けの海辺\n\n追加条件: もっと赤く')).toBe('夕焼けの海辺');
+  });
+
+  it('collapses whitespace and truncates deterministically at the cap', () => {
+    expect(summarizeImageSubject('  山の  上の\n小さな家  ')).toBe('山の 上の');
+    expect(summarizeImageSubject('あ'.repeat(30))).toBe(`${'あ'.repeat(20)}…`);
+  });
+
+  it('returns null for an empty request', () => {
+    expect(summarizeImageSubject('')).toBeNull();
+    expect(summarizeImageSubject('  \n  ')).toBeNull();
+  });
+
+  it('builds phase texts with the subject for designing and drawing, and the real check aspects for checking', () => {
+    expect(buildImagePhaseText('designing', '夕焼けの海辺', 'ja')).toBe('『夕焼けの海辺』を設計しています');
+    expect(buildImagePhaseText('drawing', '夕焼けの海辺', 'ja')).toBe('『夕焼けの海辺』を描いています');
+    expect(buildImagePhaseText('checking', '夕焼けの海辺', 'ja')).toBe('明るさが潰れていないか、中身が描かれているかを確認しています');
+    expect(buildImagePhaseText('designing', 'seaside at dusk', 'en')).toBe('Designing “seaside at dusk”');
+    expect(buildImagePhaseText('drawing', 'seaside at dusk', 'en')).toBe('Drawing “seaside at dusk”');
+    expect(buildImagePhaseText('checking', null, 'en')).toBe('Checking the brightness and that the content is really there');
+  });
+
+  it('keeps the plain stage texts when there is no subject', () => {
+    expect(buildImagePhaseText('designing', null, 'ja')).toBe('設計しています');
+    expect(buildImagePhaseText('drawing', null, 'ja')).toBe('描いています');
+    expect(buildImagePhaseText('designing', null, 'en')).toBe('Designing the image');
+    expect(buildImagePhaseText('drawing', null, 'en')).toBe('Drawing the image');
   });
 });
