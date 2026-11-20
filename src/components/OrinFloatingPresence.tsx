@@ -19,27 +19,42 @@ import type { OriginLanguage } from '../i18n';
  * しかしオーナーが実機で窓の枠を却下した（2026-11-20 12:06：
  * 「オリンの枠はいらない」。デザイン性のある穴・窓、または
  * 枠ではなく覗いている雰囲気でもよい、との指示）。統括の裁定
- * で現在の形は「枠なし＋上端から覗くオリン」：
+ * で「枠なし＋上端から覗くオリン」になった（同日 #1394）。
+ *
+ * その実機判定の続き（2026-11-20 15:36、スクリーンショット
+ * 付き）：覗き配置では円盤の上部がヘッダーの裏に隠れ、猫の
+ * 耳・頭が水平に切れて見える点が不可とされた。併せて、サイズ
+ * は Muse のアバター相当（待機 48px／作業中・スクロール時
+ * 36px、PC・スマホ共通）にし、統括が挙げた2つの注意点
+ * （スクロール時に円盤の裏を通る行の数文字が一瞬隠れる／
+ * 縮小時のタップの的が小さい）の修正も指示された。現在の形：
  * - タップ対象から枠（border・背景・影・パネル角丸）を全て
  *   撤去し、円盤と状態テキストだけが浮く。状態テキストも枠を
  *   持たず、キャンバス色のハロー（text-shadow、CSS 側）で
  *   下を流れる本文の上でも読めるようにする。
- * - プレゼンスを上へ寄せ、円盤の上部 約10px がヘッダーの下端
- *   の裏に隠れる（ヘッダー z-50、プレゼンス z-30）。枠から
- *   顔を出すのではなく、上端から覗き込む見え方になる。
+ * - 円盤はヘッダーの下端より下に全体が見える配置にする
+ *   （プレゼンス top はヘッダー下端の位置、タップのパディング
+ *   分だけ下に離れる。CSS 側）。覗き見の演出より「頭が欠け
+ *   ない」ことを優先し、画像（猫本体）は一切欠けない。
  * - 円盤には枠線ではなく内側の影（ラッパーの ::after の
  *   inset 影）で浅い窪み（穴）に嵌った質感を付け、ラッパー
  *   自体には柔らかい落影だけを置く。ラッパーはこのコンポー
  *   ネント側で OriginCatState を包む span（__disc）が担い、
  *   静止画・動画のどちらの状態でも同じ質感になる。
+ * - タップの的は全状態で 44px 以上（タップ要素のパディング
+ *   と最小寸法で確保、CSS 側）。見た目が 36px の縮小状態でも
+ *   的は小さくならない。
+ * - スクロール中は円盤の不透明度を約0.35 に下げ（App 側の
+ *   scrolling 信号、復帰はスクロール停止後 約300ms）、下を
+ *   通る本文の文字が透けて読めるようにする。
  * 配置は浮遊のまま（メイン列の相対配置を基準に absolute で
  * 上部中央。列の幅に追随させるため fixed ではなく列内
  * absolute を採る）。姿の下の名前テキストは出さない
  * （2026-11-15 ノリ指示で削除。名前はタップで開くプロフィール
  * カードの中にだけ出す）。
  *
- * 自動縮小（2026-11-20 10:10）：
- * - 通常時（待機中・未スクロール）：絵は 56px。
+ * 自動縮小（2026-11-20 10:10、寸法は同日 15:36 の実機判定で改訂）：
+ * - 通常時（待機中・未スクロール）：絵は 48px。
  * - 作業中（状態テキストが表示されている間。チャットの読み
  *   込み中・エージェント実行中・画像生成中を含む）：絵は
  *   36px に縮む。状態テキストは表示中は常に見える。
@@ -89,11 +104,13 @@ export const ORIN_PRESENCE_FADE_MS = 180;
 /**
  * オリンの絵（円盤）の通常時の寸法（px）。旧・台座付き104pxの
  * 常駐は目立ちすぎるというオーナー指示（2026-11-20）で 56px に
- * した。作業中・スクロール中は
- * ORIN_PRESENCE_CAT_SIZE_COMPACT_PX へ自動で縮む（同日 10:10
- * の refine 指示）。
+ * したが、同日 15:36 の実機判定で「基本的に Muse のサイズで
+ * よい。PC もスマホも」とされ、Muse のアバター相当の 48px に
+ * 統一した（幅によるサイズ分岐はしない）。作業中・スクロール
+ * 中は ORIN_PRESENCE_CAT_SIZE_COMPACT_PX へ自動で縮む（同日
+ * 10:10 の refine 指示）。
  */
-export const ORIN_PRESENCE_CAT_SIZE_PX = 56;
+export const ORIN_PRESENCE_CAT_SIZE_PX = 48;
 
 /**
  * 自動縮小時の絵の寸法（px）。作業中（状態テキスト表示中）と
@@ -108,6 +125,23 @@ export const ORIN_PRESENCE_CAT_SIZE_COMPACT_PX = 36;
  * 判定が使う正本）。
  */
 export const ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX = 40;
+
+/**
+ * スクロール中の円盤の不透明度（2026-11-20 15:36 の実機判定を
+ * 受けた修正）。スクロール中は円盤をこの値まで薄くし、下を
+ * 通る本文の文字が透けて読めるようにする。実際の不透明度は
+ * CSS 側（.origin-orin-presence__disc.is-scrolling）が持ち、
+ * この定数は App／テストとの照合用の正本。
+ */
+export const ORIN_PRESENCE_SCROLL_OPACITY = 0.35;
+
+/**
+ * スクロールが止まってから円盤の不透明度を戻し始めるまでの
+ * 間隔（ms、App 側のスクロール停止判定が使う正本）。戻り自体
+ * は CSS 側のトランジション（約200ms）で滑らかに行う。
+ * prefers-reduced-motion ではトランジションを即時にする。
+ */
+export const ORIN_PRESENCE_SCROLL_RESTORE_MS = 300;
 
 /** 絵のサイズ変化のトランジションの尺（CSS 側と一致させる）。 */
 export const ORIN_PRESENCE_RESIZE_MS = 200;
@@ -227,9 +261,18 @@ export interface OrinFloatingPresenceProps {
    * 作業中でなくても絵が自動で小さくなる。
    */
   scrolled?: boolean;
+  /**
+   * 会話のスクロールが進行中か（App 側がスクロールイベントの
+   * 継続から集約して渡す。止まって約
+   * ORIN_PRESENCE_SCROLL_RESTORE_MS 経つと false に戻る）。
+   * true の間は円盤の不透明度を ORIN_PRESENCE_SCROLL_OPACITY
+   * まで下げ、下を通る本文が透けて読めるようにする
+   * （2026-11-20 15:36 の実機判定を受けた修正）。
+   */
+  scrolling?: boolean;
 }
 
-export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false, scrolling = false }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -292,7 +335,7 @@ export default function OrinFloatingPresence({ text, state, language, onOpenWork
         onClick={onOpenWorkSheet}
         aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
       >
-        <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}`}>
+        <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}${scrolling ? ' is-scrolling' : ''}`}>
           <OriginCatState state={state} size={catSize} breathing={breathing} />
         </span>
         {pillText !== null && (

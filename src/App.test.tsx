@@ -2854,15 +2854,18 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
-    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('56px');
+    expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('48px');
   });
 
   it('shrinks Orin while the conversation is scrolled and restores it at the top (2026-11-20 10:10 auto-shrink wiring)', async () => {
     const { container } = render(<App language="ja" />);
     const presence = await screen.findByTestId('origin-orin-presence');
     const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
-    // 未スクロールの待機中は通常の56px。
-    expect(cat.style.width).toBe('56px');
+    const disc = cat.parentElement as HTMLElement;
+    // 未スクロールの待機中は通常の48px（Muse のアバター相当、
+    // 2026-11-20 15:36 の実機判定）。円盤は薄くなっていない。
+    expect(cat.style.width).toBe('48px');
+    expect(disc.classList.contains('is-scrolling')).toBe(false);
     const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
     expect(scroller).toBeTruthy();
     let scrollTop = 120;
@@ -2870,10 +2873,15 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     fireEvent.scroll(scroller);
     // 閾値（40px）を超えてスクロールされている間は36pxに縮む。
     await waitFor(() => expect(cat.style.width).toBe('36px'));
-    // 先頭に戻ると56pxに戻る。
+    // スクロール中は円盤が薄くなる（is-scrolling、2026-11-20
+    // 15:36 の実機判定を受けた修正）。
+    await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(true));
+    // 先頭に戻ると48pxに戻る。
     scrollTop = 0;
     fireEvent.scroll(scroller);
-    await waitFor(() => expect(cat.style.width).toBe('56px'));
+    await waitFor(() => expect(cat.style.width).toBe('48px'));
+    // スクロールが止まって約300ms経つと円盤の不透明度も戻る。
+    await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(false));
   });
 
   it('shows the existing failure text in the presence pill when the send fails', async () => {
