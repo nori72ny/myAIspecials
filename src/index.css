@@ -261,12 +261,14 @@
      only in the brand wordmark itself (splash-brand.css). Markdown
      answer headings inherit this rule.
      Type scale (design redesign D-PR-2, DESIGN_REDESIGN_SPEC_2026-11-19
-     §4.4): screen heading 28px/600 (mobile 24px), section heading
-     17px/700, small heading / label 14px/600, UI text 14px (500 labels,
-     600 buttons / active), body 16px/1.7, answer markdown 16px/1.75,
-     meta 12.5px/400 in --text-secondary. Weights are fixed by role:
-     500 = UI labels, 600 = buttons / active / small headings,
-     700 = headings. */
+     §4.4; meta floor raised by external design evaluation fix PR-A2,
+     2026-11-21): screen heading 28px/600 (mobile 24px), heading 20px,
+     section heading 17px/700, small heading / label 14px/600, UI text
+     14px (500 labels, 600 buttons / active), body 16px/1.7, answer
+     markdown 16px/1.75, meta 13px/400 in --text-secondary. 12.5px and
+     12px are outside the scale: 13px is the floor for secondary text.
+     Weights are fixed by role: 500 = UI labels, 600 = buttons / active /
+     small headings, 700 = headings. */
   h1, h2, h3 { font-family: var(--font-sans); }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
@@ -316,7 +318,7 @@
 .origin-input { color: var(--text-primary); caret-color: var(--accent-primary); }
 .origin-input::placeholder { color: var(--text-placeholder); opacity: 1; }
 .origin-muted { color: var(--text-secondary); }
-.origin-primary-button, .origin-secondary-button, .origin-danger-button, .origin-stop-button, .origin-nav-active {
+.origin-primary-button, .origin-secondary-button, .origin-danger-button, .origin-nav-active {
   min-height: 44px;
   min-width: 44px;
   border-radius: var(--radius-control);
@@ -401,12 +403,6 @@
    utilities are not added on top. */
 .origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-control); flex-shrink: 0; }
 .origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
-/* Stopping a generation is a normal working-state control, not a
-   destructive action: the composer stop button uses these neutral tones
-   (the same values PR-α specified for the generating state) instead of
-   the danger class above (PR-α2). The danger class itself stays for
-   genuinely destructive actions such as clearing history. */
-.origin-stop-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-secondary); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
 .origin-chat-user {
   background-color: var(--bubble-from);
@@ -462,7 +458,7 @@
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
-.origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.78125rem; }
+.origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
 .origin-dialog-overlay { background: var(--scrim); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; top: 0 !important; }
@@ -562,7 +558,7 @@
   color: var(--text-primary);
   box-shadow: 0 12px 28px var(--shadow-color);
   padding: 0.75rem 1rem;
-  font-size: 0.78125rem;
+  font-size: 0.8125rem;
   line-height: 1.45;
 }
 
@@ -583,13 +579,13 @@ body:has([data-testid="artifact-live-steering"]) .origin-pwa-update-notice {
 
 /* Answer tools stay within the reading column, including on narrow screens. */
 .origin-answer-code { min-width: 0; margin: 1rem 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); overflow: hidden; }
-.origin-answer-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-surface-muted); font-size: 0.78125rem; }
+.origin-answer-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.75rem; background: var(--bg-surface-muted); font-size: 0.8125rem; }
 .origin-answer-code-toolbar > div { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .origin-answer-code pre { margin: 0; border: 0; border-radius: 0; }
 .origin-answer-code pre.origin-code-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .origin-answer-code pre code { padding: 0; background: transparent; }
 .origin-copy-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.78125rem; }
+.origin-copy-control [role="status"] { color: var(--text-secondary); font-size: 0.8125rem; }
 /* Answer tool buttons (copy / wrap / refine) must read as pressable:
    a 1px border, a muted surface fill and an icon next to the label,
    on top of the 44px touch height (design evaluation 2026-11-17,

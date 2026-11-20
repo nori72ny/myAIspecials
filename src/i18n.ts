@@ -7,6 +7,11 @@ type StarterCard = {
   prompt: string;
 };
 
+type StarterChip = {
+  label: string;
+  prompt: string;
+};
+
 type Translation = {
   code: string;
   preview: string;
@@ -106,6 +111,7 @@ type Translation = {
   startWith: string;
   freeOnlyNotice: string;
   starterCards: readonly StarterCard[];
+  starterChips: readonly StarterChip[];
   languageHeading: string;
   languageJapanese: string;
   languageEnglish: string;
@@ -321,6 +327,12 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       { title: '文章にする', subtitle: '成果物', description: 'メモを、伝わる文章・コードへ整える', prompt: '以下の内容を、用途に合った完成度の高い文章や作成物に整えてください:\n' },
       { title: '計画する', subtitle: 'データ構造化', description: '目的から、実行できる順序を組み立てる', prompt: '以下の目的を達成するための具体的実行計画を立ててください:\n' },
     ],
+    starterChips: [
+      { label: 'ニュースを調べる', prompt: '今日の主なニュースを調べて、要点を教えてください' },
+      { label: '企画書を作る', prompt: '新しい企画の企画書のたたき台を作ってください' },
+      { label: '画像を描く', prompt: '緑の多い公園の風景イラストを描いてください' },
+      { label: 'メールの下書き', prompt: 'お礼のメールの下書きを作ってください' },
+    ],
     languageHeading: '表示言語',
     languageJapanese: '日本語',
     languageEnglish: 'English',
@@ -533,6 +545,12 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       { title: 'Evaluate', subtitle: 'Compare strategic options', description: 'Surface trade-offs, decision criteria, and a recommendation', prompt: 'Evaluate the following options against explicit decision criteria, summarize the trade-offs, and recommend a course of action:\n' },
       { title: 'Draft', subtitle: 'Create the deliverable', description: 'Convert working notes into executive-ready content or code', prompt: 'Transform the following notes into a concise, executive-ready deliverable with production-quality artifacts where useful:\n' },
       { title: 'Plan', subtitle: 'Build the roadmap', description: 'Translate the objective into owners, milestones, and next actions', prompt: 'Build an execution roadmap for the following objective, including priorities, owners, milestones, risks, and the immediate next action:\n' },
+    ],
+    starterChips: [
+      { label: 'Check the news', prompt: "Look into today's top news and tell me the key points" },
+      { label: 'Draft a proposal', prompt: 'Create a first draft of a proposal document for a new project' },
+      { label: 'Draw an image', prompt: 'Draw an illustration of a lush green park scene' },
+      { label: 'Draft an email', prompt: 'Draft a thank-you email' },
     ],
     languageHeading: 'Language',
     languageJapanese: 'Japanese',

@@ -11,11 +11,16 @@ describe('ORIGIN top experience regression boundary', () => {
   const topUi = readFileSync(resolve(root, 'origin-top-ui.css'), 'utf8');
   const ultraOptics = readFileSync(resolve(root, 'ultra-optics.css'), 'utf8');
   const splashBrand = readFileSync(resolve(root, 'components/splash-brand.css'), 'utf8');
+  const personalEditionApp = readFileSync(resolve(root, 'components/personal/PersonalEditionApp.tsx'), 'utf8');
 
   it('locks out destructive header behavior and uses the direct React settings action', () => {
     expect(app).not.toContain('window.location.href = "/"');
     expect(app).not.toContain('sessionStorage.clear()');
-    expect(app).toContain('onClick={onOpenSettings}');
+    // PR-D: the header settings button was consolidated into the sidebar.
+    // The settings action still reaches the shell as a direct React prop
+    // (OriginSidebar onOpenSettings), never a DOM click listener.
+    expect(app).not.toContain('onClick={onOpenSettings}');
+    expect(personalEditionApp).toContain('onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined}');
     expect(main).toContain('onOpenSettings={() => setIsSettingsOpen(true)}');
     expect(main).not.toContain("document.addEventListener('click', handleSettingsTrigger, true)");
     expect(main).not.toContain('event.stopPropagation()');
@@ -186,18 +191,23 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('width: 104px !important;');
   });
 
-  it('keeps the composer stop-generation button neutral instead of danger-toned (PR-α2)', () => {
-    // The live composer renders the stop button from App.tsx while a
-    // response is generating; it must not carry the danger class (pale
-    // pink background, dark-red glyph). PR-α restyled
-    // .origin-composer__action.is-generating in origin-top-ui.css, but no
-    // rendered element carries that class, so the rule never applied.
-    expect(app).toContain('aria-label={t.stopGeneration}');
-    expect(app).toContain('origin-stop-button');
+  it('gives the composer stop-generation button the primary slot while generating (PR-B)', () => {
+    // While a response is generating, the composer's primary (filled)
+    // button at the right end is the stop button: a Lucide Square
+    // glyph under testid stop-generation-button, still wired to the
+    // same abort handler. The queue-send button keeps its testid,
+    // label and handler but is demoted to the secondary treatment on
+    // the stop button's left. Before PR-B the hierarchy was inverted:
+    // queue-send was primary and stop was a subdued origin-stop-button
+    // carrying a text glyph, restyled neutral by PR-α2 so it never
+    // reads as a destructive action.
+    expect(app).toContain('data-testid="stop-generation-button" aria-label={t.stopGeneration} title={t.stopGeneration} onClick={() => abortRef.current?.abort()} className="origin-primary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0"');
+    expect(app).toContain('<Square aria-hidden="true" fill="currentColor" size={18} />');
+    expect(app).toContain('data-testid="queue-send-button" aria-label={t.queueSend} title={t.queueSend} onClick={() => void handleSend()}');
+    expect(app).toContain('className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-0 disabled:cursor-not-allowed"');
+    expect(app).not.toContain('origin-stop-button');
     expect(app).not.toContain('origin-danger-button');
-    // The stop button's neutral tones are the exact values PR-α
-    // specified for the generating state.
-    expect(indexCss).toContain('.origin-stop-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-secondary); }');
+    expect(indexCss).not.toContain('.origin-stop-button');
     // The danger class stays separate from the stop button. D-PR-3
     // redefined it as a white surface with danger text and a 40% danger
     // border (spec §4.5: state colors are never a filled surface), for

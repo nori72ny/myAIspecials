@@ -89,7 +89,7 @@ function SourceFavicon({ url, domain }: { url: string; domain?: string }) {
   }
   const letter = (host || '?').charAt(0).toUpperCase();
   if (!origin || failed) {
-    return <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-origin-surface-muted text-[11px] font-black text-origin-muted">{letter}</span>;
+    return <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-origin-surface-muted text-[13px] font-black text-origin-muted">{letter}</span>;
   }
   return <img src={`${origin}/favicon.ico`} alt="" width={20} height={20} loading="lazy" onError={() => setFailed(true)} className="h-5 w-5 shrink-0 rounded" />;
 }
@@ -172,26 +172,26 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
             <span className="mt-0.5"><SourceFavicon url={focusSource.url} domain={focusSource.domain} /></span>
             <div className="min-w-0">
               <p className="break-words text-sm font-bold leading-5">{focusSource.title}</p>
-              <p className="break-all text-xs leading-5 text-origin-muted">{focusSource.url}</p>
+              <p className="break-all text-[13px] leading-5 text-origin-muted">{focusSource.url}</p>
             </div>
           </div>
           {focusHref
             ? <a href={focusHref} target="_blank" rel="noreferrer" className="origin-touch-link mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent-primary)] underline">原文を開く</a>
-            : <p className="mt-1 text-xs font-semibold leading-5 text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
+            : <p className="mt-1 text-[13px] font-semibold leading-5 text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
         </div>
-        {focusQuery && <p className="px-3 pt-2 text-xs text-origin-muted">「{focusQuery}」で{focusResearch.state?.status === 'running' ? '調べています' : '調べました'}</p>}
+        {focusQuery && <p className="px-3 pt-2 text-[13px] text-origin-muted">「{focusQuery}」で{focusResearch.state?.status === 'running' ? '調べています' : '調べました'}</p>}
         {focusSource.excerpt && <p className="whitespace-pre-wrap break-words px-3 py-2 text-sm leading-6">{focusSource.excerpt}</p>}
       </div>
 
       {otherSources.length > 0 && <div className="mt-2">
-        <p className="text-xs font-bold text-origin-muted">ほかに見たページ</p>
+        <p className="text-[13px] font-bold text-origin-muted">ほかに見たページ</p>
         <ul className="mt-1 space-y-1">
           {otherSources.map(({ source, index }) => <li key={`${source.url}-${index}`}>
             <button type="button" onClick={() => setSelectedSource({ stepId: focusStepId, index })}
               className="origin-secondary-button flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left">
               <SourceFavicon url={source.url} domain={source.domain} />
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">{source.title}</span>
-              {source.domain && <span className="shrink-0 text-xs text-origin-muted">{source.domain}</span>}
+              {source.domain && <span className="shrink-0 text-[13px] text-origin-muted">{source.domain}</span>}
             </button>
           </li>)}
         </ul>
@@ -199,11 +199,11 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
     </div>}
 
     {focusFile && <div className="mt-3 rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-2">
-      <p className="text-xs font-bold text-origin-muted">対象のファイル</p>
+      <p className="text-[13px] font-bold text-origin-muted">対象のファイル</p>
       <p className="break-all text-sm font-semibold">{String(focusFile.step.params.path)}</p>
     </div>}
 
-    <p className="mt-4 text-xs font-bold text-origin-muted">経過</p>
+    <p className="mt-4 text-[13px] font-bold text-origin-muted">経過</p>
     <ol className="mt-1 space-y-1.5">
       {rows.map((row) => {
         const status = row.state?.status ?? 'queued';
@@ -216,11 +216,11 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
         return <li key={row.state?.id ?? `step-${row.index}`} className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="text-origin-muted">{row.index + 1}.</span>
           <span className="font-semibold">{liveToolLabel(row.step.toolName)}</span>
-          <span className="inline-flex items-center gap-1 text-xs font-bold">
+          <span className="inline-flex items-center gap-1 text-[13px] font-bold">
             {status === 'running' && <span aria-hidden="true" className="inline-block h-2 w-2 animate-pulse rounded-full bg-current" />}
             {stepStatusLabel(status)}
           </span>
-          {meta && <span className="text-xs text-origin-muted">{meta}</span>}
+          {meta && <span className="text-[13px] text-origin-muted">{meta}</span>}
         </li>;
       })}
     </ol>
@@ -277,7 +277,7 @@ export function AgentResearchSourceCards({ sources }: { sources: AgentResearchAr
   return <section aria-label="出典">
     <div className="flex flex-wrap items-center gap-2">
       <h3 className="m-0 text-sm font-black">出典</h3>
-      <span className="rounded-full border border-origin-border px-3 py-1 text-xs">{sources.length}件</span>
+      <span className="rounded-full border border-origin-border px-3 py-1 text-[13px]">{sources.length}件</span>
     </div>
     {sources.length === 0
       ? <p className="mt-3 text-sm text-origin-muted">取得できた出典はありませんでした。</p>
@@ -285,7 +285,7 @@ export function AgentResearchSourceCards({ sources }: { sources: AgentResearchAr
         const href = safeExternalUrl(source.url);
         return <article key={`${source.url}-${index}`} className="rounded-xl border border-origin-border p-3">
           <h4 className="break-words text-sm font-bold">{source.title}</h4>
-          <p className="mt-1 text-xs text-origin-muted">
+          <p className="mt-1 text-[13px] text-origin-muted">
             {[source.domain, source.evidenceLevel ? (source.evidenceLevel === 'extracted' ? '本文確認済み' : '検索結果の要約') : null]
               .filter(Boolean)
               .join(' · ')}
@@ -293,7 +293,7 @@ export function AgentResearchSourceCards({ sources }: { sources: AgentResearchAr
           {source.excerpt && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{source.excerpt}</p>}
           {href
             ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent-primary)] underline">原文を開く</a>
-            : <p className="mt-2 text-xs font-semibold text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
+            : <p className="mt-2 text-[13px] font-semibold text-origin-warning">安全なHTTPS URLとして確認できないためリンクを無効化しました。</p>}
         </article>;
       })}</div>}
   </section>;

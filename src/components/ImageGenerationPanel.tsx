@@ -137,7 +137,7 @@ export default function ImageGenerationPanel({ language, onClose, onGenerate }: 
                   </select>
                 </label>
               </div>
-              <p data-testid="origin-image-dimensions" className="origin-muted m-0 text-xs tabular-nums">{dimensions.width} × {dimensions.height}px · {ratio}</p>
+              <p data-testid="origin-image-dimensions" className="origin-muted m-0 text-[13px] tabular-nums">{dimensions.width} × {dimensions.height}px · {ratio}</p>
             </div>
           </details>
           {error && <p role="alert" className="m-0 text-sm text-[var(--danger)]">{error}</p>}

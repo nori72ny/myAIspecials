@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from '../types';
 import SettingsModalLegacy from './SettingsModalLegacy';
+import { getSessionCredential, setSessionCredential } from '../security/sessionCredentials';
 
 // The release-identity <details> sits at the end of the dialog and, once
 // the release SHA resolves, contains the last buttons in DOM order. The
@@ -35,6 +36,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  setSessionCredential('coding', '');
+  setSessionCredential('admin', '');
   vi.unstubAllGlobals();
 });
 
@@ -62,10 +65,10 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(details.open).toBe(false);
 
     const closeButton = screen.getByTestId('close-settings-button');
-    // The "About you" section (PR P1-3) sits right after the history
-    // section, so its clear-all button is now the last focusable control
-    // before the closed technical-information <details>.
-    const lastButton = screen.getByTestId('personal-clear-all-button');
+    // The コード実行 section (PR-D) sits after "About you", so its key
+    // input is now the last focusable control before the closed
+    // technical-information <details>.
+    const lastButton = screen.getByLabelText('実行キー');
     closeButton.focus();
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
 
@@ -81,6 +84,21 @@ describe('SettingsModalLegacy focus trap', () => {
     const personalIndex = headings.findIndex((text) => text?.includes('あなたについて'));
     expect(historyIndex).toBeGreaterThanOrEqual(0);
     expect(personalIndex).toBe(historyIndex + 1);
+  });
+
+  it('stores the coding and admin keys in the session credential module only', async () => {
+    await renderModal();
+    fireEvent.change(screen.getByLabelText('実行キー'), { target: { value: 'coding-secret' } });
+    expect(getSessionCredential('coding')).toBe('coding-secret');
+    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'admin-secret' } });
+    expect(getSessionCredential('admin')).toBe('admin-secret');
+    // 他セクションが自分の設定を保存していても、キー自体はどちらの
+    // ストレージにも現れない（保持はメモリ内のみ）。
+    const stored = [localStorage, sessionStorage]
+      .flatMap((storage) => Array.from({ length: storage.length }, (_, index) => storage.getItem(storage.key(index) ?? '') ?? ''))
+      .join(' ');
+    expect(stored).not.toContain('coding-secret');
+    expect(stored).not.toContain('admin-secret');
   });
 
   it('wraps focus to a button inside an open <details>', async () => {

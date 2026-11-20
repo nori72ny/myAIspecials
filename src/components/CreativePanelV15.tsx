@@ -234,7 +234,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
       <div className="flex min-h-16 items-start justify-between gap-3 border-b border-[var(--border-default)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
           <h2 className="truncate text-base font-black">カード・ポスターを作る</h2>
-          <p className={`mt-0.5 text-xs font-semibold ${status === 'ready' ? 'text-origin-success' : status === 'loading' ? '' : 'text-origin-warning'}`} role="status">{verificationText}</p>
+          <p className={`mt-0.5 text-[13px] font-semibold ${status === 'ready' ? 'text-origin-success' : status === 'loading' ? '' : 'text-origin-warning'}`} role="status">{verificationText}</p>
         </div>
         <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button>
       </div>
@@ -253,7 +253,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-black">プレビュー</h3>
-                <p className="text-xs opacity-70">{CREATIVE_PRESET_LABELS_V15[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
+                <p className="text-[13px] opacity-70">{CREATIVE_PRESET_LABELS_V15[previewPreset]} · {pngUrl ? 'SVG + PNG' : 'SVG'}</p>
               </div>
               {artifact && previewUrl && (
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -273,21 +273,21 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
                 <div className="max-w-sm text-center opacity-80">
                   <div className="origin-surface mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-[var(--border-default)] shadow-sm" aria-hidden="true"><Sparkles className="h-6 w-6" /></div>
                   <p className="text-sm font-bold">まだ作成されていません</p>
-                  <p className="mt-1 text-xs leading-5">内容を書いて「画像を作成」を押すと、品質を確認した画像だけをここに表示します。</p>
+                  <p className="mt-1 text-[13px] leading-5">内容を書いて「画像を作成」を押すと、品質を確認した画像だけをここに表示します。</p>
                 </div>
               )}
             </div>
-            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-origin-success/30 bg-origin-success/10 px-3 py-2 text-xs text-origin-success"><strong>品質を確認済み</strong></p>}
+            {artifact && previewUrl && <p className="mt-3 rounded-xl border border-origin-success/30 bg-origin-success/10 px-3 py-2 text-[13px] text-origin-success"><strong>品質を確認済み</strong></p>}
           </section>
         </div>
 
         {(history.length > 0 || historyNotice) && <section className="origin-surface mt-4 rounded-2xl border border-[var(--border-default)] p-4" aria-label="作成履歴">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-black">履歴</h3>
-            <span className="text-xs opacity-70">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>
+            <span className="text-[13px] opacity-70">{historyStatus === 'unavailable' ? '保存不可' : `${history.length}/12`}</span>
           </div>
 
-          {historyNotice && <div role="status" className="origin-surface-muted mt-3 rounded-xl border border-[var(--border-default)] px-3 py-2 text-xs font-medium">{historyNotice}</div>}
+          {historyNotice && <div role="status" className="origin-surface-muted mt-3 rounded-xl border border-[var(--border-default)] px-3 py-2 text-[13px] font-medium">{historyNotice}</div>}
 
           {history.length > 0 && (
             <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -298,13 +298,13 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
                   <article key={entry.id} className={`rounded-2xl border p-3 ${active ? 'border-[var(--accent-primary)]' : 'border-[var(--border-default)]'}`}>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold" title={entry.title}>{entry.title}</p>
-                      <p className="mt-1 text-xs opacity-70">{CREATIVE_PRESET_LABELS_V15[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
+                      <p className="mt-1 text-[13px] opacity-70">{CREATIVE_PRESET_LABELS_V15[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="origin-secondary-button min-h-11 flex-1 rounded-xl px-3 text-xs font-bold disabled:opacity-40">
+                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="origin-secondary-button min-h-11 flex-1 rounded-xl px-3 text-[13px] font-bold disabled:opacity-40">
                         {waiting ? '確認中…' : active ? '表示中' : '開く'}
                       </button>
-                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-bold disabled:opacity-40">削除</button>
+                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-bold disabled:opacity-40">削除</button>
                     </div>
                   </article>
                 );

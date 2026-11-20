@@ -13,6 +13,7 @@ vi.mock('../agent/indexedDbCheckpointStore', () => ({
 
 import AgentWorkspaceView, { catStateForPhase } from './AgentWorkspaceView';
 import { getAgentActivitySnapshot, reportAgentActivity } from '../agent/agentActivityStore';
+import { setSessionCredential } from '../security/sessionCredentials';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -21,6 +22,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 afterEach(() => {
   cleanup();
+  setSessionCredential('admin', '');
+  setSessionCredential('coding', '');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   loadCheckpointsFromIndexedDB.mockClear();
@@ -139,7 +142,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('まだ実行していません · 承認待ち');
 
-    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
+    setSessionCredential('admin', 'owner-agent-key');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '承認して実行' })); });
 
     await waitFor(() => expect(screen.getByRole('heading', { name: '完成した文書' })).toBeTruthy());
@@ -210,7 +213,7 @@ describe('AgentWorkspaceView v3', () => {
     expect(screen.getByLabelText('行う作業').textContent).toContain('コードを作って確認する');
     expect(screen.queryByRole('combobox')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
+    setSessionCredential('admin', 'owner-agent-key');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
     // The completed artifact shows in the result area, and the saved
     // result's card below is titled by the same first line — both are
@@ -233,7 +236,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('まだ実行していません · 承認待ち');
-    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'wrong-key' } });
+    setSessionCredential('admin', 'wrong-key');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByText('処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。');
@@ -533,7 +536,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('まだ実行していません · 承認待ち');
-    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
+    setSessionCredential('admin', 'owner-agent-key');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByText('作業の記録が使えないため、止まりました。実行は始めていません。');
@@ -566,7 +569,7 @@ describe('AgentWorkspaceView v3', () => {
     fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('まだ実行していません · 承認待ち');
-    fireEvent.change(screen.getByLabelText('管理者キー'), { target: { value: 'owner-agent-key' } });
+    setSessionCredential('admin', 'owner-agent-key');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
 
     await screen.findByText('無料枠の上限に達したため、実行を保留にしました。記録は残っているので、下の「これまでの作業」から再開できます。');

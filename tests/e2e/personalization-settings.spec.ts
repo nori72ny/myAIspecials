@@ -9,7 +9,8 @@ test.use({ viewport: { width: 390, height: 844 } });
 // （抽出と一覧の振る舞いはコンポーネントテストが実保存層で固定している）。
 
 async function openPersonalSection(page: Page) {
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'あなたについて' })).toBeVisible();

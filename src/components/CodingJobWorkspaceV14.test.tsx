@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CodingJobWorkspaceV14 from './CodingJobWorkspaceV14';
+import { getSessionCredential, setSessionCredential } from '../security/sessionCredentials';
 
 type JobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 
@@ -89,13 +90,14 @@ describe('CodingJobWorkspaceV14', () => {
 
   afterEach(() => {
     cleanup();
+    setSessionCredential('coding', '');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
     sessionStorage.clear();
   });
 
-  it('submits a natural-language job, clears the credential field, and renders encrypted result evidence', async () => {
+  it('submits a natural-language job with the settings-entered session key, and renders encrypted result evidence', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(capability))
       .mockResolvedValueOnce(response({ ok: true, job: job('verified'), result, resultDetailsState: 'available' }, 202));
@@ -103,17 +105,22 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
-    expect(screen.getByText('利用できます')).toBeTruthy();
-    expect(screen.getByText('キーを入力すると始められます')).toBeTruthy();
+    // 状態表示は1文だけ（PR-D）：キー未入力では「入力すると始められます」
+    // のみで、「利用できます」は併記しない。キー入力欄はこの画面に無い。
+    expect(screen.getByText('実行キーを入力すると始められます')).toBeTruthy();
+    expect(screen.queryByText('利用できます')).toBeNull();
+    expect(screen.queryByText('キーを入力すると始められます')).toBeNull();
+    expect(screen.queryByLabelText('実行キーを入力')).toBeNull();
 
     const credential = 'operator-secret-that-is-long-enough-for-production';
-    const credentialInput = screen.getByLabelText('実行キーを入力') as HTMLInputElement;
-    fireEvent.change(credentialInput, { target: { value: credential } });
+    act(() => { setSessionCredential('coding', credential); });
+    expect(screen.getByText('利用できます')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Fix the parser and add regression coverage.' } });
     fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
 
     await screen.findByText('src/existing.ts');
-    expect(credentialInput.value).toBe('');
+    // キーは設定で入れたセッション保持のまま（この画面は保持も消去もしない）。
+    expect(getSessionCredential('coding')).toBe(credential);
     expect(await screen.findByText('export const value = 1;')).toBeTruthy();
     expect(await screen.findByText('export const value = 2;')).toBeTruthy();
     expect(screen.getAllByText('問題なし')).toHaveLength(4);
@@ -177,7 +184,7 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
-    fireEvent.change(screen.getByLabelText('実行キーを入力'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Attempt a bounded change.' } });
     fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
 
@@ -204,7 +211,7 @@ describe('CodingJobWorkspaceV14', () => {
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
     expect(screen.queryByText('Hosted worker')).toBeNull();
-    fireEvent.change(screen.getByLabelText('実行キーを入力'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
     const alert = await screen.findByRole('alert');
@@ -222,7 +229,7 @@ describe('CodingJobWorkspaceV14', () => {
       .mockResolvedValueOnce(response({ ok: true, job: { ...job('cancelled'), attempt: 0 }, result: null, resultDetailsState: 'not_applicable' }, 202)));
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
-    fireEvent.change(screen.getByLabelText('実行キーを入力'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Attempt a bounded change.' } });
     fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
     await screen.findByText(/取り消しました。取り消す前にどこまで進んだかは/);
@@ -243,7 +250,7 @@ describe('CodingJobWorkspaceV14', () => {
 
     render(<CodingJobWorkspaceV14 />);
     await screen.findByText('準備できています');
-    fireEvent.change(screen.getByLabelText('実行キーを入力'), { target: { value: 'operator-secret-that-is-long-enough-for-production' } });
+    act(() => { setSessionCredential('coding', 'operator-secret-that-is-long-enough-for-production'); });
     fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Fix the parser.' } });
     fireEvent.click(screen.getByRole('button', { name: '作成・修正を始める' }));
     await screen.findAllByText('コードを作成・変更中');
@@ -256,5 +263,21 @@ describe('CodingJobWorkspaceV14', () => {
     const [url, options] = fetchMock.mock.calls[2] as [string, RequestInit];
     expect(url).toBe('/api/coding/v1.4/jobs/coding-AAAAAAAAAAAAAAAAAAAAAA');
     expect(options.method).toBe('DELETE');
+  });
+
+  it('offers the settings screen instead of disabling the start button when no execution key is set', async () => {
+    const onOpenSettings = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 onOpenSettings={onOpenSettings} />);
+    await screen.findByText('準備できています');
+    expect(screen.getByText('実行キーを入力すると始められます')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('作りたいもの・直したいこと'), { target: { value: 'Fix the parser.' } });
+    const button = screen.getByRole('button', { name: '実行キーを入力する' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    // 設定へ案内するだけで、ジョブは作らない。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

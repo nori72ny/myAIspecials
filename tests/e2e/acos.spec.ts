@@ -34,7 +34,6 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
 
     const primaryControls = [
       page.getByTestId('history-drawer-toggle'),
-      page.getByRole('button', { name: '設定を開く' }),
       page.getByTestId('origin-add-menu-toggle'),
       page.getByTestId('start-request-button'),
     ];
@@ -201,9 +200,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     const originalAccent = await sandbox.locator('html').evaluate((element) => getComputedStyle(element).getPropertyValue('--accent-primary').trim());
     // UI監査：成果物メニュー内の「デザインテーマ」入口
     // （artifact-open-design-settings）は削除され、テーマ変更は設定
-    // ダイアログに一本化された。ワークスペースがヘッダー右側を覆うため、
-    // 設定ボタンは force クリックで開く。
-    await page.getByRole('button', { name: '設定を開く' }).click({ force: true });
+    // ダイアログに一本化された。設定の入口は PR-D でサイドバーへ
+    // 集約されたため、そこから開く。
+    await page.getByTestId('sidebar-settings').click();
     await page.getByTestId('design-theme-luxury').click();
     await expect(page.locator('html')).toHaveAttribute('data-design-theme', 'luxury');
     await expect(sandbox.locator('html')).toHaveAttribute('data-origin-design-theme', 'luxury');
@@ -375,7 +374,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await page.getByTestId('origin-home-request').fill('復元対象のローカルセッション');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByText('セッションを整理しました。')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: '新しい会話を始める' }).click();
+    await page.getByTestId('sidebar-new-conversation').click();
     await page.getByTestId('history-drawer-toggle').click();
     // UI監査 #6：ドロワー内のナレッジマップと「その他の表示」は削除された。
     // 復元は履歴一覧のセッション項目から直接行う（復元処理自体は従来どおり
@@ -675,7 +674,7 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
 
   test('keeps settings, language, system theme, and history controls available', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: '設定を開く' }).click();
+    await page.getByTestId('sidebar-settings').click();
     const settingsDialog = page.getByRole('dialog', { name: /設定|Settings/i });
     await expect(settingsDialog).toBeVisible();
     await page.getByRole('button', { name: 'システム設定' }).click();

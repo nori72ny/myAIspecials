@@ -155,7 +155,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     console.log(`[orin-geometry] headerBottom=${headerBottom} discY=${discBox!.y} discH=${discBox!.height} hiddenByHeader=${hiddenByHeader} tap=${tapBox!.width}x${tapBox!.height}`);
     // 円盤がヘッダー下端に重なっても、ヘッダーの操作要素は
     // 円盤に隠れて押せなくならない（当たり判定で確認する）。
-    const settingsButton = page.getByRole('button', { name: '設定を開く', exact: true });
+    const settingsButton = page.getByTestId('history-drawer-toggle');
     const settingsHit = await settingsButton.evaluate((element) => {
       const rect = element.getBoundingClientRect();
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -165,7 +165,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
-    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    await page.getByTestId('sidebar-toggle').click();
+    await page.getByTestId('sidebar-settings').click();
     const settings = page.getByRole('dialog', { name: /設定|Settings/i });
     const settingsPanel = page.getByTestId('settings-modal');
     await expect(settings).toBeVisible();

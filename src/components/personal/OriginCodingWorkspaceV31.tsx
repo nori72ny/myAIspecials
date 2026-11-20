@@ -63,8 +63,8 @@ function FilesPanel({ result, state, changedPaths }: Props) {
     {changedPaths.length === 0
       ? <EmptyEvidence>変更したファイルはまだ決まっていません。</EmptyEvidence>
       : <ul className="space-y-2" aria-label="変更したファイル">{changedPaths.map(path => <li key={path} className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-origin-border bg-origin-surface/70 px-3 py-2">
-          <code className="min-w-0 break-all text-xs font-semibold">{path}</code>
-          <span className="shrink-0 rounded-full bg-origin-surface-muted px-2 py-1 text-[10px] font-bold uppercase text-origin-muted">{DIFF_KIND_LABELS[kindByPath.get(path) ?? 'changed'] ?? '変更あり'}</span>
+          <code className="min-w-0 break-all text-[13px] font-semibold">{path}</code>
+          <span className="shrink-0 rounded-full bg-origin-surface-muted px-2 py-1 text-[13px] font-bold uppercase text-origin-muted">{DIFF_KIND_LABELS[kindByPath.get(path) ?? 'changed'] ?? '変更あり'}</span>
         </li>)}</ul>}
   </div>;
 }
@@ -76,25 +76,25 @@ function DiffPanel({ result, state, changedPaths }: Props) {
     {changedPaths.length === 0 && !result?.diffs.length ? <EmptyEvidence>変更内容はまだ決まっていません。</EmptyEvidence> : null}
     {result?.diffs.map((diff, index) => <article key={`${diff.path}-${index}`} className="overflow-hidden rounded-xl border border-origin-border">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-origin-border bg-origin-surface-muted px-3 py-2">
-        <code className="break-all text-xs font-semibold">{diff.path}</code>
-        <span className="rounded-full bg-origin-surface-muted px-2 py-1 text-[10px] font-bold text-origin-ink">{DIFF_KIND_LABELS[diff.kind] ?? diff.kind}</span>
+        <code className="break-all text-[13px] font-semibold">{diff.path}</code>
+        <span className="rounded-full bg-origin-surface-muted px-2 py-1 text-[13px] font-bold text-origin-ink">{DIFF_KIND_LABELS[diff.kind] ?? diff.kind}</span>
       </header>
       {!diff.previewAvailable
-        ? <p className="p-4 text-xs leading-5 text-origin-muted">変更内容のプレビューは表示できません。ファイル名だけを表示します。</p>
+        ? <p className="p-4 text-[13px] leading-5 text-origin-muted">変更内容のプレビューは表示できません。ファイル名だけを表示します。</p>
         : <div className="grid md:grid-cols-2">
             <div className="min-w-0 border-b border-origin-border md:border-b-0 md:border-r">
-              <div className="border-b border-origin-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-origin-danger">変更前</div>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.before ?? '（新規ファイル）'}</pre>
-              {diff.beforeTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-origin-warning">一部だけ表示しています</p>}
+              <div className="border-b border-origin-border px-3 py-2 text-[13px] font-bold uppercase tracking-wider text-origin-danger">変更前</div>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[13px] leading-5">{diff.before ?? '（新規ファイル）'}</pre>
+              {diff.beforeTruncated && <p className="px-3 pb-3 text-[13px] font-bold text-origin-warning">一部だけ表示しています</p>}
             </div>
             <div className="min-w-0">
-              <div className="border-b border-origin-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-origin-success">変更後</div>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5">{diff.after ?? '（取得できませんでした）'}</pre>
-              {diff.afterTruncated && <p className="px-3 pb-3 text-[10px] font-bold text-origin-warning">一部だけ表示しています</p>}
+              <div className="border-b border-origin-border px-3 py-2 text-[13px] font-bold uppercase tracking-wider text-origin-success">変更後</div>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[13px] leading-5">{diff.after ?? '（取得できませんでした）'}</pre>
+              {diff.afterTruncated && <p className="px-3 pb-3 text-[13px] font-bold text-origin-warning">一部だけ表示しています</p>}
             </div>
           </div>}
     </article>)}
-    {!result?.diffs.length && changedPaths.map(path => <div key={path} className="rounded-xl border border-origin-border px-3 py-2 font-mono text-xs">{path}</div>)}
+    {!result?.diffs.length && changedPaths.map(path => <div key={path} className="rounded-xl border border-origin-border px-3 py-2 font-mono text-[13px]">{path}</div>)}
   </div>;
 }
 
@@ -105,10 +105,10 @@ function TestsPanel({ result, state }: Pick<Props, 'result' | 'state'>) {
       const { check, label, detail } = verificationState(result, state, kind);
       return <div key={kind} className="rounded-xl border border-origin-border p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-bold tracking-wide text-origin-muted">{CHECK_KIND_LABELS[kind]}</span>
+          <span className="text-[13px] font-bold tracking-wide text-origin-muted">{CHECK_KIND_LABELS[kind]}</span>
           <span className={`text-sm font-black ${check?.ok ? 'text-origin-success' : check ? 'text-origin-danger' : 'text-origin-placeholder'}`}>{label}</span>
         </div>
-        <p className="mt-2 text-xs text-origin-muted">{detail}</p>
+        <p className="mt-2 text-[13px] text-origin-muted">{detail}</p>
       </div>;
     })}
   </div>;
@@ -117,7 +117,7 @@ function TestsPanel({ result, state }: Pick<Props, 'result' | 'state'>) {
 function VerificationSnapshot({ result, state }: Pick<Props, 'result' | 'state'>) {
   return <div className="mt-3 flex flex-wrap gap-2" aria-label="Verification snapshot">{CHECKS.map(kind => {
     const { check, label } = verificationState(result, state, kind);
-    return <span key={kind} className="inline-flex items-center gap-2 rounded-full border border-origin-border px-2 py-1 text-[10px] font-bold">
+    return <span key={kind} className="inline-flex items-center gap-2 rounded-full border border-origin-border px-2 py-1 text-[13px] font-bold">
       <span className="text-origin-muted">{CHECK_KIND_LABELS[kind]}</span>
       <span className={check?.ok ? 'text-origin-success' : check ? 'text-origin-danger' : 'text-origin-muted'}>{label}</span>
     </span>;
@@ -151,10 +151,10 @@ export default function OriginCodingWorkspaceV31(props: Props) {
   return <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-labelledby="coding-workspace-v31-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-origin-muted">結果</p>
+        <p className="text-[13px] font-bold uppercase tracking-[0.18em] text-origin-muted">結果</p>
         <h2 id="coding-workspace-v31-title" className="mt-1 text-lg font-black">変更内容と確認結果</h2>
       </div>
-      <div className="flex flex-wrap gap-2 text-[10px] font-bold text-origin-muted">
+      <div className="flex flex-wrap gap-2 text-[13px] font-bold text-origin-muted">
         <span className="rounded-full border border-origin-border px-2 py-1">{changedCount}件のファイル</span>
         <span className="rounded-full border border-origin-border px-2 py-1">{checkCount}件の確認</span>
         {props.result && <span className="rounded-full border border-origin-border px-2 py-1">修正 {props.result.repairRounds}回</span>}

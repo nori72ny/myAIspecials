@@ -86,8 +86,7 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
     expect(item.left, `${item.name} left edge`).toBeGreaterThanOrEqual(-1);
     expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual(viewportWidth + 1);
     if (viewportWidth <= 768 && item.tag === 'BUTTON') {
-      // getBoundingClientRect は transform 配下で float32 の丸め誤差（44px が 43.999996 等）を持ちうるため、0.01px 未満の誤差は 44px を満たすものとして扱う
-      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44 - 0.01);
+      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44);
     }
     if (item.tag === 'A') {
       expect(item.href, `${item.name} link destination`).not.toBe('');
@@ -141,7 +140,11 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         }
 
         if (surface.menuLabel) {
-          await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+          // 「← 会話」は PR-D で廃止。サイドバーから会話へ戻る。
+          if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+            await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+          }
+          await page.getByTestId('sidebar-nav-chat').click();
           await expect(page).not.toHaveURL(/workspace=/);
           await expect(page.getByTestId('origin-home-request')).toBeVisible();
         }
@@ -202,7 +205,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await expect(menu).toBeHidden();
       await expect(add).toBeFocused();
 
-      await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-settings').click();
       const settings = page.getByRole('dialog', { name: /設定|Settings/i });
       await expect(settings).toBeVisible();
       const settingsBox = await settings.boundingBox();
@@ -310,7 +316,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
-      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-nav-chat').click();
       await expect(page).not.toHaveURL(/workspace=/);
     }
 
@@ -327,7 +336,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(page).not.toHaveURL(/workspace=/);
 
     // Settings controls must change state and close visibly.
-    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+      await page.getByTestId('sidebar-toggle').click();
+    }
+    await page.getByTestId('sidebar-settings').click();
     const luxury = page.getByTestId('design-theme-luxury');
     await luxury.click();
     await expect(luxury).toHaveAttribute('aria-pressed', 'true');

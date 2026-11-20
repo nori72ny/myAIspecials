@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 async function openSettings(page: import('@playwright/test').Page) {
-  const opener = page.getByRole('main').getByRole('button', { name: /設定を開く|Open settings/i });
+  const opener = page.getByTestId('sidebar-settings');
   await opener.focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
@@ -29,10 +29,10 @@ test.describe('ORIGIN Personal 2.0 accessibility', () => {
     // UI監査 #27：ダイアログ下部の重複「閉じる」ボタンは削除され、閉じる
     // 手段は × ボタンに一本化された。× にはアクセス可能な名前
     // （設定を閉じる / Close settings）がある。末尾のフォーカス可能要素は
-    // P1-3 で履歴セクションの直後に入った「あなたについて」セクション
-    // （PersonalizationSettings）末尾の全消去ボタンになる。
+    // PR-D で「あなたについて」の後に入った「コード実行」セクションの
+    // 実行キー入力になる。
     await expect(iconClose).toHaveAccessibleName(/^(設定を閉じる|Close settings)$/);
-    const lastControl = dialog.getByRole('button', { name: /^(覚えていることを全て消す|Delete everything ORIGIN remembers)$/ });
+    const lastControl = dialog.getByLabel(/^(実行キー|Execution key)$/);
 
     await iconClose.focus();
     await page.keyboard.press('Shift+Tab');

@@ -62,7 +62,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(originalChat.closest('[hidden]')).toBeTruthy();
     expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
 
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(screen.queryByRole('region', { name: 'Agent Workspace' })).toBeNull();
   });
@@ -76,7 +76,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(window.location.search).toBe('?workspace=coding');
     expect(originalChat.closest('[hidden]')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
     expect(screen.getByTestId('mock-origin-app')).toBe(originalChat);
     expect(screen.queryByRole('region', { name: 'Coding Job Workspace' })).toBeNull();
   });
@@ -238,7 +238,7 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     runAppAction('onOpenCoding');
     expect(await screen.findByRole('region', { name: 'Coding Job Workspace' })).toBeTruthy();
     expect(screen.queryByRole('tab', { name: '成果物' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '会話に戻る' }));
+    fireEvent.click(screen.getByTestId('sidebar-nav-chat'));
 
     // 作るパネルはチャット画面の上に開くため、チャットの成果物レイヤーは
     // 残ったままになる（専用画面時代とは異なる、統合後の仕様）。

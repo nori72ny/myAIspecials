@@ -317,7 +317,7 @@ export default function KenBurnsVideoDialog({
               />
             </div>
             {status === 'loading' && (
-              <p role="status" className="origin-muted mt-2 text-[12.5px]">{t.loading}</p>
+              <p role="status" className="origin-muted mt-2 text-[13px]">{t.loading}</p>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
@@ -338,7 +338,7 @@ export default function KenBurnsVideoDialog({
                   {recording ? t.recording : `⬇ ${t.save}`}
                 </button>
               )}
-              <span className="origin-muted text-[12.5px]">{t.note}</span>
+              <span className="origin-muted text-[13px]">{t.note}</span>
             </div>
           </>
         )}

@@ -7,7 +7,8 @@ test('MCP settings hides the integration entry while the backend is unconfigured
   // バックエンド未構成の実状態を明示して固定する。
   await page.route('**/api/mcp/status', route => route.fulfill({ json: { configured: false, authenticated: false } }));
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await expect(page.getByRole('dialog')).toBeVisible();
   // UI監査 #26：MCP項目は未設定時は表示されない（「準備中」への行き止まり
   // を出さない）。構成済みの場合に項目が現れることは後続テストが固定する。
@@ -47,7 +48,8 @@ test('MCP settings performs owner login and logout without retaining the passwor
     return route.abort();
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
@@ -87,7 +89,8 @@ test('MCP settings handles register, check and disconnect with a simulated authe
     return route.fulfill({ status: 201, json: { ok: true, connection: connections[0] } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
@@ -110,7 +113,8 @@ test('MCP settings starts reviewed OAuth without rendering service credentials',
     return route.fulfill({ json: { ok: true, authorizationUrl } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');

@@ -325,9 +325,9 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       ) : (
         <>
           <p className="text-sm leading-6">{item.text}</p>
-          <p className="origin-muted text-[12.5px] leading-5">{originLabel(item)} ・ {renderSource(item)}</p>
+          <p className="origin-muted text-[13px] leading-5">{originLabel(item)} ・ {renderSource(item)}</p>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="origin-muted text-[12.5px]">{p.sendToModel}</span>
+            <span className="origin-muted text-[13px]">{p.sendToModel}</span>
             <ToggleSwitch
               checked={item.sendToModel}
               ariaLabel={`${p.sendToModel}: ${item.text}`}
@@ -340,7 +340,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             )}
             <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteMemoryItem(userId(), item.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
           </div>
-          {!item.sendToModel && <p className="origin-muted text-[12.5px] leading-5">{p.deviceOnlyNote}</p>}
+          {!item.sendToModel && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
         </>
       )}
     </li>
@@ -358,12 +358,12 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
         {proposal.kind === 'needs-check' ? (
           <>
             <p className="text-sm font-bold">{p.proposalNeedsCheckTitle}</p>
-            <p className="origin-muted text-[12.5px] leading-5">{p.proposalNeedsCheckBody}</p>
+            <p className="origin-muted text-[13px] leading-5">{p.proposalNeedsCheckBody}</p>
             <ul className="space-y-1">
               {memoryBasis.map((item) => (
                 <li key={item.id} className="text-sm leading-6">
                   {item.text}
-                  <span className="origin-muted text-[12.5px]">（{formatMonthDay(item.createdAt, language)}）</span>
+                  <span className="origin-muted text-[13px]">（{formatMonthDay(item.createdAt, language)}）</span>
                 </li>
               ))}
             </ul>
@@ -374,16 +374,16 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           </>
         ) : (
           <>
-            <p className="origin-muted text-[12.5px] leading-5">{p.proposalFromRequest(proposal.promptExcerpt)}</p>
+            <p className="origin-muted text-[13px] leading-5">{p.proposalFromRequest(proposal.promptExcerpt)}</p>
             <ul className="space-y-1">
               {memoryBasis.map((item) => (
                 <li key={item.id} className="text-sm leading-6">
-                  <span className="origin-muted text-[12.5px]">{p.memoryKinds[item.kind]}：</span>{item.text}
+                  <span className="origin-muted text-[13px]">{p.memoryKinds[item.kind]}：</span>{item.text}
                 </li>
               ))}
               {profileBasis.map((item) => (
                 <li key={item.id} className="text-sm leading-6">
-                  <span className="origin-muted text-[12.5px]">{p.profileCategories[item.category]}：</span>{item.text}
+                  <span className="origin-muted text-[13px]">{p.profileCategories[item.category]}：</span>{item.text}
                 </li>
               ))}
             </ul>
@@ -400,16 +400,16 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   return (
     <section aria-labelledby="personal-heading" data-testid="personalization-section" className="space-y-3 border-t border-[var(--border-default)] pt-5">
       <h3 id="personal-heading" className="flex items-center gap-2 text-sm font-bold"><User className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />{p.heading}</h3>
-      <p className="origin-muted text-[12.5px] leading-5">{p.description}</p>
-      <p className="origin-muted text-[12.5px] leading-5">{p.groundedNote}</p>
+      <p className="origin-muted text-[13px] leading-5">{p.description}</p>
+      <p className="origin-muted text-[13px] leading-5">{p.groundedNote}</p>
 
       <div className="flex items-center justify-between gap-3">
         <span id="personal-toggle-label" className="text-sm font-semibold">{p.toggleLabel}</span>
         <ToggleSwitch checked={enabled} ariaLabel={p.toggleLabel} onChange={onToggleEnabled} />
       </div>
-      {!enabled && <p className="origin-muted text-[12.5px] leading-5">{p.toggleOffNote}</p>}
-      {migrationMessage && <p role="status" className="origin-muted text-[12.5px] leading-5">{migrationMessage}</p>}
-      {usage && <p className="origin-muted text-[12.5px] leading-5">{p.usageSummary(usage.itemCount, usage.maxItems)}</p>}
+      {!enabled && <p className="origin-muted text-[13px] leading-5">{p.toggleOffNote}</p>}
+      {migrationMessage && <p role="status" className="origin-muted text-[13px] leading-5">{migrationMessage}</p>}
+      {usage && <p className="origin-muted text-[13px] leading-5">{p.usageSummary(usage.itemCount, usage.maxItems)}</p>}
       {usage?.limitReached && <p className="text-sm leading-5">{p.limitReachedNote}</p>}
       {usage && !usage.limitReached && usage.nearLimit && <p className="text-sm leading-5">{p.nearLimitNote}</p>}
       {loadFailed && <p role="status" className="text-sm leading-5 text-[var(--danger)]">{p.loadFailed}</p>}
@@ -420,7 +420,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       <div className="space-y-3 pt-2">
         <h4 className="text-sm font-bold">{p.profileHeading}</h4>
         {profileItems.length === 0
-          ? <p className="origin-muted text-[12.5px] leading-5">{p.profileEmpty}</p>
+          ? <p className="origin-muted text-[13px] leading-5">{p.profileEmpty}</p>
           : (
             <ul className="space-y-2">
               {profileItems.map((item) => (
@@ -442,9 +442,9 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
                   ) : (
                     <>
                       <p className="text-sm leading-6">{item.text}</p>
-                      <p className="origin-muted text-[12.5px] leading-5">{p.profileCategories[item.category]} ・ {p.updatedOn(formatMonthDay(item.updatedAt, language))}</p>
+                      <p className="origin-muted text-[13px] leading-5">{p.profileCategories[item.category]} ・ {p.updatedOn(formatMonthDay(item.updatedAt, language))}</p>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="origin-muted text-[12.5px]">{p.sendToModel}</span>
+                        <span className="origin-muted text-[13px]">{p.sendToModel}</span>
                         <ToggleSwitch
                           checked={item.sendToModel}
                           ariaLabel={`${p.sendToModel}: ${item.text}`}
@@ -453,7 +453,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
                         <button type="button" onClick={(event) => { event.stopPropagation(); setEditingProfileId(item.id); setEditDraft(item.text); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.edit}</button>
                         <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteProfileItem(userId(), item.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
                       </div>
-                      {!item.sendToModel && <p className="origin-muted text-[12.5px] leading-5">{p.deviceOnlyNote}</p>}
+                      {!item.sendToModel && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
                     </>
                   )}
                 </li>
@@ -482,14 +482,14 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             />
             <button type="button" onClick={(event) => { event.stopPropagation(); void addProfileItem(); }} className="origin-primary-button min-h-12 rounded-xl px-4 text-sm font-semibold">{p.profileAdd}</button>
           </div>
-          <p className="origin-muted text-[12.5px] leading-5">{p.profileWarning}</p>
+          <p className="origin-muted text-[13px] leading-5">{p.profileWarning}</p>
         </div>
       </div>
 
       {pendingProposals.length > 0 && (
         <div className="space-y-3 pt-2">
           <h4 className="text-sm font-bold">{p.proposalsHeading}</h4>
-          <p className="origin-muted text-[12.5px] leading-5">{p.proposalsIntro}</p>
+          <p className="origin-muted text-[13px] leading-5">{p.proposalsIntro}</p>
           <ul className="space-y-2">
             {pendingProposals.map((proposal) => renderProposal(proposal))}
           </ul>
@@ -499,7 +499,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       {blockNotices.length > 0 && (
         <div className="space-y-3 pt-2" data-testid="block-notices">
           <h4 className="text-sm font-bold">{p.blockNoticesHeading}</h4>
-          <p className="origin-muted text-[12.5px] leading-5">{p.blockNoticesIntro}</p>
+          <p className="origin-muted text-[13px] leading-5">{p.blockNoticesIntro}</p>
           <ul className="space-y-2">
             {blockNotices.map((notice) => (
               <li key={notice.id} data-testid={`block-notice-${notice.id}`} className="origin-surface-muted rounded-xl border p-3">
@@ -508,7 +508,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
                     formatMonthDay(notice.at, language),
                     notice.categories.map((category) => p.blockCategories[category]).join('・'),
                   )}
-                  {notice.kind ? <span className="origin-muted text-[12.5px]">（{p.memoryKinds[notice.kind]}）</span> : null}
+                  {notice.kind ? <span className="origin-muted text-[13px]">（{p.memoryKinds[notice.kind]}）</span> : null}
                 </p>
               </li>
             ))}
@@ -532,7 +532,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           </div>
         ))}
         {activeGroups.length === 0 && needsCheckGroups.length === 0
-          ? <p className="origin-muted text-[12.5px] leading-5">{p.memoryEmpty}</p>
+          ? <p className="origin-muted text-[13px] leading-5">{p.memoryEmpty}</p>
           : activeGroups.map((group) => (
             <div key={group.kind} className="space-y-2">
               <h5 className="origin-muted text-sm font-semibold">{p.memoryKinds[group.kind]}</h5>
@@ -548,7 +548,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
               {historyItems.map((item) => (
                 <li key={item.id} data-testid={`memory-item-${item.id}`} className="origin-surface-muted space-y-1 rounded-xl border p-3">
                   <p className="origin-muted text-sm leading-6">{item.text}</p>
-                  <p className="origin-muted text-[12.5px] leading-5">{p.memoryKinds[item.kind]} ・ {originLabel(item)}</p>
+                  <p className="origin-muted text-[13px] leading-5">{p.memoryKinds[item.kind]} ・ {originLabel(item)}</p>
                 </li>
               ))}
             </ul>
@@ -567,7 +567,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           ) : (
             <div className="space-y-2 rounded-xl border p-3">
               <p className="text-sm font-bold">{p.clearAllConfirmTitle}</p>
-              <p className="origin-muted text-[12.5px] leading-5">{p.clearAllConfirmBody}</p>
+              <p className="origin-muted text-[13px] leading-5">{p.clearAllConfirmBody}</p>
               <label className="flex min-h-11 items-center gap-2 text-sm">
                 <input
                   type="checkbox"

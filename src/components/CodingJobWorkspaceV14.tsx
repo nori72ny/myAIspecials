@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import OriginAgentActionProgressV31 from './personal/OriginAgentActionProgressV31';
 import OriginCodingWorkspaceV31 from './personal/OriginCodingWorkspaceV31';
+import { getSessionCredential, useSessionCredential } from '../security/sessionCredentials';
 
 export type CodingJobStatus = 'queued' | 'leased' | 'running' | 'repairing' | 'verified' | 'blocked' | 'failed' | 'cancelled';
 type ResultDetailsState = 'pending' | 'available' | 'unavailable' | 'not_applicable';
@@ -101,7 +102,7 @@ const STATUS_DETAILS: Record<CodingJobStatus, string> = {
 };
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  CODING_JOB_AUTHENTICATION_REQUIRED: '実行キーを入力してください。',
+  CODING_JOB_AUTHENTICATION_REQUIRED: '実行キーが入力されていません。設定の「コード実行」から入力してください。',
   CODING_JOB_DISPATCH_TOKEN_INVALID: '作業を始めるための設定を確認できなかったため、開始できませんでした。時間をおいて、もう一度お試しください。',
   CODING_JOB_DISPATCH_PERMISSION_DENIED: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
   CODING_JOB_DISPATCH_WORKFLOW_INACCESSIBLE: '作業を始められませんでした。時間をおいて、もう一度お試しください。',
@@ -115,7 +116,7 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 function ErrorNotice({ code }: { code: string }) {
-  return <div role="alert" className="mt-4 rounded-xl border border-origin-danger/50 bg-origin-danger/10 p-3 text-xs leading-5 text-origin-danger">
+  return <div role="alert" className="mt-4 rounded-xl border border-origin-danger/50 bg-origin-danger/10 p-3 text-[13px] leading-5 text-origin-danger">
     <p className="font-semibold">{ERROR_MESSAGES[code] ?? '処理を完了できませんでした。サポート用コードを表示しています。'}</p>
     <details className="mt-2"><summary className="min-h-11 cursor-pointer py-3 font-semibold">サポート用コード</summary><p className="mb-1">問い合わせるときは、このコードもお伝えください。</p><code className="block break-all">{code}</code></details>
   </div>;
@@ -149,15 +150,15 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
       : status === 'cancelled' || cancelRequested
         ? 'border-origin-warning/50 bg-origin-warning/10 text-origin-warning'
         : 'border-origin-brand-border bg-origin-brand-soft text-origin-brand';
-  return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${tone}`}>
+  return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[13px] font-bold ${tone}`}>
     {!terminal && !cancelRequested && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-current" aria-hidden="true" />}
     {cancelRequested && ACTIVE.has(status) ? '取り消しています' : STATUS_LABELS[status]}
   </span>;
 }
 
-type CodingJobWorkspaceV14Props = { initialGoal?: string };
+type CodingJobWorkspaceV14Props = { initialGoal?: string; onOpenSettings?: () => void };
 
-export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspaceV14Props) {
+export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
   const [capability, setCapability] = useState<CapabilityResponse | null>(null);
   const [job, setJob] = useState<CodingJobRecord | null>(null);
@@ -166,7 +167,6 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkingCapability, setCheckingCapability] = useState(true);
-  const credentialInputRef = useRef<HTMLInputElement | null>(null);
   const credentialRef = useRef('');
   const mountedRef = useRef(true);
   const requestEpochRef = useRef(0);
@@ -219,7 +219,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
 
   const handleCapabilityDetailToggle = (open: boolean) => {
     if (!open || capability?.authorizationMode !== undefined) return;
-    const credential = credentialRef.current || (credentialInputRef.current?.value.trim() ?? '');
+    const credential = credentialRef.current || getSessionCredential('coding').trim();
     if (credential) refreshCapabilityDetail(credential);
   };
 
@@ -283,8 +283,8 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
   const startJob = useCallback(async () => {
     const trimmedGoal = goal.trim();
     if (!trimmedGoal || busy || capability?.ready !== true) return;
-    const credential = credentialInputRef.current?.value.trim() ?? '';
-    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); credentialInputRef.current?.focus(); return; }
+    const credential = getSessionCredential('coding').trim();
+    if (!credential) { setError('CODING_JOB_AUTHENTICATION_REQUIRED'); return; }
     const epoch = beginOperation(credential);
     try {
       const response = await fetch('/api/coding/v1.4/jobs', { method: 'POST', headers: authHeaders(credential), body: JSON.stringify({ goal: trimmedGoal, confirmRun: true }) });
@@ -292,7 +292,6 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
       if (epoch !== requestEpochRef.current) return;
       if (!response.ok || !data.ok || !data.job) { credentialRef.current = ''; setError(safeCode(data.code, `CODING_UI_CREATE_${response.status}`)); return; }
       currentJobIdRef.current = data.job.jobId;
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
       applyResponse(data, epoch);
     } catch { if (epoch === requestEpochRef.current) { credentialRef.current = ''; setError('CODING_UI_CREATE_UNAVAILABLE'); } }
     finally { if (epoch === requestEpochRef.current) setBusy(false); }
@@ -314,9 +313,15 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
   }, [applyResponse, busy, job]);
 
   const ready = capability?.ready === true;
+  const sessionCredential = useSessionCredential('coding');
+  const hasCredential = sessionCredential.trim() !== '';
+  const jobActive = Boolean(job && ACTIVE.has(job.status));
+  // キー未入力のときは開始ボタンを無効化せず、押すと設定の「コード実行」
+  // へ案内する（外部評価改修 PR-D、設計メモ項目3-a）。
+  const promptForCredential = ready && !hasCredential && !busy && !jobActive && goal.trim() !== '';
 
   return <section className="flex min-h-full flex-col justify-center bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="コード">
-    <div className="mx-auto w-full max-w-4xl space-y-4">
+    <div className="mx-auto w-full max-w-[var(--content-wide)] space-y-4">
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-xl font-black">コードを作る・直す</h1>
@@ -335,38 +340,25 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           placeholder="例：家計簿アプリを作ってください。金額を入力すると、月ごとの合計を表示したいです。"
           className="mt-2 min-h-32 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
         />
-        <p className="mt-1 text-xs leading-5 text-origin-muted">新しいものを作る場合も、今あるコードを直す場合も、ここに書いてください。</p>
-        <div className="mt-1 text-right text-[10px] text-origin-muted">{goal.length}/4000</div>
-
-        <details className="mt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold text-origin-muted">実行に使うキー</summary><p className="mb-2 text-xs leading-5 text-origin-muted">始める前に必要です。入力したキーは保存されません。</p><label htmlFor="coding-operator-key" className="sr-only">実行キー</label>
-        <input
-          ref={credentialInputRef}
-          id="coding-operator-key"
-          aria-label="実行キーを入力"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="実行キーを入力"
-          className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm outline-none focus:ring-2 focus:ring-origin-brand"
-        /></details>
+        <p className="mt-1 text-[13px] leading-5 text-origin-muted">新しいものを作る場合も、今あるコードを直す場合も、ここに書いてください。</p>
+        <div className="mt-1 text-right text-[13px] text-origin-muted">{goal.length}/4000</div>
 
         <button
           type="button"
-          onClick={() => void startJob()}
+          onClick={() => { if (promptForCredential) { onOpenSettings?.(); return; } void startJob(); }}
           disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
           aria-describedby="coding-run-status"
           title={!ready ? '今は利用できないため、始められません' : !goal.trim() ? '作りたいもの・直したいことを入力してください' : job && ACTIVE.has(job.status) ? '今の作業が終わるまで、新しい依頼は始められません' : undefined}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? '始めています…' : job && ACTIVE.has(job.status) ? '実行中' : '作成・修正を始める'}
+          {busy ? '始めています…' : job && ACTIVE.has(job.status) ? '実行中' : promptForCredential ? '実行キーを入力する' : '作成・修正を始める'}
         </button>
 
-        <div id="coding-run-status" role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : '今は利用できません'}</span>
-          <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>{checkingCapability ? '確認中' : ready ? 'キーを入力すると始められます' : '利用できません'}</span>
+        <div id="coding-run-status" role="status" className="mt-3 text-[13px]">
+          <span className={ready && hasCredential ? 'font-bold text-origin-success' : 'text-origin-muted'}>{checkingCapability ? '利用できるか確認しています…' : !ready ? '今は利用できません' : hasCredential ? '利用できます' : '実行キーを入力すると始められます'}</span>
         </div>
 
-        <details className="mt-2 border-t border-origin-border pt-2 text-xs" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
+        <details className="mt-2 border-t border-origin-border pt-2 text-[13px]" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">実行の詳しい情報</summary>
           <p className="leading-5 text-origin-muted">認証情報は端末に保存せず、実行中に必要な範囲だけで使います。</p>
 
@@ -375,7 +367,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           </div>
         </details>
 
-        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-3 text-xs font-semibold leading-5 text-origin-warning">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
+        {!checkingCapability && !ready && <div role="status" className="mt-3 rounded-xl border border-origin-warning/50 bg-origin-warning/10 p-3 text-[13px] font-semibold leading-5 text-origin-warning">今はコードの作成・変更を始められません。準備が整うまでお待ちください。</div>}
         {error && <ErrorNotice code={error} />}
       </section>
 
@@ -393,11 +385,11 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
             ['最終確認', '結果をまとめる'],
             ['結果表示', '結果と変更内容を表示'],
           ].map(([label, detail]) => <li key={label} className="rounded-xl border border-origin-border p-3">
-            <span className="text-xs font-black tracking-wide">{label}</span>
-            <p className="mt-1 text-[11px] leading-4 text-origin-muted">{detail}</p>
+            <span className="text-[13px] font-black tracking-wide">{label}</span>
+            <p className="mt-1 text-[13px] leading-5 text-origin-muted">{detail}</p>
           </li>)}
         </ol>
-        <p className="mt-3 text-xs leading-5 text-origin-muted">上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。</p>
+        <p className="mt-3 text-[13px] leading-5 text-origin-muted">上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。</p>
       </section>}
 
       {job && <section className="rounded-2xl border border-origin-border bg-origin-surface/70 p-4" aria-live="polite">
@@ -406,7 +398,7 @@ export default function CodingJobWorkspaceV14({ initialGoal }: CodingJobWorkspac
           {ACTIVE.has(job.status) && <button type="button" onClick={() => void cancelJob()} disabled={job.cancelRequested || busy} className="min-h-11 rounded-xl border border-origin-danger/50 bg-origin-danger/10 px-4 text-sm font-bold text-origin-danger disabled:cursor-not-allowed disabled:opacity-50">{job.cancelRequested ? '取り消しを確認中…' : '依頼を取り消す'}</button>}
         </div>
         <p className="mt-2 text-sm leading-6 text-origin-muted">{job.cancelRequested && ACTIVE.has(job.status) ? '取り消しています。止まったか確認しています。' : STATUS_DETAILS[job.status]}</p>
-        <details className="mt-2 border-t border-origin-border pt-2 text-xs">
+        <details className="mt-2 border-t border-origin-border pt-2 text-[13px]">
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">依頼の情報</summary>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2"><dt className="text-origin-muted">依頼番号</dt><dd className="truncate font-mono" title={job.jobId}>{job.jobId}</dd><dt className="text-origin-muted">更新時刻</dt><dd>{formatTime(job.updatedAt)}</dd></dl>
         </details>

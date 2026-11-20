@@ -49,18 +49,25 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await page.getByText('実行に使うキー', { exact: true }).click();
-    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
+    // キー入力は設定の「コード実行」へ移ったため、この画面には無い（PR-D）。
+    // 状態表示は1文に統合され、未準備では「今は利用できません」だけが出る。
+    await expect(page.getByText('実行に使うキー', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('実行キーを入力')).toHaveCount(0);
+    await expect(page.getByText('今は利用できません', { exact: true })).toBeVisible();
     await expect(page.getByLabel('作りたいもの・直したいこと', { exact: true })).toBeEditable();
     await expect(page.getByText('Grounded execution evidence', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('tablist', { name: 'Coding workspace views' })).toHaveCount(0);
     await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+    await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+    await page.getByTestId('sidebar-nav-chat').click();
     await expect(page.getByTestId('origin-home-request')).toHaveValue('保存前の相談メモ');
     await page.goBack();
-    await page.getByText('実行に使うキー', { exact: true }).click();
-    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
+    // キー入力は設定の「コード実行」へ移ったため、この画面には無い（PR-D）。
+    // 状態表示は1文に統合され、未準備では「今は利用できません」だけが出る。
+    await expect(page.getByText('実行に使うキー', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('実行キーを入力')).toHaveCount(0);
+    await expect(page.getByText('今は利用できません', { exact: true })).toBeVisible();
     await page.reload();
     // リロード（新規ロード）では必ずトップ画面から始まる（オーナー指示
     // 2026-11-09）ため、Codeへはアプリ内メニューから入り直して確認する。
@@ -68,8 +75,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-add-menu-toggle').click();
     await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
     await expect(page).toHaveURL(/workspace=coding/);
-    await page.getByText('実行に使うキー', { exact: true }).click();
-    await expect(page.getByLabel('実行キーを入力')).toBeVisible();
+    // キー入力は設定の「コード実行」へ移ったため、この画面には無い（PR-D）。
+    // 状態表示は1文に統合され、未準備では「今は利用できません」だけが出る。
+    await expect(page.getByText('実行に使うキー', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('実行キーを入力')).toHaveCount(0);
+    await expect(page.getByText('今は利用できません', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '作成・修正を始める', exact: true })).toBeDisabled();
   });
 
@@ -203,7 +213,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByRole('heading', { name: 'エージェントに任せる' })).toBeVisible();
       await expect(page.getByLabel('任せたいこと', { exact: true })).toBeEditable();
       await noOverflow();
-      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-nav-chat').click();
 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: 'コード', exact: true }).click();
@@ -211,7 +224,10 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       await expect(page.getByRole('heading', { name: 'コードを作る・直す' })).toBeVisible();
       await expect(page.getByLabel('作りたいもの・直したいこと', { exact: true })).toBeEditable();
       await noOverflow();
-      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-nav-chat').click();
 
       // 「作る」は画面構成の移行（第3段）で専用画面からパネルに統合され、
       // オーナー決定（2026-11-12）で「+」メニューからは隠した。そのため
@@ -529,17 +545,17 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await expect(answer).toBeVisible();
 
     const beforeUrl = page.url();
-    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    await page.getByTestId('sidebar-settings').click();
     await expect(page.getByRole('dialog', { name: /設定|Settings/i })).toBeVisible();
     await expect(answer).toBeVisible();
     expect(page.url()).toBe(beforeUrl);
 
     await page.getByRole('button', { name: '設定を閉じる', exact: true }).click();
     await expect(answer).toBeVisible();
-    await expect(page.getByRole('button', { name: '新しい会話を始める' })).toBeVisible();
+    await expect(page.getByTestId('sidebar-new-conversation')).toBeVisible();
   });
 
-  test('keeps the pristine mobile header minimal and reveals New conversation only after use', async ({ page }) => {
+  test('keeps the pristine mobile header minimal and never adds a New conversation button', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.route('**/api/chat', route => route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '確認しました。' }));
     await page.goto('/');
@@ -547,20 +563,20 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     const header = page.locator('header.origin-header');
     const sidebarToggle = page.getByTestId('sidebar-toggle');
     const history = page.getByTestId('history-drawer-toggle');
-    const settings = page.getByRole('button', { name: '設定を開く' });
 
     await expect(header).toContainText('ORIGIN');
     // 浮遊化（オーナー指示 2026-11-14）でオリンはヘッダー外の固定プレゼンスへ移った。
-    // サイドバー導入（レイアウト段階1）で開閉ボタンが加わり、未使用時の
-    // ヘッダーのボタンは サイドバーを開く／履歴／設定の3つになった。
-    await expect(header.getByRole('button')).toHaveCount(3);
+    // サイドバー導入（レイアウト段階1）で開閉ボタンが加わり、PR-D で
+    // 設定ボタンがサイドバーへ集約されたため、ヘッダーのボタンは
+    // サイドバーを開く／履歴の2つ。
+    await expect(header.getByRole('button')).toHaveCount(2);
     // オリンはヘッダーの外（画面上部中央の浮遊プレゼンス）に1つだけ存在する。
     await expect(header.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence')).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'いまの作業を表示' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: '新しい会話を始める' })).toHaveCount(0);
     await expect(page.getByTestId('knowledge-map-toggle')).toHaveCount(0);
-    for (const button of [sidebarToggle, history, settings]) {
+    for (const button of [sidebarToggle, history]) {
       const box = await button.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeGreaterThanOrEqual(44);
@@ -571,13 +587,11 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
     await page.getByTestId('origin-home-request').fill('会話を開始');
     await page.getByTestId('start-request-button').click();
     await expect(page.getByRole('article', { name: 'ORIGINの回答' }).getByText('確認しました。', { exact: true })).toBeVisible();
-    const newConversation = page.getByRole('button', { name: '新しい会話を始める' });
-    await expect(newConversation).toBeVisible();
-    // 使用後は新規対話ボタンが加わり4つ（オリンはヘッダー外の浮遊プレゼンスのまま）。
-    await expect(header.getByRole('button')).toHaveCount(4);
-    const newBox = await newConversation.boundingBox();
-    expect(newBox?.height).toBeGreaterThanOrEqual(44);
-    expect(newBox?.width).toBeGreaterThanOrEqual(44);
+    // 新しい会話はサイドバー側に集約されたため、使用後もヘッダーには
+    // 現れない（PR-D）。ヘッダーのボタンは2つのまま（オリンはヘッダー
+    // 外の浮遊プレゼンスのまま）。
+    await expect(page.getByRole('button', { name: '新しい会話を始める' })).toHaveCount(0);
+    await expect(header.getByRole('button')).toHaveCount(2);
 
     const headerWidth = await header.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
     expect(headerWidth.scroll).toBeLessThanOrEqual(headerWidth.client);

@@ -21,6 +21,14 @@ describe.each(languages)('ORIGIN Personal translations: %s', (language) => {
     }
   });
 
+  it('provides four complete starter-chip label/prompt pairs', () => {
+    expect(translations.starterChips).toHaveLength(4);
+    for (const chip of translations.starterChips) {
+      expect(chip.label.trim()).not.toBe('');
+      expect(chip.prompt.trim()).not.toBe('');
+    }
+  });
+
   it('formats the history count in the selected language', () => {
     expect(translations.historyCount(3)).toContain('3');
   });

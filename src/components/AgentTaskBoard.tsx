@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { driveAgentRun } from '../agent/agentRunClient';
 import { formatStepDuration } from './AgentLivePanel';
 import { safeExternalUrl } from '../research/researchReport';
+import { getSessionCredential } from '../security/sessionCredentials';
 
 /**
  * Task board (multitask Phase 1, PR 1-F; design §5.2 and §8.8).
@@ -15,8 +16,8 @@ import { safeExternalUrl } from '../research/researchReport';
  * Auth follows the API's existing owner bindings (PR 1-B, design §11
  * U5): an operator credential lists the operator's runs; otherwise the
  * plan capability currently open in the workspace lists the runs bound
- * to it. Nothing is persisted — the credential and plan tokens live in
- * memory only, exactly like the workspace's own approval flow.
+ * to it. Nothing is persisted — the credential (entered in Settings
+ * under 詳細（管理者向け）) and the plan tokens live in memory only.
  *
  * Loading policy (revised 2026-11-09, owner direction: delegated work
  * must be visible as the agent screen's showcase): when the workspace
@@ -304,7 +305,6 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ runId: string; text: string } | null>(null);
   const [resumeSession, setResumeSession] = useState<ResumeSession | null>(null);
-  const credentialInputRef = useRef<HTMLInputElement>(null);
   const previousTokenRef = useRef<string | null>(browserPlanToken ?? null);
   const autoLoadedTokenRef = useRef<string | null>(null);
   const redriveAbortRef = useRef<AbortController | null>(null);
@@ -331,11 +331,10 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
 
   useEffect(() => () => {
     redriveAbortRef.current?.abort();
-    if (credentialInputRef.current) credentialInputRef.current.value = '';
   }, []);
 
   const resolveAuth = (): BoardAuth | null => {
-    const credential = credentialInputRef.current?.value.trim() ?? '';
+    const credential = getSessionCredential('admin').trim();
     if (credential) return { kind: 'operator', credential };
     if (browserPlanToken) return { kind: 'browser', planToken: browserPlanToken };
     return null;
@@ -351,7 +350,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const load = async (authOverride?: BoardAuth) => {
     const resolved = authOverride ?? resolveAuth();
     if (!resolved) {
-      setNotice('作業を表示するには、管理者キーを入力するか、上の画面で計画を作ってください。');
+      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「詳細（管理者向け）」でキーを入力すると表示できます。');
       return;
     }
     setAuth(resolved);
@@ -464,7 +463,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const startResume = async (run: RunView) => {
     const resolved = auth ?? resolveAuth();
     if (!resolved) {
-      setNotice('作業を表示するには、管理者キーを入力するか、上の画面で計画を作ってください。');
+      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「詳細（管理者向け）」でキーを入力すると表示できます。');
       return;
     }
     setAuth(resolved);
@@ -609,14 +608,14 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
           return <li key={planStep ? `${index}-${planStep.toolName}` : state?.id ?? index}>
             <div className="flex items-center justify-between gap-3">
               <span>{index + 1}. {planStep ? toolLabel(planStep.toolName) : '作業'}</span>
-              <span className="text-xs text-origin-muted">
+              <span className="text-[13px] text-origin-muted">
                 {state ? STEP_STATUS_LABELS[state.status] ?? '未実行' : '未実行'}
                 {state && state.attempts > 1 ? ` · ${state.attempts}回試行` : ''}
                 {duration ? ` · ${duration}` : ''}
               </span>
             </div>
             {detail?.query && state && state.status !== 'queued' && (
-              <p className="mt-0.5 pl-5 text-xs leading-5 text-origin-muted">
+              <p className="mt-0.5 pl-5 text-[13px] leading-5 text-origin-muted">
                 「{detail.query}」で{state.status === 'running' ? '調べています' : '調べました'}
               </p>
             )}
@@ -624,7 +623,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
               <ul className="mt-1 space-y-1 pl-5">
                 {sources.map((source, sourceIndex) => {
                   const href = safeExternalUrl(source.url);
-                  return <li key={`${source.url}-${sourceIndex}`} className="flex flex-wrap items-baseline gap-x-2 text-xs leading-5">
+                  return <li key={`${source.url}-${sourceIndex}`} className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-5">
                     {href
                       ? <a href={href} target="_blank" rel="noreferrer" className="font-semibold text-[var(--accent-primary)] underline">{source.title}</a>
                       : <span className="font-semibold">{source.title}</span>}
@@ -637,14 +636,14 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         })}
       </ol> : <p className="text-sm text-origin-muted">計画はまだありません。</p>}
       {hasWriteStep && (run.status === 'queued' || run.status === 'running') && (
-        <p className="mt-2 text-xs leading-5 text-origin-muted">ファイルを作る・直す作業は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
+        <p className="mt-2 text-[13px] leading-5 text-origin-muted">ファイルを作る・直す作業は、他の作業の書き込みと重ならないよう、1件ずつ順番に実行されます。</p>
       )}
-      {run.hold && <div className="mt-2 space-y-1 text-xs leading-5 text-origin-muted">
+      {run.hold && <div className="mt-2 space-y-1 text-[13px] leading-5 text-origin-muted">
         <p>保留の理由: {HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'}</p>
         <p>再開の条件: {resumeConditionText(run.hold.resumeCondition)}</p>
         <p>保留した日時: {formatDateTime(run.hold.heldSince)}</p>
       </div>}
-      <p className="mt-2 text-xs text-origin-muted">
+      <p className="mt-2 text-[13px] text-origin-muted">
         作成: {formatDateTime(run.createdAt)} · 更新: {formatDateTime(run.updatedAt)} · 記録の期限: {formatDateTime(run.expiresAt)}
       </p>
     </div>;
@@ -656,17 +655,17 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
       <p className="text-sm font-black">再開する計画</p>
       {session.planChanged
         ? <>
-          <p className="mt-1 text-xs font-semibold text-origin-warning">計画が前回から変わっています。内容を確認してから承認してください。</p>
-          {lines.length > 0 && <ul className="mt-1 space-y-1 text-xs leading-5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>}
+          <p className="mt-1 text-[13px] font-semibold text-origin-warning">計画が前回から変わっています。内容を確認してから承認してください。</p>
+          {lines.length > 0 && <ul className="mt-1 space-y-1 text-[13px] leading-5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>}
         </>
-        : <p className="mt-1 text-xs leading-5">計画は前回と同じ内容です。</p>}
+        : <p className="mt-1 text-[13px] leading-5">計画は前回と同じ内容です。</p>}
       <ol className="mt-2 space-y-1 pl-5 text-sm">
         {(session.titles.length > 0 ? session.titles : session.steps.map((step) => toolLabel(step.toolName))).map((title, index) => (
           <li key={`${index}-${title}`}>{title}</li>
         ))}
       </ol>
-      <p className="mt-2 text-xs leading-5 text-origin-muted">再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。</p>
-      {session.message && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-danger">{session.message}</p>}
+      <p className="mt-2 text-[13px] leading-5 text-origin-muted">再開には新しい承認が必要です。承認すると、この仕事は実行待ちに入ります。やめた場合、この仕事は「承認待ち」のまま残ります。</p>
+      {session.message && <p role="alert" className="mt-2 text-[13px] font-semibold leading-5 text-origin-danger">{session.message}</p>}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" onClick={() => void approveResume(session)} disabled={session.busy}
           className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
@@ -686,40 +685,40 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     return <article key={run.runId} className="rounded-xl border border-origin-border p-3">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-sm font-bold leading-6">{goalSummary(run.goal)}</p>
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold ${statusChipClass(run.status)}`}>
+        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[13px] font-bold ${statusChipClass(run.status)}`}>
           {RUN_STATUS_LABELS[run.status]}
         </span>
       </div>
-      <p className="mt-1 text-xs leading-5 text-origin-muted">
+      <p className="mt-1 text-[13px] leading-5 text-origin-muted">
         {total > 0 ? `ステップ ${done}/${total}` : ''}
         {run.status === 'held' && run.hold ? `${total > 0 ? ' · ' : ''}${HOLD_REASON_LABELS[run.hold.reason] ?? '保留中です'} · ${resumeConditionText(run.hold.resumeCondition)}` : ''}
       </p>
       {actionMessage?.runId === run.runId && (
-        <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-danger">{actionMessage.text}</p>
+        <p role="alert" className="mt-2 text-[13px] font-semibold leading-5 text-origin-danger">{actionMessage.text}</p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" onClick={() => setExpandedRunId(expanded ? null : run.runId)}
-          className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">
+          className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">
           {expanded ? '詳細を閉じる' : '詳細'}
         </button>
         {(run.status === 'held' || run.status === 'awaiting_approval') && !session && (
           <button type="button" onClick={() => void startResume(run)} disabled={busyRunId === run.runId}
-            className="origin-primary-button min-h-11 rounded-xl px-3 text-xs font-bold disabled:opacity-50">
+            className="origin-primary-button min-h-11 rounded-xl px-3 text-[13px] font-bold disabled:opacity-50">
             {busyRunId === run.runId ? '準備中…' : '再開する'}
           </button>
         )}
         {CANCELLABLE_STATUSES.has(run.status) && (confirmingCancelRunId === run.runId ? (
           <>
             <button type="button" onClick={() => void cancelRun(run)} disabled={busyRunId === run.runId}
-              className="min-h-11 rounded-xl border border-origin-danger/50 bg-origin-danger/10 px-3 text-xs font-bold text-origin-danger disabled:opacity-50">
+              className="min-h-11 rounded-xl border border-origin-danger/50 bg-origin-danger/10 px-3 text-[13px] font-bold text-origin-danger disabled:opacity-50">
               {busyRunId === run.runId ? '取り消し中…' : '本当に取り消す'}
             </button>
             <button type="button" onClick={() => setConfirmingCancelRunId(null)}
-              className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">やめる</button>
+              className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">やめる</button>
           </>
         ) : (
           <button type="button" onClick={() => setConfirmingCancelRunId(run.runId)}
-            className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold">取り消す</button>
+            className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">取り消す</button>
         ))}
       </div>
       {expanded && renderRunDetail(run)}
@@ -738,30 +737,22 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         <h2 className="text-base font-black">これまでの作業</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
-        className="origin-secondary-button min-h-11 rounded-xl px-3 text-xs font-semibold disabled:opacity-50">
+        className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold disabled:opacity-50">
         {loadState === 'loading' ? '読み込み中…' : runs ? '更新' : '作業を表示'}
       </button>
     </div>
     <p className="mt-1 text-sm leading-6 text-origin-muted">止まっている作業と、これまでの作業の進み具合を見られます。再開するときは、新しい計画を確認してから承認します。</p>
 
-    <details className="mt-2">
-      <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者キー（必要な場合だけ）</summary>
-      <p className="mb-2 text-xs leading-5 text-origin-muted">管理者キーを入力すると、管理者として作成された作業を表示・操作できます。キーはブラウザーに保存しません。空欄の場合は、この画面で作成した計画に紐づく作業が対象になります。</p>
-      <input ref={credentialInputRef} aria-label="作業用の管理者キー" type="password" autoComplete="off" spellCheck={false}
-        placeholder="管理者キー"
-        className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
-    </details>
-
-    {notice && <p role="status" className="mt-2 text-xs leading-5 text-origin-muted">{notice}</p>}
+    {notice && <p role="status" className="mt-2 text-[13px] leading-5 text-origin-muted">{notice}</p>}
     {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
-    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
+    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。キーは設定の「詳細（管理者向け）」で入力できます。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
     {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">作業を読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
       <p className="mt-2 text-sm text-origin-muted">表示できる作業はありません。</p>
     )}
     {grouped.map((group) => (
       <div key={group.key} className="mt-4">
-        <h3 className="text-sm font-black">{group.title} <span className="text-xs font-semibold text-origin-muted">{group.items.length}件</span></h3>
+        <h3 className="text-sm font-black">{group.title} <span className="text-[13px] font-semibold text-origin-muted">{group.items.length}件</span></h3>
         <div className="mt-2 space-y-2">{group.items.map(renderRun)}</div>
       </div>
     ))}
