@@ -36,18 +36,17 @@
 }
 .origin-composer {
   min-height: 64px !important;
-  border: 1px solid var(--border-default) !important;
-  border-radius: 24px !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-composer) !important;
   padding: 8px !important;
-  background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;
+  background: var(--bg-surface) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
-  backdrop-filter: blur(8px) saturate(102%);
+  box-shadow: var(--shadow-1) !important;
 }
 .origin-composer:focus-within,
 .origin-composer.is-focused {
-  border-color: color-mix(in oklch, var(--accent-primary) 58%, var(--border-default)) !important;
-  box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 26%, transparent), 0 0 0 2px color-mix(in oklch, var(--accent-primary) 9%, transparent), inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+  border-color: var(--accent-primary) !important;
+  box-shadow: var(--shadow-1), 0 0 0 2px color-mix(in oklch, var(--accent-primary) 14%, transparent) !important;
 }
 .origin-composer textarea,
 .origin-composer__input {
@@ -91,6 +90,13 @@
 }
 .origin-composer__action:disabled {
   opacity: .55;
+}
+/* The live send actions are App.tsx buttons wearing .origin-primary-button
+   (the __action rules above are a preserved contract with no rendered
+   element). D-PR-3: a disabled send reads as a quiet placeholder glyph on
+   the muted disc instead of the generic primary disabled tone. */
+.origin-composer > .origin-primary-button:disabled {
+  color: var(--text-placeholder);
 }
 .origin-chat-assistant {
   background: transparent !important;
@@ -266,15 +272,15 @@
   }
   .origin-app main .origin-composer {
     min-height: 60px !important;
-    border-radius: 22px !important;
+    border-radius: var(--radius-composer) !important;
     padding: 8px !important;
     border-width: 1px !important;
-    box-shadow: 0 4px 16px color-mix(in oklch, var(--shadow-color) 20%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent) !important;
+    box-shadow: var(--shadow-1) !important;
   }
   .origin-app main .origin-composer:focus-within,
   .origin-app main .origin-composer.is-focused {
-    border-color: color-mix(in oklch, var(--accent-primary) 38%, var(--border-default)) !important;
-    box-shadow: 0 4px 16px color-mix(in oklch, var(--shadow-color) 22%, transparent), 0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent), inset 0 1px 0 color-mix(in oklch, white 46%, transparent) !important;
+    border-color: var(--accent-primary) !important;
+    box-shadow: var(--shadow-1), 0 0 0 2px color-mix(in oklch, var(--accent-primary) 14%, transparent) !important;
   }
   .origin-app main .origin-composer textarea,
   .origin-app main .origin-composer__input {
@@ -320,14 +326,12 @@
    visual band and size the composer to the available short viewport. */
 @media (max-width: 639px) {
   .origin-app main .origin-composer {
-    box-shadow: 0 7px 22px color-mix(in oklch, var(--shadow-color) 34%, transparent),
-      inset 0 1px 0 color-mix(in oklch, white 50%, transparent) !important;
+    box-shadow: var(--shadow-1) !important;
   }
   .origin-app main .origin-composer:focus-within,
   .origin-app main .origin-composer.is-focused {
-    box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 36%, transparent),
-      0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent),
-      inset 0 1px 0 color-mix(in oklch, white 52%, transparent) !important;
+    box-shadow: var(--shadow-1),
+      0 0 0 2px color-mix(in oklch, var(--accent-primary) 14%, transparent) !important;
   }
 }
 

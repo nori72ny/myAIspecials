@@ -95,7 +95,7 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('max-height: 176px !important;');
     expect(topUi).not.toContain('min-height: 96px !important;');
-    expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 97%, var(--bg-primary)) !important;');
+    expect(topUi).toContain('background: var(--bg-surface) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
     expect(topUi).toContain('.origin-composer__action.is-ready');
     expect(topUi).toContain('background: var(--accent-primary);');
@@ -131,10 +131,15 @@ describe('ORIGIN top experience regression boundary', () => {
   });
 
   it('keeps Release 2 elevation quiet without weakening hierarchy or focus', () => {
-    expect(topUi).toContain('box-shadow: 0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
-    expect(topUi).toContain('box-shadow: 0 4px 14px color-mix(in oklch, var(--shadow-color) 26%, transparent), 0 0 0 2px');
-    expect(topUi).toContain('0 0 0 1px color-mix(in oklch, var(--accent-primary) 14%, transparent)');
+    // D-PR-3: the composer elevation moved to the --shadow-1 token and
+    // its focus ring is a faint 2px accent ring (no inset highlight, no
+    // backdrop blur, no heavier mobile overrides).
+    expect(topUi).toContain('box-shadow: var(--shadow-1) !important;');
+    expect(topUi).toContain('box-shadow: var(--shadow-1), 0 0 0 2px color-mix(in oklch, var(--accent-primary) 14%, transparent) !important;');
+    expect(topUi).not.toContain('0 0 0 1px color-mix(in oklch, var(--accent-primary)');
     expect(topUi).not.toContain('0 0 0 3px color-mix(in oklch, var(--accent-primary)');
+    expect(topUi).not.toContain('0 3px 12px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
+    expect(topUi).not.toContain('inset 0 1px 0 color-mix(in oklch, white 46%, transparent)');
     expect(topUi).toContain('filter: blur(10px) !important;');
     expect(topUi).toContain('opacity: .72 !important;');
     expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 36%, transparent)');
@@ -193,9 +198,12 @@ describe('ORIGIN top experience regression boundary', () => {
     // The stop button's neutral tones are the exact values PR-α
     // specified for the generating state.
     expect(indexCss).toContain('.origin-stop-button { background: var(--bg-surface-muted); border-color: var(--border-default); color: var(--text-secondary); }');
-    // The danger class itself stays untouched for genuinely destructive
-    // actions (for example clearing history in the legacy settings UI).
-    expect(indexCss).toContain('.origin-danger-button { background: color-mix(in oklch, var(--danger) 12%, var(--bg-surface));');
+    // The danger class stays separate from the stop button. D-PR-3
+    // redefined it as a white surface with danger text and a 40% danger
+    // border (spec §4.5: state colors are never a filled surface), for
+    // genuinely destructive actions such as clearing history in the
+    // legacy settings UI.
+    expect(indexCss).toContain('.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }');
   });
 
   it('keeps retired glass shell tokens out of standalone Release 2 primitives', () => {

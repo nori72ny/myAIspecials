@@ -124,7 +124,7 @@ export function ResearchMessageView({ result, language, onOpenReader }: {
   const { text, truncated } = useMemo(() => truncateReport(result.report, RESEARCH_INLINE_REPORT_CHAR_LIMIT), [result.report]);
   return <div data-testid="research-message">
     <ResearchReportMarkdown report={text} sources={result.sources} />
-    {truncated && <button type="button" onClick={onOpenReader} className="origin-secondary-button mt-3 inline-flex min-h-11 items-center rounded-[10px] px-4 text-sm font-semibold">{isEn ? 'Read the full report' : 'レポートを全画面で読む'}</button>}
+    {truncated && <button type="button" onClick={onOpenReader} className="origin-secondary-button mt-3 inline-flex min-h-11 items-center px-4 text-sm font-semibold">{isEn ? 'Read the full report' : 'レポートを全画面で読む'}</button>}
     <ResearchSourcesSection result={result} language={language} />
   </div>;
 }

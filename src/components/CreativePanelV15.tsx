@@ -236,7 +236,7 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
           <h2 className="truncate text-base font-black">カード・ポスターを作る</h2>
           <p className={`mt-0.5 text-xs font-semibold ${status === 'ready' ? 'text-emerald-700 dark:text-emerald-300' : status === 'loading' ? '' : 'text-amber-700 dark:text-amber-300'}`} role="status">{verificationText}</p>
         </div>
-        <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-lg">✕</button>
+        <button type="button" aria-label="会話に戻る" onClick={onClose} className="origin-secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center text-lg">✕</button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
