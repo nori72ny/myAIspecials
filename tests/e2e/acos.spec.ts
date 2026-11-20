@@ -87,11 +87,12 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     // 待機中からプレゼンスはヘッダー直下に上部中央で浮遊して
     // 出ている（姿のみ、状態ピルは作業中だけ）。2026-11-17 に
     // 帯方式（通常フロー）へ移したが、2026-11-20 10:10 の
-    // オーナー refine で、窓の形のまま浮遊配置（メイン列内
-    // absolute）へ戻し、作業中・スクロール中は自動で小さく
-    // なるようにした。ヘッダーにオリンは置かない。常駐の名前
-    // テキストは2026-11-15 のオーナー指示で削除済み（カード内
-    // 表示は残る）。
+    // オーナー refine で浮遊配置（メイン列内 absolute）へ戻し、
+    // 作業中・スクロール中は自動で小さくなるようにした。同日
+    // 12:06 に窓の枠は撤去され、円盤がヘッダー下端から覗く
+    // 枠なしの形になっている。ヘッダーにオリンは置かない。
+    // 常駐の名前テキストは2026-11-15 のオーナー指示で削除済み
+    // （カード内表示は残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
@@ -100,9 +101,9 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
-    // 作業中表示（2026-11-14、窓方式 2026-11-20）：全体画面
-    // ステージは使わず、上部中央のオリンの窓が段階を一文で出す。
-    // 会話内の1行表示も出ない。
+    // 作業中表示（2026-11-14、枠なし方式 2026-11-20 12:06）：
+    // 全体画面ステージは使わず、上部中央のオリンが段階を
+    // 一文で出す。会話内の1行表示も出ない。
     await expect(presence).toContainText('回答を準備しています');
     await expect(page.getByTestId('origin-orin-presence-status')).toBeVisible();
     await expect(page.getByTestId('origin-orin-bubble')).toHaveCount(0);
