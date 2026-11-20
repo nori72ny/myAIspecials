@@ -450,7 +450,9 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // スクロール中フェード（2026-11-20 15:36）：円盤は不透明度
     // のトランジションを持ち、is-scrolling で約0.35まで薄くなる
     // （ORIN_PRESENCE_SCROLL_OPACITY と一致させること）。
-    expect(discRule).toContain('transition: opacity 200ms ease-out;');
+    // transform はタップの手がかり（ホバー／押下）の遷移用に
+    // 同じ尺で足した（2026-11-20 外部デザイン評価の回収）。
+    expect(discRule).toContain('transition: opacity 200ms ease-out, transform 200ms ease-out;');
     const discScrollRule = css.match(/\.origin-orin-presence__disc\.is-scrolling \{[^}]*\}/)?.[0] ?? '';
     expect(discScrollRule).toContain(`opacity: ${ORIN_PRESENCE_SCROLL_OPACITY};`);
     // 作業コメントは枠なしテキスト：背景・枠を持たず、
@@ -487,5 +489,34 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(css).not.toContain('scroll-padding-top: 96px;');
     // 固定配置前提の会話クリアランス（131px）は撤去した。
     expect(css).not.toContain('padding-top: 131px !important;');
+  });
+
+  it('pins the dark-theme disc blending and the quiet tappability cues (2026-11-20 external review follow-up)', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
+    // ダークテーマ：円盤の落影は暗い画面向けの深い影へ、窪みの
+    // inset 影も濃くする。ライト側の基本規則（柔らかい紺の影）は
+    // 変えない。
+    const darkDiscRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc \{[^}]*\}/)?.[0] ?? '';
+    expect(darkDiscRule).toContain('box-shadow: 0 3px 12px rgb(0 0 0 / 45%);');
+    const darkDiscAfterRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc::after \{[^}]*\}/)?.[0] ?? '';
+    expect(darkDiscAfterRule).toContain('inset 0 2px 6px rgb(0 0 0 / 42%)');
+    // 焼き込みクリームを薄く落とすフィルターはメディア側にだけ
+    // かける（ラッパー全体にはかけない）。
+    const darkMediaRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc \[data-testid="origin-cat-state"\] \{[^}]*\}/)?.[0] ?? '';
+    expect(darkMediaRule).toContain('filter: saturate(0.84) brightness(0.93);');
+    // タップの手がかり：常時表示の装飾は足さず、ホバーの微拡大と
+    // 押下の微縮だけ。キーボードでは :focus-visible の輪郭が担う
+    // （既存）。cursor: pointer はタップ規則側に既存。
+    const hoverRule = css.match(/\.origin-orin-presence__tap:hover \.origin-orin-presence__disc \{[^}]*\}/)?.[0] ?? '';
+    expect(hoverRule).toContain('transform: scale(1.05);');
+    const activeRule = css.match(/\.origin-orin-presence__tap:active \.origin-orin-presence__disc \{[^}]*\}/)?.[0] ?? '';
+    expect(activeRule).toContain('transform: scale(0.98);');
+    const tapRule = css.match(/\.origin-orin-presence__tap \{[^}]*\}/)?.[0] ?? '';
+    expect(tapRule).toContain('cursor: pointer;');
+    expect(css).toContain('.origin-orin-presence__tap:focus-visible {');
+    // reduced-motion では手がかりの拡縮も止める。
+    const reducedBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{(?:[^{}]|\{[^{}]*\})*\}/g)?.join('\n') ?? '';
+    expect(reducedBlock).toContain('.origin-orin-presence__tap:hover .origin-orin-presence__disc,');
+    expect(reducedBlock).toContain('transform: none;');
   });
 });

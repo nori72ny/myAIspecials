@@ -682,9 +682,10 @@
   border-radius: 50%;
   box-shadow: 0 2px 8px rgba(24, 35, 59, 0.10);
   /* スクロール中フェード（2026-11-20 15:36）の遷移：不透明度の
-     変化はサイズ変化と同じ約200ms。reduced-motion では下の
-     media 規則で即時に切り替える。 */
-  transition: opacity 200ms ease-out;
+     変化はサイズ変化と同じ約200ms。transform はタップの手がかり
+     （ホバー／押下の反応、2026-11-20 外部デザイン評価の回収）用。
+     reduced-motion では下の media 規則で即時に切り替える。 */
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
 }
 /* スクロール中の円盤（2026-11-20 15:36 の実機判定を受けた
    修正）：スクロールが続く間は円盤を約0.35まで薄くし、下を
@@ -702,6 +703,39 @@
   border-radius: 50%;
   pointer-events: none;
   box-shadow: inset 0 2px 5px rgba(24, 35, 59, 0.28), inset 0 -1px 2px rgba(24, 35, 59, 0.12);
+}
+/* タップの手がかり（2026-11-20 外部デザイン評価の回収）：オリンが
+   プロフィールカードを開く操作だと見た目から分からないという
+   指摘への対応。常時の装飾は足さず、ホバーで円盤がわずかに
+   大きくなり、押下でわずかに沈む反応だけを付ける（キーボード
+   では既存の :focus-visible の輪郭が同じ役割を担う。タップ対象
+   自体は button でフォーカス可能、cursor: pointer はタップ規則
+   側に既存）。喜ぶ動き（origin-cat-joy）の再生中はアニメー
+   ションが transform を上書きするので競合しない。呼吸は内側の
+   メディア側のアニメーションで、ラッパーの transform とは
+   独立に重なる。 */
+.origin-orin-presence__tap:hover .origin-orin-presence__disc {
+  transform: scale(1.05);
+}
+.origin-orin-presence__tap:active .origin-orin-presence__disc {
+  transform: scale(0.98);
+}
+/* ダークテーマでの円盤の馴染み（2026-11-20 外部デザイン評価の
+   回収）：猫の絵にはクリーム色の背景が焼き込まれており、暗い
+   画面では明るい円盤が貼ったように浮く。台座側の前例
+   （.origin-cat-pedestal のダーク調整）と同じ考え方で、画像
+   資産は作り直さず CSS 側で落とす：メディアに薄い減彩・減光
+   フィルターをかけ、落影は暗い画面向けの深い影へ、窪みの
+   inset 影も濃くして「暗い面に嵌っている」質感へ寄せる。
+   ライトテーマの見た目は変えない。 */
+:root[data-theme="dark"] .origin-orin-presence__disc {
+  box-shadow: 0 3px 12px rgb(0 0 0 / 45%);
+}
+:root[data-theme="dark"] .origin-orin-presence__disc::after {
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 42%), inset 0 -1px 3px rgb(0 0 0 / 28%);
+}
+:root[data-theme="dark"] .origin-orin-presence__disc [data-testid="origin-cat-state"] {
+  filter: saturate(0.84) brightness(0.93);
 }
 .origin-orin-presence__status {
   min-width: 0;
@@ -759,6 +793,12 @@
   }
   .origin-orin-presence__disc {
     transition: none;
+  }
+  /* タップの手がかりの拡縮も動きの一種なので止める（反応の
+     有無は :focus-visible の輪郭と cursor が担う）。 */
+  .origin-orin-presence__tap:hover .origin-orin-presence__disc,
+  .origin-orin-presence__tap:active .origin-orin-presence__disc {
+    transform: none;
   }
   .origin-orin-presence [data-testid="origin-cat-state"] {
     transition: none;
