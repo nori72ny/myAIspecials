@@ -94,7 +94,12 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
     expect(item.left, `${item.name} left edge`).toBeGreaterThanOrEqual(-1);
     expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual(viewportWidth + 1);
     if (viewportWidth <= 768 && item.tag === 'BUTTON') {
-      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44);
+      // A control that is exactly 44px by design can measure 43.999996px
+      // under a transformed ancestor (float32 ULP dust in
+      // getBoundingClientRect). The 0.01px tolerance absorbs only that
+      // measurement dust and does not change the 44px design contract
+      // itself (same treatment as the #1405 close-button audit).
+      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44 - 0.01);
     }
     if (item.tag === 'A') {
       expect(item.href, `${item.name} link destination`).not.toBe('');
