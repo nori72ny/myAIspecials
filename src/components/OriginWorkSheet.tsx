@@ -98,9 +98,9 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
           type="button"
           onClick={onClose}
           aria-label={ja ? '閉じる' : 'Close'}
-          className="origin-secondary-button absolute right-3 top-3 inline-flex h-11 w-11 shrink-0 items-center justify-center "
+          className="origin-secondary-button origin-close-button absolute right-3 top-3"
         >
-          <X aria-hidden="true" size={17} strokeWidth={2.1} />
+          <X aria-hidden="true" size={18} strokeWidth={2.1} />
         </button>
         <div className="flex flex-col items-center px-2 text-center">
           <span data-testid="origin-orin-profile-art" className="inline-flex">

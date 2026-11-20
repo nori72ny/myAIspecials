@@ -862,7 +862,9 @@
   margin: 0;
   padding: 0;
   border: 0;
-  background: rgb(15 23 42 / 28%);
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   cursor: default;
   -webkit-tap-highlight-color: transparent;
 }

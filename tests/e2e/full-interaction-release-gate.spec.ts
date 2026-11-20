@@ -86,7 +86,8 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
     expect(item.left, `${item.name} left edge`).toBeGreaterThanOrEqual(-1);
     expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual(viewportWidth + 1);
     if (viewportWidth <= 768 && item.tag === 'BUTTON') {
-      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44);
+      // getBoundingClientRect は transform 配下で float32 の丸め誤差（44px が 43.999996 等）を持ちうるため、0.01px 未満の誤差は 44px を満たすものとして扱う
+      expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44 - 0.01);
     }
     if (item.tag === 'A') {
       expect(item.href, `${item.name} link destination`).not.toBe('');
