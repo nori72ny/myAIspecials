@@ -568,49 +568,54 @@
 
 /* Orin presence (owner revision, 2026-11-14 08:59; band layout
    revision, 2026-11-17; "Orin's window" revision, 2026-11-20;
-   floating + auto-shrink refinement, 2026-11-20 10:10).
-   Orin stays resident at the top centre of the main column,
-   directly under the header, as Orin's own window — a small
-   opaque panel (surface tone, 1px hairline border, panel radius,
-   the lightest shadow only) with the cat on the left and the
-   current-work text on its right. The round 104px pedestal
-   avatar read as too prominent (owner instruction, 2026-11-20
-   08:30), so the window blends into the background instead. With
-   no status text the window shrinks to a small cat-only form;
-   the text appears only while work is in flight, and on
-   completion only the text fades away. No name text sits in the
-   window (removed by owner request, 2026-11-15; the name appears
-   inside the profile card instead).
-   Layout history: the presence first floated as a fixed overlay,
-   and the fixed circle covered message text while scrolling
-   (production defect, confirmed 2026-11-17 and again in the
-   2026-11-20 PC quality check), so it moved into an in-flow band
-   (2026-11-17) and then into the window form (2026-11-20). The
-   owner then refined the direction with device screenshots
-   (2026-11-20 10:10), pointing at the Muse app's avatar: small,
-   floating, with the content scrolling underneath it to be read.
-   Floating is acceptable again, provided Orin itself shrinks
-   automatically — while work is in flight (status text shown)
-   and while the conversation is scrolled, the art goes from
-   56px to 36px (the is-compact state, driven by the component).
-   So the window floats again: absolutely positioned within the
-   relative main column (not viewport-fixed, so it stays centred
-   on the column when the sidebar opens or closes), above the
-   conversation scroller, pointer-events only on the window
-   itself. The scroller keeps the first line clear of the window
-   with top padding, and scrolled content passes beneath the
-   (now small) window — that pass-under is the requested reading
-   behaviour, not the old defect: the window is opaque but small,
-   and shrinks further the moment reading starts. The profile
-   card overlay (z-40) still opens over the presence (z-30),
-   which stays visible underneath so the tap joy motion can play
-   (profile card revision, 2026-11-15). The status text's motion
-   is a gentle opacity fade driven by the component, and the
-   art's size change takes ~200ms; prefers-reduced-motion
-   removes both. */
+   floating + auto-shrink refinement, 2026-11-20 10:10;
+   FRAMELESS PEEKING revision, 2026-11-20 12:06).
+   Orin stays resident at the top centre of the main column.
+   Layout history: fixed floating circle (covered message text
+   while scrolling — production defect, 2026-11-17), in-flow band
+   (2026-11-17), a small opaque "window" panel (2026-11-20 08:30),
+   then floating again with auto-shrink (2026-11-20 10:10). The
+   owner rejected the window's frame on the real device
+   (2026-11-20 12:06: "オリンの枠はいらない" — no frame; a
+   designed hole/window feel, or Orin peeking in, would be
+   better), so the frame is gone entirely and Orin now PEEKS in
+   from the top edge:
+   - The tap target carries no border, no background and no
+     shadow — just the disc and, while work is in flight, the
+     status text beside it. The text has no box either; a soft
+     halo in the canvas colour (--bg-primary, the token that
+     paints the app background) keeps it readable over the
+     conversation scrolling beneath.
+   - The presence sits higher than before (top: 46px against
+     the 60px header + 4px tap padding), so the top ~10px of
+     the 56px disc slides BEHIND the header's bottom edge
+     (header z-50 over presence z-30) — Orin peeks down from
+     behind the header instead of sitting in a frame under it.
+     The header's own controls live at its left/right edges
+     (justify-between), so the centred disc hides no control.
+   - The disc reads as set into a shallow hole: no ring or
+     border, just an inner shadow overlay (the __disc::after
+     inset shadows) plus a soft drop shadow under the disc.
+     The same treatment covers stills and videos alike, because
+     the overlay sits on the wrapper, not on the media element.
+   Auto-shrink is unchanged (2026-11-20 10:10): while work is
+   in flight (status text shown) and while the conversation is
+   scrolled, the art goes from 56px to 36px (the is-compact
+   state, driven by the component); the status text stays
+   visible at the compact size. The presence is absolutely
+   positioned within the relative main column (not
+   viewport-fixed, so it stays centred on the column when the
+   sidebar opens or closes), pointer-events only on the tap
+   target itself. The profile card overlay (z-40) still opens
+   over the presence (z-30). The status text's motion is a
+   gentle opacity fade driven by the component, and the art's
+   size change takes ~200ms; prefers-reduced-motion removes
+   both. No name text sits under the art (removed by owner
+   request, 2026-11-15; the name appears inside the profile
+   card instead). */
 .origin-orin-presence {
   position: absolute;
-  top: 66px;
+  top: 46px;
   left: 0;
   right: 0;
   z-index: 30;
@@ -627,24 +632,37 @@
   gap: 10px;
   max-width: min(92vw, 26rem);
   margin: 0;
-  padding: 6px 14px 6px 8px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-panel);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-1);
+  padding: 4px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-primary);
   cursor: pointer;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
 }
-.origin-orin-presence__tap.is-idle {
-  /* 待機時：窓はオリンだけの小さな形に縮む（左右対称のパディング）。 */
-  padding: 6px 8px;
-}
 .origin-orin-presence__tap:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
-  border-radius: var(--radius-panel);
+}
+/* 円盤の「穴」質感（2026-11-20 12:06）：枠線は付けず、円盤の
+   内側に落ちる影（::after の inset 影）で浅い窪みに嵌っている
+   ように見せ、円盤の下には柔らかい落影だけを置く。ラッパーは
+   静止画・動画のどちらにも同じ形で被るため、状態が切り替わっ
+   ても質感は変わらない。::after はタップを妨げない。 */
+.origin-orin-presence__disc {
+  position: relative;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(24, 35, 59, 0.10);
+}
+.origin-orin-presence__disc::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: inset 0 2px 5px rgba(24, 35, 59, 0.28), inset 0 -1px 2px rgba(24, 35, 59, 0.12);
 }
 .origin-orin-presence__status {
   min-width: 0;
@@ -654,6 +672,14 @@
   line-height: 1.45;
   text-align: left;
   overflow-wrap: break-word;
+  /* 枠なしテキスト（2026-11-20 12:06）：背景も枠も持たず、
+     キャンバス色（--bg-primary）の柔らかいハローだけで、
+     下を流れる会話文の上でも読めるようにする。 */
+  text-shadow:
+    0 0 4px var(--bg-primary),
+    0 0 8px var(--bg-primary),
+    0 0 14px var(--bg-primary),
+    0 1px 3px var(--bg-primary);
   transition: opacity 180ms ease-out;
 }
 /* 自動縮小のトランジション（2026-11-20 10:10）：絵の寸法変化を
@@ -670,25 +696,27 @@
   }
 }
 
-/* Conversation scroller clearance for Orin's floating window
-   (2026-11-20, floating refinement 10:10). The window floats over
-   this scroller's top edge (its top sits 6px below the header,
-   i.e. 6px into the scroller's box). Two clearances keep reading
-   intact:
-   - padding-top holds the first line below the full-size window
-     at rest (window 68px + 6px offset + a small gap = 82px), so
-     nothing starts out hidden. The padding is part of the
-     scrollable area, so once the reader scrolls, content passes
-     beneath the window — by then the art has shrunk to 36px
-     (window ~48px), which is the requested Muse-app-style
+/* Conversation scroller clearance for Orin's peeking presence
+   (2026-11-20; tightened for the frameless revision, 12:06).
+   Only the disc floats over this scroller now: it peeks from
+   behind the header, so its bottom edge reaches 46px below the
+   header's bottom edge (10px of the 56px disc hides behind the
+   header; the scroller's top edge is the header's bottom edge).
+   Two clearances keep reading intact:
+   - padding-top (64px) holds the first line below the disc's
+     bottom edge (46px) with room to spare, so nothing starts
+     out hidden. The padding is part of the scrollable area, so
+     once the reader scrolls, content passes beneath the disc —
+     by then the art has shrunk to 36px (bottom edge 26px below
+     the header), which is the requested Muse-app-style
      read-under behaviour.
-   - scroll-padding-top matches the shrunken window (48px + 6px
-     offset + a small gap = 64px), so messages scrolled into view
-     (scrollIntoView, anchor jumps) stop just below the small
-     window instead of sliding under it. */
+   - scroll-padding-top (52px) stays below the full-size disc's
+     bottom edge and well below the shrunken disc's (26px), so
+     messages scrolled into view (scrollIntoView, anchor jumps)
+     stop just below the disc instead of sliding under it. */
 .origin-chat-scroll {
-  padding-top: 82px;
-  scroll-padding-top: 64px;
+  padding-top: 64px;
+  scroll-padding-top: 52px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar

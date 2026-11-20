@@ -68,10 +68,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await waitForVisualSurface(page);
 
     // オリンはヘッダーに置かず、上部中央のプレゼンスに一本化した
-    // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式では、
-    // 台座付きの丸アバターではなく、不透明な窓パネルの中に猫が
-    // 収まる形で常駐し、同日 10:10 の refine で窓のまま浮遊配置
-    // （メイン列内 absolute）へ戻した。
+    // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式を経て、
+    // 同日 12:06 にオーナーが窓の枠を却下したため、枠なし＋上端
+    // から覗く形にした：円盤の上部がヘッダーの下端の裏に隠れ、
+    // 円盤には枠線ではなく内側の影で窪みの質感を付ける。
     await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
@@ -87,42 +87,70 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 窓の中の猫は56pxの円形（待機・未スクロール）。作業中と
+    // 円盤の中の猫は56pxの円形（待機・未スクロール）。作業中と
     // スクロール中は36pxに自動で縮む（2026-11-20 10:10）。
     expect(presenceCatStyle.width).toBe('56px');
     expect(presenceCatStyle.height).toBe('56px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
-    // 窓パネル（タップ対象そのもの）：不透明な面＋パネル角丸＋
-    // 最も軽い影だけ。本文が透けたり下に隠れたりしない。
-    const windowButton = presence.locator('button');
-    const windowStyle = await windowButton.evaluate((element) => {
+    // 枠なし（2026-11-20 12:06）：タップ対象は窓パネルではなく、
+    // 背景・枠・影を持たない。残るのは円盤とテキストだけ。
+    const tapButton = presence.locator('button');
+    const tapStyle = await tapButton.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
         backgroundColor: style.backgroundColor,
-        borderRadius: style.borderRadius,
+        borderTopStyle: style.borderTopStyle,
+        borderTopWidth: style.borderTopWidth,
         boxShadow: style.boxShadow,
       };
     });
-    expect(windowStyle.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
-    expect(windowStyle.backgroundColor).not.toBe('transparent');
-    expect(windowStyle.borderRadius).toBe('16px');
-    expect(windowStyle.boxShadow).toContain('rgba(15, 23, 42, 0.05)');
-    // 浮遊配置（2026-11-20 10:10）：窓はメイン列の上部中央に
-    // absolute で浮き、会話スクローラの上端に重なる。ただし
-    // スクローラの上部パディング（82px）の内側に収まるため、
-    // 先頭の内容が窓の下に隠れることはない。scroll-padding-top
-    // は縮小後の窓に合わせた64px。スクロールした内容は窓の
+    expect(tapStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(tapStyle.borderTopStyle).toBe('none');
+    expect(tapStyle.borderTopWidth).toBe('0px');
+    expect(tapStyle.boxShadow).toBe('none');
+    // 円盤の「穴」質感：ラッパーには柔らかい落影、内側の窪みは
+    // ::after の inset 影で付ける（枠線は無い）。
+    const discTexture = await presenceCatImage.evaluate((element) => {
+      const wrapper = element.parentElement;
+      if (!wrapper) return { drop: '', inset: '' };
+      return {
+        drop: getComputedStyle(wrapper).boxShadow,
+        inset: getComputedStyle(wrapper, '::after').boxShadow,
+      };
+    });
+    expect(discTexture.drop).toContain('rgba(24, 35, 59, 0.1)');
+    expect(discTexture.inset).toContain('inset');
+    expect(discTexture.inset).toContain('rgba(24, 35, 59, 0.28)');
+    // 覗き配置の幾何（2026-11-20 12:06）：円盤の上端はヘッダーの
+    // 下端より 8〜12px 上にあり、上部がヘッダーの裏に隠れる。
+    // 円盤の下端はスクローラの padding-top（64px）の内側に
+    // 収まるため、先頭行が円盤の下に隠れることはない。
+    // scroll-padding-top は 52px。スクロールした内容は円盤の
     // 下を通過できる（パディングはスクロール領域の一部）。
     await expect(presence).toHaveCSS('position', 'absolute');
-    const windowBox = await windowButton.boundingBox();
+    const headerBox = await page.locator('.origin-header').boundingBox();
+    const discBox = await presenceCatImage.boundingBox();
     const scroller = page.locator('.origin-chat-scroll');
     const scrollerBox = await scroller.boundingBox();
-    expect(windowBox).not.toBeNull();
+    expect(headerBox).not.toBeNull();
+    expect(discBox).not.toBeNull();
     expect(scrollerBox).not.toBeNull();
-    expect(windowBox!.y).toBeGreaterThanOrEqual(scrollerBox!.y);
-    expect(windowBox!.y + windowBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 82 + 1);
-    await expect(scroller).toHaveCSS('padding-top', '82px');
-    await expect(scroller).toHaveCSS('scroll-padding-top', '64px');
+    const headerBottom = headerBox!.y + headerBox!.height;
+    const peekOverlap = headerBottom - discBox!.y;
+    expect(peekOverlap).toBeGreaterThanOrEqual(8);
+    expect(peekOverlap).toBeLessThanOrEqual(12);
+    expect(discBox!.y + discBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 64 + 1);
+    await expect(scroller).toHaveCSS('padding-top', '64px');
+    await expect(scroller).toHaveCSS('scroll-padding-top', '52px');
+    // 円盤がヘッダー下端に重なっても、ヘッダーの操作要素は
+    // 円盤に隠れて押せなくならない（当たり判定で確認する）。
+    const settingsButton = page.getByRole('button', { name: '設定を開く', exact: true });
+    const settingsHit = await settingsButton.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return Boolean(hit && (hit === element || element.contains(hit)));
+    });
+    expect(settingsHit).toBe(true);
 
     await page.screenshot({ path: testInfo.outputPath('surface-home-mobile-390.png'), fullPage: true });
 
@@ -167,8 +195,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await waitForVisualSurface(page);
     await page.getByTestId('origin-home-request').fill('思考中の状態を確認');
     await page.getByTestId('start-request-button').click();
-    // 作業中表示（2026-11-14、窓方式 2026-11-20）：待ちの主表示は
-    // 上部中央のオリンの窓＋状態テキスト（reduced-motion では
+    // 作業中表示（2026-11-14、枠なし方式 2026-11-20 12:06）：
+    // 待ちの主表示は上部中央のオリン＋状態テキスト（reduced-motion では
     // フェードなしで出る）。全体画面ステージは出ない。常駐の
     // 名前テキストは2026-11-15 のオーナー指示で削除済み
     // （カード内表示は残る）。

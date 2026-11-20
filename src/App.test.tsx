@@ -2657,8 +2657,8 @@ describe('cat visibility on the top screen and while generating (owner request 2
     render(<App language="ja" />);
     // 初期画面のヒーロー猫は、上部中央に常駐する浮遊プレゼンスと二重に見えるため廃止（2026-11-14）。
     expect(screen.queryByTestId('origin-core-logo')).toBeNull();
-    // 猫はプレゼンスの窓の1か所だけに常時表示される（窓方式
-    // 2026-11-20：台座は付けず、窓そのものが枠になる）。
+    // 猫はプレゼンスの1か所だけに常時表示される（枠なし方式
+    // 2026-11-20 12:06：台座も窓枠も付けず、円盤だけが浮く）。
     const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
     expect(brandCats).toHaveLength(1);
     expect(brandCats[0].tagName).toBe('IMG');
@@ -2680,7 +2680,7 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(within(presence).queryByTestId('origin-orin-presence-name')).toBeNull();
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
-    // 状態はプレゼンスの窓の中のオリンが表す（静止画・台座なし）。
+    // 状態はプレゼンスのオリンが表す（静止画・台座なし）。
     const presenceCat = within(presence).getByTestId('origin-cat-state');
     expect(presenceCat.tagName).toBe('IMG');
     expect(presenceCat.getAttribute('data-state')).toBe('thinking');
@@ -2848,9 +2848,9 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '完了の合図を確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     expect(await screen.findByText('吹き出し確認の回答')).toBeTruthy();
-    // 完了の合図は headerDoneCue（2,600ms）の間だけ窓に出て、
+    // 完了の合図は headerDoneCue（2,600ms）の間だけ円盤の横に出て、
     // その後テキストだけがフェードして消える。姿は同じ大きさで
-    // 残り、窓はオリンだけの小形に戻る。
+    // 残り、オリンだけの形に戻る。
     await waitFor(() => expect(screen.getByTestId('origin-orin-presence').textContent).toContain('できました'));
     await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     const presence = screen.getByTestId('origin-orin-presence');
