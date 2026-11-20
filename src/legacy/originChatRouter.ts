@@ -137,19 +137,19 @@ function groundedResearchAnswer(query: string, result: OriginResearchResult) {
   // batch 1, A-02 / B-01 / B-05).
   // Synthesis-hygiene shape: the fallback states plainly that no
   // summarized answer is available, then shows the confirmed scope as
-  // attributions built from source titles (top three) plus the compact
-  // source list (id, title, domain, URL). The internal cross-check
-  // breakdown (照合メモ) never appears in the user-facing body — it
-  // stays in logs and routing metadata.
-  // R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): each attribution
-  // now also carries the source's excerpt as a bounded, neutralized
-  // verbatim quote inside the attribution itself ("the source states:
-  // '…'"), so the answer's core reaches the user even when synthesis
-  // never ran. The quote is never presented as a confirmed fact and the
-  // lead still directs the user to the sources for details; the PKG-9
-  // concern above is addressed by the attribution form, the 240-char
-  // bound, and the neutralization in buildGroundedResearchPartialAnswer,
-  // not by pasting raw page text as the answer.
+  // one card per source (id, domain, linked title, and a short quote
+  // on the top three). The internal cross-check breakdown (照合メモ)
+  // never appears in the user-facing body — it stays in logs and
+  // routing metadata.
+  // R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): each of the
+  // top sources also carries the source's excerpt as a bounded,
+  // neutralized verbatim quote on its card, so the answer's core
+  // reaches the user even when synthesis never ran. The quote is
+  // never presented as a confirmed fact and the lead still directs
+  // the user to the sources for details; the PKG-9 concern above is
+  // addressed by the card form, the 120-char bound, and the
+  // neutralization in buildGroundedResearchPartialAnswer, not by
+  // pasting raw page text as the answer.
   // N-2b (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the quote is
   // the source's evidence-card claim sentences, selected against this
   // query, so the query is threaded through here.

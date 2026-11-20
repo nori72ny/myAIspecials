@@ -9,15 +9,18 @@ import { createOriginChatRouter, type OriginChatExecutor, type OriginResearchExe
 // Synthesis-hygiene (2026-11-14): when the bounded synthesis stage's
 // answer is discarded by citation validation, the user-facing fallback
 // must have ONE hygienic shape regardless of the discard code — an
-// honest lead, a confirmed-scope section of attributions, and the
-// compact source list. The internal cross-check section (照合メモ)
-// must never appear in the answer body.
-// R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the attributions
-// now carry each top source's excerpt as a bounded, neutralized
-// verbatim quote inside the attribution ("the source states: '…'"), so
-// page text appears ONLY in that quoted, attributed form — never as
-// the answer's own statements, and never for sources beyond the top
-// three attributions.
+// honest lead and a confirmed-scope section of source cards. The
+// internal cross-check section (照合メモ) must never appear in the
+// answer body.
+// R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the cards now
+// carry each top source's excerpt as a bounded, neutralized verbatim
+// quote on the source's own card, so page text appears ONLY in that
+// quoted form — never as the answer's own statements, and never for
+// sources beyond the top three cards.
+// Sources-display redesign (SOURCES_DISPLAY_REDESIGN_2026-11-20):
+// the attribution boilerplate and the separate source list were
+// replaced by the card layout (domain heading, linked title, quote),
+// with the retrieval dates collected into a single line.
 
 const verifiedEvidence = DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0];
 const verifiedCatalogTime = Date.parse(verifiedEvidence.verifiedAt) + 1;
@@ -106,21 +109,26 @@ function expectHygienicFallback(body: { content: string; routing: Record<string,
   expect(body.routing.synthesisStatus).toBe("citation-validation-failed");
   expect(body.routing.synthesisFailureCode).toBe(failureCode);
   const content = body.content;
-  // Honest lead, confirmed-scope section, and the source list.
+  // Honest lead and the confirmed-scope section of source cards.
   expect(content).toContain("要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします");
   expect(content).toContain("## 確認できた範囲");
-  expect(content).toContain("## 出典");
-  expect(content).toContain("S1（kantei.go.jp）では『内閣総理大臣 高市 早苗 - 首相官邸ホームページ』と示されています");
-  expect(content).toContain("（取得日: 2026年11月14日）");
-  // Attributions cover at most the top three sources; the fourth source
-  // is still present in the source list.
-  expect(content.match(/と示されています/g)).toHaveLength(3);
-  expect(content).not.toContain("では『首相動静』と示されています");
-  expect(content).toContain("https://www.jiji.com/jc/article?k=1");
-  // R-1: each attribution carries its source's excerpt as a verbatim
-  // quote inside the attribution; the fourth source's excerpt never
-  // appears (attributions stop at three), and no internal cross-check
-  // section appears anywhere.
+  expect(content).not.toContain("## 出典");
+  expect(content).not.toContain("と示されています");
+  expect(content).toContain("### S1 · kantei.go.jp");
+  expect(content).toContain("[内閣総理大臣 高市 早苗 - 首相官邸ホームページ](https://www.kantei.go.jp/jp/104/actions/index.html)");
+  // The retrieval date is collected into a single line (all four
+  // sources share it), not repeated per card.
+  expect(content.match(/取得日/g)).toHaveLength(1);
+  expect(content).toContain("取得日：2026年11月14日");
+  // Quotes ride on at most the top three cards; the fourth source is
+  // still present as a card with its linked title.
+  expect(content.match(/『/g)).toHaveLength(3);
+  expect(content).toContain("### S4 · jiji.com");
+  expect(content).toContain("[首相動静](https://www.jiji.com/jc/article?k=1)");
+  // R-1: each of the top cards carries its source's excerpt as a
+  // verbatim quote; the fourth source's excerpt never appears
+  // (quotes stop at three), and no internal cross-check section
+  // appears anywhere.
   expect(content).toContain("『抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー』");
   expect(content).toContain("『抜粋マーカー2 サイドバー おすすめ記事 フッター案内』");
   expect(content).toContain("『抜粋マーカー3 目次 編集リンク』");
@@ -187,15 +195,17 @@ describe("synthesis-discard fallback hygiene", () => {
 });
 
 describe("buildGroundedResearchPartialAnswer", () => {
-  it("builds the confirmed scope from titles plus attributed excerpt quotes, capped at three attributions", () => {
+  it("builds the confirmed scope as source cards with excerpt quotes, capped at three quotes", () => {
     const text = buildGroundedResearchPartialAnswer(hygieneSources, "ja");
     expect(text).toContain("## 確認できた範囲");
-    expect(text).toContain("S2（nhk.or.jp）では『高市総理大臣 記者会見の概要』と示されています");
-    expect(text.match(/と示されています/g)).toHaveLength(3);
-    // R-1: the excerpt rides inside its own source's attribution line.
-    const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));
-    expect(s1Line).toContain("『内閣総理大臣 高市 早苗 - 首相官邸ホームページ』と示されています");
-    expect(s1Line).toContain("『抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー』");
+    expect(text).not.toContain("と示されています");
+    expect(text).toContain("### S2 · nhk.or.jp");
+    expect(text).toContain("[高市総理大臣 記者会見の概要](https://www.nhk.or.jp/politics/articles/1.html)");
+    expect(text.match(/『/g)).toHaveLength(3);
+    // R-1: the excerpt rides on its own source's card.
+    const s1Block = text.split("### S2")[0];
+    expect(s1Block).toContain("[内閣総理大臣 高市 早苗 - 首相官邸ホームページ](https://www.kantei.go.jp/jp/104/actions/index.html)");
+    expect(s1Block).toContain("『抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー』");
     expect(text).not.toContain("抜粋マーカー4");
     expect(text).not.toContain("照合メモ");
   });
@@ -204,7 +214,7 @@ describe("buildGroundedResearchPartialAnswer", () => {
     const undated = hygieneSources.map((source) => ({ ...source, retrievedAt: "" }));
     const text = buildGroundedResearchPartialAnswer(undated, "ja");
     expect(text).not.toContain("取得日");
-    expect(text).toContain("と示されています");
+    expect(text).toContain("### S1 · kantei.go.jp");
   });
 
   it("returns an empty string when there are no sources", () => {
@@ -212,13 +222,13 @@ describe("buildGroundedResearchPartialAnswer", () => {
     expect(buildGroundedResearchPartialAnswer([], "en")).toBe("");
   });
 
-  it("builds the English shape with attributed excerpt quotes and no internal sections", () => {
+  it("builds the English shape with quoted excerpts on cards and no internal sections", () => {
     const text = buildGroundedResearchPartialAnswer(hygieneSources, "en");
     expect(text).toContain("## What could be confirmed");
-    expect(text).toContain("is titled \"内閣総理大臣 高市 早苗 - 首相官邸ホームページ\"");
-    expect(text).toContain("It states: \"抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー\"");
-    expect(text).toContain("(Retrieved 2026-11-14.)");
-    expect(text).toContain("## Sources");
+    expect(text).toContain("[内閣総理大臣 高市 早苗 - 首相官邸ホームページ](https://www.kantei.go.jp/jp/104/actions/index.html)");
+    expect(text).toContain("\"抜粋マーカー1 ナビゲーション ホーム 政策 広告バナー\"");
+    expect(text).toContain("Retrieved: 2026-11-14");
+    expect(text).not.toContain("## Sources");
     expect(text).not.toContain("Cross-check");
     expect(text).not.toContain("抜粋マーカー4");
   });
@@ -238,9 +248,8 @@ describe("buildGroundedResearchPartialAnswer", () => {
     const text = buildGroundedResearchPartialAnswer(hostile, "ja");
     // The quote survives as flattened data: label text and heading words
     // remain, but no quote marks, heading markers, link syntax, or bare
-    // URLs from the excerpt do. (The "#" check is scoped to the
-    // attribution line — the answer's own section headings legitimately
-    // use "##".)
+    // URLs from the excerpt do. (The "#" check is scoped to the quote
+    // itself — the card headings legitimately use "###".)
     // N-2b note: the quote is now the excerpt span covering the card's
     // selected claim sentences (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17
     // §1.4), not the excerpt head. The shared sentence splitter cuts
@@ -251,11 +260,12 @@ describe("buildGroundedResearchPartialAnswer", () => {
     expect(text).toContain("『重要 見出し 案内ラベル』");
     expect(text).not.toContain("example.org/page");
     expect(text).not.toContain("example.org/other");
-    const s1Line = text.split("\n").find((line) => line.startsWith("- S1"));
-    expect(s1Line).not.toContain("#");
+    const quote = text.match(/『([^』]*)』/)?.[1] ?? "";
+    expect(quote).not.toContain("#");
+    expect(quote).not.toContain("](");
   });
 
-  it("R-1: bounds the excerpt quote at 240 characters", () => {
+  it("R-1: bounds the excerpt quote at 120 characters", () => {
     const long: OriginResearchSource[] = [{
       title: "長い抜粋",
       url: "https://example.com/long",
@@ -268,11 +278,14 @@ describe("buildGroundedResearchPartialAnswer", () => {
       freshness: "recent",
     }];
     const text = buildGroundedResearchPartialAnswer(long, "ja");
-    expect(text).toContain(`『${"あ".repeat(240)}』`);
-    expect(text).not.toContain("あ".repeat(241));
+    // Sources-display redesign (2026-11-20): the bound dropped from
+    // 240 to 120 characters, with the mid-sentence cut marked by an
+    // ellipsis.
+    expect(text).toContain(`『${"あ".repeat(120)}…』`);
+    expect(text).not.toContain("あ".repeat(121));
   });
 
-  it("R-1: keeps the title-only attribution when a source has no quotable excerpt", () => {
+  it("R-1: keeps the title-only card when a source has no quotable excerpt", () => {
     const bare: OriginResearchSource[] = [{
       title: "抜粋なし資料",
       url: "https://example.com/bare",
@@ -285,6 +298,8 @@ describe("buildGroundedResearchPartialAnswer", () => {
       freshness: "recent",
     }];
     const text = buildGroundedResearchPartialAnswer(bare, "ja");
-    expect(text).toContain("- S1（example.com）では『抜粋なし資料』と示されています。（取得日: 2026年11月14日）");
+    expect(text).toContain("### S1 · example.com");
+    expect(text).toContain("[抜粋なし資料](https://example.com/bare)");
+    expect(text).toContain("取得日：2026年11月14日");
   });
 });

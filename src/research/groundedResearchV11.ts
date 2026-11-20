@@ -3,7 +3,10 @@ import {
   buildGroundedResearchEvidenceCards,
   type GroundedResearchEvidenceCard,
 } from "./groundedResearchEvidenceCards.js";
-import { buildGroundedResearchEvidencePacket } from "./groundedResearchEvidencePacket.js";
+import {
+  buildGroundedResearchEvidencePacket,
+  splitRecoverySentences,
+} from "./groundedResearchEvidencePacket.js";
 
 export type GroundedResearchConfidence = "strong" | "moderate" | "limited";
 
@@ -52,20 +55,29 @@ function displayTitle(source: OriginResearchSource): string {
   return title || domainOf(source);
 }
 
-/** Maximum characters of a source excerpt quoted in the partial answer (R-1). */
-const PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS = 240;
+/**
+ * Maximum characters of a source excerpt quoted in the partial answer
+ * (R-1; shortened from 240 to 120 by the sources-display redesign,
+ * SOURCES_DISPLAY_REDESIGN_2026-11-20: a quote is a two-line gist on
+ * the source card, not a paragraph — the full text is one tap away
+ * through the card's title link).
+ */
+const PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS = 120;
 
 /**
- * Text as it may appear inside an attribution line of the partial
- * answer (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1): whitespace collapsed
- * and bounded to 240 characters — the same compression rule as the
- * synthesis packet's excerpt compaction — and neutralized so the quoted
- * text stays data, never presentation or instruction: Markdown link
- * syntax flattens to its label text, bare URLs are dropped (the source
- * list below already carries each URL), and quote marks, heading
- * markers, and code fences are stripped so nothing inside the quoted
- * text can break out of the quoting or pose as the answer's own
- * structure. Returns "" when nothing quotable remains.
+ * Text as it may appear inside a source card of the partial answer
+ * (RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1): whitespace collapsed
+ * and bounded to PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS characters, and
+ * neutralized so the quoted text stays data, never presentation or
+ * instruction: Markdown link syntax flattens to its label text, bare
+ * URLs are dropped (each card already carries its URL as the title
+ * link), and quote marks, heading markers, and code fences are
+ * stripped so nothing inside the quoted text can break out of the
+ * quoting or pose as the answer's own structure. When the bound cuts
+ * the quote, it ends at the last sentence boundary inside the bound
+ * whenever that boundary is not too early; otherwise the cut is
+ * marked with an ellipsis so the omission is visible instead of
+ * silent. Returns "" when nothing quotable remains.
  */
 function neutralizePartialAnswerQuote(text: string): string {
   const flattened = text
@@ -75,11 +87,67 @@ function neutralizePartialAnswerQuote(text: string): string {
     .replace(/[『』「」“”"‘’'#`]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return neutralized.slice(0, PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS);
+  if (neutralized.length <= PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS) return neutralized;
+  const bounded = neutralized.slice(0, PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS);
+  const sentenceEnd = Math.max(
+    bounded.lastIndexOf("。"),
+    bounded.lastIndexOf("！"),
+    bounded.lastIndexOf("？"),
+  );
+  if (sentenceEnd >= PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS / 2) {
+    return bounded.slice(0, sentenceEnd + 1);
+  }
+  return `${bounded}…`;
 }
 
 /**
- * The quote an attribution line carries (N-2b,
+ * Site-chrome vocabulary for the partial answer's quote hygiene
+ * (SOURCES_DISPLAY_REDESIGN_2026-11-20): words that belong to a
+ * page's navigation, header, or account furniture rather than to its
+ * substance. A single word proves nothing — substantive sentences
+ * mention menus and logins too — so a sentence is treated as chrome
+ * only when at least three distinct terms co-occur in it.
+ */
+const PARTIAL_ANSWER_CHROME_KEYWORDS = [
+  "サイトマップ", "お問い合わせ", "新規ウィンドウ", "トップページ",
+  "サイト内検索", "プライバシーポリシー", "利用規約", "アクセシビリティ",
+  "会員登録", "ログイン", "メニュー", "ヘルプ", "検索",
+  "有料記事", "有料会員", "トップニュース", "詳しくはこちら",
+  "コメントプラス", "吹き出しアイコン", "文字サイズ", "公式アカウント",
+  "english", "中文", "sitemap", "contact us", "privacy policy",
+  "terms of use", "all rights reserved", "skip to content",
+  "back to top", "sign up", "log in", "subscribe", "newsletter",
+];
+
+/**
+ * Drops chrome sentences from a raw quote before the R-1
+ * neutralization: the evidence packet can select a page's header or
+ * navigation run as "answer-bearing" when it happens to contain the
+ * question's keywords, and quoting it made the site furniture pose
+ * as the source's gist (external design review, 2026-11-20). The
+ * selection itself (packet / claim span) is unchanged — this is a
+ * presentation-stage filter on the already-selected text, and a
+ * source whose quote is entirely chrome simply shows no quote on
+ * its card instead of showing the furniture.
+ */
+function cleanPartialAnswerQuoteText(text: string): string {
+  if (!text) return "";
+  const kept = splitRecoverySentences(text).filter((sentence) => {
+    const haystack = sentence.toLowerCase();
+    let hits = 0;
+    for (const keyword of PARTIAL_ANSWER_CHROME_KEYWORDS) {
+      if (haystack.includes(keyword)) {
+        hits += 1;
+        if (hits >= 3) return false;
+      }
+    }
+    return true;
+  });
+  return kept.join(" ");
+}
+
+/**
+ * The quote a source card carries (N-2b,
  * N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the source's evidence
  * card claim sentences — the verbatim sentences selected as answering
  * the question — instead of the excerpt's first 240 characters, so the
@@ -91,11 +159,11 @@ function neutralizePartialAnswerQuote(text: string): string {
  * period inside a URL or a decimal, and quoting the fragments
  * separately could strand half a Markdown link past the neutralization
  * below, so the span is reconstituted before the R-1 rules apply. The
- * 240-character bound and the neutralization are exactly the R-1 rules
+ * character bound and the neutralization are exactly the R-1 rules
  * above, applied by the caller to whichever raw quote wins (the PR-2
  * packet quote or this span). Returns "" when the card selected no
  * claim sentence (e.g. an empty excerpt), leaving the title-only
- * attribution.
+ * card.
  */
 function claimQuoteSpan(card: GroundedResearchEvidenceCard): string {
   if (card.claimSentences.length === 0) return "";
@@ -263,17 +331,21 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  * failure, citation-validation failure, plan unavailable, or synthesis
  * disabled) but usable sources were retrieved. The shape is identical no
  * matter why synthesis was not adopted:
- * - an honest lead stating that no summarized answer could be produced;
- * - a "confirmed scope" section attributing each of the top sources (at
- *   most three) by title and domain — the facts the title itself states,
- *   quoted verbatim, plus the retrieval date when known;
- * - the compact source list (id, title, domain, URL).
- * Since RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1, each attribution line
- * also carries a verbatim quote from the source inside the same
- * attribution ("the source states: '…'"), so the core of the answer
- * reaches the user even when synthesis never ran. Since N-2b
- * (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4), that quote is the
- * source's evidence-card claim sentences — the sentences selected
+ * - an honest lead stating that no summarized answer could be produced
+ *   and directing the user to the sources for details;
+ * - a "confirmed scope" section holding one card per source (at most
+ *   eight): a heading with the source id and domain (the outlet label —
+ *   the source data carries no publisher name, so the domain stands in
+ *   for it), the title as a link to the source (the "open" action),
+ *   and — for the top three sources — a short verbatim quote as the
+ *   card's gist. The retrieval dates of all sources are collected into
+ *   a single line directly under the section heading instead of being
+ *   repeated on every card.
+ * Since RESEARCH_FLOOR_DESIGN_2026-11-17 §3 R-1, each of the top
+ * sources also carries a verbatim quote from the source, so the core
+ * of the answer reaches the user even when synthesis never ran. Since
+ * N-2b (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4), that quote is
+ * the source's evidence-card claim sentences — the sentences selected
  * deterministically as answering the question — rather than the
  * excerpt's head, which for full page extracts is navigation or
  * advertising boilerplate as often as substance. The quote is
@@ -289,10 +361,17 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
  * eight answer-bearing sentences per source list, so a fact such as
  * "1.25%" is quoted whole instead of as the "1." / "25%…" fragments
  * the N-2b claim splitter produced. Title-origin packet sentences
- * are not quoted here — the title is already shown in the same line.
+ * are not quoted here — the title is already shown on the same card.
  * When the packet has no excerpt sentence for a source, the quote
- * falls back to that source's N-2b claim span, so the 240-character
- * bound and the R-1 neutralization are unchanged.
+ * falls back to that source's N-2b claim span.
+ * Sources-display redesign (SOURCES_DISPLAY_REDESIGN_2026-11-20,
+ * external design review): the per-source attribution boilerplate
+ * ("S1 (domain) states: '…'") and the duplicated plain source list
+ * were replaced by the card layout above; the quote bound dropped
+ * from 240 to 120 characters with sentence-aware cutting, and a
+ * presentation-stage filter drops site-chrome sentences (navigation
+ * and header runs the packet selected only because they contain the
+ * question's keywords) from the quote before neutralization.
  */
 export function buildGroundedResearchPartialAnswer(
   sources: readonly OriginResearchSource[],
@@ -318,32 +397,53 @@ export function buildGroundedResearchPartialAnswer(
     }
     return domain;
   };
-  const confirmedLines = bounded.slice(0, 3).map((source, index) => {
+  // The title as a Markdown link label: brackets would break the link
+  // syntax, so they are widened to their full-width forms (the title
+  // text itself is otherwise shown exactly as retrieved).
+  const linkLabel = (source: OriginResearchSource): string =>
+    displayTitle(source).replace(/\[/g, "［").replace(/\]/g, "］");
+  const cardBlocks = bounded.map((source, index) => {
     const id = `S${index + 1}`;
     const domain = domainForList(source);
-    const title = displayTitle(source);
-    // PR-2: prefer the packet's sentences for the quote; fall back to
-    // the N-2b claim span when the packet has nothing for this source.
-    // Either raw quote goes through the same R-1 neutralization and
-    // 240-character bound, exactly once.
-    const quote = neutralizePartialAnswerQuote(
-      packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
-    );
-    const retrieved = retrievedDateLabel(source.retrievedAt, language);
-    if (language === "en") {
-      return `- ${id}${domain ? ` (${domain})` : ""} is titled "${title}".${quote ? ` It states: "${quote}"` : ""}${retrieved ? ` (Retrieved ${retrieved}.)` : ""}`;
+    const heading = domain ? `### ${id} · ${domain}` : `### ${id}`;
+    const parts = [heading, `[${linkLabel(source)}](${source.url})`];
+    // Quotes ride only on the top three cards, as before the redesign:
+    // they are the gist of the highest-ranked sources, and bounding
+    // them keeps the fallback from becoming a second search dump.
+    if (index < 3) {
+      // PR-2: prefer the packet's sentences for the quote; fall back
+      // to the N-2b claim span when the packet has nothing for this
+      // source. Either raw quote goes through the chrome filter and
+      // the same R-1 neutralization and character bound, exactly once.
+      const quote = neutralizePartialAnswerQuote(
+        cleanPartialAnswerQuoteText(
+          packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
+        ),
+      );
+      if (quote) parts.push(language === "en" ? `"${quote}"` : `『${quote}』`);
     }
-    return `- ${id}${domain ? `（${domain}）` : ""}では『${title}』と示されています。${quote ? `『${quote}』` : ""}${retrieved ? `（取得日: ${retrieved}）` : ""}`;
+    return parts.join("\n\n");
   });
-  const sourceList = bounded.map((source, index) => {
-    const id = `S${index + 1}`;
-    const domain = domainForList(source);
-    return language === "en"
-      ? (domain ? `- ${id}: ${source.title} (${domain})\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`)
-      : (domain ? `- ${id}: ${source.title}（${domain}）\n  ${source.url}` : `- ${id}: ${source.title}\n  ${source.url}`);
-  });
-  if (language === "en") {
-    return `I retrieved ${bounded.length} public source(s), but a summarized answer could not be produced, so the confirmed scope and the source list follow. Please check the sources for the details.\n\n## What could be confirmed\n${confirmedLines.join("\n")}\n\n## Sources\n${sourceList.join("\n")}`;
+  // Retrieval dates, collected once: every distinct known date, in
+  // source order. Sources without a parseable date contribute nothing
+  // (no date is invented for them); when no date is known at all the
+  // line is omitted.
+  const retrievedLabels: string[] = [];
+  for (const source of bounded) {
+    const label = retrievedDateLabel(source.retrievedAt, language);
+    if (label && !retrievedLabels.includes(label)) retrievedLabels.push(label);
   }
-  return `公開情報を${bounded.length}件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。\n\n## 確認できた範囲\n${confirmedLines.join("\n")}\n\n## 出典\n${sourceList.join("\n")}`;
+  const retrievedLine = retrievedLabels.length === 0
+    ? null
+    : language === "en"
+      ? `Retrieved: ${retrievedLabels.join(", ")}`
+      : `取得日：${retrievedLabels.join("、")}`;
+  const sectionBody = [
+    ...(retrievedLine ? [retrievedLine] : []),
+    ...cardBlocks,
+  ].join("\n\n");
+  if (language === "en") {
+    return `I retrieved ${bounded.length} public source(s), but a summarized answer could not be produced, so the confirmed scope and the source list follow. Please check the sources for the details.\n\n## What could be confirmed\n\n${sectionBody}`;
+  }
+  return `公開情報を${bounded.length}件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。\n\n## 確認できた範囲\n\n${sectionBody}`;
 }

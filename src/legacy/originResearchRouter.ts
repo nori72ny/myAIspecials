@@ -244,8 +244,8 @@ export const RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS = 4_000;
  * (R-PR-9a, RPR9_DESIGN_2026-11-15 §2 R9-A; extended by R-PR-9d to
  * the records helper's own provider failure): the same deterministic
  * partial answer the chat router falls back to — an honest lead
- * stating that no summarized answer could be produced, the confirmed
- * scope built from source titles, and the compact source list —
+ * stating that no summarized answer could be produced, and the
+ * confirmed scope as one card per source (id, domain, linked title) —
  * instead of the extractive report plus the full-excerpt
  * concatenation (the F-12 dump). The records outcome exposes no
  * verified material on failure, so the body is built from retrieval

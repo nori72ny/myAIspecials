@@ -1093,8 +1093,8 @@ describe("createOriginChatRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).toContain("https://example.com/current");
-    // R-1: the excerpt appears only as a verbatim quote inside its
-    // source's attribution line.
+    // R-1: the excerpt appears only as a verbatim quote on its
+    // source's card.
     expect(response.body.content).toContain("『現在確認できた公開情報です。』");
     expect(response.body.routing).toEqual(expect.objectContaining({
       synthesisStatus: "provider-failed",
@@ -1123,12 +1123,13 @@ describe("createOriginChatRouter", () => {
     // advertising text included. When synthesis then fails, the extracted
     // page text must not pose as the answer.
     // R-1 revision (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the fallback's
-    // attribution lines now carry the excerpt as a bounded (240 chars),
-    // neutralized verbatim quote inside the attribution itself, so the
-    // PKG-9 guarantee is narrowed to its substance — page text may appear
-    // ONLY inside its own source's attribution line, as quoted source
-    // speech under a lead that says no summarized answer was produced;
-    // it never appears as the answer's own statements anywhere else.
+    // source cards now carry the excerpt as a bounded (120 chars since
+    // the 2026-11-20 sources-display redesign), neutralized verbatim
+    // quote on the source's own card, so the PKG-9 guarantee is narrowed
+    // to its substance — page text may appear ONLY inside its own
+    // source's card quote, as quoted source speech under a lead that
+    // says no summarized answer was produced; it never appears as the
+    // answer's own statements anywhere else.
     const rawPageText = "サービス紹介 資料ダウンロード お問い合わせ 退職の基礎知識を確認したい人事担当者も、ぜひ最後までチェックしてみてください。退職の予告は民法により、原則として2週間前の申し出で退職が可能です。資料を無料ダウンロード";
     const researchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -1160,9 +1161,9 @@ describe("createOriginChatRouter", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.routing.synthesisStatus).toBe("provider-failed");
-    // The extracted page appears only as the verbatim quote inside the
-    // S1 attribution line (R-1); outside that line, no fragment of it —
-    // fact sentence or boilerplate — appears anywhere in the body.
+    // The extracted page appears only as the verbatim quote on the
+    // S1 card (R-1); outside that quote, no fragment of it — fact
+    // sentence or boilerplate — appears anywhere in the body.
     // N-2b note (N2_N5_IMPLEMENTATION_DESIGN_2026-11-17 §1.4): the
     // quote is the excerpt span covering the source's evidence-card
     // claim sentences, not the excerpt head — the trailing download
@@ -1173,25 +1174,26 @@ describe("createOriginChatRouter", () => {
     // quote either — only the sentence answering the question does.
     // Less raw page text is pasted than before, which is the PKG-9
     // guarantee itself.
-    const attributionLine = response.body.content.split("\n").find((line: string) => line.startsWith("- S1"));
-    expect(attributionLine).toContain("『退職の予告は民法により、原則として2週間前の申し出で退職が可能です。』");
-    expect(attributionLine).not.toContain("サービス紹介");
-    expect(attributionLine).not.toContain("資料を無料ダウンロード");
-    const outsideAttribution = response.body.content.split("\n").filter((line: string) => !line.startsWith("- S1")).join("\n");
-    expect(outsideAttribution).not.toContain("退職の予告は民法により");
-    expect(outsideAttribution).not.toContain("お問い合わせ");
-    expect(outsideAttribution).not.toContain("無料ダウンロード");
+    const quoteLine = response.body.content.split("\n").find((line: string) => line.startsWith("『"));
+    expect(quoteLine).toBe("『退職の予告は民法により、原則として2週間前の申し出で退職が可能です。』");
+    expect(quoteLine).not.toContain("サービス紹介");
+    expect(quoteLine).not.toContain("資料を無料ダウンロード");
+    const outsideQuote = response.body.content.replace(quoteLine ?? "", "");
+    expect(outsideQuote).not.toContain("退職の予告は民法により");
+    expect(outsideQuote).not.toContain("お問い合わせ");
+    expect(outsideQuote).not.toContain("無料ダウンロード");
     expect(response.body.content).not.toContain("## 確認できた公開情報");
-    // The fallback states its own limit first, shows the confirmed scope
-    // as attributions (title plus the bounded excerpt quote), and cites
-    // the source compactly (title, domain, URL). The internal cross-check
-    // section (照合メモ) never appears in the user-facing body
-    // (synthesis-hygiene).
+    // The fallback states its own limit first, shows the confirmed
+    // scope as source cards (linked title plus the bounded excerpt
+    // quote), and cites the source compactly (domain heading, title,
+    // URL). The internal cross-check section (照合メモ) never appears
+    // in the user-facing body (synthesis-hygiene).
     expect(response.body.content).toContain("要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします");
     expect(response.body.content).not.toContain("照合メモ");
     expect(response.body.content).toContain("## 確認できた範囲");
-    expect(response.body.content).toContain("では『法律で退職は何日前までに伝えられるべき?』と示されています");
-    expect(response.body.content).toContain("法律で退職は何日前までに伝えられるべき？");
+    expect(response.body.content).not.toContain("と示されています");
+    expect(response.body.content).toContain("### S1 · example.com");
+    expect(response.body.content).toContain("[法律で退職は何日前までに伝えられるべき?](https://example.com/retirement-law)");
     expect(response.body.content).toContain("example.com");
     expect(response.body.content).toContain("https://example.com/retirement-law");
     expect(response.body.answer.conclusion).toContain("要約した回答を作成できなかった");

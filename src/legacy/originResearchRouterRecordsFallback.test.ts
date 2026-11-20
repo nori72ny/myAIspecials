@@ -75,9 +75,9 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
     expect(response.body.routing.synthesisStatus).toBe("records-validation-failed");
     // The body is exactly the chat router's partial-answer shape for
-    // the same sources: honest lead, confirmed scope attributions,
-    // compact source list. No extractive report; excerpts appear only
-    // as verbatim quotes inside their sources' attribution lines (R-1,
+    // the same sources: honest lead and the confirmed-scope source
+    // cards. No extractive report; excerpts appear only as verbatim
+    // quotes on their sources' cards (R-1,
     // RESEARCH_FLOOR_DESIGN_2026-11-17 §3).
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
     expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
@@ -103,9 +103,9 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.research.synthesis).toEqual({ status: "records-validation-failed", failureCode: "NO_ACCEPTED_RECORDS" });
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(enSources, "en"));
     expect(response.body.content).not.toContain("Cited research report (extractive)");
-    // R-1: the excerpt appears only as a verbatim quote inside its
-    // source's attribution line.
-    expect(response.body.content).toContain("It states: \"The iPhone 18 Pro starts at 219,800 yen and will be released on September 18, 2026.\"");
+    // R-1: the excerpt appears only as a verbatim quote on its
+    // source's card.
+    expect(response.body.content).toContain("\"The iPhone 18 Pro starts at 219,800 yen and will be released on September 18, 2026.\"");
   });
 
   it("keeps the caps inert for ordinary sources (builder output equals the partial answer)", () => {
@@ -133,8 +133,8 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     expect(response.body.routing.synthesisStatus).toBe("provider-failed");
     expect(response.body.content).toBe(buildGroundedResearchPartialAnswer(iphoneSources, "ja"));
     expect(response.body.content).not.toContain("出典付き調査レポート（抽出方式）");
-    // R-1: the excerpt appears only as a verbatim quote inside its
-    // source's attribution line.
+    // R-1: the excerpt appears only as a verbatim quote on its
+    // source's card.
     expect(response.body.content).toContain("『iPhone 18 Proは219,800円で、2026年9月18日に発売されます。』");
     expect(response.body.content).not.toContain("証拠比較");
     // The records execution threw once and the branch settled: the
@@ -143,9 +143,14 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
   });
 
   it("caps any single line at the records packet excerpt cap and the whole body at the ceiling", () => {
+    // Sources-display redesign note (2026-11-20): card titles are
+    // bounded by displayTitle (200 chars), so long titles alone no
+    // longer overflow the body the way the old raw-title source list
+    // did; the fixture therefore also carries over-long URLs, which
+    // remain unbounded in the card's title link.
     const longTitleSources: OriginResearchSource[] = Array.from({ length: 8 }, (_, i) => ({
       title: `出典${i + 1} ${"あ".repeat(1200)}`,
-      url: `https://example${i + 1}.jp/item`,
+      url: `https://example${i + 1}.jp/${"a".repeat(1200)}`,
       excerpt: `抜粋${i + 1}の本文テキストです。`,
       sourceType: "web-search",
       domain: `example${i + 1}.jp`,
@@ -160,9 +165,9 @@ describe("originResearchRouter records-validation failure fallback (R-PR-9a)", (
     }
     expect(content.length).toBeLessThanOrEqual(RESEARCH_RECORDS_FAILURE_MAX_CONTENT_CHARS);
     // The total cap fired and says so, at a line boundary, as the
-    // last line. Excerpts appear only as the top-three attribution
-    // quotes (R-1): the first source's excerpt is quoted inside its
-    // attribution line, and the fourth source's excerpt never appears.
+    // last line. Excerpts appear only as the top-three card quotes
+    // (R-1): the first source's excerpt is quoted on its card, and
+    // the fourth source's excerpt never appears.
     expect(content.endsWith("（出典一覧の一部を省略しました）")).toBe(true);
     expect(content).toContain("『抜粋1の本文テキストです。』");
     expect(content).not.toContain("抜粋4の本文テキストです。");
