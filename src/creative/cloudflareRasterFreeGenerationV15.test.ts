@@ -4,12 +4,19 @@ import {
   CloudflareRasterUsageReconciliationErrorV15,
 } from './cloudflareRasterFreeGenerationV15';
 import { CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15 } from './cloudflareRasterFreeQuotaV15';
+import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from '../lib/orchestration/OriginFreeModelCatalog';
 
 const ENV: NodeJS.ProcessEnv = {
   CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
   CLOUDFLARE_API_TOKEN: `test-${'x'.repeat(40)}`,
 };
-const NOW_IN_WINDOW = () => Date.parse(CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15.verifiedAt) + 1;
+// 「いま」は、料金証拠と無料モデル証拠の両方の有効窓の中にある時刻にする。
+// 片方だけに合わせると、もう片方の証拠更新（verifiedAt の前進）で窓の外に出て
+// 無料モデルの強化が fail closed で止まり、このファイルの検証が壊れる。
+const NOW_IN_WINDOW = () => Math.max(
+  Date.parse(CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15.verifiedAt),
+  ...DEFAULT_ORIGIN_FREE_MODEL_CATALOG.map((entry) => Date.parse(entry.verifiedAt)),
+) + 1;
 const RECONCILE_FAST = { attempts: 2, delayMs: 0, totalMs: 1_000 };
 
 function envelope(result: unknown, status = 200): Response {
