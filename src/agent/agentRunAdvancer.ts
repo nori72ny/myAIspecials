@@ -12,11 +12,16 @@ import {
   MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH,
+  agentStepArtifactsEnabled,
+  computeAgentRunStepFingerprint,
+  validatePutAgentRunStepArtifactInput,
+  type AgentRunPlanStep,
   type AgentRunQuotaLedger,
   type AgentRunRecord,
   type AgentRunStepLiveDetail,
   type AgentRunStepState,
   type AgentRunStore,
+  type PutAgentRunStepArtifactInput,
 } from './agentRunRecord.js';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import {
@@ -84,6 +89,16 @@ import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
  *   `awaiting_approval` first (design §8), which is a later phase's flow.
  * - Chunk boundaries fall between steps, never inside one, and never
  *   between a step and the step that consumes its textual artifact.
+ * - Step-artifact persistence (design AGENT_STEP_ARTIFACT_PERSISTENCE_
+ *   2026-11-22, PR-2) sits behind ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED
+ *   (default OFF; OFF is byte-identical to the behavior above). When ON,
+ *   artifacts a later step consumes are saved with the completing
+ *   step's fenced progress write, an advance hydrates the artifacts of
+ *   steps an earlier advance completed (fingerprint + attempt must
+ *   match the current plan and step state, else the row is treated as
+ *   absent), and the chunk boundary may also fall between a producer
+ *   and its consumer whenever the producer's artifact is persisted —
+ *   the next advance resolves it from the store instead of memory.
  */
 
 export const AGENT_RUN_ADVANCE_DEFAULT_BUDGET_MS = 100_000;
@@ -185,6 +200,51 @@ export function textualArtifactOf(toolName: ToolName, artifact: string): string 
     } catch { return undefined; }
   }
   return undefined;
+}
+
+/**
+ * Tools whose artifact can take textual form (the set `textualArtifactOf`
+ * renders) — the producer side of the persistence selectivity rule.
+ */
+const TEXTUAL_ARTIFACT_PRODUCER_TOOLS: ReadonlySet<ToolName> = new Set([
+  'file_reader',
+  'document_generator',
+  'attachment_reader',
+  'attachment_analyzer',
+]);
+
+/** Whether a consuming step resolves the RAW artifact string of its
+ * source (analyzer bundle chaining, structured document assembly)
+ * rather than the rendered text — the same distinction resolveStepParams
+ * draws. */
+function stepConsumesRawArtifact(step: { toolName?: ToolName; params: ToolParams }): boolean {
+  return step.toolName === 'attachment_analyzer'
+    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
+}
+
+/**
+ * The plan indexes whose artifacts persistence must save (design §4.2):
+ * every step a later step names through `contentFromStep`, plus — for
+ * each step carrying the position-dependent
+ * `contentFromPreviousArtifact` marker — every textual producer before
+ * it. Deterministic from the approved plan alone, so the rule adds no
+ * runtime judgment to what gets stored. Steps nobody consumes are
+ * never saved.
+ */
+export function stepArtifactPersistIndexes(plan: readonly AgentRunPlanStep[]): ReadonlySet<number> {
+  const selected = new Set<number>();
+  plan.forEach((step, consumerIndex) => {
+    const fromStep = step.params.contentFromStep;
+    if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0 && fromStep < plan.length) {
+      selected.add(fromStep);
+    }
+    if (step.params.contentFromPreviousArtifact === true) {
+      for (let index = 0; index < consumerIndex; index += 1) {
+        if (TEXTUAL_ARTIFACT_PRODUCER_TOOLS.has(plan[index].toolName)) selected.add(index);
+      }
+    }
+  });
+  return selected;
 }
 
 /**
@@ -290,6 +350,10 @@ export interface AgentRunAdvancerDeps {
    * only way attachment_reader / attachment_analyzer can reach a file
    * body. Without it those steps fail closed as unavailable. */
   attachmentStore?: AgentAttachmentStore;
+  /** Step-artifact persistence switch (design §4.7). When absent, the
+   * ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED env decides; either way the
+   * default is OFF and OFF changes nothing about this advance. */
+  stepArtifactsEnabled?: boolean;
   toolContext?: ToolExecutionContext;
   runTool?: AgentRunToolRunner;
   verifyArtifact?: AgentRunArtifactVerifier;
@@ -363,6 +427,7 @@ export async function advanceAgentRun(
   const startedAt = now();
   const budgetMs = options.budgetMs ?? AGENT_RUN_ADVANCE_DEFAULT_BUDGET_MS;
   const leaseSeconds = options.leaseSeconds ?? AGENT_RUN_ADVANCE_DEFAULT_LEASE_SECONDS;
+  const stepArtifactsOn = deps.stepArtifactsEnabled ?? agentStepArtifactsEnabled(process.env);
 
   const lease = await runStore.claim(snapshot.runId, driverId, leaseSeconds);
   if (!lease) return { kind: 'busy', record: snapshot };
@@ -486,8 +551,60 @@ export async function advanceAgentRun(
    * consumer inside one advance. */
   const textualByStep = new Map<number, string>();
   const rawByStep = new Map<number, string>();
+  /** The subset of the two maps a FUTURE advance could reconstruct
+   * from the store: rows hydrated at this advance's start plus the
+   * artifacts this advance itself saves. The chunk-boundary rule
+   * consults only these — an artifact that exists solely in this
+   * advance's memory still pins its consumer to this advance. */
+  const persistedTextualByStep = new Map<number, string>();
+  const persistedRawByStep = new Map<number, string>();
   let finalArtifact: string | undefined;
   const startIndex = stepsState.findIndex((step) => step.status !== 'completed');
+  const persistIndexes = stepArtifactsOn ? stepArtifactPersistIndexes(plan) : new Set<number>();
+
+  // Hydration (design §4.4): rebuild the dataflow for steps an earlier
+  // advance completed from their persisted artifacts. A row is used
+  // only when its step is recorded completed, its fingerprint matches
+  // the current plan's step at that index, and its attempt matches the
+  // recorded step state; anything else is treated as absent, so a
+  // re-plan can never silently inherit a different step's output and a
+  // consumer whose source is missing fails closed with
+  // AGENT_STEP_INPUT_UNAVAILABLE, exactly as it does without
+  // persistence. A store read failure degrades the same way.
+  if (stepArtifactsOn && startIndex > 0) {
+    let storedArtifacts: Awaited<ReturnType<AgentRunStore['listStepArtifacts']>> = [];
+    try {
+      storedArtifacts = await runStore.listStepArtifacts(record.runId);
+    } catch {
+      storedArtifacts = [];
+    }
+    for (const stored of storedArtifacts) {
+      const index = stored.stepIndex;
+      if (index < 0 || index >= startIndex) continue;
+      const state = stepsState[index];
+      const producer = plan[index];
+      if (!state || state.status !== 'completed' || !producer) continue;
+      if (stored.attempt !== state.attempts) continue;
+      let fingerprint: string;
+      try {
+        fingerprint = computeAgentRunStepFingerprint(producer.toolName, producer.params);
+      } catch {
+        continue;
+      }
+      if (fingerprint !== stored.stepFingerprint) continue;
+      rawByStep.set(index, stored.artifact);
+      persistedRawByStep.set(index, stored.artifact);
+      const text = textualArtifactOf(producer.toolName, stored.artifact);
+      if (text !== undefined) {
+        textualByStep.set(index, text);
+        persistedTextualByStep.set(index, text);
+      }
+    }
+    for (let index = 0; index < startIndex; index += 1) {
+      const text = textualByStep.get(index);
+      if (text !== undefined) previousText = text;
+    }
+  }
 
   // Quota gate preparation (PR 1-D): only advances whose remaining steps
   // declare a scarce-quota charge or a delegated job need usage data, so
@@ -527,7 +644,37 @@ export async function advanceAgentRun(
         const consumesPreviousArtifact = (step.params.contentFromPreviousArtifact === true && previousText !== undefined)
           || (typeof step.params.contentFromStep === 'number'
             && (textualByStep.has(step.params.contentFromStep) || rawByStep.has(step.params.contentFromStep)));
-        if (elapsed > budgetMs && !consumesPreviousArtifact) {
+        // With persistence ON the boundary may also fall between a
+        // producer and its consumer when the artifact the consumer
+        // needs is persisted (hydrated, or saved by this advance): the
+        // next advance reconstructs it from the store. When the needed
+        // artifact exists only in this advance's memory — its save was
+        // refused by the size caps or the secret screen — the consumer
+        // stays pinned to this advance, exactly as without persistence.
+        let stopAllowed = !consumesPreviousArtifact;
+        if (stepArtifactsOn && !stopAllowed) {
+          const fromStep = step.params.contentFromStep;
+          if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0) {
+            stopAllowed = stepConsumesRawArtifact(step)
+              ? persistedRawByStep.has(fromStep)
+              : persistedTextualByStep.has(fromStep);
+          } else if (step.params.contentFromPreviousArtifact === true) {
+            if (stepConsumesRawArtifact(step)) {
+              // The raw form of "the previous artifact" is undefined —
+              // resolution fails closed whether we stop or run it now.
+              stopAllowed = true;
+            } else {
+              stopAllowed = true;
+              for (let source = index - 1; source >= 0; source -= 1) {
+                if (textualByStep.has(source)) {
+                  stopAllowed = persistedTextualByStep.has(source);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (elapsed > budgetMs && stopAllowed) {
           await releaseWriteLock();
           return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
         }
@@ -646,12 +793,44 @@ export async function advanceAgentRun(
         currentLedger = addAgentRunQuotaCharge(currentLedger, executedCharge);
         sessionCharges = addAgentRunQuotaCharge(sessionCharges, executedCharge);
       }
+      // Step-artifact persistence (design §4.2/§4.4): a completed
+      // step whose artifact a later step consumes rides the SAME
+      // fenced progress write as its step state, so a driver that
+      // lost its claim persists neither. The store boundary re-checks
+      // size and secret screening; the advancer pre-screens with the
+      // same validation so a refused artifact — oversize, secret-like,
+      // or past the run-total cap the store enforces — is simply not
+      // saved (never truncated) and a later consumer degrades to
+      // AGENT_STEP_INPUT_UNAVAILABLE instead of failing this step.
+      const stepSucceeded = Boolean(executionRecord?.toolExecuted && executionRecord.verified
+        && executionRecord.status === 'completed' && finalTask.status === 'completed');
+      let artifactToSave: PutAgentRunStepArtifactInput | undefined;
+      if (stepArtifactsOn && stepSucceeded && persistIndexes.has(index) && executionRecord?.artifact) {
+        try {
+          const candidate: PutAgentRunStepArtifactInput = {
+            stepIndex: index,
+            stepFingerprint: computeAgentRunStepFingerprint(step.toolName, step.params),
+            attempt: stepsState[index].attempts,
+            artifact: executionRecord.artifact,
+          };
+          validatePutAgentRunStepArtifactInput(candidate);
+          artifactToSave = candidate;
+        } catch {
+          artifactToSave = undefined;
+        }
+      }
       if (!await runStore.updateProgress(record.runId, driverId, {
         stepsState,
         ...(executedCharge ? { quotaLedger: currentLedger } : {}),
+        ...(artifactToSave ? { artifacts: [artifactToSave] } : {}),
       })) {
         await releaseWriteLock();
         return { kind: 'busy', record: { ...record, stepsState, status: 'running' } };
+      }
+      if (artifactToSave) {
+        persistedRawByStep.set(index, artifactToSave.artifact);
+        const savedText = textualArtifactOf(step.toolName, artifactToSave.artifact);
+        if (savedText !== undefined) persistedTextualByStep.set(index, savedText);
       }
       if (!executionRecord?.toolExecuted || !executionRecord.verified || executionRecord.status !== 'completed' || finalTask.status !== 'completed') {
         return failRun(failureCode);
