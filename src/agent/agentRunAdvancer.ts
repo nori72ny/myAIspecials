@@ -121,8 +121,12 @@ export type StepArtifactLookup = {
  * One consumer resolves differently: `attachment_analyzer` chains its
  * structured bundle from the previous analyzer step, so for that tool
  * the markers resolve to the RAW artifact string — the bundle JSON —
- * instead of its rendered `content` field. Every other consumer takes
- * the rendered text, which is what a document or file step must embed. */
+ * instead of its rendered `content` field. A structured-JSON
+ * `document_generator` step (carrying `jsonTopLevelKeys`) resolves the
+ * same way: it assembles its deliverable from the analyzer bundle,
+ * and the rendered findings text would not carry the typed sections
+ * it needs. Every other consumer takes the rendered text, which is
+ * what a document or file step must embed. */
 export function resolveStepParams(
   step: { toolName?: ToolName; params: ToolParams },
   artifacts: StepArtifactLookup | string | undefined,
@@ -131,7 +135,8 @@ export function resolveStepParams(
   if (artifacts === undefined) lookup = { previousText: undefined };
   else if (typeof artifacts === 'string') lookup = { previousText: artifacts };
   else lookup = artifacts;
-  const raw = step.toolName === 'attachment_analyzer';
+  const raw = step.toolName === 'attachment_analyzer'
+    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
   const fromStep = step.params.contentFromStep;
   if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0) {
     const content = raw ? lookup.rawByStep?.get(fromStep) : lookup.byStep?.get(fromStep);
@@ -142,8 +147,9 @@ export function resolveStepParams(
   if (step.params.contentFromPreviousArtifact !== true) return { params: step.params };
   // The raw bundle form of "the previous artifact" is not defined —
   // analyzer chains always name their source step — so an analyzer
-  // step carrying only the legacy marker cannot resolve and fails
-  // closed like any other unresolvable input.
+  // step, or a structured document step, carrying only the legacy
+  // marker cannot resolve and fails closed like any other
+  // unresolvable input.
   const content = raw ? undefined : lookup.previousText;
   if (content === undefined) return { error: 'AGENT_STEP_INPUT_UNAVAILABLE' };
   const { contentFromPreviousArtifact: _marker, ...rest } = step.params;

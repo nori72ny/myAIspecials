@@ -332,6 +332,81 @@ expect(seenFrames).toEqual([
 ]);
 });
 
+it('carries typed findings, resources and remediations through chained steps (structured JSON)', async () => {
+const { store, setDigest} = await storeWithFiles(K8S_SHAPE_FILES);
+const executor: AgentModelExecutor = async ({ userText}) => {
+const file = frameFileName(userText);
+return {
+ok: true,
+text: JSON.stringify({
+findings: [{ claim: `${file}の所見`, evidence: '引用', file, location: '冒頭', type: 'OOMKilled', severity: 'critical'}],
+resources: [{ kind: 'Deployment', name: 'payment-api', namespace: 'prod'}],
+remediations: [{ action: 'メモリ上限を引き上げる', priority: 'high'}],
+}),
+};
+};
+const params = (extra: Record<string, unknown>) => ({
+attachmentSetId: SET_ID, setDigest,
+instruction: '障害の原因を分析してください',
+outputKind: 'findings',
+structuredJsonKeys: ['incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary'],
+...extra,
+});
+const step1 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 0, chunkCount: 2}), contextFor(store, executor));
+expect(step1.ok).toBe(true);
+const step2 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 2, chunkCount: 2, content: step1.artifact}), contextFor(store, executor));
+expect(step2.ok).toBe(true);
+const bundle = JSON.parse(step2.artifact?? '{}') as {
+findings: { claim: string; type?: string; severity?: string}[];
+resources: { kind: string; name: string; namespace: string}[];
+remediations: { action: string; priority?: string}[];
+coverage: { processedChunks: number};
+};
+expect(bundle.coverage.processedChunks).toBe(4);
+expect(bundle.findings).toHaveLength(4);
+expect(bundle.findings[0].type).toBe('OOMKilled');
+expect(bundle.findings[0].severity).toBe('critical');
+// The same Deployment is named in every chunk: one resource, not four.
+expect(bundle.resources).toEqual([{ kind: 'Deployment', name: 'payment-api', namespace: 'prod'}]);
+// The same remediation proposed in every chunk: one action, not four.
+expect(bundle.remediations).toEqual([{ action: 'メモリ上限を引き上げる', priority: 'high'}]);
+});
+
+it('drops invalid structured items without failing the chunk', async () => {
+const { store, setDigest} = await storeWithFiles(K8S_SHAPE_FILES);
+const executor: AgentModelExecutor = async ({ userText}) => ({
+ok: true,
+text: JSON.stringify({
+findings: [{ claim: '断片から読み取れる所見', evidence: '引用', file: frameFileName(userText), location: '冒頭', type: 'OOMKilled', severity: 'urgent'}],
+resources: [{ kind: 'Deployment', name: 'payment-api'}],
+remediations: [{ action: ''}, { action: 'メモリ上限を引き上げる', priority: 'top'}],
+}),
+});
+const result = await toolRegistry.attachment_analyzer.execute(
+{
+attachmentSetId: SET_ID, setDigest,
+instruction: '障害の原因を分析してください',
+outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+structuredJsonKeys: ['root_causes', 'affected_resources', 'remediation_plan'],
+},
+contextFor(store, executor),
+);
+expect(result.ok).toBe(true);
+const bundle = JSON.parse(result.artifact?? '{}') as {
+findings: { severity?: string}[];
+resources: unknown[];
+remediations: { action: string; priority?: string}[];
+};
+// The out-of-enum severity is dropped (the assembler defaults it);
+// the resource without a namespace is dropped; the empty action is
+// dropped while the valid one survives without its bad priority.
+expect(bundle.findings[0].severity).toBeUndefined();
+expect(bundle.resources).toEqual([]);
+expect(bundle.remediations).toEqual([{ action: 'メモリ上限を引き上げる'}]);
+});
+
 it('completes rows over the M&A prose shape across chained steps (chunk-range coverage)', async () => {
 const { store, setDigest} = await storeWithFiles(MA_SHAPE_FILES);
 const executor: AgentModelExecutor = async ({ userText}) => ({

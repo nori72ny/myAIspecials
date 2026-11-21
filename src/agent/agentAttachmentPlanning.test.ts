@@ -4,6 +4,7 @@ import {
   AGENT_ATTACHMENT_MAX_PLAN_STEPS,
   attachmentOutputKindForGoal,
   augmentPlanWithAttachments,
+  extractAttachmentOutputFileSpec,
   goalExplicitlyRequestsExternalResearch,
   type AgentStepInputLike,
 } from './agentAttachmentPlanning.js';
@@ -512,5 +513,103 @@ describe('attachment plan research confinement (defect 3)', () => {
     expect(goalExplicitlyRequestsExternalResearch('添付データを分析し、最新の動向も調査して報告書を作成してください')).toBe(true);
     expect(goalExplicitlyRequestsExternalResearch('Search the web for the latest exchange rates and analyze the attached data into a report')).toBe(true);
     expect(goalExplicitlyRequestsExternalResearch('最新の売上データ（添付ファイル）を集計してレポートを作成してください')).toBe(false);
+  });
+});
+
+describe('attachment output file specification (artifact format)', () => {
+  const JSON_GOAL = '添付ファイルが input です。\n\nWrite exactly one JSON file:\n\n```text\noutput/root_cause_analysis.json\n```\n\nThe JSON report must include these top-level keys:\n\n```text\nincident_metadata, root_causes, affected_resources, remediation_plan, summary\n```';
+  const MD_GOAL = '添付ファイルが input です。\n\nDeliver exactly one file:\n\n- `output/audit_report.md`\n\nIdentify every material inconsistency you can support from the documents.';
+
+  it('extracts the JSON file name and required top-level keys (K8s shape)', () => {
+    const spec = extractAttachmentOutputFileSpec(JSON_GOAL);
+    expect(spec).toEqual({
+      filename: 'root_cause_analysis.json',
+      format: 'json',
+      topLevelKeys: ['incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary'],
+    });
+  });
+
+  it('extracts the markdown file name with no keys (M&A shape)', () => {
+    const spec = extractAttachmentOutputFileSpec(MD_GOAL);
+    expect(spec).toEqual({ filename: 'audit_report.md', format: 'markdown', topLevelKeys: [] });
+  });
+
+  it('returns null when the goal names no output file', () => {
+    expect(extractAttachmentOutputFileSpec('添付CSVの各行を分類してレポートを作成してください')).toBeNull();
+  });
+
+  it('rejects a traversal path instead of reading a file name out of it', () => {
+    expect(extractAttachmentOutputFileSpec('Write the report to output/../secret.json')).toBeNull();
+  });
+
+  it('ignores unsupported extensions (txt belongs to the later F5 work)', () => {
+    expect(extractAttachmentOutputFileSpec('Write the report to output/notes.txt')).toBeNull();
+  });
+
+  it('carries the JSON spec into the analyzer and document steps (K8s shape)', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '原因分析', format: 'markdown', brief: '分析' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: JSON_GOAL,
+      ...base,
+      setId: 'att-k8s-json',
+      setDigest: 'digest-k8s-json',
+      view: viewWith(4, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const analyzer = result.steps.find((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzer?.params.structuredJsonKeys).toEqual([
+      'incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary',
+    ]);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.format).toBe('json');
+    expect(document?.params.outputFilename).toBe('root_cause_analysis.json');
+    expect(document?.params.jsonTopLevelKeys).toEqual([
+      'incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary',
+    ]);
+    expect(document?.params.dataGrounded).toBe(true);
+    expect(document?.params.contentFromStep).toBe(1);
+  });
+
+  it('carries only the file name into the document step for a markdown spec (M&A shape)', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '監査報告', format: 'markdown', brief: '監査' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: MD_GOAL,
+      ...base,
+      setId: 'att-ma-md',
+      setDigest: 'digest-ma-md',
+      view: viewWith(17, MA_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const analyzer = result.steps.find((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzer?.params).not.toHaveProperty('structuredJsonKeys');
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.outputFilename).toBe('audit_report.md');
+    expect(document?.params.format).toBe('markdown');
+    expect(document?.params).not.toHaveProperty('jsonTopLevelKeys');
+  });
+
+  it('adds nothing to a plan whose goal names no output file', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '報告', format: 'markdown', brief: '報告' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: 'このCSVの各行を分類してレポートを作成してください',
+      ...base,
+      setId: 'att-plain',
+      setDigest: 'digest-plain',
+      view: viewWith(1, ['fruits.csv']),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params).not.toHaveProperty('outputFilename');
+    expect(document?.params).not.toHaveProperty('jsonTopLevelKeys');
+    expect(document?.params.format).toBe('markdown');
   });
 });
