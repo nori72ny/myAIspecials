@@ -18,8 +18,10 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import {
   applyOriginPublicationGate,
   logOriginPublicationGateShadow,
+  publicationGateFiringKinds,
   resolveOriginPublicationGateMode,
   type OriginPublicationGateOutcome,
+  type OriginPublicationGateSummary,
 } from "../lib/orchestration/OriginPublicationGate.js";
 import {
   applyOriginDateWeekdayVerificationGate,
@@ -36,6 +38,13 @@ import {
   RECOVERY_REFUSAL_RETRY_INSTRUCTION,
 } from "../research/groundedResearchRefusalValidation.js";
 import { executeOriginProviderStreamWithFailover } from "./originProviderFailover.js";
+import {
+  classifyDirectAnswerVerificationTarget,
+  resolveOriginAnswerVerificationEffectiveMode,
+  runOriginAnswerVerificationShadow,
+  verifyOriginAnswerCrossRoute,
+  type OriginAnswerVerificationDailyUsageReader,
+} from "./originAnswerVerification.js";
 import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
 import {
   buildProposalDeckChatArtifact,
@@ -63,6 +72,7 @@ import {
 export interface OriginStreamingChatRouterOptions {
   env?: NodeJS.ProcessEnv;
   streamExecute?: OriginProviderStreamExecutor;
+  answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader };
   now?: () => number;
   catalogNow?: () => number;
   freeModelCatalog?: readonly OriginFreeModelEvidence[];
@@ -267,6 +277,23 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         !deckRequested &&
         !deckRecordsPlan &&
         originDateWeekdayVerificationMayApply(lastUserMessage);
+      // Answer verification, shadow (V-PR-3; design sections 3-5):
+      // the class-A core — an answer the review policy requires an
+      // independent check for — joins the buffer-armed set, so the
+      // completion-time cross-route check below runs on text that has
+      // not been released yet, under exactly the trade-off the
+      // existing gates already make (a buffered answer loses
+      // progressive display; the delivered bytes never change).
+      // Class-B answers are not armed: they keep incremental display
+      // and only their completion event waits for the check (design
+      // section 5.1). Mode off (the default) arms nothing and the
+      // router behaves exactly as before; the enforce value resolves
+      // to shadow until V-PR-4, exactly as in the blocking router.
+      const answerVerificationArmed =
+        resolveOriginAnswerVerificationEffectiveMode(env) === "shadow" &&
+        reviewDecision.required &&
+        !deckRequested &&
+        !deckRecordsPlan;
       const bufferedDeltas: string[] = [];
       const emitDelta = (delta: string) => {
         if (!downstreamStarted) {
@@ -295,7 +322,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           // are buffered like the assertion-gate ones and replaced
           // after completion by the deterministic chat rendering
           // (design §5, §13-5 (a): hold until complete).
-          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || publicationGateArmed || dateGateArmed) {
+          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -388,6 +415,11 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // rendering and stay out of scope (null), exactly as they are for
       // the numeric audit gate.
       let publicationGateAnswerText: string | null = null;
+      // The publication gate's shadow summary for the delivered text,
+      // captured from the log-only hook below so the answer
+      // verification targeting can tell whether the gate fired on
+      // this answer (a class-A signal) without re-running detection.
+      let publicationGateShadowSummary: OriginPublicationGateSummary | null = null;
       // PR-3a / D-PR-6 deck outcomes, filled by whichever deck path
       // runs below and consumed by the completion log and event.
       let deckArtifact: OriginSupervisorArtifactPayloadV2 | undefined;
@@ -418,7 +450,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
         }
         emitDelta(outcome.chatText);
-      } else if (assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed) {
+      } else if (assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed) {
         const assertionGate = assertionGateArmed
           ? applyOriginUngroundedAssertionGate(lastUserMessage, adoptedResult.text, false)
           : { replaced: false, text: adoptedResult.text };
@@ -548,7 +580,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // above, so this hook is skipped to avoid counting the same
       // answer twice — the same treatment as the audit gate's hook.
       if (publicationGateAnswerText !== null && !deckRequested && publicationGateOutcome === null) {
-        logOriginPublicationGateShadow({ requestId, answerText: publicationGateAnswerText });
+        publicationGateShadowSummary = logOriginPublicationGateShadow({ requestId, answerText: publicationGateAnswerText });
       }
       // Date/weekday verification, log-only hook: when the enforce
       // gate in the buffered branch already processed this answer it
@@ -565,6 +597,54 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           env,
           now: new Date(now()),
         });
+      }
+      // Answer verification (V-PR-3, shadow; design sections 3-5):
+      // after every deterministic gate has settled the delivered
+      // text, the OTHER production route cross-checks the answer and
+      // the outcome is recorded — the structured log the runner emits
+      // and the metadata block on the completion log and event below.
+      // Shadow never changes the delivered stream: the delta events
+      // above are exactly what mode off would have sent, and only the
+      // completion event waits for the check. Targeting mirrors the
+      // blocking router (V-PR-2): class A is a review-required answer
+      // or one the publication gate fired on (the enforce outcome's
+      // summary, or the shadow summary captured above); a gate-held
+      // answer is not a target, and deck paths stay out of scope —
+      // their delivered text is a deterministic rendering, not the
+      // model answer. The runner never throws, so a broken check
+      // degrades to a recorded not-run and the stream completes
+      // exactly as before (fail open, design D5).
+      let answerVerification: Record<string, unknown> | null = null;
+      if (
+        resolveOriginAnswerVerificationEffectiveMode(env) === "shadow" &&
+        publicationGateAnswerText !== null &&
+        !deckRequested &&
+        !deckRecordsPlan
+      ) {
+        const publicationGateSummary = publicationGateOutcome
+          ? publicationGateOutcome.summary
+          : publicationGateShadowSummary;
+        const publicationGateFired = publicationGateSummary !== null
+          && (publicationGateFiringKinds(publicationGateSummary).length > 0
+            || publicationGateSummary.counts["official-price"] > 0);
+        const verificationTarget = classifyDirectAnswerVerificationTarget({
+          reviewRequired: reviewDecision.required,
+          publicationGateFired,
+          publicationGateHeld: publicationGateOutcome?.held === true,
+        });
+        if (verificationTarget.targeted) {
+          const verificationOutcome = await runOriginAnswerVerificationShadow({
+            requestId,
+            path: "direct",
+            answerClass: verificationTarget.answerClass,
+            question: lastUserMessage,
+            answerText: publicationGateAnswerText,
+            generationResult: adoptedResult,
+            sourcePlan: providerRequest.plan,
+            language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+          }, { env, nowMs: now(), verify: options.answerVerification?.verify, readDailyNeuronsUsed: options.answerVerification?.readDailyNeuronsUsed });
+          answerVerification = verificationOutcome.metadata;
+        }
       }
       console.info("[origin-chat] upstream stream completed", {
         requestId,
@@ -588,6 +668,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ...(assertionGateReplaced ? { failClosedReasonCode: "GATE_REPLACED" } : {}),
         ...(auditGateOutcome ? { businessPlanningAuditMode: "enforce" as const, businessPlanningAuditFixedCount: auditGateOutcome.fixedCount, businessPlanningAuditNotedCodes: auditGateOutcome.notedCodes } : {}),
         ...(dateGateOutcome ? { dateWeekdayVerificationMode: "enforce" as const, dateWeekdayVerificationCorrectedCount: dateGateOutcome.summary?.correctedCount ?? 0 } : {}),
+        ...(answerVerification ? { answerVerification } : {}),
         ...(publicationGateOutcome ? { publicationGateMode: publicationGateOutcome.mode, publicationGateHeld: publicationGateOutcome.held, ...(publicationGateOutcome.landing ? { researchTier: publicationGateOutcome.landing.tier, researchOutcome: publicationGateOutcome.landing.outcome, researchAbstainReason: publicationGateOutcome.landing.abstainReason } : {}) } : {}),
         proposalDeck: deckRequested ? (deckRecordsMetrics ? deckRecordsMetrics.finalForm : deckArtifact ? "created" : "failed") : "not-requested",
         ...(deckFailureCode ? { proposalDeckFailureCode: deckFailureCode } : {}),
@@ -606,6 +687,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         fallbackUsed: adoptedResult.routingEvidence.fallbackUsed,
         ...(adoptedResult.truncated === true && !assertionGateReplaced && publicationGateOutcome?.held !== true ? { truncated: true } : {}),
         ...(deckArtifact ? { artifacts: [deckArtifact] } : {}),
+        ...(answerVerification ? { answerVerification } : {}),
       })}\n\n`);
       res.end("data: [DONE]\n\n");
       return;
