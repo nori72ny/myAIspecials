@@ -65,6 +65,16 @@ export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 export const MAX_AGENT_RUN_ARTIFACT_CHARS = 120_000;
 export const MAX_AGENT_RUN_ARTIFACT_BYTES = 512 * 1024;
 export const MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS = 2_000_000;
+
+export const ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED_ENV = 'ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED' as const;
+
+/** The step-artifact persistence switch (design §4.7), in the same
+ * style as ORIGIN_AGENT_ATTACHMENTS_ENABLED: only the exact string
+ * "true" enables it; anything else — including the variable being
+ * unregistered — is OFF, and OFF keeps the pre-persistence behavior. */
+export function agentStepArtifactsEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED_ENV] === 'true';
+}
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
 export const MAX_AGENT_RUN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**
