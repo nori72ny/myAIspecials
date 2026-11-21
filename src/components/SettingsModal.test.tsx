@@ -53,17 +53,19 @@ describe('SettingsModal pointer-event isolation', () => {
 });
 
 describe('SettingsModal layout (evaluation fix batch 2)', () => {
-  it('uses the widened modal width and keeps history action labels on one line', () => {
+  it('uses the widened modal width and keeps history action labels fully readable', () => {
     renderSettings();
     const content = screen.getByTestId('settings-modal');
     // 窮屈さの解消：最大幅は 660px（w-full でモバイル幅には収まる）。
     expect(content.className).toContain('max-w-[660px]');
     expect(content.className).toContain('w-full');
-    // 履歴の操作ボタンは文言が単語の途中で折れない（nowrap＋行は
-    // ボタン単位で折り返す flex-wrap）。
+    // 履歴の操作ボタンは文言が最後まで読める（basis はコンテンツ幅の
+    // flex-[1_1_auto] で、nowrap は付けない。長い文言はボタン内で
+    // 折り返し、行はボタン単位で折り返す flex-wrap）。
     for (const name of ['現在の会話を書き出す', 'ファイルから現在の会話を読み込む', '新しく始める']) {
       const button = screen.getByRole('button', { name });
-      expect(button.className).toContain('whitespace-nowrap');
+      expect(button.className).toContain('flex-[1_1_auto]');
+      expect(button.className).not.toContain('whitespace-nowrap');
       expect(button.parentElement?.className).toContain('flex-wrap');
     }
   });
