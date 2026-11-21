@@ -160,6 +160,14 @@ export class PostgresAgentAttachmentStore implements AgentAttachmentStore {
     // uploads to the same set cannot both pass the count/total checks
     // against the same snapshot; the checks themselves are part of
     // the insert, so enforcement and write stay atomic.
+    // The $7::integer cast in the total-chars check is load-bearing:
+    // sum(char_count) is bigint, so without the cast PostgreSQL
+    // deduces $7 (charCount) as bigint there and as integer for the
+    // char_count column value, and rejects the statement at parse
+    // time with 42P08 "inconsistent types deduced for parameter $7"
+    // (production defect 2026-11-21: every file add failed with
+    // AGENT_ATTACHMENT_STORE_UNAVAILABLE while create/get/delete,
+    // which never touch this statement, kept working).
     const result = await this.database.query(
       `with locked as (
          select s.set_id
@@ -177,7 +185,7 @@ export class PostgresAgentAttachmentStore implements AgentAttachmentStore {
        where s.set_id = $1 and s.owner_binding = $2 and s.status = 'open'
          and s.expires_at > clock_timestamp()
          and (select count(*) from public.origin_agent_attachments a where a.set_id = s.set_id) < $10
-         and (select coalesce(sum(a.char_count), 0) from public.origin_agent_attachments a where a.set_id = s.set_id) + $7 <= $11
+         and (select coalesce(sum(a.char_count), 0) from public.origin_agent_attachments a where a.set_id = s.set_id) + $7::integer <= $11
        returning ${FILE_RETURNING}`,
       [
         setId,
