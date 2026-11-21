@@ -467,6 +467,38 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(1);
     });
 
+    it('shows a unified failure frame with a research retry when no verifiable information is found', async () => {
+      const failureResponse = () => new Response(JSON.stringify({ ok: false, code: 'RESEARCH_SOURCE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        if (requestPath(input) === '/api/research/v1.1/query') return failureResponse();
+        if (requestPath(input) === '/api/chat') return jsonChatReply('通常の回答です');
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      render(<App language="ja" />);
+      armResearchMode();
+
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '見つからない公開情報' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+
+      // 失敗表示の型をチャットのフォールバックと統一する：状態見出し＋
+      // 一文の説明＋回復アクション（もう一度試す）。失敗文にコピーは付けない。
+      expect(await screen.findByRole('heading', { name: '調査を完了できませんでした' })).toBeTruthy();
+      expect(screen.getByText('無料で使える公開情報からは、確かめられる情報が見つかりませんでした。')).toBeTruthy();
+      const retryButton = await screen.findByTestId('chat-research-retry-button');
+      expect(retryButton.textContent).toBe('もう一度試す');
+      expect(screen.queryByRole('button', { name: '回答をコピー' })).toBeNull();
+
+      // モードを解除した後でも、再試行は通常チャットではなく調査として
+      // 同じ質問を送り直す。
+      fireEvent.click(screen.getByRole('button', { name: 'モードをやめる' }));
+      fireEvent.click(retryButton);
+      await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query')).toHaveLength(2));
+      const researchCalls = fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/research/v1.1/query');
+      expect(JSON.parse((researchCalls[1]?.[1] as RequestInit)?.body as string)).toEqual({ query: '見つからない公開情報' });
+      expect(fetchMock.mock.calls.some(([input]) => requestPath(input) === '/api/chat')).toBe(false);
+    });
+
     it('shows the research stage in the Orin working presence while research runs', async () => {
       let resolveResearch!: (value: Response) => void;
       const gate = new Promise<Response>((resolve) => { resolveResearch = resolve; });
