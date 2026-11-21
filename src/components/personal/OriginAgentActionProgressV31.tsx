@@ -80,13 +80,13 @@ export default function OriginAgentActionProgressV31({ status }: OriginAgentActi
         const state = stepState(status, step.id);
         return <li key={step.id} aria-current={state === 'current' ? 'step' : undefined} className="rounded-xl border border-origin-border p-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-black uppercase tracking-wide">{step.label}</span>
-            <span className={`text-[10px] font-bold ${stateClass(state)}`}>{stateLabel(state)}</span>
+            <span className="text-[13px] font-black uppercase tracking-wide">{step.label}</span>
+            <span className={`text-[13px] font-bold ${stateClass(state)}`}>{stateLabel(state)}</span>
           </div>
-          <p className="mt-2 text-[11px] leading-4 text-origin-muted">{step.detail}</p>
+          <p className="mt-2 text-[13px] leading-5 text-origin-muted">{step.detail}</p>
         </li>;
       })}
     </ol>
-    <p className="pb-4 text-[11px] leading-5 text-origin-muted">分かった状態だけを表示します。進み具合や残り時間は推測しません。</p>
+    <p className="pb-4 text-[13px] leading-5 text-origin-muted">分かった状態だけを表示します。進み具合や残り時間は推測しません。</p>
   </details>;
 }

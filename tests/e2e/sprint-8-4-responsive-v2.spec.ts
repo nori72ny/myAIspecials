@@ -70,7 +70,8 @@ test('Personal 2.0 preserves the release settings dialog and SHA control', async
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expectSplashComplete(page);
-  await page.getByRole('button', { name: '設定を開く' }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
 
   const dialog = page.getByRole('dialog', { name: /設定|Settings/i });
   await expect(dialog).toBeVisible();

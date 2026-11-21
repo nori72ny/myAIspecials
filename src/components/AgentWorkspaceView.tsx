@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OriginCatState, { type OriginCatStateKind } from './OriginCatState';
 import AgentTaskBoard from './AgentTaskBoard';
+import { getSessionCredential } from '../security/sessionCredentials';
 import AgentLivePanel, { AgentResearchSourceCards, parseAgentResearchArtifact } from './AgentLivePanel';
 import FormattedMarkdown from './FormattedMarkdown';
 import { loadCheckpointsFromIndexedDB, saveCheckpointToIndexedDB } from '../agent/indexedDbCheckpointStore';
@@ -291,7 +292,6 @@ export default function AgentWorkspaceView() {
   const [attachmentUploadToken, setAttachmentUploadToken] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
-  const credentialInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -327,7 +327,6 @@ export default function AgentWorkspaceView() {
     return () => {
       mounted = false;
       abortRef.current?.abort();
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
     };
   }, []);
 
@@ -574,19 +573,17 @@ export default function AgentWorkspaceView() {
     // Two approval modes: with an operator credential the admin endpoint is
     // used; without one, the browser approval endpoint authorizes the exact
     // plan from this same-origin session after the explicit approve action.
-    const credential = credentialInputRef.current?.value.trim() ?? '';
+    const credential = getSessionCredential('admin').trim();
     if (plan.expiresAt && Date.parse(plan.expiresAt) <= Date.now()) {
       setPlan(null);
       setPhase('failed');
       setLog((current) => [...current, '計画の承認期限が切れました。新しい計画を作成してください。']);
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
 
     if (!hasExecutableSteps(plan)) {
       setPhase('failed');
       setLog((current) => [...current, '計画のステップに必要な指定が不足しているため、承認前に停止しました。']);
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
       return;
     }
 
@@ -710,7 +707,6 @@ export default function AgentWorkspaceView() {
         setLog((current) => [...current, '処理を完了できませんでした。設定や依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
-      if (credentialInputRef.current) credentialInputRef.current.value = '';
       if (abortRef.current === controller) abortRef.current = null;
     }
   }, [attachmentUploadToken, persistCheckpoint, phase, plan]);
@@ -723,7 +719,6 @@ export default function AgentWorkspaceView() {
     setLiveRunView(null);
     setPhase('idle');
     setLog((current) => [...current, '計画を最初に戻しました。承認されていない操作は実行していません。']);
-    if (credentialInputRef.current) credentialInputRef.current.value = '';
   };
 
   const restoreLocalCheckpoint = (checkpoint: CheckpointState) => {
@@ -758,9 +753,9 @@ export default function AgentWorkspaceView() {
   })();
 
   return <section className="flex min-h-full flex-col bg-origin-paper p-3 text-origin-ink md:p-5" aria-label="エージェント">
-    <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
+    <div className="mx-auto grid w-full max-w-[var(--content-wide)] items-start gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
+        <p className="text-[13px] font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
         <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。</p>
 
@@ -772,7 +767,7 @@ export default function AgentWorkspaceView() {
 
         {capability?.attachmentsEnabled && <div className="mt-3">
           <span className="block text-sm font-bold">添付データ</span>
-          <p className="mt-1 text-xs leading-5 text-origin-muted">作業に使うデータを添付できます。テキスト形式のファイルを{MAX_AGENT_ATTACHMENT_FILES}件まで、合計{MAX_AGENT_ATTACHMENT_TOTAL_CHARS.toLocaleString()}文字まで。添付したデータも、計画の承認の対象になります。</p>
+          <p className="mt-1 text-[13px] leading-5 text-origin-muted">作業に使うデータを添付できます。テキスト形式のファイルを{MAX_AGENT_ATTACHMENT_FILES}件まで、合計{MAX_AGENT_ATTACHMENT_TOTAL_CHARS.toLocaleString()}文字まで。添付したデータも、計画の承認の対象になります。</p>
           <input ref={attachmentInputRef} type="file" multiple accept=".txt,.csv,.tsv,.md,.json,text/*" className="hidden" aria-label="添付ファイルを選ぶ"
             onChange={(event) => {
               const selected = Array.from(event.target.files ?? []);
@@ -786,19 +781,19 @@ export default function AgentWorkspaceView() {
           </button>
           {attachmentFiles.length > 0 && <>
             <ul className="mt-2 flex flex-wrap gap-2" aria-label="添付したファイル">
-              {attachmentFiles.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-full border border-origin-border bg-origin-surface py-1 pl-3 pr-1 text-xs font-semibold">
+              {attachmentFiles.map((file, index) => <li key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-full border border-origin-border bg-origin-surface py-1 pl-3 pr-1 text-[13px] font-semibold">
                 <span>{file.name}（{file.charCount.toLocaleString()}文字）</span>
                 <button type="button" onClick={() => void removeAttachments()} aria-label="添付を取り消す"
                   disabled={Boolean(plan) || phase === 'planning' || phase === 'executing'}
                   className="flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold text-origin-muted disabled:cursor-not-allowed disabled:opacity-50">×</button>
               </li>)}
             </ul>
-            <p className="mt-1 text-xs leading-5 text-origin-muted">取り消すと、添付したファイルはすべて削除されます。</p>
+            <p className="mt-1 text-[13px] leading-5 text-origin-muted">取り消すと、添付したファイルはすべて削除されます。</p>
           </>}
-          {attachmentError && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-warning">{attachmentError}</p>}
+          {attachmentError && <p role="alert" className="mt-2 text-[13px] font-semibold leading-5 text-origin-warning">{attachmentError}</p>}
         </div>}
 
-        <div role="status" className="mt-3 flex items-center justify-between gap-3 text-xs">
+        <div role="status" className="mt-3 flex items-center justify-between gap-3 text-[13px]">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
             <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
@@ -816,28 +811,20 @@ export default function AgentWorkspaceView() {
         {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-black">実行の流れ</h2>
-            <span className="text-xs font-bold text-origin-warning">まだ実行していません · 承認待ち</span>
+            <span className="text-[13px] font-bold text-origin-warning">まだ実行していません · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 text-sm">{plan.plan.map((step, index) => <li key={step.id} className="flex gap-2">
-            <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[11px] font-black text-origin-brand">{index + 1}</span>
+            <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[13px] font-black text-origin-brand">{index + 1}</span>
             <span>{step.title}</span>
           </li>)}</ol>
 
-          <p className="mt-4 block text-xs font-bold text-origin-muted">行う作業</p>
+          <p className="mt-4 block text-[13px] font-bold text-origin-muted">行う作業</p>
           <div aria-label="行う作業" className="mt-1 min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface-muted px-3 py-3 text-sm font-semibold">
             {plan.steps.map((step) => toolLabel(step.toolName)).join(' → ')}
           </div>
-          {plan.attachments && <p className="mt-2 text-xs leading-5 text-origin-muted">添付データ: {plan.attachments.fileCount}件（{plan.attachments.files.map((file) => file.name).join('、')}、合計{plan.attachments.totalChars.toLocaleString()}文字）。このデータも承認の対象です。</p>}
-          <p className="mt-1 text-xs leading-5 text-origin-muted">承認すると、上に表示された作業だけを行います。内容を変えたいときは、計画をやめて作り直してください。</p>
-          {!plannedParamsReady && <p role="alert" className="mt-2 text-xs font-semibold leading-5 text-origin-warning">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
-
-          <details className="mt-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-xs font-semibold">管理者キー（必要な場合だけ）</summary>
-            <p className="mb-2 text-xs leading-5 text-origin-muted">通常は使いません。管理者から指示された場合だけ入力してください。キーは保存されません。</p>
-            <input ref={credentialInputRef} id="execution-credential" aria-label="管理者キー" type="password" autoComplete="off" spellCheck={false}
-              placeholder="管理者キー"
-              className="min-h-11 w-full rounded-xl border border-origin-border bg-origin-surface px-3 text-sm" />
-          </details>
+          {plan.attachments && <p className="mt-2 text-[13px] leading-5 text-origin-muted">添付データ: {plan.attachments.fileCount}件（{plan.attachments.files.map((file) => file.name).join('、')}、合計{plan.attachments.totalChars.toLocaleString()}文字）。このデータも承認の対象です。</p>}
+          <p className="mt-1 text-[13px] leading-5 text-origin-muted">承認すると、上に表示された作業だけを行います。内容を変えたいときは、計画をやめて作り直してください。</p>
+          {!plannedParamsReady && <p role="alert" className="mt-2 text-[13px] font-semibold leading-5 text-origin-warning">場所や対象など、必要な情報が足りません。依頼文に足して、計画を作り直してください。</p>}
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => void approveAndExecute()} disabled={phase !== 'awaiting_approval' || !plannedParamsReady}
@@ -848,7 +835,7 @@ export default function AgentWorkspaceView() {
           </div>
         </section>}
 
-        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-xs leading-5 text-origin-muted" aria-label="実行履歴">
+        <div className="mt-4 max-h-36 overflow-auto rounded-xl border border-origin-border bg-origin-surface p-3 text-[13px] leading-5 text-origin-muted" aria-label="実行履歴">
           {log.length ? log.filter(Boolean).map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : '進み具合はここに表示されます。'}
         </div>
       </aside>
@@ -884,10 +871,10 @@ export default function AgentWorkspaceView() {
 
         <section className="border-t border-origin-border p-4">
           <h3 className="text-sm font-black">この端末に保存した結果</h3>
-          {restoring ? <p className="mt-2 text-xs text-origin-muted">読み込み中…</p> : checkpoints.length === 0
-            ? <p className="mt-2 text-xs text-origin-muted">終わった作業の結果がここに保存されます。選ぶと、上の欄に表示されます。</p>
+          {restoring ? <p className="mt-2 text-[13px] text-origin-muted">読み込み中…</p> : checkpoints.length === 0
+            ? <p className="mt-2 text-[13px] text-origin-muted">終わった作業の結果がここに保存されます。選ぶと、上の欄に表示されます。</p>
             : <>
-              <p className="mt-1 text-xs text-origin-muted">選ぶと、上の欄に表示されます。</p>
+              <p className="mt-1 text-[13px] text-origin-muted">選ぶと、上の欄に表示されます。</p>
               <ul className="mt-2 space-y-2">{checkpoints.slice().reverse().slice(0, 8).map((item) => {
                 const view = savedResultView(item);
                 return <li key={item.checkpointId}>
@@ -895,9 +882,9 @@ export default function AgentWorkspaceView() {
                     className="origin-secondary-button flex min-h-11 w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{view.title}</span>
-                      {view.meta && <span className="mt-0.5 block truncate text-xs text-origin-muted">{view.meta}</span>}
+                      {view.meta && <span className="mt-0.5 block truncate text-[13px] text-origin-muted">{view.meta}</span>}
                     </span>
-                    <span className="shrink-0 text-xs font-bold">{view.status}</span>
+                    <span className="shrink-0 text-[13px] font-bold">{view.status}</span>
                   </button>
                 </li>;
               })}</ul>
@@ -906,7 +893,7 @@ export default function AgentWorkspaceView() {
       </main>
     </div>
 
-    <div className="mx-auto mt-4 w-full max-w-6xl">
+    <div className="mx-auto mt-4 w-full max-w-[var(--content-wide)]">
       <AgentTaskBoard browserPlanToken={boardPlanToken} />
     </div>
   </section>;

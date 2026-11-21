@@ -130,8 +130,8 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                       className={`h-2 w-2 shrink-0 rounded-full ${item.status === 'active' ? 'animate-pulse bg-[var(--accent-primary)]' : 'bg-[var(--text-secondary)]'}`}
                     />
                     <span className="min-w-0 flex-1 truncate font-semibold">{item.title}</span>
-                    {item.meta && <span className="origin-muted shrink-0 text-[12.5px]">{item.meta}</span>}
-                    <span className="origin-muted shrink-0 text-[12.5px]">{statusText}</span>
+                    {item.meta && <span className="origin-muted shrink-0 text-[13px]">{item.meta}</span>}
+                    <span className="origin-muted shrink-0 text-[13px]">{statusText}</span>
                   </>
                 );
                 return (

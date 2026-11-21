@@ -7,7 +7,8 @@ test('MCP settings hides the integration entry while the backend is unconfigured
   // バックエンド未構成の実状態を明示して固定する。
   await page.route('**/api/mcp/status', route => route.fulfill({ json: { configured: false, authenticated: false } }));
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await expect(page.getByRole('dialog')).toBeVisible();
   // UI監査 #26：MCP項目は未設定時は表示されない（「準備中」への行き止まり
   // を出さない）。構成済みの場合に項目が現れることは後続テストが固定する。
@@ -47,7 +48,8 @@ test('MCP settings performs owner login and logout without retaining the passwor
     return route.abort();
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
@@ -56,7 +58,14 @@ test('MCP settings performs owner login and logout without retaining the passwor
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await expect(page.getByText('ログインしました。', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ログアウト', exact: true })).toBeVisible();
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  // ログイン用のパスワード欄が DOM に残っていないこと（このテストの
+  // 狙い）。設定には PR-D で移設されたセッションキー欄（実行キー／
+  // 管理者キー）が常設され、どちらも type="password" のため、画面に
+  // 残るパスワード欄はその2つだけであることもあわせて固定する。
+  await expect(page.getByLabel('パスワード')).toHaveCount(0);
+  await expect(page.locator('input[type="password"]')).toHaveCount(2);
+  await expect(page.getByLabel('実行キー', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('管理者キー', { exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByText('ログアウトしました。', { exact: true })).toBeVisible();
   await expect(page.getByText(/オーナー認証が必要/)).toBeVisible();
@@ -87,7 +96,8 @@ test('MCP settings handles register, check and disconnect with a simulated authe
     return route.fulfill({ status: 201, json: { ok: true, connection: connections[0] } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
@@ -110,14 +120,21 @@ test('MCP settings starts reviewed OAuth without rendering service credentials',
     return route.fulfill({ json: { ok: true, authorizationUrl } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+  await page.getByTestId('sidebar-toggle').click();
+  await page.getByTestId('sidebar-settings').click();
   await page.getByText('外部サービス連携（設定・状態確認）', { exact: true }).click();
   await page.getByRole('button', { name: '外部サービス連携', exact: true }).click();
   await page.getByLabel('接続するサービス').selectOption('docs');
   await page.getByRole('button', { name: '認証を開始', exact: true }).click();
   const link = page.getByRole('link', { name: '公式の認証画面へ進む', exact: true });
   await expect(link).toHaveAttribute('href', authorizationUrl);
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  // サービス側の資格情報を入力・表示する欄が無いこと（このテストの
+  // 狙い）。設定には PR-D で移設されたオーナー自身のセッションキー欄
+  // （実行キー／管理者キー）が常設されるため、パスワード欄はその
+  // 2つだけに限られることを固定する。
+  await expect(page.locator('input[type="password"]')).toHaveCount(2);
+  await expect(page.getByLabel('実行キー', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('管理者キー', { exact: true })).toHaveCount(1);
   await expect(page.getByRole('dialog')).not.toContainText('refresh_token');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import AgentTaskBoard from './AgentTaskBoard';
+import { setSessionCredential } from '../security/sessionCredentials';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -11,6 +12,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 afterEach(() => {
   cleanup();
+  setSessionCredential('admin', '');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -56,7 +58,7 @@ describe('AgentTaskBoard', () => {
     render(<AgentTaskBoard />);
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
-    expect(await screen.findByText(/管理者キーを入力するか、上の画面で計画を作ってください/)).toBeTruthy();
+    expect(await screen.findByText(/上の画面で計画を作ると、ここに表示されます/)).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -89,7 +91,7 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    setSessionCredential('admin', 'owner-key');
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
     expect(await screen.findByRole('heading', { name: /承認待ち/ })).toBeTruthy();
@@ -265,7 +267,7 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    setSessionCredential('admin', 'owner-key');
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
     await screen.findByText('調査レポートを作ってください');
 
@@ -316,7 +318,7 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    setSessionCredential('admin', 'owner-key');
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
     expect(await screen.findByText('実行待ち')).toBeTruthy();
@@ -352,7 +354,7 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
-    fireEvent.change(screen.getByLabelText('作業用の管理者キー'), { target: { value: 'owner-key' } });
+    setSessionCredential('admin', 'owner-key');
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
     await screen.findByText('調査レポートを作ってください');
     await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 50); }); });

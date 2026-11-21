@@ -34,7 +34,7 @@ export default function FormattedMarkdown({ text }: { text: string }) {
       const numbered = line.match(/^(\d+)\.\s+(.*)$/);
       if (numbered) {
         return <p key={`num-${index}`} className="ml-1 flex gap-2">
-          <span aria-hidden="true" className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[11px] font-black text-origin-brand">{numbered[1]}</span>
+          <span aria-hidden="true" className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[13px] font-black text-origin-brand">{numbered[1]}</span>
           <span>{renderInline(numbered[2])}</span>
         </p>;
       }

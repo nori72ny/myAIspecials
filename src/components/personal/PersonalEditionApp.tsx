@@ -154,14 +154,11 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     <OriginSidebar open={sidebarOpen} workspace={workspace} isEn={isEn} onClose={() => setSidebarOpen(false)} onNavigate={handleSidebarNavigate} onNewConversation={handleSidebarNewConversation} onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined} />
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
-    {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 py-2 sm:px-4">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={2.1} /></button>
-          <button type="button" aria-label={isEn ? 'Back to chat' : '会話に戻る'} onClick={() => switchWorkspace('chat')} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">← {isEn ? 'Chat' : '会話'}</button>
-        </div>
+    {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 sm:px-4">
+      <div className="mx-auto flex min-h-14 w-full max-w-[var(--content-wide)] items-center gap-3">
+        <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={2.1} /></button>
         <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'agent' ? (isEn ? 'Agent' : 'エージェント') : (isEn ? 'Code' : 'コード')}</span>
-        <span aria-hidden="true" className="min-w-11 sm:min-w-[72px]" />
+        <span aria-hidden="true" className="min-w-11 shrink-0" />
       </div>
     </section>}
 
@@ -206,7 +203,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
       />}
 
       {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
-      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} /></Suspense></div>}
+      {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onOpenSettings={onOpenSettings} /></Suspense></div>}
     </div>
 
     {workspace === 'chat' && creativePanelRequest !== null && <Suspense fallback={null}><CreativePanel initialRequest={creativePanelRequest} onClose={() => setCreativePanelRequest(null)} onArtifactCreated={handleCreativeArtifactCreated} /></Suspense>}

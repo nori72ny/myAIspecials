@@ -75,6 +75,18 @@ async function restoreSavedSessionFromHistoryDrawer(page, expectedPrompt) {
   await savedSession.click();
 }
 
+async function startNewConversationFromSidebar(page) {
+  // PR-D (IA cleanup) consolidated the new-conversation control into the
+  // sidebar (testid "sidebar-new-conversation", label "新しい会話"); the
+  // former header button "新しい会話を始める" no longer exists, and its
+  // absence is pinned by App.test.tsx and the navigation E2E spec. Open
+  // the drawer first when it is closed, mirroring the E2E specs.
+  if ((await page.getByTestId("origin-sidebar").getAttribute("data-open")) !== "true") {
+    await page.getByTestId("sidebar-toggle").click();
+  }
+  await page.getByTestId("sidebar-new-conversation").click();
+}
+
 async function verifyHistoryAndRecovery(browser, baseUrl) {
   const context = await browser.newContext({ serviceWorkers: "block" });
   const page = await context.newPage();
@@ -141,12 +153,12 @@ async function verifyHistoryAndRecovery(browser, baseUrl) {
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 15_000 });
     await page.getByText("セッションを整理しました。").waitFor({ state: "visible", timeout: 15_000 });
 
-    await page.getByRole("button", { name: "新しい会話を始める" }).click();
+    await startNewConversationFromSidebar(page);
     await page.getByTestId("origin-home-request").waitFor({ state: "visible", timeout: 10_000 });
     await restoreSavedSessionFromHistoryDrawer(page, firstPrompt);
     await page.locator("p").filter({ hasText: firstPrompt }).first().waitFor({ state: "visible", timeout: 10_000 });
 
-    await page.getByRole("button", { name: "新しい会話を始める" }).click();
+    await startNewConversationFromSidebar(page);
     await page.getByTestId("origin-home-request").fill("失敗回復を確認してください");
     await page.getByTestId("start-request-button").click();
     await page.getByText(MODEL_BUSY_MESSAGE).waitFor({ state: "visible", timeout: 10_000 });

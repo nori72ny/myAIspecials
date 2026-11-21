@@ -95,14 +95,14 @@ export default function CreativeArtifactEditorV15({ artifact, onRegenerated }: C
     <section aria-label="デザインを編集" className="origin-surface mb-4 rounded-2xl border border-[var(--border-default)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-black">デザインを編集</h3>
-        <span className="text-xs font-semibold" role="status">{status === 'ready' ? '利用できます' : status === 'loading' ? '使えるか確認しています…' : '今は使えません'}</span>
+        <span className="text-[13px] font-semibold" role="status">{status === 'ready' ? '利用できます' : status === 'loading' ? '使えるか確認しています…' : '今は使えません'}</span>
       </div>
-      <p className="mt-1 text-xs leading-5 opacity-70">タイトル・内容・種類・レイアウト・色を変えて、品質を確認した画像を作り直せます。</p>
+      <p className="mt-1 text-[13px] leading-5 opacity-70">タイトル・内容・種類・レイアウト・色を変えて、品質を確認した画像を作り直せます。</p>
       <div className="mt-3">
         <CreativeDraftFieldsV15 idPrefix={`creative-artifact-${artifact.id}`} draft={draft} onChange={setDraft} disabled={busy} />
       </div>
       {error && <div role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">{error}</div>}
-      {notice && <p role="status" className="mt-3 text-xs font-semibold">{notice}</p>}
+      {notice && <p role="status" className="mt-3 text-[13px] font-semibold">{notice}</p>}
       <button type="button" data-testid="creative-artifact-regenerate" disabled={!canRegenerate} onClick={() => void regenerate()} className="origin-primary-button mt-4 min-h-12 w-full rounded-2xl px-5 text-sm font-black shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40">
         {busy ? '再作成・確認中…' : 'デザインを再作成'}
       </button>

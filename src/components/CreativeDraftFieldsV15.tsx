@@ -31,7 +31,7 @@ export default function CreativeDraftFieldsV15({ draft, onChange, disabled = fal
 
   const inputClass = 'min-w-0 w-full rounded-xl border border-[var(--border-default)] bg-transparent px-3 text-base text-[var(--text-primary)]';
   const labelClass = 'grid gap-1.5 text-sm font-bold';
-  const detailLabelClass = 'grid gap-1.5 text-xs font-bold';
+  const detailLabelClass = 'grid gap-1.5 text-[13px] font-bold';
 
   return (
     <div className="grid gap-4">
@@ -78,12 +78,12 @@ export default function CreativeDraftFieldsV15({ draft, onChange, disabled = fal
           </label>
 
           <fieldset className="rounded-2xl border border-[var(--border-default)] p-3">
-            <legend className="px-1 text-xs font-bold">カラー</legend>
+            <legend className="px-1 text-[13px] font-bold">カラー</legend>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {([
                 ['background', '背景'], ['foreground', '文字'], ['accent', 'アクセント'], ['muted', '補助'],
               ] as const).map(([key, label]) => (
-                <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--border-default)] px-2 text-xs font-semibold">
+                <label key={key} className="flex min-h-11 items-center gap-2 rounded-xl border border-[var(--border-default)] px-2 text-[13px] font-semibold">
                   <input type="color" value={draft[key]} disabled={disabled} onChange={(event) => update(key, event.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0" aria-label={`${label}色`} />
                   {label}
                 </label>

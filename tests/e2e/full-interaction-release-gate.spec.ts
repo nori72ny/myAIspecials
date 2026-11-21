@@ -57,6 +57,14 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
   const audit = await page.locator('button, a[href]').evaluateAll((elements) => elements
     .filter((element) => {
       const node = element as HTMLElement;
+      // Controls inside a closed drawer/sheet are not auditable: the
+      // container is inert and aria-hidden, so users can neither
+      // operate nor perceive them. The drawer's close transition
+      // flips visibility 300ms after the slide-out starts, so during
+      // that window geometry alone would misreport the drawer's own
+      // controls as off-screen defects (surfaced by PR #1407, whose
+      // flows close the drawer right before several audits).
+      if (node.closest('[inert], [aria-hidden="true"]')) return false;
       const style = getComputedStyle(node);
       const rect = node.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
@@ -86,7 +94,11 @@ async function assertSurfaceContract(page: import('@playwright/test').Page, view
     expect(item.left, `${item.name} left edge`).toBeGreaterThanOrEqual(-1);
     expect(item.right, `${item.name} right edge`).toBeLessThanOrEqual(viewportWidth + 1);
     if (viewportWidth <= 768 && item.tag === 'BUTTON') {
-      // getBoundingClientRect は transform 配下で float32 の丸め誤差（44px が 43.999996 等）を持ちうるため、0.01px 未満の誤差は 44px を満たすものとして扱う
+      // A control that is exactly 44px by design can measure 43.999996px
+      // under a transformed ancestor (float32 ULP dust in
+      // getBoundingClientRect). The 0.01px tolerance absorbs only that
+      // measurement dust and does not change the 44px design contract
+      // itself (same treatment as the #1405 close-button audit).
       expect(item.height, `${item.name} mobile tap height`).toBeGreaterThanOrEqual(44 - 0.01);
     }
     if (item.tag === 'A') {
@@ -141,7 +153,11 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
         }
 
         if (surface.menuLabel) {
-          await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+          // 「← 会話」は PR-D で廃止。サイドバーから会話へ戻る。
+          if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+            await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+          }
+          await page.getByTestId('sidebar-nav-chat').click();
           await expect(page).not.toHaveURL(/workspace=/);
           await expect(page.getByTestId('origin-home-request')).toBeVisible();
         }
@@ -202,7 +218,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await expect(menu).toBeHidden();
       await expect(add).toBeFocused();
 
-      await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-settings').click();
       const settings = page.getByRole('dialog', { name: /設定|Settings/i });
       await expect(settings).toBeVisible();
       const settingsBox = await settings.boundingBox();
@@ -310,7 +329,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
       await page.getByTestId('origin-add-menu-toggle').click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`workspace=${workspace}`));
-      await page.getByRole('button', { name: '会話に戻る', exact: true }).click();
+      if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+        await page.locator('section[aria-label="Workspace tool header"]').getByTestId('sidebar-toggle').click();
+      }
+      await page.getByTestId('sidebar-nav-chat').click();
       await expect(page).not.toHaveURL(/workspace=/);
     }
 
@@ -327,7 +349,10 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
     await expect(page).not.toHaveURL(/workspace=/);
 
     // Settings controls must change state and close visibly.
-    await page.getByRole('button', { name: '設定を開く', exact: true }).click();
+    if ((await page.getByTestId('origin-sidebar').getAttribute('data-open')) !== 'true') {
+      await page.getByTestId('sidebar-toggle').click();
+    }
+    await page.getByTestId('sidebar-settings').click();
     const luxury = page.getByTestId('design-theme-luxury');
     await luxury.click();
     await expect(luxury).toHaveAttribute('aria-pressed', 'true');

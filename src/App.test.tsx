@@ -152,17 +152,15 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
 
     const controls = [
       screen.getByTestId('history-drawer-toggle'),
-      screen.getByRole('button', { name: '設定を開く' }),
       screen.getByTestId('origin-add-menu-toggle'),
     ];
     const sendControl = screen.getByTestId('start-request-button');
 
     const historyControl = screen.getByTestId('history-drawer-toggle');
-    const settingsControl = screen.getByRole('button', { name: '設定を開く' });
     expect(historyControl.querySelector('svg.lucide-menu')).toBeTruthy();
-    expect(settingsControl.querySelector('svg.lucide-settings')).toBeTruthy();
     expect(historyControl.textContent).not.toContain('☰');
-    expect(settingsControl.textContent).not.toContain('⚙');
+    // 設定ボタンはヘッダーに無い（サイドバーへ集約、PR-D）。
+    expect(screen.queryByRole('button', { name: '設定を開く' })).toBeNull();
 
     for (const control of controls) {
       expect(control.className).toMatch(/\b(?:min-h-11|h-11)\b/);
@@ -176,9 +174,10 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.getByRole('menuitem', { name: 'ファイルを添付' })).toBeTruthy();
 
     const header = document.querySelector('.origin-header') as HTMLElement;
-    // ヘッダーのボタンは履歴・設定の2つだけ。オリンはヘッダーに
-    // 置かず、上部中央の浮遊プレゼンスに一本化した（2026-11-14 08:59）。
-    expect(within(header).getAllByRole('button')).toHaveLength(2);
+    // ヘッダーのボタンは履歴トグルだけ（設定・新しい会話はサイドバー
+    // へ集約、PR-D）。オリンはヘッダーに置かず、上部中央の浮遊
+    // プレゼンスに一本化した（2026-11-14 08:59）。
+    expect(within(header).getAllByRole('button')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: '新しい会話を始める' })).toBeNull();
     for (const control of within(header).getAllByRole('button')) {
       expect(control.className).toContain('whitespace-nowrap');
@@ -248,6 +247,55 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(screen.queryByTestId('home-suggestion-2')).toBeNull();
     expect(screen.queryByTestId('home-suggestion-3')).toBeNull();
     expect(screen.queryByTestId('home-suggestion-4')).toBeNull();
+  });
+
+  it('shows the four fixed starter chips on the empty state (PR-C)', () => {
+    render(<App language="ja" />);
+
+    const chipRow = screen.getByTestId('origin-starter-chips');
+    const chips = within(chipRow).getAllByRole('button');
+    expect(chips.map((chip) => chip.textContent)).toEqual(['ニュースを調べる', '企画書を作る', '画像を描く', 'メールの下書き']);
+    for (const chip of chips) {
+      expect(chip.className).toContain('h-11');
+      expect(chip.className).toContain('rounded-full');
+    }
+  });
+
+  it('shows the English starter chips when language is English (PR-C)', () => {
+    render(<App language="en" />);
+
+    const chipRow = screen.getByTestId('origin-starter-chips');
+    const chips = within(chipRow).getAllByRole('button');
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Check the news', 'Draft a proposal', 'Draw an image', 'Draft an email']);
+  });
+
+  it('sends the starter chip prompt immediately on tap and leaves the empty state (PR-C)', async () => {
+    const chatReply = (content: string) => new Response(JSON.stringify({
+      content,
+      routing: { modelId: 'google/gemma-4-31b-it:free', freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: 'google/gemma-4-31b-it:free', servedModel: 'google/gemma-4-31b-it:free', fallbackUsed: false } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (requestPath(input) === '/api/chat') return chatReply('下書きを作りました');
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App language="ja" />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'メールの下書き' }));
+
+      // Tapping sends the fixed prompt at once (no draft is placed in the
+      // composer): the prompt becomes the first user turn and the home-only
+      // chip row disappears with the empty state.
+      expect(await screen.findByText('お礼のメールの下書きを作ってください')).toBeTruthy();
+      const chatCalls = fetchMock.mock.calls.filter(([input]) => requestPath(input) === '/api/chat');
+      expect(chatCalls).toHaveLength(1);
+      expect(String((chatCalls[0]?.[1] as RequestInit)?.body)).toContain('お礼のメールの下書きを作ってください');
+      expect(screen.queryByTestId('origin-starter-chips')).toBeNull();
+      expect(screen.queryByTestId('origin-home-request')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('opens renderable artifacts in preview first and exposes source only on demand', () => {
