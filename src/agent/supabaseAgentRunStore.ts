@@ -1,8 +1,13 @@
+import { createHash } from 'node:crypto';
 import { Pool, type QueryResult } from 'pg';
 import { createAgentRunSchemaEnsuringExecutor } from './agentRunSchema.js';
 import {
   AGENT_RUN_ID_PATTERN,
   AGENT_RUN_OWNER_BINDING_PATTERN,
+  MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
+  MAX_AGENT_RUN_ARTIFACT_CHARS,
+  MAX_AGENT_RUN_PLAN_STEPS,
+  MAX_AGENT_RUN_STEP_ATTEMPTS,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
   normalizeAgentRunApprovalDeadlineAt,
@@ -15,12 +20,14 @@ import {
   normalizeAgentRunQuotaLedger,
   normalizeAgentRunStepsState,
   validateCreateAgentRunInput,
+  validatePutAgentRunStepArtifacts,
   type AgentRunFinishStatus,
   type AgentRunHold,
   type AgentRunLeaseRecord,
   type AgentRunProgressPatch,
   type AgentRunRecord,
   type AgentRunRecordStatus,
+  type AgentRunStepArtifact,
   type AgentRunStore,
   type CreateAgentRunInput,
   type ListAgentRunsByOwnerOptions,
@@ -39,12 +46,20 @@ export interface AgentRunSqlExecutor {
   query<T extends DbRow = DbRow>(text: string, values?: readonly unknown[]): Promise<QueryResult<T>>;
 }
 
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+const MAX_ARTIFACT_SWEEP = 1000;
+const DEFAULT_ARTIFACT_SWEEP = 100;
+
 const RECORD_RETURNING = `run_id, owner_binding, goal, status, plan, plan_digest,
   steps_state, parent_run_id, priority, hold, quota_ledger, prior_resume_attempts,
   floor(extract(epoch from approval_deadline_at) * 1000)::text as approval_deadline_ms,
   version,
   floor(extract(epoch from created_at) * 1000)::text as created_ms,
   floor(extract(epoch from updated_at) * 1000)::text as updated_ms,
+  floor(extract(epoch from expires_at) * 1000)::text as expires_ms`;
+const ARTIFACT_RETURNING = `run_id, step_index, step_fingerprint, attempt, artifact,
+  artifact_bytes, artifact_sha256,
+  floor(extract(epoch from created_at) * 1000)::text as created_ms,
   floor(extract(epoch from expires_at) * 1000)::text as expires_ms`;
 const LEASE_RETURNING = `${RECORD_RETURNING}, driver_id,
   floor(extract(epoch from lease_expires_at) * 1000)::text as lease_ms`;
@@ -168,6 +183,55 @@ function parseLeaseRecord(row: DbRow): AgentRunLeaseRecord {
   const driverId = row.driver_id;
   if (!validDriverId(driverId)) throw new Error('AGENT_RUN_DB_ROW_INVALID');
   return { ...record, driverId, leaseExpiresAt: milliseconds(row.lease_ms) };
+}
+
+/**
+ * Parses one step-artifact row with the same strictness as run
+ * records — and verifies the stored integrity fields against the body
+ * itself, so a row whose byte count or digest disagrees with its
+ * artifact is rejected instead of being handed to a consumer.
+ */
+function parseArtifactRow(row: DbRow): AgentRunStepArtifact {
+  const runId = row.run_id;
+  if (typeof runId !== 'string' || !AGENT_RUN_ID_PATTERN.test(runId)) throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  const stepIndex = Number(row.step_index);
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= MAX_AGENT_RUN_PLAN_STEPS) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  const stepFingerprint = row.step_fingerprint;
+  if (typeof stepFingerprint !== 'string' || !SHA256_HEX_PATTERN.test(stepFingerprint)) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  const attempt = Number(row.attempt);
+  if (!Number.isInteger(attempt) || attempt < 0 || attempt > MAX_AGENT_RUN_STEP_ATTEMPTS) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  const artifact = row.artifact;
+  if (typeof artifact !== 'string' || artifact.length > MAX_AGENT_RUN_ARTIFACT_CHARS) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  const artifactBytes = Number(row.artifact_bytes);
+  if (!Number.isInteger(artifactBytes) || artifactBytes !== Buffer.byteLength(artifact, 'utf8')) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  const artifactSha256 = row.artifact_sha256;
+  if (typeof artifactSha256 !== 'string' || !SHA256_HEX_PATTERN.test(artifactSha256)) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  if (createHash('sha256').update(artifact, 'utf8').digest('hex') !== artifactSha256) {
+    throw new Error('AGENT_RUN_DB_ROW_INVALID');
+  }
+  return {
+    runId,
+    stepIndex,
+    stepFingerprint,
+    attempt,
+    artifact,
+    artifactBytes,
+    artifactSha256,
+    createdAt: milliseconds(row.created_ms),
+    expiresAt: milliseconds(row.expires_ms),
+  };
 }
 
 function jsonParam(value: unknown): string | null {
@@ -422,20 +486,121 @@ export class PostgresAgentRunStore implements AgentRunStore {
     if (!AGENT_RUN_ID_PATTERN.test(runId) || !validDriverId(driverId)) throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
     const hasStepsState = patch.stepsState !== undefined;
     const hasLedger = patch.quotaLedger !== undefined;
-    if (!hasStepsState && !hasLedger) throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
+    const hasArtifacts = patch.artifacts !== undefined;
+    if (!hasStepsState && !hasLedger && !hasArtifacts) throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
     const stepsStateJson = hasStepsState ? JSON.stringify(normalizeAgentRunStepsState(patch.stepsState)) : null;
     const ledgerJson = hasLedger ? JSON.stringify(normalizeAgentRunQuotaLedger(patch.quotaLedger)) : null;
+    if (!hasArtifacts) {
+      const result = await this.database.query(
+        `update public.origin_agent_runs
+         set steps_state = case when $3 then $4::jsonb else steps_state end,
+             quota_ledger = case when $5 then $6::jsonb else quota_ledger end,
+             updated_at = clock_timestamp(), version = version + 1
+         where run_id = $1 and driver_id = $2 and status = 'running'
+           and lease_expires_at > clock_timestamp() and expires_at > clock_timestamp()
+         returning run_id`,
+        [runId, driverId, hasStepsState, stepsStateJson, hasLedger, ledgerJson],
+      );
+      return result.rowCount === 1;
+    }
+    // Step artifacts ride the same fenced statement as the progress
+    // write (design §4.4): the upsert selects from the progress CTE,
+    // so a driver whose fence no longer matches writes no artifact
+    // rows at all — the two writes land together or not at all. The
+    // batch travels as one jsonb parameter (jsonb_to_recordset) so no
+    // parameter's type ever depends on inference across uses. The
+    // per-run total cap is a WHERE on the insert: when the batch would
+    // push the run past it, the progress write still lands but no
+    // artifact is saved (never a truncated one), and the consuming
+    // step fails later exactly as it does today.
+    const artifacts = validatePutAgentRunStepArtifacts(patch.artifacts ?? []);
+    const batchJson = JSON.stringify(artifacts.map((artifact) => ({
+      step_index: artifact.stepIndex,
+      step_fingerprint: artifact.stepFingerprint,
+      attempt: artifact.attempt,
+      artifact: artifact.artifact,
+      artifact_bytes: artifact.artifactBytes,
+      artifact_sha256: artifact.artifactSha256,
+    })));
+    const batchTotalChars = artifacts.reduce((sum, artifact) => sum + artifact.charCount, 0);
     const result = await this.database.query(
-      `update public.origin_agent_runs
-       set steps_state = case when $3 then $4::jsonb else steps_state end,
-           quota_ledger = case when $5 then $6::jsonb else quota_ledger end,
-           updated_at = clock_timestamp(), version = version + 1
-       where run_id = $1 and driver_id = $2 and status = 'running'
-         and lease_expires_at > clock_timestamp() and expires_at > clock_timestamp()
-       returning run_id`,
-      [runId, driverId, hasStepsState, stepsStateJson, hasLedger, ledgerJson],
+      `with progress as (
+         update public.origin_agent_runs
+         set steps_state = case when $3 then $4::jsonb else steps_state end,
+             quota_ledger = case when $5 then $6::jsonb else quota_ledger end,
+             updated_at = clock_timestamp(), version = version + 1
+         where run_id = $1 and driver_id = $2 and status = 'running'
+           and lease_expires_at > clock_timestamp() and expires_at > clock_timestamp()
+         returning run_id, expires_at
+       ),
+       incoming as (
+         select incoming.step_index, incoming.step_fingerprint, incoming.attempt,
+                incoming.artifact, incoming.artifact_bytes, incoming.artifact_sha256
+         from jsonb_to_recordset($7::jsonb) as incoming(
+           step_index integer, step_fingerprint text, attempt integer,
+           artifact text, artifact_bytes integer, artifact_sha256 text)
+       ),
+       saved as (
+         insert into public.origin_agent_run_artifacts
+           (run_id, step_index, step_fingerprint, attempt, artifact, artifact_bytes, artifact_sha256, expires_at)
+         select p.run_id, i.step_index, i.step_fingerprint, i.attempt, i.artifact,
+                i.artifact_bytes, i.artifact_sha256, p.expires_at
+         from progress p
+         join incoming i on true
+         where (
+           select coalesce(sum(char_length(a.artifact)), 0)
+           from public.origin_agent_run_artifacts a
+           where a.run_id = p.run_id
+             and not (a.step_index in (select step_index from incoming))
+         ) + $8::integer <= $9::integer
+         on conflict (run_id, step_index) do update
+           set step_fingerprint = excluded.step_fingerprint,
+               attempt = excluded.attempt,
+               artifact = excluded.artifact,
+               artifact_bytes = excluded.artifact_bytes,
+               artifact_sha256 = excluded.artifact_sha256,
+               expires_at = excluded.expires_at,
+               created_at = clock_timestamp()
+         returning run_id
+       )
+       select progress.run_id from progress`,
+      [
+        runId, driverId, hasStepsState, stepsStateJson, hasLedger, ledgerJson,
+        batchJson, batchTotalChars, MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
+      ],
     );
     return result.rowCount === 1;
+  }
+
+  async listStepArtifacts(runId: string): Promise<AgentRunStepArtifact[]> {
+    if (!AGENT_RUN_ID_PATTERN.test(runId)) return [];
+    const result = await this.database.query(
+      `select ${ARTIFACT_RETURNING}
+       from public.origin_agent_run_artifacts
+       where run_id = $1 and expires_at > clock_timestamp()
+       order by step_index asc`,
+      [runId],
+    );
+    return result.rows.map((row) => parseArtifactRow(row));
+  }
+
+  async sweepExpiredArtifacts(limit = DEFAULT_ARTIFACT_SWEEP): Promise<number> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ARTIFACT_SWEEP) {
+      throw new Error('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');
+    }
+    const result = await this.database.query(
+      `with due as (
+         select ctid from public.origin_agent_run_artifacts
+         where expires_at <= clock_timestamp()
+         order by expires_at asc limit $1
+       )
+       delete from public.origin_agent_run_artifacts a
+       using due
+       where a.ctid = due.ctid
+       returning a.run_id`,
+      [limit],
+    );
+    return result.rowCount ?? result.rows.length;
   }
 
   async finish(
