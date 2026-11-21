@@ -21,7 +21,7 @@ describe('ORIGIN top experience regression boundary', () => {
     // (OriginSidebar onOpenSettings), never a DOM click listener.
     expect(app).not.toContain('onClick={onOpenSettings}');
     expect(personalEditionApp).toContain('onOpenSettings={onOpenSettings ? handleSidebarOpenSettings : undefined}');
-    expect(main).toContain('onOpenSettings={() => setIsSettingsOpen(true)}');
+    expect(main).toContain('onOpenSettings={(section) => { setSettingsFocusSection(section ?? null); setIsSettingsOpen(true); }}');
     expect(main).not.toContain("document.addEventListener('click', handleSettingsTrigger, true)");
     expect(main).not.toContain('event.stopPropagation()');
   });

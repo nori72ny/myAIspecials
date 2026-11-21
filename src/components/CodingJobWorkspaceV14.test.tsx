@@ -277,7 +277,24 @@ describe('CodingJobWorkspaceV14', () => {
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledWith('coding');
     // 設定へ案内するだけで、ジョブは作らない。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows where the execution key is entered, with a settings shortcut, before any goal is typed', async () => {
+    const onOpenSettings = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(capability));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CodingJobWorkspaceV14 onOpenSettings={onOpenSettings} />);
+    await screen.findByText('準備できています');
+    // 依頼文を書く前（初期状態）でも、キーの入力先と設定を開く導線が見え、
+    // 行き止まりにならない。
+    expect(screen.getByText('実行キーは、設定の「コード実行」で入力します。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く' }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenSettings).toHaveBeenCalledWith('coding');
+    // 案内するだけで、ジョブは作らない。
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

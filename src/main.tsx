@@ -240,6 +240,7 @@ function PersonalReleaseRoot() {
   const { settings, updateSettings } = usePersonalSettings();
   const t = getTranslations(settings.language);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsFocusSection, setSettingsFocusSection] = useState<'coding' | null>(null);
   // 起動時は保存済みの進行中会話をそのまま開かず、必ずトップ画面
   // （空の会話）から始める。前回の会話は hydration の完了時に履歴
   // セッションへ退避され、失われない（オーナー指示 2026-11-09）。
@@ -286,9 +287,9 @@ function PersonalReleaseRoot() {
   return <>
     <FocusModeController />
     <SplashScreen ready={hasPainted} oncePerSession />
-    <PersonalEditionApp settings={settings} onOpenSettings={() => setIsSettingsOpen(true)} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={restoreSession} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
+    <PersonalEditionApp settings={settings} onOpenSettings={(section) => { setSettingsFocusSection(section ?? null); setIsSettingsOpen(true); }} messages={messages} sessions={sessions} artifacts={artifacts} onArchiveSession={archiveSession} onRestoreSession={restoreSession} onMessagesChange={(next) => { dirtyDuringHydration.current.messages = true; if (!storageReadFailed) journalMessages(next); setMessages(next); }} onArtifactsChange={(next) => { dirtyDuringHydration.current.artifacts = true; setArtifacts(next); }} resetSignal={resetSignal} />
     <SettingsErrorBoundary>
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} sourceSessionIds={new Set(sessions.map((session) => session.id))} onOpenSourceSession={openSourceSession} />
+      <SettingsModal isOpen={isSettingsOpen} focusSection={settingsFocusSection} onClose={() => { setIsSettingsOpen(false); setSettingsFocusSection(null); }} settings={settings} updateSettings={updateSettings} savedConversationCount={sessions.length} onExportHistory={exportHistory} onImportHistory={importHistory} onResetHistory={resetConversation} sourceSessionIds={new Set(sessions.map((session) => session.id))} onOpenSourceSession={openSourceSession} />
     </SettingsErrorBoundary>
     {updateReady && <p role="status" className="origin-pwa-update-notice">{t.pwaUpdateNotice}</p>}
     {(!isHydrated || storageHealth !== 'ready') && <p data-testid="origin-storage-status" role="status" className="sr-only">{!isHydrated ? 'この端末への保存を準備しています。' : 'この端末に保存できないため、このセッションはメモリ上だけで続けています。'}</p>}

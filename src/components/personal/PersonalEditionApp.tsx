@@ -21,7 +21,7 @@ function workspaceLocation(): OriginWorkspaceModeV31 {
 
 type PersonalEditionAppProps = {
   settings?: Settings;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (section?: 'coding') => void;
   messages?: ConversationMessage[];
   sessions?: readonly ConversationSession[];
   artifacts?: readonly ArtifactBlock[];

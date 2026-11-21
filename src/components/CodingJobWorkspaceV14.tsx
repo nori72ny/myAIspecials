@@ -156,7 +156,7 @@ function StatusBadge({ status, cancelRequested }: { status: CodingJobStatus; can
   </span>;
 }
 
-type CodingJobWorkspaceV14Props = { initialGoal?: string; onOpenSettings?: () => void };
+type CodingJobWorkspaceV14Props = { initialGoal?: string; onOpenSettings?: (section?: 'coding') => void };
 
 export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: CodingJobWorkspaceV14Props) {
   const [goal, setGoal] = useState(() => initialGoal?.trim().slice(0, 4000) ?? '');
@@ -345,7 +345,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
 
         <button
           type="button"
-          onClick={() => { if (promptForCredential) { onOpenSettings?.(); return; } void startJob(); }}
+          onClick={() => { if (promptForCredential) { onOpenSettings?.('coding'); return; } void startJob(); }}
           disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
           aria-describedby="coding-run-status"
           title={!ready ? '今は利用できないため、始められません' : !goal.trim() ? '作りたいもの・直したいことを入力してください' : job && ACTIVE.has(job.status) ? '今の作業が終わるまで、新しい依頼は始められません' : undefined}
@@ -357,6 +357,13 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
         <div id="coding-run-status" role="status" className="mt-3 text-[13px]">
           <span className={ready && hasCredential ? 'font-bold text-origin-success' : 'text-origin-muted'}>{checkingCapability ? '利用できるか確認しています…' : !ready ? '今は利用できません' : hasCredential ? '利用できます' : '実行キーを入力すると始められます'}</span>
         </div>
+
+        {ready && !hasCredential && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">
+            <span className="text-origin-muted">実行キーは、設定の「コード実行」で入力します。</span>
+            <button type="button" onClick={() => onOpenSettings?.('coding')} className="origin-secondary-button inline-flex min-h-11 items-center rounded-xl border px-3 text-sm font-semibold">設定を開く</button>
+          </div>
+        )}
 
         <details className="mt-2 border-t border-origin-border pt-2 text-[13px]" onToggle={event => handleCapabilityDetailToggle(event.currentTarget.open)}>
           <summary className="min-h-11 cursor-pointer py-3 font-semibold">実行の詳しい情報</summary>

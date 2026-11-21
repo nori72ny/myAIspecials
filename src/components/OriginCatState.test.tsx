@@ -221,9 +221,11 @@ describe('OriginCatState', () => {
   it('maps exactly the working and searching states to motion videos (M2-3)', () => {
     expect(Object.keys(ORIGIN_CAT_VIDEO_SRC).sort()).toEqual(['searching', 'working']);
     expect(ORIGIN_CAT_VIDEO_SRC.working).toBe(ORIGIN_CAT_WORKING_VIDEO_SRC);
-    // searching 動画の配置先パスはこの文字列で固定する（素材ファイルは
-    // バイナリのため GitHub Web から別途このパスへ配置する手順）。
-    expect(ORIGIN_CAT_SEARCHING_VIDEO_SRC).toBe('/brand/origin-cat-searching.mp4');
+    // 動画は透過チャンネルを持てる WebM に統一する（2026-11-21 の
+    // 透過化で MP4 から変換）。配置先パスはこの文字列で固定する
+    // （素材ファイルはバイナリのため GitHub Web から別途配置する手順）。
+    expect(ORIGIN_CAT_WORKING_VIDEO_SRC).toBe('/brand/origin-cat-working.webm');
+    expect(ORIGIN_CAT_SEARCHING_VIDEO_SRC).toBe('/brand/origin-cat-searching.webm');
     expect(ORIGIN_CAT_VIDEO_SRC.searching).toBe(ORIGIN_CAT_SEARCHING_VIDEO_SRC);
   });
 

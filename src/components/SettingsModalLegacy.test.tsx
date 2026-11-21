@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from '../types';
 import SettingsModalLegacy from './SettingsModalLegacy';
@@ -84,6 +84,20 @@ describe('SettingsModalLegacy focus trap', () => {
     const personalIndex = headings.findIndex((text) => text?.includes('あなたについて'));
     expect(historyIndex).toBeGreaterThanOrEqual(0);
     expect(personalIndex).toBe(historyIndex + 1);
+  });
+
+  it('focuses the coding key input when opened with focusSection="coding"', async () => {
+    render(
+      <SettingsModalLegacy
+        isOpen
+        onClose={() => undefined}
+        settings={settings}
+        updateSettings={() => undefined}
+        focusSection="coding"
+      />,
+    );
+    const input = await screen.findByLabelText('実行キー');
+    await waitFor(() => expect(document.activeElement).toBe(input));
   });
 
   it('stores the coding and admin keys in the session credential module only', async () => {

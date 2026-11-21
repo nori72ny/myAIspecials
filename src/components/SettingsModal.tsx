@@ -18,6 +18,8 @@ interface Props {
   onOpenSourceSession?: (sessionId: string) => void;
   /** Pointer id captured by the settings opener, when available. */
   openingPointerId?: number;
+  /** Section to bring into view when the modal opens (e.g. from the code screen's key guidance). */
+  focusSection?: 'coding' | null;
 }
 
 export default function SettingsModal({
@@ -32,6 +34,7 @@ export default function SettingsModal({
   sourceSessionIds,
   onOpenSourceSession,
   openingPointerId,
+  focusSection,
 }: Props) {
   const openingPointerIdRef = useRef<number | null>(null);
   const [portalHost] = useState<HTMLElement | null>(() =>
@@ -67,6 +70,7 @@ export default function SettingsModal({
         onResetHistory={onResetHistory}
         sourceSessionIds={sourceSessionIds}
         onOpenSourceSession={onOpenSourceSession}
+        focusSection={focusSection}
       />
     </div>,
     portalHost,

@@ -928,8 +928,9 @@ describe('catStateForPhase', () => {
     const cat = screen.getByTestId('origin-cat-state');
     expect(cat.getAttribute('data-state')).toBe('waiting');
     expect(cat.tagName).toBe('IMG');
-    // 暗い絵柄が両テーマで沈まないよう、他の配置と同じ明るい台座の上に載る。
-    expect(cat.closest('[data-testid="origin-cat-pedestal"]')).not.toBeNull();
+    // 状態別の絵も透過化されたため、他の配置と同じく台座（円盤）なしで
+    // 透過絵そのままを出す。
+    expect(cat.closest('[data-testid="origin-cat-pedestal"]')).toBeNull();
   });
 
   it('lists saved results as cards tied to their content, date and artifact — not bare status words', async () => {
