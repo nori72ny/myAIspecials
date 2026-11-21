@@ -23,14 +23,19 @@
   z-index: 50;
   backdrop-filter: blur(10px) saturate(103%);
 }
-.origin-header .origin-secondary-button {
+/* Header icon buttons are ghosts, but close buttons keep the single
+   framed spec (.origin-close-button in index.css) even inside the
+   header — the history drawer is rendered here, and this ghost rule
+   used to strip its close button to a bare glyph (primary design
+   evaluation, 2026-11-21, axis 5). */
+.origin-header .origin-secondary-button:not(.origin-close-button) {
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
   border-radius: 12px !important;
 }
-.origin-header .origin-secondary-button:hover:not(:disabled),
-.origin-header .origin-secondary-button:focus-visible {
+.origin-header .origin-secondary-button:not(.origin-close-button):hover:not(:disabled),
+.origin-header .origin-secondary-button:not(.origin-close-button):focus-visible {
   background: var(--bg-surface-muted) !important;
   transform: none !important;
 }
