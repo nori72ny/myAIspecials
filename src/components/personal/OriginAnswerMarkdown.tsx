@@ -1,9 +1,11 @@
-import { Children, isValidElement, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useMemo, useState, type ReactNode } from 'react';
 import { Copy, WrapText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { OriginLanguage } from '../../i18n';
+import { safeExternalUrl } from '../../research/researchReport';
 import MarkdownTableV12 from '../MarkdownTableV12';
+import { splitPartialAnswerSources, type PartialAnswerSourceCard, type PartialAnswerSourcesSection } from './partialAnswerSourceCards';
 
 export type AnswerRefinementKind = 'depth' | 'example' | 'plan' | 'summary';
 
@@ -68,6 +70,34 @@ const refinementPrompt = (language: OriginLanguage, kind: AnswerRefinementKind) 
 };
 
 /**
+ * 調査フォールバック（部分回答）の出典カード。通常経路（詳しく調べる
+ * モードの ResearchSourcesSection）と見た目を揃える：出典ID・ドメイン、
+ * タイトル、短い引用（要旨）、「原文を開く」。部分回答の本文は生成側が
+ * Markdown で組み立てるため、出典セクションだけを
+ * partialAnswerSourceCards で読み取り、ここでカードとして描く。
+ */
+function PartialAnswerSourceCardView({ card, language }: { card: PartialAnswerSourceCard; language: OriginLanguage }) {
+  const isEn = language === 'en';
+  const href = safeExternalUrl(card.url);
+  return <article className="rounded-xl border border-origin-border p-3">
+    <p className="m-0 text-[13px] font-bold text-[var(--accent-primary)]">{card.domain ? `${card.id} · ${card.domain}` : card.id}</p>
+    <h4 className="mt-1 break-words text-sm font-bold">{card.title}</h4>
+    {card.quote ? <p className="mt-1 text-sm leading-6">{isEn ? `\u201c${card.quote}\u201d` : `『${card.quote}』`}</p> : null}
+    {href
+      ? <a href={href} target="_blank" rel="noreferrer" className="origin-touch-link mt-2 inline-flex min-h-11 items-center break-all text-sm font-semibold text-[var(--accent-primary)] underline">{isEn ? 'Open original' : '原文を開く'}</a>
+      : <p className="mt-2 text-[13px] font-semibold text-amber-700 dark:text-amber-300">{isEn ? 'The link was disabled because its safety could not be confirmed.' : 'リンク先の安全性を確認できなかったため、リンクを無効にしました。'}</p>}
+  </article>;
+}
+
+function PartialAnswerSources({ section, language }: { section: PartialAnswerSourcesSection; language: OriginLanguage }) {
+  return <section aria-label={language === 'en' ? 'Sources' : '出典'}>
+    <h2>{section.heading}</h2>
+    {section.retrievedLine ? <p className="origin-muted text-sm">{section.retrievedLine}</p> : null}
+    <div className="mt-3 space-y-3">{section.cards.map((card) => <PartialAnswerSourceCardView key={card.id} card={card} language={language} />)}</div>
+  </section>;
+}
+
+/**
  * Renders model-authored Markdown without enabling raw HTML or automatic
  * external image loading. Semantic elements are styled in index.css so long
  * answers remain readable on narrow screens.
@@ -79,29 +109,40 @@ export default function OriginAnswerMarkdown({ content, language, onRefine, show
     { kind: 'plan', label: language === 'en' ? 'Make a plan' : '実行プランにする' },
     { kind: 'summary', label: language === 'en' ? 'Key points' : '要点だけ' },
   ];
+  // 部分回答の出典セクションは、Markdown のテキスト羅列ではなく
+  // 通常経路と同じ出典カードで描く（読み取れない書式なら従来どおり
+  // Markdown のまま）。コピー等の操作は本文全体に対して従来どおり。
+  const partialSources = useMemo(() => splitPartialAnswerSources(content), [content]);
+  const renderMarkdown = (text: string) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        pre: ({ children }) => <AnswerCodeBlock language={language}>{children}</AnswerCodeBlock>,
+        a: ({ children, href }) => (
+          <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
+        ),
+        img: ({ alt, src, title }) => {
+          const safeSource = typeof src === 'string' && (
+            /^blob:/i.test(src)
+            || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(src)
+          );
+          return safeSource && typeof src === 'string'
+            ? <img src={src} alt={alt ?? ''} title={title} loading="lazy" referrerPolicy="no-referrer" className="my-3 max-h-[70vh] max-w-full rounded-xl border border-[var(--border-default)] object-contain" />
+            : <span role="note" className="origin-external-image-note">{language === 'en' ? `External images are not shown automatically${alt ? `: ${alt}` : ''}` : `外部画像は自動では表示しません${alt ? `：${alt}` : ''}`}</span>;
+        },
+        table: ({ children }) => <MarkdownTableV12 language={language}>{children}</MarkdownTableV12>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
   return (
     <div className="origin-answer-markdown markdown-body">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          pre: ({ children }) => <AnswerCodeBlock language={language}>{children}</AnswerCodeBlock>,
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
-          ),
-          img: ({ alt, src, title }) => {
-            const safeSource = typeof src === 'string' && (
-              /^blob:/i.test(src)
-              || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(src)
-            );
-            return safeSource && typeof src === 'string'
-              ? <img src={src} alt={alt ?? ''} title={title} loading="lazy" referrerPolicy="no-referrer" className="my-3 max-h-[70vh] max-w-full rounded-xl border border-[var(--border-default)] object-contain" />
-              : <span role="note" className="origin-external-image-note">{language === 'en' ? `External images are not shown automatically${alt ? `: ${alt}` : ''}` : `外部画像は自動では表示しません${alt ? `：${alt}` : ''}`}</span>;
-          },
-          table: ({ children }) => <MarkdownTableV12 language={language}>{children}</MarkdownTableV12>,
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+      {partialSources ? <>
+        {partialSources.before ? renderMarkdown(partialSources.before) : null}
+        <PartialAnswerSources section={partialSources.section} language={language} />
+        {partialSources.after ? renderMarkdown(partialSources.after) : null}
+      </> : renderMarkdown(content)}
       {showActions && content.trim() && <div className="origin-answer-actions">
         <CopyButton text={content} language={language} label={language === 'en' ? 'Copy answer' : '回答をコピー'} />
         {onRefine && <div className="origin-answer-refinements" role="group" aria-label={language === 'en' ? 'Refine this answer' : '回答を調整'}>

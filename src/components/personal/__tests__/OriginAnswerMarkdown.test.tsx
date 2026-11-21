@@ -107,3 +107,49 @@ describe('answer copy and code controls', () => {
     expect(screen.queryByText('Copied')).toBeNull();
   });
 });
+
+describe('partial-answer source cards', () => {
+  const partialAnswer = [
+    '公開情報を2件取得しましたが、要約した回答を作成できなかったため、確認できた範囲と出典の一覧をお伝えします。内容の詳細は各出典でご確認ください。',
+    '',
+    '## 確認できた範囲',
+    '',
+    '取得日：2026年11月21日',
+    '',
+    '### S1 · enecho.meti.go.jp',
+    '',
+    '[日本のガソリン価格について](https://www.enecho.meti.go.jp/example)',
+    '',
+    '『全国平均小売価格は1リットルあたり170円程度でした。』',
+    '',
+    '### S2 · example.org',
+    '',
+    '[Second source](https://example.org/b)',
+  ].join('\n');
+
+  it('renders the fallback sources as cards, not a markdown text list', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" content={partialAnswer} />);
+    const articles = container.querySelectorAll('article');
+    expect(articles).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: '確認できた範囲', level: 2 })).toBeTruthy();
+    expect(screen.getByText('S1 · enecho.meti.go.jp')).toBeTruthy();
+    expect(screen.getByText('日本のガソリン価格について')).toBeTruthy();
+    expect(screen.getByText('『全国平均小売価格は1リットルあたり170円程度でした。』')).toBeTruthy();
+    expect(screen.getByText('取得日：2026年11月21日')).toBeTruthy();
+    const openLinks = screen.getAllByRole('link', { name: '原文を開く' });
+    expect(openLinks.map((link) => link.getAttribute('href'))).toEqual([
+      'https://www.enecho.meti.go.jp/example',
+      'https://example.org/b',
+    ]);
+    // カード見出しが Markdown の h3 としては描かれていない（テキスト羅列の形に戻っていない）。
+    expect(screen.queryByRole('heading', { name: 'S1 · enecho.meti.go.jp' })).toBeNull();
+    // 回答全体へのコピーは従来どおり使える。
+    expect(screen.getByRole('button', { name: '回答をコピー' })).toBeTruthy();
+  });
+
+  it('leaves answers without the fallback sources section as plain markdown', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" content={'回答です。\n\n## 出典\n\n- S1: example.com'} />);
+    expect(container.querySelectorAll('article')).toHaveLength(0);
+    expect(screen.getByRole('heading', { name: '出典', level: 2 })).toBeTruthy();
+  });
+});
