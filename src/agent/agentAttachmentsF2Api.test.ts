@@ -19,6 +19,11 @@ const env = {
 const FRUITS = ['id,item,amount', 'A-1,りんご,120', 'A-2,みかん,80', 'A-3,ぶどう,300'].join('\n');
 const CLASSIFY_GOAL = '各行を分類してレポートを作成してください';
 
+/** The staged ALE K8s RCA goal, verbatim: its backtick-quoted
+ * Deployment name `payment-api` became a file_reader path in the
+ * production plan and blocked the run (2026-11-21). */
+const K8S_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Kubernetes Payment API Root-Cause Analysis\n\nYou are the on-call SRE for Northwind Payments. The `payment-api` Deployment in\nthe `prod` namespace started flapping after a routine chart-value change. The\nHPA reports memory utilization above target and dashboards show elevated 5xx errors.\n\n## Visible Inputs\n\nAll evidence files are in `input/`:\n\n- `cluster_state.txt`: captured kubectl pod, deployment, event, top, and HPA output.\n- `deployment.yaml`: currently applied Deployment and HPA YAML.\n- `failing_pod.log`: stdout from a crashing payment-api pod across two restart cycles.\n\n## Required Output\n\nWrite exactly one JSON file:\n\n```text\noutput/root_cause_analysis.json\n```\n\nThe JSON report must include these top-level keys:\n\n```text\nincident_metadata, root_causes, affected_resources, remediation_plan, summary\n```\n\n### Schema details\n\n**`incident_metadata`** — object with at least:\n- `safe_to_rollback` (boolean): whether rolling back to the previous ReplicaSet revision is safe.\n\n**`root_causes`** — array of objects, each with at least:\n- `type` (string): short classification label, e.g. `\"OOMKilled\"`, `\"liveness_probe_too_aggressive\"`, `\"missing_metrics_port_env\"`.\n- `severity` (string): one of `\"critical\"`, `\"high\"`, `\"medium\"`, `\"low\"`.\n- `description` (string): explanation of the root cause.\n- `evidence` (array of strings): each item must be a verbatim text string copied from one of the visible input files (not a file-name citation — the actual text that appears in the file).\n\n**`affected_resources`** — array of objects, each with `kind`, `name`, and `namespace`.\n\n**`remediation_plan`** — array of objects, each with at least an `action` (string).\n\n**`summary`** — string summarizing the incident and recommended path forward.\n\n### Guidelines\n\nIdentify root causes, list affected Kubernetes resources, propose prioritized\nremediation actions, and state whether rollback to the previous ReplicaSet is\nsafe. Do not invent metric values, commit SHAs, or resource names.";
+
 function makeConsumptionStore(): AgentRunConsumptionStore {
   const consumed = new Set<string>();
   return {
@@ -161,6 +166,70 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.body.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
     expect(plan.body.chunkCount).toBeGreaterThan(48);
     expect(plan.body.limit).toBe(48);
+    expect(plan.body.limitKind).toBe('chunks');
+  });
+
+  it('plans, approves and creates a run for a 17+ chunk set whose plan needs 7 steps', async () => {
+    const lines = ['id,item,amount'];
+    // Same row shape as the chunk-split test (~80-87 rows per chunk):
+    // 1,600 rows land at roughly 19 chunks → 3 analyzers. With a
+    // 3-step base plan the augmented plan needs 7 steps — refused
+    // outright by the old flat ceiling of 6 (the production M&A
+    // refusal: 17 chunks, reader + 3 analyzers + base steps).
+    for (let i = 0; i < 1600; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
+    const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
+    const setId = await createSetWithFile(app, 'big.csv', lines.join('\n'));
+    const goal = 'このCSVの各行を分類してレポートを作成し、テストで検証してください';
+    const plan = await planWithAttachment(app, goal, setId);
+    expect(plan.status).toBe(201);
+    const body = plan.body as PlanBody;
+    const analyzers = body.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers).toHaveLength(3);
+    expect(body.steps).toHaveLength(7);
+    // The raised ceiling is coherent across the flow: approval and
+    // run creation accept the same 7 steps /plan issued.
+    const created = await approveAndCreate(app, body, goal);
+    expect(created.status).toBe(201);
+  });
+
+  it('keeps goal-text tokens out of file paths in an attachment-bound plan (K8s shape)', async () => {
+    const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
+    const createdSet = await request(app).post('/api/agent/v3/attachment-sets')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({});
+    expect(createdSet.status).toBe(201);
+    const setId = createdSet.body.attachmentSetId as string;
+    const files: Array<[string, string]> = [
+      ['cluster_state.txt', 'deployment.apps/payment-api 2/3 replicas available\npod/payment-api-7d9f 0/1 CrashLoopBackOff'],
+      ['deployment.yaml', 'apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payment-api'],
+      ['failing_pod.log', 'payment-api starting\nFATAL: out of memory, exiting'],
+    ];
+    for (const [name, contentText] of files) {
+      const added = await request(app).post(`/api/agent/v3/attachment-sets/${setId}/files`)
+        .set('Authorization', `Bearer ${SECRET}`)
+        .send({ name, mediaType: 'text/plain', contentText });
+      expect(added.status).toBe(201);
+    }
+    const plan = await planWithAttachment(app, K8S_GOAL, setId);
+    expect(plan.status).toBe(201);
+    const body = plan.body as PlanBody;
+    // Production's plan for this goal carried a file_reader step whose
+    // path was the Deployment name; the step blocked the run at
+    // execution. The reader is gone and the writer's path is confined
+    // to the artifacts namespace.
+    expect(body.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'document_generator',
+      'file_writer',
+    ]);
+    for (const step of body.steps) {
+      expect(step.params.path).not.toBe('payment-api');
+    }
+    const writer = body.steps[body.steps.length - 1];
+    expect(writer.params.path).toBe('artifacts/attachment-result.md');
+    const document = body.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.dataGrounded).toBe(true);
   });
 
   it('grounds file_writer on the analyzer and drops its fabricated sample content', async () => {

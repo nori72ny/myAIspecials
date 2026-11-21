@@ -54,7 +54,7 @@ import {
   verifyAttachmentUploadCapability,
 } from './agentAttachmentCapability.js';
 import { buildAgentAttachmentDataView, type AgentAttachmentDataView } from './agentAttachmentData.js';
-import { augmentPlanWithAttachments } from './agentAttachmentPlanning.js';
+import { AGENT_ATTACHMENT_MAX_PLAN_STEPS, augmentPlanWithAttachments } from './agentAttachmentPlanning.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
 
 const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner', 'attachment_reader', 'attachment_analyzer'];
@@ -62,7 +62,11 @@ const isToolName = (value: unknown): value is ToolName => typeof value === 'stri
 /** Raised 4 → 6 together with the planner (file-input foundation F2,
  * design §3.6, J7): reader + analyzer + generative step is the smallest
  * attachment plan, and the two ceilings must move together so an
- * issuable plan is always an executable one. */
+ * issuable plan is always an executable one. Attachment-bound step
+ * lists — whose data steps carry the set binding — are admitted up to
+ * AGENT_ATTACHMENT_MAX_PLAN_STEPS instead (see parseStepInputs): the
+ * reader plus up to six analyzers ride on top of the base plan, so a
+ * flat 6 made mid-size sets unplannable and then unapprovable. */
 const MAX_EXECUTION_STEPS = 6;
 const STEP_TITLES: Record<ToolName, string> = {
   repository_explorer: 'Explore repository structure',
@@ -105,7 +109,7 @@ function parseStepInputs(body: unknown): AgentStepInputV3[] | null {
     : record.toolName !== undefined
       ? [{ toolName: record.toolName, params: record.params ?? {} }]
       : null;
-  if (!raw || raw.length < 1 || raw.length > MAX_EXECUTION_STEPS) return null;
+  if (!raw || raw.length < 1) return null;
   const steps: AgentStepInputV3[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') return null;
@@ -115,6 +119,18 @@ function parseStepInputs(body: unknown): AgentStepInputV3[] | null {
     if (!params || typeof params !== 'object' || Array.isArray(params)) return null;
     steps.push({ toolName: candidate.toolName, params: params as ToolParams });
   }
+  // The step ceiling follows the plan's shape: an attachment-bound
+  // list (its data steps carry the set binding) may run up to the
+  // derived attachment ceiling the augmentation plans against; every
+  // other list stays at MAX_EXECUTION_STEPS. This shape guard is not
+  // the trust boundary — the capability and approval digest checks
+  // that follow bind the submitted steps to the issued plan — it only
+  // has to admit every plan /plan can issue.
+  const attachmentBound = steps.some((step) =>
+    (step.toolName === 'attachment_reader' || step.toolName === 'attachment_analyzer')
+    && typeof step.params.attachmentSetId === 'string'
+    && typeof step.params.setDigest === 'string');
+  if (steps.length > (attachmentBound ? AGENT_ATTACHMENT_MAX_PLAN_STEPS : MAX_EXECUTION_STEPS)) return null;
   return steps;
 }
 
@@ -523,7 +539,6 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         setId: boundAttachment.set.setId,
         setDigest: boundAttachment.setDigest,
         view: boundAttachment.view,
-        maxSteps: MAX_EXECUTION_STEPS,
       });
       if (augmented.ok === false) {
         return res.status(422).json({
@@ -532,6 +547,8 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
           protocolVersion: 3,
           chunkCount: augmented.chunkCount,
           limit: augmented.limit,
+          limitKind: augmented.limitKind,
+          ...(augmented.stepCount !== undefined ? { stepCount: augmented.stepCount } : {}),
         });
       }
       steps = augmented.steps;

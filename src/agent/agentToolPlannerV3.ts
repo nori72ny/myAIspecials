@@ -116,9 +116,11 @@ export type AgentMultiToolPlanV3 =
  * plus the steps a goal legitimately combines no longer fits in four.
  * The record-side ceiling (20) and the 32KiB plan cap are unchanged,
  * and both the planner and the executor move together so a plan the
- * planner emits is always executable.
+ * planner emits is always executable. Exported so the attachment
+ * augmentation can derive its own step ceiling from this base
+ * (AGENT_ATTACHMENT_MAX_PLAN_STEPS in agentAttachmentPlanning.ts).
  */
-const MAX_PLAN_STEPS = 6;
+export const MAX_PLAN_STEPS = 6;
 
 // Sequential execution order: gather context first, produce artifacts next,
 // persist to files after generation, and verify last. This mirrors the
