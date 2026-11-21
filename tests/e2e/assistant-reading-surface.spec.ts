@@ -71,8 +71,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     // （オーナー指示 2026-11-14 08:59）。2026-11-20 の窓方式を経て、
     // 同日 12:06 にオーナーが窓の枠を却下したため枠なしにし、
     // 同日 15:36 の実機判定で「頭が切れている」が不可とされた
-    // ため、円盤の全体がヘッダーの下端より下に見える形にした。
-    // 円盤には枠線ではなく内側の影で窪みの質感を付ける。
+    // ため、オリンの全体がヘッダーの下端より下に見える形にした。
+    // 2026-11-21 の再デザインで素材を透過化し、円盤・落影・窪みは
+    // 撤去した。残る質感は足元の接地影のみ（下の質感ブロック）。
     await expect(page.locator('.origin-header [data-testid="origin-cat-pedestal"]')).toHaveCount(0);
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
@@ -110,19 +111,24 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(tapStyle.borderTopStyle).toBe('none');
     expect(tapStyle.borderTopWidth).toBe('0px');
     expect(tapStyle.boxShadow).toBe('none');
-    // 円盤の「穴」質感：ラッパーには柔らかい落影、内側の窪みは
-    // ::after の inset 影で付ける（枠線は無い）。
+    // 透過絵の質感（2026-11-21 再デザイン）：円盤の落影と
+    // ::after の inset 窪みは撤去済みで、ラッパーにも ::after
+    // にも box-shadow は無い。残る質感は足元の接地影だけで、
+    // ::after の背景グラデーション（楕円、紺20%→0%）として
+    // ライトテーマに付く。
     const discTexture = await presenceCatImage.evaluate((element) => {
       const wrapper = element.parentElement;
-      if (!wrapper) return { drop: '', inset: '' };
+      if (!wrapper) return { drop: '', inset: '', ground: '' };
+      const afterStyle = getComputedStyle(wrapper, '::after');
       return {
         drop: getComputedStyle(wrapper).boxShadow,
-        inset: getComputedStyle(wrapper, '::after').boxShadow,
+        inset: afterStyle.boxShadow,
+        ground: afterStyle.backgroundImage,
       };
     });
-    expect(discTexture.drop).toContain('rgba(24, 35, 59, 0.1)');
-    expect(discTexture.inset).toContain('inset');
-    expect(discTexture.inset).toContain('rgba(24, 35, 59, 0.28)');
+    expect(discTexture.drop).toBe('none');
+    expect(discTexture.inset).toBe('none');
+    expect(discTexture.ground).toBe('radial-gradient(rgba(24, 35, 59, 0.2), rgba(24, 35, 59, 0) 68%)');
     // 全体表示の幾何（2026-11-20 15:36）：円盤の上端はヘッダーの
     // 下端より下にあり、円盤がヘッダーに隠れる量は 0（猫の頭が
     // 切れない）。ただしヘッダー直下に寄せた配置で、隙間は
