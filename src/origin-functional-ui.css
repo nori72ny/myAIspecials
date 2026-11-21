@@ -57,6 +57,11 @@
   inset: 0;
   z-index: 15;
   pointer-events: auto;
+  /* Same scrim spec as every other backdrop (4-c): the background
+     comes from origin-top-ui.css (var(--scrim)); add the shared 3px
+     backdrop blur so the dim is not the only treatment. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
 }
 .artifact-workspace__header {
   display: grid;

@@ -18,7 +18,7 @@ export default class SettingsErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
     return (
-      <div role="dialog" aria-modal="true" aria-labelledby="settings-fallback-title" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="settings-fallback-title" className="origin-dialog-overlay fixed inset-0 z-[60] flex items-center justify-center p-4">
         <div className="origin-surface w-full max-w-md rounded-2xl border p-5 shadow-xl">
           <h2 id="settings-fallback-title" className="text-base font-bold">設定を簡易表示しています</h2>
           <p className="origin-muted mt-2 text-sm leading-6">設定の一部を読み込めなかったため、標準の設定で表示しています。ページを読み直しても直らない場合は、ブラウザーのサイトデータを確認してください。</p>
