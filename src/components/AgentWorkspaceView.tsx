@@ -543,20 +543,12 @@ export default function AgentWorkspaceView() {
       setPlan(next);
       setBoardPlanToken(next.planToken);
       setPhase('awaiting_approval');
-      setArtifact([
-        '# 実行計画',
-        '',
-        `依頼: ${next.goal}`,
-        `行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}`,
-        // The data is part of the approval (design §1.2): its line
-        // names the files and the total size, never the contents.
-        ...(next.attachments ? [`添付データ: ${next.attachments.fileCount}件（${next.attachments.files.map((file) => file.name).join('、')}、合計${next.attachments.totalChars.toLocaleString()}文字）`] : []),
-        '',
-        ...next.plan.map((step, index) => `${index + 1}. ${step.title}`),
-        '',
-        '承認は、この計画に書かれた内容だけに必要です。',
-        'この承認は今回の実行だけに有効で、使い回しはできません。',
-      ].join('\n'));
+      // The plan itself is shown once, in the plan section on the left
+      // (steps, work summary, attachment line, approval actions). The
+      // right-hand panel is for results only, so while approval is
+      // pending it goes back to the empty-results state instead of
+      // repeating the plan as a document.
+      setArtifact(ARTIFACT_PLACEHOLDER);
       setLog((current) => [...current, `計画を作成しました。行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}。まだ作業は始めていません。`]);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -855,7 +847,7 @@ export default function AgentWorkspaceView() {
         <div className="max-h-[60dvh] overflow-auto p-5">
           {researchArtifact
             ? <AgentResearchSourceCards sources={researchArtifact.sources} />
-            : artifact === ARTIFACT_PLACEHOLDER && !liveSession && phase === 'idle'
+            : artifact === ARTIFACT_PLACEHOLDER && !liveSession && (phase === 'idle' || phase === 'awaiting_approval')
               ? <div>
                   <p className="text-sm font-bold">まだ結果はありません</p>
                   <p className="mt-1 text-sm leading-6 text-origin-muted">「任せたいこと」に書いて「実行計画を作る」を押すと、計画の確認のあとに作業が始まり、結果がここに表示されます。</p>

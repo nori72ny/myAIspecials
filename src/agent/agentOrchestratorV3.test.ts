@@ -417,6 +417,20 @@ describe('agent orchestrator v3', () => {
     expect(response.body.selectedTool).toBe('web_search_grounding');
   });
 
+  it('gives every plan step a plain Japanese display title', async () => {
+    const research = await request(appFor()).post('/api/agent/v3/plan').send({ goal: '最新のVercel料金を調べてください' });
+    expect(research.status).toBe(201);
+    expect((research.body.plan as Array<{ title: string }>).map(step => step.title)).toEqual(['ウェブで調べる']);
+
+    const multi = await request(appFor()).post('/api/agent/v3/plan')
+      .send({ goal: '最新市場を調べて、その結果から提案書を作って' });
+    expect(multi.status).toBe(201);
+    const titles = (multi.body.plan as Array<{ title: string }>).map(step => step.title);
+    expect(titles).toEqual(['ウェブで調べる', '文書を作る']);
+    // Display titles are user-visible: no English/internal wording.
+    for (const title of titles) expect(title).not.toMatch(/[A-Za-z]/);
+  });
+
   it('treats a document-creation goal as one document step, not a document plus a file write', async () => {
     const response = await request(appFor()).post('/api/agent/v3/plan')
       .send({ goal: '週次報告書のドキュメントを作成してください' });
