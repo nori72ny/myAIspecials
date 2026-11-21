@@ -750,6 +750,86 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(compact.length).toBeLessThanOrEqual(3_000);
     expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
   });
+
+  // The I-1 measurement's REP-02 was fatal: the turn-2 correction
+  // (50 -> 30 people) was applied, but in turn 3 the user re-presented
+  // the old premise as a bare question ("50人だと椅子は何脚いるかな")
+  // and the answer reverted to 50. Premise handling is judged by the
+  // model, so at unit level the counter-rule for the multi-turn shape
+  // is pinned in the instruction text; the live behavior is measured
+  // by the I-1 scenario set (INTENT_I3_DESIGN_2026-11-21 section 2).
+  it("pins corrected-premise persistence: a re-presented old premise never re-enters (I-3, REP-02)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Corrected premises stay corrected",
+      "Once a premise has been corrected in this conversation",
+      "the corrected premise stays operative for the rest of the conversation",
+      "If the user later asks again in the old premise's wording",
+      "do not rebuild any part of the answer on the old premise",
+      "do not repeat the correction",
+      "do not name the old and new premises side by side again",
+      "answer the underlying question on the corrected premise",
+      "at most one brief anchor naming only the corrected premise",
+      "訂正済みの30人で見ると、",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins both correction origins for persistence: user-corrected and assistant-corrected alike (I-3, REP-01/REP-02)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "by the user, or by you under the false-premise rule",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the persistence fences: explicit hypothetical framing and explicit change-back (I-3)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "A bare restatement of the old premise is not a hypothetical",
+      "when the user explicitly frames it as one",
+      "answer that part as a clearly hypothetical aside",
+      "the working premise stays corrected",
+      "もし50人だったら",
+      "参考に50人の場合も",
+      "An explicit instruction to change it back",
+      "やっぱり50人に戻して",
+      "is itself a new correction and replaces in the other direction",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins stated-background and form-preference persistence across distance (I-3, DIST-01/DIST-02 shapes)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Stated backgrounds and standing preferences persist for the whole conversation",
+      "however many unrelated topics intervene",
+      "When a later request is one they bear on",
+      "build the answer on them without being reminded",
+      "keep a stated form preference in force until the user changes it",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the negative side of persistence: irrelevant backgrounds are never dragged in (I-3, DIST-03/DIST-04 shapes)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "When they do not bear on the request, do not drag them in",
+      "circumstances shared in a personal context are never premises, constraints, or asides in a work answer",
+      "a work context is never carried into a personal answer",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("carries the condensed persistence rules on the route-3 compact instruction (I-3)", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "A corrected premise stays in force",
+      "answer on the corrected one with at most a brief anchor",
+      "never rebuild on the old one, never repeat the correction",
+      "a hypothetical framed as one may be answered as one",
+      "Stated backgrounds and form preferences persist across topics",
+      "use them when they bear on the request",
+      "never drag them in when they do not",
+    ]) expect(compact).toContain(phrase);
+    expect(compact.length).toBeLessThanOrEqual(3_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+  });
 });
 
 describe("routing calibration (2026-11-16 measurement)", () => {
