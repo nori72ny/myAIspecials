@@ -15,6 +15,9 @@ export function assertManualProductionGitHold(config) {
   if (deployments.main !== false || deployments['**'] !== false) {
     throw new Error('ORIGIN_IMPLICIT_PRODUCTION_GIT_DEPLOYMENT_FORBIDDEN');
   }
+  if (config?.github?.autoAlias !== false) {
+    throw new Error('ORIGIN_AUTOMATIC_PRODUCTION_ALIAS_FORBIDDEN');
+  }
   if (deployments['release-*'] !== true) {
     throw new Error('ORIGIN_REVIEWED_RELEASE_PREVIEW_DEPLOYMENT_DISABLED');
   }
