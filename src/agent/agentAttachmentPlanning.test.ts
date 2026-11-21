@@ -59,8 +59,8 @@ const MA_FILES = ['announcement.txt', 'buyer1_report.txt', 'buyer2_report.txt', 
 const K8S_FILES = ['cluster_state.txt', 'deployment.yaml', 'failing_pod.log'];
 
 describe('attachment plan step ceiling (defect 1)', () => {
-  it('derives the ceiling from the parts it must hold: 6 base + reader + 6 analyzers = 13', () => {
-    expect(AGENT_ATTACHMENT_MAX_PLAN_STEPS).toBe(13);
+  it('derives the ceiling from the parts it must hold: 6 base + reader + 12 analyzers = 19', () => {
+    expect(AGENT_ATTACHMENT_MAX_PLAN_STEPS).toBe(19);
   });
 
   it('forms a valid plan for the M&A shape (17 chunks, 3 base steps)', () => {
@@ -79,16 +79,18 @@ describe('attachment plan step ceiling (defect 1)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // 2 surviving base steps (the file_writer is dropped) + 1 reader
-    // + ceil(17/8)=3 analyzers = 6.
-    expect(result.steps).toHaveLength(6);
+    // + ceil(17/4)=5 analyzers = 8.
+    expect(result.steps).toHaveLength(8);
     expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
     const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
+    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([4, 4, 4, 4, 1]);
     expect(analyzers[1].params.contentFromStep).toBe(1);
     expect(analyzers[2].params.contentFromStep).toBe(2);
+    expect(analyzers[3].params.contentFromStep).toBe(3);
+    expect(analyzers[4].params.contentFromStep).toBe(4);
     const document = result.steps.find((step) => step.toolName === 'document_generator');
     expect(document?.params.dataGrounded).toBe(true);
-    expect(document?.params.contentFromStep).toBe(3);
+    expect(document?.params.contentFromStep).toBe(5);
   });
 
   it('forms a valid plan for the AGORA shape (35 chunks)', () => {
@@ -105,12 +107,12 @@ describe('attachment plan step ceiling (defect 1)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 8, 8, 3]);
+    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([4, 4, 4, 4, 4, 4, 4, 4, 3]);
     const document = result.steps.find((step) => step.toolName === 'document_generator');
-    expect(document?.params.contentFromStep).toBe(5);
+    expect(document?.params.contentFromStep).toBe(9);
   });
 
-  it('admits the largest admissible shape: 48 chunks on a full 6-step base plan (13 steps)', () => {
+  it('admits the largest admissible shape: 48 chunks on a full 6-step base plan (19 steps)', () => {
     const base = basePlan([
       { toolName: 'repository_explorer', params: {}, reasonCode: 'repository-overview' },
       { toolName: 'web_search_grounding', params: { query: '最新動向' }, reasonCode: 'current-research' },
@@ -123,7 +125,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
       // The research step in the base plan survives augmentation
       // because this goal explicitly asks for research (調査して);
       // without the explicit request the step would be confined out
-      // and the plan would come to 12 steps (see defect 3 below).
+      // and the plan would come to 18 steps (see defect 3 below).
       // (The sixth base slot is not a file_writer: writer steps are
       // dropped from attachment-bound plans, so one could never
       // contribute to the largest admissible shape.)
@@ -155,7 +157,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     const result = augmentPlanWithAttachments({
       // Same explicit-research goal as the admission test above: the
       // research step is kept and only the file_writer entry is
-      // dropped, so the would-be plan is 14 steps.
+      // dropped, so the would-be plan is 20 steps.
       goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
       ...base,
       setId: 'att-over',
@@ -167,7 +169,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     expect(result.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
     expect(result.limitKind).toBe('steps');
     expect(result.limit).toBe(AGENT_ATTACHMENT_MAX_PLAN_STEPS);
-    expect(result.stepCount).toBe(14);
+    expect(result.stepCount).toBe(20);
     expect(result.chunkCount).toBe(48);
   });
 
@@ -423,6 +425,8 @@ describe('attachment plan research confinement (defect 3)', () => {
       'attachment_analyzer',
       'attachment_analyzer',
       'attachment_analyzer',
+      'attachment_analyzer',
+      'attachment_analyzer',
       'document_generator',
     ]);
     expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
@@ -431,10 +435,10 @@ describe('attachment plan research confinement (defect 3)', () => {
     // The rest of the production shape is untouched: analyzers cover
     // all 17 chunks and the document is regrounded on the last one.
     const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
+    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([4, 4, 4, 4, 1]);
     const document = result.steps.find((step) => step.toolName === 'document_generator');
     expect(document?.params.dataGrounded).toBe(true);
-    expect(document?.params.contentFromStep).toBe(3);
+    expect(document?.params.contentFromStep).toBe(5);
   });
 
   it('keeps the research step when the goal explicitly requests research (Japanese)', () => {

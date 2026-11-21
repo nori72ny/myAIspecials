@@ -66,7 +66,7 @@ describe('agentRunQuotaGate cost classes and charges', () => {
 
   it('charges the analyzer one journal-only model call per chunk (F2)', () => {
     expect(agentRunStepQuotaCharge('attachment_analyzer', { chunkCount: 3 })).toEqual({ provider: 'origin-llm', counter: 'calls', units: 3 });
-    expect(agentRunStepQuotaCharge('attachment_analyzer', { chunkCount: 99 })).toEqual({ provider: 'origin-llm', counter: 'calls', units: 8 });
+    expect(agentRunStepQuotaCharge('attachment_analyzer', { chunkCount: 99 })).toEqual({ provider: 'origin-llm', counter: 'calls', units: 4 });
     expect(agentRunStepQuotaCharge('attachment_analyzer', {})).toEqual({ provider: 'origin-llm', counter: 'calls', units: 1 });
     expect(agentRunStepQuotaCharge('attachment_reader', { chunkCount: 3 })).toBeNull();
     // Journal-only: no provider limit entry exists for origin-llm, so

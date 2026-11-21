@@ -18,7 +18,7 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  * augmented deterministically:
  *
  * 1. `attachment_reader` leads the plan.
- * 2. One or more `attachment_analyzer` steps (at most 8 chunks each,
+ * 2. One or more `attachment_analyzer` steps (at most 4 chunks each,
  *    chained by `contentFromStep` so their bundles merge) sit
  *    immediately before the first generative step — or close the plan
  *    when the goal has no generative step, making the analyzer's
@@ -84,14 +84,14 @@ export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params
  * constants that bound its parts: the largest base plan the planner
  * can emit (MAX_PLAN_STEPS) + the reader + one analyzer per
  * AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP chunks of the largest
- * admissible set — 6 + 1 + ceil(48 / 8) = 13. Any set within the
+ * admissible set — 6 + 1 + ceil(48 / 4) = 19. Any set within the
  * attachment limits can therefore always form a plan, while the
  * ceiling stays a hard bound (and below the 20-step record ceiling).
  * The executor's step-input validation uses this same constant for
  * attachment-bound step lists, so an issuable plan is always an
  * executable one. (The flat MAX_EXECUTION_STEPS of 6 that this
  * replaces made mid-size sets unplannable: a 17-chunk set already
- * needs reader + 3 analyzers on top of the goal's base steps.)
+ * needs reader + 5 analyzers on top of the goal's base steps.)
  */
 export const AGENT_ATTACHMENT_MAX_PLAN_STEPS =
   MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP);

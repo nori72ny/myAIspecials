@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { AGENT_ATTACHMENT_MAX_PLAN_STEPS } from './agentAttachmentPlanning.js';
 
 const SECRET_MIN_LENGTH = 32;
 // Exported so the durable run record (agentRunRecord.ts) and the piggyback
@@ -81,7 +82,14 @@ function verify(token: string, expectedKind: CapabilityKind, env: NodeJS.Process
     if (typeof parsed.runId !== 'string' || !parsed.runId.startsWith('run-')) return null;
     if (typeof parsed.digest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.digest)) return null;
     if (parsed.plannedTool !== undefined && (typeof parsed.plannedTool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(parsed.plannedTool))) return null;
-    if (parsed.plannedTools !== undefined && (!Array.isArray(parsed.plannedTools) || parsed.plannedTools.length < 1 || parsed.plannedTools.length > 8 || parsed.plannedTools.some(tool => typeof tool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(tool)))) return null;
+    // The planned-tools bound must admit every plan /plan can issue:
+    // the derived attachment ceiling is the largest issuable plan, so
+    // it is the bound here too. (A flat 8 silently invalidated the
+    // capability of any longer attachment-bound plan at approval time
+    // once analyzer segments shrank to 4 chunks — ALE wave-1,
+    // 2026-11-21. This shape check is not the trust boundary; the
+    // signature and digest checks above and below are.)
+    if (parsed.plannedTools !== undefined && (!Array.isArray(parsed.plannedTools) || parsed.plannedTools.length < 1 || parsed.plannedTools.length > AGENT_ATTACHMENT_MAX_PLAN_STEPS || parsed.plannedTools.some(tool => typeof tool !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(tool)))) return null;
     if (parsed.paramsDigest !== undefined && (typeof parsed.paramsDigest !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.paramsDigest))) return null;
     if (parsed.authMode !== undefined && parsed.authMode !== 'operator' && parsed.authMode !== 'browser') return null;
     if (typeof parsed.iat !== 'number' || typeof parsed.exp !== 'number' || parsed.exp <= now || parsed.iat > now + 30_000) return null;

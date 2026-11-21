@@ -345,15 +345,21 @@ outputKind: 'rows',
 ...extra,
 });
 const step1 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 0, chunkCount: 8}), contextFor(store, executor));
+params({ chunkOffset: 0, chunkCount: 4}), contextFor(store, executor));
 expect(step1.ok).toBe(true);
 const step2 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 8, chunkCount: 8, content: step1.artifact}), contextFor(store, executor));
+params({ chunkOffset: 4, chunkCount: 4, content: step1.artifact}), contextFor(store, executor));
 expect(step2.ok).toBe(true);
 const step3 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 16, chunkCount: 1, content: step2.artifact}), contextFor(store, executor));
+params({ chunkOffset: 8, chunkCount: 4, content: step2.artifact}), contextFor(store, executor));
 expect(step3.ok).toBe(true);
-const bundle = JSON.parse(step3.artifact?? '{}') as {
+const step4 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 12, chunkCount: 4, content: step3.artifact}), contextFor(store, executor));
+expect(step4.ok).toBe(true);
+const step5 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 16, chunkCount: 1, content: step4.artifact}), contextFor(store, executor));
+expect(step5.ok).toBe(true);
+const bundle = JSON.parse(step5.artifact?? '{}') as {
 coverage: { processedChunks: number};
 rows: { file: string}[];
 };
