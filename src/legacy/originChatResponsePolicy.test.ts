@@ -634,6 +634,122 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(compact.length).toBeLessThanOrEqual(3_000);
     expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
   });
+
+  it("pins false-premise correction: correct first at the start, then answer under the corrected premise (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "False factual premises",
+      "a premise stated as fact that is wrong",
+      "correct it at the very start of the answer, before answering",
+      "then give the requested answer under the corrected premise",
+      "Never build any part of the answer (procedures, documents, deadlines, figures) on the false premise",
+      "never end the turn with the correction alone",
+      "the correction comes first and any premise phrase is built on the corrected premise",
+      "the table takes the corrected value, never the user's mistaken one",
+      "Opinions and judgments",
+      "only verifiable facts are corrected",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the certainty-graded correction forms and the neutral tone (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Grade the correction by certainty",
+      "state plainly that it is wrong and give the correct content",
+      "give the correct value with its point in time",
+      "確認できる範囲では〜のようです",
+      "do not assert the correction as fact",
+      "treat it under the existing research rules instead of guessing",
+      "a premise reset that lets the work proceed, not a reproach",
+      "do not pad it with apologies or preamble",
+    ]) expect(section).toContain(phrase);
+  });
+
+  // The I-1 measurement (SCORES-I1) produced three fatal shapes, all of
+  // them an uncritical acceptance of a user-stated false premise. Premise
+  // truth is judged by the model, not by deterministic code, so at unit
+  // level the counter-rule for each trap shape is pinned in the instruction
+  // text; the live behavior is measured by the I-1 scenario set.
+  it("pins the counter-rule for the FP-01 trap: procedures for a program that does not exist (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "a program, benefit, or procedure that does not exist",
+      "Never build any part of the answer (procedures, documents, deadlines, figures) on the false premise",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the counter-rule for the FP-02 trap: a wrong rate stated as fact is corrected before calculating (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "or a wrong start date, amount, rate, or deadline",
+      "correct it at the very start of the answer, before answering",
+      "then give the requested answer under the corrected premise",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the FP-04 counter-shape: a hypothetical premise is answered as posed, with no correction (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Do not correct: a hypothetical or fictional request",
+      "a premise the user deliberately sets as an assumption",
+      "calculate and reason on the assumed value exactly as asked",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the counter-rule for the REP-01 trap: a re-stated wrong premise never re-enters later answers (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "the same error already corrected earlier in this conversation",
+      "do not repeat the correction",
+      "keep answering on the corrected premise even if the user states the wrong one again",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the remaining false-premise exceptions: immaterial details and unjudgeable claims (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "a detail whose error does not change the conclusion",
+      "anything you cannot judge wrong with reasonable confidence",
+      "never correct on speculation",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins correction-as-replacement: the old premise's structure, figures, and wording are discarded (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "Corrections replace; they do not accumulate",
+      "any new statement on the same point is a replacement",
+      "discard everything built on the old premise (structure, figures, wording, options) and rebuild on the new premise alone",
+      "the opening premise phrase shows only the new premise",
+      "naming the old and new side by side is allowed only in that one answer",
+      "A partial correction replaces only the part it touches",
+      "rebuild its premise table on the new premises too",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the single alternative reading on the premise phrase, with its firing conditions (I-2)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "One alternative reading may ride on that premise phrase",
+      "attach at most one alternative",
+      "もし○○のつもりなら、その形にも直せます",
+      "Attach none when only one reading is plausible",
+      "where no premise phrase is stated in the first place (factual questions, calculations, transformations)",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("carries the condensed false-premise and replacement rules on the route-3 compact instruction (I-2)", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "If a premise stated as fact is wrong (a wrong date, rate, amount, or nonexistent program)",
+      "correct it briefly first and answer under the corrected premise",
+      "never build on it",
+      "Hypotheticals and assumptions stand as posed",
+      "Corrections replace the old premise: rebuild on the new one alone",
+    ]) expect(compact).toContain(phrase);
+    expect(compact.length).toBeLessThanOrEqual(3_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+  });
 });
 
 describe("routing calibration (2026-11-16 measurement)", () => {
