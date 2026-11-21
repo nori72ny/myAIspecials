@@ -33,6 +33,10 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.report).toContain("依頼: 調査依頼");
     expect(result.report).toContain("## 確認できた内容");
     expect(result.report).toContain("[S1](https://a.example/report)");
+    expect(result.report).toContain("### S1 · a.example");
+    expect(result.report).toContain("[A](https://a.example/report)");
+    expect(result.report).toContain("取得日：2026年9月10日");
+    expect(result.report).not.toContain("と示されています");
     expect(result.sources.every((item) => item.score <= 95)).toBe(true);
     expect(result.sources.every((item) => item.sourceAuthority === "unclassified")).toBe(true);
     expect(result.report).toContain("出典区分: 権威性未分類");
@@ -83,7 +87,48 @@ describe("Grounded Research V1.1 evidence engine", () => {
     expect(result.report).not.toContain("ナビゲーション広告文");
     expect(result.report).not.toContain("フッター案内文");
     expect(result.report).not.toContain("1,000円 / 1,200円");
-    expect(result.report).toContain("S1（a.example）では『Page A』と示されています");
+    expect(result.report).toContain("### S1 · a.example");
+    expect(result.report).toContain("[Page A](https://a.example/a)");
+    expect(result.report).not.toContain("と示されています");
     expect(result.report).toContain("値の食い違いが見られます");
+  });
+
+  it("presents sources as cards without the attribution boilerplate (sources-display follow-up)", () => {
+    const result = buildGroundedResearchReport("日本の内閣総理大臣は誰ですか", [
+      source({
+        title: "首相官邸ホームページ",
+        url: "https://www.kantei.go.jp/jp/104/actions/index.html",
+        domain: "kantei.go.jp",
+        evidenceLevel: "page-verified",
+        freshness: "recent",
+        retrievedAt: "2026-11-20T00:00:00.000Z",
+        excerpt: "高市早苗は第104代内閣総理大臣です。内閣総理大臣の職務は内閣を代表して行政各部を指揮監督することです。",
+      }),
+      source({
+        title: "政治ニュース",
+        url: "https://news.example.co.jp/politics",
+        domain: "news.example.co.jp",
+        retrievedAt: "2026-11-19T00:00:00.000Z",
+        excerpt: "高市早苗首相は記者会見で経済対策について説明しました。",
+      }),
+    ]);
+    // Card presentation, the same shape as the partial answer's:
+    // a heading with the source id and domain, then the linked title.
+    expect(result.report).toContain("### S1 · kantei.go.jp");
+    expect(result.report).toContain("[首相官邸ホームページ](https://www.kantei.go.jp/jp/104/actions/index.html)");
+    expect(result.report).toContain("### S2 · news.example.co.jp");
+    // Retrieval dates are collected into a single line, each date once.
+    expect(result.report).toContain("取得日：2026年11月20日、2026年11月19日");
+    // The old per-source attribution boilerplate no longer appears.
+    expect(result.report).not.toContain("と示されています");
+    expect(result.report).not.toMatch(/- S\d+（.+）では『/);
+    // The report keeps its PKG-9 hygiene: even answer-bearing excerpt
+    // sentences are not quoted on this surface — the card quote stays
+    // exclusive to the partial answer.
+    expect(result.report).not.toContain("高市早苗は第104代内閣総理大臣です");
+    expect(result.report).not.toContain("記者会見で経済対策について説明しました");
+    // The retrieval-metadata section is unchanged.
+    expect(result.report).toContain("## 出典と取得状況");
+    expect(result.report).toContain("取得状態: 本文確認済み");
   });
 });
