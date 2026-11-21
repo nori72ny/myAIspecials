@@ -1,6 +1,7 @@
 import {
   AGENT_RUN_ID_PATTERN,
   AGENT_RUN_OWNER_BINDING_PATTERN,
+  MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
   normalizeAgentRunApprovalDeadlineAt,
@@ -11,10 +12,12 @@ import {
   normalizeAgentRunQuotaLedger,
   normalizeAgentRunStepsState,
   validateCreateAgentRunInput,
+  validatePutAgentRunStepArtifacts,
   type AgentRunFinishStatus,
   type AgentRunLeaseRecord,
   type AgentRunProgressPatch,
   type AgentRunRecord,
+  type AgentRunStepArtifact,
   type AgentRunStore,
   type CreateAgentRunInput,
   type ListAgentRunsByOwnerOptions,
@@ -45,8 +48,11 @@ function assertDriverAndLease(driverId: string, leaseSeconds: number): void {
   }
 }
 
+const artifactKey = (runId: string, stepIndex: number): string => `${runId}\n${stepIndex}`;
+
 export class InMemoryAgentRunStore implements AgentRunStore {
   private readonly runs = new Map<string, StoredRun>();
+  private readonly artifacts = new Map<string, AgentRunStepArtifact>();
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -209,9 +215,12 @@ export class InMemoryAgentRunStore implements AgentRunStore {
     if (!AGENT_RUN_ID_PATTERN.test(runId) || !AGENT_RUN_DRIVER_ID_PATTERN.test(driverId)) {
       throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
     }
-    if (patch.stepsState === undefined && patch.quotaLedger === undefined) throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
+    if (patch.stepsState === undefined && patch.quotaLedger === undefined && patch.artifacts === undefined) {
+      throw new Error('AGENT_RUN_PROGRESS_INPUT_INVALID');
+    }
     const stepsState = patch.stepsState === undefined ? undefined : normalizeAgentRunStepsState(patch.stepsState);
     const quotaLedger = patch.quotaLedger === undefined ? undefined : normalizeAgentRunQuotaLedger(patch.quotaLedger);
+    const artifacts = patch.artifacts === undefined ? undefined : validatePutAgentRunStepArtifacts(patch.artifacts);
     const stored = this.leasedTo(runId, driverId);
     if (!stored) return false;
     this.runs.set(runId, {
@@ -221,7 +230,55 @@ export class InMemoryAgentRunStore implements AgentRunStore {
       version: stored.version + 1,
       updatedAt: this.now(),
     });
+    if (artifacts !== undefined) {
+      // Mirror of the Postgres statement's total-cap guard: the
+      // progress write above stands either way, but a batch that would
+      // push the run past its total saves nothing (never a truncation).
+      const incomingIndexes = new Set(artifacts.map((artifact) => artifact.stepIndex));
+      let existingTotal = 0;
+      for (const existing of this.artifacts.values()) {
+        if (existing.runId !== runId || incomingIndexes.has(existing.stepIndex)) continue;
+        existingTotal += existing.artifact.length;
+      }
+      const batchTotal = artifacts.reduce((sum, artifact) => sum + artifact.charCount, 0);
+      if (existingTotal + batchTotal <= MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS) {
+        const timestamp = this.now();
+        for (const artifact of artifacts) {
+          this.artifacts.set(artifactKey(runId, artifact.stepIndex), {
+            runId,
+            stepIndex: artifact.stepIndex,
+            stepFingerprint: artifact.stepFingerprint,
+            attempt: artifact.attempt,
+            artifact: artifact.artifact,
+            artifactBytes: artifact.artifactBytes,
+            artifactSha256: artifact.artifactSha256,
+            createdAt: timestamp,
+            expiresAt: stored.expiresAt,
+          });
+        }
+      }
+    }
     return true;
+  }
+
+  async listStepArtifacts(runId: string): Promise<AgentRunStepArtifact[]> {
+    if (!AGENT_RUN_ID_PATTERN.test(runId)) return [];
+    const timestamp = this.now();
+    return [...this.artifacts.values()]
+      .filter((artifact) => artifact.runId === runId && artifact.expiresAt > timestamp)
+      .sort((a, b) => a.stepIndex - b.stepIndex)
+      .map((artifact) => clone(artifact));
+  }
+
+  async sweepExpiredArtifacts(limit = 100): Promise<number> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) throw new Error('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');
+    const timestamp = this.now();
+    const due = [...this.artifacts.values()]
+      .filter((artifact) => artifact.expiresAt <= timestamp)
+      .sort((a, b) => a.expiresAt - b.expiresAt)
+      .slice(0, limit);
+    for (const artifact of due) this.artifacts.delete(artifactKey(artifact.runId, artifact.stepIndex));
+    return due.length;
   }
 
   async finish(runId: string, driverId: string, nextStatus: AgentRunFinishStatus, hold?: AgentRunRecord['hold']): Promise<AgentRunRecord | null> {

@@ -5,6 +5,7 @@ import {
   AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS,
   AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
   AGENT_RUN_MIGRATION_SQL_RUNS,
+  AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS,
   AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
   AGENT_RUN_SCHEMA_MIGRATIONS,
 } from './agentRunSchema.js';
@@ -99,6 +100,30 @@ describe('agent consumed runs migration contract', () => {
   });
 });
 
+describe('agent run artifacts migration contract', () => {
+  it('keeps step artifacts service-role-only with caps and integrity constraints mirroring the store', async () => {
+    const sql = await readFile(new URL('../../supabase/migrations/20261122090000_origin_agent_run_artifacts.sql', import.meta.url), 'utf8');
+    expect(sql).toContain('create table if not exists public.origin_agent_run_artifacts');
+    expect(sql).toContain('enable row level security');
+    expect(sql).toContain('revoke all on table public.origin_agent_run_artifacts from anon');
+    expect(sql).toContain('revoke all on table public.origin_agent_run_artifacts from authenticated');
+    expect(sql).toContain('grant select, insert, update, delete on table public.origin_agent_run_artifacts to service_role');
+    // One row per (run, step): the primary key is the ON CONFLICT
+    // target of the store's fenced upsert.
+    expect(sql).toContain('primary key (run_id, step_index)');
+    // Deleting a run removes its artifacts with it.
+    expect(sql).toContain('references public.origin_agent_runs (run_id) on delete cascade');
+    // The caps of the store contract, as database backstops.
+    expect(sql).toContain('char_length(artifact) <= 120000 and artifact_bytes between 0 and 524288');
+    expect(sql).toContain('artifact_bytes = octet_length(artifact)');
+    expect(sql).toContain("step_fingerprint ~ '^[0-9a-f]{64}$'");
+    expect(sql).toContain("artifact_sha256 ~ '^[0-9a-f]{64}$'");
+    expect(sql).toContain('step_index between 0 and 19');
+    // The sweep scans by expiry.
+    expect(sql).toContain('origin_agent_run_artifacts_expires_at_idx');
+  });
+});
+
 describe('agent run schema constants mirror the migration files', () => {
   // The production bundle cannot read files at runtime, so the runs
   // schema is ensured lazily from in-code constants (agentRunSchema.ts).
@@ -110,6 +135,7 @@ describe('agent run schema constants mirror the migration files', () => {
     { constant: AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS, file: '../../supabase/migrations/20261108100000_origin_agent_write_locks.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION, file: '../../supabase/migrations/20261108110000_origin_agent_run_resume_evaluation.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS, file: '../../supabase/migrations/20261108120000_origin_agent_consumed_runs.sql' },
+    { constant: AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS, file: '../../supabase/migrations/20261122090000_origin_agent_run_artifacts.sql' },
   ];
 
   it('keeps every schema constant identical to its migration file', async () => {
@@ -125,6 +151,7 @@ describe('agent run schema constants mirror the migration files', () => {
       AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
       AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
       AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS,
+      AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS,
     ]);
   });
 });

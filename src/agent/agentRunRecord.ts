@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { containsLikelySecret } from './safeFilePolicy.js';
 import type { AgentTaskStatus } from './agentTaskGraph.js';
 import type { ToolName, ToolParams } from './toolRegistry.js';
@@ -53,6 +54,17 @@ export const MAX_AGENT_RUN_LIVE_SOURCE_DOMAIN_LENGTH = 253;
 export const MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH = 160;
 export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
+/**
+ * Step-artifact caps (step-artifact persistence, PR-1; design §4.3).
+ * The per-artifact char cap mirrors the verification engine's
+ * MAX_ARTIFACT_CHARS, so every artifact the advancer can hold is
+ * storable; the byte cap is a second backstop behind it, and the
+ * per-run total is enforced by the stores at write time. Oversize is
+ * rejected or skipped, never truncated into compliance.
+ */
+export const MAX_AGENT_RUN_ARTIFACT_CHARS = 120_000;
+export const MAX_AGENT_RUN_ARTIFACT_BYTES = 512 * 1024;
+export const MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS = 2_000_000;
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
 export const MAX_AGENT_RUN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**
@@ -286,7 +298,143 @@ export type TransitionAgentRunInput = {
 export type AgentRunProgressPatch = {
   stepsState?: AgentRunStepState[];
   quotaLedger?: AgentRunQuotaLedger;
+  /**
+   * Step artifacts produced by the steps this write completes
+   * (step-artifact persistence, PR-1). They are upserted inside the
+   * same fenced statement as the progress write itself: a driver that
+   * lost its claim writes neither progress nor artifacts. Saving is
+   * subject to the per-run total cap — when the cap would be exceeded
+   * the progress write still lands but the artifacts are skipped
+   * (never truncated), and the consuming step then fails with
+   * AGENT_STEP_INPUT_UNAVAILABLE, exactly as it does today.
+   */
+  artifacts?: PutAgentRunStepArtifactInput[];
 };
+
+/**
+ * One step artifact as handed to the store: the output of the plan
+ * step at `stepIndex`, identified by the step's fingerprint and the
+ * attempt count its completion was recorded with. The byte size and
+ * digest are deliberately not caller-supplied — validation recomputes
+ * them from the body, so stored metadata can never disagree with the
+ * body it describes.
+ */
+export type PutAgentRunStepArtifactInput = {
+  stepIndex: number;
+  stepFingerprint: string;
+  attempt: number;
+  artifact: string;
+};
+
+/** One persisted step artifact (step-artifact persistence, PR-1). */
+export type AgentRunStepArtifact = {
+  runId: string;
+  stepIndex: number;
+  stepFingerprint: string;
+  attempt: number;
+  artifact: string;
+  artifactBytes: number;
+  artifactSha256: string;
+  createdAt: number;
+  expiresAt: number;
+};
+
+/** A validated step-artifact write, with the measured fields filled in. */
+export type NormalizedAgentRunStepArtifactInput = PutAgentRunStepArtifactInput & {
+  artifactBytes: number;
+  artifactSha256: string;
+  charCount: number;
+};
+
+/**
+ * The fingerprint that binds a stored artifact to the plan step that
+ * produced it (design §4.4): SHA-256 over the canonical JSON of
+ * `{ toolName, params }` with the params exactly as approved — data-flow
+ * markers included, before any runtime resolution. Canonicalization
+ * sorts object keys recursively, so the fingerprint depends on the
+ * step's content only, never on key order. Hydration (PR-2) compares
+ * it against the current plan's step at the same index and treats a
+ * mismatch as "no artifact", so a re-plan can never silently reuse a
+ * different step's output.
+ */
+export function computeAgentRunStepFingerprint(toolName: string, params: ToolParams): string {
+  if (typeof toolName !== 'string' || !TOOL_NAME_PATTERN.test(toolName)) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  if (!isPlainObject(params)) throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  return createHash('sha256').update(canonicalJson({ params, toolName }), 'utf8').digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`;
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+}
+
+/**
+ * Validates one step-artifact write at the store boundary. The size
+ * and digest are recomputed from the body itself (the attachment
+ * store's rule), and the body passes the same likely-secret screening
+ * as every other run payload: a body that trips it is refused whole,
+ * never stored in part.
+ */
+export function validatePutAgentRunStepArtifactInput(
+  input: PutAgentRunStepArtifactInput,
+): NormalizedAgentRunStepArtifactInput {
+  if (!isPlainObject(input)) throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  const { stepIndex, stepFingerprint, attempt, artifact } = input;
+  if (!Number.isInteger(stepIndex) || Number(stepIndex) < 0 || Number(stepIndex) >= MAX_AGENT_RUN_PLAN_STEPS) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  if (typeof stepFingerprint !== 'string' || !PLAN_DIGEST_PATTERN.test(stepFingerprint)) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  if (!Number.isInteger(attempt) || Number(attempt) < 0 || Number(attempt) > MAX_AGENT_RUN_STEP_ATTEMPTS) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  if (typeof artifact !== 'string') throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  const charCount = artifact.length;
+  if (charCount > MAX_AGENT_RUN_ARTIFACT_CHARS) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  const artifactBytes = Buffer.byteLength(artifact, 'utf8');
+  if (artifactBytes > MAX_AGENT_RUN_ARTIFACT_BYTES) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  if (containsLikelySecret(artifact)) throw new Error('AGENT_RUN_ARTIFACT_SECRET_CONTENT_BLOCKED');
+  return {
+    stepIndex: Number(stepIndex),
+    stepFingerprint,
+    attempt: Number(attempt),
+    artifact,
+    artifactBytes,
+    artifactSha256: createHash('sha256').update(artifact, 'utf8').digest('hex'),
+    charCount,
+  };
+}
+
+/**
+ * Validates a progress write's artifact batch: every entry must be
+ * individually valid, and a step may appear at most once per write
+ * (one completion produces one artifact).
+ */
+export function validatePutAgentRunStepArtifacts(
+  inputs: readonly PutAgentRunStepArtifactInput[],
+): NormalizedAgentRunStepArtifactInput[] {
+  if (!Array.isArray(inputs) || inputs.length === 0) throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  const seen = new Set<number>();
+  return inputs.map((input) => {
+    const normalized = validatePutAgentRunStepArtifactInput(input);
+    if (seen.has(normalized.stepIndex)) throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+    seen.add(normalized.stepIndex);
+    return normalized;
+  });
+}
 
 export type AgentRunFinishStatus = 'completed' | 'failed' | 'held' | 'cancelled';
 
@@ -316,6 +464,21 @@ export interface AgentRunStore {
   finish(runId: string, driverId: string, nextStatus: AgentRunFinishStatus, hold?: AgentRunHold | null): Promise<AgentRunRecord | null>;
   recoverStale(runId: string): Promise<AgentRunRecord | null>;
   markExpired(limit?: number): Promise<number>;
+  /**
+   * Lists a run's persisted step artifacts (step-artifact persistence,
+   * PR-1), ordered by step index; rows past their retention are never
+   * returned. Scoped by run id alone, like the driver operations: the
+   * caller is the run's driver mid-advance (hydration, PR-2) or a path
+   * that already proved ownership of the run.
+   */
+  listStepArtifacts(runId: string): Promise<AgentRunStepArtifact[]>;
+  /**
+   * Deletes step artifacts whose retention has passed (an artifact's
+   * expiry copies its run's own expiry), oldest first, and returns
+   * how many rows were deleted. The piggyback wiring lands in PR-3;
+   * deleting a run row also removes its artifacts by cascade.
+   */
+  sweepExpiredArtifacts(limit?: number): Promise<number>;
 }
 
 const HOLD_REASONS: ReadonlySet<string> = new Set([
