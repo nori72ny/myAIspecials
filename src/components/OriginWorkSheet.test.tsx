@@ -2,9 +2,9 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import OriginWorkSheet, { ORIN_PROFILE_ART_SIZE_PX, type OriginWorkSheetItem } from './OriginWorkSheet';
-import { ORIGIN_CAT_STILL_SRC } from './OriginCatState';
+import { ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_STILL_SRC, ORIGIN_CAT_WINTER_FULL_SRC } from './OriginCatState';
 
 afterEach(() => {
   cleanup();
@@ -152,5 +152,39 @@ describe('OriginWorkSheet', () => {
     const wide = css.slice(css.indexOf('@media (min-width: 640px)', css.indexOf('.origin-orin-profile {')));
     expect(wide).toContain('.origin-orin-profile__card');
     expect(wide).toContain('border-radius: 24px;');
+  });
+});
+
+describe('OriginWorkSheet seasonal illustration (profile card only, 2026-11-21)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows the winter full illustration with its caption in December', () => {
+    vi.setSystemTime(new Date(2026, 11, 15, 12, 0));
+    renderSheet([]);
+    const season = screen.getByTestId('origin-orin-profile-season');
+    const art = season.querySelector('img');
+    expect(art?.getAttribute('src')).toBe(ORIGIN_CAT_WINTER_FULL_SRC);
+    expect(season.textContent).toContain('雪景色のオリン');
+  });
+
+  it('shows the New Year full illustration with its caption on January 5', () => {
+    vi.setSystemTime(new Date(2027, 0, 5, 12, 0));
+    renderSheet([]);
+    const season = screen.getByTestId('origin-orin-profile-season');
+    const art = season.querySelector('img');
+    expect(art?.getAttribute('src')).toBe(ORIGIN_CAT_NEWYEAR_FULL_SRC);
+    expect(season.textContent).toContain('お正月のオリン');
+  });
+
+  it('shows no seasonal illustration in June', () => {
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
+    renderSheet([]);
+    expect(screen.queryByTestId('origin-orin-profile-season')).toBeNull();
   });
 });
