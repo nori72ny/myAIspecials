@@ -322,6 +322,56 @@ export function verifyAgentDataCoverage(
   };
 }
 
+/**
+ * Whether the rows yardstick is a real table key. When no table file
+ * carries a key column, `expectedKeys` degenerates to the set's file
+ * names and `keyField` to the literal 'file' — a yardstick that asks
+ * the model to emit each file name exactly once. That says nothing
+ * about the content, and it cannot be satisfied reliably when a file
+ * spans several chunks: the per-chunk model calls are independent,
+ * so no call can know whether another chunk of the same file already
+ * emitted its name (ALE day-1, 2026-11-21: the K8s set's
+ * cluster_state.txt spans two chunks and failed coverage
+ * deterministically). Coverage for such sets is verified on
+ * deterministic facts instead (verifyAgentDataChunkCoverage); the
+ * key-multiset verification above stays in force for sets with a
+ * real table key.
+ */
+export function agentDataUsesFileNameKeys(view: AgentAttachmentDataView): boolean {
+  return !view.files.some(
+    (file) => file.kind === 'table' && file.keyColumn !== undefined && file.keyColumn === view.keyField,
+  );
+}
+
+export type AgentDataChunkCoverageResult =
+  | { ok: true; processedChunks: number }
+  | { ok: false; expectedChunks: number; processedChunks: number; rowCount: number };
+
+/**
+ * Coverage for `rows` output over a file-name-key set (design §3.5.1,
+ * prose branch): the deterministic facts are the processed chunk
+ * range and a non-empty result. Every chunk of the set must have
+ * been presented to the model across the analyzer chain — each step
+ * either processes its whole range or fails the step, and the final
+ * step checks the predecessor bundle's recorded processed count
+ * plus its own range against the set's total, so a skipped or
+ * double-counted range fails the equality — and the merged rows
+ * must not be empty: rows over a non-empty set that extract nothing
+ * are an empty result, not coverage. Content correctness was never
+ * what the file-name key check verified either; where a real table
+ * key exists, the stricter key/numeric verification applies instead.
+ */
+export function verifyAgentDataChunkCoverage(
+  view: AgentAttachmentDataView,
+  processedChunks: number,
+  rowCount: number,
+): AgentDataChunkCoverageResult {
+  if (processedChunks === view.totalChunks && rowCount > 0) {
+    return { ok: true, processedChunks };
+  }
+  return { ok: false, expectedChunks: view.totalChunks, processedChunks, rowCount };
+}
+
 function csvCell(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }

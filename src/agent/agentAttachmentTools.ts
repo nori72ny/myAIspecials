@@ -4,13 +4,16 @@ import {
   type AgentAttachmentStore,
 } from './agentAttachmentRecord.js';
 import {
+  agentDataUsesFileNameKeys,
   buildAgentAttachmentDataView,
   renderAgentDataRowsCsv,
+  verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
   AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
   AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS,
   AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP,
   type AgentAttachmentDataView,
+  type AgentDataChunk,
   type AgentDataRow,
 } from './agentAttachmentData.js';
 import { createAgentModelExecutor, type AgentModelExecutor } from './agentModelCall.js';
@@ -120,7 +123,7 @@ export async function executeAttachmentReader(
 const OUTPUT_KINDS: readonly AgentDataOutputKind[] = ['rows', 'findings', 'text'];
 
 function analyzerInstruction(outputKind: AgentDataOutputKind, goalInstruction: string, view: AgentAttachmentDataView): string {
-  const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。';
+  const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
   const shape = outputKind === 'rows'
     ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。数値は入力の表記をそのまま写してください。`
     : outputKind === 'findings'
@@ -129,6 +132,19 @@ function analyzerInstruction(outputKind: AgentDataOutputKind, goalInstruction: s
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
   const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
   return `${head}${shape}依頼: ${clipped}`;
+}
+
+/**
+ * The per-chunk model input: the chunk's provenance — file name and
+ * position in the set — framed as a metadata line ahead of the body.
+ * The body itself is passed through unchanged. Until 2026-11-21 the
+ * model received the bare body only, so it had no way to name the
+ * file a finding came from or to fill the `file` key of a rows
+ * output correctly; the frame gives it both, and the analyzer
+ * instruction tells it the frame is metadata, not data.
+ */
+function chunkModelInput(view: AgentAttachmentDataView, chunk: AgentDataChunk): string {
+  return `【出典: ${chunk.fileName}（チャンク ${chunk.index + 1}/${view.totalChunks}）】\n${chunk.text}`;
 }
 
 function extractJsonObject(text: string): unknown {
@@ -193,7 +209,14 @@ function parseChunkOutput(outputKind: AgentDataOutputKind, text: string, view: A
   return output;
 }
 
-type PriorBundle = ChunkOutput;
+type PriorBundle = ChunkOutput & {
+  /** The predecessor chain's recorded processed-chunk count (its
+   * artifact coverage block). The final step of a file-name-key rows
+   * run verifies its chain against this count, so a bundle whose
+   * coverage block is missing or inconsistent fails that gate
+   * closed instead of being trusted. */
+  processedChunks?: number;
+};
 
 function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view: AgentAttachmentDataView): PriorBundle | null {
   let parsed: unknown;
@@ -234,6 +257,13 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
   } else {
     if (typeof bundle.content !== 'string') return null;
     if (bundle.content.length > 0) prior.textParts.push(bundle.content);
+  }
+  const coverage = bundle.coverage;
+  if (coverage && typeof coverage === 'object' && !Array.isArray(coverage)) {
+    const processed = (coverage as Record<string, unknown>).processedChunks;
+    if (typeof processed === 'number' && Number.isInteger(processed) && processed >= 0) {
+      prior.processedChunks = processed;
+    }
   }
   return prior;
 }
@@ -285,10 +315,17 @@ export async function executeAttachmentAnalyzer(
   const isFinalStep = chunkOffset + range.length >= view.totalChunks;
 
   let merged: ChunkOutput = { rows: [], findings: [], textParts: [] };
+  // The predecessor chain's recorded processed-chunk count: 0 for a
+  // first step, the prior bundle's coverage count for a continuation,
+  // and null when a continuation's bundle carries no count — the
+  // file-name-key coverage gate treats null as unverifiable and
+  // fails closed.
+  let priorProcessedChunks: number | null = chunkOffset === 0 ? 0 : null;
   if (typeof params.content === 'string' && params.content.trim().length > 0) {
     const prior = parsePriorBundle(params.content, outputKind, view);
     if (!prior) return fail('AGENT_DATA_OUTPUT_INVALID');
     merged = prior;
+    if (typeof prior.processedChunks === 'number') priorProcessedChunks = prior.processedChunks;
   } else if (chunkOffset > 0) {
     // A continuation step without its predecessor's bundle would
     // silently drop the earlier chunks' work; refuse instead.
@@ -298,13 +335,14 @@ export async function executeAttachmentAnalyzer(
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
   const instruction = analyzerInstruction(outputKind, goalInstruction, view);
   for (const chunk of range) {
-    const first = await modelCall({ instruction, userText: chunk.text, goal: goalInstruction });
+    const userText = chunkModelInput(view, chunk);
+    const first = await modelCall({ instruction, userText, goal: goalInstruction });
     if (first.ok === false) return fail(first.code);
     let output = parseChunkOutput(outputKind, first.text, view);
     if (!output) {
       const repair = await modelCall({
         instruction: `${instruction}前回の応答は指定のJSON形式に適合しませんでした。JSONだけを返してください。`,
-        userText: chunk.text,
+        userText,
         goal: goalInstruction,
       });
       if (repair.ok === false) return fail(repair.code);
@@ -317,9 +355,24 @@ export async function executeAttachmentAnalyzer(
   }
 
   if (isFinalStep && outputKind === 'rows') {
-    const coverage = verifyAgentDataCoverage(view, merged.rows);
-    if (coverage.ok === false) {
-      return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${coverage.expected}件中${coverage.covered}件を処理、未処理${coverage.missing.length}件、重複${coverage.duplicated.length}件、対象外${coverage.unexpected.length}件、数値不一致${coverage.numericMismatch.length}件)`);
+    if (agentDataUsesFileNameKeys(view)) {
+      // Prose branch of the coverage gate (design §3.5.1): with no
+      // table key, the yardstick is the deterministic processed
+      // chunk range — the predecessor chain's recorded count plus
+      // this step's range must equal the set's total, and the merged
+      // rows must not be empty. The old file-name key multiset asked
+      // independent per-chunk calls to emit each file name exactly
+      // once, which a multi-chunk file makes unsatisfiable.
+      const processedChunks = priorProcessedChunks === null ? -1 : priorProcessedChunks + range.length;
+      const chunkCoverage = verifyAgentDataChunkCoverage(view, processedChunks, merged.rows.length);
+      if (chunkCoverage.ok === false) {
+        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)`);
+      }
+    } else {
+      const coverage = verifyAgentDataCoverage(view, merged.rows);
+      if (coverage.ok === false) {
+        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${coverage.expected}件中${coverage.covered}件を処理、未処理${coverage.missing.length}件、重複${coverage.duplicated.length}件、対象外${coverage.unexpected.length}件、数値不一致${coverage.numericMismatch.length}件)`);
+      }
     }
   }
 
@@ -338,7 +391,7 @@ export async function executeAttachmentAnalyzer(
     coverage: {
       totalChunks: view.totalChunks,
       processedChunks: chunkOffset + range.length,
-      ...(outputKind === 'rows' ? { keyCount: view.expectedKeys.length } : {}),
+      ...(outputKind === 'rows' && !agentDataUsesFileNameKeys(view) ? { keyCount: view.expectedKeys.length } : {}),
     },
     chunkRange: { offset: chunkOffset, count: range.length },
   });

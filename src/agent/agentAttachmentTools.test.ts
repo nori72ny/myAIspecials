@@ -43,9 +43,11 @@ function contextFor(store: InMemoryAgentAttachmentStore, modelCall?: AgentModelE
 }
 
 /** Deterministic stand-in at the provider port: classifies each CSV
- * row in the chunk it is actually given (amount >= 200 → 高額). */
+ * row in the chunk it is actually given (amount >= 200 → 高額). The
+ * analyzer frames each chunk with a provenance line (【出典: …】);
+ * like a real model, the stand-in reads it as metadata, not data. */
 const classifyingExecutor: AgentModelExecutor = async ({ userText }) => {
-  const lines = userText.split('\n').filter((line) => line.length > 0);
+  const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
   const rows = lines.slice(1).map((line) => {
     const [id, item, amount] = line.split(',');
     return { id, item, amount, category: Number(amount) >= 200 ? '高額' : '通常' };
@@ -129,7 +131,7 @@ describe('attachment_analyzer tool', () => {
   it('fails with AGENT_DATA_COVERAGE_INSUFFICIENT when the model drops a row', async () => {
     const { store, setDigest } = await storeWithFruits();
     const droppingExecutor: AgentModelExecutor = async ({ userText }) => {
-      const lines = userText.split('\n').filter((line) => line.length > 0).slice(1, 3);
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:')).slice(1, 3);
       const rows = lines.map((line) => {
         const [id, item, amount] = line.split(',');
         return { id, item, amount };
@@ -232,4 +234,177 @@ describe('document_generator dataGrounded rule (F2)', () => {
     expect(grounded.ok).toBe(true);
     expect(explicit.artifact).toBe(grounded.artifact);
   });
+});
+
+/**
+* End-to-end regression for the ALE day-1 coverage failure
+* (2026-11-21): prose-only sets whose analyzer was planned as rows
+* (K8s shape) or could still be planned as rows over prose (M&A
+* shape). The set compositions reproduce the staged ones at the same
+* sizes (see agentAttachmentData.test.ts): K8s = 3 prose files /
+* 4 chunks, first file spanning two; M&A = 5 prose files / 17 chunks.
+*/
+function proseParagraphs(count: number, chars: number, seed: string): string {
+return Array.from({ length: count}, (_, i) => `${seed} paragraph ${i + 1}. `.padEnd(chars, 'x')).join('\n\n');
+}
+
+const K8S_SHAPE_FILES = [
+{ name: 'cluster_state.txt', text: proseParagraphs(2, 2_490, 'cluster state')},
+{ name: 'deployment.yaml', text: proseParagraphs(1, 2_178, 'deployment manifest')},
+{ name: 'failing_pod.log', text: proseParagraphs(1, 3_980, 'pod log')},
+];
+
+const MA_SHAPE_FILES = [
+{ name: 'announcement.txt', text: proseParagraphs(8, 1_200, 'announcement')},
+{ name: 'buyer1_report.txt', text: proseParagraphs(6, 1_200, 'buyer one')},
+{ name: 'buyer2_report.txt', text: proseParagraphs(6, 1_200, 'buyer two')},
+{ name: 'document_manifest.json', text: '{"documents": ["announcement", "buyer1", "buyer2", "seller"]}'},
+{ name: 'seller_report.txt', text: proseParagraphs(12, 1_200, 'seller')},
+];
+
+async function storeWithFiles(files: { name: string; text: string}[]) {
+const store = new InMemoryAgentAttachmentStore();
+await store.createSet({
+setId: SET_ID,
+ownerBinding: OWNER,
+uploadTokenDigest: 'cd'.repeat(32),
+expiresAt: Date.now() + 3_600_000,
+});
+for (const file of files) {
+const measured = validateAgentAttachmentFileText(file.text);
+await store.addFile(SET_ID, OWNER, {
+name: file.name,
+mediaType: 'text/plain',
+kind: 'text',
+byteSize: measured.byteSize,
+charCount: measured.charCount,
+sha256: measured.sha256,
+extractedText: file.text,
+});
+}
+const set = await store.getSet(SET_ID, OWNER);
+if (!set) throw new Error('fixture set missing');
+return { store, setDigest: computeAgentAttachmentSetDigest(set.files)};
+}
+
+/** Reads the chunk's provenance frame the way a model would: the
+* frame names the file the chunk came from. */
+function frameFileName(userText: string): string {
+const match = userText.match(/^【出典: (.+?)（/);
+return match? match[1]: '';
+}
+
+describe('attachment_analyzer over staged prose compositions', () => {
+it('completes the K8s shape as findings, and the model can name each chunk file', async () => {
+const { store, setDigest} = await storeWithFiles(K8S_SHAPE_FILES);
+const seenFrames: string[] = [];
+const executor: AgentModelExecutor = async ({ userText}) => {
+seenFrames.push(userText.split('\n')[0]);
+return {
+ok: true,
+text: JSON.stringify({
+findings: [{ claim: '断片から読み取れる所見', evidence: '引用', file: frameFileName(userText), location: '冒頭'}],
+}),
+};
+};
+const result = await toolRegistry.attachment_analyzer.execute(
+{
+attachmentSetId: SET_ID, setDigest,
+instruction: '障害の原因を分析してください',
+outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+},
+contextFor(store, executor),
+);
+expect(result.ok).toBe(true);
+const bundle = JSON.parse(result.artifact?? '{}') as {
+coverage: { processedChunks: number};
+findings: { file: string}[];
+};
+expect(bundle.coverage.processedChunks).toBe(4);
+expect(bundle.findings.map((finding) => finding.file)).toEqual([
+'cluster_state.txt', 'cluster_state.txt', 'deployment.yaml', 'failing_pod.log',
+]);
+expect(seenFrames).toEqual([
+'【出典: cluster_state.txt（チャンク 1/4）】',
+'【出典: cluster_state.txt（チャンク 2/4）】',
+'【出典: deployment.yaml（チャンク 3/4）】',
+'【出典: failing_pod.log（チャンク 4/4）】',
+]);
+});
+
+it('completes rows over the M&A prose shape across chained steps (chunk-range coverage)', async () => {
+const { store, setDigest} = await storeWithFiles(MA_SHAPE_FILES);
+const executor: AgentModelExecutor = async ({ userText}) => ({
+ok: true,
+text: JSON.stringify({ rows: [{ file: frameFileName(userText), note: '処理済み'}]}),
+});
+const params = (extra: Record<string, unknown>) => ({
+attachmentSetId: SET_ID, setDigest,
+instruction: '各断片から対象を抽出してください',
+outputKind: 'rows',
+...extra,
+});
+const step1 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 0, chunkCount: 8}), contextFor(store, executor));
+expect(step1.ok).toBe(true);
+const step2 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 8, chunkCount: 8, content: step1.artifact}), contextFor(store, executor));
+expect(step2.ok).toBe(true);
+const step3 = await toolRegistry.attachment_analyzer.execute(
+params({ chunkOffset: 16, chunkCount: 1, content: step2.artifact}), contextFor(store, executor));
+expect(step3.ok).toBe(true);
+const bundle = JSON.parse(step3.artifact?? '{}') as {
+coverage: { processedChunks: number};
+rows: { file: string}[];
+};
+expect(bundle.coverage.processedChunks).toBe(17);
+expect(bundle.rows).toHaveLength(17);
+// seller_report.txt spans six chunks, so its name legitimately
+// appears six times in the merged rows — the old file-name key
+// multiset failed exactly this shape as a duplicated key.
+expect(bundle.rows.filter((row) => row.file === 'seller_report.txt')).toHaveLength(6);
+});
+
+it('fails coverage when the predecessor bundle does not cover the step offset', async () => {
+const { store, setDigest} = await storeWithFiles(MA_SHAPE_FILES);
+const executor: AgentModelExecutor = async ({ userText}) => ({
+ok: true,
+text: JSON.stringify({ rows: [{ file: frameFileName(userText), note: '処理済み'}]}),
+});
+// A bundle claiming only 3 processed chunks, presented to the
+// final step at offset 16: chunks 3..15 are unaccounted for, so
+// the chain total (3 + 1) cannot equal the set's 17.
+const fabricated = JSON.stringify({
+kind: 'data-analysis',
+outputKind: 'rows',
+rows: [{ file: 'announcement.txt', note: 'x'}],
+coverage: { totalChunks: 17, processedChunks: 3},
+chunkRange: { offset: 0, count: 3},
+});
+const result = await toolRegistry.attachment_analyzer.execute(
+{
+attachmentSetId: SET_ID, setDigest,
+instruction: '各断片から対象を抽出してください',
+outputKind: 'rows', chunkOffset: 16, chunkCount: 1, content: fabricated,
+},
+contextFor(store, executor),
+);
+expect(result.ok).toBe(false);
+expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+});
+
+it('fails coverage when rows over a prose set come back empty', async () => {
+const { store, setDigest} = await storeWithFiles(K8S_SHAPE_FILES);
+const emptyExecutor: AgentModelExecutor = async () => ({ ok: true, text: JSON.stringify({ rows: []})});
+const result = await toolRegistry.attachment_analyzer.execute(
+{
+attachmentSetId: SET_ID, setDigest,
+instruction: '各断片から対象を抽出してください',
+outputKind: 'rows', chunkOffset: 0, chunkCount: 4,
+},
+contextFor(store, emptyExecutor),
+);
+expect(result.ok).toBe(false);
+expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+});
 });

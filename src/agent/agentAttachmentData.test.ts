@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  agentDataUsesFileNameKeys,
   buildAgentAttachmentDataView,
   renderAgentDataRowsCsv,
+  verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
   AGENT_ATTACHMENT_CHUNK_MAX_CHARS,
 } from './agentAttachmentData.js';
@@ -152,5 +154,97 @@ describe('renderAgentDataRowsCsv', () => {
       { id: 'A-2', item: 'みかん', note: 'plain' },
     ]);
     expect(csv).toBe('id,item,note\nA-1,りんご,"has,comma"\nA-2,みかん,plain');
+  });
+});
+
+/**
+ * The staged ALE day-1 set compositions, reproduced synthetically at
+ * the same sizes (the staged bodies themselves live outside the
+ * repo): K8s = 3 prose files / 4 chunks with the first file spanning
+ * two chunks; M&A = 5 prose files / 17 chunks (4+3+3+1+6). Paragraphs
+ * of 1,200 chars pack two per 3,500-char chunk; the K8s first file is
+ * two 2,490-char paragraphs, which cannot pack together.
+ */
+function proseParagraphs(count: number, chars: number, seed: string): string {
+  return Array.from({ length: count }, (_, i) => `${seed} paragraph ${i + 1}. `.padEnd(chars, 'x')).join('\n\n');
+}
+
+const K8S_SHAPE_FILES = [
+  { name: 'cluster_state.txt', text: proseParagraphs(2, 2_490, 'cluster state') },
+  { name: 'deployment.yaml', text: proseParagraphs(1, 2_178, 'deployment manifest') },
+  { name: 'failing_pod.log', text: proseParagraphs(1, 3_980, 'pod log') },
+];
+
+const MA_SHAPE_FILES = [
+  { name: 'announcement.txt', text: proseParagraphs(8, 1_200, 'announcement') },
+  { name: 'buyer1_report.txt', text: proseParagraphs(6, 1_200, 'buyer one') },
+  { name: 'buyer2_report.txt', text: proseParagraphs(6, 1_200, 'buyer two') },
+  { name: 'document_manifest.json', text: '{"documents": ["announcement", "buyer1", "buyer2", "seller"]}' },
+  { name: 'seller_report.txt', text: proseParagraphs(12, 1_200, 'seller') },
+];
+
+describe('agentAttachmentData staged prose compositions', () => {
+  it('builds the K8s shape: all prose, 4 chunks, first file spanning two', () => {
+    const view = buildAgentAttachmentDataView(K8S_SHAPE_FILES);
+    expect(view.files.map((file) => file.kind)).toEqual(['prose', 'prose', 'prose']);
+    expect(view.totalChunks).toBe(4);
+    expect(view.chunks.map((chunk) => chunk.fileName)).toEqual([
+      'cluster_state.txt', 'cluster_state.txt', 'deployment.yaml', 'failing_pod.log',
+    ]);
+    expect(view.keyField).toBe('file');
+    expect(view.expectedKeys).toEqual(['cluster_state.txt', 'deployment.yaml', 'failing_pod.log']);
+    expect(agentDataUsesFileNameKeys(view)).toBe(true);
+  });
+
+  it('builds the M&A shape: all prose, 17 chunks split 4+3+3+1+6', () => {
+    const view = buildAgentAttachmentDataView(MA_SHAPE_FILES);
+    expect(view.files.every((file) => file.kind === 'prose')).toBe(true);
+    expect(view.totalChunks).toBe(17);
+    expect(MA_SHAPE_FILES.map((file) => view.chunks.filter((chunk) => chunk.fileName === file.name).length))
+      .toEqual([4, 3, 3, 1, 6]);
+    expect(view.keyField).toBe('file');
+    expect(agentDataUsesFileNameKeys(view)).toBe(true);
+  });
+
+  it('reports a table key as a real yardstick, including a column literally named file', () => {
+    const tableView = buildAgentAttachmentDataView([{ name: 'fruits.csv', text: FRUITS }]);
+    expect(agentDataUsesFileNameKeys(tableView)).toBe(false);
+    const fileColumnView = buildAgentAttachmentDataView([
+      { name: 'listing.csv', text: 'file,size\na.txt,10\nb.txt,20' },
+    ]);
+    expect(fileColumnView.keyField).toBe('file');
+    expect(fileColumnView.expectedKeys).toEqual(['a.txt', 'b.txt']);
+    expect(agentDataUsesFileNameKeys(fileColumnView)).toBe(false);
+  });
+
+  it('treats a table without any unique column as a file-name yardstick', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'dupes.csv', text: 'a,b\n1,x\n1,x' }]);
+    expect(view.files[0].kind).toBe('table');
+    expect(view.files[0].keyColumn).toBeUndefined();
+    expect(view.keyField).toBe('file');
+    expect(agentDataUsesFileNameKeys(view)).toBe(true);
+  });
+});
+
+describe('agentAttachmentData chunk coverage (prose branch)', () => {
+  const view = buildAgentAttachmentDataView(K8S_SHAPE_FILES);
+
+  it('passes when the whole chunk range was processed and rows were produced', () => {
+    expect(verifyAgentDataChunkCoverage(view, 4, 3)).toEqual({ ok: true, processedChunks: 4 });
+  });
+
+  it('fails when part of the chunk range was never processed', () => {
+    const result = verifyAgentDataChunkCoverage(view, 3, 3);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.expectedChunks).toBe(4);
+      expect(result.processedChunks).toBe(3);
+    }
+  });
+
+  it('fails when the merged rows are empty even though every chunk ran', () => {
+    const result = verifyAgentDataChunkCoverage(view, 4, 0);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) expect(result.rowCount).toBe(0);
   });
 });
