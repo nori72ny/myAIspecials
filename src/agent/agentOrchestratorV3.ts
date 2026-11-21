@@ -64,17 +64,23 @@ const isToolName = (value: unknown): value is ToolName => typeof value === 'stri
  * attachment plan, and the two ceilings must move together so an
  * issuable plan is always an executable one. */
 const MAX_EXECUTION_STEPS = 6;
+/**
+ * User-visible plan step titles. These are display names shown on the
+ * agent screen (plan list, resume view), so they are plain Japanese like
+ * every other label on that screen; the internal reason codes that
+ * accompany each step stay unchanged and are never shown.
+ */
 const STEP_TITLES: Record<ToolName, string> = {
-  repository_explorer: 'Explore repository structure',
-  file_reader: 'Read the target file',
-  web_search_grounding: 'Research with grounded sources',
-  code_interpreter: 'Generate or repair code (V14 pipeline)',
-  document_generator: 'Generate the document',
-  image_prompt_compiler: 'Compile the image prompt',
-  file_writer: 'Write the file',
-  verification_runner: 'Run verification',
-  attachment_reader: 'Read the attached data',
-  attachment_analyzer: 'Analyze the attached data',
+  repository_explorer: 'ファイルの一覧を見る',
+  file_reader: 'ファイルを読む',
+  web_search_grounding: 'ウェブで調べる',
+  code_interpreter: 'コードを作って確認する',
+  document_generator: '文書を作る',
+  image_prompt_compiler: '画像を作るための指示文を作る',
+  file_writer: 'ファイルを作る・直す',
+  verification_runner: 'テストと動作確認をする',
+  attachment_reader: '添付データを読む',
+  attachment_analyzer: 'データを読み解いて処理する',
 };
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');

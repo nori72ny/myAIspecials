@@ -95,6 +95,31 @@ describe('AgentWorkspaceView v3', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
+  it('shows the plan once on the left and keeps the results panel empty while approval is pending', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+
+    await screen.findByText('まだ実行していません · 承認待ち');
+    // Each step title appears exactly once (the plan section on the
+    // left); the results panel must not repeat the plan as a document.
+    expect(screen.getAllByText('Goal analysis')).toHaveLength(1);
+    expect(screen.getByText('まだ結果はありません')).toBeTruthy();
+    expect(screen.queryByText('承認は、この計画に書かれた内容だけに必要です。')).toBeNull();
+    // The approval actions stay with the plan section.
+    expect(screen.getByRole('button', { name: '承認して実行' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '計画をやめる' })).toBeTruthy();
+  });
+
   it('records and drives the run for the operator path with the Bearer binding (PR-D3)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -789,9 +814,10 @@ describe('AgentWorkspaceView attachments (F3)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
     await screen.findByText('まだ実行していません · 承認待ち');
-    // The plan names the attached data as part of the approval — in
-    // the plan section and in the plan text shown in the result area.
-    expect(screen.getAllByText(new RegExp(`添付データ: 1件（fruits\\.csv、合計${FRUITS.length}文字）`))).toHaveLength(2);
+    // The plan names the attached data as part of the approval —
+    // once, in the plan section (the results panel no longer repeats
+    // the plan as a document).
+    expect(screen.getAllByText(new RegExp(`添付データ: 1件（fruits\\.csv、合計${FRUITS.length}文字）`))).toHaveLength(1);
     expect(screen.getByLabelText('行う作業').textContent).toContain('添付データを読む');
 
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
