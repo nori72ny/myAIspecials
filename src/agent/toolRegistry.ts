@@ -36,6 +36,10 @@ export type ToolExecutionContext = {
    * unset and the failover-backed executor is built from `env`. */
   modelCall?: AgentModelExecutor;
   env?: NodeJS.ProcessEnv;
+  /** Wait seam for the analyzer's transient-failure retry backoff;
+   * production leaves this unset (real timers). See
+   * AGENT_SEGMENT2_WALL_DIAGNOSIS_2026-11-22 §6. */
+  sleepMs?: (ms: number) => Promise<void>;
 };
 
 type ToolDefinition = { name: ToolName; capability: AgentCapability; description: string; sideEffects: 'none' | 'write'; requiresApproval: true; execute: (params: ToolParams, context?: ToolExecutionContext) => Promise<ToolResult> };
