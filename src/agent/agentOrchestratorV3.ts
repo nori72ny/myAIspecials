@@ -917,6 +917,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     // deletion on every attachment read is the correctness guarantee;
     // this only reclaims storage sooner.
     if (attachmentStore) void attachmentStore.sweepExpired().catch(() => 0);
+    // Step-artifact retention sweep (step-artifact persistence, PR-3;
+    // design §4.6): reclaimed on the same piggyback opportunity, with
+    // the same best-effort contract as the attachment sweep above.
+    // listStepArtifacts already hides rows past retention, so this
+    // only reclaims storage sooner. It is deliberately not gated on
+    // the step-artifacts switch: if the switch is turned off after a
+    // period on, the rows it left behind still need reclaiming.
+    if (runStore) void runStore.sweepExpiredArtifacts().catch(() => 0);
     if (!runStore) return null;
     return evaluateAgentRunPiggyback({ runStore, replan: runReplanPort }, ownerBinding, Date.now()).catch(() => null);
   };

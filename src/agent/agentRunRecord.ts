@@ -65,6 +65,15 @@ export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 export const MAX_AGENT_RUN_ARTIFACT_CHARS = 120_000;
 export const MAX_AGENT_RUN_ARTIFACT_BYTES = 512 * 1024;
 export const MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS = 2_000_000;
+/**
+ * Terminal retention grace (step-artifact persistence, PR-3; design
+ * §4.6): a run's artifacts live as long as the run does, and for this
+ * long after the run reaches a terminal status, so a just-finished
+ * run's intermediate outputs stay available briefly; past the grace
+ * the sweep reclaims them even when the run's own (longer) TTL has
+ * not elapsed. The run's own expiry stays the outer bound either way.
+ */
+export const AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS = 24 * 60 * 60 * 1000;
 
 export const ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED_ENV = 'ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED' as const;
 
@@ -483,10 +492,16 @@ export interface AgentRunStore {
    */
   listStepArtifacts(runId: string): Promise<AgentRunStepArtifact[]>;
   /**
-   * Deletes step artifacts whose retention has passed (an artifact's
-   * expiry copies its run's own expiry), oldest first, and returns
-   * how many rows were deleted. The piggyback wiring lands in PR-3;
-   * deleting a run row also removes its artifacts by cascade.
+   * Deletes step artifacts whose retention has passed, oldest first,
+   * and returns how many rows were deleted. Retention has passed when
+   * the artifact's own expiry (a copy of its run's expiry) has
+   * passed, or when the run has been in a terminal status for longer
+   * than AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS (design §4.6) — a
+   * terminal run's updatedAt is its terminal transition time, because
+   * terminal rows never transition again. Wired into the piggyback
+   * evaluation (PR-3); deleting a run row also removes its artifacts
+   * by cascade. Reads never depend on the sweep: listStepArtifacts
+   * already hides rows past their own expiry.
    */
   sweepExpiredArtifacts(limit?: number): Promise<number>;
 }
