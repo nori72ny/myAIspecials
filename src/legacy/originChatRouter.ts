@@ -3,7 +3,7 @@ import { Router } from "express";
 import { createOriginAnswerEnvelope, type OriginAnswerEnvelope, type OriginAnswerEvidenceItem, type OriginAnswerRichOutput, type OriginAnswerVerificationStatus } from "../lib/orchestration/OriginAnswerEnvelope.js";
 import { extractProvidedOriginEvidence } from "../lib/orchestration/OriginAnswerEvidence.js";
 import { DEFAULT_ORIGIN_CONTEXT_POLICY, minimizeOriginContext, type OriginContextPolicy } from "../lib/orchestration/OriginContextPolicy.js";
-import { buildOriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
+import { buildOriginExecutionPlan, type OriginExecutionPlan } from "../lib/orchestration/OriginExecutionPolicy.js";
 import type { OriginFreeModelEvidence } from "../lib/orchestration/OriginFreeModelCatalog.js";
 import { decideOriginReviewForMessage } from "../lib/orchestration/OriginReviewPolicy.js";
 import { classifyOriginRequestIntent, originIntentInputFromContext, type OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
@@ -11,7 +11,7 @@ import { buildOriginAgentWorkPlan, type OriginAgentWorkPlan } from "../lib/orche
 import { createOriginCapabilityGuide, isOriginCapabilityQuestion } from "../lib/orchestration/OriginCapabilityGuide.js";
 import { originAnswerQualityInstruction, resolveOriginAnswerQualityPolicy } from "../lib/orchestration/OriginAnswerQualityPolicy.js";
 import { applyOriginBusinessPlanningAuditGate } from "../lib/orchestration/OriginBusinessPlanningAudit.js";
-import { applyOriginPublicationGate } from "../lib/orchestration/OriginPublicationGate.js";
+import { applyOriginPublicationGate, publicationGateFiringKinds } from "../lib/orchestration/OriginPublicationGate.js";
 import { applyOriginDateWeekdayVerificationGate } from "../lib/orchestration/OriginDateWeekdayVerification.js";
 import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/orchestration/OriginServiceRegistry.js";
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
@@ -36,6 +36,8 @@ import {
 } from "../research/groundedResearchOutcome.js";
 import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstruction, buildGroundedResearchSynthesisPrompt, diagnoseGroundedResearchSynthesisUnits, executeGroundedResearchSynthesisWithRetry, isGroundedResearchSynthesisRetryEnabled, type QuoteFirstAdoptionContext } from "../research/groundedResearchSynthesisV12.js";
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
+import { buildGroundedResearchEvidenceCards } from "../research/groundedResearchEvidenceCards.js";
+import { classifyDirectAnswerVerificationTarget, classifyResearchAnswerVerificationTarget, resolveOriginAnswerVerificationEffectiveMode, runOriginAnswerVerificationShadow, verifyOriginAnswerCrossRoute, type OriginAnswerVerificationDailyUsageReader, type OriginAnswerVerificationSource } from "./originAnswerVerification.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
@@ -56,7 +58,7 @@ import { detectSensitiveConversation, hasOriginWeatherLocation, isOriginWeatherR
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader }; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 /** Honest executed-route count: 1 unless the failover dispatcher actually executed a second verified free route. */
 function providerAttemptCount(result: OriginProviderExecutionResult): number { return result.attempts?.length ?? 1; }
@@ -76,6 +78,17 @@ function safeOriginResearchSources(sources: readonly OriginResearchSource[]): Or
       return false;
     }
   }).slice(0, 8);
+}
+
+/** Maps research sources to the verification module's digest shape (title, domain, retrieval date, the excerpt actually used). */
+function answerVerificationSources(sources: readonly OriginResearchSource[]): OriginAnswerVerificationSource[] {
+  return sources.map((source) => {
+    let domain = source.domain ?? "";
+    if (!domain) {
+      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+    }
+    return { title: source.title, domain, retrievedAt: source.retrievedAt, excerpt: source.excerpt };
+  });
 }
 
 function groundedResearchAnswer(query: string, result: OriginResearchResult) {
@@ -658,6 +671,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       }
       let synthesisStatus = "not-run";
       let synthesisFailureCode: string | undefined;
+      // Answer verification (V-PR-2): the text-path synthesis execution
+      // is captured so the shadow verification at the T0 return and at
+      // the final assembly can identify the serving route from the
+      // execution that actually ran. Null whenever synthesis did not
+      // execute (records path, disabled, plan unavailable).
+      let synthesisExecutionResult: OriginProviderExecutionResult | null = null;
+      let synthesisExecutionPlan: OriginExecutionPlan | null = null;
 
       if (researchSynthesis && grounded.sources.length > 0) {
         const synthesisPlan = buildOriginExecutionPlan(
@@ -980,6 +1000,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             // retry's when a retry ran and was adopted, otherwise the
             // initial one.
             const synthesisResult = retryOutcome.result;
+            synthesisExecutionResult = synthesisResult;
+            synthesisExecutionPlan = synthesisRequest.plan;
             if (adoption.adopted === true) {
               const verificationReason = grounded.language === "en"
                 ? "Citation structure was checked against the retrieved source information; factual truth and publisher authority were not independently verified."
@@ -1066,6 +1088,36 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   researchOutcome: "ANSWERED",
                 });
               }
+              // Answer verification (V-PR-2, shadow): an adopted
+              // grounded synthesis is a class-A target. Shadow never
+              // changes the delivered text; a clean cross-route pass
+              // is the only outcome that touches the envelope (the
+              // status becomes a truthful "passed"), and everything
+              // else leaves the envelope exactly as assembled above —
+              // the log line and the routing block carry the outcome.
+              let t0VerificationStatus: OriginAnswerVerificationStatus = "not-run";
+              let t0VerificationSummary = verificationReason;
+              let t0AnswerVerification: Record<string, unknown> | null = null;
+              if (resolveOriginAnswerVerificationEffectiveMode(env) === "shadow") {
+                const verificationOutcome = await runOriginAnswerVerificationShadow({
+                  requestId,
+                  path: "research",
+                  answerClass: "A",
+                  question: lastUserMessage,
+                  answerText: adoption.text,
+                  sources: answerVerificationSources(grounded.sources),
+                  generationResult: synthesisResult,
+                  sourcePlan: synthesisRequest.plan,
+                  language: grounded.language,
+                }, { env, nowMs: now(), verify: options.answerVerification?.verify, readDailyNeuronsUsed: options.answerVerification?.readDailyNeuronsUsed });
+                t0AnswerVerification = verificationOutcome.metadata;
+                if (verificationOutcome.envelopeEffect === "pass") {
+                  t0VerificationStatus = "passed";
+                  t0VerificationSummary = grounded.language === "en"
+                    ? "Citation structure was checked against the retrieved source information, and a different AI from the one that wrote this answer checked its content."
+                    : "取得した出典情報との引用構造の一致を確認し、回答したAIとは別のAIが内容を確認しました。";
+                }
+              }
               return res.json({
                 content: adoption.text,
                 artifacts: supervisorArtifacts.artifacts,
@@ -1103,8 +1155,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 answer: answerEnvelope(
                   adoption.text,
                   grounded.language,
-                  "not-run",
-                  verificationReason,
+                  t0VerificationStatus,
+                  t0VerificationSummary,
                   grounded.evidence,
                   limitations,
                   grounded.nextActions,
@@ -1130,7 +1182,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   estimatedCostUsd: synthesisPlan.plan.estimatedCostUsd,
                   freeOnly: true,
                   traceId: requestId,
-                  verificationStatus: "not-run",
+                  verificationStatus: t0VerificationStatus,
+                  ...(t0AnswerVerification ? { answerVerification: t0AnswerVerification } : {}),
                   answerMode: "research",
                   verificationLevel: "evidence-required",
                   sourceCount: grounded.sourceCount,
@@ -1382,6 +1435,47 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ...(recoveryConditional ? { recoveryRefusalKind: recoveryConditional.kind } : {}),
         ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
       });
+      // Answer verification (V-PR-2, shadow): the tier-T3 extractive
+      // partial answer is a class-A target when it carries N-2b claim
+      // sentences and a synthesis execution ran (the cross-route pair
+      // is identified from that execution). Tier-T4 holds, templates
+      // and conditional answers are deterministic texts and are never
+      // verified. Shadow never changes the delivered text; only a
+      // clean pass touches the envelope, as at the T0 return.
+      let finalVerificationStatus: OriginAnswerVerificationStatus = "not-run";
+      let finalVerificationSummary = digestReason;
+      let finalAnswerVerification: Record<string, unknown> | null = null;
+      if (resolveOriginAnswerVerificationEffectiveMode(env) === "shadow") {
+        const hasClaimSentences = grounded.sourceCount > 0
+          && buildGroundedResearchEvidenceCards(lastUserMessage, grounded.sources).cards.some((card) => card.claimSentences.length > 0);
+        const verificationTarget = classifyResearchAnswerVerificationTarget({
+          site: "final",
+          tier: landing.tier,
+          deterministicLanding: terminalGuardFired || Boolean(recoveryTemplate) || Boolean(recoveryConditional) || recoveryProcedureConditional,
+          hasClaimSentences,
+          hasGenerationResult: synthesisExecutionResult !== null,
+        });
+        if (verificationTarget.targeted && synthesisExecutionResult && synthesisExecutionPlan) {
+          const verificationOutcome = await runOriginAnswerVerificationShadow({
+            requestId,
+            path: "research",
+            answerClass: "A",
+            question: lastUserMessage,
+            answerText: terminalContent,
+            sources: answerVerificationSources(grounded.sources),
+            generationResult: synthesisExecutionResult,
+            sourcePlan: synthesisExecutionPlan,
+            language: grounded.language,
+          }, { env, nowMs: now(), verify: options.answerVerification?.verify, readDailyNeuronsUsed: options.answerVerification?.readDailyNeuronsUsed });
+          finalAnswerVerification = verificationOutcome.metadata;
+          if (verificationOutcome.envelopeEffect === "pass") {
+            finalVerificationStatus = "passed";
+            finalVerificationSummary = grounded.language === "en"
+              ? "A different AI checked the content of the claims taken from the sources."
+              : "出典から取り出した主張について、別のAIが内容を確認しました。";
+          }
+        }
+      }
       return res.json({
         content: terminalContent,
         supervisor: {
@@ -1413,9 +1507,10 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             },
           ],
         },
-        answer: answerEnvelope(terminalContent, grounded.language, "not-run", digestReason, responseEvidence, digestLimitations, grounded.nextActions),
+        answer: answerEnvelope(terminalContent, grounded.language, finalVerificationStatus, finalVerificationSummary, responseEvidence, digestLimitations, grounded.nextActions),
         routing: {
-          ...applicationRouting(requestId, digestReason, "not-run"),
+          ...applicationRouting(requestId, digestReason, finalVerificationStatus),
+          ...(finalAnswerVerification ? { answerVerification: finalAnswerVerification } : {}),
           answerMode: "research",
           verificationLevel: "evidence-required",
           sourceCount: grounded.sourceCount,
@@ -1578,7 +1673,57 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         env,
       });
       const deliverableText = publicationGate.answerText;
-      const verificationStatus: OriginAnswerVerificationStatus = reviewDecision.required ? "not-run" : "not-required"; const verificationReason = reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"; const limitations = reviewDecision.required ? ["独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
+      // Answer verification (V-PR-2, shadow; design sections 3-5):
+      // after every deterministic gate has settled the text, the OTHER
+      // production route cross-checks the answer. Shadow never changes
+      // the delivered text — its only user-visible effect is an honest
+      // envelope: a clean pass may be reported as "passed", and when a
+      // check was attempted for a review-required answer, the not-run
+      // wording states what actually happened instead of the
+      // pre-feature "no route available" reason. Mode off (the
+      // default) skips this block entirely and reproduces the
+      // behaviour around it exactly.
+      let directAnswerVerification: Record<string, unknown> | null = null;
+      let directVerificationEnvelope: { status: OriginAnswerVerificationStatus; summary: string; limitation: string | null } | null = null;
+      if (resolveOriginAnswerVerificationEffectiveMode(env) === "shadow") {
+        const publicationGateFired = publicationGate.summary !== null
+          && (publicationGateFiringKinds(publicationGate.summary).length > 0
+            || publicationGate.summary.counts["official-price"] > 0);
+        const verificationTarget = classifyDirectAnswerVerificationTarget({
+          reviewRequired: reviewDecision.required,
+          publicationGateFired,
+          publicationGateHeld: publicationGate.held,
+        });
+        if (verificationTarget.targeted) {
+          const verificationOutcome = await runOriginAnswerVerificationShadow({
+            requestId,
+            path: "direct",
+            answerClass: verificationTarget.answerClass,
+            question: lastUserMessage,
+            answerText: deliverableText,
+            generationResult: result,
+            sourcePlan: providerRequest.plan,
+            language: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en",
+          }, { env, nowMs: now(), verify: options.answerVerification?.verify, readDailyNeuronsUsed: options.answerVerification?.readDailyNeuronsUsed });
+          directAnswerVerification = verificationOutcome.metadata;
+          if (verificationOutcome.envelopeEffect === "pass") {
+            directVerificationEnvelope = {
+              status: "passed",
+              summary: /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage)
+                ? "回答したAIとは別のAIが内容を確認しました。"
+                : "A different AI from the one that wrote this answer checked its content.",
+              limitation: null,
+            };
+          } else if (reviewDecision.required) {
+            directVerificationEnvelope = {
+              status: "not-run",
+              summary: verificationOutcome.notRunSummary,
+              limitation: verificationOutcome.notRunLimitation,
+            };
+          }
+        }
+      }
+      const verificationStatus: OriginAnswerVerificationStatus = directVerificationEnvelope?.status ?? (reviewDecision.required ? "not-run" : "not-required"); const verificationReason = directVerificationEnvelope?.summary ?? (reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"); const limitations = reviewDecision.required && directVerificationEnvelope?.status !== "passed" ? [directVerificationEnvelope?.limitation ?? "独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required && !directVerificationEnvelope ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even
       // after the bounded continuation, so it is delivered as a partial
       // answer with the incompleteness stated plainly in the envelope
@@ -1598,7 +1743,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const evidence = extractProvidedOriginEvidence(deliverableText); const sourceEvidenceExpected = planningResult.plan.taskType === "research";
       if (evidence.length > 0) { limitations.push("表示した出典はAIが提示したもので、ORIGINによる内容確認はまだ実施していません。"); if (evidence.some((item) => item.claim === undefined)) limitations.push("一部の出典は、回答内のどの主張に対応するか明示されていません。"); nextActions.push("重要な判断の前に、出典リンクの内容と更新日を確認してください。"); } else if (sourceEvidenceExpected) { limitations.push("調査・最新情報に関する依頼ですが、回答内に確認可能なHTTPS出典が提示されていません。"); nextActions.push("一次情報の出典を確認してから判断してください。"); }
       console.info("[origin-chat] provider request completed", { requestId, durationMs: Math.max(0, now() - startedAt), servedModel: result.routingEvidence.servedModel, fallbackUsed: result.routingEvidence.fallbackUsed, routeAttempts: (result.attempts ?? []).map((attempt) => ({ providerId: attempt.providerId, outcome: attempt.outcome, ...(attempt.durationMs !== undefined ? { durationMs: attempt.durationMs } : {}) })), modelId: planningResult.plan.modelId, costEvidenceStatus: "NOT_MEASURED", truncated: result.truncated === true });
-      return res.json({ content: deliverableText, answer: answerEnvelope(deliverableText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}), ...(publicationGate.landing?.abstainReason ? { publicationGateMode: publicationGate.mode, publicationGateAction: "held", researchTier: publicationGate.landing.tier, researchOutcome: publicationGate.landing.outcome, researchAbstainReason: publicationGate.landing.abstainReason } : {}) } });
+      return res.json({ content: deliverableText, answer: answerEnvelope(deliverableText, /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en", verificationStatus, verificationReason, evidence, limitations, nextActions), routing: { model: planningResult.plan.providerLabel, reason: planningResult.plan.reason, score: null, timeMs: Math.max(0, now() - startedAt), cost: result.actualCostUsd, providerId: planningResult.plan.providerId, modelId: planningResult.plan.modelId, taskType: planningResult.plan.taskType, actualCostUsd: result.actualCostUsd, costEvidenceStatus: "NOT_MEASURED", estimatedCostUsd: planningResult.plan.estimatedCostUsd, freeOnly: true, traceId: requestId, verificationStatus, verificationReason, reviewRequired: reviewDecision.required, reviewReasons: reviewDecision.reasons, answerMode: answerQualityPolicy.answerMode, verificationLevel: answerQualityPolicy.verificationLevel, modelEvidence: planningResult.plan.modelEvidence, providerDataPolicy: result.providerDataPolicy, providerRouting: result.routingEvidence, context: { policyVersion: contextResult.window.policyVersion, includedMessageCount: contextResult.window.includedMessageCount, includedCharacterCount: contextResult.window.includedCharacterCount, omittedMessageCount: contextResult.window.omittedMessageCount, omittedCharacterCount: contextResult.window.omittedCharacterCount }, usage: result.usage, providerAttempts: providerAttemptCount(result), ...(result.attempts ? { providerRouteAttempts: result.attempts } : {}), providerTransportRequests: result.transportRequestCount, ...(result.truncated === true ? { answerTruncated: true } : {}), ...(publicationGate.landing?.abstainReason ? { publicationGateMode: publicationGate.mode, publicationGateAction: "held", researchTier: publicationGate.landing.tier, researchOutcome: publicationGate.landing.outcome, researchAbstainReason: publicationGate.landing.abstainReason } : {}), ...(directAnswerVerification ? { answerVerification: directAnswerVerification } : {}) } });
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const failureDiagnostic = buildOriginProviderFailureDiagnostic(error);
