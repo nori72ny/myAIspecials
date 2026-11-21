@@ -51,7 +51,7 @@ function makeConsumptionStore(): AgentRunConsumptionStore {
 /** Same deterministic provider stand-in as the F2 suite: classifies
  * each CSV row in the chunk text it is actually given. */
 const classifyingExecutor: AgentModelExecutor = async ({ userText }) => {
-  const lines = userText.split('\n').filter((line) => line.length > 0);
+  const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
   const rows = lines.slice(1).map((line) => {
     const [id, item, amount] = line.split(',');
     return { id, item, amount, category: Number(amount) >= 200 ? '高額' : '通常' };

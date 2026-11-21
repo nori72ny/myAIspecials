@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_ATTACHMENT_MAX_PLAN_STEPS,
+  attachmentOutputKindForGoal,
   augmentPlanWithAttachments,
   type AgentStepInputLike,
 } from './agentAttachmentPlanning.js';
@@ -108,11 +109,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      // The research step in the base plan survives augmentation
-      // because this goal explicitly asks for research (調査して);
-      // without the explicit request the step would be confined out
-      // and the plan would come to 12 steps (see defect 3 below).
-      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
+      goal: '添付データを分析して報告書を作成してください',
       ...base,
       setId: 'att-max',
       setDigest: 'digest-max',
@@ -137,9 +134,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      // Same explicit-research goal as the admission test above: the
-      // research step is kept, so the would-be plan is 14 steps.
-      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
+      goal: '添付データを分析して報告書を作成してください',
       ...base,
       setId: 'att-over',
       setDigest: 'digest-over',
@@ -278,125 +273,81 @@ describe('attachment plan path confinement (defect 2)', () => {
 });
 
 /**
- * Regression coverage for the third planning-layer defect, found by
- * the ALE day-1 re-run after the #1416 fixes deployed (production
- * release bc1c1918): the step ceiling and the path confinement both
- * held, but the M&A audit plan still carried a web_search_grounding
- * step (reasonCode current-research, query = the entire goal text)
- * that the deterministic planner had inserted because the goal's
- * staged-materials note contains the word "search" ("page-labeled
- * UTF-8 text extracted from the PDFs for easier search"). The task
- * is a closed-document audit ("Do not invent issues that the
- * documents do not support"); the step is outside its scope, so the
- * driver refused approval and no run was created.
+ * The staged ALE day-1 goal texts, verbatim (the Japanese preamble is
+ * the activation pack's staging wrapper; the bodies are the tasks as
+ * submitted). Both are prose-only audit/RCA goals that the pre-fix
+ * classifier deterministically read as `rows`: the K8s goal through
+ * "short classification label", the M&A goal through "extracted_text"
+ * / "extracted from the PDFs" — and both then failed or would fail
+ * the file-name key coverage gate in production.
  */
-const MA_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Task Brief\n\nReview four Chinese regulatory filings about the same share-transfer transaction and write an English inconsistency audit.\n\nDeliver exactly one file:\n\n- `output/audit_report.md`\n\nReport requirements:\n\n1. Write in English.\n2. Identify every material inconsistency you can support from the documents.\n3. For each finding, include:\n   - a short English title;\n   - a brief explanation of the conflict;\n   - the original Chinese text that proves the issue;\n   - a location marker with document name and page number.\n4. Do not invent issues that the documents do not support.\n\nAvailable staged materials:\n\n- `input/source_documents/` contains the original PDFs.\n- `input/extracted_text/` contains page-labeled UTF-8 text extracted from the PDFs for easier search.\n- `input/document_manifest.json` maps the canonical filenames to the original Chinese filenames.\n- `software/python` launches the baseline VM Python interpreter if scripting is helpful.\n\nSuggested output structure:\n\n```markdown\n# Share Transfer Disclosure Consistency Review\n\n## Finding 1: <title>\n- Documents: ...\n- Why it is inconsistent: ...\n- Evidence:\n  - `Document X, Page Y`: `<Chinese text>`\n  - `Document Z, Page W`: `<Chinese text>`\n```";
+const K8S_STAGED_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Kubernetes Payment API Root-Cause Analysis\n\nYou are the on-call SRE for Northwind Payments. The `payment-api` Deployment in\nthe `prod` namespace started flapping after a routine chart-value change. The\nHPA reports memory utilization above target and dashboards show elevated 5xx errors.\n\n## Visible Inputs\n\nAll evidence files are in `input/`:\n\n- `cluster_state.txt`: captured kubectl pod, deployment, event, top, and HPA output.\n- `deployment.yaml`: currently applied Deployment and HPA YAML.\n- `failing_pod.log`: stdout from a crashing payment-api pod across two restart cycles.\n\n## Required Output\n\nWrite exactly one JSON file:\n\n```text\noutput/root_cause_analysis.json\n```\n\nThe JSON report must include these top-level keys:\n\n```text\nincident_metadata, root_causes, affected_resources, remediation_plan, summary\n```\n\n### Schema details\n\n**`incident_metadata`** — object with at least:\n- `safe_to_rollback` (boolean): whether rolling back to the previous ReplicaSet revision is safe.\n\n**`root_causes`** — array of objects, each with at least:\n- `type` (string): short classification label, e.g. `\"OOMKilled\"`, `\"liveness_probe_too_aggressive\"`, `\"missing_metrics_port_env\"`.\n- `severity` (string): one of `\"critical\"`, `\"high\"`, `\"medium\"`, `\"low\"`.\n- `description` (string): explanation of the root cause.\n- `evidence` (array of strings): each item must be a verbatim text string copied from one of the visible input files (not a file-name citation — the actual text that appears in the file).\n\n**`affected_resources`** — array of objects, each with `kind`, `name`, and `namespace`.\n\n**`remediation_plan`** — array of objects, each with at least an `action` (string).\n\n**`summary`** — string summarizing the incident and recommended path forward.\n\n### Guidelines\n\nIdentify root causes, list affected Kubernetes resources, propose prioritized\nremediation actions, and state whether rollback to the previous ReplicaSet is\nsafe. Do not invent metric values, commit SHAs, or resource names.\n";
+const MA_STAGED_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Task Brief\n\nReview four Chinese regulatory filings about the same share-transfer transaction and write an English inconsistency audit.\n\nDeliver exactly one file:\n\n- `output/audit_report.md`\n\nReport requirements:\n\n1. Write in English.\n2. Identify every material inconsistency you can support from the documents.\n3. For each finding, include:\n   - a short English title;\n   - a brief explanation of the conflict;\n   - the original Chinese text that proves the issue;\n   - a location marker with document name and page number.\n4. Do not invent issues that the documents do not support.\n\nAvailable staged materials:\n\n- `input/source_documents/` contains the original PDFs.\n- `input/extracted_text/` contains page-labeled UTF-8 text extracted from the PDFs for easier search.\n- `input/document_manifest.json` maps the canonical filenames to the original Chinese filenames.\n- `software/python` launches the baseline VM Python interpreter if scripting is helpful.\n\nSuggested output structure:\n\n```markdown\n# Share Transfer Disclosure Consistency Review\n\n## Finding 1: <title>\n- Documents: ...\n- Why it is inconsistent: ...\n- Evidence:\n  - `Document X, Page Y`: `<Chinese text>`\n  - `Document Z, Page W`: `<Chinese text>`\n```\n";
 
-describe('attachment plan research confinement (defect 3)', () => {
-  it('drops the heuristic research step from the M&A audit plan (production shape)', () => {
-    // The base plan the deterministic planner emitted in production:
-    // the research step (its query was the whole goal text) ahead of
-    // the document and writer steps.
-    const base = basePlan([
-      { toolName: 'web_search_grounding', params: { query: MA_GOAL }, reasonCode: 'current-research' },
-      { toolName: 'document_generator', params: { title: 'Share Transfer Disclosure Consistency Review', format: 'markdown', brief: '監査' }, reasonCode: 'document-request' },
-      { toolName: 'file_writer', params: { path: 'output/audit_report.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
-    ]);
-    const result = augmentPlanWithAttachments({
-      goal: MA_GOAL,
-      ...base,
-      setId: 'att-ma3',
-      setDigest: 'digest-ma3',
-      view: viewWith(17, MA_FILES),
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.steps.map((step) => step.toolName)).toEqual([
-      'attachment_reader',
-      'attachment_analyzer',
-      'attachment_analyzer',
-      'attachment_analyzer',
-      'document_generator',
-      'file_writer',
-    ]);
-    expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
-    expect(result.steps.some((step) => step.toolName === 'web_search_grounding')).toBe(false);
-    // The rest of the production shape is untouched: analyzers cover
-    // all 17 chunks, the document is regrounded on the last one, and
-    // the writer path stays confined to the artifacts namespace.
-    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
-    const document = result.steps.find((step) => step.toolName === 'document_generator');
-    expect(document?.params.dataGrounded).toBe(true);
-    expect(document?.params.contentFromStep).toBe(3);
-    const writer = result.steps[result.steps.length - 1];
-    expect(writer.params.path).toBe('artifacts/attachment-result.md');
+describe('attachment output kind classification (prose audit/RCA misread as rows)', () => {
+  it('classifies the staged K8s RCA goal as findings, not rows', () => {
+    // The goal's only rows-flavored token is the schema description
+    // "short classification label"; its operative markers are
+    // "Root-Cause" / "root causes".
+    expect(attachmentOutputKindForGoal(K8S_STAGED_GOAL)).toBe('findings');
   });
 
-  it('keeps the research step when the goal explicitly requests research (Japanese)', () => {
-    const base = basePlan([
-      { toolName: 'web_search_grounding', params: { query: '最新の市場動向' }, reasonCode: 'current-research' },
-      { toolName: 'document_generator', params: { title: '分析レポート', format: 'markdown', brief: '分析' }, reasonCode: 'document-request' },
-    ]);
-    const result = augmentPlanWithAttachments({
-      goal: '添付データを分析し、最新の市場動向も調査してレポートを作成してください',
-      ...base,
-      setId: 'att-research-ja',
-      setDigest: 'digest-research-ja',
-      view: viewWith(4, K8S_FILES),
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.steps.map((step) => step.toolName)).toEqual([
-      'attachment_reader',
-      'web_search_grounding',
-      'attachment_analyzer',
-      'document_generator',
-    ]);
-    const document = result.steps.find((step) => step.toolName === 'document_generator');
-    expect(document?.params.contentFromStep).toBe(2);
+  it('classifies the staged M&A consistency-audit goal as findings, not rows', () => {
+    // The goal's only rows-flavored tokens describe the materials
+    // ("extracted_text", "extracted from the PDFs"); the task is an
+    // "inconsistency audit".
+    expect(attachmentOutputKindForGoal(MA_STAGED_GOAL)).toBe('findings');
   });
 
-  it('keeps the research step when the goal explicitly requests research (English)', () => {
+  it('plans findings analyzers for both staged shapes', () => {
     const base = basePlan([
-      { toolName: 'web_search_grounding', params: { query: 'latest exchange rates' }, reasonCode: 'current-research' },
-      { toolName: 'document_generator', params: { title: 'Report', format: 'markdown', brief: 'analyze' }, reasonCode: 'document-request' },
+      { toolName: 'document_generator', params: { title: 'レポート', format: 'markdown', brief: '報告' }, reasonCode: 'document-request' },
     ]);
-    const result = augmentPlanWithAttachments({
-      goal: 'Search the web for the latest exchange rates and analyze the attached data into a report',
-      ...base,
-      setId: 'att-research-en',
-      setDigest: 'digest-research-en',
-      view: viewWith(4, K8S_FILES),
+    const k8s = augmentPlanWithAttachments({
+      goal: K8S_STAGED_GOAL, ...base, setId: 'att-k8s-staged', setDigest: 'digest-k8s-staged', view: viewWith(4, K8S_FILES),
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.steps.map((step) => step.toolName)).toEqual([
-      'attachment_reader',
-      'web_search_grounding',
-      'attachment_analyzer',
-      'document_generator',
-    ]);
+    expect(k8s.ok).toBe(true);
+    if (k8s.ok) {
+      expect(k8s.steps.find((step) => step.toolName === 'attachment_analyzer')?.params.outputKind).toBe('findings');
+    }
+    const ma = augmentPlanWithAttachments({
+      goal: MA_STAGED_GOAL, ...base, setId: 'att-ma-staged', setDigest: 'digest-ma-staged', view: viewWith(17, MA_FILES),
+    });
+    expect(ma.ok).toBe(true);
+    if (ma.ok) {
+      const analyzers = ma.steps.filter((step) => step.toolName === 'attachment_analyzer');
+      expect(analyzers.length).toBeGreaterThan(1);
+      for (const analyzer of analyzers) expect(analyzer.params.outputKind).toBe('findings');
+    }
   });
 
-  it('drops the research step when 最新 only describes data already in the set', () => {
-    const base = basePlan([
-      { toolName: 'web_search_grounding', params: { query: '最新の売上データ' }, reasonCode: 'current-research' },
-      { toolName: 'document_generator', params: { title: '集計レポート', format: 'markdown', brief: '集計' }, reasonCode: 'document-request' },
-    ]);
-    const result = augmentPlanWithAttachments({
-      goal: '最新の売上データ（添付ファイル）を集計してレポートを作成してください',
-      ...base,
-      setId: 'att-incidental',
-      setDigest: 'digest-incidental',
-      view: viewWith(2, K8S_FILES),
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.steps.map((step) => step.toolName)).toEqual([
-      'attachment_reader',
-      'attachment_analyzer',
-      'document_generator',
-    ]);
+  it('does not treat derived or descriptive forms as a rows request', () => {
+    expect(attachmentOutputKindForGoal('Summarize the text extracted from the PDFs.')).toBe('text');
+    expect(attachmentOutputKindForGoal('Explain the classification scheme used in the attached documents.')).toBe('text');
+  });
+
+  it('keeps genuine classification goals at rows (AGORA and Basel shapes)', () => {
+    // Operative excerpts of the staged goals, preserving every
+    // classification-relevant phrase: the noun "Classification" in
+    // the titles and Basel's `classified_events.csv` output name are
+    // descriptive; the imperative "Classify …" is the task.
+    const agora = [
+      '# AGORA Governance Classification Task',
+      'You are acting as a policy analyst. Classify three AI governance documents across the taxonomy dimensions defined in the submitted materials.',
+    ].join('\n');
+    expect(attachmentOutputKindForGoal(agora)).toBe('rows');
+    const basel = [
+      '# Basel Operational Risk Classification And BIA Capital',
+      'Classify 60 Chinese operational-risk loss events into Basel loss event categories and Basel business lines, then calculate operational-risk regulatory capital under the Basel Basic Indicator Approach (BIA).',
+      '- `classified_events.csv`',
+    ].join('\n');
+    expect(attachmentOutputKindForGoal(basel)).toBe('rows');
+    expect(attachmentOutputKindForGoal('添付CSVの各行を金額で分類して一覧化してください')).toBe('rows');
+    expect(attachmentOutputKindForGoal('Classify each row of the attached CSV by amount and list the results.')).toBe('rows');
+  });
+
+  it('lets strong audit markers outrank classification vocabulary', () => {
+    expect(attachmentOutputKindForGoal('監査のため、各文書を分類ラベルで整理し、不整合を洗い出してください')).toBe('findings');
+    expect(attachmentOutputKindForGoal('Extract the key figures from each filing and audit them for consistency.')).toBe('findings');
   });
 });
