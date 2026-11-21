@@ -144,7 +144,7 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(body.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
   });
 
-  it('splits the analyzer at 8 chunks and chains the continuation', async () => {
+  it('splits the analyzer at 4 chunks and chains the continuations', async () => {
     const lines = ['id,item,amount'];
     // ~41 chars per row → ~85 rows per 3,500-char chunk → 1,200 rows ≈ 15 chunks.
     for (let i = 0; i < 1200; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
@@ -154,15 +154,15 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
     const analyzers = body.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers.length).toBe(2);
+    expect(analyzers.length).toBe(4);
     expect(analyzers[0].params.chunkOffset).toBe(0);
-    expect(analyzers[0].params.chunkCount).toBe(8);
-    expect(analyzers[1].params.chunkOffset).toBe(8);
+    expect(analyzers[0].params.chunkCount).toBe(4);
+    expect(analyzers[1].params.chunkOffset).toBe(4);
     expect(analyzers[1].params.chunkCount).toBeGreaterThan(0);
-    expect(analyzers[1].params.chunkCount).toBeLessThanOrEqual(8);
+    expect(analyzers[1].params.chunkCount).toBeLessThanOrEqual(4);
     expect(analyzers[1].params.contentFromStep).toBe(1);
     const document = body.steps.find((step) => step.toolName === 'document_generator');
-    expect(document?.params.contentFromStep).toBe(2);
+    expect(document?.params.contentFromStep).toBe(4);
     expect(document?.params.dataGrounded).toBe(true);
   });
 
@@ -180,15 +180,16 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.body.limitKind).toBe('chunks');
   });
 
-  it('plans, approves and creates a run for a 25+ chunk set whose plan needs 7 steps', async () => {
+  it('plans, approves and creates a run for a 25+ chunk set whose plan needs 10 steps', async () => {
     const lines = ['id,item,amount'];
     // Same row shape as the chunk-split test (~80-87 rows per chunk):
-    // 2,100 rows land at roughly 26 chunks → 4 analyzers. The base
-    // plan's file_writer no longer survives augmentation, so the
-    // augmented plan needs reader + 4 analyzers + 2 surviving base
-    // steps = 7 steps — refused outright by the old flat ceiling of
-    // 6 (the production M&A refusal shape: mid-size set, several
-    // analyzers on top of the goal's base steps).
+    // 2,100 rows land at roughly 26 chunks → 7 analyzers at the
+    // 4-chunk segment size. The base plan's file_writer no longer
+    // survives augmentation, so the augmented plan needs reader + 7
+    // analyzers + 2 surviving base steps = 10 steps — refused
+    // outright by the old flat ceiling of 6 (the production M&A
+    // refusal shape: mid-size set, several analyzers on top of the
+    // goal's base steps).
     for (let i = 0; i < 2100; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'big.csv', lines.join('\n'));
@@ -197,10 +198,10 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
     const analyzers = body.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers).toHaveLength(4);
-    expect(body.steps).toHaveLength(7);
+    expect(analyzers).toHaveLength(7);
+    expect(body.steps).toHaveLength(10);
     // The raised ceiling is coherent across the flow: approval and
-    // run creation accept the same 7 steps /plan issued.
+    // run creation accept the same 10 steps /plan issued.
     const created = await approveAndCreate(app, body, goal);
     expect(created.status).toBe(201);
   });

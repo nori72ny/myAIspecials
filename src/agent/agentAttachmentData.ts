@@ -20,7 +20,14 @@
  */
 
 export const AGENT_ATTACHMENT_CHUNK_MAX_CHARS = 3_500;
-export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP = 8;
+/** Analyzer segment size: one step processes at most this many chunks,
+ * one sequential model call per chunk. Kept at 4 after the ALE wave-1
+ * production measurement (2026-11-21): an 8-chunk segment — eight
+ * back-to-back calls over ~59s — failed deterministically with
+ * PROVIDER_RATE_LIMITED on the free routes in two consecutive trials,
+ * while a 4-chunk segment (the K8s shape) completed on the same path.
+ * Diagnosis: AGENT_MA_SEGMENT_LIMIT_DIAGNOSIS_2026-11-21. */
+export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP = 4;
 export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN = 48;
 /** Goal-derived analyzer instruction cap (design §3.3): the fixed
  * template plus this stays within the 1,700-char instruction pin. */
