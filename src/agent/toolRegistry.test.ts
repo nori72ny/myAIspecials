@@ -152,3 +152,155 @@ describe('toolRegistry safety boundary', () => {
     await expect(executeToolWithPermission('file_reader', { root: '/tmp', path: '.env' }, approved)).rejects.toThrow('PROTECTED_PATH');
   });
 });
+
+describe('document_generator structured JSON (artifact format)', () => {
+  const approved = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
+  const KEYS = ['incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary'];
+  const bundle = JSON.stringify({
+    kind: 'data-analysis',
+    content: '- 所見1\n- 所見2',
+    outputKind: 'findings',
+    findings: [
+      { claim: 'Pods were OOMKilled at the 256Mi limit', evidence: 'Container payment-api was OOMKilled (exit code 137), memory usage reached limit 256Mi', file: 'cluster_state.txt', location: 'events', type: 'OOMKilled', severity: 'critical' },
+      { claim: 'Liveness probes failed with HTTP 500', evidence: 'Liveness probe failed: HTTP probe failed with statuscode: 500', file: 'cluster_state.txt', location: 'events', type: 'liveness_probe_too_aggressive', severity: 'high' },
+    ],
+    resources: [{ kind: 'Deployment', name: 'payment-api', namespace: 'prod' }],
+    remediations: [{ action: 'Raise the container memory limit', priority: 'high' }],
+    coverage: { totalChunks: 4, processedChunks: 4 },
+    chunkRange: { offset: 0, count: 4 },
+  });
+
+  it('assembles the specified JSON file with all required keys from the analyzer bundle', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: 'root_cause_analysis.json',
+      jsonTopLevelKeys: KEYS,
+      content: bundle,
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as {
+      kind?: string; format?: string; filename?: string; mimeType?: string;
+      bytes?: number; sha256?: string; verified?: boolean; verification?: string[]; content?: string;
+    };
+    expect(artifact.kind).toBe('document');
+    expect(artifact.format).toBe('json');
+    expect(artifact.filename).toBe('root_cause_analysis.json');
+    expect(artifact.mimeType).toBe('application/json; charset=utf-8');
+    expect(artifact.verified).toBe(true);
+    expect(artifact.verification).toContain('json-valid');
+    expect(artifact.verification).toContain('json-keys');
+    // The envelope's declared bytes/hash reproduce the delivered
+    // content exactly (the K8s deliverable's 225-byte mismatch).
+    expect(artifact.bytes).toBe(Buffer.byteLength(artifact.content ?? '', 'utf8'));
+    const { createHash } = await import('node:crypto');
+    expect(artifact.sha256).toBe(createHash('sha256').update(artifact.content ?? '', 'utf8').digest('hex'));
+    const report = JSON.parse(artifact.content ?? '{}') as Record<string, unknown>;
+    expect(Object.keys(report)).toEqual(KEYS);
+    const rootCauses = report.root_causes as Array<Record<string, unknown>>;
+    expect(rootCauses).toHaveLength(2);
+    expect(rootCauses[0]).toEqual({
+      type: 'OOMKilled',
+      severity: 'critical',
+      description: 'Pods were OOMKilled at the 256Mi limit',
+      evidence: ['Container payment-api was OOMKilled (exit code 137), memory usage reached limit 256Mi'],
+    });
+    expect(rootCauses[1].type).toBe('liveness_probe_too_aggressive');
+    expect(report.affected_resources).toEqual([{ kind: 'Deployment', name: 'payment-api', namespace: 'prod' }]);
+    expect(report.remediation_plan).toEqual([{ action: 'Raise the container memory limit', priority: 'high' }]);
+    expect(typeof report.summary).toBe('string');
+    expect((report.summary as string).length).toBeGreaterThan(0);
+    expect(report.incident_metadata).toEqual({ safe_to_rollback: false });
+  });
+
+  it('defaults missing type and severity instead of inventing them', async () => {
+    const plainBundle = JSON.stringify({
+      kind: 'data-analysis',
+      content: '- 所見',
+      outputKind: 'findings',
+      findings: [{ claim: '所見', evidence: '', file: 'a.txt', location: '' }],
+      coverage: { totalChunks: 1, processedChunks: 1 },
+    });
+    const result = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: 'report.json',
+      jsonTopLevelKeys: ['root_causes', 'summary'],
+      content: plainBundle,
+    }, approved);
+    expect(result.ok).toBe(true);
+    const report = JSON.parse((JSON.parse(result.artifact ?? '{}') as { content?: string }).content ?? '{}') as {
+      root_causes: Array<{ type: string; severity: string; evidence: string[] }>;
+    };
+    expect(report.root_causes[0]).toEqual({
+      type: 'finding',
+      severity: 'medium',
+      description: '所見',
+      evidence: [],
+    });
+  });
+
+  it('fails closed when the bundle has no findings to fill root_causes', async () => {
+    const emptyBundle = JSON.stringify({
+      kind: 'data-analysis', content: '', outputKind: 'findings', findings: [],
+      coverage: { totalChunks: 1, processedChunks: 1 },
+    });
+    const result = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: 'report.json',
+      jsonTopLevelKeys: KEYS,
+      content: emptyBundle,
+    }, approved);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_DOCUMENT_JSON_INVALID');
+  });
+
+  it('fails closed when the required keys cannot be resolved', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: 'report.json',
+      jsonTopLevelKeys: [],
+      content: bundle,
+    }, approved);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_DOCUMENT_JSON_KEYS_UNRESOLVED');
+  });
+
+  it('fails closed for rendered text instead of a bundle, and for an unsafe file name', async () => {
+    const rendered = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: 'report.json',
+      jsonTopLevelKeys: KEYS,
+      content: '- 所見1（根拠: 引用）',
+    }, approved);
+    expect(rendered.ok).toBe(false);
+    expect(rendered.message).toBe('AGENT_DOCUMENT_JSON_INVALID');
+    const traversal = await executeToolWithPermission('document_generator', {
+      format: 'json',
+      outputFilename: '../report.json',
+      jsonTopLevelKeys: KEYS,
+      content: bundle,
+    }, approved);
+    expect(traversal.ok).toBe(false);
+    expect(traversal.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
+  });
+
+  it('uses the specified file name for a markdown document, and refuses a mismatched one', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      title: '監査報告',
+      format: 'markdown',
+      brief: '監査の要旨',
+      outline: ['所見'],
+      outputFilename: 'audit_report.md',
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { filename?: string };
+    expect(artifact.filename).toBe('audit_report.md');
+    const mismatched = await executeToolWithPermission('document_generator', {
+      title: '監査報告',
+      format: 'markdown',
+      brief: '監査の要旨',
+      outputFilename: 'audit_report.json',
+    }, approved);
+    expect(mismatched.ok).toBe(false);
+    expect(mismatched.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
+  });
+});

@@ -75,6 +75,16 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  * set to that constraint's bound) — until 2026-11-21 the step branch
  * also reported the 48-chunk constant, which misdirected triage when
  * mid-size sets (17 chunks) were refused on steps alone.
+ * 6. Output-file specification. A goal that names its deliverable
+ * (`output/root_cause_analysis.json`, `output/audit_report.md`) has
+ * that specification carried into the plan: the document step gets
+ * the required file name (and, for JSON, the required top-level
+ * keys), and the analyzers get the key list so their structured
+ * sections can fill it. Until 2026-11-21 nothing read the
+ * specification at all — the document step always produced a
+ * markdown file under a title-derived name, so a JSON deliverable
+ * scored 0 (ALE wave 1, K8s). See
+ * AGENT_ARTIFACT_FORMAT_DESIGN_2026-11-21.md.
  */
 
 export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params: ToolParams };
@@ -131,6 +141,64 @@ export function attachmentOutputKindForGoal(goal: string): AgentDataOutputKind {
   if (ROWS_INTENT_PATTERN.test(normalized)) return 'rows';
   if (FINDINGS_INTENT_PATTERN.test(normalized)) return 'findings';
   return 'text';
+}
+
+export type AttachmentOutputFileSpec = {
+  /** Required deliverable file name (basename only — a goal's path
+   * specification is read as a file-name specification). */
+  filename: string;
+  format: 'json' | 'markdown';
+  /** Required top-level keys, in the goal's order (JSON specs only;
+   * empty when the goal names a file but lists no keys). */
+  topLevelKeys: string[];
+};
+
+const OUTPUT_FILE_SPEC_PATTERN = /output\/([A-Za-z0-9][A-Za-z0-9._-]*\.(json|md|markdown))\b/;
+const TOP_LEVEL_KEY_PATTERN = /`([A-Za-z_][A-Za-z0-9_]*)`/g;
+const MAX_TOP_LEVEL_KEYS = 12;
+const MAX_OUTPUT_FILENAME_CHARS = 120;
+
+/**
+ * Reads a goal's deliverable-file specification, if it names one:
+ * `output/<name>.json` or `output/<name>.md` (backtick-quoted or in a
+ * fenced block — either form counts), plus the required top-level
+ * keys listed after a "top-level keys" phrase for JSON specs. Only
+ * `json` and `md`/`markdown` are supported: other extensions (txt,
+ * csv, …) belong to the later F5 artifact work and yield null, so a
+ * goal naming one keeps the previous behavior instead of a half
+ * supported format. Returns null when the goal names no output file.
+ */
+export function extractAttachmentOutputFileSpec(goal: string): AttachmentOutputFileSpec | null {
+  const normalized = goal.normalize('NFKC');
+  const fileMatch = OUTPUT_FILE_SPEC_PATTERN.exec(normalized);
+  if (!fileMatch) return null;
+  const filename = fileMatch[1];
+  if (filename.length > MAX_OUTPUT_FILENAME_CHARS) return null;
+  const format: AttachmentOutputFileSpec['format'] = fileMatch[2] === 'json' ? 'json' : 'markdown';
+  const topLevelKeys: string[] = [];
+  if (format === 'json') {
+    const keysAt = normalized.search(/top-level keys/i);
+    if (keysAt >= 0) {
+      // The keys usually sit in the fenced block right after the
+      // phrase, as a plain comma-separated list (the K8s shape) — read
+      // that block only, so the schema-details section below it (which
+      // backticks the same key names plus field names like
+      // safe_to_rollback) cannot leak extra keys in. Without a fence,
+      // fall back to the backtick-quoted identifiers on the first line.
+      const window = normalized.slice(keysAt, keysAt + 600);
+      const fenced = window.match(/```[A-Za-z0-9_.+-]*\s*\n([\s\S]*?)```/);
+      const scope = fenced ? fenced[1] : window.split('\n')[0] ?? '';
+      const candidates = fenced
+        ? scope.split(/[\s,;]+/)
+        : [...scope.matchAll(TOP_LEVEL_KEY_PATTERN)].map((match) => match[1]);
+      for (const candidate of candidates) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(candidate)) continue;
+        if (!topLevelKeys.includes(candidate)) topLevelKeys.push(candidate);
+        if (topLevelKeys.length >= MAX_TOP_LEVEL_KEYS) break;
+      }
+    }
+  }
+  return { filename, format, topLevelKeys };
 }
 
 /**
@@ -207,6 +275,10 @@ export function augmentPlanWithAttachments(input: {
   }
 
   const outputKind = attachmentOutputKindForGoal(goal);
+  const outputSpec = extractAttachmentOutputFileSpec(goal);
+  const structuredJsonKeys = outputSpec?.format === 'json' && outputSpec.topLevelKeys.length > 0
+    ? outputSpec.topLevelKeys
+    : undefined;
   const instruction = goal.normalize('NFKC').trim().slice(0, AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS);
   const binding = { attachmentSetId: input.setId, setDigest: input.setDigest };
 
@@ -224,6 +296,10 @@ export function augmentPlanWithAttachments(input: {
         outputKind,
         chunkOffset,
         chunkCount,
+        // A JSON deliverable needs structured sections (resources,
+        // remediations, typed findings) from the analyzers; the key
+        // list tells them which report the findings feed.
+        ...(structuredJsonKeys ? { structuredJsonKeys } : {}),
         // Chained analyzers merge into one bundle: each continuation
         // names its predecessor (its index in the final step list,
         // computed below once the insertion point is known).
@@ -243,7 +319,19 @@ export function augmentPlanWithAttachments(input: {
     const target = steps[generativeIndex];
     if (target.toolName === 'document_generator') {
       const { contentFromPreviousArtifact: _marker, ...rest } = target.params;
-      target.params = { ...rest, contentFromStep: lastAnalyzerIndex, dataGrounded: true };
+      target.params = {
+        ...rest,
+        contentFromStep: lastAnalyzerIndex,
+        dataGrounded: true,
+        // Carry the goal's output-file specification (header point
+        // 6): the required file name, and for JSON the required
+        // format and top-level keys, so the document step assembles
+        // the specified file instead of a title-derived markdown.
+        ...(outputSpec ? { outputFilename: outputSpec.filename } : {}),
+        ...(outputSpec?.format === 'json'
+          ? { format: 'json', jsonTopLevelKeys: outputSpec.topLevelKeys }
+          : {}),
+      };
     }
     // No file_writer branch: writer steps never survive the copy
     // loop above, so document_generator is the only generative step

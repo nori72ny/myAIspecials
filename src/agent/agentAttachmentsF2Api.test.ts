@@ -243,6 +243,21 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(body.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
     const document = body.steps.find((step) => step.toolName === 'document_generator');
     expect(document?.params.dataGrounded).toBe(true);
+    // The goal specifies its deliverable (output/root_cause_analysis.json
+    // with five required top-level keys): the plan carries the spec so
+    // the document step assembles that JSON file instead of a
+    // title-derived markdown document (ALE wave 1 scored the markdown
+    // file 0). The analyzer reports the structured sections the
+    // assembly reads.
+    const analyzer = body.steps.find((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzer?.params.structuredJsonKeys).toEqual([
+      'incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary',
+    ]);
+    expect(document?.params.format).toBe('json');
+    expect(document?.params.outputFilename).toBe('root_cause_analysis.json');
+    expect(document?.params.jsonTopLevelKeys).toEqual([
+      'incident_metadata', 'root_causes', 'affected_resources', 'remediation_plan', 'summary',
+    ]);
   });
 
   it('keeps heuristic research steps out of an attachment-bound plan (M&A shape)', async () => {
@@ -277,6 +292,12 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
       'attachment_analyzer',
       'document_generator',
     ]);
+    // The goal specifies its deliverable as output/audit_report.md:
+    // the document step carries that file name so the artifact is
+    // not a title-derived name.
+    const document = body.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.outputFilename).toBe('audit_report.md');
+    expect(document?.params.format).toBe('markdown');
   });
 
   it('keeps a writer-only goal free of any file_writer step (analyzer bundle is the deliverable)', async () => {
