@@ -133,6 +133,20 @@
   background: radial-gradient(circle at 50% 36%, #d8d2c2 0%, #a49d8b 76%, #847d6c 100%);
   box-shadow: 0 4px 16px rgb(0 0 0 / 50%), inset 0 1px 0 rgb(255 255 255 / 45%);
 }
+/* 待機姿のダークテーマ専用絵（2026-11-21 再デザイン、外部デザイン
+   評価の回収）：通常の待機静止画は通常版とダーク版（輪郭に青灰色の
+   リムライトを焼き込んだ透過版）を対で描画し、表示側はテーマで
+   切り替える。既定は通常版、ダークテーマではダーク版だけを出す。
+   季節差し替え絵には対が無く対象外。 */
+.origin-cat-still--dark {
+  display: none;
+}
+:root[data-theme="dark"] .origin-cat-still--dark {
+  display: block;
+}
+:root[data-theme="dark"] .origin-cat-still--light {
+  display: none;
+}
 /* Resident Orin quiet motion (redesign stage 1, 2026-11-13; design
    canon §7 / D-5). Idle breathing stays inside the caps declared in
    OriginCatState.tsx: period 6000ms (>= 3000ms), scale <= 1.025
@@ -598,11 +612,12 @@
      leaves a small gap, so the disc hangs entirely below the
      header and the cat's head is never cut. Nothing of the art
      hides behind the header (hidden amount: 0).
-   - The disc reads as set into a shallow hole: no ring or
-     border, just an inner shadow overlay (the __disc::after
-     inset shadows) plus a soft drop shadow under the disc.
-     The same treatment covers stills and videos alike, because
-     the overlay sits on the wrapper, not on the media element.
+   - The art floats as-is: the stills are transparent assets
+     now (2026-11-21 redesign), so the wrapper carries no ring,
+     border or disc shadow — only a soft ground shadow under
+     the feet (the __disc::after ellipse, light theme only).
+     In the dark theme the ground shadow is dropped and the
+     rim-lit dark variant of the art carries the outline.
    - The tap target's hit area is at least 44x44px in every
      state (6px padding around the art plus 44px minimum
      dimensions): at the compact 48px size the target is 60px,
@@ -649,10 +664,10 @@
 }
 .origin-orin-presence__tap {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
   max-width: min(92vw, 26rem);
   min-width: 44px;
   min-height: 44px;
@@ -671,38 +686,46 @@
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
-/* 円盤の「穴」質感（2026-11-20 12:06）：枠線は付けず、円盤の
-   内側に落ちる影（::after の inset 影）で浅い窪みに嵌っている
-   ように見せ、円盤の下には柔らかい落影だけを置く。ラッパーは
-   静止画・動画のどちらにも同じ形で被るため、状態が切り替わっ
-   ても質感は変わらない。::after はタップを妨げない。 */
+/* 透過絵そのままの質感（2026-11-21 再デザイン、外部デザイン評価の
+   回収）：待機静止画が透過背景アセットになったため、円盤の「穴」
+   質感（inset 影）と円形の落影は撤去し、ラッパーは枠も影も持た
+   ない。残すのは足元の接地影だけで、::after の柔らかい楕円で
+   ライトテーマにだけ付ける。ダークテーマでは接地影を消し、輪郭
+   の読みはダーク専用絵のリムライト（OriginCatState 側の対描画）
+   が担う。ラッパーは静止画・動画のどちらにも同じ形で被るため、
+   状態が切り替わっても質感は変わらない。::after はタップを
+   妨げない。 */
 .origin-orin-presence__disc {
   position: relative;
   flex: none;
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(24, 35, 59, 0.10);
   /* スクロール中フェード（2026-11-20 15:36）の遷移：不透明度の
      変化はサイズ変化と同じ約200ms。transform はタップの手がかり
      （ホバー／押下の反応、2026-11-20 外部デザイン評価の回収）用。
      reduced-motion では下の media 規則で即時に切り替える。 */
   transition: opacity 200ms ease-out, transform 200ms ease-out;
 }
-/* スクロール中の円盤（2026-11-20 15:36 の実機判定を受けた
-   修正）：スクロールが続く間は円盤を約0.35まで薄くし、下を
-   通る本文の文字が透けて読めるようにする。状態テキストは
-   円盤の外（横）にあるため薄くならない。復帰は App 側が
-   スクロール停止後 約300ms で is-scrolling を外し、この
-   トランジションで戻る。 */
+/* スクロール中の絵（2026-11-20 15:36 の実機判定を受けた修正）：
+   スクロールが続く間は絵を約0.35まで薄くし、下を通る本文の
+   文字が透けて読めるようにする。状態テキストは絵の下にある
+   ため薄くならない。復帰は App 側がスクロール停止後 約300ms で
+   is-scrolling を外し、このトランジションで戻る。 */
 .origin-orin-presence__disc.is-scrolling {
   opacity: 0.35;
 }
 .origin-orin-presence__disc::after {
   content: "";
   position: absolute;
-  inset: 0;
+  left: 16%;
+  right: 16%;
+  bottom: -3px;
+  height: 9px;
   border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgb(24 35 59 / 20%) 0%, rgb(24 35 59 / 0%) 68%);
   pointer-events: none;
-  box-shadow: inset 0 2px 5px rgba(24, 35, 59, 0.28), inset 0 -1px 2px rgba(24, 35, 59, 0.12);
+}
+/* 接地影はライトテーマだけ（ダークではリムライト版の絵が輪郭を担う）。 */
+:root[data-theme="dark"] .origin-orin-presence__disc::after {
+  display: none;
 }
 /* タップの手がかり（2026-11-20 外部デザイン評価の回収）：オリンが
    プロフィールカードを開く操作だと見た目から分からないという
@@ -720,30 +743,16 @@
 .origin-orin-presence__tap:active .origin-orin-presence__disc {
   transform: scale(0.98);
 }
-/* ダークテーマでの円盤の馴染み（2026-11-20 外部デザイン評価の
-   回収）：猫の絵にはクリーム色の背景が焼き込まれており、暗い
-   画面では明るい円盤が貼ったように浮く。台座側の前例
-   （.origin-cat-pedestal のダーク調整）と同じ考え方で、画像
-   資産は作り直さず CSS 側で落とす：メディアに薄い減彩・減光
-   フィルターをかけ、落影は暗い画面向けの深い影へ、窪みの
-   inset 影も濃くして「暗い面に嵌っている」質感へ寄せる。
-   ライトテーマの見た目は変えない。 */
-:root[data-theme="dark"] .origin-orin-presence__disc {
-  box-shadow: 0 3px 12px rgb(0 0 0 / 45%);
-}
-:root[data-theme="dark"] .origin-orin-presence__disc::after {
-  box-shadow: inset 0 2px 6px rgb(0 0 0 / 42%), inset 0 -1px 3px rgb(0 0 0 / 28%);
-}
-:root[data-theme="dark"] .origin-orin-presence__disc [data-testid="origin-cat-state"] {
-  filter: saturate(0.84) brightness(0.93);
-}
+/* ダークテーマでの絵の馴染みは、ダーク専用絵（リムライト版）の
+   対描画が担う。焼き込みクリーム前提の減光フィルターと深い円盤影
+   （#1402 の調整）は透過化に伴い廃止した（2026-11-21 再デザイン）。 */
 .origin-orin-presence__status {
   min-width: 0;
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
-  text-align: left;
+  text-align: center;
   overflow-wrap: break-word;
   /* 枠なしテキスト（2026-11-20 12:06）：背景も枠も持たず、
      キャンバス色（--bg-primary）の柔らかいハローだけで、
@@ -810,12 +819,16 @@
 
 /* Conversation scroller clearance for Orin's presence
    (2026-11-20; revised for the fully visible disc, 15:36;
-   enlarged disc, 18:17).
-   Only the disc floats over this scroller now: it hangs
+   enlarged disc, 18:17; status text moved below the art,
+   2026-11-21).
+   Only the presence floats over this scroller now: it hangs
    entirely below the header (presence top 60px + 6px tap
-   padding + 72px art), so its bottom edge reaches 78px below
-   the header's bottom edge (80px on the 58px mobile header;
-   the scroller's top edge is the header's bottom edge).
+   padding + 72px art), so the art's bottom edge reaches 78px
+   below the header's bottom edge (80px on the 58px mobile
+   header; the scroller's top edge is the header's bottom
+   edge). While work is in flight the art is compact (48px)
+   and the one-line status text hangs below it, ending about
+   85px below the header — still inside the 88px padding.
    Two clearances keep reading intact:
    - padding-top (88px) holds the first line below the disc's
      bottom edge (78px) with room to spare, so nothing starts
@@ -836,16 +849,21 @@
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar
    tap). Tapping the resident Orin opens this card: Orin's profile
-   (large art, name, one-line introduction) plus the same "current
-   work" list the old top sheet carried. The content is identical on
-   every device; only the form factor changes at the 640px breakpoint
-   (the app's sm breakpoint): below it the card is a bottom sheet,
-   at or above it a centered modal card. The overlay is fixed over
-   the viewport at z-index 40 — above the presence band so the
-   backdrop catches taps, below the header (z-50). The presence
-   stays visible behind the lightly dimmed backdrop so the tap joy
-   motion can play. Entry motion is a short fade plus a small rise;
-   prefers-reduced-motion removes it. */
+   (art, name, one-line introduction) plus the same "current work"
+   list the old top sheet carried. The content is identical on every
+   device; only the form factor changes at the 640px breakpoint
+   (the app's sm breakpoint): below it the card is a bottom sheet
+   over a dimmed backdrop; at or above it the card is a light
+   popover hanging below the resident Orin with no dim at all
+   (2026-11-21 redesign, external design review follow-up — the
+   full-screen modal read as far too heavy for a short profile
+   and a status glance). The overlay is fixed over the viewport
+   at z-index 40 — above the presence band so the backdrop
+   catches taps, below the header (z-50). On wide screens the
+   backdrop is transparent and only keeps its close-on-outside-tap
+   role, so the presence stays fully visible and the tap joy
+   motion can play. Entry motion is a short fade plus a small
+   rise; prefers-reduced-motion removes it. */
 .origin-orin-profile {
   position: fixed;
   inset: 0;
@@ -881,15 +899,29 @@
   animation: origin-orin-profile-in 220ms ease-out;
 }
 @media (min-width: 640px) {
+  /* Popover form (2026-11-21 redesign): anchored below the
+     resident Orin instead of centered on the screen. The top
+     padding clears the presence — its tap target ends 144px
+     below the viewport top (presence top 60px + 6px tap padding
+     + 72px art + 6px tap padding) — with an 8px gap. The card
+     keeps one hairline border and a single soft shadow layer,
+     and the backdrop drops its dim and blur entirely. */
   .origin-orin-profile {
-    align-items: center;
-    padding: 24px;
+    align-items: flex-start;
+    padding: 152px 24px 24px;
+  }
+  .origin-orin-profile__backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .origin-orin-profile__card {
-    max-width: 26rem;
+    width: 320px;
+    max-width: calc(100vw - 48px);
+    max-height: calc(100dvh - 176px);
     border-bottom: 1px solid var(--border-default);
-    border-radius: 24px;
-    box-shadow: 0 16px 40px rgb(15 23 42 / 20%);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
   }
 }
 @keyframes origin-orin-profile-in {

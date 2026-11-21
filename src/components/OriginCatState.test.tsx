@@ -7,6 +7,7 @@ import OriginCatState, {
   ORIGIN_CAT_IDLE_MOTION_MAX_SCALE,
   ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
   ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
+  ORIGIN_CAT_DARK_IDLE_SRC,
   ORIGIN_CAT_JOY_DURATION_MS,
   ORIGIN_CAT_NEWYEAR_FULL_SRC,
   ORIGIN_CAT_NEWYEAR_IDLE_SRC,
@@ -72,7 +73,7 @@ describe('OriginCatState', () => {
     // そのため実在チェックの対象は、既に出荷済みの静止画一式と
     // working 動画に限る。searching 動画のパス自体は対応表のテスト
     // （下記）で文字列として固定し、配置先とずれないようにする。
-    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WINTER_IDLE_SRC, ORIGIN_CAT_NEWYEAR_IDLE_SRC, ORIGIN_CAT_WINTER_FULL_SRC, ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC]) {
+    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WINTER_IDLE_SRC, ORIGIN_CAT_NEWYEAR_IDLE_SRC, ORIGIN_CAT_DARK_IDLE_SRC, ORIGIN_CAT_WINTER_FULL_SRC, ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC]) {
       expect(existsSync(resolve(process.cwd(), 'public', src.replace(/^\//, ''))), src).toBe(true);
     }
   });
@@ -84,6 +85,45 @@ describe('OriginCatState', () => {
     expect(visual.tagName).toBe('IMG');
     expect(visual.getAttribute('src')).toBe('/brand/origin-cat.webp');
     expect(visual.getAttribute('data-state')).toBe('idle');
+  });
+
+  it('renders the rim-lit dark variant alongside the normal idle still (2026-11-21 redesign)', () => {
+    stubReducedMotion(false);
+    render(<OriginCatState state="idle" size={72} />);
+    const light = screen.getByTestId('origin-cat-state');
+    expect(light.className).toContain('origin-cat-still--light');
+    const dark = screen.getByTestId('origin-cat-state-dark');
+    expect(dark.tagName).toBe('IMG');
+    expect(dark.getAttribute('src')).toBe(ORIGIN_CAT_DARK_IDLE_SRC);
+    expect(ORIGIN_CAT_DARK_IDLE_SRC).toBe('/brand/origin-cat-dark.webp');
+    expect(dark.getAttribute('data-state')).toBe('idle');
+    expect(dark.className).toContain('origin-cat-still--dark');
+    // 寸法は通常版と対で揃える（テーマで切り替わっても大きさは変わらない）。
+    expect((dark as HTMLElement).style.width).toBe('72px');
+    expect((dark as HTMLElement).style.height).toBe('72px');
+  });
+
+  it('does not render the dark variant for seasonal idle art or other states', () => {
+    stubReducedMotion(false);
+    vi.setSystemTime(new Date(2026, 11, 25, 12, 0));
+    const winter = render(<OriginCatState state="idle" />);
+    expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(screen.queryByTestId('origin-cat-state-dark')).toBeNull();
+    winter.unmount();
+    const thinking = render(<OriginCatState state="thinking" />);
+    expect(screen.queryByTestId('origin-cat-state-dark')).toBeNull();
+    thinking.unmount();
+  });
+
+  it('pins the still light/dark toggle to the theme selector in CSS', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
+    // 既定はダーク版を隠し、ダークテーマでは通常版と入れ替える。
+    const darkBase = css.match(/\.origin-cat-still--dark \{[^}]*\}/)?.[0] ?? '';
+    expect(darkBase).toContain('display: none;');
+    const darkShown = css.match(/:root\[data-theme="dark"\] \.origin-cat-still--dark \{[^}]*\}/)?.[0] ?? '';
+    expect(darkShown).toContain('display: block;');
+    const lightHidden = css.match(/:root\[data-theme="dark"\] \.origin-cat-still--light \{[^}]*\}/)?.[0] ?? '';
+    expect(lightHidden).toContain('display: none;');
   });
 
   it('swaps the idle still to the winter artwork from December to February', () => {

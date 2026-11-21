@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import OriginCatState, { ORIGIN_CAT_SEASON_FULL_SRC, resolveOriginCatSeason } from './OriginCatState';
 import type { OriginLanguage } from '../i18n';
@@ -7,7 +7,7 @@ import type { OriginLanguage } from '../i18n';
  * オリンのプロフィールカード（2026-11-15、ノリ指示）。
  *
  * 画面上部中央の常駐オリンをタップすると開く。Muse アプリの
- * アバタータップと同じ考え方で、オリンのプロフィール（大きな姿・
+ * アバタータップと同じ考え方で、オリンのプロフィール（姿・
  * 名前・ひとこと紹介）と「いまの作業」の一覧を1枚のカードに載せる。
  * 「いまの作業」は従来の上部シート（PR-β、2026-11-13）が載せていた
  * 内容そのまま：平易な項目タイトル＋状態（進行中／完了）＋最小限の
@@ -19,10 +19,14 @@ import type { OriginLanguage } from '../i18n';
  * ここに載せる（データは run 記録の stepsState 由来の共有要約）。
  *
  * 内容と項目は全デバイスで完全に同一にし、表示形態だけを変える：
- * 広い画面（640px以上）では中央のカード型モーダル、狭い画面では
- * 下から出るシート型。切り替えは origin-top-ui.css の
- * .origin-orin-profile 側（ブレークポイント 640px）が担う。
- * 閉じる操作は×ボタン・カード外タップ・Escキーの3つ。
+ * 広い画面（640px以上）では常駐オリンの直下にぶら下がる軽い
+ * ポップオーバー（暗幕なし、2026-11-21 再デザイン、外部デザイン
+ * 評価の回収）、狭い画面では下から出るシート型。切り替えは
+ * origin-top-ui.css の .origin-orin-profile 側（ブレークポイント
+ * 640px）が担う。閉じる操作は×ボタン・カード外タップ・Escキー
+ * の3つで、閉じたら起点のオリンのタップ対象へフォーカスを戻す。
+ * 「いまの作業」は項目がある時だけ節ごと出し、待機中は節自体を
+ * 出さない（「いまは作業していません」の空状態文は廃止した）。
  */
 /** エージェント作業の計画ステップ1件分（平易なタイトル＋状態）。 */
 export interface OriginWorkSheetStep {
@@ -63,8 +67,8 @@ export interface OriginWorkSheetProps {
   onOpenAgent?: () => void;
 }
 
-/** カードに大きく出すオリンの姿の寸法（px）。台座込みの外径はその約1.08倍。 */
-export const ORIN_PROFILE_ART_SIZE_PX = 128;
+/** カードに出すオリンの姿の寸法（px）。常駐の待機姿と同じ透過絵を台座なしで出す（2026-11-21 再デザイン）。 */
+export const ORIN_PROFILE_ART_SIZE_PX = 80;
 
 export default function OriginWorkSheet({ open, items, language, onClose, onOpenAgent }: OriginWorkSheetProps) {
   useEffect(() => {
@@ -75,6 +79,21 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
+
+  // 閉じたら起点（常駐オリンのタップ対象）へフォーカスを戻す
+  // （2026-11-21 再デザイン）。開→閉の遷移でだけ発火させ、
+  // onClose の同一性変化では発火させない。
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      document.querySelector<HTMLElement>('.origin-orin-presence__tap')?.focus();
+    }
+  }, [open ]);
 
   if (!open) return null;
   const ja = language !== 'en';
@@ -109,7 +128,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
         </button>
         <div className="flex flex-col items-center px-2 text-center">
           <span data-testid="origin-orin-profile-art" className="inline-flex">
-            <OriginCatState state="waiting" size={ORIN_PROFILE_ART_SIZE_PX} pedestal />
+            <OriginCatState state="idle" size={ORIN_PROFILE_ART_SIZE_PX} />
           </span>
           <h2 data-testid="origin-orin-profile-name" className="m-0 mt-3 text-xl font-bold">
             {ja ? 'オリン' : 'Orin'}
@@ -135,11 +154,9 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
             </figure>
           )}
         </div>
+        {items.length > 0 && (
         <div className="mt-5 border-t border-[var(--border-default)] pt-4">
           <h3 className="m-0 text-sm font-black">{ja ? 'いまの作業' : 'Current work'}</h3>
-          {items.length === 0 ? (
-            <p className="mb-1 mt-3 text-sm">{ja ? 'いまは作業していません' : 'Nothing is in progress right now'}</p>
-          ) : (
             <ul className="m-0 mt-2 grid list-none gap-1 p-0">
               {items.map((item) => {
                 const statusText = item.status === 'active' ? (ja ? '進行中' : 'In progress') : (ja ? '完了' : 'Done');
@@ -187,8 +204,8 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                 );
               })}
             </ul>
-          )}
         </div>
+        )}
       </section>
     </div>
   );

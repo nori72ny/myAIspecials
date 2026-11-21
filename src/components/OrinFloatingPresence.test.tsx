@@ -181,7 +181,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // 状態テキストは作業中だけ。待機中は出ない。
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
     // 枠なし方式（2026-11-20 12:06）：台座も窓枠も付けない。
-    // 円盤は「穴」質感のラッパー（__disc）に包まれる。
+    // 円盤は枠も影もないラッパー（__disc）に包まれる。
     expect(within(presence).queryByTestId('origin-cat-pedestal')).toBeNull();
     // 円盤の中のオリン：通常時（待機・未スクロール）は絵72px
     // （2026-11-20 18:17 の実機判定で、顔が読める大きさへ拡大）。
@@ -215,12 +215,12 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(screen.getByTestId('origin-cat-state').parentElement?.classList.contains('origin-cat-joy')).toBe(true);
   });
 
-  it('shows the status text beside the disc while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink)', () => {
+  it('shows the status text below the disc while working, and shrinks the art to the compact size (2026-11-20 10:10 auto-shrink; text moved below 2026-11-21)', () => {
     const { props, rerender } = renderPresence();
     const idleCat = screen.getByTestId('origin-cat-state');
     expect((idleCat as HTMLElement).style.width).toBe('72px');
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
-    // 状態テキストは段階文をそのまま円盤の右側に出す。
+    // 状態テキストは段階文をそのまま円盤の下に出す（中心軸は待機時と固定）。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
     // 作業中は自動縮小が発火し、絵は48pxになる（テキストは常に見える）。
     const cat = screen.getByTestId('origin-cat-state');
@@ -420,6 +420,9 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // パネルだったものをやめ、border・背景・影・パネル角丸を
     // 全て撤去した。残るのはレイアウトとタップ受けだけ。
     const tapRule = css.match(/\.origin-orin-presence__tap \{[^}]*\}/)?.[0] ?? '';
+    // 縦並び（絵→状態文の下方向）で中心軸を全状態で固定する
+    // （2026-11-21 再デザイン、外部デザイン評価の回収）。
+    expect(tapRule).toContain('flex-direction: column;');
     expect(tapRule).toContain('border: none;');
     expect(tapRule).toContain('background: transparent;');
     expect(tapRule).toContain('box-shadow: none;');
@@ -434,19 +437,19 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(tapRule).not.toContain('var(--radius-panel)');
     expect(tapRule).not.toContain('var(--shadow-1)');
     expect(tapRule).not.toContain('position: fixed');
-    // 円盤の「穴」質感：ラッパーには柔らかい落影だけ、内側の
-    // 窪みの影は ::after の inset 影で付ける（枠線は付けない）。
-    // ::after はタップを妨げない。
+    // 透過絵そのままの質感（2026-11-21 再デザイン）：ラッパーは
+    // 枠も影も持たず、残るのは ::after の接地影（足元の楕円、
+    // ライトテーマのみ）だけ。::after はタップを妨げない。
     const discRule = css.match(/\.origin-orin-presence__disc \{[^}]*\}/)?.[0] ?? '';
     expect(discRule).toContain('position: relative;');
-    expect(discRule).toContain('border-radius: 50%;');
-    expect(discRule).toContain('box-shadow: 0 2px 8px rgba(24, 35, 59, 0.10);');
+    expect(discRule).not.toContain('border-radius');
+    expect(discRule).not.toContain('box-shadow');
     const discAfterRule = css.match(/\.origin-orin-presence__disc::after \{[^}]*\}/)?.[0] ?? '';
     expect(discAfterRule).toContain('position: absolute;');
-    expect(discAfterRule).toContain('inset: 0;');
     expect(discAfterRule).toContain('border-radius: 50%;');
     expect(discAfterRule).toContain('pointer-events: none;');
-    expect(discAfterRule).toContain('box-shadow: inset 0 2px 5px rgba(24, 35, 59, 0.28), inset 0 -1px 2px rgba(24, 35, 59, 0.12);');
+    expect(discAfterRule).toContain('background: radial-gradient(ellipse at center,');
+    expect(discAfterRule).not.toContain('box-shadow');
     // スクロール中フェード（2026-11-20 15:36）：円盤は不透明度
     // のトランジションを持ち、is-scrolling で約0.35まで薄くなる
     // （ORIN_PRESENCE_SCROLL_OPACITY と一致させること）。
@@ -491,19 +494,16 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(css).not.toContain('padding-top: 131px !important;');
   });
 
-  it('pins the dark-theme disc blending and the quiet tappability cues (2026-11-20 external review follow-up)', () => {
+  it('pins the dark-theme treatment and the quiet tappability cues (2026-11-20 external review follow-up; disc treatment replaced 2026-11-21)', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
-    // ダークテーマ：円盤の落影は暗い画面向けの深い影へ、窪みの
-    // inset 影も濃くする。ライト側の基本規則（柔らかい紺の影）は
-    // 変えない。
-    const darkDiscRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc \{[^}]*\}/)?.[0] ?? '';
-    expect(darkDiscRule).toContain('box-shadow: 0 3px 12px rgb(0 0 0 / 45%);');
+    // ダークテーマ（2026-11-21 再デザイン）：焼き込みクリーム前提の
+    // 減光フィルターと深い円盤影（#1402）は廃止。ダーク側の馴染みは
+    // リムライト版の絵（OriginCatState の対描画）が担い、CSS 側は
+    // 接地影を消すだけ。
+    expect(css).not.toContain('saturate(0.84) brightness(0.93)');
+    expect(css).not.toContain('0 3px 12px rgb(0 0 0 / 45%)');
     const darkDiscAfterRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc::after \{[^}]*\}/)?.[0] ?? '';
-    expect(darkDiscAfterRule).toContain('inset 0 2px 6px rgb(0 0 0 / 42%)');
-    // 焼き込みクリームを薄く落とすフィルターはメディア側にだけ
-    // かける（ラッパー全体にはかけない）。
-    const darkMediaRule = css.match(/:root\[data-theme="dark"\] \.origin-orin-presence__disc \[data-testid="origin-cat-state"\] \{[^}]*\}/)?.[0] ?? '';
-    expect(darkMediaRule).toContain('filter: saturate(0.84) brightness(0.93);');
+    expect(darkDiscAfterRule).toContain('display: none;');
     // タップの手がかり：常時表示の装飾は足さず、ホバーの微拡大と
     // 押下の微縮だけ。キーボードでは :focus-visible の輪郭が担う
     // （既存）。cursor: pointer はタップ規則側に既存。

@@ -25,6 +25,14 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 4%、ORIGIN_CAT_PEDESTAL_RING_RATIO）に抑える。絵の実寸は従来と
  * 同じく size 基準で決まるため、猫の大きさ自体は変わらない。
  * 本命の修正は透過背景アセットへの差し替え（猫ホスト化フェーズ）。
+ *
+ * 2026-11-21 の再デザイン（外部デザイン評価の回収）で、その透過化が
+ * 待機姿に届いた：通常・冬・お正月の待機静止画は透過背景アセットに
+ * 差し替わり、焼き込みのクリーム円盤は消えた。通常の待機姿には
+ * ダークテーマ専用のリムライト版（ORIGIN_CAT_DARK_IDLE_SRC）を対で
+ * 用意し、暗い画面では輪郭の光で読ませる。台座（pedestal）はホーム
+ * のヒーローなど従来の配置向けに残すが、常駐プレゼンスとプロフィール
+ * カードは台座なしで透過絵そのままを出す。
  */
 export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'making' | 'waiting' | 'done' | 'sorry' | 'sleep';
 
@@ -52,6 +60,16 @@ export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
 export const ORIGIN_CAT_WINTER_IDLE_SRC = '/brand/origin-cat-winter.webp';
 /** お正月（1月1日〜10日）の待機姿の差し替え先。冬の差し替えより優先する。 */
 export const ORIGIN_CAT_NEWYEAR_IDLE_SRC = '/brand/origin-cat-newyear.webp';
+
+/**
+ * ダークテーマ専用の通常待機姿（輪郭に青灰色のリムライトを焼き込んだ
+ * 透過版）。季節外の通常待機姿でのみ対で描画し、表示側の切り替えは
+ * CSS の :root[data-theme="dark"] が担う（origin-top-ui.css の
+ * .origin-cat-still--light / --dark）。テーマ判定を JS へ持ち込まず、
+ * 既存のダーク調整と同じセレクタに寄せる。季節差し替え絵には
+ * ダーク版を用意せず、透過版そのままを両テーマで使う。
+ */
+export const ORIGIN_CAT_DARK_IDLE_SRC = '/brand/origin-cat-dark.webp';
 
 /** プロフィールカードの中にだけ出す冬の完成イラスト（雪景色）の配置先。 */
 export const ORIGIN_CAT_WINTER_FULL_SRC = '/brand/origin-cat-winter-full.webp';
@@ -204,6 +222,7 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
   // れないため、idle では実質 img の src だけが差し替わる。他の状態
   // は従来どおり対応表の静止画を使う。
   const stillSrc = state === 'idle' ? resolveOriginCatIdleSrc(new Date()) : ORIGIN_CAT_STILL_SRC[state];
+  const stillClassName = `shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`;
   let media: ReactElement;
   if (videoSrc !== undefined && !prefersReducedMotion && !stillOnly) {
     media = (
@@ -221,12 +240,41 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
         aria-hidden="true"
       />
     );
+  } else if (state === 'idle' && stillSrc === ORIGIN_CAT_STILL_SRC.idle) {
+    // 通常の待機姿だけはダークテーマ専用絵（リムライト版）を対で
+    // 出し、CSS（:root[data-theme="dark"]）で表示側を切り替える。
+    // ダーク側は data-testid を分け、通常側の取得
+    // （origin-cat-state）を単一に保つ。
+    media = (
+      <>
+        <img
+          data-testid="origin-cat-state"
+          data-state={state}
+          className={`${stillClassName} origin-cat-still--light`}
+          style={style}
+          src={stillSrc}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+        />
+        <img
+          data-testid="origin-cat-state-dark"
+          data-state={state}
+          className={`${stillClassName} origin-cat-still--dark`}
+          style={style}
+          src={ORIGIN_CAT_DARK_IDLE_SRC}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+        />
+      </>
+    );
   } else {
     media = (
       <img
         data-testid="origin-cat-state"
         data-state={state}
-        className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
+        className={stillClassName}
         style={style}
         src={stillSrc}
         alt=""

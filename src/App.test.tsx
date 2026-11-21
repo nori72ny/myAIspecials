@@ -2773,7 +2773,10 @@ describe('cat visibility on the top screen and while generating (owner request 2
     expect(screen.queryByTestId('origin-core-logo')).toBeNull();
     // 猫はプレゼンスの1か所だけに常時表示される（枠なし方式
     // 2026-11-20 12:06：台座も窓枠も付けず、円盤だけが浮く）。
-    const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => node.getAttribute('src') === '/brand/origin-cat.webp');
+    // 待機中の姿は季節で差し替わる（冬＝雪景色、1月1日〜10日＝お正月）。
+    // ここでは「プレゼンスに猫が1体だけ」の確認が目的なので、季節版も含める。
+    const idleSrcs = ['/brand/origin-cat.webp', '/brand/origin-cat-winter.webp', '/brand/origin-cat-newyear.webp'];
+    const brandCats = screen.getAllByTestId('origin-cat-state').filter((node) => idleSrcs.includes(node.getAttribute('src') ?? ''));
     expect(brandCats).toHaveLength(1);
     expect(brandCats[0].tagName).toBe('IMG');
     expect(brandCats[0].closest('[data-testid="origin-cat-pedestal"]')).toBeNull();
@@ -2811,11 +2814,15 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('opens from the floating presence and reports that nothing is in progress', () => {
+  it('opens from the floating presence and shows only the profile while nothing is in progress', () => {
     render(<App language="ja" />);
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
     const sheet = screen.getByTestId('origin-work-sheet');
-    expect(sheet.textContent).toContain('いまは作業していません');
+    // 待機中は「いまの作業」の節自体を出さない（空状態文も廃止、
+    // 2026-11-21 再デザイン）。
+    expect(sheet.textContent).not.toContain('いまの作業');
+    expect(sheet.textContent).not.toContain('いまは作業していません');
+    expect(within(sheet).getByTestId('origin-orin-profile-name').textContent).toBe('オリン');
   });
 
   it('shows the agent plan steps (not just the current step) in the work sheet', () => {
