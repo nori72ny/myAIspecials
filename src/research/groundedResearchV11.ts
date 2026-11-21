@@ -284,19 +284,28 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
   const compactQuery = query.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 400);
   // Answer-body hygiene (PKG-9 rule, extended by the synthesis-hygiene
   // change): this report is rendered to users as the research answer body
-  // (詳しく調べる), so it never pastes retrieved page text. Excerpts are
+  // (詳しく調べる), so it never pastes raw retrieved page text. Excerpts are
   // full extracted pages for number-critical question types — navigation
   // and advertising boilerplate included — and quoting them made the raw
   // search dump pose as the answer. The confirmed scope is therefore
-  // stated as attributions built from source titles only, the evidence
-  // section carries retrieval metadata only, and the internal cross-check
-  // breakdown (values per topic) stays in the structured `conflicts`
-  // field instead of a user-facing 照合メモ section. Excerpts remain
+  // stated as the same source cards the partial answer uses
+  // (buildSourceCardsSection below): a heading and a linked title per
+  // source, with the retrieval dates collected into a single line. The
+  // per-source attribution boilerplate the cards replaced is gone here
+  // as well (SOURCES_DISPLAY_REDESIGN 2026-11-20, report follow-up).
+  // The cards' quote does NOT carry to this surface: snippet-level
+  // excerpts are often a single fragment with no sentence boundary, so
+  // even the deterministically selected quote span can be the raw
+  // fragment itself (measured: an unrelated query quoted
+  // 「価格 1,000円 ナビゲーション広告文」 verbatim), and this surface
+  // keeps its titles-only hygiene — the quote stays exclusive to the
+  // partial answer, whose lead frames it as what the source says. The
+  // evidence section carries
+  // retrieval metadata only, and the internal cross-check breakdown
+  // (values per topic) stays in the structured `conflicts` field
+  // instead of a user-facing 照合メモ section. Excerpts remain
   // available to the synthesis stage as evidence-packet data.
-  const summaryLines = bounded.map((source, index) => {
-    const assessment = assessments[index];
-    return `- ${assessment.id}（${assessment.domain}）では『${displayTitle(source)}』と示されています ${assessment.citation}`;
-  });
+  const sourceCardsSection = buildSourceCardsSection(bounded, "ja", query, { includeQuotes: false });
   const evidenceLines = bounded.map((source, index) => {
     const assessment = assessments[index];
     const evidenceLabel = assessment.evidenceLevel === "page-verified" ? "本文確認済み" : "検索結果の要約";
@@ -321,8 +330,98 @@ export function buildGroundedResearchReport(query: string, sources: OriginResear
     semanticConflictDetection: "conservative-structured-only",
     sources: assessments,
     conflicts,
-    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${summaryLines.join("\n")}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n${conflictNote}\n\n※ 「公式ドメイン一致」は、ユーザーが明示した公式ソース条件とホスト名が一致したことだけを示します。内容の真偽や媒体の権威性そのものを独立検証した意味ではありません。取得証拠の強さも、質問への最終的な正しさを保証しません。`,
+    report: `## 確認できた内容\n\n依頼: ${compactQuery}\n\n${sourceCardsSection}\n\n## 出典と取得状況\n\n${evidenceLines.join("\n\n")}\n\n${conflictNote}\n\n※ 「公式ドメイン一致」は、ユーザーが明示した公式ソース条件とホスト名が一致したことだけを示します。内容の真偽や媒体の権威性そのものを独立検証した意味ではありません。取得証拠の強さも、質問への最終的な正しさを保証しません。`,
   };
+}
+
+/**
+ * The sources section shared by the partial answer and the research
+ * report (SOURCES_DISPLAY_REDESIGN_2026-11-20; the report adopted the
+ * same presentation as a follow-up, so both surfaces show sources
+ * identically): the retrieval dates collected into a single line,
+ * then one card per source — a heading with the source id and domain
+ * (the outlet label — the source data carries no publisher name, so
+ * the domain stands in for it), the title as a link to the source,
+ * and, for the top three sources, a short verbatim quote (the
+ * evidence packet's answer-bearing sentences, falling back to the
+ * N-2b claim span) after the site-chrome filter and the R-1
+ * neutralization. Callers pass an already-bounded list (at most
+ * eight sources). The research report passes includeQuotes: false —
+ * its PKG-9 hygiene rule keeps retrieved page text out of that
+ * surface entirely (see buildGroundedResearchReport) — and then only
+ * the heading, the linked title, and the dates line are shared.
+ */
+function buildSourceCardsSection(
+  sources: readonly OriginResearchSource[],
+  language: "ja" | "en",
+  question: string,
+  options: { includeQuotes?: boolean } = {},
+): string {
+  const includeQuotes = options.includeQuotes ?? true;
+  const cards = includeQuotes ? buildGroundedResearchEvidenceCards(question, sources).cards : [];
+  const packet = includeQuotes ? buildGroundedResearchEvidencePacket(sources, question) : null;
+  // The packet quote for one source: its excerpt-origin sentences, in
+  // original order. Empty when the packet found nothing answer-bearing
+  // for that source — the caller then falls back to the claim span.
+  const packetQuoteForSource = (sourceIndex: number): string =>
+    packet === null
+      ? ""
+      : packet.sentences
+        .filter((sentence) => sentence.sourceIndex === sourceIndex && sentence.origin === "excerpt")
+        .map((sentence) => sentence.text)
+        .join(" ");
+  const domainForList = (source: OriginResearchSource): string => {
+    let domain = source.domain ?? "";
+    if (!domain) {
+      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
+    }
+    return domain;
+  };
+  // The title as a Markdown link label: brackets would break the link
+  // syntax, so they are widened to their full-width forms (the title
+  // text itself is otherwise shown exactly as retrieved).
+  const linkLabel = (source: OriginResearchSource): string =>
+    displayTitle(source).replace(/\[/g, "［").replace(/\]/g, "］");
+  const cardBlocks = sources.map((source, index) => {
+    const id = `S${index + 1}`;
+    const domain = domainForList(source);
+    const heading = domain ? `### ${id} · ${domain}` : `### ${id}`;
+    const parts = [heading, `[${linkLabel(source)}](${source.url})`];
+    // Quotes ride only on the top three cards, as before the redesign:
+    // they are the gist of the highest-ranked sources, and bounding
+    // them keeps this section from becoming a second search dump.
+    if (includeQuotes && index < 3) {
+      // PR-2: prefer the packet's sentences for the quote; fall back
+      // to the N-2b claim span when the packet has nothing for this
+      // source. Either raw quote goes through the chrome filter and
+      // the same R-1 neutralization and character bound, exactly once.
+      const quote = neutralizePartialAnswerQuote(
+        cleanPartialAnswerQuoteText(
+          packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
+        ),
+      );
+      if (quote) parts.push(language === "en" ? `"${quote}"` : `『${quote}』`);
+    }
+    return parts.join("\n\n");
+  });
+  // Retrieval dates, collected once: every distinct known date, in
+  // source order. Sources without a parseable date contribute nothing
+  // (no date is invented for them); when no date is known at all the
+  // line is omitted.
+  const retrievedLabels: string[] = [];
+  for (const source of sources) {
+    const label = retrievedDateLabel(source.retrievedAt, language);
+    if (label && !retrievedLabels.includes(label)) retrievedLabels.push(label);
+  }
+  const retrievedLine = retrievedLabels.length === 0
+    ? null
+    : language === "en"
+      ? `Retrieved: ${retrievedLabels.join(", ")}`
+      : `取得日：${retrievedLabels.join("、")}`;
+  return [
+    ...(retrievedLine ? [retrievedLine] : []),
+    ...cardBlocks,
+  ].join("\n\n");
 }
 
 /**
@@ -380,68 +479,7 @@ export function buildGroundedResearchPartialAnswer(
 ): string {
   const bounded = sources.slice(0, 8);
   if (bounded.length === 0) return "";
-  const cards = buildGroundedResearchEvidenceCards(question, bounded).cards;
-  const packet = buildGroundedResearchEvidencePacket(bounded, question);
-  // The packet quote for one source: its excerpt-origin sentences, in
-  // original order. Empty when the packet found nothing answer-bearing
-  // for that source — the caller then falls back to the claim span.
-  const packetQuoteForSource = (sourceIndex: number): string =>
-    packet.sentences
-      .filter((sentence) => sentence.sourceIndex === sourceIndex && sentence.origin === "excerpt")
-      .map((sentence) => sentence.text)
-      .join(" ");
-  const domainForList = (source: OriginResearchSource): string => {
-    let domain = source.domain ?? "";
-    if (!domain) {
-      try { domain = new URL(source.url).hostname; } catch { domain = ""; }
-    }
-    return domain;
-  };
-  // The title as a Markdown link label: brackets would break the link
-  // syntax, so they are widened to their full-width forms (the title
-  // text itself is otherwise shown exactly as retrieved).
-  const linkLabel = (source: OriginResearchSource): string =>
-    displayTitle(source).replace(/\[/g, "［").replace(/\]/g, "］");
-  const cardBlocks = bounded.map((source, index) => {
-    const id = `S${index + 1}`;
-    const domain = domainForList(source);
-    const heading = domain ? `### ${id} · ${domain}` : `### ${id}`;
-    const parts = [heading, `[${linkLabel(source)}](${source.url})`];
-    // Quotes ride only on the top three cards, as before the redesign:
-    // they are the gist of the highest-ranked sources, and bounding
-    // them keeps the fallback from becoming a second search dump.
-    if (index < 3) {
-      // PR-2: prefer the packet's sentences for the quote; fall back
-      // to the N-2b claim span when the packet has nothing for this
-      // source. Either raw quote goes through the chrome filter and
-      // the same R-1 neutralization and character bound, exactly once.
-      const quote = neutralizePartialAnswerQuote(
-        cleanPartialAnswerQuoteText(
-          packetQuoteForSource(index) || claimQuoteSpan(cards[index]),
-        ),
-      );
-      if (quote) parts.push(language === "en" ? `"${quote}"` : `『${quote}』`);
-    }
-    return parts.join("\n\n");
-  });
-  // Retrieval dates, collected once: every distinct known date, in
-  // source order. Sources without a parseable date contribute nothing
-  // (no date is invented for them); when no date is known at all the
-  // line is omitted.
-  const retrievedLabels: string[] = [];
-  for (const source of bounded) {
-    const label = retrievedDateLabel(source.retrievedAt, language);
-    if (label && !retrievedLabels.includes(label)) retrievedLabels.push(label);
-  }
-  const retrievedLine = retrievedLabels.length === 0
-    ? null
-    : language === "en"
-      ? `Retrieved: ${retrievedLabels.join(", ")}`
-      : `取得日：${retrievedLabels.join("、")}`;
-  const sectionBody = [
-    ...(retrievedLine ? [retrievedLine] : []),
-    ...cardBlocks,
-  ].join("\n\n");
+  const sectionBody = buildSourceCardsSection(bounded, language, question);
   if (language === "en") {
     return `I retrieved ${bounded.length} public source(s), but a summarized answer could not be produced, so the confirmed scope and the source list follow. Please check the sources for the details.\n\n## What could be confirmed\n\n${sectionBody}`;
   }
