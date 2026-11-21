@@ -167,7 +167,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // deck skeleton in the (routes 1-2) system instruction so the single
       // ordinary generation can be converted into a deck afterwards. The
       // compact Groq instruction is deliberately left untouched (its
-      // 2,000-3,000 character budget is a hard contract); a route-3 answer
+      // 2,000-3,800 character budget is a hard contract); a route-3 answer
       // simply will not match the skeleton and produces no file.
       const deckRequested = isProposalDeckChatRequest(requestIntent, intentInput);
       // D-PR-6: with the deck-records kill switch ON, a proposal-deck

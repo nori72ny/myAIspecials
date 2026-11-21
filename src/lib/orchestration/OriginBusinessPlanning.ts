@@ -495,7 +495,7 @@ export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPl
 // Route-3 (Groq) compact form of the playbook above.
 //
 // The full instruction runs 4,400–5,400 characters — more than the entire
-// route-3 compact instruction (2,000–3,000 characters, pinned by test) —
+// route-3 compact instruction (2,000–3,800 characters, pinned by test) —
 // and the chat routers used to hand route 3 the compact substitute with
 // no per-request addition at all. Route 3 is the last-resort route, but
 // it is also the route that actually serves whenever route 2 fails or

@@ -351,7 +351,7 @@ describe("executeOriginGroqProvider route activation (compact instruction)", () 
     // The payload carries the compact substitute, not the 15,713-character original.
     expect(body.messages[0].role).toBe("system");
     expect(body.messages[0].content).toBe(sanitizePreEgress(originGroqRouteSystemInstruction()));
-    expect(body.messages[0].content.length).toBeLessThanOrEqual(3_000);
+    expect(body.messages[0].content.length).toBeLessThanOrEqual(3_800); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21)
     expect(body.messages[1]).toEqual({ role: "user", content: "日本の首都はどこですか？" });
     // The gate math on the sent payload: estimated input plus the granted completion
     // stays under the tokens/minute ceiling, with real headroom (not the old 129).

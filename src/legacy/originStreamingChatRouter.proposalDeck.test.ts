@@ -109,7 +109,7 @@ describe("createOriginStreamingChatRouter proposal deck (PR-3a)", () => {
     // compact Groq instruction keeps its hard character budget untouched.
     expect(seenInstruction).toContain("提案資料の作成形式（この依頼専用の追加ルール）");
     expect(seenGroqInstruction).toBe(originGroqRouteSystemInstruction());
-    expect(seenGroqInstruction!.length).toBeLessThanOrEqual(3_000);
+    expect(seenGroqInstruction!.length).toBeLessThanOrEqual(3_800); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21)
 
     const complete = completeEvent(response.text);
     expect(complete.modelId).toBe(evidence.modelId);
