@@ -24,6 +24,15 @@ const CLASSIFY_GOAL = '各行を分類してレポートを作成してくださ
  * production plan and blocked the run (2026-11-21). */
 const K8S_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Kubernetes Payment API Root-Cause Analysis\n\nYou are the on-call SRE for Northwind Payments. The `payment-api` Deployment in\nthe `prod` namespace started flapping after a routine chart-value change. The\nHPA reports memory utilization above target and dashboards show elevated 5xx errors.\n\n## Visible Inputs\n\nAll evidence files are in `input/`:\n\n- `cluster_state.txt`: captured kubectl pod, deployment, event, top, and HPA output.\n- `deployment.yaml`: currently applied Deployment and HPA YAML.\n- `failing_pod.log`: stdout from a crashing payment-api pod across two restart cycles.\n\n## Required Output\n\nWrite exactly one JSON file:\n\n```text\noutput/root_cause_analysis.json\n```\n\nThe JSON report must include these top-level keys:\n\n```text\nincident_metadata, root_causes, affected_resources, remediation_plan, summary\n```\n\n### Schema details\n\n**`incident_metadata`** — object with at least:\n- `safe_to_rollback` (boolean): whether rolling back to the previous ReplicaSet revision is safe.\n\n**`root_causes`** — array of objects, each with at least:\n- `type` (string): short classification label, e.g. `\"OOMKilled\"`, `\"liveness_probe_too_aggressive\"`, `\"missing_metrics_port_env\"`.\n- `severity` (string): one of `\"critical\"`, `\"high\"`, `\"medium\"`, `\"low\"`.\n- `description` (string): explanation of the root cause.\n- `evidence` (array of strings): each item must be a verbatim text string copied from one of the visible input files (not a file-name citation — the actual text that appears in the file).\n\n**`affected_resources`** — array of objects, each with `kind`, `name`, and `namespace`.\n\n**`remediation_plan`** — array of objects, each with at least an `action` (string).\n\n**`summary`** — string summarizing the incident and recommended path forward.\n\n### Guidelines\n\nIdentify root causes, list affected Kubernetes resources, propose prioritized\nremediation actions, and state whether rollback to the previous ReplicaSet is\nsafe. Do not invent metric values, commit SHAs, or resource names.";
 
+
+/** The staged ALE M&A consistency-audit goal, verbatim: the
+ * deterministic planner's research heuristic fired on the word
+ * "search" in its staged-materials note and inserted a
+ * web_search_grounding step (query = the whole goal text) into the
+ * attachment-bound plan, so the driver refused approval in
+ * production (2026-11-21, release bc1c1918). */
+const MA_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Task Brief\n\nReview four Chinese regulatory filings about the same share-transfer transaction and write an English inconsistency audit.\n\nDeliver exactly one file:\n\n- `output/audit_report.md`\n\nReport requirements:\n\n1. Write in English.\n2. Identify every material inconsistency you can support from the documents.\n3. For each finding, include:\n   - a short English title;\n   - a brief explanation of the conflict;\n   - the original Chinese text that proves the issue;\n   - a location marker with document name and page number.\n4. Do not invent issues that the documents do not support.\n\nAvailable staged materials:\n\n- `input/source_documents/` contains the original PDFs.\n- `input/extracted_text/` contains page-labeled UTF-8 text extracted from the PDFs for easier search.\n- `input/document_manifest.json` maps the canonical filenames to the original Chinese filenames.\n- `software/python` launches the baseline VM Python interpreter if scripting is helpful.\n\nSuggested output structure:\n\n```markdown\n# Share Transfer Disclosure Consistency Review\n\n## Finding 1: <title>\n- Documents: ...\n- Why it is inconsistent: ...\n- Evidence:\n  - `Document X, Page Y`: `<Chinese text>`\n  - `Document Z, Page W`: `<Chinese text>`\n```\n";
+
 function makeConsumptionStore(): AgentRunConsumptionStore {
   const consumed = new Set<string>();
   return {
@@ -119,18 +128,20 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(body.attachments?.totalChars).toBe(FRUITS.length);
   });
 
-  it('leaves a downstream file_writer chained to the document artifact, not the analyzer', async () => {
+  it('drops a downstream file_writer from the augmented plan', async () => {
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'fruits.csv', FRUITS);
     // The CSV wording makes the planner append a file_writer after the
-    // document; augmentation grounds only the FIRST generative step.
+    // document; augmentation removes writer steps outright (their only
+    // target is the server's own repository — read-only in production,
+    // and not the delivery path), so the grounded document closes the
+    // plan and is the deliverable.
     const plan = await planWithAttachment(app, 'このCSVの各行を分類してレポートを作成してください', setId);
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
-    expect(body.steps.map((step) => step.toolName)).toEqual(['attachment_reader', 'attachment_analyzer', 'document_generator', 'file_writer']);
+    expect(body.steps.map((step) => step.toolName)).toEqual(['attachment_reader', 'attachment_analyzer', 'document_generator']);
     expect(body.steps[2].params.dataGrounded).toBe(true);
-    expect(body.steps[3].params.contentFromPreviousArtifact).toBe(true);
-    expect(body.steps[3].params).not.toHaveProperty('contentFromStep');
+    expect(body.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
   });
 
   it('splits the analyzer at 8 chunks and chains the continuation', async () => {
@@ -169,14 +180,16 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.body.limitKind).toBe('chunks');
   });
 
-  it('plans, approves and creates a run for a 17+ chunk set whose plan needs 7 steps', async () => {
+  it('plans, approves and creates a run for a 25+ chunk set whose plan needs 7 steps', async () => {
     const lines = ['id,item,amount'];
     // Same row shape as the chunk-split test (~80-87 rows per chunk):
-    // 1,600 rows land at roughly 19 chunks → 3 analyzers. With a
-    // 3-step base plan the augmented plan needs 7 steps — refused
-    // outright by the old flat ceiling of 6 (the production M&A
-    // refusal: 17 chunks, reader + 3 analyzers + base steps).
-    for (let i = 0; i < 1600; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
+    // 2,100 rows land at roughly 26 chunks → 4 analyzers. The base
+    // plan's file_writer no longer survives augmentation, so the
+    // augmented plan needs reader + 4 analyzers + 2 surviving base
+    // steps = 7 steps — refused outright by the old flat ceiling of
+    // 6 (the production M&A refusal shape: mid-size set, several
+    // analyzers on top of the goal's base steps).
+    for (let i = 0; i < 2100; i += 1) lines.push(`R-${String(i).padStart(4, '0')},${'x'.repeat(28)}${i % 10},${(i % 9) * 50}`);
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'big.csv', lines.join('\n'));
     const goal = 'このCSVの各行を分類してレポートを作成し、テストで検証してください';
@@ -184,7 +197,7 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
     const analyzers = body.steps.filter((step) => step.toolName === 'attachment_analyzer');
-    expect(analyzers).toHaveLength(3);
+    expect(analyzers).toHaveLength(4);
     expect(body.steps).toHaveLength(7);
     // The raised ceiling is coherent across the flow: approval and
     // run creation accept the same 7 steps /plan issued.
@@ -215,35 +228,69 @@ describe('agent v3 attachment plan augmentation (F2)', () => {
     const body = plan.body as PlanBody;
     // Production's plan for this goal carried a file_reader step whose
     // path was the Deployment name; the step blocked the run at
-    // execution. The reader is gone and the writer's path is confined
-    // to the artifacts namespace.
+    // execution. The reader is gone, and the file_writer step is
+    // removed outright (attempt 3): in production it wrote into the
+    // read-only deployment bundle and failed the run.
     expect(body.steps.map((step) => step.toolName)).toEqual([
       'attachment_reader',
       'attachment_analyzer',
       'document_generator',
-      'file_writer',
     ]);
     for (const step of body.steps) {
       expect(step.params.path).not.toBe('payment-api');
     }
-    const writer = body.steps[body.steps.length - 1];
-    expect(writer.params.path).toBe('artifacts/attachment-result.md');
+    expect(body.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
     const document = body.steps.find((step) => step.toolName === 'document_generator');
     expect(document?.params.dataGrounded).toBe(true);
   });
 
-  it('grounds file_writer on the analyzer and drops its fabricated sample content', async () => {
+  it('keeps heuristic research steps out of an attachment-bound plan (M&A shape)', async () => {
+    const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
+    const createdSet = await request(app).post('/api/agent/v3/attachment-sets')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({});
+    expect(createdSet.status).toBe(201);
+    const setId = createdSet.body.attachmentSetId as string;
+    const files: Array<[string, string]> = [
+      ['announcement.txt', 'Share transfer announcement. The price is RMB 10.00 per share.'],
+      ['seller_report.txt', 'Seller report. The price is RMB 10.50 per share.'],
+    ];
+    for (const [name, contentText] of files) {
+      const added = await request(app).post(`/api/agent/v3/attachment-sets/${setId}/files`)
+        .set('Authorization', `Bearer ${SECRET}`)
+        .send({ name, mediaType: 'text/plain', contentText });
+      expect(added.status).toBe(201);
+    }
+    const plan = await planWithAttachment(app, MA_GOAL, setId);
+    expect(plan.status).toBe(201);
+    const body = plan.body as PlanBody;
+    // Production's plan for this goal carried a web_search_grounding
+    // step whose query was the entire goal text — inserted only
+    // because the staged-materials note says "for easier search".
+    // The audit is closed over the attached documents, so the step
+    // is confined out; the rest of the plan shape is unchanged (the
+    // writer step is likewise removed, per the attempt-3 fix).
+    expect(body.steps.some((step) => step.toolName === 'web_search_grounding')).toBe(false);
+    expect(body.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+  });
+
+  it('keeps a writer-only goal free of any file_writer step (analyzer bundle is the deliverable)', async () => {
     const app = appFor({ runStore: new InMemoryAgentRunStore(), attachmentStore: new InMemoryAgentAttachmentStore(), modelCall: classifyingExecutor });
     const setId = await createSetWithFile(app, 'fruits.csv', FRUITS);
+    // This goal's base plan is writer-only (no document step): the
+    // planner's file_writer carried fabricated sample CSV content.
+    // Augmentation removes the writer step, so the fabricated content
+    // can never be written anywhere and the analyzer bundle closes
+    // the plan as the deliverable (design J1(a)).
     const plan = await planWithAttachment(app, '添付CSVを分類して簡単なCSV一覧を作って', setId);
     expect(plan.status).toBe(201);
     const body = plan.body as PlanBody;
-    expect(body.steps.map((step) => step.toolName)).toEqual(['attachment_reader', 'attachment_analyzer', 'file_writer']);
-    const writer = body.steps[body.steps.length - 1];
-    expect(typeof writer.params.path).toBe('string');
-    expect(writer.params.contentFromStep).toBe(1);
-    expect(writer.params).not.toHaveProperty('content');
-    expect(writer.params).not.toHaveProperty('contentFromPreviousArtifact');
+    expect(body.steps.map((step) => step.toolName)).toEqual(['attachment_reader', 'attachment_analyzer']);
+    expect(body.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
   });
 
   it('keeps a no-generative-step plan ending in the analyzer bundle (J1a)', async () => {

@@ -509,8 +509,10 @@ export async function advanceAgentRun(
   let sessionCharges: AgentRunQuotaLedger = {};
   let delegatedThisAdvance = 0;
 
+  let currentStepIndex = -1;
   try {
     for (let index = startIndex; index >= 0 && index < plan.length; index += 1) {
+      currentStepIndex = index;
       const step = plan[index];
       const elapsed = now() - startedAt;
       if (index > startIndex) {
@@ -667,8 +669,33 @@ export async function advanceAgentRun(
       previousText = stepText ?? previousText;
       finalArtifact = executionRecord.artifact;
     }
-  } catch {
-    return failRun('TOOL_EXECUTION_BLOCKED');
+  } catch (error) {
+    // An exception escaping the step loop — a tool that throws
+    // instead of returning ok:false (the repository writer on a
+    // read-only deployment bundle is the production case, ALE
+    // attempt 3) — used to collapse into a bare
+    // TOOL_EXECUTION_BLOCKED with no step state written, leaving the
+    // failed step looking untouched (queued, zero attempts, no
+    // code). Restore the reason from the exception message when it
+    // carries one (a bare code or an embedded one), and record the
+    // in-flight step as failed before failing the run, so the record
+    // always says which step failed and why. The progress write is
+    // best-effort: the run still fails with the same code even if
+    // the write cannot land.
+    const message = error instanceof Error ? error.message : undefined;
+    const errorCode = message !== undefined && TOOL_FAILURE_CODE_PATTERN.test(message)
+      ? toolFailureCodeFromMessage(message)
+      : 'TOOL_EXECUTION_BLOCKED';
+    if (currentStepIndex >= 0 && stepsState[currentStepIndex]?.status !== 'completed') {
+      stepsState[currentStepIndex] = {
+        ...stepsState[currentStepIndex],
+        id: `task-${currentStepIndex + 1}`,
+        status: 'failed',
+        errorCode,
+      };
+      await runStore.updateProgress(record.runId, driverId, { stepsState }).catch(() => false);
+    }
+    return failRun(errorCode);
   }
 
   if (plan.some((step) => agentRunStepRequiresWriteLock(step.toolName))) {

@@ -564,4 +564,41 @@ describe('advanceAgentRun', () => {
     expect(JSON.stringify(record)).not.toContain('supersecretvalue');
     expect(JSON.stringify(record)).not.toContain('hunter2');
   });
+
+  it('records the throwing step as failed with the restored code when a tool throws', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    // A tool that throws instead of returning ok:false — the
+    // production shape of the repository writer failing on the
+    // read-only deployment bundle (ALE attempt 3). The exception
+    // escapes the step loop; the run must still record which step
+    // failed and why, instead of leaving it queued with no code.
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => {
+      if (name === 'file_writer') throw new Error('AGENT_REPOSITORY_WRITE_FAILED');
+      return { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' };
+    });
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'file_writer', params: { path: 'artifacts/attachment-result.md', content: 'composed result' } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore,
+        writeLockStore: new InMemoryAgentRunWriteLockStore(),
+        runTool,
+        verifyArtifact: okVerifier,
+      },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_REPOSITORY_WRITE_FAILED' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('failed');
+    expect(record?.stepsState[0]?.status).toBe('completed');
+    expect(record?.stepsState[1]?.status).toBe('failed');
+    expect(record?.stepsState[1]?.errorCode).toBe('AGENT_REPOSITORY_WRITE_FAILED');
+  });
 });

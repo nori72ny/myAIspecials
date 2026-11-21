@@ -26,10 +26,10 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  * 3. That first generative step is re-grounded on the analyzer:
  *    document_generator gains `dataGrounded: true` (its template
  *    fallback is disabled) and `contentFromStep` naming the last
- *    analyzer step; file_writer keeps only its path and takes its
- *    content from the analyzer, so the goal-derived sample CSV /
+ *    analyzer step. file_writer steps never reach this point (they
+ *    are removed outright, point 4), so the goal-derived sample CSV /
  *    draft markdown the param generator fabricates can never become
- *    the written file.
+ *    a written file.
  * 4. Goal-derived file paths are confined. The base planner and its
  *    param generator treat backtick-quoted or path-like goal tokens
  *    as file paths — a Kubernetes Deployment named `payment-api`
@@ -37,12 +37,30 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  *    execution. In an attachment-bound plan the only files that exist
  *    are the set's, so a file_reader step survives only when its path
  *    names a set file (the attachment_reader already covers the set's
- *    contents, so dropping loses nothing), and a file_writer step
- *    keeps only a set-file path or an artifacts/ path — the namespace
- *    every system-generated output path uses. Any other goal-derived
- *    writer path is replaced with the default attachment-result
- *    artifact; its content chaining is untouched, so the deliverable
- *    still comes from the analyzer or the preceding document.
+ *    contents, so dropping loses nothing). file_writer steps are
+ *    removed outright: the writer's only target is the server's own
+ *    repository, which is neither the attachment delivery path (the
+ *    run's final artifact is the generative step's output or the
+ *    analyzer bundle, design J1(a)) nor writable in production — the
+ *    deployed bundle is read-only, and a surviving writer step threw
+ *    there and failed the run (2026-11-21, ALE attempt 3). Dropping
+ *    loses nothing: the deliverable still comes from the analyzer or
+ *    the document step.
+ * 5. Research-heuristic steps are confined the same way. The base
+ *    planner adds a `web_search_grounding` step whenever the goal
+ *    text merely contains a word its heuristic reacts to (search /
+ *    latest / current / 最新 …) — in a closed-document audit goal the
+ *    word "search" inside a staged-materials note ("page-labeled
+ *    text extracted from the PDFs for easier search") was enough,
+ *    and the step's query was the entire goal text (production,
+ *    2026-11-21, ALE day-1 re-run after the path confinement above).
+ *    An attachment-bound plan answers from the bound set, so the
+ *    step survives only when the goal itself explicitly asks for
+ *    external research (an imperative search / investigation form —
+ *    see EXPLICIT_EXTERNAL_RESEARCH_PATTERN). The judgment is
+ *    deliberately conservative: incidental mentions never keep the
+ *    step, because the set cannot satisfy it and the task did not
+ *    ask the open web anything.
  *
  * Every data step carries `{ attachmentSetId, setDigest }`, so the
  * canonical params digest binds the set's exact contents into the
@@ -115,6 +133,22 @@ export function attachmentOutputKindForGoal(goal: string): AgentDataOutputKind {
   return 'text';
 }
 
+/**
+ * Whether the goal itself explicitly asks for external research, as
+ * opposed to merely containing a word the planner's research
+ * heuristic reacts to. Conservative by design (header point 5): an
+ * imperative search / investigation form, in Japanese or English.
+ * Incidental mentions — "for easier search" in a staged-materials
+ * note, the word 最新 describing data already inside the set — do
+ * not count.
+ */
+const EXPLICIT_EXTERNAL_RESEARCH_PATTERN =
+  /調べて|調査して|検索して|調べる|調査する|検索する|ウェブ検索|インターネット検索|\bsearch\s+(?:the\s+web|online|for)\b|\bweb\s+search\b|\blook\s*up\b|\bresearch\s+(?:the\s+)?(?:latest|current)\b|\bfind\s+the\s+latest\b/i;
+
+export function goalExplicitlyRequestsExternalResearch(goal: string): boolean {
+  return EXPLICIT_EXTERNAL_RESEARCH_PATTERN.test(goal.normalize('NFKC'));
+}
+
 export type AttachmentPlanAugmentation =
   | { ok: true; steps: AgentStepInputLike[]; plannedSteps: AgentToolStepV3[] }
   | {
@@ -145,12 +179,15 @@ export function augmentPlanWithAttachments(input: {
   }
   const analyzerCount = Math.max(1, Math.ceil(totalChunks / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP));
 
-  // Copy the base plan under the path confinement of header point 4:
-  // file_reader steps pointing anywhere but a set file are dropped,
-  // and a file_writer path that is neither a set file nor an
-  // artifacts/ path is normalized to the default result artifact.
-  // The two arrays stay index-aligned throughout.
+  // Copy the base plan under the confinements of header points 4
+  // and 5: file_reader steps pointing anywhere but a set file are
+  // dropped, file_writer steps are dropped outright (their only
+  // target is the server's own repository — see point 4), and a
+  // web_search_grounding step survives only when the goal explicitly
+  // asks for external research. The two arrays stay index-aligned
+  // throughout.
   const attachedFileNames = new Set(view.files.map((file) => file.name));
+  const explicitResearch = goalExplicitlyRequestsExternalResearch(goal);
   const steps: AgentStepInputLike[] = [];
   const plannedSteps: AgentToolStepV3[] = [];
   input.steps.forEach((step, index) => {
@@ -158,14 +195,9 @@ export function augmentPlanWithAttachments(input: {
       const path = step.params.path;
       if (typeof path !== 'string' || !attachedFileNames.has(path)) return;
     }
-    let params: ToolParams = { ...step.params };
-    if (step.toolName === 'file_writer') {
-      const path = step.params.path;
-      if (typeof path === 'string' && path.trim() && !attachedFileNames.has(path) && !path.startsWith('artifacts/')) {
-        params = { ...params, path: 'artifacts/attachment-result.md' };
-      }
-    }
-    steps.push({ toolName: step.toolName, params });
+    if (step.toolName === 'web_search_grounding' && !explicitResearch) return;
+    if (step.toolName === 'file_writer') return;
+    steps.push({ toolName: step.toolName, params: { ...step.params } });
     plannedSteps.push({ ...input.plannedSteps[index] });
   });
 
@@ -212,15 +244,10 @@ export function augmentPlanWithAttachments(input: {
     if (target.toolName === 'document_generator') {
       const { contentFromPreviousArtifact: _marker, ...rest } = target.params;
       target.params = { ...rest, contentFromStep: lastAnalyzerIndex, dataGrounded: true };
-    } else if (target.toolName === 'file_writer') {
-      // Attachment mode (design §3.5.3): the fabricated sample content
-      // is dropped wholesale; only the path survives, and the content
-      // must resolve from the analyzer or the step fails.
-      const path = typeof target.params.path === 'string' && target.params.path.trim()
-        ? target.params.path
-        : 'artifacts/attachment-result.md';
-      target.params = { path, contentFromStep: lastAnalyzerIndex };
     }
+    // No file_writer branch: writer steps never survive the copy
+    // loop above, so document_generator is the only generative step
+    // an attachment-bound plan can carry here.
   }
   // Fix the analyzer chain indices now that the insertion point (and
   // therefore every step's final index) is known: analyzer i sits at
