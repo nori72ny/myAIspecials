@@ -375,10 +375,17 @@
     transition: margin-left var(--duration-panel) var(--ease-panel), visibility 0s;
   }
 }
+/* Scrim spec (design evaluation fix 4-c): background var(--scrim) plus
+   a 3px backdrop blur, shared by every dialog/sheet backdrop. The
+   -webkit- declaration must come FIRST in this file: the Tailwind /
+   Lightning CSS build drops the standard backdrop-filter when it
+   precedes the prefixed one, which silently removed the blur from
+   the settings overlay and this scrim in production builds
+   (measured 2026-11-22). Do not reorder. */
 .origin-sidebar-scrim {
   background: var(--scrim);
-  backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   animation: origin-scrim-in var(--duration-panel) ease both;
 }
 @keyframes origin-scrim-in { from { opacity: 0; } to { opacity: 1; } }
@@ -465,7 +472,7 @@
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
 .origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
-.origin-dialog-overlay { background: var(--scrim); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.origin-dialog-overlay { background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
 .origin-workspace:fullscreen { width: 100vw !important; height: 100dvh; max-width: none; border: 0; top: 0 !important; }
 .origin-workspace:fullscreen .origin-code-panel { padding: 0; }
