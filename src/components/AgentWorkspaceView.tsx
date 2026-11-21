@@ -14,6 +14,7 @@ import {
   type AgentRunAuth,
   type AgentRunView,
 } from '../agent/agentRunClient';
+import { X } from 'lucide-react';
 import { reportAgentActivity, type AgentActivityStepStatus } from '../agent/agentActivityStore';
 import { detectSensitiveInput } from '../lib/orchestration/SensitiveInputDetector';
 
@@ -795,7 +796,7 @@ export default function AgentWorkspaceView() {
                 <span>{file.name}（{file.charCount.toLocaleString()}文字）</span>
                 <button type="button" onClick={() => void removeAttachments()} aria-label="添付を取り消す"
                   disabled={Boolean(plan) || phase === 'planning' || phase === 'executing'}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold text-origin-muted disabled:cursor-not-allowed disabled:opacity-50">×</button>
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-origin-muted disabled:cursor-not-allowed disabled:opacity-50"><X aria-hidden="true" size={14} /></button>
               </li>)}
             </ul>
             <p className="mt-1 text-[13px] leading-5 text-origin-muted">取り消すと、添付したファイルはすべて削除されます。</p>

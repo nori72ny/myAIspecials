@@ -400,8 +400,14 @@
    design evaluation fix PR-A1, 2026-11-20): 44x44px, a Lucide X icon
    at 18px, the bordered secondary treatment, and the control radius.
    Always pair with .origin-secondary-button; per-site size or radius
-   utilities are not added on top. */
-.origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: var(--radius-control); flex-shrink: 0; }
+   utilities are not added on top. The border, background and color
+   are declared here — not left to a per-site `border` utility — so
+   the framed treatment renders identically in every surface: in the
+   primary design evaluation (2026-11-21, axis 5) only the settings
+   modal, the one call site that added a `border` utility, actually
+   showed the frame, while the history drawer and the profile card
+   rendered as bare glyphs (measured border-width 0px). */
+.origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-primary); flex-shrink: 0; }
 .origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
 .origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
 .origin-chat-user {

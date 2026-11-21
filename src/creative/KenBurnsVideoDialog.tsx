@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { OriginLanguage } from '../i18n';
 import {
   KEN_BURNS_DURATION_MS,
@@ -296,9 +297,9 @@ export default function KenBurnsVideoDialog({
             type="button"
             onClick={onClose}
             aria-label={t.close}
-            className="origin-secondary-button inline-flex min-h-11 min-w-11 items-center justify-center px-3 text-sm font-semibold"
+            className="origin-secondary-button origin-close-button"
           >
-            ✕
+            <X aria-hidden="true" size={18} />
           </button>
         </div>
 
