@@ -48,6 +48,60 @@ export const ORIGIN_CAT_STILL_SRC: Record<OriginCatStateKind, string> = {
   sleep: '/brand/origin-cat-sleep.webp',
 };
 
+/** 冬（12月〜2月）の待機姿の差し替え先。季節差し替えは待機の静止画だけが対象。 */
+export const ORIGIN_CAT_WINTER_IDLE_SRC = '/brand/origin-cat-winter.webp';
+/** お正月（1月1日〜10日）の待機姿の差し替え先。冬の差し替えより優先する。 */
+export const ORIGIN_CAT_NEWYEAR_IDLE_SRC = '/brand/origin-cat-newyear.webp';
+
+/** プロフィールカードの中にだけ出す冬の完成イラスト（雪景色）の配置先。 */
+export const ORIGIN_CAT_WINTER_FULL_SRC = '/brand/origin-cat-winter-full.webp';
+/** プロフィールカードの中にだけ出すお正月の完成イラスト（赤い着物）の配置先。 */
+export const ORIGIN_CAT_NEWYEAR_FULL_SRC = '/brand/origin-cat-newyear-full.webp';
+
+/** 季節の種別（季節外は resolveOriginCatSeason が null を返す）。 */
+export type OriginCatSeason = 'winter' | 'newyear';
+
+/** 季節→プロフィールカード用・完成イラストの対応表。 */
+export const ORIGIN_CAT_SEASON_FULL_SRC: Record<OriginCatSeason, string> = {
+  winter: ORIGIN_CAT_WINTER_FULL_SRC,
+  newyear: ORIGIN_CAT_NEWYEAR_FULL_SRC,
+};
+
+/**
+ * いま効いている季節を返す。利用者のローカル時間で判定する。
+ * 常駐の待機姿の差し替えと、プロフィールカード内の完成イラスト
+ * 表示は、どちらもこの判定を正本にする（日付条件を二重に持たない）。
+ * - 1月1日〜10日：お正月（冬より優先）
+ * - 12月1日〜2月末：冬
+ * - それ以外：季節なし（null）
+ */
+export function resolveOriginCatSeason(now: Date): OriginCatSeason | null {
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  if (month === 1 && day <= 10) return 'newyear';
+  if (month === 12 || month === 1 || month === 2) return 'winter';
+  return null;
+}
+
+/**
+ * 待機姿の季節差し替え（オーナー承認 2026-11-21）。差し替えが効く
+ * のは待機（idle）の静止画だけ。作業中・調べ中などの動画と他の
+ * 状態の静止画は、年間を通じて従来どおり。季節の判定は
+ * resolveOriginCatSeason が正本。
+ *
+ * 常駐表示の差し替え絵は「控えめな季節アクセント」だけにする
+ * （オーナー決定 2026-11-21：冬＝落ち着いた青のマフラー1点、
+ * お正月＝朱の襟元1点）。雪景色・着物姿の完成イラストは常駐には
+ * 出さず、プロフィールカードの中にだけ出す
+ * （ORIGIN_CAT_SEASON_FULL_SRC）。
+ */
+export function resolveOriginCatIdleSrc(now: Date): string {
+  const season = resolveOriginCatSeason(now);
+  if (season === 'newyear') return ORIGIN_CAT_NEWYEAR_IDLE_SRC;
+  if (season === 'winter') return ORIGIN_CAT_WINTER_IDLE_SRC;
+  return ORIGIN_CAT_STILL_SRC.idle;
+}
+
 /**
  * 常駐オリンの静かな動きの上限（設計正本 §7・D-5）。
  * 待機の呼吸は周期3秒以上・スケール3%以内・上下動2px以内に収める。
@@ -145,6 +199,11 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
   // その状態の静止画。prefers-reduced-motion と stillOnly では従来
   // どおり静止画に切り替える。
   const videoSrc = ORIGIN_CAT_VIDEO_SRC[state];
+  // 待機の静止画だけ季節差し替えを通す（resolveOriginCatIdleSrc）。
+  // 動画の poster は動画がある状態（working／searching）でしか使わ
+  // れないため、idle では実質 img の src だけが差し替わる。他の状態
+  // は従来どおり対応表の静止画を使う。
+  const stillSrc = state === 'idle' ? resolveOriginCatIdleSrc(new Date()) : ORIGIN_CAT_STILL_SRC[state];
   let media: ReactElement;
   if (videoSrc !== undefined && !prefersReducedMotion && !stillOnly) {
     media = (
@@ -154,7 +213,7 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
         className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
         style={style}
         src={videoSrc}
-        poster={ORIGIN_CAT_STILL_SRC[state]}
+        poster={stillSrc}
         autoPlay
         muted
         loop
@@ -169,7 +228,7 @@ export default function OriginCatState({ state, size = 36, pedestal = false, sti
         data-state={state}
         className={`shrink-0 rounded-full object-cover${pedestal ? '' : motionClassName}`}
         style={style}
-        src={ORIGIN_CAT_STILL_SRC[state]}
+        src={stillSrc}
         alt=""
         aria-hidden="true"
         draggable={false}

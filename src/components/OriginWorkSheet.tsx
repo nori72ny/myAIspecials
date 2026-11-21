@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
-import OriginCatState from './OriginCatState';
+import OriginCatState, { ORIGIN_CAT_SEASON_FULL_SRC, resolveOriginCatSeason } from './OriginCatState';
 import type { OriginLanguage } from '../i18n';
 
 /**
@@ -78,6 +78,11 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
 
   if (!open) return null;
   const ja = language !== 'en';
+  // 季節の完成イラスト（雪景色／お正月の着物姿）はプロフィールカードの
+  // 中にだけ出す（オーナー決定 2026-11-21）。判定は OriginCatState の
+  // 正本に寄せ、常駐の待機姿と同じ季節条件で切り替える。季節外は
+  // 何も足さない。
+  const season = resolveOriginCatSeason(new Date());
   return (
     <div className="origin-orin-profile">
       <button
@@ -114,6 +119,21 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
               ? 'こんにちは、オリンです。調べものや資料づくりなど、やりたいことを伝えてください。'
               : "Hi, I'm Orin. Tell me what you'd like to do — looking things up, making documents, and more."}
           </p>
+          {season !== null && (
+            <figure data-testid="origin-orin-profile-season" className="m-0 mt-4">
+              <img
+                src={ORIGIN_CAT_SEASON_FULL_SRC[season]}
+                alt=""
+                draggable={false}
+                className="h-auto w-full max-w-[300px] rounded-2xl"
+              />
+              <figcaption className="origin-muted mt-2 text-[13px]">
+                {season === 'winter'
+                  ? (ja ? '雪景色のオリン' : 'Orin in a snowy scene')
+                  : (ja ? 'お正月のオリン' : 'Orin for the New Year')}
+              </figcaption>
+            </figure>
+          )}
         </div>
         <div className="mt-5 border-t border-[var(--border-default)] pt-4">
           <h3 className="m-0 text-sm font-black">{ja ? 'いまの作業' : 'Current work'}</h3>

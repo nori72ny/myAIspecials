@@ -2,21 +2,29 @@ import React from 'react';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import OriginCatState, {
   ORIGIN_CAT_IDLE_MOTION_MAX_SCALE,
   ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX,
   ORIGIN_CAT_IDLE_MOTION_PERIOD_MS,
   ORIGIN_CAT_JOY_DURATION_MS,
+  ORIGIN_CAT_NEWYEAR_FULL_SRC,
+  ORIGIN_CAT_NEWYEAR_IDLE_SRC,
   ORIGIN_CAT_SEARCHING_VIDEO_SRC,
+  ORIGIN_CAT_SEASON_FULL_SRC,
   ORIGIN_CAT_STILL_SRC,
   ORIGIN_CAT_VIDEO_SRC,
+  ORIGIN_CAT_WINTER_FULL_SRC,
+  ORIGIN_CAT_WINTER_IDLE_SRC,
   ORIGIN_CAT_WORKING_VIDEO_SRC,
+  resolveOriginCatIdleSrc,
+  resolveOriginCatSeason,
 } from './OriginCatState';
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function stubReducedMotion(matches: boolean) {
@@ -29,6 +37,14 @@ function stubReducedMotion(matches: boolean) {
 }
 
 describe('OriginCatState', () => {
+  beforeEach(() => {
+    // 待機姿には季節差し替え（冬／お正月）があるため、季節に左右される
+    // 既存の表明が年間を通じて決定的になるよう、既定の日時を季節外
+    // （6月）に固定する。季節そのもののテストは個別に日時を差し替える。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+  });
+
   it('renders a still image for states without a motion video', () => {
     stubReducedMotion(false);
     for (const state of ['thinking', 'making', 'waiting', 'done', 'sorry', 'sleep'] as const) {
@@ -56,7 +72,7 @@ describe('OriginCatState', () => {
     // そのため実在チェックの対象は、既に出荷済みの静止画一式と
     // working 動画に限る。searching 動画のパス自体は対応表のテスト
     // （下記）で文字列として固定し、配置先とずれないようにする。
-    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WORKING_VIDEO_SRC]) {
+    for (const src of [...Object.values(ORIGIN_CAT_STILL_SRC), ORIGIN_CAT_WINTER_IDLE_SRC, ORIGIN_CAT_NEWYEAR_IDLE_SRC, ORIGIN_CAT_WINTER_FULL_SRC, ORIGIN_CAT_NEWYEAR_FULL_SRC, ORIGIN_CAT_WORKING_VIDEO_SRC]) {
       expect(existsSync(resolve(process.cwd(), 'public', src.replace(/^\//, ''))), src).toBe(true);
     }
   });
@@ -68,6 +84,42 @@ describe('OriginCatState', () => {
     expect(visual.tagName).toBe('IMG');
     expect(visual.getAttribute('src')).toBe('/brand/origin-cat.webp');
     expect(visual.getAttribute('data-state')).toBe('idle');
+  });
+
+  it('swaps the idle still to the winter artwork from December to February', () => {
+    stubReducedMotion(false);
+    for (const date of [new Date(2026, 11, 1, 0, 0), new Date(2027, 0, 20, 12, 0), new Date(2027, 1, 28, 23, 59)]) {
+      vi.setSystemTime(date);
+      const { unmount } = render(<OriginCatState state="idle" />);
+      const visual = screen.getByTestId('origin-cat-state');
+      expect(visual.tagName).toBe('IMG');
+      expect(visual.getAttribute('src')).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+      unmount();
+    }
+  });
+
+  it('gives the New Year artwork priority over the winter one on January 1-10', () => {
+    stubReducedMotion(false);
+    vi.setSystemTime(new Date(2027, 0, 5, 12, 0));
+    render(<OriginCatState state="idle" />);
+    expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe(ORIGIN_CAT_NEWYEAR_IDLE_SRC);
+  });
+
+  it('keeps the normal idle still outside the winter season', () => {
+    stubReducedMotion(false);
+    for (const date of [new Date(2026, 2, 1, 0, 0), new Date(2026, 10, 30, 23, 59)]) {
+      vi.setSystemTime(date);
+      const { unmount } = render(<OriginCatState state="idle" />);
+      expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe('/brand/origin-cat.webp');
+      unmount();
+    }
+  });
+
+  it('does not season-swap any state other than idle', () => {
+    stubReducedMotion(false);
+    vi.setSystemTime(new Date(2026, 11, 25, 12, 0));
+    render(<OriginCatState state="thinking" />);
+    expect(screen.getByTestId('origin-cat-state').getAttribute('src')).toBe(ORIGIN_CAT_STILL_SRC.thinking);
   });
 
   it('wraps the visual on a pedestal, keeping the total size set by the pad ratio', () => {
@@ -207,5 +259,75 @@ describe('OriginCatState', () => {
     expect(css).toContain(`origin-cat-joy ${ORIGIN_CAT_JOY_DURATION_MS}ms`);
     expect(ORIGIN_CAT_JOY_DURATION_MS).toBe(700);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+});
+
+describe('resolveOriginCatIdleSrc', () => {
+  it('returns the normal idle src outside December-February', () => {
+    expect(resolveOriginCatIdleSrc(new Date(2026, 10, 30, 23, 59))).toBe('/brand/origin-cat.webp');
+    expect(resolveOriginCatIdleSrc(new Date(2026, 2, 1, 0, 0))).toBe('/brand/origin-cat.webp');
+    expect(resolveOriginCatIdleSrc(new Date(2026, 5, 15, 12, 0))).toBe('/brand/origin-cat.webp');
+  });
+
+  it('returns the winter src from December 1 to the end of February', () => {
+    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 1, 0, 0))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2026, 11, 31, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2027, 0, 11, 0, 0))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2027, 1, 28, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    // うるう年の2月29日も冬に含む。
+    expect(resolveOriginCatIdleSrc(new Date(2028, 1, 29, 23, 59))).toBe(ORIGIN_CAT_WINTER_IDLE_SRC);
+    expect(ORIGIN_CAT_WINTER_IDLE_SRC).toBe('/brand/origin-cat-winter.webp');
+  });
+
+  it('returns the New Year src on January 1-10, ahead of the winter src', () => {
+    expect(resolveOriginCatIdleSrc(new Date(2027, 0, 1, 0, 0))).toBe(ORIGIN_CAT_NEWYEAR_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2027, 0, 5, 12, 0))).toBe(ORIGIN_CAT_NEWYEAR_IDLE_SRC);
+    expect(resolveOriginCatIdleSrc(new Date(2027, 0, 10, 23, 59))).toBe(ORIGIN_CAT_NEWYEAR_IDLE_SRC);
+    expect(ORIGIN_CAT_NEWYEAR_IDLE_SRC).toBe('/brand/origin-cat-newyear.webp');
+  });
+});
+
+describe('resolveOriginCatSeason', () => {
+  it('returns null outside the seasons', () => {
+    expect(resolveOriginCatSeason(new Date(2026, 5, 15, 12, 0))).toBeNull();
+    expect(resolveOriginCatSeason(new Date(2026, 2, 1, 0, 0))).toBeNull();
+    expect(resolveOriginCatSeason(new Date(2026, 10, 30, 23, 59))).toBeNull();
+  });
+
+  it('returns winter from December 1 to the end of February', () => {
+    expect(resolveOriginCatSeason(new Date(2026, 11, 1, 0, 0))).toBe('winter');
+    expect(resolveOriginCatSeason(new Date(2026, 11, 31, 23, 59))).toBe('winter');
+    expect(resolveOriginCatSeason(new Date(2027, 0, 11, 0, 0))).toBe('winter');
+    expect(resolveOriginCatSeason(new Date(2027, 1, 28, 23, 59))).toBe('winter');
+    // うるう年の2月29日も冬に含む（待機姿の解決と判定を共有する）。
+    expect(resolveOriginCatSeason(new Date(2028, 1, 29, 23, 59))).toBe('winter');
+  });
+
+  it('returns newyear on January 1-10, ahead of winter', () => {
+    expect(resolveOriginCatSeason(new Date(2027, 0, 1, 0, 0))).toBe('newyear');
+    expect(resolveOriginCatSeason(new Date(2027, 0, 5, 12, 0))).toBe('newyear');
+    expect(resolveOriginCatSeason(new Date(2027, 0, 10, 23, 59))).toBe('newyear');
+  });
+
+  it('agrees with the resident idle src resolution on every boundary', () => {
+    // 常駐の待機姿とプロフィール内の完成イラストは同じ季節判定を使う
+    // ため、境界日で両者がずれないことを固定する。
+    const cases: Array<[Date, 'winter' | 'newyear' | null, string]> = [
+      [new Date(2026, 11, 15, 12, 0), 'winter', ORIGIN_CAT_WINTER_IDLE_SRC],
+      [new Date(2027, 0, 5, 12, 0), 'newyear', ORIGIN_CAT_NEWYEAR_IDLE_SRC],
+      [new Date(2027, 0, 20, 12, 0), 'winter', ORIGIN_CAT_WINTER_IDLE_SRC],
+      [new Date(2026, 5, 15, 12, 0), null, ORIGIN_CAT_STILL_SRC.idle],
+    ];
+    for (const [date, season, idleSrc] of cases) {
+      expect(resolveOriginCatSeason(date)).toBe(season);
+      expect(resolveOriginCatIdleSrc(date)).toBe(idleSrc);
+    }
+  });
+
+  it('maps each season to its profile-card full illustration', () => {
+    expect(ORIGIN_CAT_SEASON_FULL_SRC.winter).toBe('/brand/origin-cat-winter-full.webp');
+    expect(ORIGIN_CAT_SEASON_FULL_SRC.newyear).toBe('/brand/origin-cat-newyear-full.webp');
+    expect(ORIGIN_CAT_WINTER_FULL_SRC).toBe(ORIGIN_CAT_SEASON_FULL_SRC.winter);
+    expect(ORIGIN_CAT_NEWYEAR_FULL_SRC).toBe(ORIGIN_CAT_SEASON_FULL_SRC.newyear);
   });
 });
