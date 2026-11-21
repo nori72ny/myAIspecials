@@ -22,6 +22,8 @@ interface Props {
   sourceSessionIds?: ReadonlySet<string>;
   /** Opens the conversation a memory item came from, when it still exists. */
   onOpenSourceSession?: (sessionId: string) => void;
+  /** Section to bring into view when the modal opens (e.g. from the code screen's key guidance). */
+  focusSection?: 'coding' | null;
 }
 
 const FULL_RELEASE_SHA = /^[0-9a-f]{40}$/i;
@@ -36,6 +38,7 @@ export default function SettingsModalLegacy({
   onResetHistory = () => undefined,
   sourceSessionIds,
   onOpenSourceSession,
+  focusSection,
 }: Props) {
   const t = getTranslations(settings.language);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -79,6 +82,20 @@ export default function SettingsModalLegacy({
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.clearTimeout(focusTimer); window.removeEventListener('keydown', handleKeyDown); previouslyFocused?.focus(); };
   }, [isOpen]);
+
+  // 特定の節への案内から開かれたときは、その節の入力欄まで移動して
+  // フォーカスする（コード画面の実行キー案内）。通常の開き方では
+  // focusSection が無いため、従来どおり閉じるボタンへのフォーカスが担う。
+  useEffect(() => {
+    if (!isOpen || focusSection !== 'coding') return;
+    const timer = window.setTimeout(() => {
+      const input = document.getElementById('settings-coding-key');
+      if (!input) return;
+      if (typeof input.scrollIntoView === 'function') input.scrollIntoView({ block: 'center' });
+      input.focus();
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, focusSection]);
 
   useEffect(() => {
     if (!isOpen) return;

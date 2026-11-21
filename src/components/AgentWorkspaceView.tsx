@@ -796,7 +796,7 @@ export default function AgentWorkspaceView() {
         <div role="status" className="mt-3 flex items-center justify-between gap-3 text-[13px]">
           <span className="text-origin-muted">{checkingCapability ? '利用できるか確認しています…' : ready ? '利用できます' : 'エージェントは今は使えません'}</span>
           <span className="flex items-center gap-2">
-            <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} pedestal />
+            <OriginCatState state={catStateForPhase(phase, checkingCapability, ready)} />
             <span className={ready ? 'font-bold text-origin-success' : 'font-bold text-origin-warning'}>
               {checkingCapability ? '確認中' : ready ? phaseLabel(phase) : '利用できません'}
             </span>

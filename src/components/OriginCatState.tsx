@@ -33,6 +33,15 @@ import { useEffect, useState, type CSSProperties, type ReactElement } from 'reac
  * 用意し、暗い画面では輪郭の光で読ませる。台座（pedestal）はホーム
  * のヒーローなど従来の配置向けに残すが、常駐プレゼンスとプロフィール
  * カードは台座なしで透過絵そのままを出す。
+ *
+ * 同日のデザイン一次評価で、作業中表示（プレゼンス）とエージェント
+ * 画面の状態チップにはまだ円盤が残ると指摘されたため、状態別の
+ * 静止画（thinking / searching / working / making / waiting / done /
+ * sorry / sleep）と動画2本（working / searching）も同じキーイングで
+ * 透過化し、全配置で円盤時代の素材を使わない形に統一した。動画は
+ * 透過チャンネルを持てる WebM（VP9・320px）に変換し、旧 MP4 は
+ * 参照を外した（ファイル自体は public/brand に残置）。エージェント
+ * 画面の状態チップも台座をやめ、透過絵そのままの表示に揃えた。
  */
 export type OriginCatStateKind = 'idle' | 'thinking' | 'searching' | 'working' | 'making' | 'waiting' | 'done' | 'sorry' | 'sleep';
 
@@ -136,8 +145,8 @@ export const ORIGIN_CAT_IDLE_MOTION_MAX_SHIFT_PX = 1;
  */
 export const ORIGIN_CAT_JOY_DURATION_MS = 700;
 
-export const ORIGIN_CAT_WORKING_VIDEO_SRC = '/brand/origin-cat-working.mp4';
-export const ORIGIN_CAT_SEARCHING_VIDEO_SRC = '/brand/origin-cat-searching.mp4';
+export const ORIGIN_CAT_WORKING_VIDEO_SRC = '/brand/origin-cat-working.webm';
+export const ORIGIN_CAT_SEARCHING_VIDEO_SRC = '/brand/origin-cat-searching.webm';
 
 /**
  * 状態→動画の対応表（動きの作り直し第2段 M2-3、2026-11-19）。
