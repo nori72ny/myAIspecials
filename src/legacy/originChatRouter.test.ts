@@ -59,7 +59,7 @@ describe("createOriginChatRouter", () => {
     // Route-3 activation wiring: the Groq executor receives the compact substitute
     // via this field; routes 1 and 2 keep the full standard instruction.
     expect(call?.groqSystemInstruction).toBe(originGroqRouteSystemInstruction());
-    expect(call?.groqSystemInstruction?.length).toBeLessThanOrEqual(3_000);
+    expect(call?.groqSystemInstruction?.length).toBeLessThanOrEqual(3_800); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21)
     expect(call?.systemInstruction.length).toBeGreaterThan(9_000);
     expect(call?.systemInstruction).not.toBe(call?.groqSystemInstruction);
   });

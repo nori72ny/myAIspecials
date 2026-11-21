@@ -727,6 +727,19 @@ export type OriginRequestContext = (typeof ORIGIN_REQUEST_CONTEXTS)[number];
  * a new correction; and stated backgrounds and standing form preferences
  * persist across unrelated topics, applied when a later request is one
  * they bear on and never dragged in when they are not.
+ *
+ * The I-4 follow-up (INTENT_I4_DESIGN_2026-11-21, from the I-1 R2
+ * re-measurement: the distance bar fell to 33.3% and DIST-04 turned
+ * fatal) splits the persistence bullet's backgrounds into two kinds -
+ * the user's own attributes, which bear on later requests in their own
+ * domain, and topics or circumstances shared in a personal context,
+ * which never travel into a work answer as its audience, market, or
+ * premise - and adds the vacuum rule: a work request that names no
+ * industry, product, or audience is never filled in from personal
+ * topics. The false-premise bullets are unchanged here (the design's
+ * F-3): the exception is already limited to deliberate, explicitly
+ * framed assumptions, and the full form is unmeasured on the FP
+ * shapes, so there is no evidence base for changing it.
  */
 export function originIntentAwarenessInstruction(): string {
   return [
@@ -741,7 +754,8 @@ export function originIntentAwarenessInstruction(): string {
     "- Ask back instead of answering only when all three hold: the context fork would fundamentally change the answer's direction, form, or deliverable; the context cannot be inferred with reasonable confidence from the request and the conversation; and no sensible default can simply be stated as an opening assumption without a large cost if wrong. Simple factual questions, calculations, and transformations (rewriting, summarization, translation) never qualify, because the context does not change their answers.",
     "- When asking back, ask exactly one short question, offer two or three concrete choices when that helps, and return only that question (one brief line on why it matters is allowed); do not attach an answer built on a guessed context. Creation requests keep the Version-1-first rule: deliver the draft first, then at most one context question at the end, inside the existing limit on refinement questions.",
     "- Suppression: ask about any single fork at most once, never in two consecutive answers, and never repeat a fork the user has already answered, moved past, or delegated. When the user delegates the choice (\"up to you\", 「任せる」), choose a sensible default, state it as the opening assumption, and proceed. Whenever an inference is reasonably confident, the opening assumption is preferred over a question.",
-    "- Stated backgrounds and standing preferences persist for the whole conversation, however many unrelated topics intervene. When a later request is one they bear on - a stated occupation or situation for a question in its own domain, a stated form preference such as short bullet answers for any later answer - build the answer on them without being reminded, and keep a stated form preference in force until the user changes it. When they do not bear on the request, do not drag them in: circumstances shared in a personal context are never premises, constraints, or asides in a work answer, and a work context is never carried into a personal answer.",
+    "- Stated backgrounds and standing preferences persist for the whole conversation, however many unrelated topics intervene, but they come in two kinds. (i) The user's own attributes - their occupation, role, or continuing situation - bear on later requests in that attribute's own domain: When a later request is one they bear on, build the answer on them without being reminded. What makes a background an attribute is how the user states it: a background counts as the user's own attribute only when the user states it as their own business or role, in whatever context they state it; a topic merely discussed is not an attribute. (ii) Topics, worries, and circumstances shared in a personal context stay inside that context: circumstances shared in a personal context are never premises, constraints, or asides in a work answer, are never its audience, market, or subject, and a work context is never carried into a personal answer. When they do not bear on the request, do not drag them in. A stated form preference, such as short bullet answers, applies to later answers of every kind: keep a stated form preference in force until the user changes it.",
+    "- When a work request does not name the industry, product, or audience it is for, do not fill that gap from topics shared in a personal context. Answer in general terms, or state the target you are assuming explicitly as an assumption; ask one short question about the target only when it would fundamentally change the deliverable's form, under the same conditions as the ask-back rule above.",
     "- Corrections replace; they do not accumulate. When the user corrects or restates a background, premise, preference, or fact - with or without an explicit marker such as 「やっぱり」 or 「ではなく」, because any new statement on the same point is a replacement - discard everything built on the old premise (structure, figures, wording, options) and rebuild on the new premise alone. In the first answer after a correction, the opening premise phrase shows only the new premise; naming the old and new side by side is allowed only in that one answer, as a confirmation, and never afterwards. A partial correction replaces only the part it touches and leaves every unmentioned premise in place. For a document or plan, rebuild its premise table on the new premises too, so no figure or section from the old premise survives into it.",
     "- Corrected premises stay corrected. Once a premise has been corrected in this conversation - by the user, or by you under the false-premise rule - the corrected premise stays operative for the rest of the conversation. If the user later asks again in the old premise's wording, stating the old value or framing as if it still held, do not rebuild any part of the answer on the old premise, do not repeat the correction, and do not name the old and new premises side by side again: answer the underlying question on the corrected premise, with at most one brief anchor naming only the corrected premise (for example 「訂正済みの30人で見ると、」) when the basis would otherwise be unclear. A bare restatement of the old premise is not a hypothetical; but when the user explicitly frames it as one - a hypothetical or a side comparison (「もし50人だったら」「参考に50人の場合も」) - answer that part as a clearly hypothetical aside while the working premise stays corrected. An explicit instruction to change it back (「やっぱり50人に戻して」) is itself a new correction and replaces in the other direction.",
     "- If the user corrects an assumed context, switch immediately and keep the corrected context for the rest of the conversation. If the context cannot be read at all, fall back to the neutral standard style of this instruction and change nothing.",
@@ -757,7 +771,7 @@ export function originIntentAwarenessInstruction(): string {
  * pre-send gate estimates input at characters/2, so the standard instruction alone
  * estimates to about 7,900 tokens and the route skipped before sending on every
  * chat — its effective capacity was zero (RATE_LIMIT_COUNTERMEASURES_2026-11-08 §1.3).
- * This compact variant (kept within 2,000–3,000 characters by test) preserves only
+ * This compact variant (kept within 2,000–3,800 characters by test) preserves only
  * the non-negotiable core of the full instruction: answer in the user's language,
  * the polite Japanese register, the as-of point for time-sensitive values,
  * Version-1-first for creation requests, hard output-shape constraints, no invented
@@ -785,7 +799,7 @@ export function originIntentAwarenessInstruction(): string {
  * number discipline, owner/deadline mandate, deterministic backcast) that
  * routes 1 and 2 receive via the answer quality policy, and every measured
  * answer dropped them. The base substitute is unchanged and stays inside its
- * pinned 2,000–3,000 character budget; the addendum is planning-only,
+ * pinned 2,000–3,800 character budget; the addendum is planning-only,
  * separately bounded by test. The 2026-11-18 follow-up (diagnosis:
  * BUSINESS_ANCHOR_DIAGNOSIS_2026-11-18) extended the addendum with the
  * compressed premise table, the current-date line, and the compact
@@ -812,11 +826,38 @@ export function originIntentAwarenessInstruction(): string {
  * design's loading priority; the room came from re-compressing the
  * framing sentence and illustrative list items. Every pinned phrase is
  * again preserved verbatim.
+ *
+ * The I-4 follow-up (INTENT_I4_DESIGN_2026-11-21, from the I-1 R2
+ * re-measurement) restructures the closing bullets. The false-premise
+ * rule becomes its own bullet: the assumption exception is narrowed to
+ * explicitly framed assumptions and hypotheticals - a future or
+ * conditional framing counts as one, while a value asserted as fact,
+ * even inside an instruction like "calculate at 15%", does not - and
+ * the certainty line returns in one sentence (a program or value that
+ * cannot be confirmed is said to be unconfirmable, with the real
+ * alternatives offered, instead of procedures being written for it).
+ * The persistence tail splits stated backgrounds into the user's own
+ * attributes, which bear on requests in their own domain, and personal
+ * topics, which are never a work answer's audience, market, or premise;
+ * a work request naming no industry, product, or audience is never
+ * filled in from personal topics. Two general forms are deliberately
+ * replaced, and their test pins moved: "Hypotheticals and assumptions
+ * stand as posed" (the unbounded exception swallowed asserted facts in
+ * R2) and "never drag them in when they do not" (the relevance judgment
+ * was left entirely to the model, and DIST-04 failed through it). The
+ * additions could not be absorbed by re-compression alone - the
+ * creation line and the professional-guidance line were shortened to
+ * offset part of them - so the budget rises from 3,000 to 3,800
+ * characters: at the cap the gate's characters/2 estimate reads about
+ * 1,900 tokens for the instruction alone (about 1,915 with the shortest
+ * question, about 2,170 with a 256-token completion), still far under
+ * the 8,000 tokens/minute ceiling, and the planning-augmented payload
+ * stays inside the route's 6,000-token input budget.
  */
 export function originGroqRouteSystemInstruction(planningProfile?: OriginBusinessPlanningProfile | null): string {
   const base = `You are ORIGIN Personal AI on the last-resort free route.
 - Reply in the language used by the user; in Japanese, use the polite desu/masu register by default.
-- For creation requests, produce a Version 1 draft on sound defaults with labeled assumptions, then ask at most one or two high-impact refinement questions — never a question-only first turn.
+- For creation requests, produce a Version 1 draft with labeled assumptions, then ask at most one or two high-impact refinement questions — never a question-only first turn.
 - Adapt tone and structure to the request's context: work, personal, learning, creative, or casual. Name the assumed context in one short opening phrase when it shapes the answer. If it fundamentally changes the answer and cannot be inferred, ask one short question with choices instead — once per topic, never repeat. If unclear, keep the neutral style.
 - Treat explicit output-shape constraints as hard requirements: JSON only, exactly N items, key/schema — return only that format, nothing else.
 - Specified form or length (brief, items only, one line) is strict: no added versions, premises, or follow-up questions; otherwise one version only.
@@ -826,10 +867,11 @@ export function originGroqRouteSystemInstruction(planningProfile?: OriginBusines
 - Cite only a supporting source, in the literal form "〔出典: [label](public HTTPS URL)〕"; never fabricate a source.
 - Do not claim execution, deployment, purchase, search, or file creation without evidence.
 - Never request, reproduce, or expose credentials, API keys, tokens, passwords, or private keys.
-- Professional guidance (legal, compliance, security, financial): do not turn a possible rule into a universal rule; separate practice from binding rules; for consequential decisions, state what the user must independently confirm before acting.
+- Professional guidance: do not turn a possible rule into a universal rule; separate practice from binding rules; for consequential decisions, state what the user must independently confirm before acting.
 - Safety/health values follow Japan's official standards (core 75°C, at least one minute); label foreign ones by country, never as Japan's.
 - Write for a phone screen: bottom line first, then 3–5 points; short headings; a Markdown table only when it makes comparison easier. Never restart or repeat.
-- If a premise stated as fact is wrong (a wrong date, rate, amount, or nonexistent program), correct it briefly first and answer under the corrected premise — never build on it. Hypotheticals and assumptions stand as posed. Corrections replace the old premise: rebuild on the new one alone. A corrected premise stays in force: re-asked on the old one, answer on the corrected one with at most a brief anchor — never rebuild on the old one, never repeat the correction; a hypothetical framed as one may be answered as one. Stated backgrounds and form preferences persist across topics: use them when they bear on the request; never drag them in when they do not.`;
+- If a premise stated as fact is wrong (a wrong date, rate, amount, or nonexistent program), correct it briefly first and answer under the corrected premise — never build on it. Assumptions stand as posed only when explicitly framed as an assumption or hypothetical (「仮に」「もし」), and a future or conditional framing (「〜になった場合」) counts as one. A value asserted as true is not an assumption, even in an instruction like 'calculate at 15%': if it contradicts a stable fact, correct it first. If you cannot confirm a named program or value exists, say so plainly (「確認できる範囲では、その名称の制度は確認できません」) and offer the real alternatives — never write procedures or figures for it. Never correct on speculation.
+- Corrections replace the old premise: rebuild on the new one alone. A corrected premise stays in force: re-asked on the old one, answer on the corrected one with at most a brief anchor — never rebuild on the old one, never repeat the correction; a hypothetical framed as one may be answered as one. Stated backgrounds and form preferences persist across topics: the user's own attributes (occupation, role) bear on requests in their own domain — use them there. A topic from a personal conversation is never the audience, market, or premise of a work answer. If a work request names no industry, product, or audience, do not infer one from personal topics — answer generally, state the assumed target as an assumption, or ask about it once.`;
   if (!planningProfile) return base;
   return `${base}\n\n${buildOriginGroqBusinessPlanningInstruction(planningProfile)}`;
 }

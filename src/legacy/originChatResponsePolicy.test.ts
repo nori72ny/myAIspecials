@@ -323,9 +323,9 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
 describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () => {
   const compact = originGroqRouteSystemInstruction();
 
-  it("stays within the 2,000-3,000 character budget the Groq TPM gate can carry", () => {
+  it("stays within the 2,000-3,800 character budget the Groq TPM gate can carry", () => {
     expect(compact.length).toBeGreaterThanOrEqual(2_000);
-    expect(compact.length).toBeLessThanOrEqual(3_000);
+    expect(compact.length).toBeLessThanOrEqual(3_800);
     // The full standard instruction is several times larger; the compact variant
     // must remain a small fraction of it.
     expect(compact.length * 3).toBeLessThan(originChatSystemInstruction().length);
@@ -359,10 +359,16 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
     // (15,713 characters measured on the production code path), the estimator reads
     // about 7,871 tokens and even a minimal 256-token completion no longer fits
     // under the 8,000 tokens/minute ceiling, so route 3 skipped before sending.
+    // Pin history: the compact bound was 1,600 while the base budget was
+    // 3,000 characters. I-4 (INTENT_I4_DESIGN_2026-11-21) raised the base
+    // budget to 3,800; at that cap the estimator reads ceil(3800/2)+4 =
+    // 1,904 tokens for the instruction alone and 1,914 with this shortest
+    // question, so the pin sits at 2,000 - and even cap + question + a
+    // 256-token completion (~2,170) stays far under the ceiling below.
     const productionAssembledEstimate = estimateOriginGroqInputTokens(["x".repeat(15_713), "日本の首都はどこですか？"]);
     expect(productionAssembledEstimate + 256).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
     const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
-    expect(compactEstimate).toBeLessThanOrEqual(1_600);
+    expect(compactEstimate).toBeLessThanOrEqual(2_000);
     expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
   });
 });
@@ -541,8 +547,8 @@ describe("answer-quality follow-ups (PKG-9 batch 1: safety standards and form/le
       "Specified form or length (brief, items only, one line) is strict",
       "no added versions, premises, or follow-up questions; otherwise one version only",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(3_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+    expect(compact.length).toBeLessThanOrEqual(3_800);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_000);
   });
 });
 
@@ -631,8 +637,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "once per topic, never repeat",
       "If unclear, keep the neutral style",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(3_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+    expect(compact.length).toBeLessThanOrEqual(3_800);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_000);
   });
 
   it("pins false-premise correction: correct first at the start, then answer under the corrected premise (I-2)", () => {
@@ -738,17 +744,22 @@ describe("intent awareness (request-context adaptation)", () => {
     ]) expect(section).toContain(phrase);
   });
 
+  // I-4 (INTENT_I4_DESIGN_2026-11-21) narrowed the exception this test
+  // pinned as "Hypotheticals and assumptions stand as posed": in the I-1
+  // R2 re-measurement the unbounded exception swallowed the correction
+  // rule itself (FP-02, REP-01), so the pin now carries the limited
+  // form. The full I-4 pin set lives in the I-4 tests below.
   it("carries the condensed false-premise and replacement rules on the route-3 compact instruction (I-2)", () => {
     const compact = originGroqRouteSystemInstruction();
     for (const phrase of [
       "If a premise stated as fact is wrong (a wrong date, rate, amount, or nonexistent program)",
       "correct it briefly first and answer under the corrected premise",
       "never build on it",
-      "Hypotheticals and assumptions stand as posed",
+      "Assumptions stand as posed only when explicitly framed as an assumption or hypothetical",
       "Corrections replace the old premise: rebuild on the new one alone",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(3_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+    expect(compact.length).toBeLessThanOrEqual(3_800);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_000);
   });
 
   // The I-1 measurement's REP-02 was fatal: the turn-2 correction
@@ -816,6 +827,12 @@ describe("intent awareness (request-context adaptation)", () => {
     ]) expect(section).toContain(phrase);
   });
 
+  // I-4 replaced the condensed persistence tail this test pinned ("use
+  // them when they bear on the request; never drag them in when they do
+  // not"): R2 showed the general form leaves the relevance judgment
+  // entirely to the model, and DIST-04 failed through it. The split form
+  // - the user's own attributes versus personal topics - is pinned by
+  // the I-4 tests below.
   it("carries the condensed persistence rules on the route-3 compact instruction (I-3)", () => {
     const compact = originGroqRouteSystemInstruction();
     for (const phrase of [
@@ -824,11 +841,83 @@ describe("intent awareness (request-context adaptation)", () => {
       "never rebuild on the old one, never repeat the correction",
       "a hypothetical framed as one may be answered as one",
       "Stated backgrounds and form preferences persist across topics",
-      "use them when they bear on the request",
-      "never drag them in when they do not",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(3_000);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(1_600);
+    expect(compact.length).toBeLessThanOrEqual(3_800);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_000);
+  });
+
+  // The I-1 R2 re-measurement (production bc1c1918, I-3 live) found the
+  // distance bar down (66.7% -> 33.3%) with DIST-04 fatal in a new shape
+  // - a personal topic (the child's school exams) became the audience
+  // and subject of all three work proposals - and the false-premise bar
+  // unmoved at three, in the same shapes as R1. The analysis
+  // (INTENT_I4_DESIGN_2026-11-21) traced both to the compact text: the
+  // persistence bullet never separated the user's own attributes from
+  // personal topics, its negative side survived only as a general
+  // "never drag them in", and the false-premise exception was wide
+  // enough to swallow asserted facts and imperatives alike. I-4 is the
+  // structural fix; premise truth is still judged by the model, so at
+  // unit level the counter-rules are pinned in the instruction text and
+  // the live behavior is measured by the I-1 scenario set.
+  it("pins the attribute/topic split in the full instruction: attributes travel, personal topics do not (I-4, D-1)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "but they come in two kinds",
+      "The user's own attributes - their occupation, role, or continuing situation",
+      "bear on later requests in that attribute's own domain",
+      "a background counts as the user's own attribute only when the user states it as their own business or role",
+      "a topic merely discussed is not an attribute",
+      "Topics, worries, and circumstances shared in a personal context stay inside that context",
+      "are never its audience, market, or subject",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the vacuum rule in the full instruction: an unnamed target is never filled from personal topics (I-4, D-3)", () => {
+    const section = originIntentAwarenessInstruction();
+    for (const phrase of [
+      "When a work request does not name the industry, product, or audience it is for",
+      "do not fill that gap from topics shared in a personal context",
+      "state the target you are assuming explicitly as an assumption",
+      "only when it would fundamentally change the deliverable's form",
+    ]) expect(section).toContain(phrase);
+  });
+
+  it("pins the narrowed assumption exception and the certainty line on the route-3 compact instruction (I-4, F-1/F-2)", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "Assumptions stand as posed only when explicitly framed as an assumption or hypothetical",
+      "「仮に」「もし」",
+      "a future or conditional framing (「〜になった場合」) counts as one",
+      "A value asserted as true is not an assumption",
+      "even in an instruction like 'calculate at 15%'",
+      "If you cannot confirm a named program or value exists, say so plainly",
+      "確認できる範囲では、その名称の制度は確認できません",
+      "offer the real alternatives",
+      "never write procedures or figures for it",
+      "Never correct on speculation",
+    ]) expect(compact).toContain(phrase);
+    // The false-premise rule is its own bullet now, no longer sharing
+    // one with the replacement and persistence rules.
+    expect(compact).toContain("\n- If a premise stated as fact is wrong");
+    expect(compact).toContain("\n- Corrections replace the old premise");
+    // The unbounded exception form is gone.
+    expect(compact).not.toContain("Hypotheticals and assumptions stand as posed");
+    expect(compact.length).toBeLessThanOrEqual(3_800);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_000);
+  });
+
+  it("pins the attribute/topic split and the vacuum rule on the route-3 compact instruction (I-4, D-1/D-2/D-3)", () => {
+    const compact = originGroqRouteSystemInstruction();
+    for (const phrase of [
+      "the user's own attributes (occupation, role) bear on requests in their own domain",
+      "A topic from a personal conversation is never the audience, market, or premise of a work answer",
+      "If a work request names no industry, product, or audience, do not infer one from personal topics",
+      "state the assumed target as an assumption",
+      "or ask about it once",
+    ]) expect(compact).toContain(phrase);
+    // The general negative form measured too weak in R2 is gone.
+    expect(compact).not.toContain("never drag them in when they do not");
+    expect(compact.length).toBeLessThanOrEqual(3_800);
   });
 });
 
@@ -926,7 +1015,7 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
     expect(originGroqRouteSystemInstruction(null)).toBe(base);
     expect(originGroqRouteSystemInstruction(undefined)).toBe(base);
     expect(base.length).toBeGreaterThanOrEqual(2_000);
-    expect(base.length).toBeLessThanOrEqual(3_000);
+    expect(base.length).toBeLessThanOrEqual(3_800);
     expect(base).not.toContain("Business planning rules for this request");
   });
 
@@ -959,9 +1048,15 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       // combined 5,275, estimated input 2,678 tokens at the gate's
       // characters/2. The pins sit just above those maxima, with
       // headroom only for the anchor's date-dependent length variation.
+      // I-4 (2026-11-21) raised the base substitute's budget from 3,000
+      // to 3,800 characters (base measured 3,710 after the change), so
+      // the combined and estimate pins rose with it: measured maxima are
+      // now combined 6,100 characters and an estimated 3,090 input
+      // tokens - still well inside the route's 6,000-token input budget.
+      // The addendum bound is unchanged.
       expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(2_400);
-      expect(augmented.length, brief.id).toBeLessThanOrEqual(5_400);
-      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(2_800);
+      expect(augmented.length, brief.id).toBeLessThanOrEqual(6_200);
+      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(3_200);
     }
   });
 });
