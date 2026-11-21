@@ -43,6 +43,21 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  *    writer path is replaced with the default attachment-result
  *    artifact; its content chaining is untouched, so the deliverable
  *    still comes from the analyzer or the preceding document.
+ * 5. Research-heuristic steps are confined the same way. The base
+ *    planner adds a `web_search_grounding` step whenever the goal
+ *    text merely contains a word its heuristic reacts to (search /
+ *    latest / current / 最新 …) — in a closed-document audit goal the
+ *    word "search" inside a staged-materials note ("page-labeled
+ *    text extracted from the PDFs for easier search") was enough,
+ *    and the step's query was the entire goal text (production,
+ *    2026-11-21, ALE day-1 re-run after the path confinement above).
+ *    An attachment-bound plan answers from the bound set, so the
+ *    step survives only when the goal itself explicitly asks for
+ *    external research (an imperative search / investigation form —
+ *    see EXPLICIT_EXTERNAL_RESEARCH_PATTERN). The judgment is
+ *    deliberately conservative: incidental mentions never keep the
+ *    step, because the set cannot satisfy it and the task did not
+ *    ask the open web anything.
  *
  * Every data step carries `{ attachmentSetId, setDigest }`, so the
  * canonical params digest binds the set's exact contents into the
@@ -93,6 +108,22 @@ export function attachmentOutputKindForGoal(goal: string): AgentDataOutputKind {
   return 'text';
 }
 
+/**
+ * Whether the goal itself explicitly asks for external research, as
+ * opposed to merely containing a word the planner's research
+ * heuristic reacts to. Conservative by design (header point 5): an
+ * imperative search / investigation form, in Japanese or English.
+ * Incidental mentions — "for easier search" in a staged-materials
+ * note, the word 最新 describing data already inside the set — do
+ * not count.
+ */
+const EXPLICIT_EXTERNAL_RESEARCH_PATTERN =
+  /調べて|調査して|検索して|調べる|調査する|検索する|ウェブ検索|インターネット検索|\bsearch\s+(?:the\s+web|online|for)\b|\bweb\s+search\b|\blook\s*up\b|\bresearch\s+(?:the\s+)?(?:latest|current)\b|\bfind\s+the\s+latest\b/i;
+
+export function goalExplicitlyRequestsExternalResearch(goal: string): boolean {
+  return EXPLICIT_EXTERNAL_RESEARCH_PATTERN.test(goal.normalize('NFKC'));
+}
+
 export type AttachmentPlanAugmentation =
   | { ok: true; steps: AgentStepInputLike[]; plannedSteps: AgentToolStepV3[] }
   | {
@@ -123,15 +154,19 @@ export function augmentPlanWithAttachments(input: {
   }
   const analyzerCount = Math.max(1, Math.ceil(totalChunks / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP));
 
-  // Copy the base plan under the path confinement of header point 4:
-  // file_reader steps pointing anywhere but a set file are dropped,
-  // and a file_writer path that is neither a set file nor an
-  // artifacts/ path is normalized to the default result artifact.
-  // The two arrays stay index-aligned throughout.
+  // Copy the base plan under the confinements of header points 4
+  // and 5: file_reader steps pointing anywhere but a set file are
+  // dropped, a file_writer path that is neither a set file nor an
+  // artifacts/ path is normalized to the default result artifact,
+  // and a web_search_grounding step survives only when the goal
+  // explicitly asks for external research. The two arrays stay
+  // index-aligned throughout.
   const attachedFileNames = new Set(view.files.map((file) => file.name));
+  const explicitResearch = goalExplicitlyRequestsExternalResearch(goal);
   const steps: AgentStepInputLike[] = [];
   const plannedSteps: AgentToolStepV3[] = [];
   input.steps.forEach((step, index) => {
+    if (step.toolName === 'web_search_grounding' && !explicitResearch) return;
     if (step.toolName === 'file_reader') {
       const path = step.params.path;
       if (typeof path !== 'string' || !attachedFileNames.has(path)) return;

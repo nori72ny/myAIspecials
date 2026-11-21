@@ -108,7 +108,11 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      goal: '添付データを分析して報告書を作成してください',
+      // The research step in the base plan survives augmentation
+      // because this goal explicitly asks for research (調査して);
+      // without the explicit request the step would be confined out
+      // and the plan would come to 12 steps (see defect 3 below).
+      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
       ...base,
       setId: 'att-max',
       setDigest: 'digest-max',
@@ -133,7 +137,9 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      goal: '添付データを分析して報告書を作成してください',
+      // Same explicit-research goal as the admission test above: the
+      // research step is kept, so the would-be plan is 14 steps.
+      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
       ...base,
       setId: 'att-over',
       setDigest: 'digest-over',
@@ -268,5 +274,129 @@ describe('attachment plan path confinement (defect 2)', () => {
     expect(writer.params.path).toBe('deployment.yaml');
     expect(writer.params.contentFromStep).toBe(1);
     expect(writer.params).not.toHaveProperty('content');
+  });
+});
+
+/**
+ * Regression coverage for the third planning-layer defect, found by
+ * the ALE day-1 re-run after the #1416 fixes deployed (production
+ * release bc1c1918): the step ceiling and the path confinement both
+ * held, but the M&A audit plan still carried a web_search_grounding
+ * step (reasonCode current-research, query = the entire goal text)
+ * that the deterministic planner had inserted because the goal's
+ * staged-materials note contains the word "search" ("page-labeled
+ * UTF-8 text extracted from the PDFs for easier search"). The task
+ * is a closed-document audit ("Do not invent issues that the
+ * documents do not support"); the step is outside its scope, so the
+ * driver refused approval and no run was created.
+ */
+const MA_GOAL = "添付ファイルが input です。成果物は指定されたファイル名・形式のファイルとして作成してください。パスの指定はファイル名の指定として読み替えてください。\n\n# Task Brief\n\nReview four Chinese regulatory filings about the same share-transfer transaction and write an English inconsistency audit.\n\nDeliver exactly one file:\n\n- `output/audit_report.md`\n\nReport requirements:\n\n1. Write in English.\n2. Identify every material inconsistency you can support from the documents.\n3. For each finding, include:\n   - a short English title;\n   - a brief explanation of the conflict;\n   - the original Chinese text that proves the issue;\n   - a location marker with document name and page number.\n4. Do not invent issues that the documents do not support.\n\nAvailable staged materials:\n\n- `input/source_documents/` contains the original PDFs.\n- `input/extracted_text/` contains page-labeled UTF-8 text extracted from the PDFs for easier search.\n- `input/document_manifest.json` maps the canonical filenames to the original Chinese filenames.\n- `software/python` launches the baseline VM Python interpreter if scripting is helpful.\n\nSuggested output structure:\n\n```markdown\n# Share Transfer Disclosure Consistency Review\n\n## Finding 1: <title>\n- Documents: ...\n- Why it is inconsistent: ...\n- Evidence:\n  - `Document X, Page Y`: `<Chinese text>`\n  - `Document Z, Page W`: `<Chinese text>`\n```";
+
+describe('attachment plan research confinement (defect 3)', () => {
+  it('drops the heuristic research step from the M&A audit plan (production shape)', () => {
+    // The base plan the deterministic planner emitted in production:
+    // the research step (its query was the whole goal text) ahead of
+    // the document and writer steps.
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: MA_GOAL }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: 'Share Transfer Disclosure Consistency Review', format: 'markdown', brief: '監査' }, reasonCode: 'document-request' },
+      { toolName: 'file_writer', params: { path: 'output/audit_report.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: MA_GOAL,
+      ...base,
+      setId: 'att-ma3',
+      setDigest: 'digest-ma3',
+      view: viewWith(17, MA_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'attachment_analyzer',
+      'attachment_analyzer',
+      'document_generator',
+      'file_writer',
+    ]);
+    expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
+    expect(result.steps.some((step) => step.toolName === 'web_search_grounding')).toBe(false);
+    // The rest of the production shape is untouched: analyzers cover
+    // all 17 chunks, the document is regrounded on the last one, and
+    // the writer path stays confined to the artifacts namespace.
+    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.dataGrounded).toBe(true);
+    expect(document?.params.contentFromStep).toBe(3);
+    const writer = result.steps[result.steps.length - 1];
+    expect(writer.params.path).toBe('artifacts/attachment-result.md');
+  });
+
+  it('keeps the research step when the goal explicitly requests research (Japanese)', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: '最新の市場動向' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: '分析レポート', format: 'markdown', brief: '分析' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '添付データを分析し、最新の市場動向も調査してレポートを作成してください',
+      ...base,
+      setId: 'att-research-ja',
+      setDigest: 'digest-research-ja',
+      view: viewWith(4, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'web_search_grounding',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.contentFromStep).toBe(2);
+  });
+
+  it('keeps the research step when the goal explicitly requests research (English)', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: 'latest exchange rates' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: 'Report', format: 'markdown', brief: 'analyze' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: 'Search the web for the latest exchange rates and analyze the attached data into a report',
+      ...base,
+      setId: 'att-research-en',
+      setDigest: 'digest-research-en',
+      view: viewWith(4, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'web_search_grounding',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+  });
+
+  it('drops the research step when 最新 only describes data already in the set', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: '最新の売上データ' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: '集計レポート', format: 'markdown', brief: '集計' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '最新の売上データ（添付ファイル）を集計してレポートを作成してください',
+      ...base,
+      setId: 'att-incidental',
+      setDigest: 'digest-incidental',
+      view: viewWith(2, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
   });
 });
