@@ -286,6 +286,34 @@ describe('postgres attachment store (fake executor)', () => {
     expect(update?.values).toEqual([setId, otherBinding, runId, expiresAt, ownerBinding]);
   });
 
+  it('pins the char-count parameter cast in the add-file insert', async () => {
+    // Regression (production defect 2026-11-21): $7 (charCount) is used
+    // both as the char_count insert value (integer) and inside
+    // sum(char_count) arithmetic (bigint). Without the explicit cast,
+    // PostgreSQL rejects the statement at parse time with 42P08
+    // "inconsistent types deduced for parameter $7", which made every
+    // production file add fail with AGENT_ATTACHMENT_STORE_UNAVAILABLE
+    // while create/get/delete kept working. The fake executor cannot
+    // reproduce a server parse error, so pin the statement shape here;
+    // the statement itself was verified against real PostgreSQL
+    // semantics (PGlite) before and after the fix.
+    const executor = new FakeExecutor();
+    executor.handler = (text) => {
+      if (text.includes('insert into public.origin_agent_attachments')) {
+        return result([{
+          idx: 0, name: 'data.csv', media_type: 'text/csv', kind: 'text',
+          byte_size: 8, char_count: 8, sha256: sha256('a,b\n1,2\n'), extraction_status: 'ok',
+        }]);
+      }
+      return result([]);
+    };
+    const store = new PostgresAgentAttachmentStore(executor);
+    const meta = await store.addFile(setId, ownerBinding, fileInput('a,b\n1,2\n'));
+    expect(meta.idx).toBe(0);
+    const insert = executor.calls.find((call) => call.text.includes('insert into public.origin_agent_attachments'));
+    expect(insert?.text).toContain('+ $7::integer <=');
+  });
+
   it('rejects malformed rows instead of returning partial records', async () => {
     const executor = new FakeExecutor();
     executor.handler = (text) => (text.includes('from public.origin_agent_attachment_sets')
