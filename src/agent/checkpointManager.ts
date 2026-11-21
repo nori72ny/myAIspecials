@@ -22,6 +22,11 @@ export type CheckpointState = {
   artifact: string;
   createdAt: number;
   mutation?: FileMutationCheckpoint;
+  // Display title for the on-device saved-results list, derived from
+  // the request text when the record is saved on the client. Optional:
+  // records saved before the field existed do not carry it, and the
+  // list falls back to deriving a label from the artifact body.
+  title?: string;
 };
 
 const checkpoints = new Map<string, CheckpointState>();

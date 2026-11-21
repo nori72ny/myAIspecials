@@ -88,7 +88,10 @@ type Phase = 'idle' | 'planning' | 'awaiting_approval' | 'executing' | 'complete
 // artifact body), so the on-device save is a local record built from
 // the run id and the delivered body. It carries no file mutation, so
 // it can be redisplayed from this screen but never rolled back to.
-function localRunCheckpoint(runId: string, artifact: string): CheckpointState {
+// The title is fixed at save time from the request text: a research
+// artifact is a sources JSON with no headline of its own, so the
+// request is the only text that identifies what the result was for.
+function localRunCheckpoint(runId: string, artifact: string, title?: string): CheckpointState {
   return {
     checkpointId: `${runId}-runs-v1`,
     taskId: runId,
@@ -97,6 +100,7 @@ function localRunCheckpoint(runId: string, artifact: string): CheckpointState {
     status: 'completed',
     artifact,
     createdAt: Date.now(),
+    ...(title ? { title } : {}),
   };
 }
 type VerificationKind = 'test' | 'typecheck' | 'lint' | 'build';
@@ -234,13 +238,27 @@ function artifactHeadline(artifact: string): string | null {
 }
 
 /**
+ * 保存時に依頼文から作る見出し。依頼文を1行に整え、長すぎる場合は
+ * artifactHeadline と同じ60字で省略する。依頼文が空なら持たせない
+ * （undefined を返し、表示は従来の導出に落ちる）。
+ */
+function savedResultTitle(goal: string): string | undefined {
+  const line = goal.replace(/\s+/g, ' ').trim();
+  if (!line) return undefined;
+  return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+}
+
+/**
  * 保存した結果1件の表示内容。状態語だけが並ばないよう、結果の中身
  * から分かる「何の結果か・いつ・成果物」を一対一に組み立てる。
  * 記録に無い項目は作らず、行ごと省く（捏造しない）。
+ * 見出しは、保存時に依頼文から作った題名があればそれを使い、
+ * 無い記録（旧形式）は従来どおり本文からの導出に落ちる。
  */
 function savedResultView(item: CheckpointState): { title: string; meta: string; status: string } {
   const research = parseAgentResearchArtifact(item.artifact);
-  const title = research ? '調査の結果' : artifactHeadline(item.artifact) ?? '作業の結果';
+  const storedTitle = typeof item.title === 'string' ? item.title.trim() : '';
+  const title = storedTitle || (research ? '調査の結果' : artifactHeadline(item.artifact) ?? '作業の結果');
   const meta = [
     formatSavedResultDate(item.createdAt),
     ...(research ? [`出典${research.sources.length}件`] : []),
@@ -549,7 +567,7 @@ export default function AgentWorkspaceView() {
       // pending it goes back to the empty-results state instead of
       // repeating the plan as a document.
       setArtifact(ARTIFACT_PLACEHOLDER);
-      setLog((current) => [...current, `計画を作成しました。行う作業: ${next.steps.map((step) => toolLabel(step.toolName)).join(' → ')}。まだ作業は始めていません。`]);
+      setLog((current) => [...current, '計画を作成しました。まだ作業は始めていません。']);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
@@ -662,7 +680,7 @@ export default function AgentWorkspaceView() {
       });
       if (outcome.kind === 'completed') {
         setArtifact(outcome.artifact ?? '実行が完了しました。');
-        if (outcome.artifact) await persistCheckpoint(localRunCheckpoint(plan.runId, outcome.artifact));
+        if (outcome.artifact) await persistCheckpoint(localRunCheckpoint(plan.runId, outcome.artifact, savedResultTitle(plan.goal)));
         setPhase('completed');
         setLog((current) => [...current, '作業の実行と確認が完了しました。', outcome.artifact ? '結果を端末内に保存しました。' : '']);
         setPlan(null);
