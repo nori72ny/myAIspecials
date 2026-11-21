@@ -14,6 +14,7 @@ const SAFE_STATIC_PATHS = new Set([
   '/brand/origin-ribbon-o-light.webp',
   '/brand/origin-ribbon-o-mono.webp',
   '/brand/origin-cat.webp',
+  '/brand/origin-cat-dark.webp',
   '/brand/origin-cat-thinking.webp',
   '/brand/origin-cat-searching.webp',
   '/brand/origin-cat-working.webp',
