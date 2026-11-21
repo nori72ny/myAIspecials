@@ -4,6 +4,7 @@ import {
   AGENT_ATTACHMENT_MAX_PLAN_STEPS,
   attachmentOutputKindForGoal,
   augmentPlanWithAttachments,
+  goalExplicitlyRequestsExternalResearch,
   type AgentStepInputLike,
 } from './agentAttachmentPlanning.js';
 import type { AgentAttachmentDataView } from './agentAttachmentData.js';
@@ -21,6 +22,16 @@ import type { AgentToolStepV3 } from './agentToolPlannerV3.js';
  *    backtick-quoted Kubernetes Deployment name `payment-api` in the
  *    goal text into a file_reader path (and a file_writer target);
  *    the reader step then blocked the run at execution.
+ * 3. Research-heuristic contamination — a web_search_grounding step
+ *    the planner inserted on an incidental keyword ("search" in a
+ *    staged-materials note) survived into a closed-document audit
+ *    plan (defect 3 block below).
+ *
+ * The file_writer removal (ALE attempt 3, 2026-11-21) is covered in
+ * the defect 2 block: writer steps no longer survive augmentation at
+ * all, because their only target — the server's own repository — is
+ * read-only in production and is not the delivery path (design
+ * J1(a)).
  */
 
 function viewWith(totalChunks: number, fileNames: string[]): AgentAttachmentDataView {
@@ -67,9 +78,9 @@ describe('attachment plan step ceiling (defect 1)', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // 3 base + 1 reader + ceil(17/8)=3 analyzers = 7 — refused by the
-    // old flat ceiling of 6.
-    expect(result.steps).toHaveLength(7);
+    // 2 surviving base steps (the file_writer is dropped) + 1 reader
+    // + ceil(17/8)=3 analyzers = 6.
+    expect(result.steps).toHaveLength(6);
     expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
     const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
     expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
@@ -105,11 +116,18 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'web_search_grounding', params: { query: '最新動向' }, reasonCode: 'current-research' },
       { toolName: 'code_interpreter', params: { mode: 'generate', instruction: '集計コード' }, reasonCode: 'code-analysis' },
       { toolName: 'document_generator', params: { title: '報告書', format: 'markdown', brief: '報告' }, reasonCode: 'document-request' },
-      { toolName: 'file_writer', params: { path: 'artifacts/document.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
+      { toolName: 'image_prompt_compiler', params: { prompt: '図表' }, reasonCode: 'visual-request' },
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      goal: '添付データを分析して報告書を作成してください',
+      // The research step in the base plan survives augmentation
+      // because this goal explicitly asks for research (調査して);
+      // without the explicit request the step would be confined out
+      // and the plan would come to 12 steps (see defect 3 below).
+      // (The sixth base slot is not a file_writer: writer steps are
+      // dropped from attachment-bound plans, so one could never
+      // contribute to the largest admissible shape.)
+      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
       ...base,
       setId: 'att-max',
       setDigest: 'digest-max',
@@ -131,10 +149,14 @@ describe('attachment plan step ceiling (defect 1)', () => {
       { toolName: 'document_generator', params: { title: 't', format: 'markdown', brief: 'b' }, reasonCode: 'document-request' },
       { toolName: 'image_prompt_compiler', params: { prompt: 'p' }, reasonCode: 'visual-request' },
       { toolName: 'file_writer', params: { path: 'artifacts/document.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
+      { toolName: 'code_interpreter', params: { mode: 'generate', instruction: 'y' }, reasonCode: 'code-analysis' },
       { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
     ]);
     const result = augmentPlanWithAttachments({
-      goal: '添付データを分析して報告書を作成してください',
+      // Same explicit-research goal as the admission test above: the
+      // research step is kept and only the file_writer entry is
+      // dropped, so the would-be plan is 14 steps.
+      goal: '添付データを分析し、最新の動向も調査して報告書を作成してください',
       ...base,
       setId: 'att-over',
       setDigest: 'digest-over',
@@ -170,7 +192,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
 });
 
 describe('attachment plan path confinement (defect 2)', () => {
-  it('drops the goal-token file_reader and normalizes the file_writer path (K8s shape)', () => {
+  it('drops the goal-token file_reader and the file_writer step (K8s shape)', () => {
     // The production plan for the K8s RCA goal: the planner emitted a
     // file_reader and a file_writer whose paths were the backtick-
     // quoted Deployment name `payment-api` from the goal text.
@@ -192,17 +214,15 @@ describe('attachment plan path confinement (defect 2)', () => {
       'attachment_reader',
       'attachment_analyzer',
       'document_generator',
-      'file_writer',
     ]);
     expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
     for (const step of result.steps) {
       expect(step.params.path).not.toBe('payment-api');
     }
-    const writer = result.steps[result.steps.length - 1];
-    expect(writer.params.path).toBe('artifacts/attachment-result.md');
-    // The content chaining survives: the writer still persists the
-    // grounded document artifact, only the fabricated name is gone.
-    expect(writer.params.contentFromPreviousArtifact).toBe(true);
+    // The writer step is gone entirely (attempt 3): its only target
+    // was the server's own repository, read-only in production. The
+    // grounded document is the plan's final step and the deliverable.
+    expect(result.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
     const document = result.steps.find((step) => step.toolName === 'document_generator');
     expect(document?.params.dataGrounded).toBe(true);
     expect(document?.params.contentFromStep).toBe(1);
@@ -233,7 +253,7 @@ describe('attachment plan path confinement (defect 2)', () => {
     expect(result.steps[1].params.path).toBe('deployment.yaml');
   });
 
-  it('leaves an artifacts/ file_writer path untouched', () => {
+  it('drops a file_writer step even when its path is an artifacts/ path', () => {
     const base = basePlan([
       { toolName: 'document_generator', params: { title: '報告', format: 'markdown', brief: '報告' }, reasonCode: 'document-request' },
       { toolName: 'file_writer', params: { path: 'artifacts/report.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
@@ -247,13 +267,22 @@ describe('attachment plan path confinement (defect 2)', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const writer = result.steps[result.steps.length - 1];
-    expect(writer.params.path).toBe('artifacts/report.md');
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+    expect(result.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
   });
 
-  it('still regrounds a first-step file_writer and keeps a set-file path', () => {
+  it('closes the plan at the analyzer when file_writer was the only generative step', () => {
+    // A writer-only generative shape: once the writer is dropped no
+    // generative step remains, so the analyzers close the plan and
+    // their bundle is the run's final artifact (design J1(a)) — the
+    // goal-derived fabricated content is never written anywhere.
     const base = basePlan([
-      { toolName: 'file_writer', params: { path: 'deployment.yaml', content: 'fabricated draft' }, reasonCode: 'write-specific-file' },
+      { toolName: 'file_reader', params: { path: 'deployment.yaml' }, reasonCode: 'read-named-file' },
+      { toolName: 'file_writer', params: { path: 'output/root_cause_analysis.json', content: 'fabricated draft' }, reasonCode: 'write-specific-file' },
     ]);
     const result = augmentPlanWithAttachments({
       goal: '添付データを分析してファイルに書いてください',
@@ -264,11 +293,14 @@ describe('attachment plan path confinement (defect 2)', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const writer = result.steps[result.steps.length - 1];
-    expect(writer.toolName).toBe('file_writer');
-    expect(writer.params.path).toBe('deployment.yaml');
-    expect(writer.params.contentFromStep).toBe(1);
-    expect(writer.params).not.toHaveProperty('content');
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'file_reader',
+      'attachment_analyzer',
+    ]);
+    const last = result.steps[result.steps.length - 1];
+    expect(last.toolName).toBe('attachment_analyzer');
+    expect(last.params.chunkCount).toBe(4);
   });
 });
 
@@ -349,5 +381,136 @@ describe('attachment output kind classification (prose audit/RCA misread as rows
   it('lets strong audit markers outrank classification vocabulary', () => {
     expect(attachmentOutputKindForGoal('監査のため、各文書を分類ラベルで整理し、不整合を洗い出してください')).toBe('findings');
     expect(attachmentOutputKindForGoal('Extract the key figures from each filing and audit them for consistency.')).toBe('findings');
+  });
+});
+
+/**
+ * Regression coverage for the third planning-layer defect, found by
+ * the ALE day-1 re-run after the #1416 fixes deployed (production
+ * release bc1c1918): the step ceiling and the path confinement both
+ * held, but the M&A audit plan still carried a web_search_grounding
+ * step (reasonCode current-research, query = the entire goal text)
+ * that the deterministic planner had inserted because the goal's
+ * staged-materials note contains the word "search" ("page-labeled
+ * UTF-8 text extracted from the PDFs for easier search"). The task
+ * is a closed-document audit ("Do not invent issues that the
+ * documents do not support"); the step is outside its scope, so the
+ * driver refused approval and no run was created. (This block was
+ * once reverted by a snapshot push; it is restored here, with the
+ * writer expectations updated for the attempt-3 writer removal.)
+ */
+describe('attachment plan research confinement (defect 3)', () => {
+  it('drops the heuristic research step from the M&A audit plan (production shape)', () => {
+    // The base plan the deterministic planner emitted in production:
+    // the research step (its query was the whole goal text) ahead of
+    // the document and writer steps.
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: MA_STAGED_GOAL }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: 'Share Transfer Disclosure Consistency Review', format: 'markdown', brief: '監査' }, reasonCode: 'document-request' },
+      { toolName: 'file_writer', params: { path: 'output/audit_report.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: MA_STAGED_GOAL,
+      ...base,
+      setId: 'att-ma3',
+      setDigest: 'digest-ma3',
+      view: viewWith(17, MA_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'attachment_analyzer',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+    expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
+    expect(result.steps.some((step) => step.toolName === 'web_search_grounding')).toBe(false);
+    expect(result.steps.some((step) => step.toolName === 'file_writer')).toBe(false);
+    // The rest of the production shape is untouched: analyzers cover
+    // all 17 chunks and the document is regrounded on the last one.
+    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers.map((step) => step.params.chunkCount)).toEqual([8, 8, 1]);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.dataGrounded).toBe(true);
+    expect(document?.params.contentFromStep).toBe(3);
+  });
+
+  it('keeps the research step when the goal explicitly requests research (Japanese)', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: '最新の市場動向' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: '分析レポート', format: 'markdown', brief: '分析' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '添付データを分析し、最新の市場動向も調査してレポートを作成してください',
+      ...base,
+      setId: 'att-research-ja',
+      setDigest: 'digest-research-ja',
+      view: viewWith(4, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'web_search_grounding',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.contentFromStep).toBe(2);
+  });
+
+  it('keeps the research step when the goal explicitly requests research (English)', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: 'latest exchange rates' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: 'Report', format: 'markdown', brief: 'analyze' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: 'Search the web for the latest exchange rates and analyze the attached data into a report',
+      ...base,
+      setId: 'att-research-en',
+      setDigest: 'digest-research-en',
+      view: viewWith(4, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'web_search_grounding',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+  });
+
+  it('drops the research step when 最新 only describes data already in the set', () => {
+    const base = basePlan([
+      { toolName: 'web_search_grounding', params: { query: '最新の売上データ' }, reasonCode: 'current-research' },
+      { toolName: 'document_generator', params: { title: '集計レポート', format: 'markdown', brief: '集計' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '最新の売上データ（添付ファイル）を集計してレポートを作成してください',
+      ...base,
+      setId: 'att-incidental',
+      setDigest: 'digest-incidental',
+      view: viewWith(2, K8S_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.map((step) => step.toolName)).toEqual([
+      'attachment_reader',
+      'attachment_analyzer',
+      'document_generator',
+    ]);
+    expect(result.steps.some((step) => step.toolName === 'web_search_grounding')).toBe(false);
+  });
+
+  it('reads explicit research requests conservatively (helper)', () => {
+    // The M&A staged goal's only research-flavored token is the
+    // materials note "for easier search" — not a request.
+    expect(goalExplicitlyRequestsExternalResearch(MA_STAGED_GOAL)).toBe(false);
+    expect(goalExplicitlyRequestsExternalResearch('添付データを分析し、最新の動向も調査して報告書を作成してください')).toBe(true);
+    expect(goalExplicitlyRequestsExternalResearch('Search the web for the latest exchange rates and analyze the attached data into a report')).toBe(true);
+    expect(goalExplicitlyRequestsExternalResearch('最新の売上データ（添付ファイル）を集計してレポートを作成してください')).toBe(false);
   });
 });
