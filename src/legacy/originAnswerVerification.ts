@@ -24,6 +24,7 @@ import {
   executeOriginGroqProvider,
   OriginGroqPreflightError,
 } from "./originGroqProviderClient.js";
+import { fetchCloudflareDailyNeuronsUsedV15 } from "../creative/cloudflareRasterFreeQuotaV15.js";
 import { originCurrentDateInstruction } from "./originChatResponsePolicy.js";
 
 /**
@@ -668,4 +669,521 @@ export async function verifyOriginAnswerCrossRoute(
     if (error instanceof OriginAnswerVerificationTimeoutError) return notRun("timeout");
     return notRun(classifyVerificationError(error));
   }
+}
+
+// ---------------------------------------------------------------------------
+// V-PR-2: mode resolution, target classification, the daily Neuron
+// sub-cap ledger, and the shadow runner the blocking router wires in.
+//
+// The mode switch is ORIGIN_ANSWER_VERIFICATION_MODE (design section
+// 6.1): "off" is the default — unset or any other value reproduces the
+// pre-feature behaviour exactly — "shadow" verifies and records
+// without ever changing a delivered answer, and "enforce" is where
+// corrections would apply. In V-PR-2 the enforce VALUE resolves but
+// behaves as shadow in every respect: the correction machinery is
+// V-PR-4's stage, and until then no mode value changes an answer.
+// ---------------------------------------------------------------------------
+
+export type OriginAnswerVerificationMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginAnswerVerificationMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginAnswerVerificationMode {
+  const value = env?.ORIGIN_ANSWER_VERIFICATION_MODE;
+  if (value === "shadow") return "shadow";
+  if (value === "enforce") return "enforce";
+  return "off";
+}
+
+/** The mode that actually governs behaviour in V-PR-2: enforce is shadow until V-PR-4. */
+export function resolveOriginAnswerVerificationEffectiveMode(
+  env: NodeJS.ProcessEnv | undefined,
+): "off" | "shadow" {
+  return resolveOriginAnswerVerificationMode(env) === "off" ? "off" : "shadow";
+}
+
+export type OriginAnswerVerificationPath = "direct" | "research";
+export type OriginAnswerVerificationClass = "A" | "B";
+
+export type OriginAnswerVerificationTargetReason =
+  /** The publication gate held the answer: the delivered text is the deterministic hold, which is never verified. */
+  | "gate-held"
+  /** The delivered text is a deterministic app-generated text (template / conditional / terminal guard), not a model answer. */
+  | "not-model-answer"
+  /** A tier-T4 hold: it asserts nothing, so there is nothing to verify. */
+  | "abstain"
+  /** A tier-T3 partial answer whose source cards selected no N-2b claim sentences. */
+  | "no-claim-sentences"
+  /** No model execution ran for this request, so no cross-route pair exists to verify against. */
+  | "no-generation-result";
+
+export type OriginAnswerVerificationTargetDecision =
+  | { targeted: true; answerClass: OriginAnswerVerificationClass }
+  | { targeted: false; reason: OriginAnswerVerificationTargetReason };
+
+/**
+ * Direct-path targets (design section 3.1): class A is a review-policy
+ * required answer or one the publication gate fired on (shadow firing
+ * included); every other delivered model answer is class B. A held
+ * answer is not a target at all — its delivered text is the gate's
+ * deterministic hold.
+ */
+export function classifyDirectAnswerVerificationTarget(input: {
+  reviewRequired: boolean;
+  publicationGateFired: boolean;
+  publicationGateHeld: boolean;
+}): OriginAnswerVerificationTargetDecision {
+  if (input.publicationGateHeld) return { targeted: false, reason: "gate-held" };
+  if (input.reviewRequired || input.publicationGateFired) {
+    return { targeted: true, answerClass: "A" };
+  }
+  return { targeted: true, answerClass: "B" };
+}
+
+/**
+ * Research-path targets (design section 3.1): an adopted grounded
+ * synthesis (tier T0) is always class A. At the fallback assembly, only
+ * the tier-T3 extractive partial answer qualifies — when it carries
+ * N-2b claim sentences and a synthesis execution actually ran (the
+ * cross-route pair is identified from that execution). Tier-T4 holds
+ * and the deterministic template / conditional landings are excluded.
+ */
+export function classifyResearchAnswerVerificationTarget(
+  input:
+    | { site: "t0" }
+    | {
+        site: "final";
+        tier: string | null;
+        deterministicLanding: boolean;
+        hasClaimSentences: boolean;
+        hasGenerationResult: boolean;
+      },
+): OriginAnswerVerificationTargetDecision {
+  if (input.site === "t0") return { targeted: true, answerClass: "A" };
+  if (input.deterministicLanding) return { targeted: false, reason: "not-model-answer" };
+  if (input.tier !== "T3") return { targeted: false, reason: "abstain" };
+  if (!input.hasClaimSentences) return { targeted: false, reason: "no-claim-sentences" };
+  if (!input.hasGenerationResult) return { targeted: false, reason: "no-generation-result" };
+  return { targeted: true, answerClass: "A" };
+}
+
+/**
+ * The daily Neuron sub-cap for verification (design sections 5.2 and
+ * D10): a code constant, not an env value — the switch carries the
+ * mode only, numbers live in code, exactly like the failover budgets.
+ * The cap gates class B (the volume class); class A always runs,
+ * because class A is the enforcement candidate whose shadow record
+ * must stay complete — the design's measurement protocol reads
+ * "everything before the cap, class A only after it". Consumption is
+ * counted from the account usage counter's deltas (see the runner),
+ * never estimated from success counts (W-1: a 503 reconciliation
+ * failure consumes Neurons invisibly, and only the counter sees it).
+ */
+export const ORIGIN_ANSWER_VERIFICATION_DAILY_NEURON_SUBCAP = 1_500;
+
+export interface OriginAnswerVerificationNeuronLedger {
+  usedToday(nowMs: number): number;
+  capReached(nowMs: number): boolean;
+  add(neurons: number, nowMs: number): number;
+}
+
+export function createOriginAnswerVerificationNeuronLedger(
+  subcap: number = ORIGIN_ANSWER_VERIFICATION_DAILY_NEURON_SUBCAP,
+): OriginAnswerVerificationNeuronLedger {
+  // The Neuron day is the UTC day: the free allocation resets at
+  // 00:00 UTC (09:00 JST), and the usage counter is read per UTC date.
+  let date = "";
+  let neurons = 0;
+  const roll = (nowMs: number) => {
+    const today = new Date(nowMs).toISOString().slice(0, 10);
+    if (date !== today) {
+      date = today;
+      neurons = 0;
+    }
+  };
+  return {
+    usedToday(nowMs) {
+      roll(nowMs);
+      return neurons;
+    },
+    capReached(nowMs) {
+      roll(nowMs);
+      return neurons >= subcap;
+    },
+    add(delta, nowMs) {
+      roll(nowMs);
+      if (delta > 0) neurons += delta;
+      return neurons;
+    },
+  };
+}
+
+/**
+ * Process-wide ledger. Serverless instances do not share it — the same
+ * best-effort posture as the failover circuit breakers; losing the
+ * state only ever weakens the cap, never an answer.
+ */
+export const originAnswerVerificationNeuronLedger =
+  createOriginAnswerVerificationNeuronLedger();
+
+/**
+ * Reads the account's used-Neurons counter for today (UTC) through the
+ * shared daily-usage reader (the same counter the image and voice
+ * paths reconcile against). Returns null when the counter cannot be
+ * read — credentials absent or the read unverifiable — and callers
+ * treat null as "unknown", never as zero.
+ */
+export type OriginAnswerVerificationDailyUsageReader = (
+  env: NodeJS.ProcessEnv,
+  nowMs: number,
+) => Promise<number | null>;
+
+export const readOriginAnswerVerificationDailyNeuronsUsed: OriginAnswerVerificationDailyUsageReader =
+  async (env, nowMs) => {
+    const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
+    const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
+    if (
+      !/^[a-f0-9]{32}$/i.test(accountId) ||
+      apiToken.length < 20 ||
+      apiToken.length > 4096
+    ) {
+      return null;
+    }
+    try {
+      const usage = await fetchCloudflareDailyNeuronsUsedV15(
+        { accountId, apiToken },
+        fetch,
+        nowMs,
+      );
+      return usage.usedNeurons;
+    } catch {
+      return null;
+    }
+  };
+
+export interface OriginAnswerVerificationShadowInput {
+  requestId: string;
+  path: OriginAnswerVerificationPath;
+  answerClass: OriginAnswerVerificationClass;
+  question: string;
+  answerText: string;
+  /** Research path only: the sources the answer was built from. */
+  sources?: readonly OriginAnswerVerificationSource[];
+  generationResult: OriginProviderExecutionResult;
+  sourcePlan: OriginExecutionPlan;
+  language: "ja" | "en";
+}
+
+export interface OriginAnswerVerificationShadowOptions {
+  env?: NodeJS.ProcessEnv;
+  nowMs?: number;
+  /** The verification call itself (V-PR-1); injectable for tests. */
+  verify?: typeof verifyOriginAnswerCrossRoute;
+  /** Extra options forwarded to the verification call (executors, catalogs). */
+  verifyOptions?: OriginAnswerVerificationOptions;
+  readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader;
+  neuronLedger?: OriginAnswerVerificationNeuronLedger;
+  logger?: (message: string, fields: Record<string, unknown>) => void;
+}
+
+/**
+ * What the shadow outcome means for the answer envelope. "pass" is the
+ * only outcome that may upgrade an envelope: the check genuinely ran
+ * and no actionable contradiction remained. Everything else is
+ * "hold-not-run" — the answer must not be marked verified, and callers
+ * whose standing not-run wording would become false (the direct path's
+ * review-required reason) substitute the runner's truthful wording.
+ */
+export type OriginAnswerVerificationEnvelopeEffect = "pass" | "hold-not-run";
+
+export interface OriginAnswerVerificationShadowOutcome {
+  configuredMode: OriginAnswerVerificationMode;
+  effectiveMode: "shadow";
+  status: "completed" | "not-run" | "skipped";
+  skipReason?: "daily-neuron-cap";
+  failureKind?: OriginAnswerVerificationFailureKind;
+  /** The correction the verdicts WOULD drive under enforcement (shadow records it, never applies it). */
+  wouldBeAction: OriginAnswerCorrectionAction;
+  wouldBePatchCount: number;
+  /** Contradicted claims carrying a correction — the count that decides the envelope effect. */
+  actionableContradictionCount: number;
+  envelopeEffect: OriginAnswerVerificationEnvelopeEffect;
+  /** Truthful not-run wording (summary + limitation) for the direct path's review-required envelope. */
+  notRunSummary: string;
+  notRunLimitation: string;
+  /** The routing-metadata verification block (design section 4.5): kinds and counts only, never answer or claim text. */
+  metadata: Record<string, unknown>;
+}
+
+function shadowNotRunWording(input: {
+  language: "ja" | "en";
+  status: "completed" | "not-run" | "skipped";
+  failureKind?: OriginAnswerVerificationFailureKind;
+}): { summary: string; limitation: string } {
+  const ja = input.language === "ja";
+  const incompleteLimitation = ja
+    ? "独立した別AIによる確認を完了できていないため、重要な判断にはそのまま使用しないでください。"
+    : "An independent check by a different AI has not been completed, so do not use this answer as-is for an important decision.";
+  if (input.status === "completed") {
+    return {
+      summary: ja
+        ? "別のAIが内容を確認しましたが、見解が一致しない点が残ったため、確認済みとはしていません。"
+        : "A different AI checked this answer, but points of disagreement remained, so it is not treated as verified.",
+      limitation: ja
+        ? "別のAIによる確認で見解の一致しない点が残っているため、重要な判断にはそのまま使用しないでください。"
+        : "A check by a different AI left points of disagreement unresolved, so do not use this answer as-is for an important decision.",
+    };
+  }
+  if (input.status === "skipped") {
+    return {
+      summary: ja
+        ? "独立確認が必要な依頼ですが、本日の確認枠の上限に達したため、確認を実施できませんでした。"
+        : "This request requires an independent check, but today's verification budget has been reached, so the check could not be performed.",
+      limitation: incompleteLimitation,
+    };
+  }
+  const unavailable =
+    input.failureKind === "route-unavailable" ||
+    input.failureKind === "unknown-served-route";
+  return {
+    summary: unavailable
+      ? ja
+        ? "独立確認が必要な依頼ですが、確認を行う別のAIを利用できなかったため、確認を実施できませんでした。"
+        : "This request requires an independent check, but the other AI needed for the check was unavailable, so the check could not be performed."
+      : ja
+        ? "独立確認が必要な依頼ですが、確認を行う別のAIが応答しなかったため、確認を実施できませんでした。"
+        : "This request requires an independent check, but the other AI needed for the check did not respond, so the check could not be performed.",
+    limitation: incompleteLimitation,
+  };
+}
+
+/**
+ * Runs one shadow verification for a targeted answer and records it:
+ * the structured log line (design section 6.2) and the routing
+ * metadata block carry the same fields — mode, routes, claim count,
+ * per-verdict counts, the would-be action, duration, the E-series
+ * failure kind, and the usedBefore counter delta. The delivered
+ * answer is never touched: this runner returns verdicts and wording,
+ * not text. It never throws — a plumbing failure degrades to a
+ * not-run outcome, because verification must never break an answer
+ * (design D5).
+ */
+export async function runOriginAnswerVerificationShadow(
+  input: OriginAnswerVerificationShadowInput,
+  options: OriginAnswerVerificationShadowOptions = {},
+): Promise<OriginAnswerVerificationShadowOutcome> {
+  const startedAt = Date.now();
+  const env = options.env ?? process.env;
+  const nowMs = options.nowMs ?? Date.now();
+  const configuredMode = resolveOriginAnswerVerificationMode(env);
+  const ledger = options.neuronLedger ?? originAnswerVerificationNeuronLedger;
+  const logger =
+    options.logger ?? ((message, fields) => console.info(message, fields));
+  const verify = options.verify ?? verifyOriginAnswerCrossRoute;
+  const servedRoute = identifyOriginAnswerServedRoute(
+    input.generationResult.routingEvidence?.servedModel,
+  );
+  const verifierRoute = servedRoute
+    ? originAnswerVerifierRouteFor(servedRoute)
+    : null;
+
+  const finish = (partial: {
+    status: "completed" | "not-run" | "skipped";
+    skipReason?: "daily-neuron-cap";
+    failureKind?: OriginAnswerVerificationFailureKind;
+    result?: OriginAnswerVerificationResult;
+    durationMs: number;
+    neuronsDelta: number;
+    neuronsCountSource: "counter-delta" | "reported" | "unavailable" | "not-applicable";
+  }): OriginAnswerVerificationShadowOutcome => {
+    const result = partial.result;
+    const completed = result?.status === "completed" ? result : null;
+    let wouldBeAction: OriginAnswerCorrectionAction = "none";
+    let wouldBePatchCount = 0;
+    let actionableContradictionCount = 0;
+    if (completed) {
+      actionableContradictionCount = completed.claims.filter(
+        (claim) => claim.verdict === "contradicted" && claim.corrected !== undefined,
+      ).length;
+      const decision = decideOriginAnswerCorrection(completed.claims, {
+        answerClass: input.answerClass,
+        path: input.path,
+        sources: input.sources,
+        regenerationAttempted: false,
+      });
+      wouldBeAction = decision.action;
+      wouldBePatchCount = decision.patchClaims.length;
+    }
+    const envelopeEffect: OriginAnswerVerificationEnvelopeEffect =
+      completed && actionableContradictionCount === 0 ? "pass" : "hold-not-run";
+    const wording = shadowNotRunWording({
+      language: input.language,
+      status: partial.status,
+      failureKind: partial.failureKind,
+    });
+    const metadata: Record<string, unknown> = {
+      verificationMode: "shadow",
+      verificationConfiguredMode: configuredMode,
+      verificationClass: input.answerClass,
+      verificationPath: input.path,
+      verificationStatus: partial.status,
+      ...(partial.skipReason ? { verificationSkipReason: partial.skipReason } : {}),
+      ...(partial.failureKind ? { verificationFailureKind: partial.failureKind } : {}),
+      servedRoute,
+      verifierRoute,
+      ...(completed
+        ? {
+            servedModel: completed.servedModel,
+            verifierModel: completed.verifierModel,
+            claimCount: completed.claims.length,
+            unjudgedClaimCount: completed.unjudgedClaimCount,
+            verdictSupported: completed.verdictCounts.supported,
+            verdictUnsupported: completed.verdictCounts.unsupported,
+            verdictContradicted: completed.verdictCounts.contradicted,
+            verdictUncertain: completed.verdictCounts.uncertain,
+            internalConflictCount: completed.claims.filter(
+              (claim) => claim.internalConflict === true,
+            ).length,
+            answerTruncated: completed.answerTruncated,
+          }
+        : {}),
+      wouldBeAction,
+      wouldBePatchCount,
+      appliedAction: "none",
+      verificationDurationMs: partial.durationMs,
+      ...(result && result.transportRequestCount !== undefined
+        ? { verifierTransportRequests: result.transportRequestCount }
+        : {}),
+      neuronsDelta: partial.neuronsDelta,
+      verificationNeuronsToday: ledger.usedToday(nowMs),
+      neuronCapReached: ledger.capReached(nowMs),
+      neuronsCountSource: partial.neuronsCountSource,
+    };
+    try {
+      logger("[origin-chat] answer verification", {
+        requestId: input.requestId,
+        ...metadata,
+      });
+    } catch {
+      // A failing logger must never break or delay the answer.
+    }
+    return {
+      configuredMode,
+      effectiveMode: "shadow",
+      status: partial.status,
+      ...(partial.skipReason ? { skipReason: partial.skipReason } : {}),
+      ...(partial.failureKind ? { failureKind: partial.failureKind } : {}),
+      wouldBeAction,
+      wouldBePatchCount,
+      actionableContradictionCount,
+      envelopeEffect,
+      notRunSummary: wording.summary,
+      notRunLimitation: wording.limitation,
+      metadata,
+    };
+  };
+
+  // The daily sub-cap gates class B only (see the cap constant). A
+  // capped class-B answer is recorded as skipped and delivered
+  // unchanged — the cap stops verification, never answers.
+  if (
+    input.answerClass === "B" &&
+    verifierRoute === "cloudflare" &&
+    ledger.capReached(nowMs)
+  ) {
+    return finish({
+      status: "skipped",
+      skipReason: "daily-neuron-cap",
+      durationMs: 0,
+      neuronsDelta: 0,
+      neuronsCountSource: "not-applicable",
+    });
+  }
+
+  const countNeurons = verifierRoute === "cloudflare";
+  const readUsage =
+    options.readDailyNeuronsUsed ?? readOriginAnswerVerificationDailyNeuronsUsed;
+  const before = countNeurons
+    ? await readUsage(env, nowMs).catch(() => null)
+    : null;
+  let result: OriginAnswerVerificationResult;
+  try {
+    result = await verify(
+      {
+        question: input.question,
+        answerText: input.answerText,
+        sources: input.sources,
+        generationResult: input.generationResult,
+        sourcePlan: input.sourcePlan,
+      },
+      {
+        ...options.verifyOptions,
+        env: options.verifyOptions?.env ?? env,
+        nowMs: options.verifyOptions?.nowMs ?? nowMs,
+      },
+    );
+  } catch {
+    // verifyOriginAnswerCrossRoute never throws by contract; this is
+    // belt-and-braces so shadow plumbing can never break an answer.
+    result = {
+      status: "not-run",
+      failureKind: "provider-error",
+      servedRoute,
+      verifierRoute,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
+  // Neuron counting from the usage counter's delta around the call
+  // (W-1): the delta is the only figure that sees a 503's invisible
+  // consumption. When the counter is timely its delta already covers
+  // the call's reported usage, so the larger of the two is the
+  // conservative count; when the counter cannot be read, the completed
+  // result's reported usage is the fallback and is labelled as such.
+  let neuronsDelta = 0;
+  let neuronsCountSource:
+    | "counter-delta"
+    | "reported"
+    | "unavailable"
+    | "not-applicable" = "not-applicable";
+  if (countNeurons) {
+    const after = await readUsage(env, nowMs).catch(() => null);
+    const counterDelta =
+      before !== null && after !== null ? Math.max(0, after - before) : null;
+    const reported =
+      result.status === "completed" && typeof result.neurons === "number"
+        ? result.neurons
+        : null;
+    if (counterDelta !== null && reported !== null) {
+      neuronsDelta = Math.max(counterDelta, reported);
+      neuronsCountSource = "counter-delta";
+    } else if (counterDelta !== null) {
+      neuronsDelta = counterDelta;
+      neuronsCountSource = "counter-delta";
+    } else if (reported !== null) {
+      neuronsDelta = reported;
+      neuronsCountSource = "reported";
+    } else {
+      neuronsCountSource = "unavailable";
+    }
+    ledger.add(neuronsDelta, nowMs);
+  }
+
+  if (result.status === "completed") {
+    return finish({
+      status: "completed",
+      result,
+      durationMs: result.durationMs,
+      neuronsDelta,
+      neuronsCountSource,
+    });
+  }
+  return finish({
+    status: "not-run",
+    failureKind: result.failureKind,
+    result,
+    durationMs: result.durationMs,
+    neuronsDelta,
+    neuronsCountSource,
+  });
 }
