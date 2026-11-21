@@ -1,4 +1,4 @@
-import type { AgentToolStepV3 } from './agentToolPlannerV3.js';
+import { MAX_PLAN_STEPS, type AgentToolStepV3 } from './agentToolPlannerV3.js';
 import type { ToolParams } from './toolRegistry.js';
 import {
   AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
@@ -30,6 +30,19 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  *    content from the analyzer, so the goal-derived sample CSV /
  *    draft markdown the param generator fabricates can never become
  *    the written file.
+ * 4. Goal-derived file paths are confined. The base planner and its
+ *    param generator treat backtick-quoted or path-like goal tokens
+ *    as file paths — a Kubernetes Deployment named `payment-api`
+ *    became a file_reader path in production and blocked the run at
+ *    execution. In an attachment-bound plan the only files that exist
+ *    are the set's, so a file_reader step survives only when its path
+ *    names a set file (the attachment_reader already covers the set's
+ *    contents, so dropping loses nothing), and a file_writer step
+ *    keeps only a set-file path or an artifacts/ path — the namespace
+ *    every system-generated output path uses. Any other goal-derived
+ *    writer path is replaced with the default attachment-result
+ *    artifact; its content chaining is untouched, so the deliverable
+ *    still comes from the analyzer or the preceding document.
  *
  * Every data step carries `{ attachmentSetId, setDigest }`, so the
  * canonical params digest binds the set's exact contents into the
@@ -39,10 +52,31 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  *
  * Oversize is refused here, at plan time, with the counts attached
  * (design §4.3): a set needing more than 48 chunks, or a plan that
- * cannot fit the step ceiling, never starts executing.
+ * cannot fit the step ceiling, never starts executing. The refusal
+ * names the constraint that actually fired (`limitKind`, with `limit`
+ * set to that constraint's bound) — until 2026-11-21 the step branch
+ * also reported the 48-chunk constant, which misdirected triage when
+ * mid-size sets (17 chunks) were refused on steps alone.
  */
 
 export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params: ToolParams };
+
+/**
+ * The step ceiling for an attachment-bound plan, derived from the
+ * constants that bound its parts: the largest base plan the planner
+ * can emit (MAX_PLAN_STEPS) + the reader + one analyzer per
+ * AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP chunks of the largest
+ * admissible set — 6 + 1 + ceil(48 / 8) = 13. Any set within the
+ * attachment limits can therefore always form a plan, while the
+ * ceiling stays a hard bound (and below the 20-step record ceiling).
+ * The executor's step-input validation uses this same constant for
+ * attachment-bound step lists, so an issuable plan is always an
+ * executable one. (The flat MAX_EXECUTION_STEPS of 6 that this
+ * replaces made mid-size sets unplannable: a 17-chunk set already
+ * needs reader + 3 analyzers on top of the goal's base steps.)
+ */
+export const AGENT_ATTACHMENT_MAX_PLAN_STEPS =
+  MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP);
 
 const GENERATIVE_TOOLS: ReadonlySet<string> = new Set(['document_generator', 'file_writer']);
 
@@ -61,7 +95,18 @@ export function attachmentOutputKindForGoal(goal: string): AgentDataOutputKind {
 
 export type AttachmentPlanAugmentation =
   | { ok: true; steps: AgentStepInputLike[]; plannedSteps: AgentToolStepV3[] }
-  | { ok: false; code: 'AGENT_ATTACHMENT_TOO_LARGE'; chunkCount: number; limit: number };
+  | {
+      ok: false;
+      code: 'AGENT_ATTACHMENT_TOO_LARGE';
+      chunkCount: number;
+      /** The bound of the constraint that refused the plan (see
+       * `limitKind`): the chunk ceiling for an oversize set, the
+       * derived step ceiling for a plan that cannot fit. */
+      limit: number;
+      limitKind: 'chunks' | 'steps';
+      /** Total steps the augmented plan would need (step refusals only). */
+      stepCount?: number;
+    };
 
 export function augmentPlanWithAttachments(input: {
   goal: string;
@@ -70,16 +115,41 @@ export function augmentPlanWithAttachments(input: {
   setId: string;
   setDigest: string;
   view: AgentAttachmentDataView;
-  maxSteps: number;
 }): AttachmentPlanAugmentation {
   const { goal, view } = input;
   const totalChunks = view.totalChunks;
   if (totalChunks > AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN) {
-    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN };
+    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN, limitKind: 'chunks' };
   }
   const analyzerCount = Math.max(1, Math.ceil(totalChunks / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP));
-  if (input.steps.length + 1 + analyzerCount > input.maxSteps) {
-    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN };
+
+  // Copy the base plan under the path confinement of header point 4:
+  // file_reader steps pointing anywhere but a set file are dropped,
+  // and a file_writer path that is neither a set file nor an
+  // artifacts/ path is normalized to the default result artifact.
+  // The two arrays stay index-aligned throughout.
+  const attachedFileNames = new Set(view.files.map((file) => file.name));
+  const steps: AgentStepInputLike[] = [];
+  const plannedSteps: AgentToolStepV3[] = [];
+  input.steps.forEach((step, index) => {
+    if (step.toolName === 'file_reader') {
+      const path = step.params.path;
+      if (typeof path !== 'string' || !attachedFileNames.has(path)) return;
+    }
+    let params: ToolParams = { ...step.params };
+    if (step.toolName === 'file_writer') {
+      const path = step.params.path;
+      if (typeof path === 'string' && path.trim() && !attachedFileNames.has(path) && !path.startsWith('artifacts/')) {
+        params = { ...params, path: 'artifacts/attachment-result.md' };
+      }
+    }
+    steps.push({ toolName: step.toolName, params });
+    plannedSteps.push({ ...input.plannedSteps[index] });
+  });
+
+  const stepCount = steps.length + 1 + analyzerCount;
+  if (stepCount > AGENT_ATTACHMENT_MAX_PLAN_STEPS) {
+    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_PLAN_STEPS, limitKind: 'steps', stepCount };
   }
 
   const outputKind = attachmentOutputKindForGoal(goal);
@@ -109,8 +179,6 @@ export function augmentPlanWithAttachments(input: {
     analyzerPlanned.push({ toolName: 'attachment_analyzer', reasonCode: 'attachment-analysis' });
   }
 
-  const steps: AgentStepInputLike[] = input.steps.map((step) => ({ toolName: step.toolName, params: { ...step.params } }));
-  const plannedSteps: AgentToolStepV3[] = input.plannedSteps.map((step) => ({ ...step }));
   const generativeIndex = steps.findIndex((step) => GENERATIVE_TOOLS.has(step.toolName));
   const insertAt = generativeIndex >= 0 ? generativeIndex : steps.length;
 
