@@ -89,6 +89,11 @@ describe('AgentWorkspaceView v3', () => {
 
     await screen.findByText('まだ実行していません · 承認待ち');
     expect(screen.getByText(/まだ作業は始めていません/)).toBeTruthy();
+    // The progress log states the fact only; the step list itself is
+    // shown once, in the plan section (summary box + step list), and
+    // is not enumerated again in the log line.
+    expect(screen.getByText('計画を作成しました。まだ作業は始めていません。')).toBeTruthy();
+    expect(screen.queryByText(/行う作業:/)).toBeNull();
     expect(screen.getByLabelText('行う作業').textContent).toContain('文書を作る');
     expect((screen.getByLabelText('任せたいこと') as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole('combobox')).toBeNull();
@@ -178,6 +183,7 @@ describe('AgentWorkspaceView v3', () => {
       taskId: 'run-test-1',
       status: 'completed',
       artifact: '# 完成した文書',
+      title: '文書案を作ってください',
     }));
     expect(screen.queryByLabelText('実行認証キー')).toBeNull();
     const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
@@ -240,10 +246,12 @@ describe('AgentWorkspaceView v3', () => {
 
     setSessionCredential('admin', 'owner-agent-key');
     fireEvent.click(screen.getByRole('button', { name: '承認して実行' }));
-    // The completed artifact shows in the result area, and the saved
-    // result's card below is titled by the same first line — both are
-    // the same result, so the text legitimately appears twice.
-    expect((await screen.findAllByText('// verified analysis')).length).toBeGreaterThanOrEqual(2);
+    // The completed artifact shows in the result area. The saved
+    // result's card below is titled by the request text (fixed at
+    // save time), so the card is found by the goal, not by the
+    // artifact's first line.
+    expect((await screen.findAllByText('// verified analysis')).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByRole('button', { name: /このTypeScriptコードのバグを分析して/ })).toBeTruthy();
   });
 
   it('fails closed when owner approval authentication is rejected', async () => {
@@ -319,6 +327,7 @@ describe('AgentWorkspaceView v3', () => {
       taskId: 'run-test-1',
       status: 'completed',
       artifact: '# ブラウザ承認で完成した文書',
+      title: '文書案を作ってください',
     }));
     const calledUrls = fetchMock.mock.calls.map(([url]) => String(url));
     // Same set/order split as the operator-path test above: the board's
@@ -940,6 +949,7 @@ describe('catStateForPhase', () => {
     const docAt = new Date(2026, 10, 18, 9, 15).getTime();
     const researchAt = new Date(2026, 10, 19, 14, 2).getTime();
     const fileAt = new Date(2026, 10, 20, 19, 40).getTime();
+    const titledAt = new Date(2026, 10, 21, 10, 5).getTime();
     loadCheckpointsFromIndexedDB.mockResolvedValueOnce([
       {
         checkpointId: 'run-a-runs-v1', taskId: 'run-a', executionId: 'agent-run', version: 1,
@@ -961,6 +971,21 @@ describe('catStateForPhase', () => {
         checkpointId: 'run-c-runs-v1', taskId: 'run-c', executionId: 'agent-run', version: 1,
         status: 'self_fixed', artifact: '直した内容の説明です。', createdAt: fileAt,
         mutation: { path: 'artifacts/report.md', beforeExists: false, afterSha256: 'a'.repeat(64) },
+      },
+      {
+        // A record saved with a title derived from its request: even
+        // though the artifact is a sources JSON with no headline of
+        // its own, the card is identified by the request, not by the
+        // generic research label.
+        checkpointId: 'run-d-runs-v1', taskId: 'run-d', executionId: 'agent-run', version: 1,
+        status: 'completed', title: '年金の支給額を調べて',
+        artifact: JSON.stringify({
+          provider: 'tavily',
+          sources: [
+            { title: '出典その3', url: 'https://example.com/3' },
+          ],
+        }),
+        createdAt: titledAt,
       },
     ]);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -989,6 +1014,13 @@ describe('catStateForPhase', () => {
     expect(fileCard.textContent).toContain('修正済み');
     expect(fileCard.textContent).toContain(dateLabel(fileAt));
     expect(fileCard.textContent).toContain('artifacts/report.md');
+    // The titled research record is identified by its request text;
+    // only the untitled legacy record keeps the generic label.
+    const titledCard = screen.getByRole('button', { name: /年金の支給額を調べて/ });
+    expect(titledCard.textContent).toContain('完了');
+    expect(titledCard.textContent).toContain(dateLabel(titledAt));
+    expect(titledCard.textContent).toContain('出典1件');
+    expect(titledCard.textContent).not.toContain('調査の結果');
 
     // Selecting a card still restores its artifact into the result area.
     fireEvent.click(docCard);
