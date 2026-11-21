@@ -291,7 +291,7 @@ describe('advanceAgentRun with step-artifact persistence ON', () => {
     const store = new InMemoryAgentRunStore(() => clock);
     const calls: Array<{ name: ToolName; input: ToolParams }> = [];
     const runTool = makeChainTool(calls);
-    const seeded = await seedRun(store, clock, chainPlan);
+    await seedRun(store, clock, chainPlan);
     // A row written for a DIFFERENT step at index 0 (the re-plan
     // hazard): valid shape, wrong fingerprint.
     const lease = await store.claim(RUN_ID, 'driver-tamper-01', LEASE_SECONDS);
@@ -328,7 +328,7 @@ describe('advanceAgentRun with step-artifact persistence ON', () => {
     const store = new InMemoryAgentRunStore(() => clock);
     const calls: Array<{ name: ToolName; input: ToolParams }> = [];
     const runTool = makeChainTool(calls);
-    const seeded = await seedRun(store, clock, chainPlan);
+    await seedRun(store, clock, chainPlan);
     const lease = await store.claim(RUN_ID, 'driver-tamper-03', LEASE_SECONDS);
     expect(lease).not.toBeNull();
     await store.updateProgress(RUN_ID, 'driver-tamper-03', {
