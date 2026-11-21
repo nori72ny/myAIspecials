@@ -35,10 +35,23 @@ async function storeWithFruits() {
   return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
 }
 
-function contextFor(store: InMemoryAgentAttachmentStore, modelCall?: AgentModelExecutor): ToolExecutionContext {
+function contextFor(
+  store: InMemoryAgentAttachmentStore,
+  modelCall?: AgentModelExecutor,
+  sleepMs?: (ms: number) => Promise<void>,
+): ToolExecutionContext {
   return {
     attachments: { store, ownerBinding: OWNER },
     ...(modelCall ? { modelCall } : {}),
+    ...(sleepMs ? { sleepMs } : {}),
+  };
+}
+
+/** Instant sleep fake that records the backoff schedule it was asked
+ * to wait, so retry tests assert the schedule instead of sleeping. */
+function recordingSleep(record: number[]): (ms: number) => Promise<void> {
+  return async (ms: number) => {
+    record.push(ms);
   };
 }
 
@@ -165,13 +178,20 @@ describe('attachment_analyzer tool', () => {
 
   it('propagates the provider failure code as the step failure', async () => {
     const { store, setDigest } = await storeWithFruits();
-    const failingExecutor: AgentModelExecutor = async () => ({ ok: false, code: 'PROVIDER_TIMEOUT' });
+    let calls = 0;
+    const failingExecutor: AgentModelExecutor = async () => {
+      calls += 1;
+      return { ok: false, code: 'PROVIDER_TIMEOUT' };
+    };
     const result = await toolRegistry.attachment_analyzer.execute(
       analyzerParams(setDigest),
-      contextFor(store, failingExecutor),
+      contextFor(store, failingExecutor, recordingSleep([])),
     );
     expect(result.ok).toBe(false);
     expect(result.message).toBe('PROVIDER_TIMEOUT');
+    // PROVIDER_TIMEOUT is in the transient class: the step retried
+    // the chunk call twice before failing with the same code.
+    expect(calls).toBe(3);
   });
 
   it('requires the previous bundle for a continuation step', async () => {
@@ -206,6 +226,107 @@ describe('attachment_analyzer tool', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.message).toBe('AGENT_STEP_INPUT_UNAVAILABLE');
+  });
+});
+
+describe('attachment_analyzer transient provider retry (segment-2 wall)', () => {
+  it('retries a rate-limited chunk call after 15s and completes the step', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    let calls = 0;
+    const flakyExecutor: AgentModelExecutor = async (input) => {
+      calls += 1;
+      if (calls === 1) return { ok: false, code: 'PROVIDER_RATE_LIMITED' };
+      return classifyingExecutor(input);
+    };
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, flakyExecutor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(2);
+    expect(sleeps).toEqual([15_000]);
+  });
+
+  it('exhausts two retries (15s, 30s) and fails with the provider code', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    let calls = 0;
+    const downExecutor: AgentModelExecutor = async () => {
+      calls += 1;
+      return { ok: false, code: 'PROVIDER_UNAVAILABLE' };
+    };
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, downExecutor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('PROVIDER_UNAVAILABLE');
+    expect(calls).toBe(3);
+    expect(sleeps).toEqual([15_000, 30_000]);
+  });
+
+  it('never retries a non-transient failure', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    let calls = 0;
+    const unconfiguredExecutor: AgentModelExecutor = async () => {
+      calls += 1;
+      return { ok: false, code: 'PROVIDER_NOT_CONFIGURED' };
+    };
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, unconfiguredExecutor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('PROVIDER_NOT_CONFIGURED');
+    expect(calls).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it('caps cumulative waiting per step: a later chunk loses its second retry', async () => {
+    // Two-chunk step over a multi-chunk set. Chunk 1 burns the full
+    // 15s+30s schedule before succeeding; chunk 2 then gets its 15s
+    // retry (cumulative 60s, exactly at the cap) but not the 30s one
+    // (would reach 90s), so the step fails with the provider code.
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const lines = ['id,item,amount'];
+    for (let i = 0; i < 240; i += 1) lines.push(`R-${String(i).padStart(3, '0')},${'x'.repeat(30)},${i}`);
+    const bigText = lines.join('\n');
+    const measured = validateAgentAttachmentFileText(bigText);
+    await store.addFile(SET_ID, OWNER, {
+      name: 'big.csv',
+      mediaType: 'text/csv',
+      kind: 'text',
+      byteSize: measured.byteSize,
+      charCount: measured.charCount,
+      sha256: measured.sha256,
+      extractedText: bigText,
+    });
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    const setDigest = computeAgentAttachmentSetDigest(set.files);
+    let calls = 0;
+    const scriptedExecutor: AgentModelExecutor = async (input) => {
+      calls += 1;
+      if (calls === 3) return classifyingExecutor(input);
+      return { ok: false, code: 'PROVIDER_RATE_LIMITED' };
+    };
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, scriptedExecutor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('PROVIDER_RATE_LIMITED');
+    expect(calls).toBe(5);
+    expect(sleeps).toEqual([15_000, 30_000, 15_000]);
   });
 });
 

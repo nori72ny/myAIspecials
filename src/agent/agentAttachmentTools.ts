@@ -16,7 +16,7 @@ import {
   type AgentDataChunk,
   type AgentDataRow,
 } from './agentAttachmentData.js';
-import { createAgentModelExecutor, type AgentModelExecutor } from './agentModelCall.js';
+import { createAgentModelExecutor, type AgentModelCallInput, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
 import type { ToolParams, ToolResult } from './toolRegistry.js';
 
 /**
@@ -46,7 +46,53 @@ export type AgentAttachmentToolContext = {
   attachments?: AgentAttachmentAccess;
   modelCall?: AgentModelExecutor;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Wait seam for the analyzer's transient-failure retry backoff
+   * (design AGENT_SEGMENT2_WALL_DIAGNOSIS_2026-11-22 §6). Production
+   * wiring leaves it unset and real timers are used; tests inject an
+   * instant fake so the backoff schedule is asserted, not slept.
+   */
+  sleepMs?: (ms: number) => Promise<void>;
 };
+
+/**
+ * Provider-availability failure codes that are transient by
+ * construction: the failover dispatcher itself treats them as
+ * "try the next route" signals (ORIGIN_FAILOVER_TRIGGER_CODES minus
+ * PROVIDER_NOT_CONFIGURED, which is a configuration fact, not a
+ * passing condition). A chunk call that ends in one of these codes
+ * exhausted every free route for the moment — the evidenced cause is
+ * a per-minute provider window (route-3 tokens/minute, route-2
+ * temporary capacity) that refills with time, so the analyzer waits
+ * and retries the same chunk instead of failing the whole step (and,
+ * with it, the run and every completed segment before it).
+ */
+export const AGENT_ANALYZER_TRANSIENT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_TIMEOUT',
+]);
+
+/**
+ * Backoff schedule for one chunk call: first retry after 15s, second
+ * after 30s (cumulative 45s). Measured from the burst that precedes
+ * the failure (the previous segment's calls), the final retry lands
+ * past the 60-second rolling window the free routes enforce.
+ */
+export const AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [15_000, 30_000];
+
+/**
+ * Per-step ceiling on cumulative retry waiting. A step that would
+ * wait past this fails with the original provider code instead —
+ * the pre-retry behavior — so a pathological step can never hold an
+ * advance open indefinitely (the advance itself runs under the
+ * caller's budget and the function's own duration cap).
+ */
+export const AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS = 60_000;
+
+const defaultSleepMs = (ms: number): Promise<void> => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
 
 export type AgentDataOutputKind = 'rows' | 'findings' | 'text';
 
@@ -441,6 +487,27 @@ export async function executeAttachmentAnalyzer(
   }
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
+  const sleepMs = context?.sleepMs ?? defaultSleepMs;
+  // Transient-retry wrapper (design AGENT_SEGMENT2_WALL_DIAGNOSIS_2026-11-22
+  // §6): only provider-availability codes retry, only within this
+  // step's cumulative wait ceiling; every other failure — and a
+  // transient failure that exhausts its retries — returns exactly
+  // the result the pre-retry code returned, so the step fails with
+  // the provider's own code as before. The step's declared quota
+  // charge is unaffected: retries are inside the step, and the
+  // ledger counts the step once.
+  let transientWaitMs = 0;
+  const callModelWithTransientRetry = async (input: AgentModelCallInput): Promise<AgentModelCallResult> => {
+    let result = await modelCall(input);
+    for (const delayMs of AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS) {
+      if (result.ok !== false || !AGENT_ANALYZER_TRANSIENT_FAILURE_CODES.has(result.code)) break;
+      if (transientWaitMs + delayMs > AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS) break;
+      await sleepMs(delayMs);
+      transientWaitMs += delayMs;
+      result = await modelCall(input);
+    }
+    return result;
+  };
   const instruction = analyzerInstruction(
     outputKind,
     goalInstruction,
@@ -449,11 +516,11 @@ export async function executeAttachmentAnalyzer(
   );
   for (const chunk of range) {
     const userText = chunkModelInput(view, chunk);
-    const first = await modelCall({ instruction, userText, goal: goalInstruction });
+    const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction });
     if (first.ok === false) return fail(first.code);
     let output = parseChunkOutput(outputKind, first.text, view);
     if (!output) {
-      const repair = await modelCall({
+      const repair = await callModelWithTransientRetry({
         instruction: `${instruction}前回の応答は指定のJSON形式に適合しませんでした。JSONだけを返してください。`,
         userText,
         goal: goalInstruction,
