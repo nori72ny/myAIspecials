@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { advanceAgentRun } from './agentRunAdvancer.js';
+import { advanceAgentRun, resolveStepParams } from './agentRunAdvancer.js';
 import {
   AGENT_RUN_CONSUMPTION_MAX_TTL_MS,
   AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS,
@@ -600,5 +600,39 @@ describe('advanceAgentRun', () => {
     expect(record?.stepsState[0]?.status).toBe('completed');
     expect(record?.stepsState[1]?.status).toBe('failed');
     expect(record?.stepsState[1]?.errorCode).toBe('AGENT_REPOSITORY_WRITE_FAILED');
+  });
+});
+
+describe('resolveStepParams raw bundle resolution (artifact format)', () => {
+  const bundle = JSON.stringify({ kind: 'data-analysis', outputKind: 'findings', findings: [] });
+  const rendered = '- 所見1';
+  const lookup = {
+    previousText: rendered,
+    byStep: new Map([[1, rendered]]),
+    rawByStep: new Map([[1, bundle]]),
+  };
+
+  it('gives a structured document step the raw analyzer bundle', () => {
+    const resolved = resolveStepParams(
+      { toolName: 'document_generator', params: { format: 'json', jsonTopLevelKeys: ['root_causes'], contentFromStep: 1 } },
+      lookup,
+    );
+    expect(resolved).toEqual({ params: { format: 'json', jsonTopLevelKeys: ['root_causes'], content: bundle } });
+  });
+
+  it('keeps giving a plain document step the rendered text', () => {
+    const resolved = resolveStepParams(
+      { toolName: 'document_generator', params: { format: 'markdown', contentFromStep: 1 } },
+      lookup,
+    );
+    expect(resolved).toEqual({ params: { format: 'markdown', content: rendered } });
+  });
+
+  it('fails closed when a structured document step names a step with no raw bundle', () => {
+    const resolved = resolveStepParams(
+      { toolName: 'document_generator', params: { format: 'json', jsonTopLevelKeys: ['root_causes'], contentFromStep: 2 } },
+      lookup,
+    );
+    expect(resolved).toEqual({ error: 'AGENT_STEP_INPUT_UNAVAILABLE' });
   });
 });

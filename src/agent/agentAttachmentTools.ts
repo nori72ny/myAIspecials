@@ -122,12 +122,29 @@ export async function executeAttachmentReader(
 
 const OUTPUT_KINDS: readonly AgentDataOutputKind[] = ['rows', 'findings', 'text'];
 
-function analyzerInstruction(outputKind: AgentDataOutputKind, goalInstruction: string, view: AgentAttachmentDataView): string {
+function analyzerInstruction(
+  outputKind: AgentDataOutputKind,
+  goalInstruction: string,
+  view: AgentAttachmentDataView,
+  structuredJsonKeys?: readonly string[],
+): string {
   const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
   const shape = outputKind === 'rows'
     ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。数値は入力の表記をそのまま写してください。`
     : outputKind === 'findings'
-      ? '出力形式: {"findings":[{"claim":"所見","evidence":"根拠となる入力の引用","file":"ファイル名","location":"行番号や見出し"}]}。所見は断片の内容だけを根拠にしてください。'
+      ? structuredJsonKeys && structuredJsonKeys.length > 0
+        // Structured-JSON deliverables (design
+        // AGENT_ARTIFACT_FORMAT_DESIGN_2026-11-21 §3.2): the final
+        // document is assembled from typed findings plus the
+        // resources and remediations the chunks name, so each chunk
+        // also reports those sections. The goal text (appended below)
+        // carries the report's required top-level keys and their
+        // field shapes; the per-item fields here are the contract
+        // the assembler reads. type/severity are optional per
+        // finding — the assembler defaults them — but resources and
+        // remediations must name only what the chunk actually shows.
+        ? '出力形式: {"findings":[{"claim":"所見","evidence":"根拠となる入力の引用","file":"ファイル名","location":"行番号や見出し","type":"所見の短い分類ラベル","severity":"critical/high/medium/low"}],"resources":[{"kind":"リソース種別","name":"名前","namespace":"名前空間"}],"remediations":[{"action":"是正手順","priority":"high/medium/low"}]}。所見・リソース・是正手順は断片の内容だけを根拠にしてください。'
+        : '出力形式: {"findings":[{"claim":"所見","evidence":"根拠となる入力の引用","file":"ファイル名","location":"行番号や見出し"}]}。所見は断片の内容だけを根拠にしてください。'
       : '出力形式: {"text":"作成した文章"}。文章は断片の内容だけを使い、無い事実を書かないでください。';
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
   const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
@@ -166,14 +183,74 @@ function coerceCell(value: unknown): string | null {
   return null;
 }
 
-type ChunkOutput = { rows: AgentDataRow[]; findings: AgentDataFinding[]; textParts: string[] };
-type AgentDataFinding = { claim: string; evidence: string; file: string; location: string };
+type ChunkOutput = {
+  rows: AgentDataRow[];
+  findings: AgentDataFinding[];
+  textParts: string[];
+  /** Structured-JSON sections (only when the plan carries
+   * `structuredJsonKeys`; see §3.2 of the artifact-format design):
+   * resources and remediations the chunks name. */
+  resources: AgentDataResource[];
+  remediations: AgentDataRemediation[];
+};
+type AgentDataFinding = {
+  claim: string;
+  evidence: string;
+  file: string;
+  location: string;
+  /** Short classification label (e.g. "OOMKilled"); optional — the
+   * document assembler defaults it. */
+  type?: string;
+  /** One of critical/high/medium/low; optional — invalid or absent
+   * values default at assembly. */
+  severity?: string;
+};
+type AgentDataResource = { kind: string; name: string; namespace: string };
+type AgentDataRemediation = { action: string; priority?: string };
+
+export const AGENT_FINDING_SEVERITIES: readonly string[] = ['critical', 'high', 'medium', 'low'];
+const REMEDIATION_PRIORITIES: readonly string[] = ['high', 'medium', 'low'];
+
+function validFindingSeverity(value: unknown): string | undefined {
+  return typeof value === 'string' && AGENT_FINDING_SEVERITIES.includes(value) ? value : undefined;
+}
+
+export function parseAgentDataResources(raw: unknown): AgentDataResource[] {
+  if (!Array.isArray(raw)) return [];
+  const resources: AgentDataResource[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const resource = item as Record<string, unknown>;
+    const kind = typeof resource.kind === 'string' ? resource.kind.trim().slice(0, 120) : '';
+    const name = typeof resource.name === 'string' ? resource.name.trim().slice(0, 120) : '';
+    const namespace = typeof resource.namespace === 'string' ? resource.namespace.trim().slice(0, 120) : '';
+    if (!kind || !name || !namespace) continue;
+    resources.push({ kind, name, namespace });
+  }
+  return resources;
+}
+
+export function parseAgentDataRemediations(raw: unknown): AgentDataRemediation[] {
+  if (!Array.isArray(raw)) return [];
+  const remediations: AgentDataRemediation[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const remediation = item as Record<string, unknown>;
+    const action = typeof remediation.action === 'string' ? remediation.action.trim().slice(0, 500) : '';
+    if (!action) continue;
+    const priority = typeof remediation.priority === 'string' && REMEDIATION_PRIORITIES.includes(remediation.priority)
+      ? remediation.priority
+      : undefined;
+    remediations.push(priority ? { action, priority } : { action });
+  }
+  return remediations;
+}
 
 function parseChunkOutput(outputKind: AgentDataOutputKind, text: string, view: AgentAttachmentDataView): ChunkOutput | null {
   const parsed = extractJsonObject(text);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
-  const output: ChunkOutput = { rows: [], findings: [], textParts: [] };
+  const output: ChunkOutput = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
   if (outputKind === 'rows') {
     if (!Array.isArray(record.rows)) return null;
     for (const raw of record.rows) {
@@ -195,13 +272,23 @@ function parseChunkOutput(outputKind: AgentDataOutputKind, text: string, view: A
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
       const finding = raw as Record<string, unknown>;
       if (typeof finding.claim !== 'string' || !finding.claim.trim()) return null;
+      const type = typeof finding.type === 'string' && finding.type.trim()
+        ? finding.type.trim().slice(0, 80)
+        : undefined;
+      const severity = validFindingSeverity(finding.severity);
       output.findings.push({
         claim: finding.claim.trim(),
         evidence: typeof finding.evidence === 'string' ? finding.evidence.trim().slice(0, 200) : '',
         file: typeof finding.file === 'string' ? finding.file.trim() : '',
         location: typeof finding.location === 'string' ? finding.location.trim() : '',
+        ...(type ? { type } : {}),
+        ...(severity ? { severity } : {}),
       });
     }
+    // Optional structured sections: invalid items are dropped, never
+    // allowed to fail the chunk — coverage is judged on findings.
+    output.resources = parseAgentDataResources(record.resources);
+    output.remediations = parseAgentDataRemediations(record.remediations);
     return output;
   }
   if (typeof record.text !== 'string') return null;
@@ -228,7 +315,7 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const bundle = parsed as Record<string, unknown>;
   if (bundle.kind !== 'data-analysis' || bundle.outputKind !== outputKind) return null;
-  const prior: PriorBundle = { rows: [], findings: [], textParts: [] };
+  const prior: PriorBundle = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
   if (outputKind === 'rows') {
     if (!Array.isArray(bundle.rows)) return null;
     for (const raw of bundle.rows) {
@@ -247,13 +334,22 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
       const finding = raw as Record<string, unknown>;
       if (typeof finding.claim !== 'string') return null;
+      const type = typeof finding.type === 'string' && finding.type.trim() ? finding.type.trim() : undefined;
+      const severity = validFindingSeverity(finding.severity);
       prior.findings.push({
         claim: finding.claim,
         evidence: typeof finding.evidence === 'string' ? finding.evidence : '',
         file: typeof finding.file === 'string' ? finding.file : '',
         location: typeof finding.location === 'string' ? finding.location : '',
+        ...(type ? { type } : {}),
+        ...(severity ? { severity } : {}),
       });
     }
+    // Structured sections survive the chain the same way findings do;
+    // a continuation that dropped them would lose the earlier
+    // chunks' resources and remediations from the final bundle.
+    prior.resources = parseAgentDataResources(bundle.resources);
+    prior.remediations = parseAgentDataRemediations(bundle.remediations);
   } else {
     if (typeof bundle.content !== 'string') return null;
     if (bundle.content.length > 0) prior.textParts.push(bundle.content);
@@ -306,6 +402,18 @@ export async function executeAttachmentAnalyzer(
     : null;
   if (chunkOffset === null || chunkCount === null) return fail('AGENT_ATTACHMENT_PARAMS_INVALID');
   const goalInstruction = typeof params.instruction === 'string' ? params.instruction : '';
+  // Structured-JSON deliverables (design AGENT_ARTIFACT_FORMAT_DESIGN_2026-11-21
+  // §3.2): the plan names the report's required top-level keys, and the
+  // analyzer's per-chunk shape grows typed findings plus resources and
+  // remediations to fill them. A malformed value is treated as absent
+  // (plain findings shape) — the document step still assembles from
+  // whatever sections the bundle carries, and fails closed if the
+  // required keys cannot be filled.
+  const structuredJsonKeys = Array.isArray(params.structuredJsonKeys)
+    ? (params.structuredJsonKeys as unknown[])
+      .filter((key): key is string => typeof key === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+      .slice(0, 12)
+    : [];
 
   const loaded = await loadBoundData(tool, params, context);
   if ('failure' in loaded) return loaded.failure;
@@ -314,7 +422,7 @@ export async function executeAttachmentAnalyzer(
   const range = view.chunks.slice(chunkOffset, chunkOffset + chunkCount);
   const isFinalStep = chunkOffset + range.length >= view.totalChunks;
 
-  let merged: ChunkOutput = { rows: [], findings: [], textParts: [] };
+  let merged: ChunkOutput = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
   // The predecessor chain's recorded processed-chunk count: 0 for a
   // first step, the prior bundle's coverage count for a continuation,
   // and null when a continuation's bundle carries no count — the
@@ -333,7 +441,12 @@ export async function executeAttachmentAnalyzer(
   }
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
-  const instruction = analyzerInstruction(outputKind, goalInstruction, view);
+  const instruction = analyzerInstruction(
+    outputKind,
+    goalInstruction,
+    view,
+    structuredJsonKeys.length > 0 ? structuredJsonKeys : undefined,
+  );
   for (const chunk of range) {
     const userText = chunkModelInput(view, chunk);
     const first = await modelCall({ instruction, userText, goal: goalInstruction });
@@ -352,6 +465,20 @@ export async function executeAttachmentAnalyzer(
     merged.rows.push(...output.rows);
     merged.findings.push(...output.findings);
     merged.textParts.push(...output.textParts);
+    // Structured sections merge with dedupe (a resource named in
+    // several chunks is one resource; the same remediation proposed
+    // twice is one action). Order is first-seen order.
+    for (const resource of output.resources) {
+      const key = `${resource.kind}|${resource.name}|${resource.namespace}`;
+      if (!merged.resources.some((existing) => `${existing.kind}|${existing.name}|${existing.namespace}` === key)) {
+        merged.resources.push(resource);
+      }
+    }
+    for (const remediation of output.remediations) {
+      if (!merged.remediations.some((existing) => existing.action === remediation.action)) {
+        merged.remediations.push(remediation);
+      }
+    }
   }
 
   if (isFinalStep && outputKind === 'rows') {
@@ -387,6 +514,11 @@ export async function executeAttachmentAnalyzer(
     outputKind,
     ...(outputKind === 'rows' ? { rows: merged.rows } : {}),
     ...(outputKind === 'findings' ? { findings: merged.findings } : {}),
+    // Structured sections ride the bundle only when the plan asked
+    // for them; other runs keep the previous bundle shape.
+    ...(outputKind === 'findings' && structuredJsonKeys.length > 0
+      ? { resources: merged.resources, remediations: merged.remediations }
+      : {}),
     ...(outputKind === 'rows' && Object.keys(view.aggregates).length > 0 ? { aggregates: view.aggregates } : {}),
     coverage: {
       totalChunks: view.totalChunks,

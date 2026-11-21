@@ -12,7 +12,13 @@ import { generateArtifactV12Async, type ArtifactType } from '../artifacts/artifa
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
-import { executeAttachmentAnalyzer, executeAttachmentReader } from './agentAttachmentTools.js';
+import {
+  executeAttachmentAnalyzer,
+  executeAttachmentReader,
+  parseAgentDataRemediations,
+  parseAgentDataResources,
+  AGENT_FINDING_SEVERITIES,
+} from './agentAttachmentTools.js';
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer';
 export type ToolParams = Record<string, unknown>;
@@ -106,6 +112,173 @@ export function looksLikeCode(value: string): boolean {
   return true;
 }
 
+/**
+ * Structured-JSON documents (agent file-input foundation F5, first
+ * shape; design AGENT_ARTIFACT_FORMAT_DESIGN_2026-11-21 §3.3). When
+ * a goal specifies a JSON deliverable with required top-level keys,
+ * the document step assembles the file deterministically from the
+ * analyzer's bundle — never from the model's free text, and never
+ * through the V12 generator, which has no JSON type.
+ *
+ * The key-to-section table is the generic vocabulary of a structured
+ * analysis report (not task-specific): root_causes from the typed
+ * findings, affected_resources from the named resources,
+ * remediation_plan from the proposed remediations, a summary composed
+ * from the findings, and incident_metadata with safe_to_rollback
+ * defaulting to false (unjudged rollback is never claimed safe). A
+ * required key outside the table is present with a null value, so
+ * the format gate (keys present) still holds while the missing
+ * content stays visible as a gap rather than invented text.
+ */
+const AGENT_JSON_TOP_LEVEL_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_AGENT_JSON_TOP_LEVEL_KEYS = 12;
+const MAX_AGENT_JSON_CHARS = 120_000;
+const SAFE_AGENT_JSON_FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+const MAX_AGENT_JSON_FILENAME_CHARS = 120;
+
+export function isSafeAgentJsonFilename(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length <= MAX_AGENT_JSON_FILENAME_CHARS
+    && SAFE_AGENT_JSON_FILENAME_PATTERN.test(value);
+}
+
+function composeAgentJsonSummary(findings: readonly { claim: string }[]): string {
+  if (findings.length === 0) return 'No root causes were identified from the attached data.';
+  const listed = findings.map((finding) => finding.claim.trim()).filter(Boolean).slice(0, 10).join(' ');
+  return `Identified ${findings.length} root cause${findings.length === 1 ? '' : 's'}: ${listed}`.slice(0, 2000);
+}
+
+export function assembleAgentJsonDocument(
+  bundleText: string,
+  topLevelKeys: readonly unknown[],
+): { ok: true; content: string } | { ok: false; code: string } {
+  if (
+    topLevelKeys.length === 0
+    || topLevelKeys.length > MAX_AGENT_JSON_TOP_LEVEL_KEYS
+    || !topLevelKeys.every((key) => typeof key === 'string' && AGENT_JSON_TOP_LEVEL_KEY_PATTERN.test(key))
+  ) {
+    return { ok: false, code: 'AGENT_DOCUMENT_JSON_KEYS_UNRESOLVED' };
+  }
+  const keys = topLevelKeys as string[];
+  let bundle: unknown;
+  try {
+    bundle = JSON.parse(bundleText) as unknown;
+  } catch {
+    return { ok: false, code: 'AGENT_DOCUMENT_JSON_INVALID' };
+  }
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+    return { ok: false, code: 'AGENT_DOCUMENT_JSON_INVALID' };
+  }
+  const record = bundle as Record<string, unknown>;
+  if (record.kind !== 'data-analysis' || record.outputKind !== 'findings' || !Array.isArray(record.findings)) {
+    return { ok: false, code: 'AGENT_DOCUMENT_JSON_INVALID' };
+  }
+  const findings = (record.findings as unknown[]).filter(
+    (finding): finding is Record<string, unknown> =>
+      Boolean(finding) && typeof finding === 'object' && !Array.isArray(finding)
+      && typeof (finding as Record<string, unknown>).claim === 'string'
+      && ((finding as Record<string, unknown>).claim as string).trim().length > 0,
+  );
+  if (keys.includes('root_causes') && findings.length === 0) {
+    return { ok: false, code: 'AGENT_DOCUMENT_JSON_INVALID' };
+  }
+  const report: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key === 'root_causes') {
+      report[key] = findings.map((finding) => {
+        const type = typeof finding.type === 'string' && finding.type.trim()
+          ? finding.type.trim().slice(0, 80)
+          : 'finding';
+        const severity = typeof finding.severity === 'string' && AGENT_FINDING_SEVERITIES.includes(finding.severity)
+          ? finding.severity
+          : 'medium';
+        const evidence = typeof finding.evidence === 'string' && finding.evidence.trim()
+          ? [finding.evidence.trim()]
+          : [];
+        return { type, severity, description: (finding.claim as string).trim(), evidence };
+      });
+    } else if (key === 'affected_resources') {
+      report[key] = parseAgentDataResources(record.resources);
+    } else if (key === 'remediation_plan') {
+      report[key] = parseAgentDataRemediations(record.remediations);
+    } else if (key === 'summary') {
+      report[key] = composeAgentJsonSummary(findings as { claim: string }[]);
+    } else if (key === 'incident_metadata') {
+      report[key] = { safe_to_rollback: false };
+    } else {
+      report[key] = null;
+    }
+  }
+  const content = JSON.stringify(report, null, 2);
+  if (content.length > MAX_AGENT_JSON_CHARS) return { ok: false, code: 'AGENT_DOCUMENT_JSON_TOO_LARGE' };
+  return { ok: true, content };
+}
+
+/** The V12 extension for each document format, for the file-name
+ * override check below. */
+const DOCUMENT_FORMAT_EXTENSIONS: Record<string, string> = {
+  markdown: 'md',
+  csv: 'csv',
+  pdf: 'pdf',
+  docx: 'docx',
+  xlsx: 'xlsx',
+  pptx: 'pptx',
+};
+
+/**
+ * A goal-specified file name for a V12 format: a safe basename whose
+ * extension matches the generated format. Anything else is not a
+ * name this step may use (a mismatched extension would mislabel the
+ * bytes), so the caller fails closed instead of overriding.
+ */
+function agentOutputFilenameOverride(value: unknown, format: string): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 120) return null;
+  if (value.includes('/') || value.includes('\\') || value.includes('..')) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) return null;
+  const ext = DOCUMENT_FORMAT_EXTENSIONS[format];
+  if (!ext || !value.toLowerCase().endsWith(`.${ext}`)) return null;
+  return value;
+}
+
+async function executeAgentJsonDocument(params: ToolParams): Promise<ToolResult> {
+  const filename = params.outputFilename;
+  if (!isSafeAgentJsonFilename(filename)) {
+    return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+  }
+  const keys = params.jsonTopLevelKeys;
+  if (!Array.isArray(keys)) {
+    return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_JSON_KEYS_UNRESOLVED' };
+  }
+  const bundleText = typeof params.content === 'string' ? params.content : '';
+  if (!bundleText.trim()) {
+    return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_JSON_INVALID' };
+  }
+  const assembled = assembleAgentJsonDocument(bundleText, keys);
+  if (assembled.ok === false) {
+    return { ok: false, tool: 'document_generator', message: assembled.code };
+  }
+  if (containsLikelySecret(assembled.content)) {
+    return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_CONTENT_BLOCKED' };
+  }
+  // bytes/sha256 are computed from the exact content string carried
+  // in the envelope, so the declared values always reproduce the
+  // delivered content (the K8s deliverable's 225-byte envelope
+  // mismatch cannot recur through this path).
+  const bytes = Buffer.from(assembled.content, 'utf8');
+  const artifact = JSON.stringify({
+    kind: 'document',
+    format: 'json',
+    filename,
+    mimeType: 'application/json; charset=utf-8',
+    bytes: bytes.length,
+    sha256: sha256(assembled.content),
+    verified: true,
+    verification: ['non-empty', 'utf8-text', 'json-valid', 'json-keys'],
+    content: assembled.content,
+  });
+  return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${bytes.length} bytes).` };
+}
+
 const registry: Record<ToolName, ToolDefinition> = {
   code_interpreter: {
     name: 'code_interpreter',
@@ -177,6 +350,11 @@ const registry: Record<ToolName, ToolDefinition> = {
       if (params.dataGrounded === true && !(typeof params.content === 'string' && params.content.trim())) {
         return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
       }
+      // Structured-JSON deliverables assemble from the analyzer bundle
+      // instead of going through the V12 generator (which has no JSON
+      // type); the raw bundle reaches this step via contentFromStep
+      // (advancer raw resolution for structured document steps).
+      if (formatValue === 'json') return executeAgentJsonDocument(params);
       const title = textParam(params, 'title').trim().slice(0, 120) || '文書';
       const content = composeDocumentContent(params, title);
       if (!content.trim()) return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
@@ -185,10 +363,22 @@ const registry: Record<ToolName, ToolDefinition> = {
       if (!generated.verified) {
         return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_VERIFICATION_FAILED' };
       }
+      // A goal-specified file name replaces the title-derived V12
+      // name when its extension matches the generated format; a
+      // mismatched or unsafe name fails closed instead of mislabeling
+      // the bytes.
+      let filename = generated.filename;
+      if (params.outputFilename !== undefined) {
+        const override = agentOutputFilenameOverride(params.outputFilename, generated.type);
+        if (override === null) {
+          return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
+        }
+        filename = override;
+      }
       const artifact = JSON.stringify({
         kind: 'document',
         format: generated.type,
-        filename: generated.filename,
+        filename,
         mimeType: generated.mimeType,
         bytes: generated.bytes.length,
         sha256: generated.sha256,
@@ -196,7 +386,7 @@ const registry: Record<ToolName, ToolDefinition> = {
         verification: generated.verification,
         ...(generated.type === 'markdown' ? { content } : {}),
       });
-      return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${generated.filename}, ${generated.bytes.length} bytes).` };
+      return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${generated.bytes.length} bytes).` };
     },
   },
   web_search_grounding: {
