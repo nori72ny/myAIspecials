@@ -1,5 +1,11 @@
 import type { OriginExecutionPolicy } from "../lib/orchestration/OriginExecutionPolicy.js";
-import { detectSensitiveInput, type SensitiveInputKind } from "../lib/orchestration/SensitiveInputDetector.js";
+import {
+  canonicalizeSensitiveInput,
+  detectSensitiveInput,
+  findSensitiveInputSpans,
+  type SensitiveInputKind,
+  type SensitiveInputSpan,
+} from "../lib/orchestration/SensitiveInputDetector.js";
 import type { OriginChatMessage } from "./originProviderClient.js";
 import { enterActiveContext } from "../lib/orchestration/activeContextRequestStore.js";
 
@@ -40,6 +46,120 @@ export function detectSensitiveConversation(messages: OriginChatMessage[]): Sens
     for (const kind of detection.kinds) if (kind !== "credential-term") kinds.add(kind);
   }
   return Array.from(kinds);
+}
+
+/** Fixed, content-free replacement for a redacted sensitive span. */
+export const SENSITIVE_INPUT_REDACTION_TOKEN = "[redacted]";
+
+export interface OriginConversationScreenResult {
+  outcome: "clean" | "sanitized" | "blocked";
+  /**
+   * Kinds to report when the outcome is "blocked". Identical to
+   * detectSensitiveConversation over the original messages, so a blocked
+   * response is unchanged from the pre-S-1 behavior.
+   */
+  sensitiveKinds: SensitiveInputKind[];
+  /**
+   * The single outbound copy every downstream consumer must use. For
+   * "clean" and "blocked" this is the input array itself; for
+   * "sanitized" it is a copy whose assistant-turn sensitive spans were
+   * replaced on their canonicalized form. The caller's stored/displayed
+   * conversation is never modified.
+   */
+  messages: OriginChatMessage[];
+  /** Kinds redacted from assistant turns (populated only for "sanitized"). */
+  redactedKinds: SensitiveInputKind[];
+  /** Number of replaced segments (populated only for "sanitized"). */
+  redactionCount: number;
+}
+
+function redactSensitiveSpans(canonicalContent: string, spans: readonly SensitiveInputSpan[]): { text: string; count: number } {
+  const sorted = [...spans].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: { start: number; end: number }[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      if (span.end > last.end) last.end = span.end;
+    } else {
+      merged.push({ start: span.start, end: span.end });
+    }
+  }
+  let text = "";
+  let cursor = 0;
+  for (const segment of merged) {
+    text += canonicalContent.slice(cursor, segment.start) + SENSITIVE_INPUT_REDACTION_TOKEN;
+    cursor = segment.end;
+  }
+  text += canonicalContent.slice(cursor);
+  return { text, count: merged.length };
+}
+
+/**
+ * S-1b (INTENT_I5_DESIGN_2026-11-22 §5; security review 2026-11-22 §3):
+ * the structured conversation screen shared by the chat, streaming, and
+ * research routers so every send path applies one policy.
+ *
+ * - "blocked": a hit is attributable to a user turn, or cannot be fully
+ *   explained by spans inside individual assistant messages (split hits
+ *   across messages — above all across a user/assistant boundary — are
+ *   never redacted). The caller answers 422 exactly as before.
+ * - "sanitized": every hit came from assistant turns and each was fully
+ *   replaced on the canonicalized send copy; the copy was then
+ *   re-screened end to end and came back clean. If re-screening still
+ *   detects anything, the outcome is "blocked" instead (fail closed).
+ * - "clean": nothing detected; the input is used as-is.
+ *
+ * credential-term keeps its existing treatment: it blocks in user turns
+ * and is not a blocking kind in assistant turns, so it is never redacted.
+ */
+export function screenConversationForSend(messages: OriginChatMessage[]): OriginConversationScreenResult {
+  const baselineKinds = detectSensitiveConversation(messages);
+  if (baselineKinds.length === 0) {
+    return { outcome: "clean", sensitiveKinds: [], messages, redactedKinds: [], redactionCount: 0 };
+  }
+  const blocked: OriginConversationScreenResult = {
+    outcome: "blocked",
+    sensitiveKinds: baselineKinds,
+    messages,
+    redactedKinds: [],
+    redactionCount: 0,
+  };
+
+  // Any hit inside a user turn blocks, unchanged from the pre-S-1 policy.
+  for (const message of messages) {
+    if (message.role === "user" && detectSensitiveInput(message.content).containsSensitiveInput) {
+      return blocked;
+    }
+  }
+
+  let redactionCount = 0;
+  const redactedKinds = new Set<SensitiveInputKind>();
+  const sendCopy = messages.map((message) => {
+    if (message.role === "user") return message;
+    const spans = findSensitiveInputSpans(message.content).filter((span) => span.kind !== "credential-term");
+    if (spans.length === 0) return message;
+    const redacted = redactSensitiveSpans(canonicalizeSensitiveInput(message.content), spans);
+    redactionCount += redacted.count;
+    for (const span of spans) redactedKinds.add(span.kind);
+    return { role: message.role, content: redacted.text };
+  });
+  // No redactable span anywhere: the baseline hit is only visible to the
+  // cross-message stream checks (a split secret), which redaction cannot
+  // safely remove.
+  if (redactionCount === 0) return blocked;
+
+  // Fail-closed verification of the final outbound copy: split hits,
+  // boundary artifacts of the replacement, or anything missed above keep
+  // the 422 rather than letting a value leave.
+  if (detectSensitiveConversation(sendCopy).length > 0) return blocked;
+
+  return {
+    outcome: "sanitized",
+    sensitiveKinds: [],
+    messages: sendCopy,
+    redactedKinds: Array.from(redactedKinds),
+    redactionCount,
+  };
 }
 
 export function originClientPolicy(body: OriginChatBody): Partial<OriginExecutionPolicy> | undefined {

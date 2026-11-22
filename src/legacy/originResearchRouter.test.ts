@@ -197,6 +197,33 @@ describe("originResearchRouter", () => {
     expect(researchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not block a freshness query over an assistant-turn address (S-1b: history is never sent externally)", async () => {
+    researchMock.mockResolvedValue({ ok: true, sources: [{ title: "Evidence", url: "https://en.wikipedia.org/wiki/AI", excerpt: "Retrieved evidence.", evidenceLevel: "page-verified", freshness: "unknown", retrievedAt: "2026-09-10T00:00:00Z" }] });
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter());
+    const response = await request(app).post("/api/chat").send({ messages: [
+      { role: "user", content: "メールの下書きを作ってください" },
+      { role: "assistant", content: "下書きです。連絡先は nori@sample.co.jp です。" },
+      { role: "user", content: "AIの最新情報を教えて" },
+    ] });
+    expect(response.status).toBe(200);
+    expect(researchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks a freshness query when a user turn in the history carries a secret (S-1b)", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter());
+    const response = await request(app).post("/api/chat").send({ messages: [
+      { role: "user", content: "連絡先は nori@sample.co.jp です" },
+      { role: "user", content: "AIの最新情報を教えて" },
+    ] });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED");
+    expect(researchMock).not.toHaveBeenCalled();
+  });
+
   it("blocks sensitive freshness queries before any external research call", async () => {
     const app = express();
     app.use(express.json());

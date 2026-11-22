@@ -66,9 +66,9 @@ import {
 import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureShapeV1.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
-  detectSensitiveConversation,
   isOriginWeatherRequest,
   originClientPolicy,
+  screenConversationForSend,
   type OriginChatBody,
   validateOriginChatMessages,
 } from "./originChatValidation.js";
@@ -131,14 +131,18 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     if (!messages || messages.at(-1)?.role !== "user") return next();
 
     const lastUserMessage = messages.at(-1)?.content ?? "";
+    // S-1b: the shared structured screen decides. A blocked screen keeps
+    // delegating to the non-streaming router, which answers the same 422;
+    // a sanitized screen continues here on the single redacted copy.
+    const screenResult = screenConversationForSend(messages);
     if (isOriginWeatherRequest(lastUserMessage)
       || isOriginCapabilityQuestion(lastUserMessage)
       || requiresGroundedResearch(lastUserMessage, env)
-      || detectSensitiveConversation(messages).length > 0) {
+      || screenResult.outcome === "blocked") {
       return next();
     }
 
-    const contextResult = minimizeOriginContext(messages, contextPolicy);
+    const contextResult = minimizeOriginContext(screenResult.messages, contextPolicy);
     if (contextResult.ok === false) return next();
 
     const planningResult = buildOriginExecutionPlan(
@@ -156,6 +160,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
 
     const requestId = createRequestId();
     const startedAt = now();
+    if (screenResult.outcome === "sanitized") console.info("[origin-chat] sensitive input redacted from assistant history", { requestId, sensitiveKinds: screenResult.redactedKinds, redactionCount: screenResult.redactionCount, attribution: "assistant" });
     let downstreamStarted = false;
     let providerDeltaCount = 0;
     // Stage timing (speed measurement 2026-11-16): when the first answer
