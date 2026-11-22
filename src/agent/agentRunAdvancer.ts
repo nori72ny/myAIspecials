@@ -23,6 +23,7 @@ import {
   type AgentRunPlanStep,
   type AgentRunQuotaLedger,
   type AgentRunRecord,
+  type AgentRunStepCoverageFailure,
   type AgentRunStepLiveDetail,
   type AgentRunStepState,
   type AgentRunStore,
@@ -320,9 +321,11 @@ function liveSourcesFromArtifact(artifact: string | undefined): NonNullable<Agen
  * detail (returning undefined) rather than the step's progress write.
  * Timestamps are recorded for every step; the query and sources only
  * for research steps — the query actually executed and the pages it
- * actually returned; and for an attachment_analyzer step whose tool
+ * actually returned; for an attachment_analyzer step whose tool
  * failed output validation, the failing chunk's index and the
- * parse-failure reason token (Basel observability). Prompts,
+ * parse-failure reason token (Basel observability); and for one
+ * that failed coverage verification, the failure's scope and
+ * breakdown counts (Basel segment-2 observability). Prompts,
  * credentials, response bodies and tool internals never enter the
  * record through here.
  */
@@ -348,6 +351,41 @@ export function parseFailureFromAnalyzerMessage(
   return { chunkIndex, reason: match[2] };
 }
 
+/**
+ * The analyzer's coverage failure message carries its breakdown in
+ * a fixed machine-readable parenthetical (Basel segment-2
+ * observability, 案3 in AGENT_BASEL_SEGMENT2_COVERAGE_DIAGNOSIS_
+ * 2026-11-23) — the same pattern as the parse failure above. The
+ * human-readable counts ahead of it are for operators; only the
+ * parenthetical is read here, and anything that does not match the
+ * fixed shape contributes nothing. The record normalizer re-checks
+ * every value's shape and caps before it is stored.
+ */
+const ANALYZER_COVERAGE_FAILURE_PATTERN = /AGENT_DATA_COVERAGE_INSUFFICIENT.*?\(coverage: scope=(final|local)(?:, range=(\d+)\+(\d+))?, expected=(\d+), covered=(\d+), missing=(\d+), duplicated=(\d+), unexpected=(\d+), numericMismatch=([^)]*)\)/;
+
+export function coverageFailureFromAnalyzerMessage(
+  message: string | undefined,
+): AgentRunStepCoverageFailure | undefined {
+  if (!message) return undefined;
+  const match = ANALYZER_COVERAGE_FAILURE_PATTERN.exec(message);
+  if (!match) return undefined;
+  const numericMismatch = match[9] ? match[9].split('|').filter((name) => name.length > 0) : [];
+  const failure: AgentRunStepCoverageFailure = {
+    scope: match[1] as 'final' | 'local',
+    expected: Number(match[4]),
+    covered: Number(match[5]),
+    missing: Number(match[6]),
+    duplicated: Number(match[7]),
+    unexpected: Number(match[8]),
+    numericMismatch,
+  };
+  if (match[2] !== undefined && match[3] !== undefined) {
+    failure.chunkOffset = Number(match[2]);
+    failure.chunkCount = Number(match[3]);
+  }
+  return failure;
+}
+
 export function buildStepLiveDetail(input: {
   toolName: ToolName;
   params: ToolParams;
@@ -355,9 +393,11 @@ export function buildStepLiveDetail(input: {
   startedAt: number;
   finishedAt: number;
   /** The tool failure message, when the step's tool returned
-   * `ok: false`. Only an attachment_analyzer's output-invalid
-   * message is read, and only for its chunk index and reason token
-   * — the body of any model response never enters the record. */
+   * `ok: false`. Only an attachment_analyzer's output-invalid and
+   * coverage failure messages are read, and only for their fixed
+   * parentheticals (the chunk index and reason token; the coverage
+   * scope, range and counts) — the body of any model response
+   * never enters the record. */
   failureMessage?: string;
 }): AgentRunStepLiveDetail | undefined {
   try {
@@ -365,6 +405,8 @@ export function buildStepLiveDetail(input: {
     if (input.toolName === 'attachment_analyzer') {
       const parseFailure = parseFailureFromAnalyzerMessage(input.failureMessage);
       if (parseFailure) detail.parseFailure = parseFailure;
+      const coverageFailure = coverageFailureFromAnalyzerMessage(input.failureMessage);
+      if (coverageFailure) detail.coverageFailure = coverageFailure;
     }
     if (input.toolName === 'web_search_grounding') {
       const query = typeof input.params.query === 'string' ? input.params.query.trim() : '';

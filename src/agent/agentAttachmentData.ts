@@ -53,6 +53,17 @@ export type AgentDataChunk = {
   index: number;
   fileName: string;
   text: string;
+  /**
+   * Primary-table chunks only (Basel segment-2 fix, diagnosis
+   * AGENT_BASEL_SEGMENT2_COVERAGE_DIAGNOSIS_2026-11-23 案2): the key
+   * values of the rows packed into this chunk, in row order, and the
+   * per-numeric-column sums over those rows. Annotated at view build
+   * from the same parse that produced the chunk text, so the
+   * analyzer verifies a step's output against exactly the rows that
+   * step was shown — never against a second, divergent computation.
+   */
+  rowKeys?: string[];
+  numericSums?: Record<string, number>;
 };
 
 export type AgentDataAggregate = { sum: number; count: number; mean: number };
@@ -70,6 +81,14 @@ export interface AgentAttachmentDataView {
    */
   keyField: string;
   expectedKeys: string[];
+  /**
+   * The primary table's file name, present exactly when the primary
+   * table carries the key column the coverage yardstick is anchored
+   * on. The analyzer's `rows` contract is anchored on it (Basel
+   * segment-2 fix, 案1): rows are extracted from this file's chunks
+   * only; every other file is reference material.
+   */
+  primaryFileName?: string;
   /** Numeric columns of the primary table (the key-bearing one, else
    * the first table), with aggregates recomputed from the input. */
   numericColumns: string[];
@@ -164,20 +183,32 @@ function detectNumericColumns(table: ParsedTable): string[] {
   return numeric;
 }
 
-function chunkTable(name: string, table: ParsedTable, startIndex: number): AgentDataChunk[] {
+function chunkTable(
+  name: string,
+  table: ParsedTable,
+  startIndex: number,
+): { chunks: AgentDataChunk[]; rowIndexesPerChunk: number[][] } {
   const headerLine = table.rowLines.length > 0
     ? tableHeaderLine(table)
     : '';
   const chunks: AgentDataChunk[] = [];
+  const rowIndexesPerChunk: number[][] = [];
   let current: string[] = [];
+  let currentRowIndexes: number[] = [];
   let currentChars = 0;
   const flush = () => {
     if (current.length === 0) return;
     chunks.push({ index: startIndex + chunks.length, fileName: name, text: [headerLine, ...current].join('\n') });
+    rowIndexesPerChunk.push(currentRowIndexes);
     current = [];
+    currentRowIndexes = [];
     currentChars = 0;
   };
-  for (const line of table.rowLines) {
+  // rowLines[i] and rows[i] are the same kept row (both were filtered
+  // by the same column-consistency predicate), so the index packed
+  // here identifies the parsed row a chunk line came from.
+  for (let rowIndex = 0; rowIndex < table.rowLines.length; rowIndex += 1) {
+    const line = table.rowLines[rowIndex];
     let projected = currentChars + (current.length > 0 ? 1 : 0) + line.length;
     if (current.length > 0 && headerLine.length + 1 + projected > AGENT_ATTACHMENT_CHUNK_MAX_CHARS) {
       flush();
@@ -186,10 +217,11 @@ function chunkTable(name: string, table: ParsedTable, startIndex: number): Agent
       projected = line.length;
     }
     current.push(line);
+    currentRowIndexes.push(rowIndex);
     currentChars = projected;
   }
   flush();
-  return chunks;
+  return { chunks, rowIndexesPerChunk };
 }
 
 function tableHeaderLine(table: ParsedTable): string {
@@ -232,6 +264,7 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
   const profiles: AgentDataFileProfile[] = [];
   const chunks: AgentDataChunk[] = [];
   const tables = new Map<string, { table: ParsedTable; key: { index: number; name: string } | null; numeric: string[] }>();
+  const tableChunkRowIndexes = new Map<string, Map<number, number[]>>();
 
   for (const file of files) {
     const table = parseTable(file.text);
@@ -248,7 +281,11 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
         ...(key ? { keyColumn: key.name } : {}),
         ...(numeric.length > 0 ? { numericColumns: numeric } : {}),
       });
-      chunks.push(...chunkTable(file.name, table, chunks.length));
+      const packed = chunkTable(file.name, table, chunks.length);
+      chunks.push(...packed.chunks);
+      const perChunk = new Map<number, number[]>();
+      packed.chunks.forEach((chunk, position) => perChunk.set(chunk.index, packed.rowIndexesPerChunk[position]));
+      tableChunkRowIndexes.set(file.name, perChunk);
     } else {
       profiles.push({ name: file.name, kind: 'prose', charCount: file.text.length });
       chunks.push(...chunkProse(file.name, file.text, chunks.length));
@@ -282,7 +319,45 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
     }
   }
 
-  return { files: profiles, chunks, totalChunks: chunks.length, keyField, expectedKeys, numericColumns, aggregates };
+  // Chunk-local yardsticks for the primary table (Basel segment-2
+  // fix, 案2): each primary chunk is annotated with the key values
+  // of the rows packed into it and the per-column sums over those
+  // rows, taken from the same parse that produced the chunk text.
+  let primaryFileName: string | undefined;
+  if (primary?.key && primaryName) {
+    primaryFileName = primaryName;
+    const primaryTable = primary.table;
+    const keyColumnIndex = primary.key.index;
+    const perChunk = tableChunkRowIndexes.get(primaryName);
+    for (const chunk of chunks) {
+      if (chunk.fileName !== primaryName) continue;
+      const rowIndexes = perChunk?.get(chunk.index) ?? [];
+      chunk.rowKeys = rowIndexes.map((rowIndex) => primaryTable.rows[rowIndex][keyColumnIndex]);
+      const sums: Record<string, number> = {};
+      for (const columnName of numericColumns) {
+        const columnIndex = primaryTable.header.indexOf(columnName);
+        if (columnIndex < 0) continue;
+        let sum = 0;
+        for (const rowIndex of rowIndexes) {
+          const value = parseNumericCell(primaryTable.rows[rowIndex][columnIndex]);
+          if (value !== null) sum += value;
+        }
+        sums[columnName] = sum;
+      }
+      chunk.numericSums = sums;
+    }
+  }
+
+  return {
+    files: profiles,
+    chunks,
+    totalChunks: chunks.length,
+    keyField,
+    expectedKeys,
+    ...(primaryFileName ? { primaryFileName } : {}),
+    numericColumns,
+    aggregates,
+  };
 }
 
 export type AgentDataRow = Record<string, string>;
@@ -312,19 +387,33 @@ export function verifyAgentDataCoverage(
   view: AgentAttachmentDataView,
   rows: readonly AgentDataRow[],
 ): AgentDataCoverageResult {
+  return verifyCoverageAgainstYardstick(view, rows);
+}
+
+type AgentDataCoverageYardstick = {
+  keyField: string;
+  expectedKeys: readonly string[];
+  numericColumns: readonly string[];
+  aggregates: Readonly<Record<string, AgentDataAggregate>>;
+};
+
+function verifyCoverageAgainstYardstick(
+  yardstick: AgentDataCoverageYardstick,
+  rows: readonly AgentDataRow[],
+): AgentDataCoverageResult {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    const key = row[view.keyField];
+    const key = row[yardstick.keyField];
     if (typeof key === 'string' && key.length > 0) counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const expected = new Set(view.expectedKeys);
-  const missing = view.expectedKeys.filter((key) => !counts.has(key));
+  const expected = new Set(yardstick.expectedKeys);
+  const missing = yardstick.expectedKeys.filter((key) => !counts.has(key));
   const duplicated = [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
   const unexpected = [...counts.keys()].filter((key) => !expected.has(key));
 
   const numericMismatch: string[] = [];
-  for (const columnName of view.numericColumns) {
-    const aggregate = view.aggregates[columnName];
+  for (const columnName of yardstick.numericColumns) {
+    const aggregate = yardstick.aggregates[columnName];
     if (!aggregate) continue;
     let outputSum = 0;
     let seen = 0;
@@ -345,12 +434,53 @@ export function verifyAgentDataCoverage(
   return {
     ok: false,
     expected: expected.size,
-    covered: view.expectedKeys.filter((key) => counts.get(key) === 1).length,
+    covered: yardstick.expectedKeys.filter((key) => counts.get(key) === 1).length,
     missing,
     duplicated,
     unexpected,
     numericMismatch,
   };
+}
+
+/**
+ * The chunk-local coverage verification (Basel segment-2 fix, 案2):
+ * the same all-or-nothing judgment as verifyAgentDataCoverage, taken
+ * against the yardstick of one step's primary-table chunks — the
+ * keys packed into those chunks, each exactly once, and the
+ * per-column sums over their rows. Until now only the final step
+ * verified anything, over the whole merged chain: the segment
+ * holding every target row passed unverified and a shortfall
+ * surfaced one segment later, in a step whose range held no target
+ * at all, with no way to attribute it. A step that completes
+ * primary-table chunks now answers for exactly those chunks; the
+ * final whole-set verification above remains the last gate and its
+ * meaning is unchanged.
+ */
+export function verifyAgentDataLocalCoverage(
+  view: AgentAttachmentDataView,
+  chunks: readonly AgentDataChunk[],
+  rows: readonly AgentDataRow[],
+): AgentDataCoverageResult {
+  const expectedKeys: string[] = [];
+  let rowCount = 0;
+  for (const chunk of chunks) {
+    expectedKeys.push(...(chunk.rowKeys ?? []));
+    rowCount += chunk.rowKeys?.length ?? 0;
+  }
+  const aggregates: Record<string, AgentDataAggregate> = {};
+  for (const columnName of view.numericColumns) {
+    let sum = 0;
+    let present = false;
+    for (const chunk of chunks) {
+      const chunkSum = chunk.numericSums?.[columnName];
+      if (typeof chunkSum === 'number') { sum += chunkSum; present = true; }
+    }
+    if (present) aggregates[columnName] = { sum, count: rowCount, mean: rowCount > 0 ? sum / rowCount : 0 };
+  }
+  return verifyCoverageAgainstYardstick(
+    { keyField: view.keyField, expectedKeys, numericColumns: view.numericColumns, aggregates },
+    rows,
+  );
 }
 
 /**

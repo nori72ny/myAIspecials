@@ -232,12 +232,40 @@ export type AgentRunStepParseFailure = {
   reason: string;
 };
 
+/**
+ * Why an attachment_analyzer step failed the deterministic coverage
+ * verification (Basel segment-2 observability, 案3 in
+ * AGENT_BASEL_SEGMENT2_COVERAGE_DIAGNOSIS_2026-11-23): the scope of
+ * the yardstick that failed — `local` (the step's own primary-table
+ * chunk range) or `final` (the whole merged chain at the last
+ * step) — the step's chunk range for a local failure, and the
+ * breakdown: how many keys were expected and covered, how many were
+ * missing, duplicated or unexpected, and the names of the numeric
+ * columns whose sums disagreed. Counts and column names only — key
+ * values and row data never enter the record, exactly like the rest
+ * of the live detail. The breakdown is computed deterministically
+ * by the analyzer; the normalizer below validates shapes and caps,
+ * in the fail-soft style of this module.
+ */
+export type AgentRunStepCoverageFailure = {
+  scope: 'final' | 'local';
+  chunkOffset?: number;
+  chunkCount?: number;
+  expected: number;
+  covered: number;
+  missing: number;
+  duplicated: number;
+  unexpected: number;
+  numericMismatch: string[];
+};
+
 export type AgentRunStepLiveDetail = {
   startedAt?: number;
   finishedAt?: number;
   query?: string;
   sources?: AgentRunStepLiveSource[];
   parseFailure?: AgentRunStepParseFailure;
+  coverageFailure?: AgentRunStepCoverageFailure;
 };
 
 /** Per-step progress. Status vocabulary matches the agent task graph. */
@@ -731,6 +759,63 @@ function normalizeAgentRunStepParseFailure(value: unknown): AgentRunStepParseFai
   return { chunkIndex: Number(chunkIndex), reason };
 }
 
+/** Upper bound for a recorded coverage count. The counts are
+ * deterministic tallies over a run's key space, itself bounded by
+ * the attachment caps; anything beyond is not a count this system
+ * produced, and the field carrying it is dropped — fail-soft, like
+ * the rest of the live detail. */
+const MAX_LIVE_COVERAGE_COUNT = 1_000_000;
+/** Numeric columns a coverage breakdown may name. A table's numeric
+ * columns are bounded by its header width; the cap keeps a malformed
+ * record from smuggling an unbounded list into the step state. */
+const MAX_LIVE_COVERAGE_NUMERIC_COLUMNS = 8;
+
+function normalizeLiveCoverageCount(value: unknown): number | undefined {
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > MAX_LIVE_COVERAGE_COUNT) return undefined;
+  return Number(value);
+}
+
+function normalizeAgentRunStepCoverageFailure(value: unknown): AgentRunStepCoverageFailure | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { scope, chunkOffset, chunkCount, expected, covered, missing, duplicated, unexpected, numericMismatch } = value;
+  if (scope !== 'final' && scope !== 'local') return undefined;
+  const expectedCount = normalizeLiveCoverageCount(expected);
+  const coveredCount = normalizeLiveCoverageCount(covered);
+  const missingCount = normalizeLiveCoverageCount(missing);
+  const duplicatedCount = normalizeLiveCoverageCount(duplicated);
+  const unexpectedCount = normalizeLiveCoverageCount(unexpected);
+  if (
+    expectedCount === undefined
+    || coveredCount === undefined
+    || missingCount === undefined
+    || duplicatedCount === undefined
+    || unexpectedCount === undefined
+  ) {
+    return undefined;
+  }
+  if (!Array.isArray(numericMismatch)) return undefined;
+  const columns: string[] = [];
+  for (const raw of numericMismatch) {
+    if (columns.length >= MAX_LIVE_COVERAGE_NUMERIC_COLUMNS) break;
+    const name = truncateLiveText(raw, 80);
+    if (name !== undefined) columns.push(name);
+  }
+  const failure: AgentRunStepCoverageFailure = {
+    scope,
+    expected: expectedCount,
+    covered: coveredCount,
+    missing: missingCount,
+    duplicated: duplicatedCount,
+    unexpected: unexpectedCount,
+    numericMismatch: columns,
+  };
+  const offset = normalizeLiveCoverageCount(chunkOffset);
+  if (offset !== undefined) failure.chunkOffset = offset;
+  const count = normalizeLiveCoverageCount(chunkCount);
+  if (count !== undefined) failure.chunkCount = count;
+  return failure;
+}
+
 function normalizeLiveTimestamp(value: unknown): number | undefined {
   if (!Number.isFinite(value) || Number(value) <= 0 || Number(value) > MAX_LIVE_TIMESTAMP_MS) return undefined;
   return Math.floor(Number(value));
@@ -755,6 +840,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (query !== undefined) detail.query = query;
   const parseFailure = normalizeAgentRunStepParseFailure(value.parseFailure);
   if (parseFailure !== undefined) detail.parseFailure = parseFailure;
+  const coverageFailure = normalizeAgentRunStepCoverageFailure(value.coverageFailure);
+  if (coverageFailure !== undefined) detail.coverageFailure = coverageFailure;
   if (Array.isArray(value.sources)) {
     const sources: AgentRunStepLiveSource[] = [];
     for (const raw of value.sources) {

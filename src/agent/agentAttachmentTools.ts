@@ -9,11 +9,13 @@ import {
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
+  verifyAgentDataLocalCoverage,
   AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
   AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS,
   AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP,
   type AgentAttachmentDataView,
   type AgentDataChunk,
+  type AgentDataCoverageResult,
   type AgentDataRow,
 } from './agentAttachmentData.js';
 import { createAgentModelExecutor, type AgentModelCallInput, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
@@ -201,8 +203,21 @@ function analyzerInstruction(
   structuredJsonKeys?: readonly string[],
 ): string {
   const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
+  // The rows contract names its target table when the set has one
+  // (Basel segment-2 fix, 案1): until now nothing told the model
+  // that the schema/sample and reference files in the chunk list
+  // are not extraction targets, so a literal reading of the
+  // instruction made the schema's sample rows — which carry the key
+  // field — a correct answer for their chunk. The provenance frame
+  // already names each chunk's file; this sentence lets the model
+  // use it. The deterministic side of the contract (non-primary
+  // rows are discarded, never merged) is in
+  // executeAttachmentAnalyzer below.
+  const rowsTarget = view.primaryFileName
+    ? `対象はファイル「${view.primaryFileName}」の行だけです。他のファイルは参照用ですので、その行を出力しないでください。`
+    : '';
   const shape = outputKind === 'rows'
-    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
+    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
         // Structured-JSON deliverables (design
@@ -457,6 +472,11 @@ type PriorBundle = ChunkOutput & {
    * coverage block is missing or inconsistent fails that gate
    * closed instead of being trusted. */
   processedChunks?: number;
+  /** The predecessor chain's recorded count of rows discarded under
+   * the primary-table contract (案1), from its artifact coverage
+   * block. Observability only — no gate reads it — so a bundle
+   * written before the count existed simply contributes 0. */
+  discardedRows?: number;
 };
 
 function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view: AgentAttachmentDataView): PriorBundle | null {
@@ -514,6 +534,10 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
     if (typeof processed === 'number' && Number.isInteger(processed) && processed >= 0) {
       prior.processedChunks = processed;
     }
+    const discarded = (coverage as Record<string, unknown>).discardedRows;
+    if (typeof discarded === 'number' && Number.isInteger(discarded) && discarded >= 0) {
+      prior.discardedRows = discarded;
+    }
   }
   return prior;
 }
@@ -524,6 +548,31 @@ function renderFindings(findings: readonly AgentDataFinding[]): string {
     const evidence = finding.evidence ? `「${finding.evidence}」` : '';
     return source || evidence ? `- ${finding.claim}（根拠: ${[source, evidence].filter(Boolean).join(' ')}）` : `- ${finding.claim}`;
   }).join('\n');
+}
+
+export type AgentDataCoverageFailure = Extract<AgentDataCoverageResult, { ok: false }>;
+
+/**
+ * The coverage failure message (Basel segment-2 fix, 案3): the
+ * human-readable counts stay first — the failure code is the
+ * message's leading token and the counts are what an operator
+ * reads — and a fixed machine-readable parenthetical follows,
+ * carrying the same breakdown plus the yardstick's scope and, for
+ * a chunk-local failure, the step's chunk range, so the step
+ * record's live detail can carry the breakdown in the same
+ * "structure out of the message" pattern as the parse-failure
+ * parenthetical. Counts and numeric column names only; key values
+ * and row data never enter the message.
+ */
+export function agentDataCoverageFailureMessage(
+  scope: 'final' | 'local',
+  coverage: AgentDataCoverageFailure,
+  range?: { chunkOffset: number; chunkCount: number },
+): string {
+  const human = `AGENT_DATA_COVERAGE_INSUFFICIENT (対象${coverage.expected}件中${coverage.covered}件を処理、未処理${coverage.missing.length}件、重複${coverage.duplicated.length}件、対象外${coverage.unexpected.length}件、数値不一致${coverage.numericMismatch.length}件)`;
+  const rangePart = range ? `, range=${range.chunkOffset}+${range.chunkCount}` : '';
+  const machine = `(coverage: scope=${scope}${rangePart}, expected=${coverage.expected}, covered=${coverage.covered}, missing=${coverage.missing.length}, duplicated=${coverage.duplicated.length}, unexpected=${coverage.unexpected.length}, numericMismatch=${coverage.numericMismatch.join('|')})`;
+  return `${human} ${machine}`;
 }
 
 /**
@@ -583,11 +632,13 @@ export async function executeAttachmentAnalyzer(
   // file-name-key coverage gate treats null as unverifiable and
   // fails closed.
   let priorProcessedChunks: number | null = chunkOffset === 0 ? 0 : null;
+  let priorDiscardedRows = 0;
   if (typeof params.content === 'string' && params.content.trim().length > 0) {
     const prior = parsePriorBundle(params.content, outputKind, view);
     if (!prior) return fail('AGENT_DATA_OUTPUT_INVALID');
     merged = prior;
     if (typeof prior.processedChunks === 'number') priorProcessedChunks = prior.processedChunks;
+    if (typeof prior.discardedRows === 'number') priorDiscardedRows = prior.discardedRows;
   } else if (chunkOffset > 0) {
     // A continuation step without its predecessor's bundle would
     // silently drop the earlier chunks' work; refuse instead.
@@ -629,6 +680,14 @@ export async function executeAttachmentAnalyzer(
   // one chunk's business). Read from the same env the model executor
   // is built from, so a test's injected env governs both.
   const chunkIntervalOn = agentAnalyzerChunkIntervalEnabled(context?.env ?? process.env);
+  // The primary-table contract's per-step state (Basel segment-2
+  // fix): the rows this step obtained from primary-table chunks —
+  // the chunk-local yardstick's numerator (案2) — and the count of
+  // rows discarded from non-primary chunks (案1). Both stay empty
+  // unless the set's rows yardstick is a real table key.
+  const primaryFileName = view.primaryFileName;
+  const stepPrimaryRows: AgentDataRow[] = [];
+  let discardedRowsThisStep = 0;
   let isFirstChunkOfStep = true;
   for (const chunk of range) {
     if (!isFirstChunkOfStep && chunkIntervalOn) await sleepMs(AGENT_ANALYZER_CHUNK_INTERVAL_MS);
@@ -669,7 +728,24 @@ export async function executeAttachmentAnalyzer(
       output = repairParsed.output;
     }
     if (!output) return fail('AGENT_DATA_OUTPUT_INVALID');
-    merged.rows.push(...output.rows);
+    if (outputKind === 'rows' && primaryFileName !== undefined && chunk.fileName !== primaryFileName) {
+      // Primary-table contract (Basel segment-2 fix, 案1): in a
+      // keyed rows run only the primary table's chunks are
+      // extraction targets. Rows a non-primary chunk produced —
+      // reference-table rows, the output schema's sample rows —
+      // are discarded deterministically instead of being merged,
+      // where they would otherwise surface at the final step as
+      // unexpected keys and numeric mismatches no segment could be
+      // blamed for. The discard is counted, never silent: the
+      // bundle's coverage block carries the chain's total. Rows
+      // the model fabricates inside a primary chunk still fail
+      // coverage exactly as before — the fail-closed judgment is
+      // unchanged inside the primary table's range.
+      discardedRowsThisStep += output.rows.length;
+    } else {
+      merged.rows.push(...output.rows);
+      if (outputKind === 'rows' && primaryFileName !== undefined) stepPrimaryRows.push(...output.rows);
+    }
     merged.findings.push(...output.findings);
     merged.textParts.push(...output.textParts);
     // Structured sections merge with dedupe (a resource named in
@@ -684,6 +760,21 @@ export async function executeAttachmentAnalyzer(
     for (const remediation of output.remediations) {
       if (!merged.remediations.some((existing) => existing.action === remediation.action)) {
         merged.remediations.push(remediation);
+      }
+    }
+  }
+
+  // Chunk-local coverage (Basel segment-2 fix, 案2): a step whose
+  // range completes primary-table chunks must account for exactly
+  // those chunks' keys and numeric subtotals from its own output.
+  // The final whole-set verification below remains the last gate,
+  // unchanged in meaning.
+  if (outputKind === 'rows' && primaryFileName !== undefined) {
+    const primaryChunksInRange = range.filter((chunk) => chunk.fileName === primaryFileName);
+    if (primaryChunksInRange.length > 0) {
+      const localCoverage = verifyAgentDataLocalCoverage(view, primaryChunksInRange, stepPrimaryRows);
+      if (localCoverage.ok === false) {
+        return fail(agentDataCoverageFailureMessage('local', localCoverage, { chunkOffset, chunkCount: range.length }));
       }
     }
   }
@@ -705,7 +796,7 @@ export async function executeAttachmentAnalyzer(
     } else {
       const coverage = verifyAgentDataCoverage(view, merged.rows);
       if (coverage.ok === false) {
-        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${coverage.expected}件中${coverage.covered}件を処理、未処理${coverage.missing.length}件、重複${coverage.duplicated.length}件、対象外${coverage.unexpected.length}件、数値不一致${coverage.numericMismatch.length}件)`);
+        return fail(agentDataCoverageFailureMessage('final', coverage));
       }
     }
   }
@@ -731,6 +822,10 @@ export async function executeAttachmentAnalyzer(
       totalChunks: view.totalChunks,
       processedChunks: chunkOffset + range.length,
       ...(outputKind === 'rows' && !agentDataUsesFileNameKeys(view) ? { keyCount: view.expectedKeys.length } : {}),
+      // Rows discarded under the primary-table contract (案1),
+      // accumulated across the chain so the final bundle keeps the
+      // total observable. Observability only — never a gate.
+      ...(outputKind === 'rows' ? { discardedRows: priorDiscardedRows + discardedRowsThisStep } : {}),
     },
     chunkRange: { offset: chunkOffset, count: range.length },
   });

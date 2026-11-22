@@ -874,3 +874,180 @@ describe('parseChunkOutputDetailed parse-failure reasons (Basel fix D)', () => {
     expect(parseFailureRepairGuidance('text-not-string', 'text', view)).toContain('{"text":"作成した文章"}');
   });
 });
+
+describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () => {
+  async function storeWithFiles(files: ReadonlyArray<readonly [string, string, string]>) {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    for (const [name, text, mediaType] of files) {
+      const measured = validateAgentAttachmentFileText(text);
+      await store.addFile(SET_ID, OWNER, {
+        name,
+        mediaType,
+        kind: 'text',
+        byteSize: measured.byteSize,
+        charCount: measured.charCount,
+        sha256: measured.sha256,
+        extractedText: text,
+      });
+    }
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  const EVENTS = ['Event_ID\tAmount', 'OR001\t100', 'OR002\t200'].join('\n');
+  const SCHEMA = [
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'EXAMPLE001,EL1,BL2,100000',
+    'EXAMPLE002,EL4,BL7,250000',
+  ].join('\n');
+
+  it('discards the output schema sample rows instead of merging them, and names the target file (案1)', async () => {
+    const { store, setDigest } = await storeWithFiles([
+      ['events.tsv', EVENTS, 'text/tab-separated-values'],
+      ['classified.schema.csv', SCHEMA, 'text/csv'],
+    ]);
+    const instructions: string[] = [];
+    // The literal-reading model: real rows for the events chunk, the
+    // sample rows for the schema chunk — the pre-fix trap, which
+    // failed the final coverage deterministically (unexpected keys
+    // plus a numeric mismatch) even with a perfect primary output.
+    const literalExecutor: AgentModelExecutor = async (input) => {
+      instructions.push(input.instruction);
+      if (input.userText.includes('classified.schema.csv')) {
+        return {
+          ok: true,
+          text: JSON.stringify({
+            rows: [
+              { Event_ID: 'EXAMPLE001', Loss_Amount_CNY: '100000' },
+              { Event_ID: 'EXAMPLE002', Loss_Amount_CNY: '250000' },
+            ],
+          }),
+        };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, literalExecutor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      rows: Array<Record<string, string>>;
+      coverage: { keyCount: number; discardedRows: number };
+    };
+    expect(bundle.rows.map((row) => row.Event_ID)).toEqual(['OR001', 'OR002']);
+    expect(bundle.coverage.keyCount).toBe(2);
+    // The discard is counted on the bundle, never silent.
+    expect(bundle.coverage.discardedRows).toBe(2);
+    // The rows instruction names the target table file.
+    expect(instructions[0]).toContain('対象はファイル「events.tsv」の行だけです');
+  });
+
+  it('accumulates the discard count across chained steps (案1)', async () => {
+    const mapping = ['BL_Code\tName', 'BL1\tRetail', 'BL2\tWholesale'].join('\n');
+    const { store, setDigest } = await storeWithFiles([
+      ['events.tsv', EVENTS, 'text/tab-separated-values'],
+      ['classified.schema.csv', SCHEMA, 'text/csv'],
+      ['mapping.tsv', mapping, 'text/tab-separated-values'],
+    ]);
+    const poisonExecutor: AgentModelExecutor = async (input) => {
+      if (input.userText.includes('classified.schema.csv')) {
+        return {
+          ok: true,
+          text: JSON.stringify({
+            rows: [
+              { Event_ID: 'EXAMPLE001', Loss_Amount_CNY: '100000' },
+              { Event_ID: 'EXAMPLE002', Loss_Amount_CNY: '250000' },
+            ],
+          }),
+        };
+      }
+      if (input.userText.includes('mapping.tsv')) {
+        return { ok: true, text: JSON.stringify({ rows: [{ Event_ID: 'OR999', Amount: '1' }] }) };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
+      };
+    };
+    const step1 = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, poisonExecutor),
+    );
+    expect(step1.ok).toBe(true);
+    const bundle1 = JSON.parse(step1.artifact ?? '{}') as { coverage: { discardedRows: number } };
+    expect(bundle1.coverage.discardedRows).toBe(2);
+    const step2 = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 2, chunkCount: 1, content: step1.artifact }),
+      contextFor(store, poisonExecutor),
+    );
+    expect(step2.ok).toBe(true);
+    const bundle2 = JSON.parse(step2.artifact ?? '{}') as {
+      rows: Array<Record<string, string>>;
+      coverage: { discardedRows: number };
+    };
+    expect(bundle2.coverage.discardedRows).toBe(3);
+    expect(bundle2.rows.map((row) => row.Event_ID)).toEqual(['OR001', 'OR002']);
+  });
+
+  it('fails at the step that drops a primary row, with the local breakdown in the message (案2/案3)', async () => {
+    // ~70-char rows split the table into several chunks; the step
+    // below covers only chunk 0 and is not the final step — before
+    // the fix it passed unverified and the shortfall surfaced one
+    // segment later as a final-step failure.
+    const lines = ['id,item,amount'];
+    for (let i = 0; i < 100; i += 1) lines.push(`K-${String(i).padStart(3, '0')},${'x'.repeat(60)},${i}`);
+    const { store, setDigest } = await storeWithFiles([['big.csv', lines.join('\n'), 'text/csv']]);
+    const droppingExecutor: AgentModelExecutor = async ({ userText }) => {
+      const body = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:')).slice(1);
+      const kept = userText.includes('（チャンク 1/') ? body.slice(0, -1) : body;
+      const rows = kept.map((line) => {
+        const [id, , amount] = line.split(',');
+        return { id, amount };
+      });
+      return { ok: true, text: JSON.stringify({ rows }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 1 }),
+      contextFor(store, droppingExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+    expect(result.message).toContain('(coverage: scope=local, range=0+1,');
+    expect(result.message).toContain('missing=1');
+    expect(result.message).toContain('numericMismatch=amount');
+  });
+
+  it('still fails coverage for rows fabricated inside a primary chunk (fail-closed unchanged)', async () => {
+    const { store, setDigest } = await storeWithFiles([
+      ['events.tsv', EVENTS, 'text/tab-separated-values'],
+    ]);
+    const fabricatingExecutor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({
+        rows: [
+          { Event_ID: 'OR001', Amount: '100' },
+          { Event_ID: 'OR002', Amount: '200' },
+          { Event_ID: 'OR999', Amount: '50' },
+        ],
+      }),
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { chunkOffset: 0, chunkCount: 1 }),
+      contextFor(store, fabricatingExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+    expect(result.message).toContain('unexpected=1');
+  });
+});
