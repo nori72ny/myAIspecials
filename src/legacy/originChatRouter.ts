@@ -38,7 +38,7 @@ import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstructi
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { buildGroundedResearchEvidenceCards } from "../research/groundedResearchEvidenceCards.js";
 import { classifyDirectAnswerVerificationTarget, classifyResearchAnswerVerificationTarget, resolveOriginAnswerVerificationEffectiveMode, runOriginAnswerVerificationShadow, verifyOriginAnswerCrossRoute, type OriginAnswerVerificationDailyUsageReader, type OriginAnswerVerificationSource } from "./originAnswerVerification.js";
-import { resolveOriginIntentPremiseGuardEffectiveMode, runOriginIntentPremiseGuardShadow } from "./originIntentPremiseGuard.js";
+import { planOriginPremiseGuard, resolveOriginIntentPremiseGuardEffectiveMode, runOriginIntentPremiseGuardShadow } from "./originIntentPremiseGuard.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
@@ -1563,7 +1563,20 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     try {
       const requestIntent = classifyOriginRequestIntent(intentInput, planningResult.plan.taskType); const workPlan = buildOriginAgentWorkPlan(requestIntent); const resolvedPlan = resolveOriginAgentWorkPlan(workPlan); const reviewDecision = decideOriginReviewForMessage(planningResult.plan.taskType, lastUserMessage); const answerQualityPolicy = resolveOriginAnswerQualityPolicy({ intent: requestIntent, taskType: planningResult.plan.taskType, independentReviewRequired: reviewDecision.required, promptText: intentInput });
       const fullSystemInstruction = systemInstruction(requestIntent, workPlan, resolvedPlan, originAnswerQualityInstruction(answerQualityPolicy)) + "\n\n" + originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en");
-      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction), groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) };
+      // Intent premise guard (I5-PR2, shadow; design sections
+      // 3.2-3.3): the premise ledger block — the conversation's
+      // operative premises restated as a structured addendum — is
+      // appended to every route's instruction (full, route-2 and
+      // route-3 compact alike; the block is a dynamic addendum under
+      // its own caps in the guard module, not part of the compact
+      // base's character contract). Mode off (the default) computes
+      // no plan and the instructions are exactly as before; an empty
+      // ledger appends nothing.
+      const premiseGuardPlan = resolveOriginIntentPremiseGuardEffectiveMode(env) === "shadow"
+        ? planOriginPremiseGuard({ messages, nowMs: now() })
+        : null;
+      const premiseGuardBlockSuffix = premiseGuardPlan?.block ? `\n\n${premiseGuardPlan.block.text}` : "";
+      const providerRequest: OriginProviderExecutionRequest = { plan: { ...planningResult.plan, timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS) }, messages: contextResult.window.messages, systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix, cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix, groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix };
       let result = await execute(providerRequest); assertOriginZeroCostExecutionResultWithFailover(result, planningResult.plan.modelId);
       // Recovery build Stage 1, PR-5: refusal output validation
       // with ONE bounded re-execution (J-05: the round-5 direct path
@@ -1727,8 +1740,8 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           }
         }
       }
-      // Intent premise guard (I5-PR1, shadow; design INTENT_I5_DESIGN
-      // sections 3-4): deterministic post-generation checks over the
+      // Intent premise guard (I5-PR1/PR2, shadow; design
+      // INTENT_I5_DESIGN sections 3-4): deterministic post-generation checks over the
       // premise ledger derived from this request's messages — C-1
       // old-value reuse, C-2 stable-fact applied value, C-4
       // fabricated-citation form. Shadow only logs counts and never
@@ -1745,6 +1758,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           messages,
           answerText: deliverableText,
           nowMs: now(),
+          ...(premiseGuardPlan ? { plan: premiseGuardPlan } : {}),
         });
       }
       const verificationStatus: OriginAnswerVerificationStatus = directVerificationEnvelope?.status ?? (reviewDecision.required ? "not-run" : "not-required"); const verificationReason = directVerificationEnvelope?.summary ?? (reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"); const limitations = reviewDecision.required && directVerificationEnvelope?.status !== "passed" ? [directVerificationEnvelope?.limitation ?? "独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required && !directVerificationEnvelope ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
