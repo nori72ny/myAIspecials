@@ -212,13 +212,102 @@ function isBusinessPlanningRequest(message: string): boolean {
   return detectOriginBusinessPlanningKind(message) !== null;
 }
 
-export function requiresOriginGroundedResearch(message: string): boolean {
-  if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
+/**
+ * Splits a message into its fenced code blocks and the prose around
+ * them. Only complete fence pairs count: an unclosed fence is treated
+ * as prose, so a stray ``` can never manufacture the exemption below.
+ */
+function splitOriginMessageFences(message: string): { prose: string; fenceCount: number } {
+  const fencePattern = /```[\s\S]*?```/g;
+  const fenceCount = (message.match(fencePattern) ?? []).length;
+  const prose = fenceCount === 0 ? message : message.replace(fencePattern, "\n");
+  return { prose, fenceCount };
+}
 
-  if (requiresOriginCurrentInformation(message)) return true;
+const CODE_TASK_REFERENCE_PATTERNS: readonly RegExp[] = [
+  /(?:次の|この|以下|上記|下記|添付の).{0,16}(?:コード|プログラム|スクリプト|関数)/,
+  /(?:コード|プログラム|スクリプト|関数)(?:を|に|の|は|が|へ|と)/,
+  /\b(?:this|the following|the above|the below)\s+(?:code|function|script|program|snippet|method|class)\b/i,
+  /\b(?:code|function|script|program)\s+(?:below|above)\b/i,
+];
 
+const CODE_TASK_OPERATION_PATTERNS: readonly RegExp[] = [
+  /(?:修正|直し|直す|リファクタ|レビュー|改善|バグ|デバッグ|書き換|書き直|説明|最適化|高速化|可読性|書き方|変換|移植)/,
+  /\b(?:fix|refactor|review|improve|debug|rewrite|explain|optimi[sz]e|bug|convert|port)\b/i,
+];
+
+/**
+ * Self-contained code tasks (CB-1, CODEBENCH_REMAINING_DIAGNOSIS
+ * _2026-11-23): the user pastes code and asks for an operation on THAT
+ * code — a fix, a refactor, a review, an explanation. Every input is
+ * inside the message, so the grounded path can only fetch unrelated
+ * general pages and honestly refuse ("the sources do not describe
+ * this code"), leaving no code block at all in the answer — the
+ * codebench C-05 / E-05 failures (and B-01 at its measurement). The
+ * promotion that sent them there was not a designed judgment: every
+ * routing layer scans the raw message, so identifiers inside the
+ * pasted code (`price`, `prices`, a `tax` variable, a 消費税 comment)
+ * collide with the freshness / price vocabulary of the prose-oriented
+ * patterns. The classifier said no_search for all three; the policy
+ * layer's tail branch overrode it on the in-code words alone.
+ *
+ * The predicate therefore judges the PROSE only — the text outside
+ * the fenced blocks — and requires all three of:
+ * 1. the message carries at least one complete fenced code block;
+ * 2. the prose both refers to the supplied code and asks for an
+ *    operation on it;
+ * 3. the prose carries no explicit external-freshness intent (the
+ *    same hasExplicitExternalFreshnessIntent the other exemptions
+ *    use, evaluated on the prose). A request that itself demands
+ *    current external facts — 「このコードの最新バージョンでの書き方
+ *    を教えて」, "fix this and check the latest price" — fails this
+ *    condition and keeps the grounded path exactly as before.
+ *
+ * The predicate is deterministic and adds no model call. It is an
+ * exemption on the current-information determination only: it is
+ * applied by requiresOriginGroundedResearchRouted under the
+ * ORIGIN_CODE_TASK_ROUTING_MODE switch, and an explicit research
+ * request (the grounded determination's final branch) still grounds
+ * even when this predicate matches.
+ */
+export function isSelfContainedCodeTaskRequest(message: string): boolean {
+  const { prose, fenceCount } = splitOriginMessageFences(message);
+  if (fenceCount === 0) return false;
+  if (!CODE_TASK_REFERENCE_PATTERNS.some((pattern) => pattern.test(prose))) return false;
+  if (!CODE_TASK_OPERATION_PATTERNS.some((pattern) => pattern.test(prose))) return false;
+  if (hasExplicitExternalFreshnessIntent(prose)) return false;
+  return true;
+}
+
+/**
+ * The grounded determination's final branch: an explicit request to
+ * search / research / gather sources. Kept separate so the CB-1
+ * exemption can remove ONLY the current-information promotion (via
+ * requiresOriginGroundedResearchWithCurrentInformation) while an
+ * explicit request to research still grounds, exactly as the
+ * canonical determination has always behaved.
+ */
+function hasExplicitOriginResearchRequest(message: string): boolean {
   return /(?:検索|調査|リサーチ)(?:を)?(?:して|してください|して下さい|する|してほしい)|(?:一次情報|出典|公開情報).{0,12}(?:を)?(?:調べ|確認|探|集め)|(?:調べ|確認|探).{0,24}(?:出典|一次情報|公開情報)/s.test(message)
     || /\b(?:research|search(?:\s+for)?|look\s+up|find\s+sources?|check\s+sources?)\b/i.test(message);
+}
+
+function requiresOriginGroundedResearchWithCurrentInformation(
+  message: string,
+  currentInformationRequired: boolean,
+): boolean {
+  if (isTransformOnlyRequest(message) || isHypotheticalFreshnessFailureRequest(message)) return false;
+
+  if (currentInformationRequired) return true;
+
+  return hasExplicitOriginResearchRequest(message);
+}
+
+export function requiresOriginGroundedResearch(message: string): boolean {
+  return requiresOriginGroundedResearchWithCurrentInformation(
+    message,
+    requiresOriginCurrentInformation(message),
+  );
 }
 
 /**
@@ -412,13 +501,36 @@ export function resolveOriginBenefitProcedureRoutingMode(
 }
 
 /**
+ * The CB-1 exemption's dedicated switch: ORIGIN_CODE_TASK_ROUTING
+ * _MODE, default OFF (the same staging the G3-a / G5 routing changes
+ * use). "shadow" logs the comparison — whether the self-contained
+ * code-task predicate matched and whether the exemption would have
+ * changed the routing — and routes exactly as before; "enforce" lets
+ * a matched request skip the current-information promotion. An
+ * explicit research request still grounds in every mode. Logs carry
+ * booleans only, never the message text.
+ */
+export type OriginCodeTaskRoutingMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginCodeTaskRoutingMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginCodeTaskRoutingMode {
+  const value = env?.ORIGIN_CODE_TASK_ROUTING_MODE;
+  if (value === "enforce") return "enforce";
+  if (value === "shadow") return "shadow";
+  return "off";
+}
+
+/**
  * The routing determination both chat routers use: the canonical
  * requiresOriginGroundedResearch result, with the input-side
  * escalations applied per their dedicated switches — G3-a
  * official-price (ORIGIN_OFFICIAL_PRICE_ROUTING_MODE) and G5
- * benefit-procedure (ORIGIN_BENEFIT_PROCEDURE_ROUTING_MODE). With
- * both switches off (the defaults) this is exactly the canonical
- * result and nothing is logged.
+ * benefit-procedure (ORIGIN_BENEFIT_PROCEDURE_ROUTING_MODE) — and the
+ * CB-1 self-contained code-task exemption applied to the
+ * current-information determination per ORIGIN_CODE_TASK_ROUTING
+ * _MODE. With every switch off (the defaults) this is exactly the
+ * canonical result and nothing is logged.
  */
 export function requiresOriginGroundedResearchRouted(
   message: string,
@@ -430,6 +542,29 @@ export function requiresOriginGroundedResearchRouted(
   const env = input?.env ?? process.env;
   const base = requiresOriginGroundedResearch(message);
   let routed = base;
+
+  const codeTaskMode = resolveOriginCodeTaskRoutingMode(env);
+  if (codeTaskMode !== "off" && isSelfContainedCodeTaskRequest(message)) {
+    // The determination with ONLY the current-information promotion
+    // removed: the transform-only / hypothetical short-circuits and
+    // an explicit research request apply exactly as in the canonical
+    // result, so "調べて直して" still grounds.
+    const exempted = requiresOriginGroundedResearchWithCurrentInformation(message, false);
+    if (codeTaskMode === "shadow") {
+      const logger = input?.logger ?? ((logMessage: string, fields: Record<string, unknown>) => console.info(logMessage, fields));
+      try {
+        logger("[origin-chat] code task routing (shadow)", {
+          codeTaskRequestMatched: true,
+          groundedResearchRequired: base,
+          codeTaskWouldExempt: base && !exempted,
+        });
+      } catch {
+        // A routing shadow log must never break or delay the answer.
+      }
+    } else {
+      routed = exempted;
+    }
+  }
 
   const priceMode = resolveOriginOfficialPriceRoutingMode(env);
   if (priceMode === "shadow") {
@@ -984,6 +1119,7 @@ const ORIGIN_CHAT_BASE_INSTRUCTION = `You are ORIGIN Personal AI.
 - Separate confirmed facts from assumptions, inferences, and recommendations.
 - Treat stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options as answerable without live web retrieval unless the user explicitly asks for current external facts. Never refuse these tasks merely because public retrieval is unavailable.
 - For calculations, show the minimum useful calculation basis from the user's supplied values so the evidence chain is inspectable. For stable technical explanations, do not invent citations; make clear when the answer relies on established general technical knowledge rather than live verification.
+- When explaining a concept or mechanism, state each asked-about concept's defining behavior explicitly as a sentence — what it returns, what it does, and what it does not do — in a basics passage or before the examples and usage patterns, rather than leaving it implied by the wording or the examples alone.
 - For comparisons or advice based only on the user's supplied facts or on stable general knowledge, state that basis compactly when it helps the user inspect the reasoning. Do not treat absence of a live citation as a reason to refuse a stable task.
 - In rewriting or sales copy, never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications, or other factual support that the user did not provide or that was not actually verified.
 - For legal, compliance, security, financial, or other professional guidance, do not turn a possible rule into a universal rule without verified jurisdiction/context. Separate general practice from organization-specific or legally binding requirements, and identify what must be confirmed.
@@ -1208,6 +1344,12 @@ function originRoute2CompactBaseInstruction(creationOriented: boolean): string {
     "- Separate confirmed facts from assumptions, inferences, and recommendations.",
     "- Treat stable conceptual explanations, deterministic calculations from user-provided values, and decision frameworks based on supplied options as answerable without live web retrieval unless the user explicitly asks for current external facts. Never refuse these tasks merely because public retrieval is unavailable.",
     "- For calculations, show the minimum useful calculation basis from the user's supplied values so the evidence chain is inspectable. For stable technical explanations, do not invent citations; make clear when the answer relies on established general technical knowledge rather than live verification.",
+    // CB-3 (CODEBENCH_REMAINING_DIAGNOSIS_2026-11-23): the full base's
+    // defining-behavior rule, carried verbatim so the compact variant
+    // cannot silently lose it the way the I-4 compression dropped
+    // concrete discipline from the shortened instruction. The policy
+    // tests pin this phrase in both variants.
+    "- When explaining a concept or mechanism, state each asked-about concept's defining behavior explicitly as a sentence — what it returns, what it does, and what it does not do — in a basics passage or before the examples and usage patterns, rather than leaving it implied by the wording or the examples alone.",
     "- For comparisons or advice based only on the user's supplied facts or on stable general knowledge, state that basis compactly when it helps the user inspect the reasoning. Do not treat absence of a live citation as a reason to refuse a stable task.",
     "- In rewriting or sales copy, never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications, or other factual support that the user did not provide or that was not actually verified.",
     "- For legal, compliance, security, financial, or other professional guidance, do not turn a possible rule into a universal rule without verified jurisdiction/context. Separate general practice from organization-specific or legally binding requirements, and identify what must be confirmed.",

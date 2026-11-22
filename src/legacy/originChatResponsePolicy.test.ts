@@ -1182,6 +1182,7 @@ describe("originCloudflareRouteSystemInstruction (route-2 compressed instruction
       "Separate confirmed facts from assumptions, inferences, and recommendations",
       "answerable without live web retrieval unless the user explicitly asks for current external facts",
       "show the minimum useful calculation basis from the user's supplied values",
+      "state each asked-about concept's defining behavior explicitly as a sentence",
       "state that basis compactly when it helps the user inspect the reasoning",
       "never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications",
       "do not turn a possible rule into a universal rule without verified jurisdiction/context",
