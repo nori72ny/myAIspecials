@@ -1114,6 +1114,14 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         // first-class state, not a failure: the record's hold carries
         // the quota_reset resume condition for the blocking provider.
         return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'held', advanced: false, code: 'AGENT_RUN_QUOTA_EXHAUSTED', quota: { provider: outcome.provider, resetAt: new Date(outcome.resetAt).toISOString() }, run: view, ...runEnvelope });
+      case 'rate_limited':
+        // Rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICATION_
+        // 2026-11-22 §2-B): the advance parked the run instead of
+        // failing an analyzer step the provider rate-limited. Held is
+        // a first-class state, not a failure: the record's hold carries
+        // the at_time resume condition for the window's recovery, and
+        // the same instant is reported here as retryAt.
+        return res.status(202).json({ ok: true, protocolVersion: 3, runId, status: 'held', advanced: false, code: 'AGENT_RUN_RATE_LIMITED', rateLimit: { retryAt: new Date(outcome.retryAt).toISOString() }, run: view, ...runEnvelope });
       case 'write_lock_busy':
         // Writer lock (PR 1-E): another run currently holds the
         // repository write lock. The write step waits in the queue —
@@ -1232,6 +1240,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   const AGENT_RUN_APPROVAL_FRESHNESS_TOLERANCE_MS = 5_000;
   const AGENT_RUN_HOLD_REASONS: ReadonlySet<string> = new Set([
     'quota_exhausted',
+    'rate_limited',
     'awaiting_approval',
     'scheduled_time',
     'condition_wait',
@@ -1241,7 +1250,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
   ]);
   /** Reasons whose resume condition may default to a plain manual resume
    * when the caller does not supply one. condition_wait and
-   * dependency_wait are meaningless without their condition payload. */
+   * dependency_wait are meaningless without their condition payload;
+   * rate_limited is likewise absent here — the advancer creates those
+   * holds itself with the window-recovery instant, and a manual hold
+   * request must name its own at_time condition explicitly. */
   const AGENT_RUN_HOLD_MANUAL_DEFAULT_REASONS: ReadonlySet<string> = new Set([
     'quota_exhausted',
     'awaiting_approval',

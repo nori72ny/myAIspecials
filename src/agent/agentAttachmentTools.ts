@@ -90,6 +90,32 @@ export const AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [15_0
  */
 export const AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS = 60_000;
 
+export const ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED' as const;
+
+/** The inter-chunk interval switch (design CAPACITY_RATE_LIMIT_
+ * QUANTIFICATION_2026-11-22 §2-E), in the house style: only the exact
+ * string "true" enables it; anything else — including the variable
+ * being unregistered — is OFF, and OFF keeps the pre-measure behavior
+ * exactly (chunks back to back, no inserted wait). */
+export function agentAnalyzerChunkIntervalEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED_ENV] === 'true';
+}
+
+/**
+ * Minimum spacing inserted between one step's chunk calls while the
+ * interval switch is on (design §2-E): a smoothing measure that
+ * lowers how often a step's burst meets the providers' per-minute
+ * windows at full density. It is deliberately NOT completion
+ * machinery — the rate-limit hold (§2-B) is what converts a limit
+ * into a wait — and it is sized so a maximum-size step stays inside
+ * the advance's duration budget: 4 sends (5–12s each) plus 3
+ * intervals ≈ 65–93s against the 120s advance cap. The interval is
+ * separate from the transient-retry backoff above and never counts
+ * against that ceiling: the retry waits react to a failure, this one
+ * precedes a send.
+ */
+export const AGENT_ANALYZER_CHUNK_INTERVAL_MS = 15_000;
+
 const defaultSleepMs = (ms: number): Promise<void> => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
@@ -514,9 +540,23 @@ export async function executeAttachmentAnalyzer(
     view,
     structuredJsonKeys.length > 0 ? structuredJsonKeys : undefined,
   );
+  // Inter-chunk interval (design §2-E): while its switch is on, the
+  // sends of one step are spaced by AGENT_ANALYZER_CHUNK_INTERVAL_MS
+  // (between chunks only — never before the step's first chunk, and
+  // never between a chunk's first call and its repair call, which are
+  // one chunk's business). Read from the same env the model executor
+  // is built from, so a test's injected env governs both.
+  const chunkIntervalOn = agentAnalyzerChunkIntervalEnabled(context?.env ?? process.env);
+  let isFirstChunkOfStep = true;
   for (const chunk of range) {
+    if (!isFirstChunkOfStep && chunkIntervalOn) await sleepMs(AGENT_ANALYZER_CHUNK_INTERVAL_MS);
+    isFirstChunkOfStep = false;
     const userText = chunkModelInput(view, chunk);
-    const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction });
+    // The chunk's global index rides every call for this chunk —
+    // first attempt and repair alike — so the alternating allocation
+    // (design §2-C) assigns the chunk deterministically, including
+    // across a resume that replays the step.
+    const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction, chunkIndex: chunk.index });
     if (first.ok === false) return fail(first.code);
     let output = parseChunkOutput(outputKind, first.text, view);
     if (!output) {
@@ -524,6 +564,7 @@ export async function executeAttachmentAnalyzer(
         instruction: `${instruction}前回の応答は指定のJSON形式に適合しませんでした。JSONだけを返してください。`,
         userText,
         goal: goalInstruction,
+        chunkIndex: chunk.index,
       });
       if (repair.ok === false) return fail(repair.code);
       output = parseChunkOutput(outputKind, repair.text, view);

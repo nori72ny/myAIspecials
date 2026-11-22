@@ -279,3 +279,94 @@ describe("executeOriginGroqProvider D-1 pacing", () => {
     expect(sleeps).toEqual([5_000]);
   });
 });
+
+const primaryFirstRequest: OriginProviderExecutionRequest = {
+  ...request,
+  groqCapacityAllocation: "agent-analyzer-chunk-primary",
+};
+
+describe("executeOriginGroqProvider alternating allocation (design §2-C, primary-first hint)", () => {
+  it("with the switch ON, a primary-first request is planned onto the primary model's bucket first", async () => {
+    const { fetchMock, models } = modelRoutingFetch((model) => groqJson(successBody(model)));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(result.transportRequestCount).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it("with the switch OFF, a primary-first request keeps the standard cascade exactly", async () => {
+    const { fetchMock, models } = modelRoutingFetch((model) => groqJson(successBody(model)));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, groqEnv, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(sleeps).toEqual([]);
+  });
+
+  it("rotates to the rotation model when the primary model is rate-limited", async () => {
+    const { fetchMock, models } = modelRoutingFetch((model) => (
+      model === ORIGIN_GROQ_FREE_MODEL_ID ? rateLimitResponse() : groqJson(successBody(model))
+    ));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(result.transportRequestCount).toBe(2);
+  });
+
+  it("rotates to the rotation model when the primary model returns an empty response", async () => {
+    // The empty-response widening applies to the cascade's first
+    // model in either direction (design §2-C): the first bucket is
+    // chosen for load distribution, and an empty body says it cannot
+    // serve this call. The standard cascade (no hint) keeps its
+    // fail-closed semantics for the same code.
+    const { fetchMock, models } = modelRoutingFetch((model) => (
+      model === ORIGIN_GROQ_FREE_MODEL_ID
+        ? groqJson(successBody(model, ""))
+        : groqJson(successBody(model))
+    ));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(result.transportRequestCount).toBe(2);
+  });
+
+  it("surfaces PROVIDER_INVALID_RESPONSE when the rotation model also returns an empty response", async () => {
+    const { fetchMock, models } = modelRoutingFetch((model) => groqJson(successBody(model, "")));
+    const error = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions())
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OriginProviderError);
+    expect((error as OriginProviderError).code).toBe("PROVIDER_INVALID_RESPONSE");
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID]);
+  });
+
+  it("defers to the rotation model when the primary window is full but the rotation window fits", async () => {
+    recordOriginProviderPacingSend(ORIGIN_GROQ_FREE_MODEL_ID, 3_000, NOW_MS);
+    const { fetchMock, models } = modelRoutingFetch((model) => groqJson(successBody(model)));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_ROTATION_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    expect(sleeps).toEqual([]);
+  });
+
+  it("keeps the qwen stage behind its own kill switch at the end of the primary-first cascade", async () => {
+    const qwenEnv = { ...d1Env, ORIGIN_GROQ_QWEN_ROTATION_ENABLED: "true" } as NodeJS.ProcessEnv;
+    const { fetchMock, models } = modelRoutingFetch((model) => (
+      model === ORIGIN_GROQ_QWEN_MODEL_ID ? groqJson(successBody(model)) : rateLimitResponse()
+    ));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, qwenEnv, fetchMock, pacingOptions());
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, ORIGIN_GROQ_QWEN_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_QWEN_MODEL_ID);
+  });
+
+  it("falls back to the standard cascade when the rotation model's evidence is stale", async () => {
+    const staleCatalog: OriginGroqFreeModelEvidence[] = DEFAULT_ORIGIN_GROQ_FREE_MODEL_CATALOG.map((entry) => (
+      entry.modelId === ORIGIN_GROQ_FREE_ROTATION_MODEL_ID
+        ? { ...entry, verifiedAt: "2026-11-01T00:00:00.000Z", reviewAfter: "2026-11-10T00:00:00.000Z" }
+        : entry
+    ));
+    const { fetchMock, models } = modelRoutingFetch((model) => groqJson(successBody(model)));
+    const result = await executeOriginGroqProvider(primaryFirstRequest, d1Env, fetchMock, pacingOptions({ catalog: staleCatalog }));
+    expect(models).toEqual([ORIGIN_GROQ_FREE_MODEL_ID]);
+    expect(result.routingEvidence.servedModel).toBe(ORIGIN_GROQ_FREE_MODEL_ID);
+  });
+});

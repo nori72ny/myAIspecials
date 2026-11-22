@@ -636,3 +636,253 @@ describe('resolveStepParams raw bundle resolution (artifact format)', () => {
     expect(resolved).toEqual({ error: 'AGENT_STEP_INPUT_UNAVAILABLE' });
   });
 });
+
+describe('advanceAgentRun rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22 §2-B)', () => {
+  const rateLimitedTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => ({
+    ok: false,
+    tool: name,
+    message: 'PROVIDER_RATE_LIMITED',
+  }));
+
+  /** Succeeds for every step except the analyzer, which is rate-limited. */
+  const analyzerRateLimitedTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+    name === 'attachment_analyzer'
+      ? { ok: false, tool: name, message: 'PROVIDER_RATE_LIMITED' }
+      : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+  ));
+
+  async function seedAnalyzerRun(
+    store: AgentRunStore,
+    stepsState?: AgentRunRecord['stepsState'],
+  ): Promise<AgentRunRecord> {
+    const created = await store.create({
+      runId: RUN_ID,
+      ownerBinding: OWNER,
+      goal: 'Advancer rate-limit hold test goal',
+      status: 'queued',
+      plan: [
+        { toolName: 'repository_explorer', params: {}, dependsOn: [] },
+        { toolName: 'attachment_analyzer', params: { outputKind: 'findings', chunkOffset: 0, chunkCount: 4 }, dependsOn: [0] },
+      ],
+      planDigest: createHash('sha256').update(`plan:${RUN_ID}`).digest('hex'),
+      stepsState: stepsState ?? [
+        { id: 'task-1', status: 'queued' as const, attempts: 0 },
+        { id: 'task-2', status: 'queued' as const, attempts: 0 },
+      ],
+      expiresAt: Date.now() + DAY_MS,
+    });
+    if (!created) throw new Error('seed failed');
+    return created;
+  }
+
+  it('with the switch OFF (default), a rate-limited analyzer step fails the run exactly as before', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'PROVIDER_RATE_LIMITED' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedAnalyzerRun(store);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('failed');
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_RATE_LIMITED' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('failed');
+    expect(record?.stepsState[1]).toMatchObject({ status: 'failed', attempts: 1, errorCode: 'PROVIDER_RATE_LIMITED' });
+    expect(record?.stepsState[1]?.rateLimitHolds).toBeUndefined();
+  });
+
+  it('with the switch ON, a rate-limited analyzer step parks the run as held instead of failing it', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'PROVIDER_RATE_LIMITED' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedAnalyzerRun(store);
+    const fixedNow = Date.now();
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true, now: () => fixedNow },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('rate_limited');
+    expect(outcome).toMatchObject({ kind: 'rate_limited', retryAt: fixedNow + 60_000 });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('held');
+    expect(record?.hold).toEqual({
+      reason: 'rate_limited',
+      resumeCondition: { kind: 'at_time', at: fixedNow + 60_000 },
+      heldSince: fixedNow,
+      resumeAttempts: 0,
+    });
+    // The completed step stays completed; the parked step returns to
+    // queued with its pre-execution attempt count, the provider code
+    // kept, and its park count incremented.
+    expect(record?.stepsState[0]).toMatchObject({ status: 'completed', attempts: 1 });
+    expect(record?.stepsState[1]).toMatchObject({
+      status: 'queued',
+      attempts: 0,
+      errorCode: 'PROVIDER_RATE_LIMITED',
+      rateLimitHolds: 1,
+    });
+    // The executed step's declared charge stays journaled (the ledger
+    // counts attempts, not outcomes).
+    expect(record?.quotaLedger['origin-llm']?.calls).toBe(4);
+  });
+
+  it('resumes the parked run through the §8 flow and completes it from the parked step', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    let analyzerFails = true;
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer' && analyzerFails
+        ? { ok: false, tool: name, message: 'PROVIDER_RATE_LIMITED' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedAnalyzerRun(store);
+    const parked = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true },
+      seeded,
+      'driver-alpha-01',
+    );
+    expect(parked.kind).toBe('rate_limited');
+
+    // §8 resume: held -> awaiting_approval -> queued, fresh approval
+    // each time; the record's progress is never rewritten by the
+    // transitions themselves.
+    const held = await store.get(RUN_ID, OWNER);
+    if (!held) throw new Error('held record missing');
+    const awaiting = await store.transition({
+      runId: RUN_ID,
+      ownerBinding: OWNER,
+      expectedStatus: 'held',
+      expectedVersion: held.version,
+      nextStatus: 'awaiting_approval',
+      approvalDeadlineAt: Date.now() + 10 * 60_000,
+    });
+    if (!awaiting) throw new Error('held -> awaiting_approval failed');
+    const queued = await store.transition({
+      runId: RUN_ID,
+      ownerBinding: OWNER,
+      expectedStatus: 'awaiting_approval',
+      expectedVersion: awaiting.version,
+      nextStatus: 'queued',
+    });
+    if (!queued) throw new Error('awaiting_approval -> queued failed');
+    expect(queued.stepsState[1]).toMatchObject({ status: 'queued', attempts: 0, rateLimitHolds: 1 });
+
+    analyzerFails = false;
+    runTool.mockClear();
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true },
+      queued,
+      'driver-alpha-02',
+    );
+
+    expect(outcome.kind).toBe('completed');
+    // Only the parked step re-executed; the completed step did not.
+    expect(runTool).toHaveBeenCalledTimes(1);
+    expect(runTool).toHaveBeenCalledWith('attachment_analyzer', expect.anything());
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('completed');
+    expect(record?.stepsState.map((step) => step.status)).toEqual(['completed', 'completed']);
+  });
+
+  it('fails terminally once the step has been parked the maximum number of times', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const seeded = await seedAnalyzerRun(store, [
+      { id: 'task-1', status: 'completed', attempts: 1, artifactRef: 'task-1', summary: 'completed:repository_explorer' },
+      { id: 'task-2', status: 'queued', attempts: 0, rateLimitHolds: 5 },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool: rateLimitedTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('failed');
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_RATE_LIMITED' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('failed');
+    expect(record?.hold).toBeNull();
+  });
+
+  it('fails terminally when the run is older than the hold elapsed cap', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const seeded = await seedAnalyzerRun(store);
+    const future = Date.now() + 61 * 60_000;
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool: analyzerRateLimitedTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true, now: () => future },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome.kind).toBe('failed');
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_RATE_LIMITED' });
+    expect((await store.get(RUN_ID, OWNER))?.status).toBe('failed');
+  });
+
+  it('parks only analyzer steps and only on PROVIDER_RATE_LIMITED', async () => {
+    // A non-analyzer step failing with the same code still fails.
+    const storeA = new InMemoryAgentRunStore();
+    const { store: consumptionA } = makeConsumptionStore();
+    const seededA = await seedRun(storeA, [{ toolName: 'document_generator' }]);
+    const outcomeA = await advanceAgentRun(
+      { runStore: storeA, consumptionStore: consumptionA, runTool: rateLimitedTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true },
+      seededA,
+      'driver-alpha-01',
+    );
+    expect(outcomeA.kind).toBe('failed');
+    expect((await storeA.get(RUN_ID, OWNER))?.status).toBe('failed');
+
+    // An analyzer step failing with another transient code still fails.
+    const storeB = new InMemoryAgentRunStore();
+    const { store: consumptionB } = makeConsumptionStore();
+    const unavailableTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => ({
+      ok: false,
+      tool: name,
+      message: 'PROVIDER_UNAVAILABLE',
+    }));
+    const seededB = await seedAnalyzerRun(storeB);
+    const outcomeB = await advanceAgentRun(
+      { runStore: storeB, consumptionStore: consumptionB, runTool: unavailableTool, verifyArtifact: okVerifier, rateLimitHoldEnabled: true },
+      seededB,
+      'driver-alpha-01',
+    );
+    expect(outcomeB.kind).toBe('failed');
+    expect(outcomeB).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_UNAVAILABLE' });
+    expect((await storeB.get(RUN_ID, OWNER))?.status).toBe('failed');
+  });
+
+  it('honors the env switch when the deps override is absent', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const seeded = await seedAnalyzerRun(store);
+    process.env.ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED = 'true';
+    try {
+      const outcome = await advanceAgentRun(
+        { runStore: store, consumptionStore, runTool: analyzerRateLimitedTool, verifyArtifact: okVerifier },
+        seeded,
+        'driver-alpha-01',
+      );
+      expect(outcome.kind).toBe('rate_limited');
+    } finally {
+      delete process.env.ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED;
+    }
+  });
+});
