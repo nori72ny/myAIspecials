@@ -51,6 +51,7 @@ describe('agentRunQuotaGate cost classes and charges', () => {
       code_interpreter: 'delegated-job',
       attachment_reader: 'local',
       attachment_analyzer: 'model',
+      attachment_reconciler: 'model',
     };
     for (const [toolName, costClass] of Object.entries(expected)) {
       expect(agentRunStepCostClass(toolName as ToolName)).toBe(costClass);
@@ -62,6 +63,11 @@ describe('agentRunQuotaGate cost classes and charges', () => {
     expect(agentRunStepQuotaCharge('code_interpreter')).toBeNull();
     expect(agentRunStepQuotaCharge('file_writer')).toBeNull();
     expect(AGENT_RUN_MAX_DELEGATED_STEPS_PER_ADVANCE).toBe(1);
+  });
+
+  it('charges the reconciler one journal-only model call per step', () => {
+    expect(agentRunStepQuotaCharge('attachment_reconciler', {})).toEqual({ provider: 'origin-llm', counter: 'calls', units: 1 });
+    expect(agentRunStepQuotaCharge('attachment_reconciler')).toEqual({ provider: 'origin-llm', counter: 'calls', units: 1 });
   });
 
   it('charges the analyzer one journal-only model call per chunk (F2)', () => {

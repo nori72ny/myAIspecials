@@ -6,7 +6,7 @@ import {
   AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP,
   type AgentAttachmentDataView,
 } from './agentAttachmentData.js';
-import type { AgentDataOutputKind } from './agentAttachmentTools.js';
+import type { AgentDataOutputKind, AgentFindingsReconciliationMode } from './agentAttachmentTools.js';
 
 /**
  * Plan augmentation for attachment-bound goals (agent file-input
@@ -85,6 +85,22 @@ import type { AgentDataOutputKind } from './agentAttachmentTools.js';
  * markdown file under a title-derived name, so a JSON deliverable
  * scored 0 (ALE wave 1, K8s). See
  * AGENT_ARTIFACT_FORMAT_DESIGN_2026-11-21.md.
+ * 7. Inconsistency-audit mode (design
+ * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23). A findings goal
+ * whose text asks for an inconsistency audit (不整合 / inconsisten /
+ * audit — a separate, narrower judgment than the output-kind
+ * classification) marks its analyzer steps `auditMode`, which
+ * turns on the explanation requirement and the layer-1 value
+ * table / structure map. When the reconciliation switch is on
+ * (shadow or enforce at plan time), one `attachment_reconciler`
+ * step follows the last analyzer and the first generative step is
+ * re-grounded on IT instead: the reconciler vets the merged
+ * findings against the deterministic mismatch candidates under
+ * the pairing discipline. The step counts toward the step ceiling
+ * like every other step, so an audit plan that cannot fit is
+ * refused here, at plan time, exactly like any other oversize
+ * plan. With the switch off, plans are byte-identical to the
+ * pre-measure shape.
  */
 
 export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params: ToolParams };
@@ -141,6 +157,21 @@ export function attachmentOutputKindForGoal(goal: string): AgentDataOutputKind {
   if (ROWS_INTENT_PATTERN.test(normalized)) return 'rows';
   if (FINDINGS_INTENT_PATTERN.test(normalized)) return 'findings';
   return 'text';
+}
+
+/**
+ * The inconsistency-audit intent (misreading countermeasure design
+ * §2 layer 2): narrower than the output-kind classification — a
+ * root-cause findings goal （原因分析） is findings but NOT an
+ * inconsistency audit, and only an audit gets the audit-mode
+ * analyzers and the reconciliation step. The vocabulary names the
+ * requested operation (find where the documents disagree), in the
+ * goal's own words.
+ */
+const AUDIT_INTENT_PATTERN = /不整合|inconsisten|audit/i;
+
+export function goalRequestsInconsistencyAudit(goal: string): boolean {
+  return AUDIT_INTENT_PATTERN.test(goal.normalize('NFKC'));
 }
 
 export type AttachmentOutputFileSpec = {
@@ -239,6 +270,13 @@ export function augmentPlanWithAttachments(input: {
   setId: string;
   setDigest: string;
   view: AgentAttachmentDataView;
+  /** The findings-reconciliation mode in force at plan time
+   * (misreading countermeasure design §2 layer 2). Absent means
+   * off — the pre-measure default — so existing callers and plans
+   * are unchanged; shadow and enforce both issue the reconciler
+   * step, and the mode the tool applies is the one in force at
+   * execution time. */
+  reconciliationMode?: AgentFindingsReconciliationMode;
 }): AttachmentPlanAugmentation {
   const { goal, view } = input;
   const totalChunks = view.totalChunks;
@@ -269,12 +307,21 @@ export function augmentPlanWithAttachments(input: {
     plannedSteps.push({ ...input.plannedSteps[index] });
   });
 
-  const stepCount = steps.length + 1 + analyzerCount;
+  const outputKind = attachmentOutputKindForGoal(goal);
+  // Audit mode (header point 7): an inconsistency-audit findings
+  // goal marks its analyzers, and — while the reconciliation
+  // switch is on — gains one reconciler step after the last
+  // analyzer. The reconciler counts toward the ceiling like every
+  // other step, so the largest audit shape is refused at plan
+  // time rather than discovered mid-run.
+  const auditMode = outputKind === 'findings' && goalRequestsInconsistencyAudit(goal);
+  const reconcilerPlanned = auditMode && (input.reconciliationMode ?? 'off') !== 'off';
+
+  const stepCount = steps.length + 1 + analyzerCount + (reconcilerPlanned ? 1 : 0);
   if (stepCount > AGENT_ATTACHMENT_MAX_PLAN_STEPS) {
     return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_PLAN_STEPS, limitKind: 'steps', stepCount };
   }
 
-  const outputKind = attachmentOutputKindForGoal(goal);
   const outputSpec = extractAttachmentOutputFileSpec(goal);
   const structuredJsonKeys = outputSpec?.format === 'json' && outputSpec.topLevelKeys.length > 0
     ? outputSpec.topLevelKeys
@@ -296,6 +343,10 @@ export function augmentPlanWithAttachments(input: {
         outputKind,
         chunkOffset,
         chunkCount,
+        // Audit mode (header point 7): the analyzers of an
+        // inconsistency-audit goal also produce the explanation,
+        // the value table and the structure map.
+        ...(auditMode ? { auditMode: true } : {}),
         // A JSON deliverable needs structured sections (resources,
         // remediations, typed findings) from the analyzers; the key
         // list tells them which report the findings feed.
@@ -313,15 +364,20 @@ export function augmentPlanWithAttachments(input: {
   const insertAt = generativeIndex >= 0 ? generativeIndex : steps.length;
 
   // Reground the first generative step on the last analyzer step
-  // (index = 1 reader + insertAt existing steps + analyzerCount - 1).
+  // (index = 1 reader + insertAt existing steps + analyzerCount - 1)
+  // — or on the reconciler step that follows it (header point 7),
+  // which sits one index later and consumes the last analyzer's
+  // bundle by name, exactly like an analyzer continuation does.
   const lastAnalyzerIndex = 1 + insertAt + analyzerCount - 1;
+  const reconcilerIndex = lastAnalyzerIndex + 1;
+  const generativeSourceIndex = reconcilerPlanned ? reconcilerIndex : lastAnalyzerIndex;
   if (generativeIndex >= 0) {
     const target = steps[generativeIndex];
     if (target.toolName === 'document_generator') {
       const { contentFromPreviousArtifact: _marker, ...rest } = target.params;
       target.params = {
         ...rest,
-        contentFromStep: lastAnalyzerIndex,
+        contentFromStep: generativeSourceIndex,
         dataGrounded: true,
         // Carry the goal's output-file specification (header point
         // 6): the required file name, and for JSON the required
@@ -344,16 +400,32 @@ export function augmentPlanWithAttachments(input: {
     analyzerSteps[i].params = { ...analyzerSteps[i].params, contentFromStep: 1 + insertAt + i - 1 };
   }
 
+  // The reconciler step (header point 7), issued only for an
+  // inconsistency-audit goal while the switch is on: it consumes
+  // the last analyzer's bundle by name and carries the same set
+  // binding, so the approval digest covers it like every data step.
+  const reconcilerStep: AgentStepInputLike | null = reconcilerPlanned
+    ? {
+        toolName: 'attachment_reconciler',
+        params: { ...binding, instruction, contentFromStep: lastAnalyzerIndex },
+      }
+    : null;
+  const reconcilerPlannedStep: AgentToolStepV3 | null = reconcilerPlanned
+    ? { toolName: 'attachment_reconciler', reasonCode: 'attachment-reconciliation' }
+    : null;
+
   const augmentedSteps = [
     readerStep,
     ...steps.slice(0, insertAt),
     ...analyzerSteps,
+    ...(reconcilerStep ? [reconcilerStep] : []),
     ...steps.slice(insertAt),
   ];
   const augmentedPlanned = [
     { toolName: 'attachment_reader', reasonCode: 'attachment-input' } as AgentToolStepV3,
     ...plannedSteps.slice(0, insertAt),
     ...analyzerPlanned,
+    ...(reconcilerPlannedStep ? [reconcilerPlannedStep] : []),
     ...plannedSteps.slice(insertAt),
   ];
   return { ok: true, steps: augmentedSteps, plannedSteps: augmentedPlanned };

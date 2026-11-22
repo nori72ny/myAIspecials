@@ -15,12 +15,13 @@ import type { AgentModelExecutor } from './agentModelCall.js';
 import {
   executeAttachmentAnalyzer,
   executeAttachmentReader,
+  executeAttachmentReconciler,
   parseAgentDataRemediations,
   parseAgentDataResources,
   AGENT_FINDING_SEVERITIES,
 } from './agentAttachmentTools.js';
 
-export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer';
+export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer' | 'attachment_reconciler';
 export type ToolParams = Record<string, unknown>;
 export type ToolResult = { ok: boolean; tool: ToolName; artifact?: string; message: string; mutation?: FileMutationCheckpoint };
 export type ToolExecutionContext = {
@@ -460,6 +461,14 @@ const registry: Record<ToolName, ToolDefinition> = {
     sideEffects: 'none',
     requiresApproval: true,
     execute: async (params, context) => executeAttachmentAnalyzer(params, context),
+  },
+  attachment_reconciler: {
+    name: 'attachment_reconciler',
+    capability: 'read_input_data',
+    description: 'Vets an inconsistency-audit run\'s merged findings in one model call over deterministic material (the findings, the value-mismatch candidates and the structure map — never raw document text): applies the pairing discipline (one attribute, same entity and agreement scope, two differing values with two verbatim citations), drops misreadings, picks up cross-document mismatches, and fails closed when candidates exist but no vetted finding survives. Issued only for audit goals while the reconciliation switch is on; shadow mode records the vetted list without changing the deliverable.',
+    sideEffects: 'none',
+    requiresApproval: true,
+    execute: async (params, context) => executeAttachmentReconciler(params, context),
   },
 };
 

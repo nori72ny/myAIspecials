@@ -525,3 +525,27 @@ describe('agentRunPlanAttachmentSetId (resume attachment support, design §4.2)'
     expect(agentRunPlanAttachmentSetId(mixed)).toBe(SET_ID);
   });
 });
+
+describe('agent run step live detail: reconciliation summary', () => {
+  const baseStep: AgentRunStepState = { id: 'task-6', status: 'completed', attempts: 1 };
+
+  it('round-trips the counts-only reconciliation summary through normalization', () => {
+    const liveDetail = {
+      startedAt: now - 5_000,
+      finishedAt: now,
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 3, keptCount: 1, droppedCount: 2, pickedUpCount: 1, failed: true,
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.reconciliation).toEqual({
+      mode: 'shadow', candidateCount: 3, keptCount: 1, droppedCount: 2, pickedUpCount: 1, failed: true,
+    });
+  });
+
+  it('drops a malformed reconciliation summary fail-soft', () => {
+    const liveDetail = { reconciliation: { mode: 'on', candidateCount: '3' } } as never;
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.reconciliation).toBeUndefined();
+  });
+});

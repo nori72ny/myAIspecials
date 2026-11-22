@@ -9,8 +9,14 @@ import {
 import type { AgentModelExecutor } from './agentModelCall.js';
 import {
   AGENT_ANALYZER_CHUNK_INTERVAL_MS,
+  agentGoalUsesCjk,
+  computeAgentDataValueMismatches,
+  mergeAgentDataStructures,
+  normalizeAgentDataValueText,
   parseChunkOutputDetailed,
   parseFailureRepairGuidance,
+  parseReconciliationOutput,
+  type AgentDataValue,
 } from './agentAttachmentTools.js';
 import { buildAgentAttachmentDataView } from './agentAttachmentData.js';
 
@@ -1115,5 +1121,513 @@ describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
     expect(result.message).toContain('unexpected=1');
+  });
+});
+
+/**
+ * The M&A misreading countermeasure (design
+ * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23): layer 1 builds
+ * the deterministic cross-check material (value table + structure
+ * map → mismatch candidates), layer 2 vets the merged findings in
+ * one reconciliation step under the pairing discipline, and layer
+ * 3 forces the explanation/pair format in audit mode. The
+ * regression condition is that NONE of it exists outside audit
+ * mode: a non-audit findings bundle stays byte-identical.
+ */
+describe('misreading countermeasure layer 1: normalization and mismatch candidates', () => {
+  it('normalizes quantities deterministically and refuses non-quantities', () => {
+    expect(normalizeAgentDataValueText('146,660,332.00')).toBe('146660332');
+    expect(normalizeAgentDataValueText('146660332')).toBe('146660332');
+    expect(normalizeAgentDataValueText('45%')).toBe('45');
+    expect(normalizeAgentDataValueText('45.0')).toBe('45');
+    expect(normalizeAgentDataValueText('1,234.50')).toBe('1234.5');
+    expect(normalizeAgentDataValueText('2026/01/09')).toBe('2026-01-09');
+    expect(normalizeAgentDataValueText('2026/1/9')).toBe('2026-01-09');
+    expect(normalizeAgentDataValueText('２０２６/０１/０９')).toBe('2026-01-09');
+    expect(normalizeAgentDataValueText('自有資金')).toBeUndefined();
+    expect(normalizeAgentDataValueText('')).toBeUndefined();
+    expect(normalizeAgentDataValueText('2026/13/01')).toBeUndefined();
+  });
+
+  const value = (entity: string, attribute: string, raw: string, file: string): AgentDataValue => ({
+    entity, attribute, value: raw, file, location: 'p.1',
+  });
+
+  it('catches the two production misses and the one production hit as candidates', () => {
+    const candidates = computeAgentDataValueMismatches([
+      value('买方一', '对价', '146,660,323.00', 'announcement.txt'),
+      value('买方一', '对价', '146,660,332.00', 'buyer1_report.txt'),
+      value('聚源盛业', '持股比例', '45%', 'announcement.txt'),
+      value('聚源盛业', '持股比例', '40%', 'buyer1_report.txt'),
+      value('买方一', '资金来源', '自有資金', 'announcement.txt'),
+      value('买方一', '资金来源', '自有資金及银行借款', 'buyer1_report.txt'),
+      // The same value stated twice is not a mismatch.
+      value('买方二', '对价', '10,000.00', 'announcement.txt'),
+      value('买方二', '对价', '10000', 'buyer2_report.txt'),
+    ], { agreements: [], definitions: [] });
+    expect(candidates).toHaveLength(3);
+    const consideration = candidates.find((candidate) => candidate.attribute === '对价');
+    expect(consideration?.values.map((entry) => entry.normalizedValue)).toEqual(['146660323', '146660332']);
+    const share = candidates.find((candidate) => candidate.attribute === '持股比例');
+    expect(share?.values.map((entry) => entry.normalizedValue)).toEqual(['45', '40']);
+    const funding = candidates.find((candidate) => candidate.attribute === '资金来源');
+    expect(funding?.values.map((entry) => entry.value)).toEqual(['自有資金', '自有資金及银行借款']);
+  });
+
+  it('resolves a defined abbreviation to its full name before grouping', () => {
+    const structure = {
+      agreements: [],
+      definitions: [{ short: '物美集团', full: '物美科技集团有限公司', file: 'buyer2_report.txt', location: '釈義' }],
+    };
+    const candidates = computeAgentDataValueMismatches([
+      value('物美集团', '持股比例', '60%', 'announcement.txt'),
+      value('物美科技集团有限公司', '持股比例', '55%', 'buyer2_report.txt'),
+    ], structure);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.entity).toBe('物美科技集团有限公司');
+  });
+
+  it('merges structure maps with first-seen dedupe', () => {
+    const merged = mergeAgentDataStructures(
+      {
+        agreements: [{ name: '協議一', parties: [{ name: '甲', role: '转让方' }] }],
+        definitions: [{ short: 'A', full: 'Alpha', file: 'f1', location: 'l1' }],
+      },
+      {
+        agreements: [
+          { name: '協議一', parties: [{ name: '甲', role: '转让方' }, { name: '乙', role: '受让方' }] },
+          { name: '協議二', parties: [{ name: '丙', role: '转让方' }] },
+        ],
+        definitions: [
+          { short: 'A', full: 'Alpha', file: 'f2', location: 'l2' },
+          { short: 'B', full: 'Beta', file: 'f2', location: 'l3' },
+        ],
+      },
+    );
+    expect(merged.agreements).toEqual([
+      { name: '協議一', parties: [{ name: '甲', role: '转让方' }, { name: '乙', role: '受让方' }] },
+      { name: '協議二', parties: [{ name: '丙', role: '转让方' }] },
+    ]);
+    expect(merged.definitions.map((definition) => definition.short)).toEqual(['A', 'B']);
+  });
+});
+
+describe('misreading countermeasure layers 1+3: audit-mode analyzer', () => {
+  const AUDIT_FILES = [
+    { name: 'announcement.txt', text: '公告本文。买方一の対価は146,660,323.00元と記載。' },
+    { name: 'buyer1_report.txt', text: '買主一報告本文。対価は146,660,332.00元と記載。' },
+  ];
+
+  const auditExecutor: AgentModelExecutor = async ({ userText }) => {
+    const file = frameFileName(userText);
+    const amount = file === 'announcement.txt' ? '146,660,323.00' : '146,660,332.00';
+    return {
+      ok: true,
+      text: JSON.stringify({
+        findings: [{
+          claim: '対価の金額が文書間で食い違う',
+          explanation: '同一主体の同一属性で2つの異なる金額が記載されている',
+          evidence: `対価 ${amount} 元`,
+          file,
+          location: '第1頁',
+          evidenceB: '',
+        }],
+        values: [{ entity: '买方一', attribute: '对价', value: amount, file, location: '第1頁' }],
+        structure: {
+          agreements: [{ name: '協議一', parties: [{ name: '买方一', role: '受让方' }] }],
+          definitions: [],
+        },
+      }),
+    };
+  };
+
+  it('carries values, structure and deterministic candidates in the final bundle', async () => {
+    const { store, setDigest } = await storeWithFiles(AUDIT_FILES);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: 'Audit the documents for inconsistencies',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 4, auditMode: true,
+      },
+      contextFor(store, auditExecutor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { explanation?: string }[];
+      values: { value: string }[];
+      structure: { agreements: { name: string }[] };
+      candidates: { entity: string; values: { normalizedValue: string }[] }[];
+      content: string;
+    };
+    expect(bundle.findings).toHaveLength(2);
+    expect(bundle.findings[0]?.explanation).toContain('同一主体');
+    expect(bundle.values.map((entry) => entry.value)).toEqual(['146,660,323.00', '146,660,332.00']);
+    expect(bundle.structure.agreements.map((agreement) => agreement.name)).toEqual(['協議一']);
+    expect(bundle.candidates).toHaveLength(1);
+    expect(bundle.candidates[0]?.values.map((entry) => entry.normalizedValue)).toEqual(['146660323', '146660332']);
+    // Layer-3 rendering: the goal is English, so the labels are.
+    expect(bundle.content).toContain('## Finding 1:');
+    expect(bundle.content).toContain('- Why it is inconsistent:');
+    expect(bundle.content).toContain('- Evidence:');
+  });
+
+  it('rejects an audit finding without explanation and repairs it with the concrete reason', async () => {
+    const { store, setDigest } = await storeWithFiles(AUDIT_FILES);
+    const instructions: string[] = [];
+    let calls = 0;
+    const executor: AgentModelExecutor = async ({ instruction, userText }) => {
+      instructions.push(instruction);
+      calls += 1;
+      const file = frameFileName(userText);
+      const withExplanation = calls > 1;
+      return {
+        ok: true,
+        text: JSON.stringify({
+          findings: [{
+            claim: '所見',
+            ...(withExplanation ? { explanation: '説明' } : {}),
+            evidence: '引用', file, location: '冒頭',
+          }],
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: '文書の不整合を監査してください',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 1, auditMode: true,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(2);
+    expect(instructions[1]).toContain('explanation');
+  });
+
+  it('parses the explanation requirement only in audit mode', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'a.txt', text: 'x' }]);
+    const text = '{"findings": [{"claim": "所見"}]}';
+    expect(parseChunkOutputDetailed('findings', text, view, { auditMode: true })).toEqual({
+      ok: false, reason: 'finding-explanation-missing',
+    });
+    // The same payload is valid outside audit mode, with or
+    // without the options argument.
+    expect(parseChunkOutputDetailed('findings', text, view).ok).toBe(true);
+    expect(parseChunkOutputDetailed('findings', text, view, { auditMode: false }).ok).toBe(true);
+    expect(parseFailureRepairGuidance('finding-explanation-missing', 'findings', view)).toContain('explanation');
+  });
+
+  it('keeps the K8s findings bundle byte-identical outside audit mode (regression)', async () => {
+    const { store, setDigest } = await storeWithFiles(K8S_SHAPE_FILES);
+    const executor: AgentModelExecutor = async ({ userText }) => ({
+      ok: true,
+      text: JSON.stringify({
+        findings: [{ claim: '断片から読み取れる所見', evidence: '引用', file: frameFileName(userText), location: '冒頭' }],
+      }),
+    });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: '障害の原因を分析してください',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    // The expected artifact is the bundle the pre-countermeasure
+    // implementation produced for this exact scenario (generated
+    // from the untouched base, 2026-11-23): same keys, same order,
+    // same rendering — no values/structure/candidates, no
+    // explanation fields.
+    const expected = {
+      kind: 'data-analysis',
+      content: [
+        '- 断片から読み取れる所見（根拠: cluster_state.txt 冒頭 「引用」）',
+        '- 断片から読み取れる所見（根拠: cluster_state.txt 冒頭 「引用」）',
+        '- 断片から読み取れる所見（根拠: deployment.yaml 冒頭 「引用」）',
+        '- 断片から読み取れる所見（根拠: failing_pod.log 冒頭 「引用」）',
+      ].join('\n'),
+      outputKind: 'findings',
+      findings: [
+        { claim: '断片から読み取れる所見', evidence: '引用', file: 'cluster_state.txt', location: '冒頭' },
+        { claim: '断片から読み取れる所見', evidence: '引用', file: 'cluster_state.txt', location: '冒頭' },
+        { claim: '断片から読み取れる所見', evidence: '引用', file: 'deployment.yaml', location: '冒頭' },
+        { claim: '断片から読み取れる所見', evidence: '引用', file: 'failing_pod.log', location: '冒頭' },
+      ],
+      coverage: { totalChunks: 4, processedChunks: 4 },
+      chunkRange: { offset: 0, count: 4 },
+    };
+    expect(result.artifact).toBe(JSON.stringify(expected));
+  });
+
+  it('switches rendering labels by the goal language (deterministic CJK check)', () => {
+    expect(agentGoalUsesCjk('文書の不整合を監査してください')).toBe(true);
+    expect(agentGoalUsesCjk('Audit the documents for inconsistencies')).toBe(false);
+  });
+});
+
+describe('misreading countermeasure layer 2: attachment_reconciler tool', () => {
+  const RECONCILER_FILES = [
+    { name: 'announcement.txt', text: '公告本文。' },
+    { name: 'buyer1_report.txt', text: '買主一報告本文。' },
+  ];
+
+  const ANALYZER_BUNDLE = JSON.stringify({
+    kind: 'data-analysis',
+    content: 'prior rendering',
+    outputKind: 'findings',
+    findings: [
+      {
+        claim: '対価の金額が食い違う',
+        explanation: '公告と買主1報告で同一主体の対価が異なる',
+        evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '146,660,332.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+      },
+      {
+        claim: '承認手続きが未了である',
+        explanation: '状態の記述',
+        evidence: '尚需取得上证合规性审查意见', file: 'announcement.txt', location: 'p.5',
+      },
+    ],
+    values: [],
+    structure: { agreements: [{ name: '協議一', parties: [{ name: '买方一', role: '受让方' }] }], definitions: [] },
+    candidates: [{
+      entity: '聚源盛业',
+      attribute: '持股比例',
+      values: [
+        { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+        { value: '40%', normalizedValue: '40', file: 'buyer1_report.txt', location: 'p.4' },
+      ],
+    }],
+    coverage: { totalChunks: 2, processedChunks: 2 },
+    chunkRange: { offset: 0, count: 2 },
+  });
+
+  const VETTED_OUTPUT = JSON.stringify({
+    findings: [
+      {
+        claim: '対価の金額が食い違う',
+        explanation: '公告と買主1報告で同一主体の対価が異なる',
+        evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '146,660,332.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+        source: { kind: 'kept', index: 0 },
+      },
+      {
+        claim: '持股比例が食い違う',
+        explanation: '公告は45%、買主1報告は40%で、合計も公告側は105%になる',
+        evidence: '45%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'candidate', index: 0 },
+      },
+    ],
+    dropped: [{ index: 1, reason: 'boilerplate' }],
+  });
+
+  const reconcilerParams = (setDigest: string, extra: Record<string, unknown> = {}) => ({
+    attachmentSetId: SET_ID,
+    setDigest,
+    instruction: 'Audit the documents for inconsistencies and report each inconsistency with its explanation.',
+    content: ANALYZER_BUNDLE,
+    ...extra,
+  });
+
+  const contextWithMode = (
+    store: InMemoryAgentAttachmentStore,
+    modelCall: AgentModelExecutor,
+    mode: string,
+  ): ToolExecutionContext => ({
+    ...contextFor(store, modelCall),
+    env: { ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED: mode },
+  });
+
+  it('enforce: keeps the paired finding, drops the boilerplate one, picks up the candidate', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { claim: string; explanation?: string; evidenceB?: string }[];
+      reconciliation: { mode: string; candidateCount: number; keptCount: number; droppedCount: number; droppedReasons: Record<string, number>; pickedUpCount: number };
+      content: string;
+    };
+    expect(bundle.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う', '持股比例が食い違う']);
+    expect(bundle.findings[1]?.evidenceB).toBe('40%');
+    expect(bundle.reconciliation).toEqual({
+      mode: 'enforce',
+      candidateCount: 1,
+      keptCount: 1,
+      droppedCount: 1,
+      droppedReasons: { boilerplate: 1 },
+      pickedUpCount: 1,
+    });
+    expect(bundle.content).toContain('## Finding 1: 対価の金額が食い違う');
+    expect(bundle.content).toContain('- Why it is inconsistent:');
+    expect(bundle.content).toContain('`announcement.txt, p.2`: `146,660,323.00元`');
+    expect(bundle.content).not.toContain('承認手続きが未了である');
+  });
+
+  it('enforce: renders pair labels in Japanese for a Japanese goal', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest, { instruction: '文書の不整合を監査し、矛盾の説明とともに出力してください' }),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { content: string };
+    expect(bundle.content).toContain('## 所見 1: 対価の金額が食い違う');
+    expect(bundle.content).toContain('- 矛盾の説明:');
+    expect(bundle.content).toContain('- 根拠:');
+  });
+
+  it('enforce: fails closed when candidates exist but the vetted list is empty', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({ findings: [], dropped: [{ index: 0, reason: 'no-pair' }, { index: 1, reason: 'boilerplate' }] }),
+    });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_RECONCILIATION_NO_FINDINGS');
+  });
+
+  it('enforce: repairs an output that misses the pair discipline, then accepts the repair', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    let calls = 0;
+    const executor: AgentModelExecutor = async () => {
+      calls += 1;
+      if (calls === 1) {
+        // No source markers and no second citation: not vetted.
+        return {
+          ok: true,
+          text: JSON.stringify({
+            findings: [{ claim: '対価の金額が食い違う', explanation: '説明', evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2' }],
+          }),
+        };
+      }
+      return { ok: true, text: VETTED_OUTPUT };
+    };
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it('enforce: fails with AGENT_RECONCILIATION_OUTPUT_INVALID when the repair also misses', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: '{"findings": "nope"}' });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_RECONCILIATION_OUTPUT_INVALID');
+  });
+
+  it('shadow: records the vetted list and counts but ships the original findings', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'shadow'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { claim: string }[];
+      reconciledFindings: { claim: string }[];
+      reconciliation: { mode: string; droppedCount: number; pickedUpCount: number };
+      content: string;
+    };
+    expect(bundle.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う', '承認手続きが未了である']);
+    expect(bundle.reconciledFindings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う', '持股比例が食い違う']);
+    expect(bundle.reconciliation.mode).toBe('shadow');
+    expect(bundle.reconciliation.droppedCount).toBe(1);
+    expect(bundle.content).toContain('承認手続きが未了である');
+  });
+
+  it('shadow: an unjudgeable reconciliation degrades to a recorded pass-through, never a failure', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: 'not json at all' });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'shadow'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { claim: string }[];
+      reconciliation: { failed?: boolean; candidateCount: number };
+    };
+    expect(bundle.findings).toHaveLength(2);
+    expect(bundle.reconciliation.failed).toBe(true);
+    expect(bundle.reconciliation.candidateCount).toBe(1);
+  });
+
+  it('off: passes the bundle through with no reconciliation record', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as Record<string, unknown>;
+    expect(bundle.reconciliation).toBeUndefined();
+    expect((bundle.findings as { claim: string }[]).map((finding) => finding.claim)).toEqual([
+      '対価の金額が食い違う', '承認手続きが未了である',
+    ]);
+  });
+
+  it('refuses a missing bundle and a non-bundle content', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: VETTED_OUTPUT });
+    const missing = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest, { content: undefined }),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(missing.ok).toBe(false);
+    expect(missing.message).toBe('AGENT_STEP_INPUT_UNAVAILABLE');
+    const notBundle = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest, { content: '{"kind":"other"}' }),
+      contextWithMode(store, executor, 'enforce'),
+    );
+    expect(notBundle.ok).toBe(false);
+    expect(notBundle.message).toBe('AGENT_DATA_OUTPUT_INVALID');
+  });
+
+  it('validates the reconciliation output mechanically (parseReconciliationOutput)', () => {
+    const vetted = {
+      claim: 'c', explanation: 'e', evidence: 'v1', file: 'f', location: 'l',
+      evidenceB: 'v2', fileB: 'f2', locationB: 'l2',
+    };
+    expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...vetted, source: { kind: 'kept', index: 0 } }] }), 1, 0).ok).toBe(true);
+    // Kept index out of range.
+    expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...vetted, source: { kind: 'kept', index: 1 } }] }), 1, 0).ok).toBe(false);
+    // The same original kept twice.
+    expect(parseReconciliationOutput(JSON.stringify({
+      findings: [
+        { ...vetted, source: { kind: 'kept', index: 0 } },
+        { ...vetted, source: { kind: 'kept', index: 0 } },
+      ],
+    }), 1, 0).ok).toBe(false);
+    // Candidate index out of range.
+    expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...vetted, source: { kind: 'candidate', index: 0 } }] }), 1, 0).ok).toBe(false);
+    // Missing second citation: not vetted.
+    const { evidenceB: _dropped, ...noPair } = vetted;
+    expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...noPair, source: { kind: 'kept', index: 0 } }] }), 1, 0).ok).toBe(false);
+    // A dropped entry with an unknown reason is discarded, not fatal.
+    const withBadDrop = parseReconciliationOutput(JSON.stringify({
+      findings: [{ ...vetted, source: { kind: 'kept', index: 0 } }],
+      dropped: [{ index: 0, reason: 'whatever' }],
+    }), 2, 0);
+    expect(withBadDrop.ok).toBe(true);
+    if (withBadDrop.ok) expect(withBadDrop.dropped).toEqual([]);
   });
 });

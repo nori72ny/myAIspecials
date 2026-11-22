@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { advanceAgentRun, resolveStepParams } from './agentRunAdvancer.js';
+import { advanceAgentRun, buildStepLiveDetail, resolveStepParams } from './agentRunAdvancer.js';
 import {
   AGENT_RUN_CONSUMPTION_MAX_TTL_MS,
   AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS,
@@ -1064,5 +1064,34 @@ describe('advanceAgentRun rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICA
     } finally {
       delete process.env.ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED;
     }
+  });
+});
+
+describe('step live detail: reconciliation summary (misreading countermeasure)', () => {
+  it('surfaces the reconciler summary from the step artifact', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: { mode: 'enforce', candidateCount: 3, keptCount: 2, droppedCount: 1, pickedUpCount: 1 },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.reconciliation).toEqual({
+      mode: 'enforce', candidateCount: 3, keptCount: 2, droppedCount: 1, pickedUpCount: 1,
+    });
+  });
+
+  it('omits the field when the artifact carries no reconciliation block', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({ kind: 'data-analysis' }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.reconciliation).toBeUndefined();
   });
 });

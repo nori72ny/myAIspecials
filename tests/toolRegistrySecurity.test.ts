@@ -6,6 +6,7 @@ describe('tool registry security boundary', () => {
     expect(Object.keys(toolRegistry).sort()).toEqual([
       'attachment_analyzer',
       'attachment_reader',
+      'attachment_reconciler',
       'code_interpreter',
       'document_generator',
       'file_reader',

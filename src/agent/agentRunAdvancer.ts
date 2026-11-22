@@ -25,6 +25,7 @@ import {
   type AgentRunRecord,
   type AgentRunStepCoverageFailure,
   type AgentRunStepLiveDetail,
+  type AgentRunStepReconciliation,
   type AgentRunStepState,
   type AgentRunStore,
   type PutAgentRunStepArtifactInput,
@@ -158,11 +159,13 @@ export type StepArtifactLookup = {
  * One consumer resolves differently: `attachment_analyzer` chains its
  * structured bundle from the previous analyzer step, so for that tool
  * the markers resolve to the RAW artifact string — the bundle JSON —
- * instead of its rendered `content` field. A structured-JSON
- * `document_generator` step (carrying `jsonTopLevelKeys`) resolves the
- * same way: it assembles its deliverable from the analyzer bundle,
- * and the rendered findings text would not carry the typed sections
- * it needs. Every other consumer takes the rendered text, which is
+ * instead of its rendered `content` field. `attachment_reconciler`
+ * resolves the same way (it vets the last analyzer's bundle JSON,
+ * not its rendered text), as does a structured-JSON
+ * `document_generator` step (carrying `jsonTopLevelKeys`): it
+ * assembles its deliverable from the analyzer bundle, and the
+ * rendered findings text would not carry the typed sections it
+ * needs. Every other consumer takes the rendered text, which is
  * what a document or file step must embed. */
 export function resolveStepParams(
   step: { toolName?: ToolName; params: ToolParams },
@@ -173,6 +176,7 @@ export function resolveStepParams(
   else if (typeof artifacts === 'string') lookup = { previousText: artifacts };
   else lookup = artifacts;
   const raw = step.toolName === 'attachment_analyzer'
+    || step.toolName === 'attachment_reconciler'
     || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
   const fromStep = step.params.contentFromStep;
   if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0) {
@@ -215,7 +219,7 @@ export function toolFailureCodeFromMessage(message: string | undefined): string 
 
 export function textualArtifactOf(toolName: ToolName, artifact: string): string | undefined {
   if (toolName === 'file_reader') return artifact;
-  if (toolName === 'document_generator' || toolName === 'attachment_reader' || toolName === 'attachment_analyzer') {
+  if (toolName === 'document_generator' || toolName === 'attachment_reader' || toolName === 'attachment_analyzer' || toolName === 'attachment_reconciler') {
     try {
       const parsed = JSON.parse(artifact) as { content?: unknown };
       return typeof parsed.content === 'string' ? parsed.content : undefined;
@@ -233,14 +237,16 @@ const TEXTUAL_ARTIFACT_PRODUCER_TOOLS: ReadonlySet<ToolName> = new Set([
   'document_generator',
   'attachment_reader',
   'attachment_analyzer',
+  'attachment_reconciler',
 ]);
 
 /** Whether a consuming step resolves the RAW artifact string of its
- * source (analyzer bundle chaining, structured document assembly)
- * rather than the rendered text — the same distinction resolveStepParams
- * draws. */
+ * source (analyzer bundle chaining, reconciliation, structured
+ * document assembly) rather than the rendered text — the same
+ * distinction resolveStepParams draws. */
 function stepConsumesRawArtifact(step: { toolName?: ToolName; params: ToolParams }): boolean {
   return step.toolName === 'attachment_analyzer'
+    || step.toolName === 'attachment_reconciler'
     || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
 }
 
@@ -450,6 +456,53 @@ export function providerAttemptsFromAnalyzerMessage(
   return attempts.length > 0 ? attempts : undefined;
 }
 
+/**
+ * The reconciler's output bundle carries its recorded outcome in a
+ * fixed `reconciliation` block (misreading countermeasure design
+ * §2 layer 2) — the advancer reads the block back into the step's
+ * live detail, in the same fail-soft style as the rest of the live
+ * detail: an absent or malformed block contributes nothing, and
+ * every value is re-validated here before the record normalizer
+ * re-checks it again. Counts and the mode only; the bundle's
+ * finding text never crosses into the record.
+ */
+export function reconciliationFromReconcilerArtifact(
+  artifact: string | undefined,
+): AgentRunStepReconciliation | undefined {
+  if (!artifact) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const block = (parsed as { reconciliation?: unknown }).reconciliation;
+  if (typeof block !== 'object' || block === null || Array.isArray(block)) return undefined;
+  const record = block as Record<string, unknown>;
+  const mode = record.mode === 'shadow' || record.mode === 'enforce' ? record.mode : undefined;
+  if (mode === undefined) return undefined;
+  const count = (raw: unknown): number | undefined => {
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > 1_000_000) return undefined;
+    return raw;
+  };
+  const candidateCount = count(record.candidateCount);
+  const keptCount = count(record.keptCount);
+  const droppedCount = count(record.droppedCount);
+  const pickedUpCount = count(record.pickedUpCount);
+  if (candidateCount === undefined || keptCount === undefined || droppedCount === undefined || pickedUpCount === undefined) {
+    return undefined;
+  }
+  return {
+    mode,
+    candidateCount,
+    keptCount,
+    droppedCount,
+    pickedUpCount,
+    ...(record.failed === true ? { failed: true } : {}),
+  };
+}
+
 export function buildStepLiveDetail(input: {
   toolName: ToolName;
   params: ToolParams;
@@ -474,6 +527,10 @@ export function buildStepLiveDetail(input: {
       if (coverageFailure) detail.coverageFailure = coverageFailure;
       const providerAttempts = providerAttemptsFromAnalyzerMessage(input.failureMessage);
       if (providerAttempts) detail.providerAttempts = providerAttempts;
+    }
+    if (input.toolName === 'attachment_reconciler') {
+      const reconciliation = reconciliationFromReconcilerArtifact(input.artifact);
+      if (reconciliation) detail.reconciliation = reconciliation;
     }
     if (input.toolName === 'web_search_grounding') {
       const query = typeof input.params.query === 'string' ? input.params.query.trim() : '';
