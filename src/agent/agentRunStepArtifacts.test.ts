@@ -295,7 +295,7 @@ describe('postgres step artifact statements', () => {
     const store = new PostgresAgentRunStore(database);
     await expect(store.sweepExpiredArtifacts(50)).resolves.toBe(2);
     expect(database.calls[0].text).toContain('delete from public.origin_agent_run_artifacts');
-    expect(database.calls[0].text).toContain('order by expires_at asc limit $1');
+    expect(database.calls[0].text).toContain('order by a.expires_at asc limit $1');
     await expect(store.sweepExpiredArtifacts(0)).rejects.toThrow('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');
   });
 });

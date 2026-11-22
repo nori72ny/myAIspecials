@@ -1,9 +1,11 @@
 import {
+  AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS,
   AGENT_RUN_ID_PATTERN,
   AGENT_RUN_OWNER_BINDING_PATTERN,
   MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
+  isAgentRunTerminalStatus,
   normalizeAgentRunApprovalDeadlineAt,
   normalizeAgentRunHold,
   normalizeAgentRunPlan,
@@ -274,7 +276,13 @@ export class InMemoryAgentRunStore implements AgentRunStore {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) throw new Error('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');
     const timestamp = this.now();
     const due = [...this.artifacts.values()]
-      .filter((artifact) => artifact.expiresAt <= timestamp)
+      .filter((artifact) => {
+        if (artifact.expiresAt <= timestamp) return true;
+        const run = this.runs.get(artifact.runId);
+        return run !== undefined
+          && isAgentRunTerminalStatus(run.status)
+          && run.updatedAt + AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS <= timestamp;
+      })
       .sort((a, b) => a.expiresAt - b.expiresAt)
       .slice(0, limit);
     for (const artifact of due) this.artifacts.delete(artifactKey(artifact.runId, artifact.stepIndex));

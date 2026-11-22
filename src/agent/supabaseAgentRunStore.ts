@@ -588,11 +588,21 @@ export class PostgresAgentRunStore implements AgentRunStore {
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ARTIFACT_SWEEP) {
       throw new Error('AGENT_RUN_ARTIFACT_CLEANUP_LIMIT_INVALID');
     }
+    // Retention (design §4.6): a row is due when its own expiry has
+    // passed, or when its run has been terminal for longer than the
+    // 24-hour grace (AGENT_RUN_ARTIFACT_TERMINAL_GRACE_MS — a terminal
+    // run's updated_at is its terminal transition time, because
+    // terminal rows never transition again). The left join keeps
+    // orphan rows (impossible while the FK cascade holds) on the
+    // expiry rule alone.
     const result = await this.database.query(
       `with due as (
-         select ctid from public.origin_agent_run_artifacts
-         where expires_at <= clock_timestamp()
-         order by expires_at asc limit $1
+         select a.ctid from public.origin_agent_run_artifacts a
+         left join public.origin_agent_runs r on r.run_id = a.run_id
+         where a.expires_at <= clock_timestamp()
+            or (r.status in ('completed', 'failed', 'cancelled', 'expired')
+                and r.updated_at <= clock_timestamp() - interval '24 hours')
+         order by a.expires_at asc limit $1
        )
        delete from public.origin_agent_run_artifacts a
        using due
