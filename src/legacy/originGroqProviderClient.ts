@@ -28,6 +28,12 @@ import {
   parseOriginRateLimitHeaders,
   recordOriginRateLimitObservation,
 } from "./originProviderCapacityLedger.js";
+import {
+  evaluateOriginProviderPacing,
+  isOriginGroqPacingAllocationEnabled,
+  recordOriginProviderPacingSend,
+  ORIGIN_PROVIDER_PACING_MAX_WAIT_MS,
+} from "./originProviderPacing.js";
 import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 
 /**
@@ -404,6 +410,14 @@ function usageDiagnosticFields(
 export interface OriginGroqExecutionOptions {
   catalog?: readonly OriginGroqFreeModelEvidence[];
   nowMs?: number;
+  /**
+   * Test seams for the D-1 pacing waits: production leaves both unset
+   * and pacing reads the real clock and sleeps on real timers. The
+   * evidence clock above (nowMs) stays a fixed snapshot on purpose — it
+   * judges catalog evidence, not the rolling window.
+   */
+  pacingNowMs?: () => number;
+  pacingSleepMs?: (ms: number) => Promise<void>;
 }
 
 interface OriginGroqPreparedAttempt {
@@ -411,6 +425,8 @@ interface OriginGroqPreparedAttempt {
   messages: Array<{ role: string; content: string }>;
   completionBudget: number;
   timeoutMs: number;
+  /** The pre-send gate's input estimate; with the completion budget it forms the send's pacing footprint. */
+  estimatedInputTokens: number;
 }
 
 /**
@@ -476,7 +492,7 @@ function prepareGroqModelAttempt(
   }
 
   const timeoutMs = Math.min(ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS, Math.max(5_000, Number(plan.timeoutMs) || ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS));
-  return { modelId, messages, completionBudget, timeoutMs };
+  return { modelId, messages, completionBudget, timeoutMs, estimatedInputTokens };
 }
 
 /**
@@ -524,8 +540,16 @@ async function executeGroqModelAttempt(
   fetchImpl: OriginFetch,
   options: OriginGroqExecutionOptions,
   transport: { count: number },
+  pacing?: OriginGroqPacingContext,
 ): Promise<OriginProviderExecutionResult> {
-  const { modelId, messages, completionBudget, timeoutMs } = prepareGroqModelAttempt(providerRequest, plan, options);
+  const { modelId, messages, completionBudget, timeoutMs, estimatedInputTokens } = prepareGroqModelAttempt(providerRequest, plan, options);
+  // D-1 pacing (allocated cascade only): the send's footprint is booked
+  // against the model's rolling per-minute window before anything is
+  // sent, waiting or deferring as the pacing context directs. Attempts
+  // outside the allocated cascade pass no context and are never paced.
+  if (pacing) {
+    await paceGroqModelSend(pacing, modelId, estimatedInputTokens + completionBudget, options);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
@@ -622,6 +646,91 @@ function buildGroqRotationPlan(
   };
 }
 
+/**
+ * Internal control flow of the allocated cascade (D-1): the allocated
+ * model's window cannot fit the send now, but the named model's window
+ * can, so the cascade attempts that model immediately instead of
+ * waiting. Thrown only by the pacing step below, caught only by the
+ * allocated cascade, and never allowed to escape this module.
+ */
+class OriginGroqPacingDeferral extends Error {
+  constructor(public readonly modelId: OriginGroqFreeModelId) {
+    super(`Groq pacing deferral to ${modelId}`);
+    this.name = "OriginGroqPacingDeferral";
+  }
+}
+
+interface OriginGroqPacingContext {
+  /**
+   * Cumulative pacing wait already spent inside this dispatch, shared
+   * across the allocated cascade's attempts so the cascade as a whole
+   * honors the same per-dispatch ceiling the design sets (see
+   * ORIGIN_PROVIDER_PACING_MAX_WAIT_MS for how this budget relates to
+   * the analyzer retry's separate per-step budget).
+   */
+  waitedMs: number;
+  /**
+   * When set, a send that does not fit this model's window defers to
+   * this model if its window fits, instead of waiting. Set only on the
+   * allocated cascade's first attempt: distribution is a choice between
+   * the two gpt-oss buckets, and the qwen stage is never a deferral
+   * target (it stays behind its own quality gate and kill switch).
+   */
+  deferToModelId?: OriginGroqFreeModelId;
+}
+
+const defaultPacingSleepMs = (ms: number): Promise<void> => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+/**
+ * Paces one model attempt's send against that model's rolling
+ * per-minute window (design D-1): waits until the window fits the
+ * send's estimated footprint under the safety line, or defers to the
+ * context's alternate model when that window already fits. When the
+ * wait would exceed the dispatch's remaining pacing budget, the send
+ * proceeds unpaced — pacing is prevention, not a new gate, and the
+ * fallback is exactly the pre-D-1 behavior. The send's footprint is
+ * recorded at the moment the send is decided, whichever way the
+ * decision goes, so the window models the burst that actually happens.
+ */
+async function paceGroqModelSend(
+  context: OriginGroqPacingContext,
+  modelId: OriginGroqFreeModelId,
+  footprintTokens: number,
+  options: OriginGroqExecutionOptions,
+): Promise<void> {
+  const nowMs = options.pacingNowMs ?? Date.now;
+  const sleepMs = options.pacingSleepMs ?? defaultPacingSleepMs;
+  for (;;) {
+    const decision = evaluateOriginProviderPacing({
+      modelId,
+      estimatedTokens: footprintTokens,
+      limitTokensPerMinute: originGroqTokensPerMinuteLimit(modelId),
+      nowMs: nowMs(),
+    });
+    if (decision.action === "send") {
+      recordOriginProviderPacingSend(modelId, footprintTokens, nowMs());
+      return;
+    }
+    if (context.deferToModelId && context.deferToModelId !== modelId) {
+      const alternative = evaluateOriginProviderPacing({
+        modelId: context.deferToModelId,
+        estimatedTokens: footprintTokens,
+        limitTokensPerMinute: originGroqTokensPerMinuteLimit(context.deferToModelId),
+        nowMs: nowMs(),
+      });
+      if (alternative.action === "send") throw new OriginGroqPacingDeferral(context.deferToModelId);
+    }
+    if (context.waitedMs + decision.waitMs > ORIGIN_PROVIDER_PACING_MAX_WAIT_MS) {
+      recordOriginProviderPacingSend(modelId, footprintTokens, nowMs());
+      return;
+    }
+    await sleepMs(decision.waitMs);
+    context.waitedMs += decision.waitMs;
+  }
+}
+
 function withTransportCount(error: unknown, transport: { count: number }): unknown {
   if (error instanceof OriginGroqPreflightError) return error;
   if (error instanceof OriginProviderError) {
@@ -631,6 +740,67 @@ function withTransportCount(error: unknown, transport: { count: number }): unkno
     });
   }
   return error;
+}
+
+/**
+ * Planned allocation cascade (design FREE_CAPACITY_EXPANSION_2026-11-22,
+ * stage D-1), entered only for requests the agent model-call adapter
+ * marked as analyzer chunk calls while
+ * ORIGIN_GROQ_PACING_ALLOCATION_ENABLED is exactly "true". The first
+ * attempt is planned onto the rotation model's separate per-model quota
+ * bucket — the bucket the standard cascade leaves idle until a failure —
+ * because analyzer output is verified mechanically downstream (coverage
+ * and format checks), which is what qualifies this call kind for the
+ * weaker model without lowering the bar anywhere else. The primary
+ * model becomes this cascade's rotation stage, and the qwen stage sits
+ * behind it under exactly the standard cascade's conditions (rotation
+ * trigger plus its own kill switch). Every attempt is paced against its
+ * own model's rolling per-minute window, and the first attempt may
+ * defer to the primary model when the allocated window cannot fit the
+ * send but the primary's can (see paceGroqModelSend).
+ *
+ * Failure semantics mirror the standard cascade: preflight skips and
+ * non-trigger failures surface immediately, and only a classified rate
+ * limit or an upstream 5xx overload moves the cascade to its next
+ * model. Nothing here is reachable for unmarked requests or while the
+ * switch is off, and direct chat generation is never allocated.
+ */
+async function executeAllocatedGroqCascade(
+  providerRequest: OriginProviderExecutionRequest,
+  allocatedPlan: OriginExecutionPlan,
+  apiKey: string,
+  fetchImpl: OriginFetch,
+  options: OriginGroqExecutionOptions,
+  transport: { count: number },
+  env: NodeJS.ProcessEnv,
+): Promise<OriginProviderExecutionResult> {
+  const firstPacing: OriginGroqPacingContext = { waitedMs: 0, deferToModelId: ORIGIN_GROQ_FREE_MODEL_ID };
+  try {
+    return await executeGroqModelAttempt(providerRequest, allocatedPlan, apiKey, fetchImpl, options, transport, firstPacing);
+  } catch (error) {
+    if (!(error instanceof OriginGroqPacingDeferral)
+      && !(error instanceof OriginProviderError && isGroqRotationTrigger(error))) {
+      throw withTransportCount(error, transport);
+    }
+    const primaryPacing: OriginGroqPacingContext = { waitedMs: firstPacing.waitedMs };
+    try {
+      return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport, primaryPacing);
+    } catch (primaryError) {
+      if (primaryError instanceof OriginProviderError
+        && isGroqRotationTrigger(primaryError)
+        && isOriginGroqQwenRotationEnabled(env)) {
+        const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
+        if (qwenPlan) {
+          try {
+            return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport, { waitedMs: primaryPacing.waitedMs });
+          } catch (qwenError) {
+            throw withTransportCount(qwenError, transport);
+          }
+        }
+      }
+      throw withTransportCount(primaryError, transport);
+    }
+  }
 }
 
 export async function executeOriginGroqProvider(
@@ -643,6 +813,19 @@ export async function executeOriginGroqProvider(
   if (!apiKey) throw new OriginGroqPreflightError("not-configured");
 
   const transport = { count: 0 };
+  // D-1 planned allocation: analyzer chunk calls (the only marked kind)
+  // run the allocated cascade while the switch is on. When the rotation
+  // model's evidence is not current, allocation simply does not happen
+  // and the standard cascade below runs unchanged — its own rotation
+  // stage reaches the same per-model fail-closed result.
+  if (isOriginGroqPacingAllocationEnabled(env)
+    && providerRequest.groqCapacityAllocation === "agent-analyzer-chunk"
+    && providerRequest.plan.modelId === ORIGIN_GROQ_FREE_MODEL_ID) {
+    const allocatedPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    if (allocatedPlan) {
+      return executeAllocatedGroqCascade(providerRequest, allocatedPlan, apiKey, fetchImpl, options, transport, env);
+    }
+  }
   try {
     return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport);
   } catch (error) {

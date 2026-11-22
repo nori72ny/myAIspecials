@@ -12,6 +12,8 @@ export interface OriginProviderRequiredTool {
   description: string;
   parameters: Record<string, unknown>;
 }
+/** Call kinds the route-3 capacity allocation (design FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1) may plan onto a separate per-model quota bucket. */
+export type OriginGroqCapacityAllocation = "agent-analyzer-chunk";
 export interface OriginProviderExecutionRequest {
   plan: OriginExecutionPlan;
   messages: OriginChatMessage[];
@@ -37,6 +39,22 @@ export interface OriginProviderExecutionRequest {
    * exactly.
    */
   cloudflareSystemInstruction?: string;
+  /**
+   * Optional route-3 capacity allocation hint (design
+   * FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1). The agent model-call
+   * adapter sets this on analyzer chunk calls — the one call kind whose
+   * output is verified mechanically downstream (coverage and format
+   * checks on the assembled bundle), which is what qualifies it for
+   * planned allocation onto the rotation model's separate per-model
+   * quota bucket instead of leaving that bucket idle until a failure.
+   * The hint changes nothing by itself: the blocking Groq executor
+   * honors it only while ORIGIN_GROQ_PACING_ALLOCATION_ENABLED is
+   * exactly "true", routes 1 and 2 never read it, and the streaming
+   * executor does not act on it in this stage. Callers that do not set
+   * it — every direct-chat and research caller — keep the previous
+   * route-3 behavior exactly.
+   */
+  groqCapacityAllocation?: OriginGroqCapacityAllocation;
   /**
    * Optional text-release policy for the upstream streaming executor; every other
    * executor ignores this field. "hold-until-verified" (also the behavior when the

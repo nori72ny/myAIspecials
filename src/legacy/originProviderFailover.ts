@@ -834,7 +834,7 @@ async function runGroqRoute(
   }
   const execute = options.groqExecute ?? executeOriginGroqProvider;
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction, groqCapacityAllocation: request.groqCapacityAllocation },
     env,
     fetchImpl,
     { catalog: options.groqCatalog, nowMs: options.nowMs },
@@ -1140,7 +1140,7 @@ async function runGroqRouteStream(
   }
   const execute = resolveGroqStreamExecutor(options);
   return execute(
-    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction, streamRelease: request.streamRelease },
+    { plan: planResult.plan, messages: request.messages, systemInstruction: request.systemInstruction, groqSystemInstruction: request.groqSystemInstruction, groqCapacityAllocation: request.groqCapacityAllocation, streamRelease: request.streamRelease },
     handlers,
     env,
     fetchImpl,
