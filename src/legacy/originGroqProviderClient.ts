@@ -22,7 +22,12 @@ import {
   type OriginProviderDiagnostic,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
+  type OriginRateLimitSnapshot,
 } from "./originProviderClient.js";
+import {
+  parseOriginRateLimitHeaders,
+  recordOriginRateLimitObservation,
+} from "./originProviderCapacityLedger.js";
 import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 
 /**
@@ -300,6 +305,44 @@ const retryAfterSecondsFromHeader = (value: string | null): number | undefined =
   return Number.isFinite(timestamp) ? Math.max(1, Math.ceil((timestamp - Date.now()) / 1000)) : undefined;
 };
 
+/**
+ * Capacity observation (design FREE_CAPACITY_EXPANSION_2026-11-22, D-0):
+ * parses the rate-limit headers this attempt's response carried and
+ * records them in the capacity ledger under the model that was actually
+ * sent. Observation only — the parsed snapshot rides the result (or the
+ * failure's diagnostic) so the attempt evidence can show what the
+ * provider itself reported, and nothing here changes what is sent, when
+ * the route rotates, or how a failure is classified.
+ */
+function recordGroqRateLimitObservation(
+  modelId: OriginGroqFreeModelId,
+  headers: Headers,
+  status: number,
+): OriginRateLimitSnapshot | undefined {
+  const rateLimit = parseOriginRateLimitHeaders(headers);
+  if (rateLimit) {
+    recordOriginRateLimitObservation({
+      providerId: ORIGIN_GROQ_FREE_PROVIDER_ID,
+      modelId,
+      snapshot: rateLimit,
+      limitHit: status === 429,
+    });
+  }
+  return rateLimit;
+}
+
+/** Attaches the observed rate-limit snapshot to a failed attempt's diagnostic, unchanged in every other field. */
+function withRateLimitDiagnostic(
+  error: OriginProviderError,
+  rateLimit: OriginRateLimitSnapshot | undefined,
+): OriginProviderError {
+  if (!rateLimit) return error;
+  return new OriginProviderError(error.code, error.message, error.status, error.retryable, error.retryAfterSeconds, {
+    ...error.diagnostic,
+    rateLimit,
+  });
+}
+
 function inferenceFailure(status: number, body: GroqChatCompletionEnvelope | null, retryAfterSeconds?: number): OriginProviderError {
   const errorText = `${String(body?.error?.code ?? "")} ${String(body?.error?.message ?? "")}`.toLowerCase();
   // Keep the provider's raw error code (never the message text) so a classified
@@ -446,6 +489,7 @@ function composeGroqAttemptResult(
   modelId: OriginGroqFreeModelId,
   transport: { count: number },
   usage: { promptTokens: number; completionTokens: number; totalTokens: number },
+  rateLimit?: OriginRateLimitSnapshot,
 ): OriginProviderExecutionResult {
   const result: OriginProviderExecutionResult = {
     text,
@@ -461,6 +505,7 @@ function composeGroqAttemptResult(
       fallbackUsed: true,
     },
     usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens, costUsd: 0 },
+    ...(rateLimit ? { rateLimit } : {}),
   };
   assertOriginGroqExecutionResult(result, modelId);
   return result;
@@ -512,12 +557,13 @@ async function executeGroqModelAttempt(
     clearTimeout(timer);
   }
 
+  const rateLimit = recordGroqRateLimitObservation(modelId, response.headers, response.status);
   const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
-  if (!response.ok || !body) throw inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After")));
+  if (!response.ok || !body) throw withRateLimitDiagnostic(inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After"))), rateLimit);
   // Served-model identity: the response must name the exact model this attempt
   // requested — the same standard the primary model has always been held to.
   if (body.model !== modelId) {
-    throw new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status });
+    throw withRateLimitDiagnostic(new OriginProviderError("PROVIDER_ROUTING_UNVERIFIED", "許可された無料Provider/Modelの証跡を確認できません。", 502, false, undefined, { upstreamStatus: response.status }), rateLimit);
   }
   const usage = extractUsage(body);
   const content = body.choices?.[0]?.message?.content;
@@ -528,12 +574,12 @@ async function executeGroqModelAttempt(
     // completion tokens went to reasoning, which is indistinguishable from
     // a bare empty body without the finish reason and usage.
     const finishReason = safeOriginFinishReason(body.choices?.[0]?.finish_reason);
-    throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
+    throw withRateLimitDiagnostic(new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
       ...(finishReason ? { finishReason } : {}),
       ...usageDiagnosticFields(usage, extractReasoningTokens(body.usage)),
-    });
+    }), rateLimit);
   }
-  return composeGroqAttemptResult(text, plan, modelId, transport, usage);
+  return composeGroqAttemptResult(text, plan, modelId, transport, usage, rateLimit);
 }
 
 /**
@@ -740,9 +786,10 @@ async function executeGroqModelAttemptStream(
       }),
       signal: controller.signal,
     });
+    const rateLimit = recordGroqRateLimitObservation(modelId, response.headers, response.status);
     if (!response.ok) {
       const body = await response.json().catch(() => null) as GroqChatCompletionEnvelope | null;
-      throw inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After")));
+      throw withRateLimitDiagnostic(inferenceFailure(response.status, body, retryAfterSecondsFromHeader(response.headers.get("Retry-After"))), rateLimit);
     }
     let output = "";
     let doneSeen = false;
@@ -762,7 +809,7 @@ async function executeGroqModelAttemptStream(
         // An in-stream error envelope carries the provider's raw code/type;
         // it is classified by its content exactly like the HTTP-error
         // envelope (the nominal status of a started stream is 200).
-        throw inferenceFailure(200, { error: chunk.error });
+        throw withRateLimitDiagnostic(inferenceFailure(200, { error: chunk.error }), rateLimit);
       }
       if (chunk.model !== undefined) {
         if (chunk.model !== modelId) {
@@ -796,13 +843,13 @@ async function executeGroqModelAttemptStream(
       // model-less stream at a glance. The breakdown follows the stream's
       // own order of guarantees: termination, then identity, then content.
       const streamFailure = !doneSeen ? "no-done" : !servedModelSeen ? "no-model" : "empty-content";
-      throw new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
+      throw withRateLimitDiagnostic(new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, {
         streamFailure,
         ...(finishReason ? { finishReason } : {}),
         ...usageDiagnosticFields(usage, reasoningTokens),
-      });
+      }), rateLimit);
     }
-    const result = composeGroqAttemptResult(output.trim(), plan, modelId, transport, usage);
+    const result = composeGroqAttemptResult(output.trim(), plan, modelId, transport, usage, rateLimit);
     // Hold mode releases the verified full text once, at the end, exactly
     // like the blocking attempt's single delivery; incremental mode has
     // already forwarded every fragment as it was generated.

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   estimateOriginGroqInputTokens,
   executeOriginGroqProvider,
@@ -33,6 +33,7 @@ import {
   ORIGIN_GROQ_QWEN_MODEL_ID,
   type OriginGroqFreeModelEvidence,
 } from "../lib/orchestration/OriginGroqFreeModelCatalog";
+import { getOriginCapacityLedgerSnapshot, resetOriginCapacityLedgerForTests } from "./originProviderCapacityLedger";
 
 // Synthetic test fixture only; not a real credential (kept clearly fake on purpose).
 const SYNTHETIC_KEY = "synthetic-groq-api-key-for-tests-only";
@@ -958,5 +959,77 @@ describe("executeOriginGroqProviderStream", () => {
     expect(error).toBeInstanceOf(OriginGroqPreflightError);
     expect((error as OriginGroqPreflightError).reason).toBe("not-configured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Groq rate-limit header observation (capacity D-0)", () => {
+  const EXPECTED_SNAPSHOT = {
+    limitRequests: 1000,
+    remainingRequests: 999,
+    limitTokens: 200000,
+    remainingTokens: 199500,
+    resetRequestsSeconds: 2,
+    resetTokensSeconds: 0.5,
+  };
+
+  beforeEach(() => {
+    resetOriginCapacityLedgerForTests();
+  });
+
+  function groqJsonWithRateLimitHeaders(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-remaining-requests": "999",
+        "x-ratelimit-limit-tokens": "200000",
+        "x-ratelimit-remaining-tokens": "199500",
+        "x-ratelimit-reset-requests": "2s",
+        "x-ratelimit-reset-tokens": "0.5s",
+      },
+    });
+  }
+
+  it("attaches the reported snapshot to a blocking success and records it in the ledger", async () => {
+    const fetchMock = vi.fn(async () => groqJsonWithRateLimitHeaders(successBody()));
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.rateLimit).toEqual(EXPECTED_SNAPSHOT);
+    const entry = getOriginCapacityLedgerSnapshot().rateLimits.find((candidate) => candidate.modelId === ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(entry).toMatchObject({ providerId: "groq-free", source: "observed", limitHit: false, snapshot: EXPECTED_SNAPSHOT });
+  });
+
+  it("records a limit hit and carries the snapshot on the failure diagnostic when the route is rate limited", async () => {
+    const fetchMock = vi.fn(async () => groqJsonWithRateLimitHeaders({ error: { code: "rate_limit_exceeded", message: "Rate limit reached" } }, 429));
+    const error = await executeOriginGroqProvider(request, groqEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_RATE_LIMITED");
+    expect(error.diagnostic?.rateLimit).toEqual(EXPECTED_SNAPSHOT);
+    const entry = getOriginCapacityLedgerSnapshot().rateLimits.find((candidate) => candidate.modelId === ORIGIN_GROQ_FREE_MODEL_ID);
+    expect(entry).toMatchObject({ limitHit: true, snapshot: EXPECTED_SNAPSHOT });
+  });
+
+  it("leaves the result without a snapshot when the response reports no rate-limit headers", async () => {
+    const fetchMock = vi.fn(async () => groqJson(successBody()));
+    const result = await executeOriginGroqProvider(request, groqEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.rateLimit).toBeUndefined();
+    expect(getOriginCapacityLedgerSnapshot().rateLimits).toEqual([]);
+  });
+
+  it("attaches the reported snapshot to a streaming success", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [{ delta: { content: "第3経路の回答です。" }, finish_reason: null }] })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ model: ORIGIN_GROQ_FREE_MODEL_ID, choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 } })}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "x-ratelimit-remaining-requests": "999", "x-ratelimit-reset-requests": "2s" },
+    }));
+    const result = await executeOriginGroqProviderStream(request, { onDelta: () => undefined }, groqEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.rateLimit).toEqual({ remainingRequests: 999, resetRequestsSeconds: 2 });
   });
 });

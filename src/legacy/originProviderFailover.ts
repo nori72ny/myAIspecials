@@ -578,6 +578,7 @@ function primaryAttemptEvidence(
     modelId: request.plan.modelId,
     outcome,
     ...(error ? { errorCode: error.code, ...upstreamAttemptFields(error) } : {}),
+    ...(!error && outcome === "succeeded" ? { rateLimitHit: false } : {}),
     transportRequestCount: error ? error.diagnostic?.transportRequestCount : undefined,
     ...(durationMs !== undefined ? { durationMs } : {}),
   };
@@ -624,11 +625,17 @@ function withFailoverAttempts(error: OriginProviderError, attempts: readonly Ori
  */
 function upstreamAttemptFields(error: OriginProviderError): Partial<OriginProviderAttemptEvidence> {
   const diagnostic = error.diagnostic;
-  if (!diagnostic) return {};
   return {
-    ...(diagnostic.upstreamStatus !== undefined ? { upstreamStatus: diagnostic.upstreamStatus } : {}),
-    ...(diagnostic.upstreamErrorType !== undefined ? { upstreamErrorType: diagnostic.upstreamErrorType } : {}),
-    ...(diagnostic.upstreamErrorCode !== undefined ? { upstreamErrorCode: diagnostic.upstreamErrorCode } : {}),
+    // Capacity observation (design FREE_CAPACITY_EXPANSION_2026-11-22, D-0):
+    // every executed attempt records whether it hit the provider's limit,
+    // and the rate-limit snapshot its own response reported when it
+    // carried one, so a failure record shows which route ran out of what
+    // instead of only the classified code.
+    rateLimitHit: error.code === "PROVIDER_RATE_LIMITED",
+    ...(diagnostic?.upstreamStatus !== undefined ? { upstreamStatus: diagnostic.upstreamStatus } : {}),
+    ...(diagnostic?.upstreamErrorType !== undefined ? { upstreamErrorType: diagnostic.upstreamErrorType } : {}),
+    ...(diagnostic?.upstreamErrorCode !== undefined ? { upstreamErrorCode: diagnostic.upstreamErrorCode } : {}),
+    ...(diagnostic?.rateLimit ? { rateLimit: diagnostic.rateLimit } : {}),
   };
 }
 
@@ -792,6 +799,7 @@ function composeFailoverResult(
   cloudflareDurationMs?: number,
 ): OriginProviderExecutionResult {
   const cloudflareAttempt = cloudflareAttemptEvidence("succeeded", {
+    rateLimitHit: false,
     transportRequestCount: cloudflareResult.transportRequestCount,
     ...(cloudflareDurationMs !== undefined ? { durationMs: cloudflareDurationMs } : {}),
   });
@@ -886,6 +894,8 @@ function composeGroqResult(
   // from the result's verified routing evidence.
   const groqAttempt = groqAttemptEvidence("succeeded", {
     modelId: groqResult.routingEvidence?.servedModel ?? ORIGIN_GROQ_FREE_MODEL_ID,
+    rateLimitHit: false,
+    ...(groqResult.rateLimit ? { rateLimit: groqResult.rateLimit } : {}),
     transportRequestCount: groqResult.transportRequestCount,
     ...(groqDurationMs !== undefined ? { durationMs: groqDurationMs } : {}),
   });

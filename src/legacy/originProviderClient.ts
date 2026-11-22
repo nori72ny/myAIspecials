@@ -61,8 +61,18 @@ export interface OriginProviderRoutingEvidence { requestedModel: string; servedM
  * attempts that were actually executed; routes that were skipped before execution (for
  * example a missing token or stale evidence) are recorded on the error diagnostic instead.
  */
-export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; durationMs?: number; }
-export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[];
+/**
+ * The rate-limit state one provider response reported about itself
+ * (Groq's `x-ratelimit-*` headers), captured verbatim as numbers: the
+ * configured limits, what remained at that moment, and the provider's
+ * own reset waits in seconds. Every field is optional because a
+ * response may report only some of them; the snapshot exists at all
+ * only when at least one field was reported. Counts only — a header
+ * value is never carried as text.
+ */
+export interface OriginRateLimitSnapshot { limitRequests?: number; remainingRequests?: number; limitTokens?: number; remainingTokens?: number; resetRequestsSeconds?: number; resetTokensSeconds?: number; }
+export interface OriginProviderAttemptEvidence { providerId: string; modelId: string; outcome: "succeeded" | "availability-error" | "failed" | "skipped"; errorCode?: OriginProviderErrorCode; skipReason?: string; upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportRequestCount?: number; durationMs?: number; rateLimitHit?: boolean; rateLimit?: OriginRateLimitSnapshot; }
+export interface OriginProviderExecutionResult { text: string; transportRequestCount?: number; actualCostUsd: 0; providerDataPolicy: OriginProviderDataPolicy; routingEvidence: OriginProviderRoutingEvidence; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number; costUsd: 0; }; attempts?: readonly OriginProviderAttemptEvidence[]; rateLimit?: OriginRateLimitSnapshot;
   /**
    * True when the answer text ended at the provider's output limit instead of
    * completing (PKG-2). The text is the verified partial answer: it passed
@@ -82,7 +92,7 @@ export type OriginProviderErrorCode = "PROVIDER_NOT_CONFIGURED" | "PROVIDER_POLI
  * models, the signature of a completion budget spent entirely on reasoning).
  */
 export type OriginProviderStreamFailure = "no-done" | "no-model" | "empty-content";
-export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; streamFailure?: OriginProviderStreamFailure; finishReason?: string; usagePromptTokens?: number; usageCompletionTokens?: number; usageReasoningTokens?: number; }
+export interface OriginProviderDiagnostic { upstreamStatus?: number; upstreamErrorType?: string; upstreamErrorCode?: string; transportFailure?: "timeout" | "network"; transportRequestCount?: number; failoverAttempts?: readonly OriginProviderAttemptEvidence[]; streamFailure?: OriginProviderStreamFailure; finishReason?: string; usagePromptTokens?: number; usageCompletionTokens?: number; usageReasoningTokens?: number;rateLimit?: OriginRateLimitSnapshot; }
 
 function safeProviderMessage(code: OriginProviderErrorCode): string {
   switch (code) {
@@ -135,6 +145,8 @@ export interface OriginProviderAttemptDiagnostic {
   upstreamErrorCode?: string;
   transportRequestCount?: number;
   durationMs?: number;
+  rateLimitHit?: boolean;
+  rateLimit?: OriginRateLimitSnapshot;
 }
 
 export interface OriginProviderFailureDiagnostic {
@@ -148,6 +160,7 @@ export interface OriginProviderFailureDiagnostic {
   usagePromptTokens?: number;
   usageCompletionTokens?: number;
   usageReasoningTokens?: number;
+  rateLimit?: OriginRateLimitSnapshot;
   failoverAttempts: OriginProviderAttemptDiagnostic[];
 }
 
@@ -235,6 +248,40 @@ function safeDurationMs(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 3_600_000 ? Number(value) : undefined;
 }
 
+function safeRateLimitCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 1_000_000_000 ? Number(value) : undefined;
+}
+
+function safeRateLimitResetSeconds(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 86_400 ? value : undefined;
+}
+
+/**
+ * Rebuilds a rate-limit snapshot from validated numbers only, for the
+ * surfaced diagnostics: the internal snapshot is built from provider
+ * headers at capture time, but anything log- or client-visible is
+ * re-validated here exactly like the other diagnostic fields, so a
+ * poisoned or malformed value can never ride the field.
+ */
+export function summarizeOriginRateLimitSnapshot(value: unknown): OriginRateLimitSnapshot | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const snapshot: OriginRateLimitSnapshot = {};
+  const limitRequests = safeRateLimitCount(raw.limitRequests);
+  if (limitRequests !== undefined) snapshot.limitRequests = limitRequests;
+  const remainingRequests = safeRateLimitCount(raw.remainingRequests);
+  if (remainingRequests !== undefined) snapshot.remainingRequests = remainingRequests;
+  const limitTokens = safeRateLimitCount(raw.limitTokens);
+  if (limitTokens !== undefined) snapshot.limitTokens = limitTokens;
+  const remainingTokens = safeRateLimitCount(raw.remainingTokens);
+  if (remainingTokens !== undefined) snapshot.remainingTokens = remainingTokens;
+  const resetRequestsSeconds = safeRateLimitResetSeconds(raw.resetRequestsSeconds);
+  if (resetRequestsSeconds !== undefined) snapshot.resetRequestsSeconds = resetRequestsSeconds;
+  const resetTokensSeconds = safeRateLimitResetSeconds(raw.resetTokensSeconds);
+  if (resetTokensSeconds !== undefined) snapshot.resetTokensSeconds = resetTokensSeconds;
+  return Object.keys(snapshot).length > 0 ? snapshot : undefined;
+}
+
 function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence): OriginProviderAttemptDiagnostic | null {
   if (!attempt || typeof attempt !== "object") return null;
   const providerId = safeRouteIdentifier(attempt.providerId);
@@ -255,6 +302,9 @@ function summarizeOriginProviderAttempt(attempt: OriginProviderAttemptEvidence):
   if (transportRequestCount !== undefined) summary.transportRequestCount = transportRequestCount;
   const durationMs = safeDurationMs(attempt.durationMs);
   if (durationMs !== undefined) summary.durationMs = durationMs;
+  if (typeof attempt.rateLimitHit === "boolean") summary.rateLimitHit = attempt.rateLimitHit;
+  const rateLimit = summarizeOriginRateLimitSnapshot(attempt.rateLimit);
+  if (rateLimit) summary.rateLimit = rateLimit;
   return summary;
 }
 
@@ -289,6 +339,8 @@ export function buildOriginProviderFailureDiagnostic(error: OriginProviderError)
   if (usageCompletionTokens !== undefined) summary.usageCompletionTokens = usageCompletionTokens;
   const usageReasoningTokens = safeUsageTokenCount(diagnostic?.usageReasoningTokens);
   if (usageReasoningTokens !== undefined) summary.usageReasoningTokens = usageReasoningTokens;
+  const rateLimit = summarizeOriginRateLimitSnapshot(diagnostic?.rateLimit);
+  if (rateLimit) summary.rateLimit = rateLimit;
   if (Array.isArray(diagnostic?.failoverAttempts)) {
     for (const attempt of diagnostic.failoverAttempts) {
       const summarized = summarizeOriginProviderAttempt(attempt);
