@@ -52,6 +52,12 @@ export const MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH = 120;
 export const MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH = 512;
 export const MAX_AGENT_RUN_LIVE_SOURCE_DOMAIN_LENGTH = 253;
 export const MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH = 160;
+/** Cap on the failover attempts kept in one step's live detail
+ * (AGORA timeout observability, diagnosis
+ * AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_2026-11-23 §5.3): a dispatch
+ * tries at most three routes, so six leaves generous headroom while
+ * keeping the per-step worst case bounded. */
+export const MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS = 6;
 export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 /**
@@ -259,6 +265,28 @@ export type AgentRunStepCoverageFailure = {
   numericMismatch: string[];
 };
 
+/**
+ * One failover attempt of the model call that failed an
+ * attachment_analyzer step (AGORA timeout observability, diagnosis
+ * AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_2026-11-23 §5.3): which
+ * route was tried, under which model, how the attempt ended, the
+ * provider error code it produced, and how long it took. Codes,
+ * identifiers and counts only — no request or response body, no
+ * upstream free-form text ever enters the record, exactly like the
+ * rest of the live detail. The values are the provider layer's own
+ * whitelisted attempt diagnostics (originProviderClient), re-validated
+ * by the normalizer below in the same fail-soft style as the parse
+ * failure, so this module keeps no dependency on the provider layer.
+ */
+export type AgentRunStepProviderAttempt = {
+  providerId: string;
+  modelId?: string;
+  outcome: string;
+  errorCode?: string;
+  durationMs?: number;
+  transportRequestCount?: number;
+};
+
 export type AgentRunStepLiveDetail = {
   startedAt?: number;
   finishedAt?: number;
@@ -266,6 +294,7 @@ export type AgentRunStepLiveDetail = {
   sources?: AgentRunStepLiveSource[];
   parseFailure?: AgentRunStepParseFailure;
   coverageFailure?: AgentRunStepCoverageFailure;
+  providerAttempts?: AgentRunStepProviderAttempt[];
 };
 
 /** Per-step progress. Status vocabulary matches the agent task graph. */
@@ -816,6 +845,60 @@ function normalizeAgentRunStepCoverageFailure(value: unknown): AgentRunStepCover
   return failure;
 }
 
+/** Provider-attempt field vocabularies for the live detail. Route
+ * and model identifiers keep the provider layer's own safe shapes
+ * (the same patterns its surfaced diagnostics validate against);
+ * outcomes are the attempt evidence's closed set; error codes are
+ * provider error-code tokens. Anything outside — free text, a
+ * credential-shaped string, an overlong value — drops the entry, in
+ * the fail-soft style of this normalizer. */
+const LIVE_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+const LIVE_MODEL_ID_PATTERN = /^[A-Za-z0-9@][A-Za-z0-9@/_:.+-]{0,127}$/;
+const LIVE_PROVIDER_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
+  'succeeded',
+  'availability-error',
+  'failed',
+  'skipped',
+]);
+
+function normalizeAgentRunStepProviderAttempt(value: unknown): AgentRunStepProviderAttempt | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { providerId, modelId, outcome, errorCode, durationMs, transportRequestCount } = value;
+  if (typeof providerId !== 'string' || !LIVE_PROVIDER_ID_PATTERN.test(providerId)) return undefined;
+  if (typeof outcome !== 'string' || !LIVE_PROVIDER_ATTEMPT_OUTCOMES.has(outcome)) return undefined;
+  const attempt: AgentRunStepProviderAttempt = { providerId, outcome };
+  if (modelId !== undefined) {
+    if (typeof modelId !== 'string' || !LIVE_MODEL_ID_PATTERN.test(modelId)) return undefined;
+    attempt.modelId = modelId;
+  }
+  if (errorCode !== undefined) {
+    if (typeof errorCode !== 'string' || !ERROR_CODE_PATTERN.test(errorCode)) return undefined;
+    attempt.errorCode = errorCode;
+  }
+  if (durationMs !== undefined) {
+    if (!Number.isInteger(durationMs) || Number(durationMs) < 0 || Number(durationMs) > 3_600_000) return undefined;
+    attempt.durationMs = Number(durationMs);
+  }
+  if (transportRequestCount !== undefined) {
+    if (!Number.isInteger(transportRequestCount) || Number(transportRequestCount) < 0 || Number(transportRequestCount) > 100_000) {
+      return undefined;
+    }
+    attempt.transportRequestCount = Number(transportRequestCount);
+  }
+  return attempt;
+}
+
+function normalizeAgentRunStepProviderAttempts(value: unknown): AgentRunStepProviderAttempt[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attempts: AgentRunStepProviderAttempt[] = [];
+  for (const raw of value) {
+    if (attempts.length >= MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS) break;
+    const attempt = normalizeAgentRunStepProviderAttempt(raw);
+    if (attempt) attempts.push(attempt);
+  }
+  return attempts.length > 0 ? attempts : undefined;
+}
+
 function normalizeLiveTimestamp(value: unknown): number | undefined {
   if (!Number.isFinite(value) || Number(value) <= 0 || Number(value) > MAX_LIVE_TIMESTAMP_MS) return undefined;
   return Math.floor(Number(value));
@@ -842,6 +925,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (parseFailure !== undefined) detail.parseFailure = parseFailure;
   const coverageFailure = normalizeAgentRunStepCoverageFailure(value.coverageFailure);
   if (coverageFailure !== undefined) detail.coverageFailure = coverageFailure;
+  const providerAttempts = normalizeAgentRunStepProviderAttempts(value.providerAttempts);
+  if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
   if (Array.isArray(value.sources)) {
     const sources: AgentRunStepLiveSource[] = [];
     for (const raw of value.sources) {

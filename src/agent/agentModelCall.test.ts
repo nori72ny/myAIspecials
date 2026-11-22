@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { agentAnalyzerCapacityAllocation, createAgentModelExecutor } from './agentModelCall.js';
+import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError } from './agentModelCall.js';
+import { OriginProviderError } from '../legacy/originProviderClient.js';
 
 describe('agentModelCall (failover-backed model executor)', () => {
   it('fails closed with the plan code when no free provider is configured', async () => {
@@ -15,6 +16,46 @@ describe('agentModelCall (failover-backed model executor)', () => {
     const execute = createAgentModelExecutor({ OPENROUTER_API_KEY: '' });
     await expect(execute({ instruction: 'x', userText: 'y', goal: 'z' }))
       .resolves.toEqual({ ok: false, code: 'FREE_PROVIDER_NOT_CONFIGURED' });
+  });
+});
+
+describe('failoverAttemptsFromProviderError (AGORA observability)', () => {
+  it('returns the whitelisted attempt evidence of a provider error', () => {
+    const error = new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false, undefined, {
+      failoverAttempts: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000, transportRequestCount: 2 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+      ],
+    });
+    expect(failoverAttemptsFromProviderError(error)).toEqual([
+      { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000, transportRequestCount: 2 },
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+    ]);
+  });
+
+  it('drops poisoned attempt values through the provider layer whitelist', () => {
+    const error = new OriginProviderError('PROVIDER_UNAVAILABLE', 'internal', 503, false, undefined, {
+      failoverAttempts: [
+        {
+          providerId: 'groq-free',
+          modelId: 'openai/gpt-oss-120b',
+          outcome: 'failed',
+          errorCode: 'PROVIDER_UNAVAILABLE',
+          skipReason: 'Authorization: Bearer <redacted>',
+        } as never,
+      ],
+    });
+    const attempts = failoverAttemptsFromProviderError(error);
+    expect(attempts).toHaveLength(1);
+    expect(JSON.stringify(attempts)).not.toContain('supersecretvalue');
+    expect(attempts?.[0]?.skipReason).toBeUndefined();
+  });
+
+  it('returns undefined when no attempts were recorded, and for non-provider errors', () => {
+    expect(failoverAttemptsFromProviderError(new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false))).toBeUndefined();
+    expect(failoverAttemptsFromProviderError(new OriginProviderError('PROVIDER_TIMEOUT', 'internal', 504, false, undefined, { failoverAttempts: [] }))).toBeUndefined();
+    expect(failoverAttemptsFromProviderError(new Error('boom'))).toBeUndefined();
+    expect(failoverAttemptsFromProviderError(undefined)).toBeUndefined();
   });
 });
 
