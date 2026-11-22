@@ -434,3 +434,71 @@ describe('fixture K (triage #11) as deck material', () => {
     expect(buildDeckMaterialUnits(K_SEC6)).toEqual(buildDeckMaterialUnits(K_SEC6));
   });
 });
+
+describe('buildDeckMaterialUnits: DG-1 prose extensions (label / clause / parenthesis)', () => {
+  it('splits a leading "label:" prefix into a label unit and keeps the rest verbatim', () => {
+    const units = buildDeckMaterialUnits(
+      '製品名: クラウド経費精算ツール SeisanPro。価格: 月額480円/人、初期費用0円。',
+    );
+    expect(units.map((unit) => [unit.kind, unit.text])).toEqual([
+      ['label', '製品名'],
+      ['sentence', 'クラウド経費精算ツール SeisanPro。'],
+      ['label', '価格'],
+      ['sentence', '月額480円/人、初期費用0円。'],
+    ]);
+  });
+
+  it('does not treat a particle-ending opening as a label', () => {
+    // 助詞で終わる冒頭はラベルにしない（文分割そのものは V13 の
+    // 共有規則に従うため、ここでは kind だけを固定する）。
+    const units = buildDeckMaterialUnits('対象は: 国内の中小企業です。次に進みます。');
+    expect(units.every((unit) => unit.kind === 'sentence')).toBe(true);
+  });
+
+  it('does not treat a time expression as a label', () => {
+    // 数字だけの冒頭はラベルにしない（文分割そのものは V13 の
+    // 共有規則に従うため、ここでは kind だけを固定する）。
+    const units = buildDeckMaterialUnits('10:30に開始します。次に進みます。');
+    expect(units.every((unit) => unit.kind === 'sentence')).toBe(true);
+    expect(units.map((unit) => unit.text).join('')).toContain('10:30に開始します');
+  });
+
+  it('splits an enumeration of independent facts at top-level commas', () => {
+    expect(
+      texts('配送費は年4,800万円、配送は月12,000件、拠点は5か所、配送便は週5回。'),
+    ).toEqual(['配送費は年4,800万円', '配送は月12,000件', '拠点は5か所', '配送便は週5回。']);
+  });
+
+  it('splits a single-comma enumeration only when the first clause is a closed fact', () => {
+    expect(texts('参加者は20人、欠席者は3人です。')).toEqual([
+      '参加者は20人',
+      '欠席者は3人です。',
+    ]);
+    // 複合文（連用形で続く節）は割らない。
+    expect(texts('経理担当者が少なく、月末に業務が集中しています。')).toEqual([
+      '経理担当者が少なく、月末に業務が集中しています。',
+    ]);
+  });
+
+  it('extracts a long parenthetical as its own units and splits its facts', () => {
+    expect(texts('売上は8,400万円（目標は9,000万円、達成率は93%）。')).toEqual([
+      '売上は8,400万円',
+      '目標は9,000万円',
+      '達成率は93%',
+    ]);
+  });
+
+  it('keeps a short parenthetical gloss inside the sentence', () => {
+    expect(
+      texts('作業は月36時間まで減り（60%の削減）、申請ミスは月5件まで減った。'),
+    ).toEqual(['作業は月36時間まで減り（60%の削減）、申請ミスは月5件まで減った。']);
+  });
+
+  it('keeps every produced unit a verbatim substring of the source (G1)', () => {
+    const material =
+      '製品名: クラウド経費精算ツール SeisanPro。価格: 月額480円/人、初期費用0円、対象は従業員120人で月額の合計は57,600円。現状: 経費精算の作業に月90時間かかり、申請ミスが月25件ある。試用の結果（2週間）: 作業は月36時間まで減り（60%の削減）、申請ミスは月5件まで減った（80%の削減）。';
+    for (const unit of buildDeckMaterialUnits(material)) {
+      expect(material.includes(unit.text)).toBe(true);
+    }
+  });
+});

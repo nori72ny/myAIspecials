@@ -5,10 +5,15 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { assembleDeckFromMaterial } from "../artifacts/proposalDeckAssemblyV1.js";
+import { classifyOriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
 import {
   buildDeckRecordsChatArtifact,
+  buildDeckRecordsUnits,
   detectDeckRecordsMode,
+  extractDeckRequestTheme,
   isDeckRecordsEnabled,
+  isProposalDeckRecordsChatRequest,
+  matchesDeckRecordsRequestText,
   planDeckRecordsRequest,
   PROPOSAL_DECK_RECORDS_FAILURE_TEXT,
 } from "./originProposalDeckRecordsChat.js";
@@ -329,6 +334,7 @@ describe("mode A wiring (deterministic placement first)", () => {
       plan: {
         mode: "A",
         materialUnitCount: deterministic.units.length,
+        units: deterministic.units,
         instruction: "placement",
         deterministicAssembly: deterministic,
       },
@@ -337,5 +343,62 @@ describe("mode A wiring (deterministic placement first)", () => {
     if (outcome.status !== "insufficient") return;
     expect(outcome.metrics.missingCodes).toContain("MISSING_NEXT_ACTION");
     expect(outcome.chatText).toContain("提案したい次の行動");
+  });
+});
+
+describe("DG-1 fixes: request detection, theme unit, mode with labels", () => {
+  it.each([
+    ["今月の営業報告と未達対策の資料を作ってください。素材は今月の実績と来月の見込みのとおりです。", true],
+    ["秋の販促キャンペーンの仕様資料を作ってください。素材はキャンペーンの条件と目標のとおりです。", true],
+    ["四半期の経営レポート資料を作ってください。素材は四半期の実績と案件の進捗のとおりです。", true],
+    ["営業会議の報告書を作ってください。", true],
+    ["資料を作るにはどうすればいいですか。", false],
+    ["資料作成のポイントを教えてください。", false],
+    ["最新の売上データを調べてください。", false],
+  ])("matchesDeckRecordsRequestText(%s) === %s", (text, expected) => {
+    expect(matchesDeckRecordsRequestText(text)).toBe(expected);
+  });
+
+  it("detects the S-6 shape that the legacy check misses", () => {
+    const prompt =
+      "四半期の経営レポート資料を作ってください。素材は四半期の実績と案件の進捗のとおりです。";
+    const intent = classifyOriginRequestIntent(prompt, "documentation");
+    expect(isProposalDeckRecordsChatRequest(intent, prompt, prompt)).toBe(true);
+  });
+
+  it.each([
+    ["経費精算ツール SeisanPro の導入提案資料を作ってください。素材は別途渡した試用結果と価格表のとおりです。", "経費精算ツール SeisanPro の導入"],
+    ["秋の販促キャンペーンの仕様資料を作ってください。素材はキャンペーンの条件と目標のとおりです。", "秋の販促キャンペーン"],
+    ["中小飲食店向けの予約管理サービス YoyakuNote の事業提案資料を作ってください。素材は事業計画の数値のとおりです。", "中小飲食店向けの予約管理サービス YoyakuNote の事業"],
+    ["提案資料を作成してください。", null],
+    ["今日の天気を教えてください。", null],
+  ])("extractDeckRequestTheme(%s)", (text, expected) => {
+    expect(extractDeckRequestTheme(text)).toBe(expected);
+  });
+
+  it("appends the theme unit with the next M-ID in buildDeckRecordsUnits", () => {
+    const units = buildDeckRecordsUnits(
+      "秋の販促キャンペーンの仕様資料を作ってください。素材はキャンペーンの条件と目標のとおりです。",
+    );
+    const last = units[units.length - 1];
+    expect(last.kind).toBe("theme");
+    expect(last.text).toBe("秋の販促キャンペーン");
+    expect(last.id).toBe(`M${units.length}`);
+    expect(last.sourceKind).toBe("user-material");
+  });
+
+  it("treats a single labeled fact as material (mode A)", () => {
+    expect(
+      detectDeckRecordsMode("現状: 精算作業に月40時間かかっています"),
+    ).toBe("A");
+  });
+
+  it("shows the theme unit in the placement material list (mode A plan)", () => {
+    const message =
+      "秋の販促キャンペーンの仕様資料を作ってください。素材はキャンペーンの条件と目標のとおりです。\n\nキャンペーン条件: 期間は6週間、対象商品は3点、値引き率は15%、予算は600万円。目標: 期間中の売上5,000万円、来客は20%増の想定。告知: LINEで2回送り、店頭ポスターを40店に掲示する。";
+    const plan = planDeckRecordsRequest(message);
+    expect(plan.mode).toBe("A");
+    expect(plan.instruction).toContain("秋の販促キャンペーン");
+    expect(plan.units[plan.units.length - 1].kind).toBe("theme");
   });
 });
