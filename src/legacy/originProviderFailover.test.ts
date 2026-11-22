@@ -26,7 +26,7 @@ import {
 import { ORIGIN_CLOUDFLARE_FREE_MODEL } from "../lib/orchestration/OriginCloudflareFreeModelCatalog";
 import { ORIGIN_GROQ_FREE_MODEL_ID } from "../lib/orchestration/OriginGroqFreeModelCatalog";
 
-const NOW_MS = Date.parse("2026-11-17T12:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-27T12:00:00.000Z");
 const enabledEnv = { ORIGIN_CF_FAILOVER_ENABLED: "true" } as NodeJS.ProcessEnv;
 
 const primaryPlan: OriginExecutionPlan = {

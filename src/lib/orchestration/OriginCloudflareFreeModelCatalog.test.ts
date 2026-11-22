@@ -11,17 +11,22 @@ import {
   type OriginCloudflareFreeModelEvidence,
 } from "./OriginCloudflareFreeModelCatalog";
 
-const DURING_MS = Date.parse("2026-11-17T12:00:00.000Z");
-const AFTER_ALL_REVIEW_MS = Date.parse("2026-11-27T00:00:00.000Z");
+const DURING_MS = Date.parse("2026-11-27T12:00:00.000Z");
+const AFTER_ALL_REVIEW_MS = Date.parse("2026-12-03T00:00:00.000Z");
+// The light candidate's own window (2026-11-09 to 2026-11-20, capped by its
+// planned deprecation) no longer overlaps the primary window after the
+// 2026-11-22 evidence refresh, so light-model selections are exercised at
+// a time inside the light entry's own window.
+const LIGHT_DURING_MS = Date.parse("2026-11-17T12:00:00.000Z");
 
 describe("Cloudflare free model evidence catalog", () => {
-  it("pins the verified primary model and the 2026-11-26 review deadline", () => {
+  it("pins the verified primary model and the 2026-12-02 review deadline", () => {
     const entry = DEFAULT_ORIGIN_CLOUDFLARE_FREE_MODEL_CATALOG[0];
     expect(entry.providerId).toBe("cloudflare-workers-ai-free");
     expect(entry.modelId).toBe(ORIGIN_CLOUDFLARE_FREE_MODEL);
     expect(entry.modelId).toBe("@cf/google/gemma-4-26b-a4b-it");
-    expect(entry.verifiedAt).toBe("2026-11-16T00:00:00.000Z");
-    expect(entry.reviewAfter).toBe("2026-11-26T00:00:00.000Z");
+    expect(entry.verifiedAt).toBe("2026-11-22T00:00:00.000Z");
+    expect(entry.reviewAfter).toBe("2026-12-02T00:00:00.000Z");
     expect(entry.sourceDescription).toContain("zero data retention");
     expect(entry.sourceDescription).toContain("10,000 Neurons per day");
     expect(entry.sourceDescription).toContain("9,091 / 27,273 Neurons");
@@ -67,7 +72,7 @@ describe("Cloudflare free model evidence catalog", () => {
     const primary = selectCurrentOriginCloudflareFreeModel(undefined, DURING_MS);
     expect(primary.ok).toBe(true);
     if (primary.ok) expect(primary.model.modelId).toBe(ORIGIN_CLOUDFLARE_FREE_MODEL);
-    const light = selectCurrentOriginCloudflareFreeModelById(undefined, ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID, DURING_MS);
+    const light = selectCurrentOriginCloudflareFreeModelById(undefined, ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID, LIGHT_DURING_MS);
     expect(light.ok).toBe(true);
     if (light.ok) expect(light.model.modelId).toBe("@cf/qwen/qwen3-30b-a3b-fp8");
     const staleLight = selectCurrentOriginCloudflareFreeModelById(undefined, ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID, AFTER_ALL_REVIEW_MS);
@@ -81,7 +86,7 @@ describe("Cloudflare free model evidence catalog", () => {
         : entry);
     expect(selectCurrentOriginCloudflareFreeModel(primaryStaleCatalog, DURING_MS))
       .toMatchObject({ ok: false, code: "FREE_MODEL_EVIDENCE_STALE" });
-    const light = selectCurrentOriginCloudflareFreeModelById(primaryStaleCatalog, ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID, DURING_MS);
+    const light = selectCurrentOriginCloudflareFreeModelById(primaryStaleCatalog, ORIGIN_CLOUDFLARE_FREE_LIGHT_MODEL_ID, LIGHT_DURING_MS);
     expect(light.ok).toBe(true);
   });
 

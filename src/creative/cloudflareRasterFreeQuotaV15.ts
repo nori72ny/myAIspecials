@@ -34,7 +34,7 @@
  * Any ambiguity (usage API errors, malformed payloads, stale pricing
  * evidence, deltas that cannot be reconciled) fails closed: no image is
  * delivered. Neuron prices/allocation below were rechecked against the
- * official pricing page on 2026-11-16 (originally verified on 2026-11-06;
+ * official pricing page on 2026-11-22 (originally verified on 2026-11-06;
  * see IMAGE_GEN_BENCHMARK_2026-11-06.md);
  * the evidence window mirrors the chat free-model catalog cadence, and
  * execution stops when the evidence goes stale instead of trusting old prices.
@@ -94,11 +94,11 @@ export interface CloudflareRasterPricingEvidenceV15 {
 export const CLOUDFLARE_RASTER_PRICING_EVIDENCE_V15: CloudflareRasterPricingEvidenceV15 = {
   providerId: 'cloudflare-workers-ai-free',
   modelId: '@cf/black-forest-labs/flux-2-klein-4b',
-  verifiedAt: '2026-11-16T00:00:00.000Z',
-  reviewAfter: '2026-11-26T00:00:00.000Z',
+  verifiedAt: '2026-11-22T00:00:00.000Z',
+  reviewAfter: '2026-12-02T00:00:00.000Z',
   sourceUrl: CLOUDFLARE_WORKERS_AI_PRICING_SOURCE_V15,
   sourceDescription:
-    'Cloudflare Workers AI official pricing page (updated 2026-11-12) rechecked on 2026-11-16: '
+    'Cloudflare Workers AI official pricing page (updated 2026-11-18) rechecked on 2026-11-22: '
     + 'free allocation is 10,000 Neurons/day (00:00 UTC reset) for Workers Free and Paid; '
     + 'requests beyond the allocation fail with an error, and the Workers Free plan has no '
     + 'Neuron billing row at all (overage billing exists only on Workers Paid). '
