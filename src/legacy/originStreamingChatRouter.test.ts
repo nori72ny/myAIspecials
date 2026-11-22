@@ -65,6 +65,41 @@ describe("createOriginStreamingChatRouter", () => {
     expect(streamExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("streams with the assistant-turn value redacted from the provider payload (S-1b)", async () => {
+    let seenMessages: unknown;
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenMessages = (providerRequest as { messages?: unknown }).messages;
+      handlers.onDelta("回答");
+      return result("回答");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [
+        { role: "user", content: "問い合わせメールの下書きを作ってください" },
+        { role: "assistant", content: "下書きです。連絡先は nori@sample.co.jp です。" },
+        { role: "user", content: "もう少し短くしてください" },
+      ] });
+    expect(response.status).toBe(200);
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(seenMessages)).not.toContain("nori@sample.co.jp");
+    expect(JSON.stringify(seenMessages)).not.toContain("sample.co.jp");
+  });
+
+  it("delegates a blocked screen to the non-streaming router instead of streaming (S-1b)", async () => {
+    const streamExecute = vi.fn(async (_providerRequest, handlers) => {
+      handlers.onDelta("回答");
+      return result("回答");
+    }) as unknown as OriginProviderStreamExecutor;
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] });
+    expect(response.status).toBe(418);
+    expect(response.body).toEqual({ delegated: true });
+    expect(streamExecute).not.toHaveBeenCalled();
+  });
+
   it("requests incremental release for ordinary chat and hold-until-verified when review is required", async () => {
     const seenReleases: unknown[] = [];
     const streamExecute = vi.fn(async (providerRequest, handlers) => {

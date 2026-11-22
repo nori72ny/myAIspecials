@@ -17,10 +17,25 @@ export interface SensitiveInputDetection {
   kinds: readonly SensitiveInputKind[];
 }
 
+/**
+ * One sensitive match inside a canonicalized input. Offsets are into the
+ * string produced by {@link canonicalizeSensitiveInput} (NFKC-normalized,
+ * invisible format characters removed), never into the raw input: the
+ * normalization can change lengths, so spans must be consumed against the
+ * canonical form only.
+ */
+export interface SensitiveInputSpan {
+  kind: SensitiveInputKind;
+  start: number;
+  end: number;
+}
+
 interface SensitivePattern {
   kind: SensitiveInputKind;
   pattern: RegExp;
 }
+
+const EMAIL_ADDRESS_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}\b/i;
 
 const STRUCTURED_PATTERNS: readonly SensitivePattern[] = [
   { kind: "authorization-header", pattern: /\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i },
@@ -34,7 +49,7 @@ const STRUCTURED_PATTERNS: readonly SensitivePattern[] = [
   { kind: "provider-key", pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/ },
   { kind: "provider-key", pattern: /\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|private[_ -]?key)\s*[:=]\s*[^\s,;]{6,}/i },
   { kind: "provider-key", pattern: /\b(?:jwt|oauth|bearer)\s*[:=]\s*[^\s,;]{8,}/i },
-  { kind: "email-address", pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}\b/i },
+  { kind: "email-address", pattern: EMAIL_ADDRESS_PATTERN },
   { kind: "phone-number", pattern: /(?:^|[^\d])(?:\+?81[-\s]?(?:0)?|0)(?:[1-9]\d?[-\s]?\d{2,4}[-\s]?\d{3,4}|[789]0[-\s]?\d{4}[-\s]?\d{4})(?!\d)/ },
   { kind: "payment-card", pattern: /(?:^|\D)(?:\d[ -]?){13,19}(?!\d)/ },
   { kind: "government-id", pattern: /(?:マイナンバー|個人番号|運転免許証番号|旅券番号|パスポート番号|social security number|\bSSN\b)\s*[:：=]?\s*[A-Z0-9-]{6,}/i },
@@ -64,11 +79,75 @@ export function canonicalizeSensitiveInput(input: string): string {
   return input.normalize("NFKC").replace(INVISIBLE_FORMAT_CHARACTERS, "");
 }
 
+/**
+ * S-1a (INTENT_I5_DESIGN_2026-11-22 §5, security review 2026-11-22 §2):
+ * domains that cannot exist by specification — the RFC 2606 reserved
+ * example.com / example.net / example.org, any of their subdomains, and
+ * any domain under the reserved .example TLD. An address at one of these
+ * domains can never belong to a real person, so it is not personal data.
+ * The exclusion is deliberately limited to this set: a local part of
+ * "example" at a registrable domain (example@gmail.com,
+ * example@company.jp) can be a real address and still detects.
+ */
+const RFC2606_RESERVED_EMAIL_DOMAINS: readonly string[] = ["example.com", "example.net", "example.org"];
+
+export function isReservedExampleEmailDomain(domain: string): boolean {
+  const normalized = domain.toLowerCase().replace(/\.$/, "");
+  if (normalized === "example" || normalized.endsWith(".example")) return true;
+  return RFC2606_RESERVED_EMAIL_DOMAINS.some(
+    (reserved) => normalized === reserved || normalized.endsWith(`.${reserved}`),
+  );
+}
+
+function emailAddressDomain(address: string): string {
+  const atIndex = address.lastIndexOf("@");
+  return atIndex >= 0 ? address.slice(atIndex + 1) : "";
+}
+
+function globalVariant(pattern: RegExp): RegExp {
+  return new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+}
+
+function collectPatternSpans(canonicalInput: string, kind: SensitiveInputKind, pattern: RegExp, spans: SensitiveInputSpan[]): void {
+  const globalPattern = globalVariant(pattern);
+  let match: RegExpExecArray | null;
+  while ((match = globalPattern.exec(canonicalInput)) !== null) {
+    if (match[0].length === 0) {
+      globalPattern.lastIndex += 1;
+      continue;
+    }
+    spans.push({ kind, start: match.index, end: match.index + match[0].length });
+  }
+}
+
+function collectEmailAddressSpans(canonicalInput: string, spans: SensitiveInputSpan[]): void {
+  const globalPattern = globalVariant(EMAIL_ADDRESS_PATTERN);
+  let match: RegExpExecArray | null;
+  while ((match = globalPattern.exec(canonicalInput)) !== null) {
+    if (match[0].length === 0) {
+      globalPattern.lastIndex += 1;
+      continue;
+    }
+    if (isReservedExampleEmailDomain(emailAddressDomain(match[0]))) continue;
+    spans.push({ kind: "email-address", start: match.index, end: match.index + match[0].length });
+  }
+}
+
+function hasNonReservedEmailAddress(canonicalInput: string): boolean {
+  const spans: SensitiveInputSpan[] = [];
+  collectEmailAddressSpans(canonicalInput, spans);
+  return spans.length > 0;
+}
+
 export function detectSensitiveInput(input: string): SensitiveInputDetection {
   const kinds = new Set<SensitiveInputKind>();
   const canonicalInput = canonicalizeSensitiveInput(input);
 
   for (const entry of STRUCTURED_PATTERNS) {
+    if (entry.kind === "email-address") {
+      if (hasNonReservedEmailAddress(canonicalInput)) kinds.add(entry.kind);
+      continue;
+    }
     if (entry.pattern.test(canonicalInput)) kinds.add(entry.kind);
   }
 
@@ -78,6 +157,33 @@ export function detectSensitiveInput(input: string): SensitiveInputDetection {
   if (PERSONAL_DATA_CONTEXT.test(canonicalInput)) kinds.add("personal-data-context");
 
   return { containsSensitiveInput: kinds.size > 0, kinds: Array.from(kinds) };
+}
+
+/**
+ * Every sensitive match in the input, as spans over the canonicalized
+ * form (see {@link SensitiveInputSpan}). The kinds implied by the spans
+ * are exactly the kinds {@link detectSensitiveInput} reports for the same
+ * input, including the S-1a reserved-domain exclusion for email
+ * addresses. Used by the conversation screen to redact assistant-turn
+ * values from the outbound copy without weakening user-turn blocking.
+ */
+export function findSensitiveInputSpans(input: string): SensitiveInputSpan[] {
+  const canonicalInput = canonicalizeSensitiveInput(input);
+  const spans: SensitiveInputSpan[] = [];
+
+  for (const entry of STRUCTURED_PATTERNS) {
+    if (entry.kind === "email-address") {
+      collectEmailAddressSpans(canonicalInput, spans);
+      continue;
+    }
+    collectPatternSpans(canonicalInput, entry.kind, entry.pattern, spans);
+  }
+  collectPatternSpans(canonicalInput, "credential-term", ENGLISH_CREDENTIAL_CONTEXT, spans);
+  collectPatternSpans(canonicalInput, "credential-term", JAPANESE_CREDENTIAL_CONTEXT, spans);
+  collectPatternSpans(canonicalInput, "personal-data-context", PERSONAL_DATA_CONTEXT, spans);
+
+  spans.sort((a, b) => a.start - b.start || a.end - b.end);
+  return spans;
 }
 
 export function containsSensitiveInput(input: string): boolean {

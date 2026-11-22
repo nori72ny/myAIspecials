@@ -15,7 +15,7 @@ import {
 } from "../research/groundedResearchSynthesisV12.js";
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
-import { detectSensitiveConversation, originClientPolicy, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -312,8 +312,13 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     const query = messages[messages.length - 1].content;
     const explicitResearch = /調査レポート|出典付き|出典つき|ファクトチェック|複数ソース|\b(?:research report|fact[- ]check|compare sources)\b/i.test(query);
     if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query)) return next();
-    const sensitiveKinds = detectSensitiveConversation(messages);
-    if (sensitiveKinds.length > 0) return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", message: "秘密情報の可能性がある内容を検出したため、外部情報源への送信を停止しました。", retryable: false, sensitiveKinds });
+    // S-1b: the same shared structured screen as the chat routers. This
+    // router never sends conversation history externally (only the final
+    // user query and source-derived prompts leave), so a sanitized
+    // outcome simply proceeds; blocked outcomes keep the 422 below.
+    const screenResult = screenConversationForSend(messages);
+    if (screenResult.outcome === "sanitized") console.info("[origin-research] sensitive input in assistant history noted for send screening", { sensitiveKinds: screenResult.redactedKinds, redactionCount: screenResult.redactionCount, attribution: "assistant" });
+    if (screenResult.outcome === "blocked") return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", message: "秘密情報の可能性がある内容を検出したため、外部情報源への送信を停止しました。", retryable: false, sensitiveKinds: screenResult.sensitiveKinds });
 
     const language = languageOf(query);
     const result = await research(query);

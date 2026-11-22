@@ -98,6 +98,50 @@ describe("createOriginChatRouter", () => {
     expect(call?.cloudflareSystemInstruction).toContain("Do not claim code, deployment, purchase, configuration, search, file creation");
   });
   it("blocks synthetic secrets before provider execution", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "Authorization: Bearer synthetic_token_value_123456" }] }); expect(response.status).toBe(422); expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED"); expect(JSON.stringify(response.body)).not.toContain("synthetic_token_value_123456"); expect(executeMock).not.toHaveBeenCalled(); });
+  it("continues past a model-generated placeholder address in an assistant turn, with the value absent from the provider payload (S-1b, IMPL-01 reproduction)", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [
+      { role: "user", content: "取引先への問い合わせメールの下書きを作ってください" },
+      { role: "assistant", content: "下書きです。お問い合わせは example@company.jp までお願いいたします。" },
+      { role: "user", content: "ありがとうございます。もう少し丁寧な文面にしてください" },
+    ] });
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const call = executeMock.mock.calls[0]?.[0];
+    expect(JSON.stringify(call?.messages)).not.toContain("example@company.jp");
+    expect(JSON.stringify(call?.messages)).not.toContain("company.jp");
+  });
+  it("redacts a real-looking address echoed in an assistant turn before provider execution (S-1b)", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [
+      { role: "user", content: "連絡先の書き方を教えてください" },
+      { role: "assistant", content: "連絡先は nori@sample.co.jp です" },
+      { role: "user", content: "その書き方で進めてください" },
+    ] });
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    const call = executeMock.mock.calls[0]?.[0];
+    expect(JSON.stringify(call?.messages)).not.toContain("nori@sample.co.jp");
+  });
+  it("still blocks a user turn carrying an address that can really exist (example@gmail.com)", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "連絡先は example@gmail.com です。これを使ってください" }] });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+  it("allows a user turn that uses a reserved example address (S-1a)", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "下書きの連絡先は user@example.com としてください" }] });
+    expect(response.status).toBe(200);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+  it("blocks a secret split across a user and an assistant turn (S-1b fail closed)", async () => {
+    const response = await request(createApp(execute)).post("/api/chat").send({ messages: [
+      { role: "user", content: "キーの前半は sk-abcdef" },
+      { role: "assistant", content: "ghijklmnopqrstuvwxyz が後半です" },
+      { role: "user", content: "続けてください" },
+    ] });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("SENSITIVE_INPUT_BLOCKED");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
   it("returns a validated zero-cost routing envelope", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "認証処理をレビューしてください" }] }); expect(response.status).toBe(200); expect(response.body.content).toBe("安全な確認結果です。"); expect(response.body.routing).toEqual(expect.objectContaining({ model: "ORIGIN 無料AI", providerId: "openrouter-free", modelId: "google/gemma-4-31b-it:free", cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, costEvidenceStatus: "NOT_MEASURED", freeOnly: true, traceId: "origin-test-trace", verificationStatus: "not-run", reviewRequired: true, providerAttempts: 1, providerTransportRequests: 1, providerDataPolicy: { allowProviderFallbacks: false, dataCollection: "deny", requireZeroDataRetention: true }, providerRouting: { requestedModel: "google/gemma-4-31b-it:free", servedModel: "google/gemma-4-31b-it:free", strategy: "adaptive-primary", provider: "OpenRouter", attempt: 1, fallbackUsed: false }, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 } })); expect(executeMock).toHaveBeenCalledTimes(1); const call = executeMock.mock.calls[0]?.[0]; expect(call?.systemInstruction).toContain("For routine explanatory or comparison answers"); expect(call?.systemInstruction).toContain("For complex multi-part requests, use as many distinct points as needed"); expect(call?.systemInstruction).toContain("ask at most one or two focused questions after the Version 1 draft"); expect(call?.systemInstruction).toContain("Use follow-up answers to improve the existing draft"); expect(call?.systemInstruction).toContain("Treat explicit output-shape constraints as hard requirements"); expect(call?.systemInstruction).toContain("JSON only, code only, no Markdown, exactly N items"); });
   it("marks low-risk writing as not requiring independent review", async () => { const response = await request(createApp(execute)).post("/api/chat").send({ messages: [{ role: "user", content: "短い案内文を読みやすく整えてください" }] }); expect(response.status).toBe(200); expect(response.body.answer.verification).toEqual({ status: "not-required", independentReviewPerformed: false, summary: "この依頼では、追加の独立確認を必須と判定していません。" }); expect(response.body.answer.limitations).toEqual([]); expect(response.body.answer.nextActions).toEqual([]); });
   it("delivers a truncated partial answer with the incompleteness stated instead of an error (PKG-2)", async () => {

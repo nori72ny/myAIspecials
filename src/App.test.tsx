@@ -695,7 +695,7 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
       fireEvent.click(screen.getByRole('menuitem', { name: '画像生成' }));
       expect(screen.getByTestId('origin-image-generate-submit')).toHaveProperty('disabled', false);
       fireEvent.change(screen.getByTestId('origin-image-prompt'), {
-        target: { value: 'test@example.com のプロフィール画像を作って' },
+        target: { value: 'test@sample.co.jp のプロフィール画像を作って' },
       });
       fireEvent.click(screen.getByTestId('origin-image-generate-submit'));
 
