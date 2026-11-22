@@ -46,6 +46,7 @@ import {
   type OriginAnswerVerificationDailyUsageReader,
 } from "./originAnswerVerification.js";
 import {
+  planOriginPremiseGuard,
   resolveOriginIntentPremiseGuardEffectiveMode,
   runOriginIntentPremiseGuardShadow,
 } from "./originIntentPremiseGuard.js";
@@ -214,15 +215,29 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       )
         + `\n\n${originCurrentDateInstruction(now(), /[ぁ-んァ-ヶ一-龠]/.test(lastUserMessage) ? "ja" : "en")}`
         + (deckRequested && deckInstruction ? `\n\n${deckInstruction}` : "");
+      // Intent premise guard (I5-PR2, shadow; design sections
+      // 3.2-3.3): the premise ledger block — the conversation's
+      // operative premises restated as a structured addendum — is
+      // appended to every route's instruction (full, route-2 and
+      // route-3 compact alike; the block is a dynamic addendum under
+      // its own caps in the guard module, not part of the compact
+      // base's character contract). Deck paths stay out of scope,
+      // exactly as they are for the guard's checks below. Mode off
+      // (the default) computes no plan and the instructions are
+      // exactly as before; an empty ledger appends nothing.
+      const premiseGuardPlan = resolveOriginIntentPremiseGuardEffectiveMode(env) === "shadow" && !deckRequested
+        ? planOriginPremiseGuard({ messages, nowMs: now() })
+        : null;
+      const premiseGuardBlockSuffix = premiseGuardPlan?.block ? `\n\n${premiseGuardPlan.block.text}` : "";
       const providerRequest: OriginProviderExecutionRequest = {
         plan: {
           ...planningResult.plan,
           timeoutMs: Math.min(planningResult.plan.timeoutMs, MAX_PROVIDER_ATTEMPT_TIMEOUT_MS),
         },
         messages: contextResult.window.messages,
-        systemInstruction: fullSystemInstruction,
-        cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction),
-        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning),
+        systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix,
+        cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix,
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix,
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters
@@ -303,6 +318,22 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         reviewDecision.required &&
         !deckRequested &&
         !deckRecordsPlan;
+      // Intent premise guard arming (I5-PR2, shadow; design section
+      // 3.3): a turn the deterministic arming decision flags — the
+      // conversation carries a correction, or the latest user turn
+      // asserts a rate for a stable-fact registry concept — joins
+      // the buffer-armed set below, under the same trade-off the
+      // existing gates make (a buffered answer loses progressive
+      // display; the delivered bytes never change). This is what
+      // lets a later enforce step (I5-PR3) intervene before release
+      // on exactly these turns. The refusal-retry buffered set is
+      // the recovery track's own scope and is deliberately not
+      // extended here.
+      const premiseGuardArmed =
+        premiseGuardPlan !== null &&
+        premiseGuardPlan.arming.armed &&
+        !deckRequested &&
+        !deckRecordsPlan;
       const bufferedDeltas: string[] = [];
       const emitDelta = (delta: string) => {
         if (!downstreamStarted) {
@@ -331,7 +362,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           // are buffered like the assertion-gate ones and replaced
           // after completion by the deterministic chat rendering
           // (design §5, §13-5 (a): hold until complete).
-          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed) {
+          if (assertionGateArmed || deckRecordsPlan || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed || premiseGuardArmed) {
             bufferedDeltas.push(delta);
             return;
           }
@@ -459,7 +490,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           deckViolationCodes = outcome.violationCodes;
         }
         emitDelta(outcome.chatText);
-      } else if (assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed) {
+      } else if (assertionGateArmed || auditGateArmed || publicationGateArmed || dateGateArmed || answerVerificationArmed || premiseGuardArmed) {
         const assertionGate = assertionGateArmed
           ? applyOriginUngroundedAssertionGate(lastUserMessage, adoptedResult.text, false)
           : { replaced: false, text: adoptedResult.text };
@@ -655,15 +686,17 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           answerVerification = verificationOutcome.metadata;
         }
       }
-      // Intent premise guard (I5-PR1, shadow; design INTENT_I5_DESIGN
-      // sections 3-4): the same deterministic ledger checks as the
-      // blocking router — C-1 old-value reuse, C-2 stable-fact applied
-      // value, C-4 fabricated-citation form — over the delivered text.
-      // The I-1 measurement runner uses this streaming path, so this
-      // wiring is what makes the guard observable in R4. Shadow only
-      // logs; the stream above is exactly what mode off would have
-      // sent. Gate-held answers and deck paths stay out of scope,
-      // mirroring the verification block above.
+      // Intent premise guard (I5-PR1/PR2, shadow; design
+      // INTENT_I5_DESIGN sections 3-4): the same deterministic
+      // ledger checks as the blocking router — C-1 old-value reuse,
+      // C-2 stable-fact applied value, C-4 fabricated-citation form
+      // — over the delivered text. The I-1 measurement runner uses
+      // this streaming path, so this wiring is what makes the guard
+      // observable in R4. Shadow only logs and never alters the
+      // text; on an armed turn (PR2) the stream above was buffered
+      // before release, but the delivered bytes are exactly what
+      // mode off would have sent. Gate-held answers and deck paths
+      // stay out of scope, mirroring the verification block above.
       if (
         resolveOriginIntentPremiseGuardEffectiveMode(env) === "shadow" &&
         publicationGateAnswerText !== null &&
@@ -676,6 +709,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           messages,
           answerText: publicationGateAnswerText,
           nowMs: now(),
+          ...(premiseGuardPlan ? { plan: premiseGuardPlan } : {}),
         });
       }
       console.info("[origin-chat] upstream stream completed", {

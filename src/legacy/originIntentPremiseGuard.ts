@@ -52,12 +52,21 @@
  * conditional on its own replay design).
  *
  * Mode: ORIGIN_INTENT_PREMISE_GUARD_MODE=off|shadow|enforce, default
- * off (mirrors the answer-verification mode discipline). PR1 ships
- * shadow only: "enforce" resolves as a configured value but the
- * effective mode stays "shadow" until the enforce PR (I5-PR3) lands,
- * and both routers only ever log — answers are never altered here.
- * With the switch off the routers skip the guard entirely, so
- * behaviour is byte-identical to before this module existed.
+ * off (mirrors the answer-verification mode discipline). "enforce"
+ * resolves as a configured value but the effective mode stays
+ * "shadow" until the enforce PR (I5-PR3) lands. PR1 shipped the
+ * ledger, the shadow checks and the replay harness. PR2 adds, in
+ * shadow only: the ledger block injection (section 3.2 of the
+ * design) — the operative premises restated at the tail of every
+ * route's system instruction, under its own character caps, never
+ * counted in the route-3 compact contract — and the deterministic
+ * arming decision (section 3.3) that joins premise-relevant turns
+ * to the streaming router's buffer-armed set. Shadow still never
+ * alters a delivered answer: injection changes what the model is
+ * told, arming changes only when the text is released, and the
+ * checks stay log-only. With the switch off the routers skip the
+ * guard entirely, so behaviour is byte-identical to before this
+ * module existed.
  *
  * Stable-fact registry entries follow the evidence-catalog discipline
  * (verifiedAt / reviewAfter / sourceDescription): an entry whose
@@ -87,7 +96,8 @@ export function resolveOriginIntentPremiseGuardEffectiveMode(
   env: NodeJS.ProcessEnv | undefined,
 ): OriginIntentPremiseGuardMode {
   const configured = resolveOriginIntentPremiseGuardMode(env);
-  // I5-PR1 ships the shadow core only; the enforce entity is I5-PR3.
+  // The enforce entity (regeneration / deterministic landing) is
+  // I5-PR3; until then a configured "enforce" runs as shadow.
   return configured === "enforce" ? "shadow" : configured;
 }
 
@@ -422,6 +432,218 @@ export function extractOriginPremiseLedger(
   });
 
   return entries;
+}
+
+/* ------------------------------------------------------------------ */
+/* Premise ledger block (design section 3.2)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The ledger block restates only the operative premises at the tail
+ * of the assembled instruction, so a corrected premise competes with
+ * the history's raw text structurally instead of depending on the
+ * model re-deriving it every turn (RC-1). It is a dynamic addendum
+ * in the same layer as the planning augmentation: it is appended
+ * after each route's instruction is built, is NOT part of the
+ * route-3 compact base, and is not counted in that base's
+ * 2,000-3,800 character contract; it carries its own caps here,
+ * pinned by test. Worst case the block is 512 characters, which the
+ * route-3 pre-send gate (characters/2) estimates at ~256 tokens —
+ * inside the route's 6,000-token input budget next to the current
+ * ~2,700-token planning-augmented payload. A ledger with nothing
+ * injectable produces no block, so a conversation without a
+ * correction keeps byte-identical instructions.
+ */
+export const ORIGIN_PREMISE_LEDGER_BLOCK_HEADER =
+  "確定前提（この会話で確定済み。前提はこれだけを使う）：";
+export const ORIGIN_PREMISE_LEDGER_BLOCK_MAX_ENTRIES = 8;
+export const ORIGIN_PREMISE_LEDGER_BLOCK_MAX_LINE_CHARS = 64;
+export const ORIGIN_PREMISE_LEDGER_BLOCK_MAX_CHARS = 512;
+
+export interface OriginPremiseLedgerBlock {
+  text: string;
+  entryCount: number;
+  omittedCount: number;
+}
+
+function renderPremiseLedgerLine(entry: OriginPremiseLedgerEntry): string {
+  const label = entry.label ?? "";
+  if (entry.kind === "user-attribute") {
+    return `- ${label}：${entry.newValue}`;
+  }
+  if (
+    entry.kind === "assistant-correction" &&
+    entry.newValue === "存在しない"
+  ) {
+    return `- ${label}：存在しない`;
+  }
+  if (entry.numeric) {
+    const head = label ? `- ${label}：${entry.newValue}` : `- ${entry.newValue}`;
+    return `${head}（${entry.oldValue}から訂正済み）`;
+  }
+  // Categorical replacement: the new topic replaces the old one.
+  const head = label ? `- ${label}：${entry.newValue}` : `- ${entry.newValue}`;
+  return `${head}（${entry.oldValue}ではない）`;
+}
+
+/**
+ * Fits one ledger line into the per-line cap. The parenthetical
+ * annotation is dropped first; only the label (a topic name) may be
+ * shortened after that — an operative value is never truncated. An
+ * entry that still cannot fit is not rendered (the caller counts it
+ * as omitted) rather than rendered in a corrupted form.
+ */
+function fitPremiseLedgerLine(
+  entry: OriginPremiseLedgerEntry,
+): string | null {
+  const full = renderPremiseLedgerLine(entry);
+  if (full.length <= ORIGIN_PREMISE_LEDGER_BLOCK_MAX_LINE_CHARS) return full;
+  const bare = full.replace(/（[^（）]*）$/, "");
+  if (bare.length <= ORIGIN_PREMISE_LEDGER_BLOCK_MAX_LINE_CHARS) return bare;
+  if (!entry.label) return null;
+  const excess = bare.length - ORIGIN_PREMISE_LEDGER_BLOCK_MAX_LINE_CHARS;
+  const shortLabel = entry.label.slice(
+    0,
+    Math.max(0, entry.label.length - excess),
+  );
+  if (!shortLabel) return null;
+  return bare.replace(entry.label, shortLabel);
+}
+
+/**
+ * Builds the injection block from a ledger, or null when nothing is
+ * injectable. Entries are taken in ledger order under the entry,
+ * line and total caps; entries that do not fit are counted as
+ * omitted, never silently merged or rewritten.
+ */
+export function buildOriginPremiseLedgerBlock(
+  ledger: readonly OriginPremiseLedgerEntry[],
+): OriginPremiseLedgerBlock | null {
+  const lines: string[] = [];
+  let omittedCount = 0;
+  let totalChars = ORIGIN_PREMISE_LEDGER_BLOCK_HEADER.length;
+  for (const entry of ledger) {
+    const line = fitPremiseLedgerLine(entry);
+    if (
+      line === null ||
+      lines.length >= ORIGIN_PREMISE_LEDGER_BLOCK_MAX_ENTRIES ||
+      totalChars + 1 + line.length > ORIGIN_PREMISE_LEDGER_BLOCK_MAX_CHARS
+    ) {
+      omittedCount += 1;
+      continue;
+    }
+    lines.push(line);
+    totalChars += 1 + line.length;
+  }
+  if (lines.length === 0) return null;
+  return {
+    text: [ORIGIN_PREMISE_LEDGER_BLOCK_HEADER, ...lines].join("\n"),
+    entryCount: lines.length,
+    omittedCount,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Arming (design section 3.3)                                         */
+/* ------------------------------------------------------------------ */
+
+export type OriginPremiseGuardArmingReason =
+  | "ledger-correction"
+  | "registry-concept-assertion";
+
+export interface OriginPremiseGuardArming {
+  armed: boolean;
+  reasons: OriginPremiseGuardArmingReason[];
+}
+
+function armingFromLedger(
+  ledger: readonly OriginPremiseLedgerEntry[],
+  messages: readonly OriginChatMessage[],
+  nowMs: number,
+): OriginPremiseGuardArming {
+  const reasons: OriginPremiseGuardArmingReason[] = [];
+  if (
+    ledger.some(
+      (entry) =>
+        entry.kind === "user-correction" ||
+        entry.kind === "assistant-correction",
+    )
+  ) {
+    reasons.push("ledger-correction");
+  }
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  if (latestUser) {
+    const text = normalizeText(latestUser.content ?? "");
+    for (const entry of ORIGIN_STABLE_FACT_REGISTRY) {
+      if (!isOriginStableFactEntryActive(entry, nowMs)) continue;
+      const conceptPresent = entry.conceptTerms.some((term) =>
+        text.includes(term),
+      );
+      if (
+        conceptPresent &&
+        /\d+(?:\.\d+)?\s*(?:%|パーセント)/.test(text)
+      ) {
+        reasons.push("registry-concept-assertion");
+        break;
+      }
+    }
+  }
+  return { armed: reasons.length > 0, reasons };
+}
+
+/**
+ * Deterministic arming for the premise guard — the turns where the
+ * measured failures concentrate: (1) the conversation carries a
+ * correction (a user correction or ORIGIN's own correction in the
+ * ledger), so this and every later turn of that conversation is
+ * armed; (2) the latest user turn asserts a rate for a stable-fact
+ * registry concept (initially the consumption tax), whether or not
+ * a correction has happened yet — FP-02's first turn. Arming only
+ * joins the streaming router's buffer-armed set (the same trade-off
+ * the existing gates make: a buffered answer loses progressive
+ * display); in shadow it never changes the delivered text, and its
+ * purpose is that a later enforce step (I5-PR3) can intervene
+ * before release on exactly these turns.
+ */
+export function evaluateOriginPremiseGuardArming(input: {
+  messages: readonly OriginChatMessage[];
+  nowMs: number;
+}): OriginPremiseGuardArming {
+  return armingFromLedger(
+    extractOriginPremiseLedger(input.messages),
+    input.messages,
+    input.nowMs,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-request plan (routers, shadow mode)                             */
+/* ------------------------------------------------------------------ */
+
+export interface OriginPremiseGuardPlan {
+  ledger: OriginPremiseLedgerEntry[];
+  block: OriginPremiseLedgerBlock | null;
+  arming: OriginPremiseGuardArming;
+}
+
+/**
+ * The plan both routers compute once per request in shadow mode:
+ * the ledger, the injection block (null when the ledger carries
+ * nothing injectable) and the arming decision. Pure — re-derived
+ * from the request's messages on every call, nothing is stored.
+ */
+export function planOriginPremiseGuard(input: {
+  messages: readonly OriginChatMessage[];
+  nowMs: number;
+}): OriginPremiseGuardPlan {
+  const ledger = extractOriginPremiseLedger(input.messages);
+  return {
+    ledger,
+    block: buildOriginPremiseLedgerBlock(ledger),
+    arming: armingFromLedger(ledger, input.messages, input.nowMs),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -802,6 +1024,8 @@ export interface OriginIntentPremiseGuardShadowInput {
   messages: readonly OriginChatMessage[];
   answerText: string;
   nowMs?: number;
+  /** The I5-PR2 plan the router computed for this request, when it did. */
+  plan?: OriginPremiseGuardPlan;
   logger?: (message: string, fields: Record<string, unknown>) => void;
 }
 
@@ -845,6 +1069,16 @@ export function runOriginIntentPremiseGuardShadow(
         result.violationCounts["fabricated-citation-form"],
       ...(result.c2AppliedRates.length > 0
         ? { c2AppliedRates: result.c2AppliedRates }
+        : {}),
+      ...(input.plan
+        ? {
+            premiseGuardBlockInjected: input.plan.block !== null,
+            premiseGuardBlockChars: input.plan.block?.text.length ?? 0,
+            premiseGuardBlockOmittedEntries:
+              input.plan.block?.omittedCount ?? 0,
+            premiseGuardArmed: input.plan.arming.armed,
+            premiseGuardArmingReasons: [...input.plan.arming.reasons],
+          }
         : {}),
     });
     return result;
