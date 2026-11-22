@@ -10,6 +10,7 @@ const SAFE_STATIC_PATHS = new Set([
   '/favicon.png',
   '/favicon-dark.png',
   '/brand/origin-ribbon-o.webp',
+  '/brand/origin-ribbon-o-dark.webp',
   '/brand/origin-ribbon-o-small.webp',
   '/brand/origin-ribbon-o-light.webp',
   '/brand/origin-ribbon-o-mono.webp',

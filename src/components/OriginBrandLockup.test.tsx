@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import OriginBrandLockup, { ORIGIN_BRAND_MARK_SRC } from './OriginBrandLockup';
+import OriginBrandLockup, { ORIGIN_BRAND_MARK_DARK_SRC, ORIGIN_BRAND_MARK_SRC } from './OriginBrandLockup';
 
 afterEach(() => {
   cleanup();
@@ -20,7 +20,7 @@ describe('OriginBrandLockup', () => {
     const mark = container.querySelector('img.origin-ribbon-logo__mark') as HTMLImageElement;
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('src')).toBe(ORIGIN_BRAND_MARK_SRC);
-    expect(ORIGIN_BRAND_MARK_SRC).toBe('/brand/origin-ribbon-o.webp?v=ribbon-20261108');
+    expect(ORIGIN_BRAND_MARK_SRC).toBe('/brand/origin-ribbon-o.webp?v=ribbon-20261122');
   });
 
   it('honors an explicit mark source (the splash passes its own constant)', () => {
@@ -57,16 +57,30 @@ describe('OriginBrandLockup', () => {
     expect(headerContainer.querySelector('.origin-ribbon-logo__halo')).toBeNull();
   });
 
-  it('pins the dark-theme header plate: muted cream with a soft shadow (2026-11-20 external review follow-up)', () => {
+  it('renders the paired dark-theme mark with the identical silhouette', () => {
+    const { container } = render(<OriginBrandLockup />);
+    const darkMark = container.querySelector('img.origin-ribbon-logo__mark--dark') as HTMLImageElement;
+    expect(darkMark).not.toBeNull();
+    expect(darkMark.getAttribute('src')).toBe(ORIGIN_BRAND_MARK_DARK_SRC);
+    expect(ORIGIN_BRAND_MARK_DARK_SRC).toBe('/brand/origin-ribbon-o-dark.webp?v=ribbon-20261122');
+  });
+
+  it('pins the transparent dark treatment: no cream plate, token-colored wordmark, paired mark swap (2026-11-22)', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/components/splash-brand.css'), 'utf8');
-    const darkPlateRule = css.match(/:root\[data-theme="dark"\] \.origin-brand-lockup\.origin-brand-lockup--header \{[^}]*\}/)?.[0] ?? '';
-    // プレート自体はワードマークの可読性のために残すが、全輝度の
-    // クリームは暗いヘッダーに貼って見えるため一段落とす。
-    expect(darkPlateRule).toContain('background: #f0e2c6 !important;');
-    expect(darkPlateRule).not.toContain('#fdf0e0');
-    expect(darkPlateRule).toContain('box-shadow: 0 2px 10px rgb(0 0 0 / 38%);');
-    // 文字色の再主張（紺・スレート）は従来どおり維持する。
+    // クリーム地チップ（#f0e2c6）は廃止。地は置かず、ワードマーク側が
+    // ダークテーマの文字トークンを取る。
+    expect(css).not.toContain('#f0e2c6');
+    expect(css).not.toContain('#fdf0e0');
     expect(css).toContain(':root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--navy');
-    expect(css).toContain('color: #182d5f !important;');
+    expect(css).toContain('color: var(--text-primary) !important;');
+    expect(css).toContain('color: var(--text-secondary) !important;');
+    // マークはライト／ダークの対をテーマで切り替える（片方だけが常に見える）。
+    // 切替はヘッダー側だけ：スプラッシュの地は常時白なので紺のまま。
+    expect(css).toContain('.origin-ribbon-logo__mark--dark');
+    expect(css).toContain(':root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-logo__mark--light');
+    expect(css).toContain(':root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-logo__mark--dark');
+    // 焼き込み地を隠すための円形クリップも廃止。
+    const markRule = css.match(/\.origin-ribbon-logo__mark \{[^}]*\}/)?.[0] ?? '';
+    expect(markRule).not.toContain('border-radius');
   });
 });

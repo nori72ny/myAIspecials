@@ -9,13 +9,22 @@ import './splash-brand.css';
  * second "I" and a gold ribbon line flowing under the word — so it stays
  * crisp at any size instead of shipping as a raster image. Colors were
  * sampled from the approved reference image and from the mark asset:
- * navy #182d5f (ORI), slate #4f6c9b (GIN), gold #d7b253, cream #fdf0e0.
+ * navy #182d5f (ORI), slate #4f6c9b (GIN), gold #d7b253.
+ *
+ * The mark assets are transparent (owner request 2026-11-22: the cream
+ * plate baked into the artwork is gone, so the ribbon floats on the
+ * surface itself). The navy artwork sinks into dark surfaces, so — the
+ * same paired-asset pattern as Orin's idle still (OriginCatState) — a
+ * white dark-theme variant with the identical silhouette is rendered
+ * alongside and splash-brand.css shows exactly one of the pair per theme.
  */
-export const ORIGIN_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261108';
+export const ORIGIN_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261122';
+export const ORIGIN_BRAND_MARK_DARK_SRC = '/brand/origin-ribbon-o-dark.webp?v=ribbon-20261122';
 
 export interface OriginBrandLockupProps {
   variant?: 'header' | 'splash';
   markSrc?: string;
+  markDarkSrc?: string;
 }
 
 const LETTERS: ReadonlyArray<{ char: string; tone: 'navy' | 'slate'; bow?: boolean }> = [
@@ -63,12 +72,13 @@ function WordmarkRibbonLine({ gradientId }: { gradientId: string }) {
   );
 }
 
-export default function OriginBrandLockup({ variant = 'header', markSrc = ORIGIN_BRAND_MARK_SRC }: OriginBrandLockupProps) {
+export default function OriginBrandLockup({ variant = 'header', markSrc = ORIGIN_BRAND_MARK_SRC, markDarkSrc = ORIGIN_BRAND_MARK_DARK_SRC }: OriginBrandLockupProps) {
   return (
     <span className={`origin-brand-lockup origin-brand-lockup--${variant}`} role="img" aria-label="ORIGIN">
       <span className="origin-ribbon-logo" aria-hidden="true">
         {variant === 'splash' && <span className="origin-ribbon-logo__halo" />}
-        <img className="origin-ribbon-logo__mark" src={markSrc} alt="" draggable={false} />
+        <img className="origin-ribbon-logo__mark origin-ribbon-logo__mark--light" src={markSrc} alt="" draggable={false} />
+        <img className="origin-ribbon-logo__mark origin-ribbon-logo__mark--dark" src={markDarkSrc} alt="" draggable={false} />
       </span>
       <span className="origin-ribbon-wordmark" aria-hidden="true">
         {LETTERS.map((letter, index) => (

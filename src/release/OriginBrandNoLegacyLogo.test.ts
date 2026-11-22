@@ -13,8 +13,10 @@ describe('ORIGIN brand regression boundary', () => {
     const lockup = read('src/components/OriginBrandLockup.tsx');
     const splashBrand = read('src/components/splash-brand.css');
 
-    expect(splash).toContain("const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261108';");
+    expect(splash).toContain("const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261122';");
+    expect(splash).toContain("const STARTUP_BRAND_MARK_DARK_SRC = '/brand/origin-ribbon-o-dark.webp?v=ribbon-20261122';");
     expect(splash).toContain('markSrc={STARTUP_BRAND_MARK_SRC}');
+    expect(splash).toContain('markDarkSrc={STARTUP_BRAND_MARK_DARK_SRC}');
     expect(lockup).toContain('src={markSrc}');
     expect(lockup).toContain('origin-ribbon-logo');
     expect(lockup).toContain('origin-ribbon-wordmark');
