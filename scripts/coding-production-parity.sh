@@ -13,7 +13,12 @@ node --import tsx --input-type=module -e '
   import { copyTrustedCodingCheckoutV14 } from "./src/agent/codingWorkerCheckoutV14.ts";
   await copyTrustedCodingCheckoutV14(process.cwd(), process.argv[1]);
 ' "$verify_root"
-timeout --signal=TERM --kill-after=10s 300s docker run --rm --name "$name" \
+# Timeout raised 300s -> 420s (2026-11-22): the full suite's wall time in the
+# 2-CPU isolated container sits at the 300s ceiling (jsdom environment setup
+# dominates, ~550s total across files); measured suite growth is structural,
+# not from any single change. 420s restores ~40% headroom without weakening
+# any test.
+timeout --signal=TERM --kill-after=10s 420s docker run --rm --name "$name" \
   --network none --cap-drop ALL --security-opt no-new-privileges \
   --read-only --user "$(id -u):$(id -g)" --pids-limit 128 --cpus 2 --memory 3g \
   --tmpfs /tmp:rw,nosuid,nodev,size=512m,mode=1777 \
