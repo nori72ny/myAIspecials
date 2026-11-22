@@ -215,11 +215,29 @@ export type AgentRunStepLiveSource = {
  * query a research step actually ran and the first sources it returned
  * — never prompts, capability tokens or other internals.
  */
+/**
+ * Why an attachment_analyzer step's chunk response failed the
+ * per-chunk format validation (Basel observability, diagnosis
+ * AGENT_BASEL_DATA_OUTPUT_INVALID_DIAGNOSIS_2026-11-23 §4): the
+ * failing chunk's global index and the parse-failure reason token
+ * the analyzer reported. Counts and codes only — the response body
+ * never enters the record, exactly like the rest of the live detail.
+ * The reason vocabulary is the analyzer's
+ * (AGENT_DATA_PARSE_FAILURE_REASONS in agentAttachmentTools.ts); the
+ * normalizer below validates the token's shape, not the module, so
+ * this record module keeps no dependency on the tools layer.
+ */
+export type AgentRunStepParseFailure = {
+  chunkIndex: number;
+  reason: string;
+};
+
 export type AgentRunStepLiveDetail = {
   startedAt?: number;
   finishedAt?: number;
   query?: string;
   sources?: AgentRunStepLiveSource[];
+  parseFailure?: AgentRunStepParseFailure;
 };
 
 /** Per-step progress. Status vocabulary matches the agent task graph. */
@@ -678,6 +696,22 @@ function truncateLiveText(value: unknown, maxLength: number): string | undefined
   return trimmed.slice(0, maxLength);
 }
 
+/** Reason tokens are kebab-case slugs from a closed vocabulary
+ * (json-not-extractable, row-key-missing, …). Anything else — free
+ * text, an overlong string, a non-string — is not a reason token and
+ * the field is dropped, in the fail-soft style of this normalizer. */
+const LIVE_PARSE_FAILURE_REASON_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+function normalizeAgentRunStepParseFailure(value: unknown): AgentRunStepParseFailure | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { chunkIndex, reason } = value;
+  if (!Number.isInteger(chunkIndex) || Number(chunkIndex) < 0) return undefined;
+  if (typeof reason !== 'string' || reason.length > 40 || !LIVE_PARSE_FAILURE_REASON_PATTERN.test(reason)) {
+    return undefined;
+  }
+  return { chunkIndex: Number(chunkIndex), reason };
+}
+
 function normalizeLiveTimestamp(value: unknown): number | undefined {
   if (!Number.isFinite(value) || Number(value) <= 0 || Number(value) > MAX_LIVE_TIMESTAMP_MS) return undefined;
   return Math.floor(Number(value));
@@ -700,6 +734,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (finishedAt !== undefined) detail.finishedAt = finishedAt;
   const query = truncateLiveText(value.query, MAX_AGENT_RUN_LIVE_QUERY_LENGTH);
   if (query !== undefined) detail.query = query;
+  const parseFailure = normalizeAgentRunStepParseFailure(value.parseFailure);
+  if (parseFailure !== undefined) detail.parseFailure = parseFailure;
   if (Array.isArray(value.sources)) {
     const sources: AgentRunStepLiveSource[] = [];
     for (const raw of value.sources) {

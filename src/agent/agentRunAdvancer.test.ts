@@ -565,6 +565,60 @@ describe('advanceAgentRun', () => {
     expect(JSON.stringify(record)).not.toContain('hunter2');
   });
 
+  it('records the analyzer parse failure (chunk index + reason, no body) in the step live detail (Basel observability)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'AGENT_DATA_OUTPUT_INVALID (chunk 2, parse: row-key-missing)' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 4 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    // The terminal code is still the bare AGENT_DATA_OUTPUT_INVALID.
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_OUTPUT_INVALID' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]).toMatchObject({ status: 'failed', errorCode: 'AGENT_DATA_OUTPUT_INVALID' });
+    // The live detail says which chunk failed and why — index and
+    // reason token only; nothing of any response body is recorded.
+    expect(record?.stepsState[1]?.liveDetail?.parseFailure).toEqual({ chunkIndex: 2, reason: 'row-key-missing' });
+    expect(JSON.stringify(record?.stepsState[1]?.liveDetail)).not.toContain('rows');
+    expect(record?.stepsState[0]?.liveDetail?.parseFailure).toBeUndefined();
+  });
+
+  it('records no parse failure for an analyzer failure without the fixed message shape', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'AGENT_DATA_OUTPUT_INVALID' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 4 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_OUTPUT_INVALID' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]?.liveDetail?.parseFailure).toBeUndefined();
+  });
+
   it('records the throwing step as failed with the restored code when a tool throws', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();

@@ -93,28 +93,52 @@ function parseNumericCell(raw: string): number | null {
 }
 
 /**
- * Table detection (design §3.2): the delimiter comes from the first
- * non-empty line; the file is a table when at least two non-empty
- * lines remain and (almost) every line splits into the header's
+ * Table detection (design §3.2): the delimiter comes from the header
+ * line; the file is a table when at least two non-empty lines remain
+ * from the header on and (almost) every line splits into the header's
  * column count (≥2). Cell splitting is deliberately naive (no quote
  * awareness): a quoted CSV whose cells contain delimiters fails the
  * column-consistency check and is treated as prose rather than being
  * misparsed into a wrong table.
+ *
+ * Heading lines (Basel fix A, diagnosis
+ * AGENT_BASEL_DATA_OUTPUT_INVALID_DIAGNOSIS_2026-11-23): spreadsheet
+ * exports converted to TSV/CSV text commonly open with delimiter-free
+ * heading lines — the ALE Basel set's files start with
+ * `## sheet: Sheet1`, a line the dataset-side xlsx→TSV conversion
+ * added (ORIGIN itself has no xlsx extraction that emits it). Judging
+ * the delimiter from the literal first line made every such file
+ * prose: the real table never anchored the coverage yardstick, which
+ * a schema sample elsewhere in the set then hijacked. The header
+ * candidate is therefore the first line that contains a delimiter at
+ * all; delimiter-free lines before it are headings and are skipped —
+ * they never enter the header, the rows or the chunks. When the first
+ * line already carries a delimiter nothing is skipped and the
+ * behavior is exactly the pre-fix one.
  */
 function parseTable(text: string): ParsedTable | null {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return null;
-  const first = lines[0];
+  let headerIndex = 0;
+  while (
+    headerIndex < lines.length
+    && !lines[headerIndex].includes('\t')
+    && !lines[headerIndex].includes(',')
+  ) {
+    headerIndex += 1;
+  }
+  const tableLines = lines.slice(headerIndex);
+  if (tableLines.length < 2) return null;
+  const first = tableLines[0];
   const delimiter = first.includes('\t') ? '\t' : first.includes(',') ? ',' : null;
   if (!delimiter) return null;
   const split = (line: string) => line.split(delimiter).map((cell) => cell.trim());
   const header = split(first);
   if (header.length < 2) return null;
-  const rows = lines.slice(1).map(split);
+  const rows = tableLines.slice(1).map(split);
   const consistent = rows.filter((row) => row.length === header.length).length;
   if (consistent < Math.ceil(rows.length * 0.9)) return null;
   const keptRows = rows.filter((row) => row.length === header.length);
-  const keptLines = lines.slice(1).filter((_, index) => rows[index].length === header.length);
+  const keptLines = tableLines.slice(1).filter((_, index) => rows[index].length === header.length);
   return { header, rowLines: keptLines, rows: keptRows, delimiter };
 }
 

@@ -320,18 +320,52 @@ function liveSourcesFromArtifact(artifact: string | undefined): NonNullable<Agen
  * detail (returning undefined) rather than the step's progress write.
  * Timestamps are recorded for every step; the query and sources only
  * for research steps — the query actually executed and the pages it
- * actually returned. Prompts, credentials and tool internals never
- * enter the record through here.
+ * actually returned; and for an attachment_analyzer step whose tool
+ * failed output validation, the failing chunk's index and the
+ * parse-failure reason token (Basel observability). Prompts,
+ * credentials, response bodies and tool internals never enter the
+ * record through here.
  */
+/**
+ * The analyzer's output-invalid failure message carries the failing
+ * chunk's global index and the parse-failure reason token in a fixed
+ * parenthetical (Basel observability, diagnosis
+ * AGENT_BASEL_DATA_OUTPUT_INVALID_DIAGNOSIS_2026-11-23 §4) — the
+ * same "structure out of the message" pattern toolFailureCodeFromMessage
+ * uses for the failure code itself. Anything that does not match the
+ * fixed shape contributes nothing.
+ */
+const ANALYZER_PARSE_FAILURE_PATTERN = /AGENT_DATA_OUTPUT_INVALID \(chunk (\d+), parse: ([a-z][a-z0-9-]*)\)/;
+
+export function parseFailureFromAnalyzerMessage(
+  message: string | undefined,
+): { chunkIndex: number; reason: string } | undefined {
+  if (!message) return undefined;
+  const match = ANALYZER_PARSE_FAILURE_PATTERN.exec(message);
+  if (!match) return undefined;
+  const chunkIndex = Number(match[1]);
+  if (!Number.isInteger(chunkIndex) || chunkIndex < 0) return undefined;
+  return { chunkIndex, reason: match[2] };
+}
+
 export function buildStepLiveDetail(input: {
   toolName: ToolName;
   params: ToolParams;
   artifact: string | undefined;
   startedAt: number;
   finishedAt: number;
+  /** The tool failure message, when the step's tool returned
+   * `ok: false`. Only an attachment_analyzer's output-invalid
+   * message is read, and only for its chunk index and reason token
+   * — the body of any model response never enters the record. */
+  failureMessage?: string;
 }): AgentRunStepLiveDetail | undefined {
   try {
     const detail: AgentRunStepLiveDetail = { startedAt: input.startedAt, finishedAt: input.finishedAt };
+    if (input.toolName === 'attachment_analyzer') {
+      const parseFailure = parseFailureFromAnalyzerMessage(input.failureMessage);
+      if (parseFailure) detail.parseFailure = parseFailure;
+    }
     if (input.toolName === 'web_search_grounding') {
       const query = typeof input.params.query === 'string' ? input.params.query.trim() : '';
       if (query && !containsLikelySecret(query)) {
@@ -863,6 +897,7 @@ export async function advanceAgentRun(
         artifact: executionRecord?.artifact,
         startedAt: stepStartedAt,
         finishedAt: now(),
+        failureMessage: executionRecord?.toolFailureMessage,
       });
       stepsState[index] = {
         id: `task-${index + 1}`,
