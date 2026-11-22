@@ -5,6 +5,10 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorV3Router, type AgentRunConsumptionStore } from './agentOrchestratorV3.js';
 import { InMemoryAgentRunStore } from './agentRunStoreMemory.fixture.js';
+import { InMemoryAgentAttachmentStore } from './agentAttachmentStoreMemory.fixture.js';
+import { computeAgentRunStepFingerprint } from './agentRunRecord.js';
+import { validateAgentAttachmentFileText } from './agentAttachmentRecord.js';
+import type { AgentModelExecutor } from './agentModelCall.js';
 import { approvalDigest } from './agentApproval.js';
 import { issueApprovalCapability, verifyApprovalCapability } from './agentV3Capability.js';
 
@@ -513,5 +517,294 @@ describe('agent v3 run resume flow', () => {
     expect(resumed.status).toBe(503);
     const confirmed = await confirmOperator(app, plan.runId, { approvalToken: 'x' });
     expect(confirmed.status).toBe(503);
+  });
+});
+
+describe('agent v3 resume of attachment-bound held runs (resume attachment support)', () => {
+  const attachEnv = { ...env, ORIGIN_AGENT_ATTACHMENTS_ENABLED: 'true' } as NodeJS.ProcessEnv;
+  const CLASSIFY_GOAL = '各行を分類してレポートを作成してください';
+  const FRUITS = ['id,item,amount', 'A-1,りんご,120', 'A-2,みかん,80', 'A-3,ぶどう,300'].join('\n');
+
+  function attachApp(
+    runStore: InMemoryAgentRunStore,
+    attachmentStore: InMemoryAgentAttachmentStore,
+    modelCall?: AgentModelExecutor,
+    testEnv: NodeJS.ProcessEnv = attachEnv,
+  ) {
+    const app = express();
+    app.use(express.json());
+    app.use(createAgentOrchestratorV3Router(testEnv, makeConsumptionStore().store, { runStore, attachmentStore, modelCall }));
+    return app;
+  }
+
+  /** The F2 classifying executor, with a call counter: classifies each
+   * CSV row in the chunk text it is actually given (amount >= 200 → 高額). */
+  function makeClassifyingExecutor(calls: { count: number }): AgentModelExecutor {
+    return async ({ userText }) => {
+      calls.count += 1;
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
+      const rows = lines.slice(1).map((line) => {
+        const [id, item, amount] = line.split(',');
+        return { id, item, amount, category: Number(amount) >= 200 ? '高額' : '通常' };
+      });
+      return { ok: true, text: JSON.stringify({ rows }) };
+    };
+  }
+
+  async function createSetWithFile(app: express.Express, name: string, contentText: string): Promise<string> {
+    const created = await request(app).post('/api/agent/v3/attachment-sets')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({});
+    expect(created.status).toBe(201);
+    const setId = created.body.attachmentSetId as string;
+    const added = await request(app).post(`/api/agent/v3/attachment-sets/${setId}/files`)
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({ name, mediaType: 'text/csv', contentText });
+    expect(added.status).toBe(201);
+    return setId;
+  }
+
+  async function planAttach(app: express.Express, setId: string): Promise<PlanBody> {
+    const plan = await request(app).post('/api/agent/v3/plan')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({ goal: CLASSIFY_GOAL, attachmentSetId: setId });
+    expect(plan.status).toBe(201);
+    return plan.body as PlanBody;
+  }
+
+  async function createAttachRun(app: express.Express, plan: PlanBody): Promise<void> {
+    const approvalToken = await approveOperator(app, plan);
+    const created = await request(app).post('/api/agent/v3/runs')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({ runId: plan.runId, goal: CLASSIFY_GOAL, planToken: plan.planToken, approvalToken, steps: plan.steps });
+    expect(created.status).toBe(201);
+    expect(created.body.run.status).toBe('queued');
+  }
+
+  const ANALYZER_BUNDLE = JSON.stringify({
+    kind: 'data-analysis',
+    content: ['id,item,amount,category', 'A-1,りんご,120,通常', 'A-2,みかん,80,通常', 'A-3,ぶどう,300,高額'].join('\n'),
+    outputKind: 'rows',
+    rows: [
+      { id: 'A-1', item: 'りんご', amount: '120', category: '通常' },
+      { id: 'A-2', item: 'みかん', amount: '80', category: '通常' },
+      { id: 'A-3', item: 'ぶどう', amount: '300', category: '高額' },
+    ],
+    coverage: { totalChunks: 1, processedChunks: 1, keyCount: 3 },
+    chunkRange: { offset: 0, count: 1 },
+  });
+
+  /** A claimed attachment run driven into held with the reader and
+   * analyzer already completed and the analyzer's bundle persisted —
+   * the production shape of a rate-limit hold landing mid-run. */
+  async function heldAttachRunWithProgress() {
+    const runStore = new InMemoryAgentRunStore();
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    const calls = { count: 0 };
+    const app = attachApp(runStore, attachmentStore, makeClassifyingExecutor(calls));
+    const setId = await createSetWithFile(app, 'fruits.csv', FRUITS);
+    const plan = await planAttach(app, setId);
+    await createAttachRun(app, plan);
+    const stored = await runStore.get(plan.runId, OPERATOR_BINDING);
+    expect(stored?.plan).toHaveLength(3);
+    const lease = await runStore.claim(plan.runId, 'driver-resume-test', 300);
+    expect(lease?.status).toBe('running');
+    const progressed = await runStore.updateProgress(plan.runId, 'driver-resume-test', {
+      stepsState: [
+        { id: 'task-1', status: 'completed', attempts: 1 },
+        { id: 'task-2', status: 'completed', attempts: 1 },
+        { id: 'task-3', status: 'queued', attempts: 0 },
+      ],
+      artifacts: [{
+        stepIndex: 1,
+        stepFingerprint: computeAgentRunStepFingerprint(stored!.plan![1].toolName, stored!.plan![1].params),
+        attempt: 1,
+        artifact: ANALYZER_BUNDLE,
+      }],
+    });
+    expect(progressed).toBe(true);
+    const held = await runStore.finish(plan.runId, 'driver-resume-test', 'held', {
+      reason: 'user_paused',
+      resumeCondition: { kind: 'manual' },
+      heldSince: Date.now(),
+      resumeAttempts: 0,
+    });
+    expect(held?.status).toBe('held');
+    return { app, runStore, attachmentStore, plan, calls };
+  }
+
+  it('resumes an attachment-bound held run with planChanged false and step progress preserved', async () => {
+    const { app, runStore, plan } = await heldAttachRunWithProgress();
+    const resumed = await resumeOperator(app, plan.runId);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.status).toBe('awaiting_approval');
+    expect(resumed.body.planChanged).toBe(false);
+    expect(resumed.body.run.stepsState).toEqual([
+      { id: 'task-1', status: 'completed', attempts: 1 },
+      { id: 'task-2', status: 'completed', attempts: 1 },
+      { id: 'task-3', status: 'queued', attempts: 0 },
+    ]);
+    expect((await runStore.get(plan.runId, OPERATOR_BINDING))?.status).toBe('awaiting_approval');
+  });
+
+  it('confirms and completes without re-executing the hydrated analyzer step', async () => {
+    const { app, runStore, attachmentStore, plan, calls } = await heldAttachRunWithProgress();
+    const resumed = await resumeOperator(app, plan.runId);
+    expect(resumed.status).toBe(200);
+    const approvalToken = await approveOperator(app, {
+      runId: plan.runId,
+      planToken: resumed.body.planToken,
+      steps: resumed.body.steps,
+    });
+    const confirmed = await confirmOperator(app, plan.runId, { approvalToken });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.status).toBe('queued');
+
+    process.env.ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED = 'true';
+    try {
+      // A fresh router instance over the same stores: the shared POST
+      // limiter's burst bucket is per-instance, and this flow has
+      // already spent it on setup.
+      const advanceApp = attachApp(runStore, attachmentStore, makeClassifyingExecutor(calls));
+      const advanced = await advanceOperator(advanceApp, plan.runId);
+      expect(advanced.status).toBe(200);
+      expect(advanced.body.status).toBe('completed');
+      // The analyzer never ran again: its persisted bundle was hydrated
+      // (fingerprint + attempt match), so the model port saw no call.
+      expect(calls.count).toBe(0);
+      const artifact = JSON.parse(advanced.body.artifact) as { content?: string };
+      expect(artifact.content).toContain('A-3,ぶどう,300,高額');
+    } finally {
+      delete process.env.ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED;
+    }
+  });
+
+  it('answers 409 AGENT_ATTACHMENT_UNAVAILABLE when the bound set was deleted, leaving plan and hold untouched', async () => {
+    const runStore = new InMemoryAgentRunStore();
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    const app = attachApp(runStore, attachmentStore, makeClassifyingExecutor({ count: 0 }));
+    const setId = await createSetWithFile(app, 'fruits.csv', FRUITS);
+    const plan = await planAttach(app, setId);
+    await createAttachRun(app, plan);
+    const held = await holdOperator(app, plan.runId, { reason: 'user_paused' });
+    expect(held.status).toBe(200);
+    const before = await runStore.get(plan.runId, OPERATOR_BINDING);
+
+    expect(await attachmentStore.deleteSet(setId, OPERATOR_BINDING)).toBe(true);
+    const resumed = await resumeOperator(app, plan.runId);
+    expect(resumed.status).toBe(409);
+    expect(resumed.body.code).toBe('AGENT_ATTACHMENT_UNAVAILABLE');
+    const after = await runStore.get(plan.runId, OPERATOR_BINDING);
+    expect(after?.status).toBe('held');
+    expect(after?.plan).toEqual(before?.plan);
+    expect(after?.planDigest).toBe(before?.planDigest);
+  });
+
+  it('fails closed with the same 409 when the attachments switch is off at resume time', async () => {
+    const runStore = new InMemoryAgentRunStore();
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    const app = attachApp(runStore, attachmentStore, makeClassifyingExecutor({ count: 0 }));
+    const setId = await createSetWithFile(app, 'fruits.csv', FRUITS);
+    const plan = await planAttach(app, setId);
+    await createAttachRun(app, plan);
+    await holdOperator(app, plan.runId, { reason: 'user_paused' });
+
+    const offApp = attachApp(runStore, attachmentStore, undefined, env);
+    const resumed = await resumeOperator(offApp, plan.runId);
+    expect(resumed.status).toBe(409);
+    expect(resumed.body.code).toBe('AGENT_ATTACHMENT_UNAVAILABLE');
+    // No goal-only plan is presented in place of the data-bound one.
+    expect(resumed.body.steps).toBeUndefined();
+    expect((await runStore.get(plan.runId, OPERATOR_BINDING))?.status).toBe('held');
+  });
+
+  it('answers 422 AGENT_ATTACHMENT_TOO_LARGE when the bound set outgrew the plan ceilings', async () => {
+    const runStore = new InMemoryAgentRunStore();
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    const app = attachApp(runStore, attachmentStore, makeClassifyingExecutor({ count: 0 }));
+    const bigSetId = 'att-12345678-abcd-4ef0-9abc-def012345678';
+    // Prose chunking splits on blank lines: 180 paragraphs of 1,000
+    // chars pack three to a 3,500-char chunk — 60 chunks, over the 48 cap.
+    const bigText = Array.from({ length: 180 }, () => 'あ'.repeat(1000)).join('\n\n');
+    await attachmentStore.createSet({
+      setId: bigSetId,
+      ownerBinding: OPERATOR_BINDING,
+      uploadTokenDigest: createHash('sha256').update('upload-token').digest('hex'),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    await attachmentStore.addFile(bigSetId, OPERATOR_BINDING, {
+      name: 'big.txt',
+      mediaType: 'text/plain',
+      kind: 'text',
+      ...validateAgentAttachmentFileText(bigText),
+      extractedText: bigText,
+    });
+    await runStore.create({
+      runId: 'run-resume-toolarge-1',
+      ownerBinding: OPERATOR_BINDING,
+      goal: CLASSIFY_GOAL,
+      status: 'held',
+      plan: [{ toolName: 'attachment_reader', params: { attachmentSetId: bigSetId, setDigest: 'e'.repeat(64) }, dependsOn: [] }],
+      planDigest: 'd'.repeat(64),
+      stepsState: [{ id: 'task-1', status: 'queued', attempts: 0 }],
+      hold: { reason: 'user_paused', resumeCondition: { kind: 'manual' }, heldSince: Date.now(), resumeAttempts: 0 },
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const resumed = await resumeOperator(app, 'run-resume-toolarge-1');
+    expect(resumed.status).toBe(422);
+    expect(resumed.body.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
+    expect(resumed.body.limitKind).toBe('chunks');
+    expect(resumed.body.limit).toBe(48);
+    expect(resumed.body.chunkCount).toBeGreaterThan(48);
+    expect((await runStore.get('run-resume-toolarge-1', OPERATOR_BINDING))?.status).toBe('held');
+  });
+
+  it('never reads the attachment store for goal-only runs (piggyback and manual resume regression)', async () => {
+    const runStore = new InMemoryAgentRunStore();
+    const attachmentStore = new InMemoryAgentAttachmentStore();
+    const getSetSpy = vi.spyOn(attachmentStore, 'getSet');
+    const app = attachApp(runStore, attachmentStore, makeClassifyingExecutor({ count: 0 }));
+
+    // Piggyback path: a goal-only held run whose at_time condition is
+    // already due advances on the next owner read, exactly as before.
+    const plan = await planDocument(app);
+    const approvalToken = await approveOperator(app, plan);
+    const created = await request(app).post('/api/agent/v3/runs')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({ runId: plan.runId, goal: GOAL, planToken: plan.planToken, approvalToken, steps: plan.steps });
+    expect(created.status).toBe(201);
+    const queued = await runStore.get(plan.runId, OPERATOR_BINDING);
+    const heldRecord = await runStore.transition({
+      runId: plan.runId,
+      ownerBinding: OPERATOR_BINDING,
+      expectedStatus: 'queued',
+      expectedVersion: queued!.version,
+      nextStatus: 'held',
+      hold: {
+        reason: 'scheduled_time',
+        resumeCondition: { kind: 'at_time', at: Date.now() - 1000 },
+        heldSince: Date.now() - 1000,
+        resumeAttempts: 0,
+      },
+    });
+    expect(heldRecord?.status).toBe('held');
+    const fetched = await request(app).get(`/api/agent/v3/runs/${plan.runId}`)
+      .set('Authorization', `Bearer ${SECRET}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.run.status).toBe('awaiting_approval');
+    expect(getSetSpy).not.toHaveBeenCalled();
+
+    // Manual resume path: same guarantee for a plainly held run.
+    const plan2 = await planDocument(app);
+    const approval2 = await approveOperator(app, plan2);
+    const created2 = await request(app).post('/api/agent/v3/runs')
+      .set('Authorization', `Bearer ${SECRET}`)
+      .send({ runId: plan2.runId, goal: GOAL, planToken: plan2.planToken, approvalToken: approval2, steps: plan2.steps });
+    expect(created2.status).toBe(201);
+    await holdOperator(app, plan2.runId, { reason: 'user_paused' });
+    const resumed = await resumeOperator(app, plan2.runId);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.planChanged).toBe(false);
+    expect(getSetSpy).not.toHaveBeenCalled();
   });
 });

@@ -29,27 +29,35 @@ const localPlan: AgentRunPlanStep[] = [
 
 /** Re-plan port whose output is byte-identical to the stored search plan. */
 const unchangedReplan: AgentRunReplanPort = {
-  replan: () => ({
+  replan: async () => ({
+    kind: 'planned',
     steps: [{ toolName: 'web_search_grounding', params: { query: 'sales report' } }],
+    plannedSteps: [{ toolName: 'web_search_grounding', reasonCode: 'test-plan' }],
     plan: searchPlan,
     planDigest: DIGEST,
   }),
 };
 const unchangedLocalReplan: AgentRunReplanPort = {
-  replan: () => ({
+  replan: async () => ({
+    kind: 'planned',
     steps: [{ toolName: 'repository_explorer', params: {} }],
+    plannedSteps: [{ toolName: 'repository_explorer', reasonCode: 'test-plan' }],
     plan: localPlan,
     planDigest: DIGEST,
   }),
 };
 const changedReplan: AgentRunReplanPort = {
-  replan: () => ({
+  replan: async () => ({
+    kind: 'planned',
     steps: [{ toolName: 'web_search_grounding', params: { query: 'something else' } }],
+    plannedSteps: [{ toolName: 'web_search_grounding', reasonCode: 'test-plan' }],
     plan: [{ toolName: 'web_search_grounding', params: { query: 'something else' }, dependsOn: [] }],
     planDigest: 'e'.repeat(64),
   }),
 };
-const failingReplan: AgentRunReplanPort = { replan: () => null };
+const failingReplan: AgentRunReplanPort = {
+  replan: async () => ({ kind: 'unplannable', code: 'AGENT_TOOL_SELECTION_AMBIGUOUS', candidates: [] }),
+};
 
 function makeClock(start = T0) {
   const clock = { now: start };
@@ -337,14 +345,123 @@ describe('evaluateAgentRunPiggyback scoping and robustness', () => {
     await store.create(heldInput({ runId: 'run-eval-boom-0001', goal: 'Research the boom report' }), clock.now);
     await store.create(heldInput({ runId: 'run-eval-fine-0001' }), clock.now);
     const explodingReplan: AgentRunReplanPort = {
-      replan: (goal) => {
-        if (goal.includes('boom')) throw new Error('planner exploded');
-        return unchangedReplan.replan(goal);
+      replan: async (record, ownerBinding) => {
+        if (record.goal.includes('boom')) throw new Error('planner exploded');
+        return unchangedReplan.replan(record, ownerBinding);
       },
     };
     const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: explodingReplan }, OWNER, clock.now);
     expect(summary.errors).toEqual(['run-eval-boom-0001']);
     // One run's failure never stops the rest of the pass.
     expect(summary.advanced).toEqual(['run-eval-fine-0001']);
+  });
+});
+
+describe('evaluateAgentRunPiggyback attachment-bound runs (resume attachment support)', () => {
+  const SET_ID = 'att-12345678-abcd-4ef0-9abc-def012345678';
+  const SET_DIGEST = 'f'.repeat(64);
+  const ATTACHED_DIGEST = '9'.repeat(64);
+  const attachedPlan: AgentRunPlanStep[] = [
+    { toolName: 'attachment_reader', params: { attachmentSetId: SET_ID, setDigest: SET_DIGEST }, dependsOn: [] },
+    {
+      toolName: 'attachment_analyzer',
+      params: { attachmentSetId: SET_ID, setDigest: SET_DIGEST, instruction: 'Research the sales report', outputKind: 'rows', chunkOffset: 0, chunkCount: 1 },
+      dependsOn: [0],
+    },
+  ];
+  const attachedStepsState = [
+    { id: 'task-1', status: 'queued' as const, attempts: 0 },
+    { id: 'task-2', status: 'queued' as const, attempts: 0 },
+  ];
+  const attachedHeld = () => heldInput({ plan: attachedPlan, planDigest: ATTACHED_DIGEST, stepsState: attachedStepsState });
+  const attachedUnchangedReplan: AgentRunReplanPort = {
+    replan: async () => ({
+      kind: 'planned',
+      steps: attachedPlan.map((step) => ({ toolName: step.toolName, params: step.params })),
+      plannedSteps: attachedPlan.map((step) => ({ toolName: step.toolName, reasonCode: 'test-plan' })),
+      plan: attachedPlan,
+      planDigest: ATTACHED_DIGEST,
+    }),
+  };
+
+  it('advances an attachment-bound run whose set still reproduces the stored plan', async () => {
+    const { clock, store } = makeClock();
+    await store.create(attachedHeld(), clock.now);
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: attachedUnchangedReplan }, OWNER, clock.now);
+    expect(summary.advanced).toEqual(['run-eval-00000001']);
+    const record = await store.get('run-eval-00000001', OWNER);
+    expect(record?.status).toBe('awaiting_approval');
+    // The transition carries the stored plan and digest verbatim.
+    expect(record?.plan).toEqual(attachedPlan);
+    expect(record?.planDigest).toBe(ATTACHED_DIGEST);
+  });
+
+  it('keeps an attachment-bound run held in the attachmentUnavailable bucket when its set is gone — not an error', async () => {
+    const { clock, store } = makeClock();
+    await store.create(attachedHeld(), clock.now);
+    const unavailableReplan: AgentRunReplanPort = { replan: async () => ({ kind: 'attachment_unavailable' }) };
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: unavailableReplan }, OWNER, clock.now);
+    expect(summary.attachmentUnavailable).toEqual(['run-eval-00000001']);
+    expect(summary.errors).toEqual([]);
+    expect(summary.advanced).toEqual([]);
+    const record = await store.get('run-eval-00000001', OWNER);
+    expect(record?.status).toBe('held');
+    expect(record?.plan).toEqual(attachedPlan);
+  });
+
+  it('keeps an attachment-bound run held as planChanged when the set contents moved (digest differs)', async () => {
+    const { clock, store } = makeClock();
+    await store.create(attachedHeld(), clock.now);
+    const movedPlan: AgentRunPlanStep[] = [
+      attachedPlan[0],
+      { ...attachedPlan[1], params: { ...attachedPlan[1].params, setDigest: '8'.repeat(64) } },
+    ];
+    const movedReplan: AgentRunReplanPort = {
+      replan: async () => ({
+        kind: 'planned',
+        steps: movedPlan.map((step) => ({ toolName: step.toolName, params: step.params })),
+        plannedSteps: movedPlan.map((step) => ({ toolName: step.toolName, reasonCode: 'test-plan' })),
+        plan: movedPlan,
+        planDigest: '7'.repeat(64),
+      }),
+    };
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: movedReplan }, OWNER, clock.now);
+    expect(summary.planChanged).toEqual(['run-eval-00000001']);
+    expect(summary.advanced).toEqual([]);
+    expect((await store.get('run-eval-00000001', OWNER))?.status).toBe('held');
+  });
+
+  it('keeps an attachment-bound run held as planChanged when the base planner output moved', async () => {
+    const { clock, store } = makeClock();
+    await store.create(attachedHeld(), clock.now);
+    const baseMovedPlan: AgentRunPlanStep[] = [
+      attachedPlan[0],
+      { ...attachedPlan[1], params: { ...attachedPlan[1].params, chunkCount: 2 } },
+      { toolName: 'document_generator', params: { title: 'Report' }, dependsOn: [1] },
+    ];
+    const baseMovedReplan: AgentRunReplanPort = {
+      replan: async () => ({
+        kind: 'planned',
+        steps: baseMovedPlan.map((step) => ({ toolName: step.toolName, params: step.params })),
+        plannedSteps: baseMovedPlan.map((step) => ({ toolName: step.toolName, reasonCode: 'test-plan' })),
+        plan: baseMovedPlan,
+        planDigest: '6'.repeat(64),
+      }),
+    };
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: baseMovedReplan }, OWNER, clock.now);
+    expect(summary.planChanged).toEqual(['run-eval-00000001']);
+    expect((await store.get('run-eval-00000001', OWNER))?.status).toBe('held');
+  });
+
+  it('maps attachment_too_large onto plannerFailed (no retry can fix oversize data)', async () => {
+    const { clock, store } = makeClock();
+    await store.create(attachedHeld(), clock.now);
+    const tooLargeReplan: AgentRunReplanPort = {
+      replan: async () => ({ kind: 'attachment_too_large', chunkCount: 99, limit: 48, limitKind: 'chunks' }),
+    };
+    const summary = await evaluateAgentRunPiggyback({ runStore: store, replan: tooLargeReplan }, OWNER, clock.now);
+    expect(summary.plannerFailed).toEqual(['run-eval-00000001']);
+    expect(summary.attachmentUnavailable).toEqual([]);
+    expect((await store.get('run-eval-00000001', OWNER))?.status).toBe('held');
   });
 });
