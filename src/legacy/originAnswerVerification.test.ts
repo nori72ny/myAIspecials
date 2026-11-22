@@ -36,7 +36,7 @@ import {
   type OriginAnswerVerificationSource,
 } from "./originAnswerVerification.js";
 
-const NOW_MS = Date.parse("2026-11-21T00:00:00.000Z");
+const NOW_MS = Date.parse("2026-11-27T12:00:00.000Z");
 
 function sourcePlanStub(): OriginExecutionPlan {
   return {
@@ -602,7 +602,7 @@ describe("instruction and payload builders", () => {
   it("builds an inspector instruction that carries today's date and the JSON-only rule", () => {
     const instruction = buildOriginAnswerVerificationInstruction(NOW_MS);
     expect(instruction).toContain("検査者");
-    expect(instruction).toContain("2026年11月21日");
+    expect(instruction).toContain("2026年11月27日");
     expect(instruction).toContain("JSONだけ");
     expect(instruction).toContain("uncertainに倒してください");
   });

@@ -9,7 +9,7 @@ import {
 } from './cloudflareRasterFreeQuotaV15';
 
 const AUTH = { accountId: '0123456789abcdef0123456789abcdef', apiToken: `test-${'x'.repeat(40)}` };
-const NOW_IN_WINDOW = Date.parse('2026-11-16T12:00:00.000Z');
+const NOW_IN_WINDOW = Date.parse('2026-11-27T12:00:00.000Z');
 
 function graphqlBody(groups: unknown, extra: Record<string, unknown> = {}) {
   return {
@@ -31,7 +31,7 @@ describe('cloudflareRasterFreeQuotaV15 pricing evidence', () => {
   });
 
   it('fails closed when the pricing evidence is stale', () => {
-    expect(() => assertCloudflareRasterPricingEvidenceCurrentV15(Date.parse('2026-11-27T00:00:00.000Z')))
+    expect(() => assertCloudflareRasterPricingEvidenceCurrentV15(Date.parse('2026-12-03T00:00:00.000Z')))
       .toThrow('RASTER_PRICING_EVIDENCE_STALE');
     expect(() => assertCloudflareRasterPricingEvidenceCurrentV15(Date.parse('2026-11-15T00:00:00.000Z')))
       .toThrow('RASTER_PRICING_EVIDENCE_STALE');
@@ -79,13 +79,13 @@ describe('cloudflareRasterFreeQuotaV15 daily usage reader', () => {
     ]))) as unknown as typeof fetch;
 
     await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
-      .resolves.toEqual({ date: '2026-11-16', usedNeurons: 150.5, requests: 4 });
+      .resolves.toEqual({ date: '2026-11-27', usedNeurons: 150.5, requests: 4 });
   });
 
   it('treats an empty group list as zero measured usage', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(graphqlBody([]))) as unknown as typeof fetch;
     await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
-      .resolves.toEqual({ date: '2026-11-16', usedNeurons: 0, requests: 0 });
+      .resolves.toEqual({ date: '2026-11-27', usedNeurons: 0, requests: 0 });
   });
 
   it('queries the live-verified aiInferenceAdaptiveGroups dataset and aggregates the real response shape', async () => {
@@ -104,12 +104,12 @@ describe('cloudflareRasterFreeQuotaV15 daily usage reader', () => {
     }) as unknown as typeof fetch;
 
     await expect(fetchCloudflareDailyNeuronsUsedV15(AUTH, fetchMock, NOW_IN_WINDOW))
-      .resolves.toEqual({ date: '2026-11-16', usedNeurons: 260.25, requests: 7 });
+      .resolves.toEqual({ date: '2026-11-27', usedNeurons: 260.25, requests: 7 });
     expect(sentBody.query).toContain('aiInferenceAdaptiveGroups');
     expect(sentBody.query).toContain('date_geq: $date');
     expect(sentBody.query).toContain('date_leq: $date');
     expect(sentBody.query).not.toContain('workersAiRequestsAdaptiveGroups');
-    expect(sentBody.variables).toEqual({ accountTag: AUTH.accountId, date: '2026-11-16' });
+    expect(sentBody.variables).toEqual({ accountTag: AUTH.accountId, date: '2026-11-27' });
   });
 
   it.each([

@@ -379,7 +379,7 @@ describe("next-route derivation with production-shaped inputs (R-PR-8d)", () => 
   // evidence freshness window (the pin moves with the catalog
   // evidence refreshes): route 1 must derive the Cloudflare plan and
   // route 2 must derive the Groq plan.
-  const MEASUREMENT_NOW_MS = Date.parse("2026-11-17T12:00:00.000Z");
+  const MEASUREMENT_NOW_MS = Date.parse("2026-11-27T12:00:00.000Z");
   const PROD_ENV: NodeJS.ProcessEnv = { ...CF_ENV, ...GROQ_ENV };
 
   function productionRequest(): OriginProviderExecutionRequest {
