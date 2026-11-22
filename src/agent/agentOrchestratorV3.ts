@@ -89,7 +89,27 @@ const STEP_TITLES: Record<ToolName, string> = {
 };
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');
-const digestParams = (params: ToolParams) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
+
+/**
+ * Key-sorted (canonical) JSON serialization for plan digests. The stored
+ * plan round-trips through a Postgres jsonb column, which does not
+ * preserve object key order, so a digest over plain JSON.stringify can
+ * never be reproduced from the stored plan — resume confirm failed with
+ * AGENT_RUN_PLAN_DIGEST_MISMATCH for every multi-key params object.
+ * Sorting keys recursively makes the digest a function of the plan's
+ * content only. (Same construction as the stable serializers in
+ * agentApproval.ts and agentRunPlanDiff.ts.)
+ */
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJsonStringify(entry)).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined && typeof entry !== 'function' && typeof entry !== 'symbol')
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJsonStringify(entry)}`).join(',')}}`;
+}
+
+const digestParams = (params: ToolParams) => createHash('sha256').update(canonicalJsonStringify(params)).digest('hex');
 
 export type AgentStepInputV3 = { toolName: ToolName; params: ToolParams };
 
@@ -100,7 +120,47 @@ export type AgentStepInputV3 = { toolName: ToolName; params: ToolParams };
  */
 function canonicalParamsDigest(steps: AgentStepInputV3[]): string {
   if (steps.length === 1) return digestParams(steps[0].params);
+  return createHash('sha256').update(canonicalJsonStringify(steps.map(step => [step.toolName, step.params]))).digest('hex');
+}
+
+/**
+ * The pre-canonicalization digest formula (plain JSON.stringify, sensitive
+ * to key order). Kept only so records stored before the canonical form
+ * existed can still be matched — see planDigestMatchesRecord.
+ */
+function legacyParamsDigest(steps: AgentStepInputV3[]): string {
+  if (steps.length === 1) return createHash('sha256').update(JSON.stringify(steps[0].params)).digest('hex');
   return createHash('sha256').update(JSON.stringify(steps.map(step => [step.toolName, step.params]))).digest('hex');
+}
+
+/**
+ * Whether a candidate step list is the plan a stored record is bound to.
+ * Three comparisons, strongest first:
+ *  1. canonical digest equality with the stored digest (every record
+ *     written since canonicalization);
+ *  2. legacy digest equality (a pre-canonicalization record whose
+ *     candidate still carries the original key order — a fresh re-plan
+ *     or a client echoing the issued steps);
+ *  3. canonical equality with the stored plan snapshot itself. A
+ *     pre-canonicalization record whose plan has already round-tripped
+ *     through jsonb has lost its original key order, so neither digest
+ *     form can reproduce its stored digest; content equality with the
+ *     snapshot is the strongest check that remains for it.
+ * Any content change fails all three, and the checks that follow at
+ * confirm time (the approval digest, minted over the exact steps the
+ * human approved, and its freshness window) are unaffected.
+ */
+function planDigestMatchesRecord(
+  candidateSteps: AgentStepInputV3[],
+  record: { plan: readonly AgentRunPlanStep[] | null; planDigest: string | null },
+): boolean {
+  if (!record.planDigest) return false;
+  if (canonicalParamsDigest(candidateSteps) === record.planDigest) return true;
+  if (legacyParamsDigest(candidateSteps) === record.planDigest) return true;
+  if (record.plan && record.plan.length > 0) {
+    return canonicalParamsDigest(candidateSteps) === canonicalParamsDigest(stepInputsFromPlanSnapshot(record.plan));
+  }
+  return false;
 }
 
 function canonicalOperation(runId: string, steps: AgentStepInputV3[]): AgentApprovalOperation {
@@ -1050,7 +1110,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         // Idempotent create: the same owner re-submitting the same approved
         // plan gets the existing record back instead of an error.
         const existing = await runStore.get(runId, ownerBinding);
-        if (existing && existing.planDigest === planDigest) {
+        if (existing && planDigestMatchesRecord(steps, existing)) {
           return res.status(200).json({ ok: true, protocolVersion: 3, persistence: 'durable-run-record', run: publicAgentRunView(existing), ...runEnvelope });
         }
         return res.status(409).json({ ok: false, code: 'AGENT_RUN_ALREADY_EXISTS', runId });
@@ -1465,7 +1525,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       const storedSteps = stepInputsFromPlanSnapshot(record.plan);
       const planned = planAgentToolsV3(record.goal.trim());
       const plannerAgrees = !('code' in planned)
-        && canonicalParamsDigest(plannedStepsForGoal(record.goal.trim(), planned.steps)) === record.planDigest;
+        && planDigestMatchesRecord(plannedStepsForGoal(record.goal.trim(), planned.steps), record);
       const steps = plannerAgrees ? plannedStepsForGoal(record.goal.trim(), planned.steps) : storedSteps;
       const plannedSteps: readonly AgentToolStepV3[] = plannerAgrees
         ? planned.steps
@@ -1531,7 +1591,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     // stored plan (same tools and params, proven by the diff and the
     // digest). Approving a different plan restarts its steps from zero:
     // partial progress under another plan is not evidence about this one.
-    const planUnchanged = !planDiff.changed && newPlanDigest === record.planDigest;
+    const planUnchanged = !planDiff.changed && planDigestMatchesRecord(steps, record);
     // One instant anchors both the stored approval lapse deadline and
     // the plan capability issued in the response, so the deadline is
     // exactly the last moment an approval for this resume can complete
@@ -1585,7 +1645,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_PLAN_MISSING', runId, run: publicAgentRunView(record), ...runEnvelope });
     }
     const steps = stepInputsFromPlanSnapshot(record.plan);
-    if (canonicalParamsDigest(steps) !== record.planDigest) {
+    if (!planDigestMatchesRecord(steps, record)) {
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_PLAN_DIGEST_MISMATCH', runId });
     }
     const approval = verifyApprovalCapability(typeof body.approvalToken === 'string' ? body.approvalToken : undefined, env, Date.now());
