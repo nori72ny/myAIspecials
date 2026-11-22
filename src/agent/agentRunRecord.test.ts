@@ -8,6 +8,8 @@ import {
   MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCES,
+  AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP,
+  agentRateLimitHoldEnabled,
   assertAgentRunStatusTransition,
   canTransitionAgentRunStatus,
   isAgentRunTerminalStatus,
@@ -294,5 +296,51 @@ describe('create agent run input validation', () => {
     }), now);
     expect(held.priorResumeAttempts).toBe(2);
     expect(held.approvalDeadlineAt).toBeNull();
+  });
+});
+
+describe('rate-limit hold record shapes (design CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22 §2-B)', () => {
+  it('accepts a rate_limited hold with an at_time resume condition and rejects other condition kinds', () => {
+    const hold = {
+      reason: 'rate_limited' as const,
+      resumeCondition: { kind: 'at_time' as const, at: now + 60_000 },
+      heldSince: now,
+      resumeAttempts: 0,
+    };
+    expect(normalizeAgentRunHold(hold, now)).toEqual(hold);
+    expect(normalizeAgentRunHold({ ...hold, resumeCondition: { kind: 'manual' } }, now))
+      .toEqual({ ...hold, resumeCondition: { kind: 'manual' } });
+    // A per-minute window is a clock fact, not a ledger fact: the
+    // quota_reset condition belongs to quota_exhausted holds only.
+    expect(() => normalizeAgentRunHold({
+      ...hold,
+      resumeCondition: { kind: 'quota_reset', provider: 'groq' },
+    }, now)).toThrow('AGENT_RUN_HOLD_INVALID');
+  });
+
+  it('round-trips the per-step rate-limit park count and rejects out-of-bound counts', () => {
+    const [step] = normalizeAgentRunStepsState([
+      { id: 'task-1', status: 'queued', attempts: 0, errorCode: 'PROVIDER_RATE_LIMITED', rateLimitHolds: 2 },
+    ]);
+    expect(step.rateLimitHolds).toBe(2);
+    // A step that was never parked carries no count (pre-measure shape).
+    const [plain] = normalizeAgentRunStepsState([{ id: 'task-1', status: 'queued', attempts: 0 }]);
+    expect(plain).not.toHaveProperty('rateLimitHolds');
+    expect(() => normalizeAgentRunStepsState([
+      { id: 'task-1', status: 'queued', attempts: 0, rateLimitHolds: AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP + 1 },
+    ])).toThrow('AGENT_RUN_STEPS_STATE_INVALID');
+    expect(() => normalizeAgentRunStepsState([
+      { id: 'task-1', status: 'queued', attempts: 0, rateLimitHolds: 1.5 },
+    ])).toThrow('AGENT_RUN_STEPS_STATE_INVALID');
+    expect(() => normalizeAgentRunStepsState([
+      { id: 'task-1', status: 'queued', attempts: 0, rateLimitHolds: -1 },
+    ])).toThrow('AGENT_RUN_STEPS_STATE_INVALID');
+  });
+
+  it('enables the rate-limit hold only for the exact string "true"', () => {
+    expect(agentRateLimitHoldEnabled({ ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED: 'true' })).toBe(true);
+    expect(agentRateLimitHoldEnabled({ ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED: 'TRUE' })).toBe(false);
+    expect(agentRateLimitHoldEnabled({ ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED: '1' })).toBe(false);
+    expect(agentRateLimitHoldEnabled({})).toBe(false);
   });
 });

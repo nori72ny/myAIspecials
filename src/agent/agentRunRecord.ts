@@ -84,6 +84,41 @@ export const ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED_ENV = 'ORIGIN_AGENT_STEP_ARTIFA
 export function agentStepArtifactsEnabled(env: NodeJS.ProcessEnv): boolean {
   return env[ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED_ENV] === 'true';
 }
+
+export const ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED_ENV = 'ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED' as const;
+
+/**
+ * The rate-limit hold switch (design CAPACITY_RATE_LIMIT_QUANTIFICATION_
+ * 2026-11-22 §2, measure B), in the same style as the step-artifact
+ * switch above: only the exact string "true" enables it; anything else
+ * — including the variable being unregistered — is OFF, and OFF keeps
+ * the pre-measure behavior exactly (a rate-limited analyzer step fails
+ * its run, terminally, with the provider's own code).
+ */
+export function agentRateLimitHoldEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED_ENV] === 'true';
+}
+
+/**
+ * Runaway bounds for the rate-limit hold (design §2-B). The per-step
+ * cap counts parks of ONE step across the run's whole life (the count
+ * rides the step state as `rateLimitHolds`, so it survives the hold /
+ * resume cycle); the elapsed cap is measured from the run's creation.
+ * A step that would park past either bound fails terminally with the
+ * provider's code instead — the pre-measure behavior — so the hold can
+ * never turn into an unbounded retry loop.
+ */
+export const AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP = 5;
+export const AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS = 60 * 60 * 1000;
+/**
+ * The minimum wait before a rate-limited run may resume: the providers'
+ * per-minute windows are rolling 60-second windows, so no shorter wait
+ * can clear the window that rejected the step. When a provider's
+ * Retry-After / reset becomes observable on this path it replaces this
+ * floor; today the model-call result carries only the failure code, so
+ * the floor is what the hold records (design §2-B).
+ */
+export const AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS = 60_000;
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
 export const MAX_AGENT_RUN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**
@@ -196,10 +231,20 @@ export type AgentRunStepState = {
   summary?: string;
   errorCode?: string;
   liveDetail?: AgentRunStepLiveDetail;
+  /**
+   * How many times this step has been parked by the rate-limit hold
+   * (design CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22 §2-B) across
+   * the run's life. Optional and additive: records written before the
+   * measure existed read back unchanged, and a step that was never
+   * parked carries no count. The advancer enforces
+   * AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP against it at park time.
+   */
+  rateLimitHolds?: number;
 };
 
 export type AgentRunHoldReason =
   | 'quota_exhausted'
+  | 'rate_limited'
   | 'awaiting_approval'
   | 'scheduled_time'
   | 'condition_wait'
@@ -508,6 +553,7 @@ export interface AgentRunStore {
 
 const HOLD_REASONS: ReadonlySet<string> = new Set([
   'quota_exhausted',
+  'rate_limited',
   'awaiting_approval',
   'scheduled_time',
   'condition_wait',
@@ -519,6 +565,10 @@ const HOLD_REASONS: ReadonlySet<string> = new Set([
 /** Which resume condition kinds may accompany each hold reason. */
 const HOLD_CONDITION_KINDS: Readonly<Record<AgentRunHoldReason, readonly AgentRunResumeCondition['kind'][]>> = Object.freeze({
   quota_exhausted: ['quota_reset', 'manual'],
+  // A rate-limit hold is a wait for a clock instant (the per-minute
+  // window's recovery), never a ledger judgment: the run's own quota
+  // ledger does not measure the providers' per-minute windows.
+  rate_limited: ['at_time', 'manual'],
   awaiting_approval: ['manual'],
   scheduled_time: ['at_time', 'manual'],
   condition_wait: ['condition'],
@@ -678,7 +728,7 @@ export function normalizeAgentRunStepsState(stepsState: AgentRunStepState[] | un
   const seen = new Set<string>();
   const normalized = stepsState.map((step) => {
     if (!isPlainObject(step)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
-    const { id, status, attempts, artifactRef, summary, errorCode, liveDetail } = step as Record<string, unknown>;
+    const { id, status, attempts, artifactRef, summary, errorCode, liveDetail, rateLimitHolds } = step as Record<string, unknown>;
     if (typeof id !== 'string' || !STEP_ID_PATTERN.test(id) || seen.has(id)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
     seen.add(id);
     if (typeof status !== 'string' || !STEP_STATUSES.has(status)) throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
@@ -707,6 +757,12 @@ export function normalizeAgentRunStepsState(stepsState: AgentRunStepState[] | un
     if (liveDetail !== undefined) {
       const normalizedLiveDetail = normalizeAgentRunStepLiveDetail(liveDetail);
       if (normalizedLiveDetail) normalizedStep.liveDetail = normalizedLiveDetail;
+    }
+    if (rateLimitHolds !== undefined) {
+      if (!Number.isInteger(rateLimitHolds) || Number(rateLimitHolds) < 0 || Number(rateLimitHolds) > AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP) {
+        throw new Error('AGENT_RUN_STEPS_STATE_INVALID');
+      }
+      normalizedStep.rateLimitHolds = Number(rateLimitHolds);
     }
     return normalizedStep;
   });

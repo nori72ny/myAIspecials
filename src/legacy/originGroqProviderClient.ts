@@ -647,11 +647,12 @@ function buildGroqRotationPlan(
 }
 
 /**
- * Internal control flow of the allocated cascade (D-1): the allocated
- * model's window cannot fit the send now, but the named model's window
- * can, so the cascade attempts that model immediately instead of
- * waiting. Thrown only by the pacing step below, caught only by the
- * allocated cascade, and never allowed to escape this module.
+ * Internal control flow of the planned allocation cascade (D-1): the
+ * first model's window cannot fit the send now, but the named model's
+ * window can, so the cascade attempts that model immediately instead
+ * of waiting. Thrown only by the pacing step below, caught only by
+ * the planned allocation cascade, and never allowed to escape this
+ * module.
  */
 class OriginGroqPacingDeferral extends Error {
   constructor(public readonly modelId: OriginGroqFreeModelId) {
@@ -681,9 +682,10 @@ interface OriginGroqPacingContext {
   /**
    * When set, a send that does not fit this model's window defers to
    * this model if its window fits, instead of waiting. Set only on the
-   * allocated cascade's first attempt: distribution is a choice between
-   * the two gpt-oss buckets, and the qwen stage is never a deferral
-   * target (it stays behind its own quality gate and kill switch).
+   * planned allocation cascade's first attempt (pointing at the second
+   * stage's model): distribution is a choice between the two gpt-oss
+   * buckets, and the qwen stage is never a deferral target (it stays
+   * behind its own quality gate and kill switch).
    */
   deferToModelId?: OriginGroqFreeModelId;
 }
@@ -752,7 +754,7 @@ function withTransportCount(error: unknown, transport: { count: number }): unkno
 }
 
 /**
- * Pacing-wait ceiling inside the allocated cascade: 12s, far below the
+ * Pacing-wait ceiling inside the planned allocation cascade: 12s, far below the
  * pacing module's general 60s ceiling (ORIGIN_PROVIDER_PACING_MAX_WAIT_MS).
  * Production evidence (2026-11-22, ALE wave-1 M&A attempt 8 / AGORA
  * attempt 4 on release f53141f6): a pacing wait runs inside a failover
@@ -771,81 +773,92 @@ function withTransportCount(error: unknown, transport: { count: number }): unkno
  * slice with room for the send itself); a longer one steps aside to
  * the pre-D-1 behavior — send, and let the provider's answer classify
  * the result — exactly as pacing already does past its own ceiling.
- * Distribution is unaffected: the first attempt still plans onto the
- * allocated bucket and still defers to the primary bucket when only
- * the primary's window fits.
+ * Distribution is unaffected: the first attempt still plans onto its
+ * allocated bucket (whichever bucket the caller's hint leads with)
+ * and still defers to the other bucket when only that window fits.
  */
 export const ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS = 12_000;
 
 /**
  * Planned allocation cascade (design FREE_CAPACITY_EXPANSION_2026-11-22,
- * stage D-1), entered only for requests the agent model-call adapter
- * marked as analyzer chunk calls while
- * ORIGIN_GROQ_PACING_ALLOCATION_ENABLED is exactly "true". The first
- * attempt is planned onto the rotation model's separate per-model quota
- * bucket — the bucket the standard cascade leaves idle until a failure —
- * because analyzer output is verified mechanically downstream (coverage
- * and format checks), which is what qualifies this call kind for the
- * weaker model without lowering the bar anywhere else. The primary
- * model becomes this cascade's rotation stage, and the qwen stage sits
- * behind it under exactly the standard cascade's conditions (rotation
- * trigger plus its own kill switch). Every attempt is paced against its
- * own model's rolling per-minute window, and the first attempt may
- * defer to the primary model when the allocated window cannot fit the
- * send but the primary's can (see paceGroqModelSend).
+ * stage D-1; alternating allocation per CAPACITY_RATE_LIMIT_
+ * QUANTIFICATION_2026-11-22 §2-C), entered only for requests the agent
+ * model-call adapter marked as analyzer chunk calls while
+ * ORIGIN_GROQ_PACING_ALLOCATION_ENABLED is exactly "true". The cascade
+ * is a two-stage plan over the two gpt-oss buckets: the first attempt
+ * is planned onto one bucket, the other bucket becomes the rotation
+ * stage, and the qwen stage sits behind it under exactly the standard
+ * cascade's conditions (rotation trigger plus its own kill switch).
+ * Which bucket leads is the caller's allocation hint:
+ * - "agent-analyzer-chunk": the rotation model's bucket leads — the
+ *   bucket the standard cascade leaves idle until a failure — because
+ *   analyzer output is verified mechanically downstream (coverage and
+ *   format checks), which is what qualifies this call kind for the
+ *   weaker model without lowering the bar anywhere else.
+ * - "agent-analyzer-chunk-primary": the primary model's bucket leads
+ *   and the rotation model is the rotation stage — the mirror image,
+ *   so alternating chunks spread their first sends across both
+ *   buckets (2/2 for a four-chunk step) instead of concentrating them
+ *   on the rotation bucket and reaching the primary only through
+ *   failure-driven rotation, which burns both windows on the way.
+ * Every attempt is paced against its own model's rolling per-minute
+ * window, and the first attempt may defer to the second stage's model
+ * when the first window cannot fit the send but the second's can (see
+ * paceGroqModelSend).
  *
  * Failure semantics mirror the standard cascade: preflight skips and
  * non-trigger failures surface immediately, and only a classified rate
  * limit or an upstream 5xx overload moves the cascade to its next
  * model. One deliberate widening, from the same 2026-11-22 production
  * evidence: an empty response (PROVIDER_INVALID_RESPONSE) from the
- * ALLOCATED model also moves the cascade to the primary model. The
- * allocated bucket is the weaker model, chosen for load distribution
- * on the premise that this call kind is verified mechanically
- * downstream; an empty body from it (the gpt-oss reasoning-budget
- * failure shape) says this bucket cannot serve this call, and the
- * primary model is the attempt the call would have made first before
- * D-1. The standard cascade keeps its fail-closed semantics for the
- * same code, and whatever the primary returns is still judged by the
- * analyzer's own parse and coverage gates — rotation changes who
- * answers, never what is accepted. Nothing here is reachable for
- * unmarked requests or while the switch is off, and direct chat
- * generation is never allocated.
+ * FIRST model also moves the cascade to the second model, in either
+ * direction. The first bucket is chosen for load distribution on the
+ * premise that this call kind is verified mechanically downstream; an
+ * empty body from it (the gpt-oss reasoning-budget failure shape)
+ * says this bucket cannot serve this call, and the second model is
+ * the remaining planned attempt. The standard cascade keeps its
+ * fail-closed semantics for the same code, and whatever either model
+ * returns is still judged by the analyzer's own parse and coverage
+ * gates — rotation changes who answers, never what is accepted.
+ * Nothing here is reachable for unmarked requests or while the switch
+ * is off, and direct chat generation is never allocated.
  */
-async function executeAllocatedGroqCascade(
+async function executePlannedAllocationCascade(
   providerRequest: OriginProviderExecutionRequest,
-  allocatedPlan: OriginExecutionPlan,
+  firstPlan: OriginExecutionPlan,
+  secondPlan: OriginExecutionPlan,
+  firstDeferToModelId: OriginGroqFreeModelId,
   apiKey: string,
   fetchImpl: OriginFetch,
   options: OriginGroqExecutionOptions,
   transport: { count: number },
   env: NodeJS.ProcessEnv,
 ): Promise<OriginProviderExecutionResult> {
-  const firstPacing: OriginGroqPacingContext = { waitedMs: 0, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS, deferToModelId: ORIGIN_GROQ_FREE_MODEL_ID };
+  const firstPacing: OriginGroqPacingContext = { waitedMs: 0, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS, deferToModelId: firstDeferToModelId };
   try {
-    return await executeGroqModelAttempt(providerRequest, allocatedPlan, apiKey, fetchImpl, options, transport, firstPacing);
+    return await executeGroqModelAttempt(providerRequest, firstPlan, apiKey, fetchImpl, options, transport, firstPacing);
   } catch (error) {
     if (!(error instanceof OriginGroqPacingDeferral)
       && !(error instanceof OriginProviderError && (isGroqRotationTrigger(error) || error.code === "PROVIDER_INVALID_RESPONSE"))) {
       throw withTransportCount(error, transport);
     }
-    const primaryPacing: OriginGroqPacingContext = { waitedMs: firstPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS };
+    const secondPacing: OriginGroqPacingContext = { waitedMs: firstPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS };
     try {
-      return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport, primaryPacing);
-    } catch (primaryError) {
-      if (primaryError instanceof OriginProviderError
-        && isGroqRotationTrigger(primaryError)
+      return await executeGroqModelAttempt(providerRequest, secondPlan, apiKey, fetchImpl, options, transport, secondPacing);
+    } catch (secondError) {
+      if (secondError instanceof OriginProviderError
+        && isGroqRotationTrigger(secondError)
         && isOriginGroqQwenRotationEnabled(env)) {
         const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
         if (qwenPlan) {
           try {
-            return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport, { waitedMs: primaryPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS });
+            return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport, { waitedMs: secondPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS });
           } catch (qwenError) {
             throw withTransportCount(qwenError, transport);
           }
         }
       }
-      throw withTransportCount(primaryError, transport);
+      throw withTransportCount(secondError, transport);
     }
   }
 }
@@ -861,16 +874,22 @@ export async function executeOriginGroqProvider(
 
   const transport = { count: 0 };
   // D-1 planned allocation: analyzer chunk calls (the only marked kind)
-  // run the allocated cascade while the switch is on. When the rotation
-  // model's evidence is not current, allocation simply does not happen
-  // and the standard cascade below runs unchanged — its own rotation
-  // stage reaches the same per-model fail-closed result.
+  // run the planned allocation cascade while the switch is on. The
+  // hint picks which bucket leads (design §2-C): the rotation model's
+  // bucket for "agent-analyzer-chunk", the primary model's bucket for
+  // "agent-analyzer-chunk-primary". When the rotation model's evidence
+  // is not current, allocation simply does not happen and the standard
+  // cascade below runs unchanged — its own rotation stage reaches the
+  // same per-model fail-closed result.
   if (isOriginGroqPacingAllocationEnabled(env)
-    && providerRequest.groqCapacityAllocation === "agent-analyzer-chunk"
+    && (providerRequest.groqCapacityAllocation === "agent-analyzer-chunk"
+      || providerRequest.groqCapacityAllocation === "agent-analyzer-chunk-primary")
     && providerRequest.plan.modelId === ORIGIN_GROQ_FREE_MODEL_ID) {
-    const allocatedPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
-    if (allocatedPlan) {
-      return executeAllocatedGroqCascade(providerRequest, allocatedPlan, apiKey, fetchImpl, options, transport, env);
+    const rotationPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID);
+    if (rotationPlan) {
+      return providerRequest.groqCapacityAllocation === "agent-analyzer-chunk-primary"
+        ? executePlannedAllocationCascade(providerRequest, providerRequest.plan, rotationPlan, ORIGIN_GROQ_FREE_ROTATION_MODEL_ID, apiKey, fetchImpl, options, transport, env)
+        : executePlannedAllocationCascade(providerRequest, rotationPlan, providerRequest.plan, ORIGIN_GROQ_FREE_MODEL_ID, apiKey, fetchImpl, options, transport, env);
     }
   }
   try {

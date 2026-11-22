@@ -1,6 +1,6 @@
 import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
 import { executeOriginProviderWithFailover } from '../legacy/originProviderFailover.js';
-import { OriginProviderError } from '../legacy/originProviderClient.js';
+import { OriginProviderError, type OriginGroqCapacityAllocation } from '../legacy/originProviderClient.js';
 
 /**
  * The agent data steps' only model path (agent file-input foundation,
@@ -33,11 +33,54 @@ import { OriginProviderError } from '../legacy/originProviderClient.js';
  * default), the hint is inert and the routing above is inherited
  * exactly, unchanged.
  *
+ * Alternating allocation (design CAPACITY_RATE_LIMIT_QUANTIFICATION_
+ * 2026-11-22 §2-C): while ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_
+ * ENABLED is exactly "true", a call that carries its chunk's
+ * deterministic global index alternates the hint by that index —
+ * even indexes keep the D-1 hint (rotation bucket first), odd indexes
+ * take the primary-first mirror — so a step's first sends spread
+ * across both per-minute buckets instead of concentrating on one. The
+ * index derives from the approved plan (the step's chunkOffset plus
+ * the position inside its range), never from call order or timing,
+ * so a resumed step assigns every chunk to the same first bucket it
+ * had before the resume. With the switch off (the default), or when
+ * a caller supplies no index, every call carries the D-1 hint
+ * exactly as before.
+ *
  * Failures are returned as provider error codes, never thrown and
  * never paraphrased: the caller (the analyzer tool) turns the code
  * into the step's failure so the run record names the real reason
  * (design §4.2).
  */
+
+export const ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED' as const;
+
+/** The alternating-allocation switch (design §2-C), in the house
+ * style: only the exact string "true" enables it; anything else —
+ * including the variable being unregistered — is OFF, and OFF keeps
+ * every chunk call on the original D-1 hint. */
+export function agentAnalyzerAlternatingAllocationEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED_ENV] === 'true';
+}
+
+/**
+ * The allocation hint for one analyzer chunk call (design §2-C).
+ * Without a usable chunk index, or with the alternating switch off,
+ * the result is always the original D-1 hint — the pre-measure
+ * behavior. With both, the hint alternates deterministically by the
+ * chunk's global index: even → rotation bucket first, odd → primary
+ * bucket first.
+ */
+export function agentAnalyzerCapacityAllocation(
+  chunkIndex: number | undefined,
+  env: NodeJS.ProcessEnv,
+): OriginGroqCapacityAllocation {
+  if (!agentAnalyzerAlternatingAllocationEnabled(env)) return 'agent-analyzer-chunk';
+  if (typeof chunkIndex !== 'number' || !Number.isInteger(chunkIndex) || chunkIndex < 0) {
+    return 'agent-analyzer-chunk';
+  }
+  return chunkIndex % 2 === 1 ? 'agent-analyzer-chunk-primary' : 'agent-analyzer-chunk';
+}
 
 export type AgentModelCallInput = {
   /** The analysis instruction for this call (system role). */
@@ -46,6 +89,14 @@ export type AgentModelCallInput = {
   userText: string;
   /** Goal text the execution plan is classified from. */
   goal: string;
+  /**
+   * The chunk's deterministic global index within its attachment set
+   * (the analyzer step's chunkOffset plus the position inside its
+   * range — equivalently, the chunk list's own index). Used only to
+   * alternate the route-3 allocation hint (design §2-C); absent or
+   * invalid values keep the original D-1 hint for the call.
+   */
+  chunkIndex?: number;
 };
 
 export type AgentModelCallResult =
@@ -70,7 +121,7 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
         plan: planned.plan,
         systemInstruction: input.instruction,
         groqSystemInstruction: input.instruction,
-        groqCapacityAllocation: 'agent-analyzer-chunk',
+        groqCapacityAllocation: agentAnalyzerCapacityAllocation(input.chunkIndex, env),
         messages: [{ role: 'user', content: input.userText }],
       }, env);
       const text = typeof result.text === 'string' ? result.text : '';

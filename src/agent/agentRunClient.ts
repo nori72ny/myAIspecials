@@ -251,8 +251,11 @@ export const AGENT_RUN_SMALL_ADVANCE_BUDGET_MS = 10_000;
 
 /**
  * Drives a recorded run with bounded advance calls (wiring design
- * §4.5/§4.6). A 202 'held' outcome means the quota gate parked the run:
- * driving stops and the board's resume flow owns it from there (§8).
+ * §4.5/§4.6). A 202 'held' outcome means a gate parked the run — the
+ * quota gate, or the rate-limit hold (design CAPACITY_RATE_LIMIT_
+ * QUANTIFICATION_2026-11-22 §2-B) when an analyzer step was
+ * rate-limited: driving stops and the board's resume flow owns it
+ * from there (§8).
  * Other 202s (progress, writer-lock contention, a busy driver) are
  * transient and the loop keeps driving within its caps. The browser
  * binding proves ownership with the plan token in the body; the
@@ -287,7 +290,7 @@ export async function driveAgentRun(runId: string, auth: AgentRunAuth, signal: A
       return { kind: 'completed', artifact: typeof data.artifact === 'string' ? data.artifact : undefined };
     }
     if (response.status === 202) {
-      if (data.status === 'held' || data.code === 'AGENT_RUN_QUOTA_EXHAUSTED') return { kind: 'held' };
+      if (data.status === 'held' || data.code === 'AGENT_RUN_QUOTA_EXHAUSTED' || data.code === 'AGENT_RUN_RATE_LIMITED') return { kind: 'held' };
       continue;
     }
     if (response.status === 409) {

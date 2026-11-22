@@ -7,6 +7,7 @@ import {
   validateAgentAttachmentFileText,
 } from './agentAttachmentRecord.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
+import { AGENT_ANALYZER_CHUNK_INTERVAL_MS } from './agentAttachmentTools.js';
 
 const OWNER = 'ab'.repeat(32); // owner bindings are sha256 hex digests
 const SET_ID = 'att-12345678-abcd-4ef0-9abc-def012345678';
@@ -609,4 +610,132 @@ contextFor(store, emptyExecutor),
 expect(result.ok).toBe(false);
 expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
 });
+});
+
+describe('attachment_analyzer alternating allocation + chunk interval (design §2-C / §2-E)', () => {
+  async function storeWithBigSet() {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const lines = ['id,item,amount'];
+    for (let i = 0; i < 240; i += 1) lines.push(`R-${String(i).padStart(3, '0')},${'x'.repeat(30)},${i}`);
+    const bigText = lines.join('\n');
+    const measured = validateAgentAttachmentFileText(bigText);
+    await store.addFile(SET_ID, OWNER, {
+      name: 'big.csv',
+      mediaType: 'text/csv',
+      kind: 'text',
+      byteSize: measured.byteSize,
+      charCount: measured.charCount,
+      sha256: measured.sha256,
+      extractedText: bigText,
+    });
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  const textExecutor = (record: (number | undefined)[]): AgentModelExecutor => async (input) => {
+    record.push(input.chunkIndex);
+    return { ok: true, text: JSON.stringify({ text: '要約です' }) };
+  };
+
+  it('passes each chunk its deterministic global index, across steps and into repair calls', async () => {
+    const { store, setDigest } = await storeWithBigSet();
+    const seen: (number | undefined)[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, textExecutor(seen)),
+    );
+    expect(result.ok).toBe(true);
+    expect(seen).toEqual([0, 1]);
+
+    // A continuation step resumes the same numbering (offset + range
+    // position), so a chunk keeps its allocation assignment across a
+    // resume that replays the step.
+    const seenContinuation: (number | undefined)[] = [];
+    const continuation = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, {
+        outputKind: 'text',
+        chunkOffset: 2,
+        chunkCount: 1,
+        content: result.artifact,
+      }),
+      contextFor(store, textExecutor(seenContinuation)),
+    );
+    expect(continuation.ok).toBe(true);
+    expect(seenContinuation).toEqual([2]);
+
+    // The repair call for a chunk carries the same index as its first
+    // call: chunk 0 succeeds, chunk 1's first response is not JSON, so
+    // its repair repeats index 1.
+    const seenRepair: (number | undefined)[] = [];
+    let calls = 0;
+    const repairExecutor: AgentModelExecutor = async (input) => {
+      seenRepair.push(input.chunkIndex);
+      calls += 1;
+      if (calls === 2) return { ok: true, text: 'not json at all' };
+      return { ok: true, text: JSON.stringify({ text: '要約です' }) };
+    };
+    const repaired = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, repairExecutor),
+    );
+    expect(repaired.ok).toBe(true);
+    expect(seenRepair).toEqual([0, 1, 1]);
+  });
+
+  it('inserts no interval while the interval switch is off (default)', async () => {
+    const { store, setDigest } = await storeWithBigSet();
+    const seen: (number | undefined)[] = [];
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 3 }),
+      contextFor(store, textExecutor(seen), recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(true);
+    expect(sleeps).toEqual([]);
+  });
+
+  it('spaces a step’s chunk calls by the interval while the switch is on, separately from retry waits', async () => {
+    const { store, setDigest } = await storeWithBigSet();
+    const seen: (number | undefined)[] = [];
+    const sleeps: number[] = [];
+    const context: ToolExecutionContext = {
+      ...contextFor(store, textExecutor(seen), recordingSleep(sleeps)),
+      env: { ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED: 'true' },
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 3 }),
+      context,
+    );
+    expect(result.ok).toBe(true);
+    // Three chunks → two intervals, none before the first chunk.
+    expect(sleeps).toEqual([AGENT_ANALYZER_CHUNK_INTERVAL_MS, AGENT_ANALYZER_CHUNK_INTERVAL_MS]);
+
+    // A transient retry inside chunk 1 keeps its own backoff; the
+    // interval before chunk 2 follows it, unmerged and uncounted
+    // against the retry ceiling's schedule.
+    const retrySleeps: number[] = [];
+    let calls = 0;
+    const flakyExecutor: AgentModelExecutor = async (input) => {
+      calls += 1;
+      if (calls === 1) return { ok: false, code: 'PROVIDER_RATE_LIMITED' };
+      return textExecutor([])(input);
+    };
+    const flakyContext: ToolExecutionContext = {
+      ...contextFor(store, flakyExecutor, recordingSleep(retrySleeps)),
+      env: { ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED: 'true' },
+    };
+    const flaky = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 2 }),
+      flakyContext,
+    );
+    expect(flaky.ok).toBe(true);
+    expect(retrySleeps).toEqual([15_000, AGENT_ANALYZER_CHUNK_INTERVAL_MS]);
+  });
 });

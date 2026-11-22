@@ -7,14 +7,19 @@ import { assertCanReportCompleted } from './taskExecutionGate.js';
 import { createAgentTaskGraph, type AgentTaskGraph } from './agentTaskGraph.js';
 import { executeNextTask } from './taskGraphExecutor.js';
 import {
+  AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP,
+  AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS,
+  AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS,
   MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCES,
   MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_URL_LENGTH,
+  agentRateLimitHoldEnabled,
   agentStepArtifactsEnabled,
   computeAgentRunStepFingerprint,
   validatePutAgentRunStepArtifactInput,
+  type AgentRunHold,
   type AgentRunPlanStep,
   type AgentRunQuotaLedger,
   type AgentRunRecord,
@@ -99,6 +104,22 @@ import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
  *   absent), and the chunk boundary may also fall between a producer
  *   and its consumer whenever the producer's artifact is persisted —
  *   the next advance resolves it from the store instead of memory.
+ * - The rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICATION_
+ *   2026-11-22 §2-B) sits behind ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED
+ *   (default OFF; OFF is byte-identical to the behavior above). When ON,
+ *   an attachment_analyzer step whose execution ends in
+ *   PROVIDER_RATE_LIMITED parks the run as `held` (reason
+ *   `rate_limited`, resume condition `at_time` at the per-minute
+ *   window's recovery) instead of failing it: the step returns to
+ *   `queued` with its pre-execution attempt count — the rate-limited
+ *   execution is a wait, not a judged attempt — completed steps stay
+ *   completed, and the §8 resume flow (re-plan, fresh approval,
+ *   confirm) re-advances the same run from the parked step. Parking is
+ *   bounded per step (AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP) and per
+ *   run age (AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS); past either
+ *   bound the step fails terminally with the provider's code, exactly
+ *   as with the switch OFF. Parse and coverage verification are never
+ *   touched: the hold changes only what a rate limit DOES to a run.
  */
 
 export const AGENT_RUN_ADVANCE_DEFAULT_BUDGET_MS = 100_000;
@@ -354,6 +375,11 @@ export interface AgentRunAdvancerDeps {
    * ORIGIN_AGENT_STEP_ARTIFACTS_ENABLED env decides; either way the
    * default is OFF and OFF changes nothing about this advance. */
   stepArtifactsEnabled?: boolean;
+  /** Rate-limit hold switch (design CAPACITY_RATE_LIMIT_
+   * QUANTIFICATION_2026-11-22 §2-B). When absent, the
+   * ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED env decides; either way the
+   * default is OFF and OFF changes nothing about this advance. */
+  rateLimitHoldEnabled?: boolean;
   toolContext?: ToolExecutionContext;
   runTool?: AgentRunToolRunner;
   verifyArtifact?: AgentRunArtifactVerifier;
@@ -374,6 +400,7 @@ export type AdvanceAgentRunOutcome =
   | { kind: 'completed'; record: AgentRunRecord; artifact?: string }
   | { kind: 'failed'; record: AgentRunRecord; errorCode: string }
   | { kind: 'held'; record: AgentRunRecord; provider: string; resetAt: number }
+  | { kind: 'rate_limited'; record: AgentRunRecord; retryAt: number }
   | { kind: 'write_lock_busy'; record: AgentRunRecord; holderRunId: string | null; lockExpiresAt: number | null }
   | { kind: 'progress'; record: AgentRunRecord }
   | { kind: 'busy'; record: AgentRunRecord }
@@ -428,6 +455,7 @@ export async function advanceAgentRun(
   const budgetMs = options.budgetMs ?? AGENT_RUN_ADVANCE_DEFAULT_BUDGET_MS;
   const leaseSeconds = options.leaseSeconds ?? AGENT_RUN_ADVANCE_DEFAULT_LEASE_SECONDS;
   const stepArtifactsOn = deps.stepArtifactsEnabled ?? agentStepArtifactsEnabled(process.env);
+  const rateLimitHoldOn = deps.rateLimitHoldEnabled ?? agentRateLimitHoldEnabled(process.env);
 
   const lease = await runStore.claim(snapshot.runId, driverId, leaseSeconds);
   if (!lease) return { kind: 'busy', record: snapshot };
@@ -496,6 +524,66 @@ export async function advanceAgentRun(
     await releaseWriteLock();
     const finished = await runStore.finish(record.runId, driverId, 'failed');
     return { kind: 'failed', record: finished ?? { ...record, stepsState, status: 'failed' }, errorCode };
+  };
+
+  /**
+   * Rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICATION_
+   * 2026-11-22 §2-B): parks the run instead of failing it when the
+   * step at `index` ended in PROVIDER_RATE_LIMITED. Returns the
+   * outcome that ends this advance when the park lands (or its honest
+   * fallback when the park write loses the claim), or null when the
+   * runaway bounds refuse the park and the caller must fail the run
+   * with the provider's code exactly as before.
+   *
+   * `priorStepState` is the step's state before this execution: the
+   * parked step returns to `queued` with that attempt count and the
+   * provider code kept as its errorCode, because the rate-limited
+   * execution produced nothing the step can be judged on — it is a
+   * wait, not an attempt. The bounds that keep a persistently limited
+   * step from looping forever are the hold's own (per-step park count,
+   * run age), not the task graph's attempt cap. The step's declared
+   * quota charge stays journaled: the execution did spend provider
+   * calls, and the ledger counts attempts, not outcomes.
+   */
+  const tryParkRateLimitedStep = async (
+    index: number,
+    priorStepState: AgentRunStepState,
+    liveDetail: AgentRunStepLiveDetail | undefined,
+  ): Promise<AdvanceAgentRunOutcome | null> => {
+    const priorHolds = priorStepState.rateLimitHolds ?? 0;
+    if (priorHolds >= AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP) return null;
+    const parkedAt = now();
+    if (parkedAt - record.createdAt >= AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS) return null;
+    // The resume instant is the per-minute window's recovery floor
+    // (AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS). A provider Retry-After
+    // or reset replaces the floor when it becomes observable on the
+    // model-call path; the result type carries only the failure code
+    // today, so the floor is what the hold records (design §1.5).
+    const retryAt = parkedAt + AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS;
+    stepsState[index] = {
+      id: `task-${index + 1}`,
+      status: 'queued',
+      attempts: priorStepState.attempts,
+      errorCode: 'PROVIDER_RATE_LIMITED',
+      rateLimitHolds: priorHolds + 1,
+      ...(liveDetail ? { liveDetail } : {}),
+    };
+    if (!await runStore.updateProgress(record.runId, driverId, { stepsState })) {
+      return { kind: 'busy', record: { ...record, stepsState } };
+    }
+    const hold: AgentRunHold = {
+      reason: 'rate_limited',
+      resumeCondition: { kind: 'at_time', at: retryAt },
+      heldSince: parkedAt,
+      // The §8.6 carried-count convention, shared with the quota hold:
+      // a first hold starts at 0; a run that was resumed and parks
+      // again counts one more resume episode.
+      resumeAttempts: record.priorResumeAttempts === null ? 0 : record.priorResumeAttempts + 1,
+    };
+    await releaseWriteLock();
+    const finished = await runStore.finish(record.runId, driverId, 'held', hold);
+    if (!finished) return { kind: 'progress', record: { ...record, stepsState, status: 'running' } };
+    return { kind: 'rate_limited', record: finished, retryAt };
   };
 
   // Replay protection: exactly one reservation per run lifetime, shared with
@@ -743,6 +831,11 @@ export async function advanceAgentRun(
       }
       const resolved = resolveStepParams(step, { previousText, byStep: textualByStep, rawByStep });
       const stepParams = 'params' in resolved ? resolved.params : step.params;
+      // The step's pre-execution state, captured for the rate-limit
+      // hold: a parked step is restored from exactly this (plus its
+      // incremented park count), so the capture must happen before
+      // the post-execution assignment below replaces the entry.
+      const stepStateBeforeExecution = stepsState[index];
       const stepStartedAt = now();
       const execution = await executeNextTask(graph, async () => {
         if ('error' in resolved) return { ok: false, message: resolved.error };
@@ -833,6 +926,18 @@ export async function advanceAgentRun(
         if (savedText !== undefined) persistedTextualByStep.set(index, savedText);
       }
       if (!executionRecord?.toolExecuted || !executionRecord.verified || executionRecord.status !== 'completed' || finalTask.status !== 'completed') {
+        // Rate-limit hold (design §2-B): an analyzer step the provider
+        // rate-limited parks the run instead of failing it, when the
+        // switch is on and the hold's runaway bounds allow. Every
+        // other failure — and a rate limit past the bounds — fails
+        // exactly as before, with the same code.
+        if (rateLimitHoldOn
+          && step.toolName === 'attachment_analyzer'
+          && failureCode === 'PROVIDER_RATE_LIMITED'
+          && executionRecord?.toolExecuted) {
+          const parked = await tryParkRateLimitedStep(index, stepStateBeforeExecution, liveDetail);
+          if (parked) return parked;
+        }
         return failRun(failureCode);
       }
       assertCanReportCompleted({
@@ -872,6 +977,7 @@ export async function advanceAgentRun(
       ? toolFailureCodeFromMessage(message)
       : 'TOOL_EXECUTION_BLOCKED';
     if (currentStepIndex >= 0 && stepsState[currentStepIndex]?.status !== 'completed') {
+      const priorStepState = stepsState[currentStepIndex];
       stepsState[currentStepIndex] = {
         ...stepsState[currentStepIndex],
         id: `task-${currentStepIndex + 1}`,
@@ -879,6 +985,18 @@ export async function advanceAgentRun(
         errorCode,
       };
       await runStore.updateProgress(record.runId, driverId, { stepsState }).catch(() => false);
+      // Rate-limit hold (design §2-B): the same parking as the step
+      // loop's failure path, for a rate limit that escaped as an
+      // exception instead of arriving as a tool result. A park
+      // problem here degrades to the terminal failure below, never
+      // to a second exception.
+      if (rateLimitHoldOn
+        && errorCode === 'PROVIDER_RATE_LIMITED'
+        && priorStepState !== undefined
+        && plan[currentStepIndex]?.toolName === 'attachment_analyzer') {
+        const parked = await tryParkRateLimitedStep(currentStepIndex, priorStepState, undefined).catch(() => null);
+        if (parked) return parked;
+      }
     }
     return failRun(errorCode);
   }

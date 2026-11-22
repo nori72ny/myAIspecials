@@ -12,8 +12,23 @@ export interface OriginProviderRequiredTool {
   description: string;
   parameters: Record<string, unknown>;
 }
-/** Call kinds the route-3 capacity allocation (design FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1) may plan onto a separate per-model quota bucket. */
-export type OriginGroqCapacityAllocation = "agent-analyzer-chunk";
+/**
+ * Call kinds the route-3 capacity allocation (design
+ * FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1) may plan onto a
+ * separate per-model quota bucket, and — for the second value — which
+ * bucket a call's first send is planned onto (design
+ * CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22 §2-C, alternating
+ * allocation):
+ * - "agent-analyzer-chunk": first send on the rotation model's bucket
+ *   (the original D-1 allocation), primary model as the rotation stage.
+ * - "agent-analyzer-chunk-primary": first send on the primary model's
+ *   bucket, rotation model as the rotation stage — the mirror image,
+ *   so alternating analyzer chunks spread their first sends across
+ *   both buckets instead of concentrating them on one.
+ * Both values are honored only while the D-1 switch is on; with it off
+ * either value is inert and the standard cascade runs unchanged.
+ */
+export type OriginGroqCapacityAllocation = "agent-analyzer-chunk" | "agent-analyzer-chunk-primary";
 export interface OriginProviderExecutionRequest {
   plan: OriginExecutionPlan;
   messages: OriginChatMessage[];
@@ -41,15 +56,16 @@ export interface OriginProviderExecutionRequest {
   cloudflareSystemInstruction?: string;
   /**
    * Optional route-3 capacity allocation hint (design
-   * FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1). The agent model-call
-   * adapter sets this on analyzer chunk calls — the one call kind whose
-   * output is verified mechanically downstream (coverage and format
-   * checks on the assembled bundle), which is what qualifies it for
-   * planned allocation onto the rotation model's separate per-model
-   * quota bucket instead of leaving that bucket idle until a failure.
-   * The hint changes nothing by itself: the blocking Groq executor
-   * honors it only while ORIGIN_GROQ_PACING_ALLOCATION_ENABLED is
-   * exactly "true", routes 1 and 2 never read it, and the streaming
+   * FREE_CAPACITY_EXPANSION_2026-11-22, stage D-1; alternating
+   * allocation per CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22
+   * §2-C). The agent model-call adapter sets this on analyzer chunk
+   * calls — the one call kind whose output is verified mechanically
+   * downstream (coverage and format checks on the assembled bundle),
+   * which is what qualifies it for planned allocation onto a separate
+   * per-model quota bucket instead of leaving that bucket idle until
+   * a failure. The hint changes nothing by itself: the blocking Groq
+   * executor honors it only while ORIGIN_GROQ_PACING_ALLOCATION_ENABLED
+   * is exactly "true", routes 1 and 2 never read it, and the streaming
    * executor does not act on it in this stage. Callers that do not set
    * it — every direct-chat and research caller — keep the previous
    * route-3 behavior exactly.
