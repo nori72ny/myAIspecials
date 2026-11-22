@@ -202,7 +202,7 @@ function analyzerInstruction(
 ): string {
   const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
   const shape = outputKind === 'rows'
-    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。数値は入力の表記をそのまま写してください。`
+    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
         // Structured-JSON deliverables (design
@@ -318,32 +318,76 @@ export function parseAgentDataRemediations(raw: unknown): AgentDataRemediation[]
   return remediations;
 }
 
-function parseChunkOutput(outputKind: AgentDataOutputKind, text: string, view: AgentAttachmentDataView): ChunkOutput | null {
+/**
+ * Why a chunk response failed the per-chunk format validation
+ * (Basel fix D, diagnosis
+ * AGENT_BASEL_DATA_OUTPUT_INVALID_DIAGNOSIS_2026-11-23 §2). The
+ * validation stays all-or-nothing — one bad row invalidates the
+ * chunk — but the failure now names which condition rejected the
+ * response, so the single repair retry can say what to fix and the
+ * step record can carry the kind (never the body) for diagnosis.
+ * The final coverage verification is unchanged and remains the
+ * fail-closed judge of content.
+ */
+export type AgentDataParseFailureReason =
+  | 'json-not-extractable'
+  | 'rows-not-array'
+  | 'row-not-object'
+  | 'row-key-missing'
+  | 'findings-not-array'
+  | 'finding-not-object'
+  | 'finding-claim-missing'
+  | 'text-not-string';
+
+/** The closed set of parse-failure reason tokens, for consumers
+ * that validate a recorded reason (the step live detail). */
+export const AGENT_DATA_PARSE_FAILURE_REASONS: readonly AgentDataParseFailureReason[] = [
+  'json-not-extractable',
+  'rows-not-array',
+  'row-not-object',
+  'row-key-missing',
+  'findings-not-array',
+  'finding-not-object',
+  'finding-claim-missing',
+  'text-not-string',
+];
+
+export type AgentDataParseResult =
+  | { ok: true; output: ChunkOutput }
+  | { ok: false; reason: AgentDataParseFailureReason };
+
+export function parseChunkOutputDetailed(
+  outputKind: AgentDataOutputKind,
+  text: string,
+  view: AgentAttachmentDataView,
+): AgentDataParseResult {
   const parsed = extractJsonObject(text);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, reason: 'json-not-extractable' };
+  }
   const record = parsed as Record<string, unknown>;
   const output: ChunkOutput = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
   if (outputKind === 'rows') {
-    if (!Array.isArray(record.rows)) return null;
+    if (!Array.isArray(record.rows)) return { ok: false, reason: 'rows-not-array' };
     for (const raw of record.rows) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, reason: 'row-not-object' };
       const row: AgentDataRow = {};
       for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
         const cell = coerceCell(value);
         if (cell !== null) row[key] = cell;
       }
       const keyValue = row[view.keyField];
-      if (typeof keyValue !== 'string' || keyValue.length === 0) return null;
+      if (typeof keyValue !== 'string' || keyValue.length === 0) return { ok: false, reason: 'row-key-missing' };
       output.rows.push(row);
     }
-    return output;
+    return { ok: true, output };
   }
   if (outputKind === 'findings') {
-    if (!Array.isArray(record.findings)) return null;
+    if (!Array.isArray(record.findings)) return { ok: false, reason: 'findings-not-array' };
     for (const raw of record.findings) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, reason: 'finding-not-object' };
       const finding = raw as Record<string, unknown>;
-      if (typeof finding.claim !== 'string' || !finding.claim.trim()) return null;
+      if (typeof finding.claim !== 'string' || !finding.claim.trim()) return { ok: false, reason: 'finding-claim-missing' };
       const type = typeof finding.type === 'string' && finding.type.trim()
         ? finding.type.trim().slice(0, 80)
         : undefined;
@@ -361,11 +405,49 @@ function parseChunkOutput(outputKind: AgentDataOutputKind, text: string, view: A
     // allowed to fail the chunk — coverage is judged on findings.
     output.resources = parseAgentDataResources(record.resources);
     output.remediations = parseAgentDataRemediations(record.remediations);
-    return output;
+    return { ok: true, output };
   }
-  if (typeof record.text !== 'string') return null;
+  if (typeof record.text !== 'string') return { ok: false, reason: 'text-not-string' };
   output.textParts.push(record.text);
-  return output;
+  return { ok: true, output };
+}
+
+/**
+ * The repair-retry guidance for one parse-failure reason (Basel
+ * fix D). The pre-fix repair instruction only said "return JSON",
+ * so a response rejected for a missing key field was resubmitted in
+ * the same shape and rejected again — the Basel reference chunks,
+ * whose fragments hold no key-bearing target at all, could never
+ * pass. Each reason now names the concrete defect; the key-missing
+ * guidance also states the legitimate empty answer, which the rows
+ * instruction itself now carries as well.
+ */
+export function parseFailureRepairGuidance(
+  reason: AgentDataParseFailureReason,
+  outputKind: AgentDataOutputKind,
+  view: AgentAttachmentDataView,
+): string {
+  const base = '前回の応答は指定のJSON形式に適合しませんでした。';
+  switch (reason) {
+    case 'json-not-extractable':
+      return `${base}応答からJSONオブジェクトを取り出せませんでした。説明文やコードフェンスを付けず、JSONオブジェクトだけを返してください。`;
+    case 'rows-not-array':
+      return `${base}rowsが配列になっていませんでした。{"rows":[{...}]}の形で、rowsを配列として返してください。`;
+    case 'row-not-object':
+      return `${base}rowsの要素がオブジェクトになっていませんでした。各行を{...}のオブジェクトとして返してください。`;
+    case 'row-key-missing':
+      return `${base}キー項目「${view.keyField}」の空でない文字列値を持たない行がありました。全ての行にキー項目「${view.keyField}」を含めてください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} が正しい応答です。`;
+    case 'findings-not-array':
+      return `${base}findingsが配列になっていませんでした。{"findings":[{...}]}の形で、findingsを配列として返してください。`;
+    case 'finding-not-object':
+      return `${base}findingsの要素がオブジェクトになっていませんでした。各所見を{...}のオブジェクトとして返してください。`;
+    case 'finding-claim-missing':
+      return `${base}claimが空か欠けている所見がありました。全ての所見にclaim（所見の文）を含めてください。`;
+    case 'text-not-string':
+      return `${base}textが文字列になっていませんでした。{"text":"作成した文章"}の形で返してください。`;
+    default:
+      return `${base}JSONだけを返してください。`;
+  }
 }
 
 type PriorBundle = ChunkOutput & {
@@ -558,18 +640,35 @@ export async function executeAttachmentAnalyzer(
     // across a resume that replays the step.
     const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction, chunkIndex: chunk.index });
     if (first.ok === false) return fail(first.code);
-    let output = parseChunkOutput(outputKind, first.text, view);
-    if (!output) {
+    const firstParsed = parseChunkOutputDetailed(outputKind, first.text, view);
+    let output: ChunkOutput | null = firstParsed.ok ? firstParsed.output : null;
+    if (firstParsed.ok === false) {
+      // Exactly one repair retry (§4.2), now told which validation
+      // condition rejected the first response (Basel fix D): the
+      // generic "return JSON" wording made a model resubmit the same
+      // shape — for a fragment with no key-bearing target, the same
+      // failing rows — because nothing named the actual defect.
       const repair = await callModelWithTransientRetry({
-        instruction: `${instruction}前回の応答は指定のJSON形式に適合しませんでした。JSONだけを返してください。`,
+        instruction: `${instruction}${parseFailureRepairGuidance(firstParsed.reason, outputKind, view)}`,
         userText,
         goal: goalInstruction,
         chunkIndex: chunk.index,
       });
       if (repair.ok === false) return fail(repair.code);
-      output = parseChunkOutput(outputKind, repair.text, view);
-      if (!output) return fail('AGENT_DATA_OUTPUT_INVALID');
+      const repairParsed = parseChunkOutputDetailed(outputKind, repair.text, view);
+      if (repairParsed.ok === false) {
+        // Observability (Basel fix, diagnosis §4): the terminal code
+        // stays AGENT_DATA_OUTPUT_INVALID — the advancer's code
+        // extraction reads the leading token, exactly as it does for
+        // the coverage failure below — and the message additionally
+        // names the chunk's global index and the parse-failure
+        // reason, never the response body, so the step record can
+        // say which chunk failed and why.
+        return fail(`AGENT_DATA_OUTPUT_INVALID (chunk ${chunk.index}, parse: ${repairParsed.reason})`);
+      }
+      output = repairParsed.output;
     }
+    if (!output) return fail('AGENT_DATA_OUTPUT_INVALID');
     merged.rows.push(...output.rows);
     merged.findings.push(...output.findings);
     merged.textParts.push(...output.textParts);

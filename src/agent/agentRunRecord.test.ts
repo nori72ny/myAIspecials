@@ -237,6 +237,36 @@ describe('agent run step live detail (PR-L1)', () => {
     expect(c?.liveDetail).toBeUndefined();
   });
 
+  it('round-trips a parse failure (chunk index + reason token) unchanged (Basel observability)', () => {
+    const liveDetail = {
+      startedAt: now - 5_000,
+      finishedAt: now,
+      parseFailure: { chunkIndex: 2, reason: 'row-key-missing' },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+  });
+
+  it('drops a malformed parse failure but keeps the rest of the live detail (fail-soft)', () => {
+    const malformed: unknown[] = [
+      { chunkIndex: -1, reason: 'row-key-missing' },
+      { chunkIndex: 1.5, reason: 'row-key-missing' },
+      { chunkIndex: '2', reason: 'row-key-missing' },
+      { chunkIndex: 2, reason: 'Row Key Missing' },
+      { chunkIndex: 2, reason: 'the model said something long and free-form instead of a token' },
+      { chunkIndex: 2, reason: '' },
+      { chunkIndex: 2 },
+      'row-key-missing',
+    ];
+    for (const parseFailure of malformed) {
+      const [step] = normalizeAgentRunStepsState([
+        { ...baseStep, liveDetail: { startedAt: now - 1_000, parseFailure } } as unknown as AgentRunStepState,
+      ]);
+      expect(step?.liveDetail?.parseFailure).toBeUndefined();
+      expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
+    }
+  });
+
   it('reads pre-L1 step state (no live detail) unchanged', () => {
     const legacy: AgentRunStepState[] = [
       { id: 'task-1', status: 'completed', attempts: 2, summary: 'completed:web_search_grounding' },

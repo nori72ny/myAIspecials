@@ -7,7 +7,12 @@ import {
   validateAgentAttachmentFileText,
 } from './agentAttachmentRecord.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
-import { AGENT_ANALYZER_CHUNK_INTERVAL_MS } from './agentAttachmentTools.js';
+import {
+  AGENT_ANALYZER_CHUNK_INTERVAL_MS,
+  parseChunkOutputDetailed,
+  parseFailureRepairGuidance,
+} from './agentAttachmentTools.js';
+import { buildAgentAttachmentDataView } from './agentAttachmentData.js';
 
 const OWNER = 'ab'.repeat(32); // owner bindings are sha256 hex digests
 const SET_ID = 'att-12345678-abcd-4ef0-9abc-def012345678';
@@ -161,7 +166,7 @@ describe('attachment_analyzer tool', () => {
     expect(result.message).toContain('対象3件中2件を処理');
   });
 
-  it('allows exactly one repair retry, then fails AGENT_DATA_OUTPUT_INVALID', async () => {
+  it('allows exactly one repair retry, then fails AGENT_DATA_OUTPUT_INVALID naming the chunk and reason', async () => {
     const { store, setDigest } = await storeWithFruits();
     let calls = 0;
     const garbageExecutor: AgentModelExecutor = async () => {
@@ -173,8 +178,84 @@ describe('attachment_analyzer tool', () => {
       contextFor(store, garbageExecutor),
     );
     expect(result.ok).toBe(false);
-    expect(result.message).toBe('AGENT_DATA_OUTPUT_INVALID');
+    // The terminal code is unchanged; the message additionally names
+    // the failing chunk's global index and the parse-failure reason
+    // (Basel observability) — never the response body.
+    expect(result.message).toBe('AGENT_DATA_OUTPUT_INVALID (chunk 0, parse: json-not-extractable)');
     expect(calls).toBe(2);
+  });
+
+  it('tells the repair retry which validation failed: a missing key names the key field and the empty answer', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const instructions: string[] = [];
+    const keylessExecutor: AgentModelExecutor = async (input) => {
+      instructions.push(input.instruction);
+      // Every response drops the key field `id` from its rows.
+      return { ok: true, text: JSON.stringify({ rows: [{ item: 'りんご', amount: '120' }] }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, keylessExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_DATA_OUTPUT_INVALID (chunk 0, parse: row-key-missing)');
+    expect(instructions).toHaveLength(2);
+    // The repair instruction names the defect concretely: the key
+    // field every row must carry, and the legitimate empty answer.
+    expect(instructions[1]).toContain('キー項目「id」');
+    expect(instructions[1]).toContain('{"rows":[]}');
+    // And the base rows instruction itself carries the empty-answer
+    // escape hatch from the start (Basel fix D).
+    expect(instructions[0]).toContain('{"rows":[]} とだけ返してください。それが正しい応答です');
+  });
+
+  it('accepts {"rows":[]} for a reference chunk with no key-bearing target (Basel shape)', async () => {
+    // The Basel trap-3 shape: a primary table with a real key, plus a
+    // reference table whose rows carry a different key entirely. The
+    // reference chunk is a non-final range here; an empty rows answer
+    // is its only valid output and must parse.
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const events = ['Event_ID\tAmount', 'OR001\t100', 'OR002\t200'].join('\n');
+    const categories = ['## sheet: Sheet1', 'Category_Code\tName', 'EL1\tInternal Fraud', 'EL2\tExternal Fraud'].join('\n');
+    for (const [name, text] of [['events.tsv', events], ['categories.tsv', categories]] as const) {
+      const measured = validateAgentAttachmentFileText(text);
+      await store.addFile(SET_ID, OWNER, {
+        name,
+        mediaType: 'text/tab-separated-values',
+        kind: 'text',
+        byteSize: measured.byteSize,
+        charCount: measured.charCount,
+        sha256: measured.sha256,
+        extractedText: text,
+      });
+    }
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    const digest = computeAgentAttachmentSetDigest(set.files);
+    // Chunk 0 is the events table, chunk 1 the reference table. The
+    // executor answers real rows for the events chunk and the empty
+    // answer for the reference chunk; the step completes the range,
+    // so coverage judges the merged rows against the events keys.
+    const mixedExecutor: AgentModelExecutor = async (input) => {
+      if (input.userText.includes('Category_Code')) return { ok: true, text: '{"rows":[]}' };
+      return {
+        ok: true,
+        text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(digest, { chunkOffset: 0, chunkCount: 2 }),
+      contextFor(store, mixedExecutor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { coverage: { keyCount: number } };
+    expect(bundle.coverage.keyCount).toBe(2);
   });
 
   it('propagates the provider failure code as the step failure', async () => {
@@ -737,5 +818,59 @@ describe('attachment_analyzer alternating allocation + chunk interval (design §
     );
     expect(flaky.ok).toBe(true);
     expect(retrySleeps).toEqual([15_000, AGENT_ANALYZER_CHUNK_INTERVAL_MS]);
+  });
+});
+
+describe('parseChunkOutputDetailed parse-failure reasons (Basel fix D)', () => {
+  const view = buildAgentAttachmentDataView([{ name: 'fruits.csv', text: FRUITS }]);
+
+  it('classifies an unextractable response as json-not-extractable', () => {
+    expect(parseChunkOutputDetailed('rows', 'not json at all', view)).toEqual({ ok: false, reason: 'json-not-extractable' });
+    expect(parseChunkOutputDetailed('rows', '{"rows": [', view)).toEqual({ ok: false, reason: 'json-not-extractable' });
+  });
+
+  it('classifies a non-array rows payload as rows-not-array', () => {
+    expect(parseChunkOutputDetailed('rows', '{"rows": {}}', view)).toEqual({ ok: false, reason: 'rows-not-array' });
+    expect(parseChunkOutputDetailed('rows', '{"other": []}', view)).toEqual({ ok: false, reason: 'rows-not-array' });
+  });
+
+  it('classifies a non-object row as row-not-object', () => {
+    expect(parseChunkOutputDetailed('rows', '{"rows": ["A-1"]}', view)).toEqual({ ok: false, reason: 'row-not-object' });
+    expect(parseChunkOutputDetailed('rows', '{"rows": [null]}', view)).toEqual({ ok: false, reason: 'row-not-object' });
+  });
+
+  it('classifies a row without the key field as row-key-missing', () => {
+    expect(parseChunkOutputDetailed('rows', '{"rows": [{"item": "りんご"}]}', view)).toEqual({ ok: false, reason: 'row-key-missing' });
+    expect(parseChunkOutputDetailed('rows', '{"rows": [{"id": ""}]}', view)).toEqual({ ok: false, reason: 'row-key-missing' });
+  });
+
+  it('accepts an empty rows array: the reference-chunk answer parses', () => {
+    const result = parseChunkOutputDetailed('rows', '{"rows":[]}', view);
+    expect(result.ok).toBe(true);
+    if (result.ok === true) expect(result.output.rows).toEqual([]);
+  });
+
+  it('classifies findings failures by their own reasons', () => {
+    expect(parseChunkOutputDetailed('findings', '{"findings": {}}', view)).toEqual({ ok: false, reason: 'findings-not-array' });
+    expect(parseChunkOutputDetailed('findings', '{"findings": [42]}', view)).toEqual({ ok: false, reason: 'finding-not-object' });
+    expect(parseChunkOutputDetailed('findings', '{"findings": [{"claim": "  "}]}', view)).toEqual({ ok: false, reason: 'finding-claim-missing' });
+    expect(parseChunkOutputDetailed('findings', '{"findings": [{"claim": "所見"}]}', view).ok).toBe(true);
+  });
+
+  it('classifies a non-string text payload as text-not-string', () => {
+    expect(parseChunkOutputDetailed('text', '{"text": 42}', view)).toEqual({ ok: false, reason: 'text-not-string' });
+    expect(parseChunkOutputDetailed('text', '{"text": "文章"}', view).ok).toBe(true);
+  });
+
+  it('gives each reason its own concrete repair guidance', () => {
+    expect(parseFailureRepairGuidance('json-not-extractable', 'rows', view)).toContain('JSONオブジェクトだけを返してください');
+    expect(parseFailureRepairGuidance('rows-not-array', 'rows', view)).toContain('rowsを配列として');
+    expect(parseFailureRepairGuidance('row-not-object', 'rows', view)).toContain('オブジェクトとして');
+    const keyGuidance = parseFailureRepairGuidance('row-key-missing', 'rows', view);
+    expect(keyGuidance).toContain('キー項目「id」');
+    expect(keyGuidance).toContain('{"rows":[]} が正しい応答です');
+    expect(parseFailureRepairGuidance('findings-not-array', 'findings', view)).toContain('findingsを配列として');
+    expect(parseFailureRepairGuidance('finding-claim-missing', 'findings', view)).toContain('claim');
+    expect(parseFailureRepairGuidance('text-not-string', 'text', view)).toContain('{"text":"作成した文章"}');
   });
 });

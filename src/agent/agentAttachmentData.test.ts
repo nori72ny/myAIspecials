@@ -226,6 +226,69 @@ describe('agentAttachmentData staged prose compositions', () => {
   });
 });
 
+describe('agentAttachmentData heading-line tables (Basel fix A)', () => {
+  it('recognizes a TSV behind a `## sheet:` heading line and keeps the heading out of the chunks', () => {
+    const tsv = [
+      '## sheet: Sheet1',
+      'Event_ID\tLoss_Amount_CNY',
+      'OR001\t100',
+      'OR002\t250',
+      'OR003\t50',
+    ].join('\n');
+    const view = buildAgentAttachmentDataView([{ name: 'events.tsv', text: tsv }]);
+    expect(view.files[0].kind).toBe('table');
+    expect(view.files[0].header).toEqual(['Event_ID', 'Loss_Amount_CNY']);
+    expect(view.files[0].rowCount).toBe(3);
+    expect(view.files[0].keyColumn).toBe('Event_ID');
+    // The yardstick comes from the real rows, not from anything else.
+    expect(view.keyField).toBe('Event_ID');
+    expect(view.expectedKeys).toEqual(['OR001', 'OR002', 'OR003']);
+    expect(view.aggregates).toEqual({ Loss_Amount_CNY: { sum: 400, count: 3, mean: 400 / 3 } });
+    // The heading line is metadata of the export, not data: it appears
+    // in no chunk, and the chunk opens with the real header line.
+    expect(view.totalChunks).toBe(1);
+    expect(view.chunks[0].text).not.toContain('## sheet:');
+    expect(view.chunks[0].text.startsWith('Event_ID\tLoss_Amount_CNY\n')).toBe(true);
+  });
+
+  it('recognizes a CSV behind a title line', () => {
+    const csv = [
+      '四半期売上レポート',
+      'id,item,amount',
+      'A-1,りんご,120',
+      'A-2,みかん,80',
+    ].join('\n');
+    const view = buildAgentAttachmentDataView([{ name: 'report.csv', text: csv }]);
+    expect(view.files[0].kind).toBe('table');
+    expect(view.files[0].header).toEqual(['id', 'item', 'amount']);
+    expect(view.expectedKeys).toEqual(['A-1', 'A-2']);
+    expect(view.chunks[0].text).not.toContain('四半期売上レポート');
+  });
+
+  it('keeps delimiter-free text prose: no line with a delimiter means no table', () => {
+    const prose = ['見出し行', 'ただの文章の行', 'もう一行の文章'].join('\n');
+    const view = buildAgentAttachmentDataView([{ name: 'notes.txt', text: prose }]);
+    expect(view.files[0].kind).toBe('prose');
+    expect(view.keyField).toBe('file');
+  });
+
+  it('does not promote a delimiter-bearing tail into a table when the head is prose', () => {
+    // Heading skipping only moves the header candidate forward; the
+    // column-consistency rule still judges the whole remainder, so a
+    // prose memo with one CSV-looking line stays prose.
+    const memo = ['会議メモ', '参加者は3名。次回は来週。', 'a,b', '短い'].join('\n');
+    const view = buildAgentAttachmentDataView([{ name: 'memo.txt', text: memo }]);
+    expect(view.files[0].kind).toBe('prose');
+  });
+
+  it('leaves a delimiter-first table byte-identical to the pre-fix behavior', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'fruits.csv', text: FRUITS }]);
+    expect(view.files[0].kind).toBe('table');
+    expect(view.chunks[0].text).toBe(FRUITS);
+    expect(view.expectedKeys).toEqual(['A-1', 'A-2', 'A-3']);
+  });
+});
+
 describe('agentAttachmentData chunk coverage (prose branch)', () => {
   const view = buildAgentAttachmentDataView(K8S_SHAPE_FILES);
 
