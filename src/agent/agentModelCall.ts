@@ -1,6 +1,11 @@
 import { buildOriginExecutionPlan } from '../lib/orchestration/OriginExecutionPolicy.js';
 import { executeOriginProviderWithFailover } from '../legacy/originProviderFailover.js';
-import { OriginProviderError, type OriginGroqCapacityAllocation } from '../legacy/originProviderClient.js';
+import {
+  buildOriginProviderFailureDiagnostic,
+  OriginProviderError,
+  type OriginGroqCapacityAllocation,
+  type OriginProviderAttemptDiagnostic,
+} from '../legacy/originProviderClient.js';
 
 /**
  * The agent data steps' only model path (agent file-input foundation,
@@ -51,6 +56,18 @@ import { OriginProviderError, type OriginGroqCapacityAllocation } from '../legac
  * never paraphrased: the caller (the analyzer tool) turns the code
  * into the step's failure so the run record names the real reason
  * (design §4.2).
+ *
+ * A failure that comes from a provider error also carries the
+ * dispatch's failover attempt evidence (AGORA timeout observability,
+ * diagnosis AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_2026-11-23 §5.3):
+ * until now this adapter returned only the final code, so which route
+ * was tried, what each attempt returned and how long it took never
+ * reached the step record, and a step timeout could only ever be
+ * triaged as "some composite of calls and waits". The evidence is
+ * the provider layer's own whitelisted diagnostic shape
+ * (buildOriginProviderFailureDiagnostic) — route and model
+ * identifiers, outcome, error code, duration, transport count —
+ * never a request or response body.
  */
 
 export const ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED' as const;
@@ -101,7 +118,31 @@ export type AgentModelCallInput = {
 
 export type AgentModelCallResult =
   | { ok: true; text: string }
-  | { ok: false; code: string };
+  | {
+      ok: false;
+      code: string;
+      /** The failover attempts of the dispatch that failed, in the
+       * provider layer's whitelisted diagnostic shape. Present only
+       * when the failure came from a provider error that recorded
+       * attempts; a plan-level refusal (no transport happened)
+       * carries none. */
+      providerAttempts?: readonly OriginProviderAttemptDiagnostic[];
+    };
+
+/**
+ * The failover attempt evidence of a failed dispatch, reduced by the
+ * provider layer's own whitelist builder. Returns undefined for
+ * anything that is not a provider error, and for a provider error
+ * whose dispatch recorded no attempts — the caller then reports the
+ * bare code exactly as before this evidence existed.
+ */
+export function failoverAttemptsFromProviderError(
+  error: unknown,
+): readonly OriginProviderAttemptDiagnostic[] | undefined {
+  if (!(error instanceof OriginProviderError)) return undefined;
+  const { failoverAttempts } = buildOriginProviderFailureDiagnostic(error);
+  return failoverAttempts.length > 0 ? failoverAttempts : undefined;
+}
 
 /** The injectable seam the tools consume; production wiring leaves it
  * unset and the real failover-backed executor below is used. */
@@ -128,7 +169,10 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
       if (!text.trim()) return { ok: false, code: 'PROVIDER_INVALID_RESPONSE' };
       return { ok: true, text };
     } catch (error) {
-      if (error instanceof OriginProviderError) return { ok: false, code: error.code };
+      if (error instanceof OriginProviderError) {
+        const providerAttempts = failoverAttemptsFromProviderError(error);
+        return { ok: false, code: error.code, ...(providerAttempts ? { providerAttempts } : {}) };
+      }
       return { ok: false, code: 'PROVIDER_INTERNAL_ERROR' };
     }
   };

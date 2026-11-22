@@ -686,6 +686,65 @@ describe('advanceAgentRun', () => {
     expect(record?.stepsState[1]?.liveDetail?.coverageFailure).toBeUndefined();
   });
 
+  it('records the failover attempts of the failed dispatch in the step live detail (AGORA observability)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'PROVIDER_TIMEOUT (attempts: cloudflare-workers-ai-free|@cf/openai/gpt-oss-120b|availability-error|PROVIDER_TIMEOUT|25000|2; groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1)' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 4, chunkCount: 2 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    // The terminal code is still the bare PROVIDER_TIMEOUT.
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_TIMEOUT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]).toMatchObject({ status: 'failed', errorCode: 'PROVIDER_TIMEOUT' });
+    // The live detail now says which routes the failing dispatch
+    // tried, how each attempt ended and how long it took — the
+    // breakdown the AGORA timeout diagnosis could not recover.
+    expect(record?.stepsState[1]?.liveDetail?.providerAttempts).toEqual([
+      { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000, transportRequestCount: 2 },
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+    ]);
+    expect(record?.stepsState[0]?.liveDetail?.providerAttempts).toBeUndefined();
+  });
+
+  it('records no provider attempts for an analyzer failure without the fixed message shape, and drops malformed entries', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'PROVIDER_TIMEOUT (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1; bad entry; groq-free|openai/gpt-oss-120b|melted|PROVIDER_TIMEOUT|1|1)' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 4, chunkCount: 2 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'PROVIDER_TIMEOUT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]?.liveDetail?.providerAttempts).toEqual([
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+    ]);
+  });
+
   it('records the throwing step as failed with the restored code when a tool throws', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();

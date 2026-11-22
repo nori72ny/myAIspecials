@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUN_APPROVAL_LAPSE_MS,
   AGENT_RUN_RECORD_STATUSES,
+  MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS,
   MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCE_TITLE_LENGTH,
@@ -328,6 +329,54 @@ describe('agent run step live detail (PR-L1)', () => {
       expect(step?.liveDetail?.coverageFailure).toBeUndefined();
       expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
     }
+  });
+
+  it('round-trips provider attempts (route, model, outcome, code, duration, transports) unchanged (AGORA observability)', () => {
+    const liveDetail = {
+      startedAt: now - 107_200,
+      finishedAt: now,
+      providerAttempts: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000, transportRequestCount: 2 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+        { providerId: 'openrouter-free', outcome: 'skipped' },
+      ],
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+  });
+
+  it('drops malformed provider attempts but keeps valid ones and the rest of the detail (fail-soft)', () => {
+    const liveDetail = {
+      startedAt: now - 1_000,
+      providerAttempts: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+        { providerId: 'Bearer supersecretvalue', outcome: 'failed' },
+        { providerId: 'groq-free', outcome: 'melted' },
+        { providerId: 'groq-free', outcome: 'failed', errorCode: 'a free-form sentence, not a code' },
+        { providerId: 'groq-free', outcome: 'failed', durationMs: -3 },
+        { providerId: 'groq-free', outcome: 'failed', durationMs: 3_600_001 },
+        { providerId: 'groq-free', outcome: 'failed', transportRequestCount: 1.5 },
+        'not-an-object',
+      ],
+    };
+    const [step] = normalizeAgentRunStepsState([
+      { ...baseStep, liveDetail } as unknown as AgentRunStepState,
+    ]);
+    expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
+    expect(step?.liveDetail?.providerAttempts).toEqual([
+      { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+    ]);
+    expect(JSON.stringify(step?.liveDetail)).not.toContain('supersecretvalue');
+  });
+
+  it('caps the recorded provider attempts at the live-detail cap', () => {
+    const liveDetail = {
+      providerAttempts: Array.from({ length: 9 }, () => ({ providerId: 'groq-free', outcome: 'failed' })),
+    };
+    const [step] = normalizeAgentRunStepsState([
+      { ...baseStep, liveDetail } as unknown as AgentRunStepState,
+    ]);
+    expect(step?.liveDetail?.providerAttempts).toHaveLength(MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS);
   });
 
   it('reads pre-L1 step state (no live detail) unchanged', () => {

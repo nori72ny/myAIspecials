@@ -410,6 +410,72 @@ describe('attachment_analyzer transient provider retry (segment-2 wall)', () => 
     expect(calls).toBe(5);
     expect(sleeps).toEqual([15_000, 30_000, 15_000]);
   });
+
+  it('carries the failed dispatch\'s failover attempts in the failure message, after the terminal code (AGORA observability)', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const timeoutExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_TIMEOUT',
+      providerAttempts: [
+        { providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b', outcome: 'availability-error', errorCode: 'PROVIDER_TIMEOUT', durationMs: 25_000, transportRequestCount: 2 },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_TIMEOUT', durationMs: 45_000, transportRequestCount: 1 },
+      ],
+    });
+    const sleeps: number[] = [];
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, timeoutExecutor, recordingSleep(sleeps)),
+    );
+    expect(result.ok).toBe(false);
+    // The terminal code is still the leading token (the advancer's
+    // code extraction is unaffected); the parenthetical carries the
+    // attempts of the LAST dispatch the transient retry made — route,
+    // model, outcome, code, duration, transports; never a body.
+    expect(result.message).toBe(
+      'PROVIDER_TIMEOUT (attempts: cloudflare-workers-ai-free|@cf/openai/gpt-oss-120b|availability-error|PROVIDER_TIMEOUT|25000|2; groq-free|openai/gpt-oss-120b|failed|PROVIDER_TIMEOUT|45000|1)',
+    );
+    expect(sleeps).toEqual([15_000, 30_000]);
+  });
+
+  it('keeps the bare code when the failure carries no attempt evidence', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const bareExecutor: AgentModelExecutor = async () => ({ ok: false, code: 'PROVIDER_INTERNAL_ERROR' });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, bareExecutor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('PROVIDER_INTERNAL_ERROR');
+  });
+
+  it('drops attempt entries and fields that fall outside the fixed shapes instead of encoding them', async () => {
+    const { store, setDigest } = await storeWithFruits();
+    const poisonedExecutor: AgentModelExecutor = async () => ({
+      ok: false,
+      code: 'PROVIDER_INTERNAL_ERROR',
+      providerAttempts: [
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'failed', errorCode: 'PROVIDER_INTERNAL_ERROR' },
+        { providerId: 'evil route with spaces', modelId: 'x', outcome: 'failed' },
+        { providerId: 'groq-free', modelId: 'has space', outcome: 'failed' },
+        { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b', outcome: 'unknown-outcome' },
+      ],
+    } as unknown as Awaited<ReturnType<AgentModelExecutor>>);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, poisonedExecutor),
+    );
+    expect(result.ok).toBe(false);
+    // The entry with an unusable route id and the entry with an
+    // unknown outcome are dropped whole; the entry whose model id
+    // alone is unusable keeps its route and outcome with the model
+    // field blanked — the same field-wise whitelist the provider
+    // layer applies to its surfaced diagnostics.
+    expect(result.message).toBe(
+      'PROVIDER_INTERNAL_ERROR (attempts: groq-free|openai/gpt-oss-120b|failed|PROVIDER_INTERNAL_ERROR|-|-; groq-free|-|failed|-|-|-)',
+    );
+    expect(result.message).not.toContain('evil');
+    expect(result.message).not.toContain('has space');
+  });
 });
 
 describe('document_generator dataGrounded rule (F2)', () => {

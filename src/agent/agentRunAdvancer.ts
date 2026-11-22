@@ -323,9 +323,11 @@ function liveSourcesFromArtifact(artifact: string | undefined): NonNullable<Agen
  * for research steps — the query actually executed and the pages it
  * actually returned; for an attachment_analyzer step whose tool
  * failed output validation, the failing chunk's index and the
- * parse-failure reason token (Basel observability); and for one
+ * parse-failure reason token (Basel observability); for one
  * that failed coverage verification, the failure's scope and
- * breakdown counts (Basel segment-2 observability). Prompts,
+ * breakdown counts (Basel segment-2 observability); and for one
+ * whose model call failed at a provider, that dispatch's
+ * failover attempts (AGORA timeout observability). Prompts,
  * credentials, response bodies and tool internals never enter the
  * record through here.
  */
@@ -386,6 +388,68 @@ export function coverageFailureFromAnalyzerMessage(
   return failure;
 }
 
+/**
+ * The analyzer's provider-failure message carries the failed
+ * dispatch's failover attempts in a fixed parenthetical (AGORA
+ * timeout observability, diagnosis
+ * AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_2026-11-23 §5.3) — the
+ * same "structure out of the message" pattern as the parse failure
+ * above. Each attempt is six `|`-separated fields (route, model,
+ * outcome, error code, duration ms, transport count; `-` when a
+ * field is absent), attempts are separated by `; `, and every field
+ * is re-validated against its closed shape here: a malformed entry
+ * is dropped, never repaired, and anything outside the fixed shape
+ * contributes nothing. At most six attempts are read back, matching
+ * the record layer's live-detail cap.
+ */
+const ANALYZER_PROVIDER_ATTEMPTS_PATTERN = /\(attempts: ([^()]*)\)/;
+const ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+const ANALYZER_ATTEMPT_MODEL_ID_PATTERN = /^[A-Za-z0-9@][A-Za-z0-9@/_:.+-]{0,127}$/;
+const ANALYZER_ATTEMPT_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,119}$/;
+const ANALYZER_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
+  'succeeded',
+  'availability-error',
+  'failed',
+  'skipped',
+]);
+const ANALYZER_PROVIDER_ATTEMPTS_MAX = 6;
+
+export function providerAttemptsFromAnalyzerMessage(
+  message: string | undefined,
+): NonNullable<AgentRunStepLiveDetail['providerAttempts']> | undefined {
+  if (!message) return undefined;
+  const match = ANALYZER_PROVIDER_ATTEMPTS_PATTERN.exec(message);
+  if (!match) return undefined;
+  const attempts: NonNullable<AgentRunStepLiveDetail['providerAttempts']> = [];
+  for (const entry of match[1].split('; ')) {
+    if (attempts.length >= ANALYZER_PROVIDER_ATTEMPTS_MAX) break;
+    const fields = entry.split('|');
+    if (fields.length !== 6) continue;
+    const [providerId, modelId, outcome, errorCode, durationMs, transportRequestCount] = fields;
+    if (!ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(providerId)) continue;
+    if (!ANALYZER_ATTEMPT_OUTCOMES.has(outcome)) continue;
+    const attempt: NonNullable<AgentRunStepLiveDetail['providerAttempts']>[number] = { providerId, outcome };
+    if (modelId !== '-') {
+      if (!ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(modelId)) continue;
+      attempt.modelId = modelId;
+    }
+    if (errorCode !== '-') {
+      if (!ANALYZER_ATTEMPT_ERROR_CODE_PATTERN.test(errorCode)) continue;
+      attempt.errorCode = errorCode;
+    }
+    if (durationMs !== '-') {
+      if (!/^\d{1,7}$/.test(durationMs) || Number(durationMs) > 3_600_000) continue;
+      attempt.durationMs = Number(durationMs);
+    }
+    if (transportRequestCount !== '-') {
+      if (!/^\d{1,6}$/.test(transportRequestCount) || Number(transportRequestCount) > 100_000) continue;
+      attempt.transportRequestCount = Number(transportRequestCount);
+    }
+    attempts.push(attempt);
+  }
+  return attempts.length > 0 ? attempts : undefined;
+}
+
 export function buildStepLiveDetail(input: {
   toolName: ToolName;
   params: ToolParams;
@@ -393,10 +457,11 @@ export function buildStepLiveDetail(input: {
   startedAt: number;
   finishedAt: number;
   /** The tool failure message, when the step's tool returned
-   * `ok: false`. Only an attachment_analyzer's output-invalid and
-   * coverage failure messages are read, and only for their fixed
-   * parentheticals (the chunk index and reason token; the coverage
-   * scope, range and counts) — the body of any model response
+   * `ok: false`. Only an attachment_analyzer's messages are read,
+   * and only for their fixed-shape parentheticals: the output-
+   * invalid chunk index and reason token, the coverage scope,
+   * range and counts, and the provider failure's failover
+   * attempts — the body of any model response
    * never enters the record. */
   failureMessage?: string;
 }): AgentRunStepLiveDetail | undefined {
@@ -407,6 +472,8 @@ export function buildStepLiveDetail(input: {
       if (parseFailure) detail.parseFailure = parseFailure;
       const coverageFailure = coverageFailureFromAnalyzerMessage(input.failureMessage);
       if (coverageFailure) detail.coverageFailure = coverageFailure;
+      const providerAttempts = providerAttemptsFromAnalyzerMessage(input.failureMessage);
+      if (providerAttempts) detail.providerAttempts = providerAttempts;
     }
     if (input.toolName === 'web_search_grounding') {
       const query = typeof input.params.query === 'string' ? input.params.query.trim() : '';

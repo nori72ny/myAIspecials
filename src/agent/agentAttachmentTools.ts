@@ -465,6 +465,59 @@ export function parseFailureRepairGuidance(
   }
 }
 
+/** Message-carried provider-attempt evidence (AGORA timeout
+ * observability, diagnosis AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_
+ * 2026-11-23 §5.3), in the same fixed-shape style as the parse
+ * failure above: when a chunk's model call fails after its dispatch
+ * recorded failover attempts, the step's failure message appends
+ * them in one parenthetical — route | model | outcome | error code
+ * | duration ms | transport count per attempt, `-` for an absent
+ * field, attempts separated by `; `. The advancer reads the
+ * parenthetical back into the step's live detail; the terminal code
+ * stays the leading token, exactly as before. Only fields that match
+ * the strict shapes below are encoded at all (the values arrive
+ * pre-whitelisted from the provider layer; this is defense in depth
+ * so a malformed value can never smuggle free text into the record
+ * through the message), and at most six attempts are carried. */
+const ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+const ANALYZER_ATTEMPT_MODEL_ID_PATTERN = /^[A-Za-z0-9@][A-Za-z0-9@/_:.+-]{0,127}$/;
+const ANALYZER_ATTEMPT_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,119}$/;
+const ANALYZER_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
+  'succeeded',
+  'availability-error',
+  'failed',
+  'skipped',
+]);
+const ANALYZER_ATTEMPT_MAX_CARRIED = 6;
+
+export function analyzerProviderFailureMessage(
+  result: Extract<AgentModelCallResult, { ok: false }>,
+): string {
+  const attempts = result.providerAttempts ?? [];
+  const encoded: string[] = [];
+  for (const attempt of attempts) {
+    if (encoded.length >= ANALYZER_ATTEMPT_MAX_CARRIED) break;
+    if (!attempt || typeof attempt !== 'object') continue;
+    if (!ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(attempt.providerId)) continue;
+    if (!ANALYZER_ATTEMPT_OUTCOMES.has(attempt.outcome)) continue;
+    const modelId = attempt.modelId !== undefined && ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(attempt.modelId)
+      ? attempt.modelId
+      : '-';
+    const errorCode = attempt.errorCode !== undefined && ANALYZER_ATTEMPT_ERROR_CODE_PATTERN.test(attempt.errorCode)
+      ? attempt.errorCode
+      : '-';
+    const durationMs = typeof attempt.durationMs === 'number' && Number.isInteger(attempt.durationMs) && attempt.durationMs >= 0
+      ? String(attempt.durationMs)
+      : '-';
+    const transport = typeof attempt.transportRequestCount === 'number'
+      && Number.isInteger(attempt.transportRequestCount) && attempt.transportRequestCount >= 0
+      ? String(attempt.transportRequestCount)
+      : '-';
+    encoded.push([attempt.providerId, modelId, attempt.outcome, errorCode, durationMs, transport].join('|'));
+  }
+  return encoded.length > 0 ? `${result.code} (attempts: ${encoded.join('; ')})` : result.code;
+}
+
 type PriorBundle = ChunkOutput & {
   /** The predecessor chain's recorded processed-chunk count (its
    * artifact coverage block). The final step of a file-name-key rows
@@ -698,7 +751,7 @@ export async function executeAttachmentAnalyzer(
     // (design §2-C) assigns the chunk deterministically, including
     // across a resume that replays the step.
     const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction, chunkIndex: chunk.index });
-    if (first.ok === false) return fail(first.code);
+    if (first.ok === false) return fail(analyzerProviderFailureMessage(first));
     const firstParsed = parseChunkOutputDetailed(outputKind, first.text, view);
     let output: ChunkOutput | null = firstParsed.ok ? firstParsed.output : null;
     if (firstParsed.ok === false) {
@@ -713,7 +766,7 @@ export async function executeAttachmentAnalyzer(
         goal: goalInstruction,
         chunkIndex: chunk.index,
       });
-      if (repair.ok === false) return fail(repair.code);
+      if (repair.ok === false) return fail(analyzerProviderFailureMessage(repair));
       const repairParsed = parseChunkOutputDetailed(outputKind, repair.text, view);
       if (repairParsed.ok === false) {
         // Observability (Basel fix, diagnosis §4): the terminal code
