@@ -4,7 +4,9 @@
    ORI in navy, GIN in slate blue, a small navy bow on the second I, and a gold
    ribbon line flowing under the word. Colors were sampled from the approved
    reference image and from the mark asset itself:
-   navy #182d5f, slate #4f6c9b, gold #d7b253, cream #fdf0e0. */
+   navy #182d5f, slate #4f6c9b, gold #d7b253. The mark artwork is transparent
+   (2026-11-22); dark surfaces get the paired white variant instead of a
+   plate behind the lockup. */
 
 .origin-brand-lockup {
   display: inline-flex;
@@ -42,16 +44,31 @@
   height: 100%;
   user-select: none;
   -webkit-user-drag: none;
-  /* Circular presentation (owner request 2026-11-19): the mark asset
-     carries its cream plate baked in as a near-full-bleed rounded square,
-     which read as a tacky orange tile behind the ribbon. Clipping the
-     mark to a circle drops the square silhouette entirely — the ribbon
-     artwork itself sits well inside the inscribed circle (max radius
-     ~211 of 256 in the 512px asset), so nothing of the mark is cut —
-     and the soft drop-shadow below lets the round mark float slightly
-     off the surface instead of sitting on a plate. */
-  border-radius: 50%;
+  /* Transparent artwork (owner request 2026-11-22): the cream plate that
+     used to be baked into the asset is removed, so no clipping is needed
+     anymore — the 2026-11-19 circular clip that hid the square plate is
+     retired with it. Only the soft drop-shadow remains, letting the
+     ribbon float slightly off the surface. */
   filter: drop-shadow(0 12px 24px rgb(9 34 76 / 22%));
+}
+
+/* Paired mark variants (OriginCatState pattern): the light artwork is
+   the default; on themed surfaces (the header lockup) the dark theme
+   swaps in the white variant with the identical silhouette, because the
+   navy ribbon sinks into dark surfaces. The splash lockup is excluded:
+   its overlay surface is always white (ultra-optics.css), in dark
+   themes too, so the splash keeps the navy artwork in every theme.
+   Exactly one of the pair is ever visible. */
+.origin-ribbon-logo__mark--dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-logo__mark--light {
+  display: none;
+}
+
+:root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-logo__mark--dark {
+  display: block;
 }
 
 /* The header shows the mark at bar size, so its shadow quiets down there. */
@@ -59,31 +76,26 @@
   filter: drop-shadow(0 3px 8px rgb(9 34 76 / 20%));
 }
 
-/* In the dark theme the navy wordmark would sink into the dark header, so
-   the header lockup sits on a small cream plate (the brand surface) instead
-   of recoloring the approved wordmark. The !important declarations are
-   required because index.css carries a blanket dark-theme layer that
-   forces every header descendant's color and [class*="header"] background
-   with !important; the plate re-asserts the approved brand colors.
-   2026-11-20 external design review follow-up: the full-brightness cream
-   plate read as pasted onto the dark header, so the plate is muted one
-   step toward the dark-muted palette used by the cat pedestal's dark
-   treatment (#f0e2c6 keeps the navy/slate letters at full contrast) and
-   given a soft dark shadow so it sits into the surface. The mark artwork
-   itself is unchanged. */
-:root[data-theme="dark"] .origin-brand-lockup.origin-brand-lockup--header {
-  background: #f0e2c6 !important;
-  border-radius: 10px;
-  padding: 3px 9px 4px 4px;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 38%);
-}
-
+/* Dark theme (2026-11-22, transparent-logo follow-up): the cream plate
+   that used to sit under the header lockup is gone with the baked-in
+   plate in the artwork. Instead of a plate, the wordmark itself takes
+   the dark theme's text tokens — primary for ORI, secondary for GIN, so
+   the two-tone split survives — and the bow follows the primary tone.
+   The !important declarations are required because index.css carries a
+   blanket dark-theme layer that forces header descendants' colors with
+   !important, and the sidebar lockup sits outside any header element,
+   where that blanket layer does not reach. The gold line is unchanged:
+   it reads on dark surfaces as-is. */
 :root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--navy {
-  color: #182d5f !important;
+  color: var(--text-primary) !important;
 }
 
 :root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__letter--slate {
-  color: #4f6c9b !important;
+  color: var(--text-secondary) !important;
+}
+
+:root[data-theme="dark"] .origin-brand-lockup--header .origin-ribbon-wordmark__bow {
+  fill: var(--text-primary);
 }
 
 .origin-ribbon-wordmark {

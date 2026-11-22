@@ -9,7 +9,8 @@ export interface SplashScreenProps {
 }
 
 const SESSION_KEY = 'origin_personal_splash_seen_v1';
-const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261108';
+const STARTUP_BRAND_MARK_SRC = '/brand/origin-ribbon-o.webp?v=ribbon-20261122';
+const STARTUP_BRAND_MARK_DARK_SRC = '/brand/origin-ribbon-o-dark.webp?v=ribbon-20261122';
 
 /**
  * The entrance sequence (mark, letters, gold line) completes within this:
@@ -86,7 +87,7 @@ export default function SplashScreen({ ready = false, oncePerSession = true }: S
     >
       <div className="origin-ultra-splash__aurora" aria-hidden="true" />
       <div className="origin-ultra-splash__content">
-        <OriginBrandLockup variant="splash" markSrc={STARTUP_BRAND_MARK_SRC} />
+        <OriginBrandLockup variant="splash" markSrc={STARTUP_BRAND_MARK_SRC} markDarkSrc={STARTUP_BRAND_MARK_DARK_SRC} />
       </div>
     </div>
   );

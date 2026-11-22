@@ -53,10 +53,11 @@
 }
 
 /* Startup splash shell. The splash background is plain white, matching
-   the app surface (--bg-primary in the light theme) and the white baked
-   into the ribbon mark asset, so the splash hands off to the main screen
-   without a color jump (owner request 2026-11-16); SplashScreen owns the
-   display timing in JS (no CSS-timed dismissal here). */
+   the app surface (--bg-primary in the light theme), so the splash hands
+   off to the main screen without a color jump (owner request 2026-11-16);
+   the ribbon mark is transparent since 2026-11-22 and the splash keeps
+   its navy artwork on this white surface in every theme. SplashScreen
+   owns the display timing in JS (no CSS-timed dismissal here). */
 .origin-ultra-splash {
   position: fixed;
   inset: 0;

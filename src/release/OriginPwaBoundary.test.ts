@@ -48,6 +48,7 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("'/pwa-maskable-512.png'");
     expect(worker).toContain("'/apple-touch-icon.png'");
     expect(worker).toContain("'/brand/origin-ribbon-o.webp'");
+    expect(worker).toContain("'/brand/origin-ribbon-o-dark.webp'");
     expect(worker).toContain("'/brand/origin-ribbon-o-small.webp'");
     expect(worker).toContain("'/brand/origin-cat-thinking.webp'");
     expect(worker).not.toContain('origin-sunrise-mark');
@@ -62,6 +63,14 @@ describe('ORIGIN PWA boundary', () => {
     expect(cat.subarray(8, 12).toString('ascii')).toBe('WEBP');
     expect(mark.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(mark.subarray(8, 12).toString('ascii')).toBe('WEBP');
+    // 透過ロゴ（2026-11-22）：地は無く、アルファチャンネルを持つことが
+    // マークの成立条件。ALPH チャンクの存在で固定する。ダーク用マークも
+    // 同じく透過 WEBP で、プリキャッシュに載る。
+    expect(mark.toString('latin1')).toContain('ALPH');
+    const darkMark = readFileSync(resolve(process.cwd(), 'public/brand/origin-ribbon-o-dark.webp'));
+    expect(darkMark.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(darkMark.subarray(8, 12).toString('ascii')).toBe('WEBP');
+    expect(darkMark.toString('latin1')).toContain('ALPH');
   });
 
   it('registers only in a secure top-level browsing context', () => {
