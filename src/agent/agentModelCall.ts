@@ -22,6 +22,17 @@ import { OriginProviderError } from '../legacy/originProviderClient.js';
  * assembled instruction that would press against its tokens/minute
  * ceiling.
  *
+ * Every call through this adapter is an analyzer chunk call, so the
+ * request carries the route-3 capacity allocation hint
+ * (groqCapacityAllocation): while the D-1 switch
+ * (ORIGIN_GROQ_PACING_ALLOCATION_ENABLED) is on, the Groq executor
+ * plans these calls onto the rotation model's separate quota bucket
+ * and paces them against the per-minute windows — this call kind is
+ * the one whose output is verified mechanically downstream, which is
+ * what qualifies it for the weaker bucket. With the switch off (the
+ * default), the hint is inert and the routing above is inherited
+ * exactly, unchanged.
+ *
  * Failures are returned as provider error codes, never thrown and
  * never paraphrased: the caller (the analyzer tool) turns the code
  * into the step's failure so the run record names the real reason
@@ -59,6 +70,7 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
         plan: planned.plan,
         systemInstruction: input.instruction,
         groqSystemInstruction: input.instruction,
+        groqCapacityAllocation: 'agent-analyzer-chunk',
         messages: [{ role: 'user', content: input.userText }],
       }, env);
       const text = typeof result.text === 'string' ? result.text : '';
