@@ -14,6 +14,8 @@ import {
   type AgentRunQuotaUsageSnapshot,
 } from './agentRunQuotaGate.js';
 import { diffAgentRunPlans, type AgentRunPlanStepInput } from './agentRunPlanDiff.js';
+import type { AgentToolStepV3 } from './agentToolPlannerV3.js';
+import type { ToolName } from './toolRegistry.js';
 
 /**
  * Piggyback evaluation of held runs (multitask Phase 1, PR 1-G; design
@@ -79,14 +81,34 @@ export interface AgentRunReplannedGoal {
 }
 
 /**
- * Re-planning is the orchestrator's planner plumbing (the same helpers
+ * The outcome of re-planning one held run (resume attachment support;
+ * design AGENT_RESUME_ATTACHMENT_DESIGN_2026-11-22 §4.1). Re-planning
+ * is the full /plan pipeline, not just the goal-only planner: for an
+ * attachment-bound run it reloads the bound set under the run's own
+ * owner binding and re-runs the augmentation, so a set that still
+ * matches reproduces the stored plan byte-identically, while a set
+ * that is gone or unreadable is reported as its own outcome — never
+ * silently replaced by a goal-only plan (the failure this design
+ * exists to fix). `attachment_too_large` means the bound data can no
+ * longer be planned at all, which the evaluator maps onto the same
+ * bucket as an unplannable goal: no retry can fix it, so it must not
+ * wait in a transient bucket.
+ */
+export type AgentRunReplanOutcome =
+  | ({ kind: 'planned'; plannedSteps: readonly AgentToolStepV3[] } & AgentRunReplannedGoal)
+  | { kind: 'unplannable'; code: string; candidates: readonly ToolName[] }
+  | { kind: 'attachment_unavailable' }
+  | { kind: 'attachment_too_large'; chunkCount: number; limit: number; limitKind: 'chunks' | 'steps'; stepCount?: number };
+
+/**
+ * Re-planning is the orchestrator's planner plumbing (the same helper
  * the manual resume endpoint uses, so both paths produce byte-identical
- * steps and digests for the same goal). Injected so this module stays
- * free of the HTTP layer.
+ * steps and digests for the same goal). It reads the attachment store
+ * for attachment-bound runs, so it is asynchronous. Injected so this
+ * module stays free of the HTTP layer.
  */
 export interface AgentRunReplanPort {
-  /** Returns null when the goal can no longer be planned at all. */
-  replan(goal: string): AgentRunReplannedGoal | null;
+  replan(record: AgentRunRecord, ownerBinding: string): Promise<AgentRunReplanOutcome>;
 }
 
 export interface AgentRunPiggybackDeps {
@@ -116,6 +138,9 @@ export interface AgentRunPiggybackSummary {
   unplanned: string[];
   /** Held runs whose goal the current planner can no longer plan. */
   plannerFailed: string[];
+  /** Held runs whose bound attachment set can no longer be read (gone,
+   * expired, deleted or unreadable): held, honestly, and not an error. */
+  attachmentUnavailable: string[];
   /** Runs a concurrent transition won first; evaluation lost the race honestly. */
   contended: string[];
   /** Held runs whose condition kind this evaluator does not judge (manual/dependency/condition). */
@@ -204,11 +229,22 @@ async function evaluateHeldRun(
     summary.unplanned.push(record.runId);
     return;
   }
-  const replanned = deps.replan.replan(record.goal.trim());
-  if (!replanned) {
+  const outcome = await deps.replan.replan(record, ownerBinding);
+  if (outcome.kind === 'unplannable' || outcome.kind === 'attachment_too_large') {
+    // Neither can be fixed by waiting: the goal no longer plans, or the
+    // bound data no longer fits a plan. Both wait for a human on the
+    // same terms (design §4.4).
     summary.plannerFailed.push(record.runId);
     return;
   }
+  if (outcome.kind === 'attachment_unavailable') {
+    // The bound set is gone or unreadable. Not an evaluation error —
+    // the run stays held and a human decides; falling back to a
+    // goal-only plan here would re-create the original failure.
+    summary.attachmentUnavailable.push(record.runId);
+    return;
+  }
+  const replanned = outcome;
   const planDiff = diffAgentRunPlans(record.plan, replanned.steps);
   if (planDiff.changed || replanned.planDigest !== record.planDigest) {
     summary.planChanged.push(record.runId);
@@ -249,6 +285,7 @@ export async function evaluateAgentRunPiggyback(
     planChanged: [],
     unplanned: [],
     plannerFailed: [],
+    attachmentUnavailable: [],
     contended: [],
     skippedCondition: [],
     errors: [],

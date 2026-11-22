@@ -15,11 +15,12 @@ import { planAgentToolsV3, type AgentToolStepV3 } from './agentToolPlannerV3.js'
 import { agentOperatorAuthorizationModeV3, agentOperatorConfiguredV3, authenticateAgentOperatorV3 } from './agentOperatorAuthV3.js';
 import type { AgentCodeDelegationPort } from './agentCodingDelegationV14.js';
 import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRunAdvancer.js';
-import { evaluateAgentRunPiggyback, type AgentRunPiggybackSummary, type AgentRunReplanPort } from './agentRunPiggybackEvaluation.js';
+import { evaluateAgentRunPiggyback, type AgentRunPiggybackSummary, type AgentRunReplanOutcome, type AgentRunReplanPort } from './agentRunPiggybackEvaluation.js';
 import type { AgentRunWriteLockStore } from './agentRunWriteLock.js';
 import { diffAgentRunPlans } from './agentRunPlanDiff.js';
 import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
 import {
+  agentRunPlanAttachmentSetId,
   isAgentRunRecordStatus,
   MAX_AGENT_RUN_TTL_MS,
   normalizeAgentRunHold,
@@ -892,23 +893,86 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     return attachmentStoreUnavailable(res);
   };
 
+  // Attachment-aware re-planning (resume attachment support; design
+  // AGENT_RESUME_ATTACHMENT_DESIGN_2026-11-22 §4.1): the single
+  // re-plan helper the manual resume endpoint and the piggyback
+  // evaluator share, so both produce byte-identical steps and digests
+  // for the same run. "The planner's output" for §8.4's comparison is
+  // the whole /plan pipeline — planAgentToolsV3 → plannedStepsForGoal
+  // → augmentPlanWithAttachments — so an attachment-bound run reloads
+  // its bound set under the run's own owner binding, rebuilds the data
+  // view and set digest deterministically, and re-runs the
+  // augmentation. A set that is gone, expired, deleted, claimed by
+  // another run, empty or unreadable is reported as
+  // `attachment_unavailable`: there is deliberately no goal-only
+  // fallback, because presenting a data-less plan for a data-bound run
+  // is the failure this design fixes. Goal-only runs take the exact
+  // pre-existing path and never touch the attachment store. Store
+  // failures throw; each caller maps them onto its own contract
+  // (manual resume: the attachment 503; piggyback: the per-run error
+  // isolation).
+  async function replanRunGoal(record: AgentRunRecord, ownerBinding: string): Promise<AgentRunReplanOutcome> {
+    const goal = record.goal.trim();
+    const setId = agentRunPlanAttachmentSetId(record.plan);
+    if (!setId) {
+      const planned = planAgentToolsV3(goal);
+      if ('code' in planned) return { kind: 'unplannable', code: planned.code, candidates: planned.candidates };
+      const steps = plannedStepsForGoal(goal, planned.steps);
+      return { kind: 'planned', steps, plannedSteps: planned.steps, plan: planSnapshotFromSteps(steps), planDigest: canonicalParamsDigest(steps) };
+    }
+    if (!agentAttachmentsEnabled(env) || !attachmentStore) return { kind: 'attachment_unavailable' };
+    const set = await attachmentStore.getSet(setId, ownerBinding);
+    if (!set) return { kind: 'attachment_unavailable' };
+    if (set.status === 'deleted') return { kind: 'attachment_unavailable' };
+    // A set claimed by a different run is not this run's data. An open
+    // set is admissible: the claim is best-effort, and being readable
+    // under the run's own binding is itself the ownership proof — the
+    // same condition the execution-time tools read under.
+    if (set.status === 'claimed' && set.claimedRunId !== record.runId) return { kind: 'attachment_unavailable' };
+    if (set.files.length === 0) return { kind: 'attachment_unavailable' };
+    const files: { name: string; text: string }[] = [];
+    for (const file of set.files) {
+      const text = await attachmentStore.getFileText(setId, ownerBinding, file.idx);
+      if (text === null) return { kind: 'attachment_unavailable' };
+      files.push({ name: file.name, text });
+    }
+    const view = buildAgentAttachmentDataView(files);
+    const setDigest = computeAgentAttachmentSetDigest(set.files);
+    const planned = planAgentToolsV3(goal);
+    if ('code' in planned) return { kind: 'unplannable', code: planned.code, candidates: planned.candidates };
+    const augmented = augmentPlanWithAttachments({
+      goal,
+      plannedSteps: planned.steps,
+      steps: plannedStepsForGoal(goal, planned.steps),
+      setId,
+      setDigest,
+      view,
+    });
+    if (augmented.ok === false) {
+      return {
+        kind: 'attachment_too_large',
+        chunkCount: augmented.chunkCount,
+        limit: augmented.limit,
+        limitKind: augmented.limitKind,
+        ...(augmented.stepCount !== undefined ? { stepCount: augmented.stepCount } : {}),
+      };
+    }
+    const steps: AgentStepInputV3[] = augmented.steps;
+    return { kind: 'planned', steps, plannedSteps: augmented.plannedSteps, plan: planSnapshotFromSteps(steps), planDigest: canonicalParamsDigest(steps) };
+  }
+
   // Piggyback evaluation (multitask Phase 1, PR 1-G; design §2.3, §8.5):
   // the owner-scoped run reads below first re-examine the owner's held
   // and approval-lapsed runs, so the response reflects the freshest
-  // state. The re-plan port reuses the resume endpoint's planner helpers
-  // verbatim — automatic and manual resumes produce byte-identical
-  // steps and digests for the same goal. Best-effort by construction:
+  // state. The re-plan port is the shared attachment-aware helper
+  // above — automatic and manual resumes produce byte-identical
+  // steps and digests for the same run. Best-effort by construction:
   // any failure collapses to "no evaluation happened" and the read
   // proceeds exactly as before. The evaluator itself never executes
   // anything (design §8): its strongest move is held ->
   // awaiting_approval, after which a human still has to approve.
   const runReplanPort: AgentRunReplanPort = {
-    replan(goal: string) {
-      const planned = planAgentToolsV3(goal);
-      if ('code' in planned) return null;
-      const steps = plannedStepsForGoal(goal, planned.steps);
-      return { steps, plan: planSnapshotFromSteps(steps), planDigest: canonicalParamsDigest(steps) };
-    },
+    replan: (record, ownerBinding) => replanRunGoal(record, ownerBinding),
   };
   const runPiggybackEvaluation = async (ownerBinding: string): Promise<AgentRunPiggybackSummary | null> => {
     // Attachment expiry sweep (file-input foundation F1, design §2.3):
@@ -997,9 +1061,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       // the 24-hour unclaimed expiry. Best-effort by design: the claim
       // resolves under the run's owner binding, which is the binding
       // the data steps will read through.
-      const claimedSetId = created.plan
-        ?.map((step) => step.params.attachmentSetId)
-        .find((value): value is string => typeof value === 'string' && value.length > 0);
+      const claimedSetId = agentRunPlanAttachmentSetId(created.plan) ?? undefined;
       if (attachmentStore && claimedSetId) {
         const claimExpiresAt = created.expiresAt + AGENT_ATTACHMENT_CLAIMED_GRACE_MS;
         const claimed = await attachmentStore.claimSet(
@@ -1425,13 +1487,44 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_NOT_HELD', runId, run: publicAgentRunView(record), ...runEnvelope });
     }
 
-    const planned = planAgentToolsV3(record.goal.trim());
-    if ('code' in planned) {
+    // Attachment-aware re-plan (design AGENT_RESUME_ATTACHMENT_
+    // DESIGN_2026-11-22 §4.5): the same helper the piggyback evaluator
+    // uses, so a manual resume and an automatic pass over the same run
+    // reach the same plan. The new outcomes refuse honestly and leave
+    // the run held — an unreadable bound set conflicts with the run's
+    // current state (409, the same family as AGENT_RUN_ALREADY_EXISTS),
+    // and oversize data is refused in the /plan refusal's shape (422).
+    // Neither stores a plan.
+    let replanOutcome: AgentRunReplanOutcome;
+    try {
+      replanOutcome = await replanRunGoal(record, resolved.auth.ownerBinding);
+    } catch (error) {
+      return attachmentStoreFailure(res, 'resume-replan', error);
+    }
+    if (replanOutcome.kind === 'attachment_unavailable') {
+      return res.status(409).json({ ok: false, code: 'AGENT_ATTACHMENT_UNAVAILABLE', protocolVersion: 3, runId, run: publicAgentRunView(record), ...runEnvelope });
+    }
+    if (replanOutcome.kind === 'attachment_too_large') {
+      return res.status(422).json({
+        ok: false,
+        code: 'AGENT_ATTACHMENT_TOO_LARGE',
+        protocolVersion: 3,
+        runId,
+        chunkCount: replanOutcome.chunkCount,
+        limit: replanOutcome.limit,
+        limitKind: replanOutcome.limitKind,
+        ...(replanOutcome.stepCount !== undefined ? { stepCount: replanOutcome.stepCount } : {}),
+        run: publicAgentRunView(record),
+        ...runEnvelope,
+      });
+    }
+    if (replanOutcome.kind === 'unplannable') {
       // The goal can no longer be planned (planner rules changed, or the
       // goal was always ambiguous): the run stays held, honestly.
-      return res.status(422).json({ ok: false, code: planned.code, protocolVersion: 3, runId, candidates: planned.candidates, run: publicAgentRunView(record), ...runEnvelope });
+      return res.status(422).json({ ok: false, code: replanOutcome.code, protocolVersion: 3, runId, candidates: replanOutcome.candidates, run: publicAgentRunView(record), ...runEnvelope });
     }
-    const steps = plannedStepsForGoal(record.goal.trim(), planned.steps);
+    const steps: AgentStepInputV3[] = [...replanOutcome.steps];
+    const plannedSteps = replanOutcome.plannedSteps;
     const planDiff = diffAgentRunPlans(record.plan, steps);
     const newPlanDigest = canonicalParamsDigest(steps);
     // Step progress only carries over when the re-plan is exactly the
@@ -1462,7 +1555,7 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       // race; nothing about this request's re-plan was stored.
       return res.status(409).json({ ok: false, code: 'AGENT_RUN_VERSION_CONFLICT', runId });
     }
-    return resumeResponse(transitioned, steps, planned.steps, false, resumeNowMs);
+    return resumeResponse(transitioned, steps, plannedSteps, false, resumeNowMs);
   });
 
   router.post('/api/agent/v3/runs/:runId/resume/confirm', agentV3RateLimitGuard, agentV3RateLimiter, async (req, res) => {

@@ -293,8 +293,10 @@ describe('quota hold resume-attempt chain (design §8.6, PR 1-G)', () => {
     // At the cap the piggyback evaluator leaves the run to a human,
     // even though its condition kind (quota_reset) is evaluable.
     const replan: AgentRunReplanPort = {
-      replan: () => ({
+      replan: async () => ({
+        kind: 'planned',
         steps: [{ toolName: 'web_search_grounding', params: { query: 'blocked' } }],
+        plannedSteps: [{ toolName: 'web_search_grounding', reasonCode: 'test-plan' }],
         plan: [{ toolName: 'web_search_grounding', params: { query: 'blocked' }, dependsOn: [] }],
         planDigest: seeded.planDigest!,
       }),

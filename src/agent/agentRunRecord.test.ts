@@ -10,6 +10,7 @@ import {
   MAX_AGENT_RUN_LIVE_SOURCES,
   AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP,
   agentRateLimitHoldEnabled,
+  agentRunPlanAttachmentSetId,
   assertAgentRunStatusTransition,
   canTransitionAgentRunStatus,
   isAgentRunTerminalStatus,
@@ -342,5 +343,43 @@ describe('rate-limit hold record shapes (design CAPACITY_RATE_LIMIT_QUANTIFICATI
     expect(agentRateLimitHoldEnabled({ ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED: 'TRUE' })).toBe(false);
     expect(agentRateLimitHoldEnabled({ ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED: '1' })).toBe(false);
     expect(agentRateLimitHoldEnabled({})).toBe(false);
+  });
+});
+
+describe('agentRunPlanAttachmentSetId (resume attachment support, design §4.2)', () => {
+  const SET_ID = 'att-12345678-abcd-4ef0-9abc-def012345678';
+  const SET_DIGEST = 'f'.repeat(64);
+
+  it('reads the binding from a data step of the stored plan', () => {
+    const bound: AgentRunPlanStep[] = [
+      { toolName: 'attachment_reader', params: { attachmentSetId: SET_ID, setDigest: SET_DIGEST }, dependsOn: [] },
+      { toolName: 'attachment_analyzer', params: { attachmentSetId: SET_ID, setDigest: SET_DIGEST }, dependsOn: [0] },
+      { toolName: 'document_generator', params: { title: 'Report' }, dependsOn: [1] },
+    ];
+    expect(agentRunPlanAttachmentSetId(bound)).toBe(SET_ID);
+  });
+
+  it('returns null for a goal-only plan and for a missing plan', () => {
+    expect(agentRunPlanAttachmentSetId(plan)).toBeNull();
+    expect(agentRunPlanAttachmentSetId(null)).toBeNull();
+    expect(agentRunPlanAttachmentSetId([])).toBeNull();
+  });
+
+  it('never throws on malformed steps: missing params, wrong types and empty strings all read as unbound', () => {
+    const malformed = [
+      { toolName: 'attachment_reader', dependsOn: [] },
+      { toolName: 'attachment_reader', params: null, dependsOn: [] },
+      { toolName: 'attachment_reader', params: { attachmentSetId: 42 }, dependsOn: [] },
+      { toolName: 'attachment_reader', params: { attachmentSetId: '' }, dependsOn: [] },
+      null,
+      undefined,
+    ] as unknown as AgentRunPlanStep[];
+    expect(agentRunPlanAttachmentSetId(malformed)).toBeNull();
+    // A later well-formed step still yields its binding.
+    const mixed = [
+      ...malformed,
+      { toolName: 'attachment_reader', params: { attachmentSetId: SET_ID }, dependsOn: [] },
+    ] as unknown as AgentRunPlanStep[];
+    expect(agentRunPlanAttachmentSetId(mixed)).toBe(SET_ID);
   });
 });

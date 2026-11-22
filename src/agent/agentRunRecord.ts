@@ -421,6 +421,25 @@ export type NormalizedAgentRunStepArtifactInput = PutAgentRunStepArtifactInput &
  * mismatch as "no artifact", so a re-plan can never silently reuse a
  * different step's output.
  */
+/**
+ * The attachment set a stored plan is bound to, if any (resume
+ * attachment support; design AGENT_RESUME_ATTACHMENT_DESIGN_2026-11-22
+ * §4.2). The binding lives inside the data steps' params — the same
+ * place run creation reads it when claiming the set — so the plan
+ * snapshot alone names the set and no record column duplicates it.
+ * Pure and total: a missing plan, missing params or a non-string /
+ * empty value all read as "no binding" (null), never as an error, so
+ * callers can use it on any record shape a store hands back.
+ */
+export function agentRunPlanAttachmentSetId(plan: readonly AgentRunPlanStep[] | null): string | null {
+  if (!plan) return null;
+  for (const step of plan) {
+    const value = step?.params?.attachmentSetId;
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
 export function computeAgentRunStepFingerprint(toolName: string, params: ToolParams): string {
   if (typeof toolName !== 'string' || !TOOL_NAME_PATTERN.test(toolName)) {
     throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
