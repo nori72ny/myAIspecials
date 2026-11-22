@@ -38,6 +38,7 @@ import { adoptGroundedResearchSynthesis, buildGroundedResearchSynthesisInstructi
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { buildGroundedResearchEvidenceCards } from "../research/groundedResearchEvidenceCards.js";
 import { classifyDirectAnswerVerificationTarget, classifyResearchAnswerVerificationTarget, resolveOriginAnswerVerificationEffectiveMode, runOriginAnswerVerificationShadow, verifyOriginAnswerCrossRoute, type OriginAnswerVerificationDailyUsageReader, type OriginAnswerVerificationSource } from "./originAnswerVerification.js";
+import { resolveOriginIntentPremiseGuardEffectiveMode, runOriginIntentPremiseGuardShadow } from "./originIntentPremiseGuard.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
@@ -1722,6 +1723,26 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             };
           }
         }
+      }
+      // Intent premise guard (I5-PR1, shadow; design INTENT_I5_DESIGN
+      // sections 3-4): deterministic post-generation checks over the
+      // premise ledger derived from this request's messages — C-1
+      // old-value reuse, C-2 stable-fact applied value, C-4
+      // fabricated-citation form. Shadow only logs counts and never
+      // alters the delivered text; mode off (the default) skips this
+      // block entirely, so behaviour is exactly as before. Held
+      // answers are gate templates, not model premises, so they are
+      // not checked.
+      if (
+        resolveOriginIntentPremiseGuardEffectiveMode(env) === "shadow" &&
+        !publicationGate.held
+      ) {
+        runOriginIntentPremiseGuardShadow({
+          requestId,
+          messages,
+          answerText: deliverableText,
+          nowMs: now(),
+        });
       }
       const verificationStatus: OriginAnswerVerificationStatus = directVerificationEnvelope?.status ?? (reviewDecision.required ? "not-run" : "not-required"); const verificationReason = directVerificationEnvelope?.summary ?? (reviewDecision.required ? "独立確認が必要な依頼ですが、条件を満たす無料の別AIを利用できないため実施していません。" : "この依頼では、追加の独立確認を必須と判定していません。"); const limitations = reviewDecision.required && directVerificationEnvelope?.status !== "passed" ? [directVerificationEnvelope?.limitation ?? "独立した別AIによる確認を実施していないため、重要な判断にはそのまま使用しないでください。"] : []; const nextActions = reviewDecision.required && !directVerificationEnvelope ? ["条件を満たす無料の独立レビュー経路が利用可能になった後、再確認してください。"] : [];
       // Truncated answers (PKG-2): the answer ended at the output limit even

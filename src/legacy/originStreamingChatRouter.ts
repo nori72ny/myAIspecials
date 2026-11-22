@@ -45,6 +45,10 @@ import {
   verifyOriginAnswerCrossRoute,
   type OriginAnswerVerificationDailyUsageReader,
 } from "./originAnswerVerification.js";
+import {
+  resolveOriginIntentPremiseGuardEffectiveMode,
+  runOriginIntentPremiseGuardShadow,
+} from "./originIntentPremiseGuard.js";
 import { applyOriginUngroundedAssertionGate, originAnswerNeedsAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
 import {
   buildProposalDeckChatArtifact,
@@ -645,6 +649,29 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
           }, { env, nowMs: now(), verify: options.answerVerification?.verify, readDailyNeuronsUsed: options.answerVerification?.readDailyNeuronsUsed });
           answerVerification = verificationOutcome.metadata;
         }
+      }
+      // Intent premise guard (I5-PR1, shadow; design INTENT_I5_DESIGN
+      // sections 3-4): the same deterministic ledger checks as the
+      // blocking router — C-1 old-value reuse, C-2 stable-fact applied
+      // value, C-4 fabricated-citation form — over the delivered text.
+      // The I-1 measurement runner uses this streaming path, so this
+      // wiring is what makes the guard observable in R4. Shadow only
+      // logs; the stream above is exactly what mode off would have
+      // sent. Gate-held answers and deck paths stay out of scope,
+      // mirroring the verification block above.
+      if (
+        resolveOriginIntentPremiseGuardEffectiveMode(env) === "shadow" &&
+        publicationGateAnswerText !== null &&
+        publicationGateOutcome?.held !== true &&
+        !deckRequested &&
+        !deckRecordsPlan
+      ) {
+        runOriginIntentPremiseGuardShadow({
+          requestId,
+          messages,
+          answerText: publicationGateAnswerText,
+          nowMs: now(),
+        });
       }
       console.info("[origin-chat] upstream stream completed", {
         requestId,

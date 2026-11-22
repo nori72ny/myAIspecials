@@ -1,0 +1,859 @@
+/**
+ * Intent premise guard (I-5, PR1: ledger + shadow checks).
+ *
+ * Background (I-1 measurements R1-R3, 2026-11-21/22): the intent
+ * incorporation fixes I-2/I-3/I-4 are prompt text, and prompt text only
+ * holds probabilistically. Three failure classes survived every round:
+ * (1) a corrected premise is not carried forward — the answer keeps
+ * computing on the superseded value (REP-02: after 参加者50人→30人 the
+ * next answer still derives 50脚）; (2) a stable fact is *stated*
+ * correctly and then not *applied* — REP-01 round 3 opens with
+ * 「消費税率は現在10%ですが」 and still computes the whole answer at
+ * 15%; (3) fabricated citation shapes (〔出典: 公式税率計算例〕 with no
+ * URL) dress up wrong values as sourced. The design
+ * (INTENT_I5_DESIGN_2026-11-22) moves "corrected-premise persistence"
+ * and "stable-fact application" from prompt policy to deterministic
+ * code. This module is that code.
+ *
+ * What this module does, deterministically (no model call, no I/O, no
+ * new storage — the ledger is re-derived from the request's messages
+ * on every call, so nothing is retained):
+ * - extractOriginPremiseLedger: premise ledger extraction as a pure
+ *   function of the conversation: (a) user corrections (numeric
+ *   re-assertions under a correction marker, categorical replacements
+ *   including weak comparative corrections such as 「温泉より街歩きの
+ *   方がいい」), (b) ORIGIN's own corrections (stable-fact statements
+ *   and nonexistence statements in assistant turns), (c) user
+ *   attributes. Extraction patterns are deliberately narrow; a missed
+ *   correction is a known limitation, a false ledger entry is not
+ *   acceptable (the acceptance gate is zero false positives on the
+ *   R1-R3 replay).
+ * - C-1 old-value reuse: the answer operatively uses a superseded
+ *   numeric value from a user-correction entry. Negation/correction
+ *   clauses and explicitly framed hypothetical clauses are excused.
+ * - C-2 stable-fact applied value: for registry concepts (initially
+ *   the consumption tax rate only), the rate actually *applied* in the
+ *   answer's calculation (multiplication factors first, then the rate
+ *   implied by a 税抜/税込 or 税額 pair, then — only when no
+ *   calculation signal exists — explicit rate statements) must be one
+ *   of the registry values. Judging the applied value, not whether a
+ *   correction was stated, is what closes the REP-01 split. A user
+ *   turn that explicitly frames a hypothetical （仮の話/もし/仮に/仮定）
+ *   fences the check for that turn (FP-04).
+ * - C-4 fabricated-citation form: a URL-less 〔出典: …〕 bracket whose
+ *   label claims an authoritative source shape （公式/税率/消費税/
+ *   計算方法/計算例/法令）. Narrowing note: the I-1 corpus shows
+ *   URL-less brackets are also used for self-described general
+ *   knowledge （「…に関する一般的知見」) and examples （例示データ）,
+ *   including in must-not-fire records (CORR-01 R2), so the check
+ *   fires only on authority-claiming labels; a label that says
+ *   "general knowledge" does not fabricate a source.
+ * C-3 (category residue) is intentionally not in this PR (PR4,
+ * conditional on its own replay design).
+ *
+ * Mode: ORIGIN_INTENT_PREMISE_GUARD_MODE=off|shadow|enforce, default
+ * off (mirrors the answer-verification mode discipline). PR1 ships
+ * shadow only: "enforce" resolves as a configured value but the
+ * effective mode stays "shadow" until the enforce PR (I5-PR3) lands,
+ * and both routers only ever log — answers are never altered here.
+ * With the switch off the routers skip the guard entirely, so
+ * behaviour is byte-identical to before this module existed.
+ *
+ * Stable-fact registry entries follow the evidence-catalog discipline
+ * (verifiedAt / reviewAfter / sourceDescription): an entry whose
+ * reviewAfter has passed is inactive — the check fails closed and
+ * stops until the fact is re-confirmed against a primary source.
+ *
+ * Logs carry counts, fixed codes and — for C-2 only — the applied
+ * rate numbers (rates are public registry facts / ratios of stated
+ * prices, never answer text). The runner never throws to its caller:
+ * on an internal failure it logs the error name and reports an empty
+ * result.
+ */
+
+import type { OriginChatMessage } from "./originProviderClient.js";
+
+export type OriginIntentPremiseGuardMode = "off" | "shadow" | "enforce";
+
+export function resolveOriginIntentPremiseGuardMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginIntentPremiseGuardMode {
+  const raw = env?.ORIGIN_INTENT_PREMISE_GUARD_MODE;
+  if (raw === "shadow" || raw === "enforce") return raw;
+  return "off";
+}
+
+export function resolveOriginIntentPremiseGuardEffectiveMode(
+  env: NodeJS.ProcessEnv | undefined,
+): OriginIntentPremiseGuardMode {
+  const configured = resolveOriginIntentPremiseGuardMode(env);
+  // I5-PR1 ships the shadow core only; the enforce entity is I5-PR3.
+  return configured === "enforce" ? "shadow" : configured;
+}
+
+/* ------------------------------------------------------------------ */
+/* Stable-fact registry (evidence-catalog discipline)                  */
+/* ------------------------------------------------------------------ */
+
+export interface OriginStableFactEntry {
+  id: string;
+  /** Terms that bind this concept in user or answer text. */
+  conceptTerms: readonly string[];
+  /** Allowed applied rates (percent numbers) for the concept. */
+  allowedRatesPercent: readonly number[];
+  verifiedAt: string;
+  reviewAfter: string;
+  sourceDescription: string;
+}
+
+export const ORIGIN_STABLE_FACT_REGISTRY: readonly OriginStableFactEntry[] = [
+  {
+    id: "consumption-tax-rate",
+    conceptTerms: ["消費税"],
+    allowedRatesPercent: [10, 8],
+    verifiedAt: "2026-11-22T00:00:00.000Z",
+    reviewAfter: "2026-12-22T00:00:00.000Z",
+    sourceDescription:
+      "日本の消費税率：標準10%・軽減8%。2019年10月1日の軽減税率制度開始以来不変で、国税庁の一次情報（消費税の軽減税率制度・税率案内）に基づき2026-11-22に確認。reviewAfter（2026-12-22）を過ぎたら一次情報で再確認するまで本項目は fail closed（C-2 は停止する）。",
+  },
+];
+
+export function isOriginStableFactEntryActive(
+  entry: OriginStableFactEntry,
+  nowMs: number,
+): boolean {
+  const reviewAfterMs = Date.parse(entry.reviewAfter);
+  return Number.isFinite(reviewAfterMs) && nowMs <= reviewAfterMs;
+}
+
+/* ------------------------------------------------------------------ */
+/* Premise ledger extraction                                           */
+/* ------------------------------------------------------------------ */
+
+export type OriginPremiseLedgerEntryKind =
+  | "user-correction"
+  | "assistant-correction"
+  | "user-attribute";
+
+export interface OriginPremiseLedgerNumericValue {
+  /** Unit family: "money" (base 円), "headcount", "percent", or `unit:<unit>`. */
+  family: string;
+  /** Superseded value, normalised to the family base unit. */
+  oldAmount: number;
+  /** Operative value, normalised to the family base unit. */
+  newAmount: number;
+}
+
+export interface OriginPremiseLedgerEntry {
+  kind: OriginPremiseLedgerEntryKind;
+  /** Attribute label when one could be named deterministically; null for topic replacements. */
+  label: string | null;
+  oldValue: string;
+  newValue: string;
+  numeric?: OriginPremiseLedgerNumericValue;
+  /** Stable-fact concept id for assistant-correction entries bound to the registry. */
+  conceptId?: string;
+  /** Index into the messages array of the message that established this entry. */
+  sourceMessageIndex: number;
+}
+
+const normalizeText = (text: string): string => text.normalize("NFKC");
+
+const CORRECTION_MARKERS: readonly string[] = [
+  "訂正",
+  "やっぱり",
+  "ではなく",
+  "じゃなく",
+  "間違",
+  "変更",
+];
+
+interface NumericAssertion {
+  label: string;
+  family: string;
+  baseAmount: number;
+  surface: string;
+}
+
+function toFamilyBase(
+  amount: number,
+  unit: string,
+): { family: string; baseAmount: number } {
+  if (unit === "万円") return { family: "money", baseAmount: amount * 10_000 };
+  if (unit === "円") return { family: "money", baseAmount: amount };
+  if (unit === "人" || unit === "名" || unit === "脚" || unit === "席") {
+    return { family: "headcount", baseAmount: amount };
+  }
+  if (unit === "%" || unit === "パーセント") {
+    return { family: "percent", baseAmount: amount };
+  }
+  return { family: `unit:${unit}`, baseAmount: amount };
+}
+
+const NUMBER_TOKEN = String.raw`(\d[\d,]*(?:\.\d+)?)`;
+const ASSERTION_PATTERNS: readonly RegExp[] = [
+  // （名詞）は（手取り）?(数値)(単位) — 参加者は50人 / 月収は手取り30万円
+  new RegExp(
+    String.raw`([^\s、。・「」『』（）()]{1,10})は(?:手取り)?` +
+      NUMBER_TOKEN +
+      String.raw`\s*(万円|円|人|名|脚|席|%|パーセント|歳|個|件|回|台|日|月|年)`,
+    "g",
+  ),
+  // （名詞）(数値)(単位)(助詞・区切り) — 税抜8,000円の / 参加者50人想定
+  new RegExp(
+    String.raw`([^\s、。・「」『』（）()はがをにへとやで]{1,10})` +
+      NUMBER_TOKEN +
+      String.raw`\s*(万円|円|人|名|脚|席)(?=[想でのはがをにへとや、。・\s「」『』]|$)`,
+    "g",
+  ),
+];
+
+function extractNumericAssertions(text: string): NumericAssertion[] {
+  const assertions: NumericAssertion[] = [];
+  for (const pattern of ASSERTION_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const label = match[1];
+      const amount = Number.parseFloat(match[2].replace(/,/g, ""));
+      const unit = match[3];
+      if (!label || !unit || !Number.isFinite(amount)) continue;
+      const { family, baseAmount } = toFamilyBase(amount, unit);
+      assertions.push({
+        label,
+        family,
+        baseAmount,
+        surface: `${match[2]}${unit}`,
+      });
+    }
+  }
+  return assertions;
+}
+
+function extractCategoricalReplacements(
+  text: string,
+): { oldSpan: string; newSpan: string }[] {
+  const pairs: { oldSpan: string; newSpan: string }[] = [];
+  // 明示の置換え: Aじゃなくて、B （営業じゃなくて、エンジニアとして…）
+  for (const match of text.matchAll(
+    /([^\s、。・「」『』（）()]{1,8})じゃなくて、?([^\s、。・「」『』（）()がをにへとやはで]{1,8})/g,
+  )) {
+    pairs.push({ oldSpan: match[1], newSpan: match[2] });
+  }
+  // 弱い訂正: AよりBの方がいい （温泉より街歩きの方がいいな)
+  for (const match of text.matchAll(
+    /([^\s、。・「」『』（）()]{1,8})より([^\s、。・「」『』（）()がをにへとやはで]{1,10})の方がいい/g,
+  )) {
+    pairs.push({ oldSpan: match[1], newSpan: match[2] });
+  }
+  return pairs;
+}
+
+const USER_ATTRIBUTE_PATTERNS: readonly RegExp[] = [
+  /私は(フリーランス|個人事業主|自営業|会社員|公務員|学生|主婦|主夫|経営者)/,
+  /(フリーランス|個人事業主|自営業)として働いて/,
+];
+
+function upsertLedgerEntry(
+  entries: OriginPremiseLedgerEntry[],
+  entry: OriginPremiseLedgerEntry,
+): void {
+  const existingIndex = entries.findIndex(
+    (candidate) =>
+      candidate.kind === entry.kind &&
+      candidate.label === entry.label &&
+      candidate.conceptId === entry.conceptId,
+  );
+  if (existingIndex >= 0) entries[existingIndex] = entry;
+  else entries.push(entry);
+}
+
+function findUserAssertedConceptRate(
+  priorMessages: readonly OriginChatMessage[],
+  conceptTerm: string,
+): number | null {
+  for (const message of priorMessages) {
+    if (message.role !== "user") continue;
+    const text = normalizeText(message.content ?? "");
+    const match = new RegExp(
+      `${conceptTerm}[^\\d%]{0,8}?(\\d+(?:\\.\\d+)?)\\s*%`,
+    ).exec(text);
+    if (match) {
+      const rate = Number.parseFloat(match[1]);
+      if (Number.isFinite(rate)) return rate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Derives the premise ledger from the conversation. Pure: the same
+ * messages always yield the same ledger, and nothing is stored.
+ */
+export function extractOriginPremiseLedger(
+  messages: readonly OriginChatMessage[],
+): OriginPremiseLedgerEntry[] {
+  const entries: OriginPremiseLedgerEntry[] = [];
+  const currentAssertions = new Map<string, NumericAssertion>();
+  const seenCategorical = new Set<string>();
+
+  messages.forEach((message, messageIndex) => {
+    const text = normalizeText(message.content ?? "");
+    if (message.role === "user") {
+      const hasCorrectionMarker = CORRECTION_MARKERS.some((marker) =>
+        text.includes(marker),
+      );
+      for (const assertion of extractNumericAssertions(text)) {
+        // Exact label match first, then a suffix relation （広告予算 vs
+        // 予算）: both name the same attribute in the measured corpus.
+        let prior = currentAssertions.get(assertion.label);
+        if (!prior) {
+          for (const [knownLabel, known] of currentAssertions) {
+            if (
+              known.family === assertion.family &&
+              (knownLabel.endsWith(assertion.label) ||
+                assertion.label.endsWith(knownLabel)) &&
+              Math.min(knownLabel.length, assertion.label.length) >= 2
+            ) {
+              prior = known;
+              break;
+            }
+          }
+        }
+        if (
+          prior &&
+          hasCorrectionMarker &&
+          prior.family === assertion.family &&
+          prior.baseAmount !== assertion.baseAmount
+        ) {
+          upsertLedgerEntry(entries, {
+            kind: "user-correction",
+            label: assertion.label,
+            oldValue: prior.surface,
+            newValue: assertion.surface,
+            numeric: {
+              family: assertion.family,
+              oldAmount: prior.baseAmount,
+              newAmount: assertion.baseAmount,
+            },
+            sourceMessageIndex: messageIndex,
+          });
+        }
+        currentAssertions.set(assertion.label, assertion);
+      }
+      for (const pair of extractCategoricalReplacements(text)) {
+        const key = `${pair.oldSpan}->${pair.newSpan}`;
+        if (seenCategorical.has(key)) continue;
+        // Topic continuity: the replaced topic must have been raised by
+        // the user before, otherwise this is a fresh preference, not a
+        // correction of an earlier premise.
+        const raisedBefore = messages
+          .slice(0, messageIndex)
+          .some(
+            (prior) =>
+              prior.role === "user" &&
+              normalizeText(prior.content ?? "").includes(pair.oldSpan),
+          );
+        if (!raisedBefore) continue;
+        seenCategorical.add(key);
+        entries.push({
+          kind: "user-correction",
+          label: null,
+          oldValue: pair.oldSpan,
+          newValue: pair.newSpan,
+          sourceMessageIndex: messageIndex,
+        });
+      }
+      for (const pattern of USER_ATTRIBUTE_PATTERNS) {
+        const match = pattern.exec(text);
+        if (match) {
+          upsertLedgerEntry(entries, {
+            kind: "user-attribute",
+            label: "職業",
+            oldValue: "",
+            newValue: match[1],
+            sourceMessageIndex: messageIndex,
+          });
+        }
+      }
+      return;
+    }
+    // Assistant turns: ORIGIN's own corrections (b).
+    const taxStatement =
+      /消費税率は現在(\d+(?:\.\d+)?)%/.exec(text) ??
+      /消費税は現在(\d+(?:\.\d+)?)%/.exec(text);
+    if (taxStatement) {
+      const correctedRate = Number.parseFloat(taxStatement[1]);
+      const userRate = findUserAssertedConceptRate(
+        messages.slice(0, messageIndex),
+        "消費税",
+      );
+      if (
+        Number.isFinite(correctedRate) &&
+        userRate !== null &&
+        userRate !== correctedRate
+      ) {
+        upsertLedgerEntry(entries, {
+          kind: "assistant-correction",
+          label: "消費税率",
+          oldValue: `${userRate}%`,
+          newValue: `${correctedRate}%`,
+          numeric: {
+            family: "percent",
+            oldAmount: userRate,
+            newAmount: correctedRate,
+          },
+          conceptId: "consumption-tax-rate",
+          sourceMessageIndex: messageIndex,
+        });
+      }
+    }
+    const nonexistence =
+      /[「『]([^」』]{2,40})[」』]という名称の(?:公的な)?制度は存在しません/.exec(
+        text,
+      );
+    if (nonexistence) {
+      entries.push({
+        kind: "assistant-correction",
+        label: nonexistence[1],
+        oldValue: nonexistence[1],
+        newValue: "存在しない",
+        sourceMessageIndex: messageIndex,
+      });
+    }
+  });
+
+  return entries;
+}
+
+/* ------------------------------------------------------------------ */
+/* Deterministic checks                                                */
+/* ------------------------------------------------------------------ */
+
+export type OriginPremiseGuardCheckKind =
+  | "old-value-reuse"
+  | "stable-fact-applied-value"
+  | "fabricated-citation-form";
+
+export interface OriginPremiseGuardViolation {
+  check: OriginPremiseGuardCheckKind;
+  /** Ledger entry index for C-1. */
+  entryIndex?: number;
+  /** Registry concept id for C-2. */
+  conceptId?: string;
+  /** Applied rates found in the answer (C-2; public-fact numbers only). */
+  appliedRates?: number[];
+}
+
+const CLAUSE_SPLIT_PATTERN = /[。\n！？!?；;|]/;
+
+const NEGATION_MARKERS: readonly string[] = [
+  "ではなく",
+  "じゃなく",
+  "でなく",
+  "ではない",
+  "でない",
+  "誤り",
+  "間違い",
+  "旧前提",
+  "以前の",
+  "訂正",
+  "変更前",
+  "なし",
+];
+
+const HYPOTHETICAL_MARKERS: readonly string[] = ["もし", "仮に", "仮定"];
+
+const HYPOTHETICAL_FENCE_MARKERS: readonly string[] = [
+  "仮の話",
+  "仮に",
+  "もし",
+  "仮定",
+];
+
+function isExcusedClause(clause: string): boolean {
+  return (
+    NEGATION_MARKERS.some((marker) => clause.includes(marker)) ||
+    HYPOTHETICAL_MARKERS.some((marker) => clause.includes(marker))
+  );
+}
+
+function withCommas(value: number): string {
+  return Math.trunc(value).toLocaleString("en-US");
+}
+
+function formatAmount(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Old-value surface patterns. Answers write the same value with and
+ * without a space before the unit （参加者 50 名 → 50 脚）, so matching
+ * is whitespace-tolerant between the amount and the unit; a digit or
+ * decimal point directly before the amount means a larger number
+ * (150人 is not 50人）.
+ */
+function oldValueSurfacePatterns(
+  numeric: OriginPremiseLedgerNumericValue,
+): RegExp[] {
+  const { family, oldAmount } = numeric;
+  const pairs: { amount: string; unit: string }[] = [];
+  if (family === "money") {
+    pairs.push({ amount: withCommas(oldAmount), unit: "円" });
+    pairs.push({ amount: formatAmount(oldAmount), unit: "円" });
+    if (oldAmount >= 10_000 && oldAmount % 1_000 === 0) {
+      pairs.push({ amount: formatAmount(oldAmount / 10_000), unit: "万円" });
+    }
+    if (oldAmount >= 10_000 && oldAmount % 10_000 === 0) {
+      pairs.push({ amount: formatAmount(oldAmount / 10_000), unit: "万" });
+    }
+  } else if (family === "headcount") {
+    for (const unit of ["人", "名", "脚", "席"]) {
+      pairs.push({ amount: formatAmount(oldAmount), unit });
+    }
+  } else if (family === "percent") {
+    pairs.push({ amount: formatAmount(oldAmount), unit: "%" });
+    pairs.push({ amount: formatAmount(oldAmount), unit: "パーセント" });
+  } else if (family.startsWith("unit:")) {
+    const unit = family.slice("unit:".length);
+    pairs.push({ amount: formatAmount(oldAmount), unit });
+    pairs.push({ amount: withCommas(oldAmount), unit });
+  }
+  const seen = new Set<string>();
+  const patterns: RegExp[] = [];
+  for (const pair of pairs) {
+    const key = `${pair.amount}|${pair.unit}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    patterns.push(
+      new RegExp(
+        `(?<![0-9.,])${escapeRegExp(pair.amount)}\\s*${escapeRegExp(pair.unit)}`,
+      ),
+    );
+  }
+  return patterns;
+}
+
+/**
+ * Removes verbatim quotations of user turns (「…」) from the answer
+ * text: quoting the user's own words back is not the answer asserting
+ * the superseded premise (the abstain/hold templates quote the query).
+ */
+function stripUserQuotations(
+  answerText: string,
+  messages: readonly OriginChatMessage[],
+): string {
+  let text = answerText;
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    const quoted = normalizeText(message.content ?? "").trim();
+    if (quoted.length < 4) continue;
+    text = text.split(`「${quoted}」`).join("");
+    text = text.split(`『${quoted}』`).join("");
+  }
+  return text;
+}
+
+function checkOldValueReuse(
+  ledger: readonly OriginPremiseLedgerEntry[],
+  answerText: string,
+  messages: readonly OriginChatMessage[],
+): OriginPremiseGuardViolation[] {
+  const violations: OriginPremiseGuardViolation[] = [];
+  const text = stripUserQuotations(normalizeText(answerText), messages);
+  const clauses = text.split(CLAUSE_SPLIT_PATTERN);
+  ledger.forEach((entry, entryIndex) => {
+    if (entry.kind !== "user-correction" || !entry.numeric) return;
+    const patterns = oldValueSurfacePatterns(entry.numeric);
+    const hit = clauses.some(
+      (clause) =>
+        !isExcusedClause(clause) &&
+        patterns.some((pattern) => pattern.test(clause)),
+    );
+    if (hit) violations.push({ check: "old-value-reuse", entryIndex });
+  });
+  return violations;
+}
+
+function findAmountAfter(
+  pattern: RegExp,
+  text: string,
+): number | null {
+  const match = pattern.exec(text);
+  if (!match) return null;
+  const amount = Number.parseFloat(match[1].replace(/,/g, ""));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function impliedRate(part: number, base: number): number | null {
+  if (base <= 0) return null;
+  const rate = (part / base) * 100;
+  const rounded = Math.round(rate);
+  // Tax-inclusive prices are rounded to whole yen, so the implied rate
+  // may sit slightly off the integer; beyond ±0.6 points it is not a
+  // clean applied rate and is not judged.
+  if (Math.abs(rate - rounded) > 0.6) return null;
+  return rounded;
+}
+
+/**
+ * Extracts the rates an answer actually applies, in signal order:
+ * multiplication factors (the computation itself), then the rate
+ * implied by a stated 税抜/税込 or 税額 pair, then — only when no
+ * calculation signal exists — explicit rate statements adjacent to
+ * the concept term in non-negated clauses.
+ */
+function extractAppliedRates(
+  answerText: string,
+  latestUserText: string,
+): number[] {
+  const rates = new Set<number>();
+  for (const match of answerText.matchAll(/[×x*＊]\s*(\d+(?:\.\d+)?)/g)) {
+    const factor = Number.parseFloat(match[1]);
+    if (!Number.isFinite(factor)) continue;
+    let rate: number | null = null;
+    if (factor > 1 && factor < 2) rate = (factor - 1) * 100;
+    else if (factor > 0 && factor < 1) rate = factor * 100;
+    if (rate !== null && rate > 0 && rate <= 30) {
+      rates.add(Math.round(rate * 100) / 100);
+    }
+  }
+  const baseAmount =
+    findAmountAfter(/(?:税抜|税別)(?:価格)?[^0-9]{0,8}?(\d[\d,]*)\s*円/, answerText) ??
+    findAmountAfter(/(?:税抜|税別)(?:価格)?[^0-9]{0,8}?(\d[\d,]*)\s*円/, latestUserText);
+  const inclusiveAmount = findAmountAfter(
+    /税込(?:価格)?[^0-9]{0,8}?(\d[\d,]*)\s*円/,
+    answerText,
+  );
+  if (baseAmount !== null && inclusiveAmount !== null && inclusiveAmount > baseAmount) {
+    const rate = impliedRate(inclusiveAmount - baseAmount, baseAmount);
+    if (rate !== null) rates.add(rate);
+  }
+  const taxAmount = findAmountAfter(
+    /(?:消費税額|税額)[^0-9]{0,8}?(\d[\d,]*)\s*円/,
+    answerText,
+  );
+  if (baseAmount !== null && taxAmount !== null) {
+    const rate = impliedRate(taxAmount, baseAmount);
+    if (rate !== null) rates.add(rate);
+  }
+  if (rates.size > 0) return [...rates];
+  for (const clause of answerText.split(CLAUSE_SPLIT_PATTERN)) {
+    if (NEGATION_MARKERS.some((marker) => clause.includes(marker))) continue;
+    for (const match of clause.matchAll(
+      /(?:消費税率|消費税額|消費税|税率)[^0-9%]{0,8}(\d+(?:\.\d+)?)\s*%/g,
+    )) {
+      const rate = Number.parseFloat(match[1]);
+      if (Number.isFinite(rate)) rates.add(rate);
+    }
+    for (const match of clause.matchAll(/(\d+(?:\.\d+)?)\s*%(?:の消費税|の税率)/g)) {
+      const rate = Number.parseFloat(match[1]);
+      if (Number.isFinite(rate)) rates.add(rate);
+    }
+  }
+  return [...rates];
+}
+
+function checkStableFactAppliedValue(
+  ledger: readonly OriginPremiseLedgerEntry[],
+  messages: readonly OriginChatMessage[],
+  answerText: string,
+  nowMs: number,
+): { violations: OriginPremiseGuardViolation[]; appliedRates: number[] } {
+  const violations: OriginPremiseGuardViolation[] = [];
+  const appliedRates: number[] = [];
+  const text = normalizeText(answerText);
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const latestUserText = latestUser ? normalizeText(latestUser.content ?? "") : "";
+
+  for (const entry of ORIGIN_STABLE_FACT_REGISTRY) {
+    if (!isOriginStableFactEntryActive(entry, nowMs)) continue;
+    const conceptInAnswer = entry.conceptTerms.some((term) =>
+      text.includes(term),
+    );
+    const conceptBound =
+      conceptInAnswer ||
+      (text.includes("税込") &&
+        entry.conceptTerms.some((term) => latestUserText.includes(term)));
+    if (!conceptBound) continue;
+    // Explicit hypothetical framing in the user's latest turn fences
+    // the check for this turn (FP-04: 「仮の話として…もし消費税が
+    // 15%だったら」 is a legitimate hypothetical calculation).
+    if (
+      HYPOTHETICAL_FENCE_MARKERS.some((marker) =>
+        latestUserText.includes(marker),
+      )
+    ) {
+      continue;
+    }
+    const allowed = new Set<number>(entry.allowedRatesPercent);
+    for (const ledgerEntry of ledger) {
+      if (ledgerEntry.conceptId === entry.id && ledgerEntry.numeric) {
+        allowed.add(ledgerEntry.numeric.newAmount);
+      }
+    }
+    const candidates = extractAppliedRates(text, latestUserText);
+    appliedRates.push(...candidates);
+    const disallowed = candidates.filter(
+      (rate) => ![...allowed].some((value) => Math.abs(value - rate) < 0.01),
+    );
+    if (disallowed.length > 0) {
+      violations.push({
+        check: "stable-fact-applied-value",
+        conceptId: entry.id,
+        appliedRates: candidates,
+      });
+    }
+  }
+  return { violations, appliedRates };
+}
+
+const FABRICATED_CITATION_AUTHORITY_MARKERS: readonly string[] = [
+  "公式",
+  "税率",
+  "消費税",
+  "計算方法",
+  "計算例",
+  "法令",
+];
+
+function checkFabricatedCitationForm(
+  answerText: string,
+): OriginPremiseGuardViolation[] {
+  const violations: OriginPremiseGuardViolation[] = [];
+  const text = normalizeText(answerText);
+  for (const match of text.matchAll(/〔出典[:：]([^〕]*)〕/g)) {
+    const label = match[1];
+    if (/https?:\/\//.test(label)) continue;
+    // A URL written immediately after the bracket (same clause) is
+    // still a citation with a real URL, not the fabricated form.
+    const after = text.slice(
+      (match.index ?? 0) + match[0].length,
+      (match.index ?? 0) + match[0].length + 48,
+    );
+    if (/https?:\/\//.test(after.split(CLAUSE_SPLIT_PATTERN)[0])) continue;
+    if (
+      FABRICATED_CITATION_AUTHORITY_MARKERS.some((marker) =>
+        label.includes(marker),
+      )
+    ) {
+      violations.push({ check: "fabricated-citation-form" });
+    }
+  }
+  return violations;
+}
+
+/* ------------------------------------------------------------------ */
+/* Combined check + shadow runner                                      */
+/* ------------------------------------------------------------------ */
+
+export interface OriginPremiseGuardResult {
+  ledger: OriginPremiseLedgerEntry[];
+  violations: OriginPremiseGuardViolation[];
+  violationCounts: Record<OriginPremiseGuardCheckKind, number>;
+  /** Applied rates seen by C-2 (numbers only; empty when C-2 did not run). */
+  c2AppliedRates: number[];
+}
+
+const EMPTY_RESULT: OriginPremiseGuardResult = {
+  ledger: [],
+  violations: [],
+  violationCounts: {
+    "old-value-reuse": 0,
+    "stable-fact-applied-value": 0,
+    "fabricated-citation-form": 0,
+  },
+  c2AppliedRates: [],
+};
+
+export function checkOriginPremiseGuard(input: {
+  messages: readonly OriginChatMessage[];
+  answerText: string;
+  nowMs: number;
+}): OriginPremiseGuardResult {
+  const ledger = extractOriginPremiseLedger(input.messages);
+  const c1 = checkOldValueReuse(ledger, input.answerText, input.messages);
+  const c2 = checkStableFactAppliedValue(
+    ledger,
+    input.messages,
+    input.answerText,
+    input.nowMs,
+  );
+  const c4 = checkFabricatedCitationForm(input.answerText);
+  const violations = [...c1, ...c2.violations, ...c4];
+  return {
+    ledger,
+    violations,
+    violationCounts: {
+      "old-value-reuse": c1.length,
+      "stable-fact-applied-value": c2.violations.length,
+      "fabricated-citation-form": c4.length,
+    },
+    c2AppliedRates: c2.appliedRates,
+  };
+}
+
+export interface OriginIntentPremiseGuardShadowInput {
+  requestId: string;
+  messages: readonly OriginChatMessage[];
+  answerText: string;
+  nowMs?: number;
+  logger?: (message: string, fields: Record<string, unknown>) => void;
+}
+
+/**
+ * Shadow observation entry point used by both chat routers. Logs
+ * counts and fixed codes only (plus C-2 applied-rate numbers) and
+ * never alters the answer. Never throws.
+ */
+export function runOriginIntentPremiseGuardShadow(
+  input: OriginIntentPremiseGuardShadowInput,
+): OriginPremiseGuardResult {
+  const logger =
+    input.logger ?? ((message, fields) => console.info(message, fields));
+  try {
+    const result = checkOriginPremiseGuard({
+      messages: input.messages,
+      answerText: input.answerText,
+      nowMs: input.nowMs ?? Date.now(),
+    });
+    const ledgerKindCounts = {
+      userCorrection: 0,
+      assistantCorrection: 0,
+      userAttribute: 0,
+    };
+    for (const entry of result.ledger) {
+      if (entry.kind === "user-correction") ledgerKindCounts.userCorrection += 1;
+      else if (entry.kind === "assistant-correction") {
+        ledgerKindCounts.assistantCorrection += 1;
+      } else ledgerKindCounts.userAttribute += 1;
+    }
+    logger("[origin-chat] intent premise guard", {
+      requestId: input.requestId,
+      premiseGuardMode: "shadow",
+      ledgerUserCorrections: ledgerKindCounts.userCorrection,
+      ledgerAssistantCorrections: ledgerKindCounts.assistantCorrection,
+      ledgerUserAttributes: ledgerKindCounts.userAttribute,
+      violationOldValueReuse: result.violationCounts["old-value-reuse"],
+      violationStableFactAppliedValue:
+        result.violationCounts["stable-fact-applied-value"],
+      violationFabricatedCitationForm:
+        result.violationCounts["fabricated-citation-form"],
+      ...(result.c2AppliedRates.length > 0
+        ? { c2AppliedRates: result.c2AppliedRates }
+        : {}),
+    });
+    return result;
+  } catch (error) {
+    logger("[origin-chat] intent premise guard failed", {
+      requestId: input.requestId,
+      premiseGuardMode: "shadow",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return EMPTY_RESULT;
+  }
+}
