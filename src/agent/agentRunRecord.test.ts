@@ -267,6 +267,69 @@ describe('agent run step live detail (PR-L1)', () => {
     }
   });
 
+  it('round-trips a coverage failure breakdown unchanged (Basel segment-2 observability)', () => {
+    const liveDetail = {
+      startedAt: now - 5_000,
+      finishedAt: now,
+      coverageFailure: {
+        scope: 'local' as const,
+        chunkOffset: 0,
+        chunkCount: 4,
+        expected: 60,
+        covered: 59,
+        missing: 1,
+        duplicated: 0,
+        unexpected: 2,
+        numericMismatch: ['Loss_Amount_CNY'],
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+    const finalDetail = {
+      coverageFailure: {
+        scope: 'final' as const,
+        expected: 60,
+        covered: 60,
+        missing: 0,
+        duplicated: 0,
+        unexpected: 2,
+        numericMismatch: [] as string[],
+      },
+    };
+    const [finalStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: finalDetail }]);
+    expect(finalStep?.liveDetail).toEqual(finalDetail);
+  });
+
+  it('drops a malformed coverage failure but keeps the rest of the live detail (fail-soft)', () => {
+    const base = {
+      scope: 'local',
+      chunkOffset: 0,
+      chunkCount: 4,
+      expected: 60,
+      covered: 59,
+      missing: 1,
+      duplicated: 0,
+      unexpected: 0,
+      numericMismatch: ['Loss_Amount_CNY'],
+    };
+    const malformed: unknown[] = [
+      { ...base, scope: 'step' },
+      { ...base, expected: -1 },
+      { ...base, covered: 59.5 },
+      { ...base, missing: '1' },
+      { ...base, numericMismatch: 'Loss_Amount_CNY' },
+      { ...base, numericMismatch: undefined },
+      'coverage',
+    ];
+    for (const coverageFailure of malformed) {
+      const [step] = normalizeAgentRunStepsState([
+        { ...baseStep, liveDetail: { startedAt: now - 1_000, coverageFailure } } as unknown as AgentRunStepState,
+      ]);
+      expect(step?.liveDetail?.coverageFailure).toBeUndefined();
+      expect(step?.liveDetail?.startedAt).toBe(now - 1_000);
+    }
+  });
+
   it('reads pre-L1 step state (no live detail) unchanged', () => {
     const legacy: AgentRunStepState[] = [
       { id: 'task-1', status: 'completed', attempts: 2, summary: 'completed:web_search_grounding' },

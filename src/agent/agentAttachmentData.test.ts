@@ -6,6 +6,7 @@ import {
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
+  verifyAgentDataLocalCoverage,
   AGENT_ATTACHMENT_CHUNK_MAX_CHARS,
 } from './agentAttachmentData.js';
 
@@ -309,5 +310,93 @@ describe('agentAttachmentData chunk coverage (prose branch)', () => {
     const result = verifyAgentDataChunkCoverage(view, 4, 0);
     expect(result.ok).toBe(false);
     if (result.ok === false) expect(result.rowCount).toBe(0);
+  });
+});
+
+describe('agentAttachmentData chunk-local yardsticks (Basel segment-2 fix)', () => {
+  // A keyed table whose rows are ~70 chars each, so the 3,500-char
+  // chunk cap splits it into several chunks.
+  const lines = ['id,item,amount'];
+  for (let i = 0; i < 100; i += 1) lines.push(`K-${String(i).padStart(3, '0')},${'x'.repeat(60)},${i}`);
+  const BIG = lines.join('\n');
+  const amountOf = (key: string) => String(Number(key.slice(2)));
+
+  it('annotates the primary table chunks with their packed keys and numeric subtotals', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'big.csv', text: BIG },
+      { name: 'ref.csv', text: 'code,name\nEL1,Internal\nEL2,External' },
+    ]);
+    expect(view.primaryFileName).toBe('big.csv');
+    const primaryChunks = view.chunks.filter((chunk) => chunk.fileName === 'big.csv');
+    expect(primaryChunks.length).toBeGreaterThan(1);
+    // The chunk-local key sets partition the whole-set yardstick, in
+    // order, and each chunk's subtotal is the sum over its own rows.
+    expect(primaryChunks.flatMap((chunk) => chunk.rowKeys ?? [])).toEqual(view.expectedKeys);
+    for (const chunk of primaryChunks) {
+      const keys = chunk.rowKeys ?? [];
+      expect(chunk.numericSums).toEqual({ amount: keys.reduce((sum, key) => sum + Number(amountOf(key)), 0) });
+    }
+    // Non-primary chunks carry no yardstick: they are reference
+    // material, never extraction targets.
+    for (const chunk of view.chunks.filter((candidate) => candidate.fileName !== 'big.csv')) {
+      expect(chunk.rowKeys).toBeUndefined();
+      expect(chunk.numericSums).toBeUndefined();
+    }
+  });
+
+  it('leaves file-name-key sets unannotated: no primary table, no chunk yardsticks', () => {
+    const view = buildAgentAttachmentDataView(K8S_SHAPE_FILES);
+    expect(view.primaryFileName).toBeUndefined();
+    expect(view.chunks.every((chunk) => chunk.rowKeys === undefined && chunk.numericSums === undefined)).toBe(true);
+  });
+
+  it('passes the local check when a step accounts for exactly its chunks', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'big.csv', text: BIG }]);
+    const [first, second] = view.chunks;
+    const rowsOf = (chunk: (typeof view.chunks)[number]) =>
+      (chunk.rowKeys ?? []).map((key) => ({ id: key, amount: amountOf(key) }));
+    expect(verifyAgentDataLocalCoverage(view, [first], rowsOf(first))).toEqual({
+      ok: true,
+      coveredKeys: (first.rowKeys ?? []).length,
+    });
+    // A step completing two chunks pools their yardsticks.
+    expect(verifyAgentDataLocalCoverage(view, [first, second], [...rowsOf(first), ...rowsOf(second)])).toEqual({
+      ok: true,
+      coveredKeys: (first.rowKeys ?? []).length + (second.rowKeys ?? []).length,
+    });
+  });
+
+  it('localizes a dropped row to the chunk range that lost it', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'big.csv', text: BIG }]);
+    const [first] = view.chunks;
+    const keys = first.rowKeys ?? [];
+    const rows = keys.slice(0, -1).map((key) => ({ id: key, amount: amountOf(key) }));
+    const result = verifyAgentDataLocalCoverage(view, [first], rows);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.missing).toEqual([keys[keys.length - 1]]);
+      expect(result.expected).toBe(keys.length);
+      expect(result.covered).toBe(keys.length - 1);
+    }
+  });
+
+  it('treats a key from a sibling chunk as unexpected locally, and a changed amount as a numeric mismatch', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'big.csv', text: BIG }]);
+    const [first, second] = view.chunks;
+    const keys = first.rowKeys ?? [];
+    const foreign = (second.rowKeys ?? [])[0];
+    const swapped = keys.map((key) => ({ id: key, amount: amountOf(key) }));
+    swapped[0] = { id: foreign, amount: amountOf(foreign) };
+    const swappedResult = verifyAgentDataLocalCoverage(view, [first], swapped);
+    expect(swappedResult.ok).toBe(false);
+    if (swappedResult.ok === false) {
+      expect(swappedResult.unexpected).toEqual([foreign]);
+      expect(swappedResult.missing).toEqual([keys[0]]);
+    }
+    const tampered = keys.map((key) => ({ id: key, amount: amountOf(key) }));
+    tampered[0] = { id: keys[0], amount: String(Number(amountOf(keys[0])) + 500) };
+    const tamperedResult = verifyAgentDataLocalCoverage(view, [first], tampered);
+    expect(tamperedResult.ok).toBe(false);
+    if (tamperedResult.ok === false) expect(tamperedResult.numericMismatch).toEqual(['amount']);
   });
 });

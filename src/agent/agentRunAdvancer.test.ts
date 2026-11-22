@@ -619,6 +619,73 @@ describe('advanceAgentRun', () => {
     expect(record?.stepsState[1]?.liveDetail?.parseFailure).toBeUndefined();
   });
 
+  it('records the analyzer coverage failure breakdown (scope, range, counts, numeric columns) in the step live detail (Basel segment-2 observability)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    // The production-shaped message: human-readable counts first,
+    // then the fixed machine-readable parenthetical.
+    const message = 'AGENT_DATA_COVERAGE_INSUFFICIENT (対象60件中59件を処理、未処理1件、重複0件、対象外0件、数値不一致1件) (coverage: scope=local, range=0+4, expected=60, covered=59, missing=1, duplicated=0, unexpected=0, numericMismatch=Loss_Amount_CNY)';
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 4 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    // The terminal code is still the bare AGENT_DATA_COVERAGE_INSUFFICIENT.
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]).toMatchObject({ status: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    // The live detail carries the deterministic breakdown only —
+    // counts and the disagreeing column's name; no key values, no
+    // row data.
+    expect(record?.stepsState[1]?.liveDetail?.coverageFailure).toEqual({
+      scope: 'local',
+      chunkOffset: 0,
+      chunkCount: 4,
+      expected: 60,
+      covered: 59,
+      missing: 1,
+      duplicated: 0,
+      unexpected: 0,
+      numericMismatch: ['Loss_Amount_CNY'],
+    });
+    expect(record?.stepsState[0]?.liveDetail?.coverageFailure).toBeUndefined();
+  });
+
+  it('records no coverage failure for an analyzer coverage failure without the fixed message shape', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message: 'AGENT_DATA_COVERAGE_INSUFFICIENT' }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 4 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]?.liveDetail?.coverageFailure).toBeUndefined();
+  });
+
   it('records the throwing step as failed with the restored code when a tool throws', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();
