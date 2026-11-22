@@ -50,6 +50,27 @@
  *   "general knowledge" does not fabricate a source.
  * C-3 (category residue) is intentionally not in this PR (PR4,
  * conditional on its own replay design).
+ * - (b') self-anchor reset (G-2c; INTENT_R4_GENERATION
+ *   COUNTERMEASURES_DESIGN_2026-11-23 section 3): round 4 exposed
+ *   the shape (b) cannot reach — REP-01's first turn applied the
+ *   wrong rate with no correction statement at all, and the applied
+ *   computation itself became the conversation's anchor for every
+ *   later turn. The extractor therefore also scans past assistant
+ *   answers: when an answer applied a rate the registry does not
+ *   allow (judged by the same applied-value extraction as C-2, and
+ *   fenced the same way — an answer to an explicitly hypothetical
+ *   user turn never counts), the ledger gains a correction entry
+ *   for that concept whose provenance is the mismatch itself
+ *   (selfAnchorAppliedRatePercent), superseding any statement-
+ *   derived (b) entry for the concept. Its block line asserts the
+ *   operative registry value and explicitly disowns the past
+ *   computation, so the reset competes with the anchor in the raw
+ *   history. An applied value is never itself taken into the
+ *   ledger as a premise — the mismatch is used only to derive a
+ *   correction. Derivation consults the registry, so it needs the
+ *   request clock: a caller that passes no nowMs gets the
+ *   fail-closed behaviour (no derivation), as does an expired
+ *   registry entry.
  *
  * Mode: ORIGIN_INTENT_PREMISE_GUARD_MODE=off|shadow|enforce, default
  * off (mirrors the answer-verification mode discipline). "enforce"
@@ -109,7 +130,14 @@ export interface OriginStableFactEntry {
   id: string;
   /** Terms that bind this concept in user or answer text. */
   conceptTerms: readonly string[];
-  /** Allowed applied rates (percent numbers) for the concept. */
+  /** Label naming this concept's rate as a ledger premise. */
+  premiseLabel: string;
+  /**
+   * Allowed applied rates (percent numbers) for the concept. The
+   * first is the standard rate: the operative premise a self-anchor
+   * reset (G-2c) falls back to when the conversation carries no
+   * statement-derived correction of its own.
+   */
   allowedRatesPercent: readonly number[];
   verifiedAt: string;
   reviewAfter: string;
@@ -120,6 +148,7 @@ export const ORIGIN_STABLE_FACT_REGISTRY: readonly OriginStableFactEntry[] = [
   {
     id: "consumption-tax-rate",
     conceptTerms: ["消費税"],
+    premiseLabel: "消費税率",
     allowedRatesPercent: [10, 8],
     verifiedAt: "2026-11-22T00:00:00.000Z",
     reviewAfter: "2026-12-22T00:00:00.000Z",
@@ -163,6 +192,13 @@ export interface OriginPremiseLedgerEntry {
   numeric?: OriginPremiseLedgerNumericValue;
   /** Stable-fact concept id for assistant-correction entries bound to the registry. */
   conceptId?: string;
+  /**
+   * G-2c (b'): set when this correction was derived from an applied
+   * value's mismatch with the registry — a past answer computed with
+   * this rate — rather than from a correction statement (b). The
+   * rate is a public registry-fact number, never answer text.
+   */
+  selfAnchorAppliedRatePercent?: number;
   /** Index into the messages array of the message that established this entry. */
   sourceMessageIndex: number;
 }
@@ -296,10 +332,14 @@ function findUserAssertedConceptRate(
 
 /**
  * Derives the premise ledger from the conversation. Pure: the same
- * messages always yield the same ledger, and nothing is stored.
+ * (messages, nowMs) pair always yields the same ledger, and nothing
+ * is stored. The optional nowMs is the request clock for the
+ * registry-bound self-anchor derivation (G-2c); without it that
+ * derivation fails closed.
  */
 export function extractOriginPremiseLedger(
   messages: readonly OriginChatMessage[],
+  nowMs?: number,
 ): OriginPremiseLedgerEntry[] {
   const entries: OriginPremiseLedgerEntry[] = [];
   const currentAssertions = new Map<string, NumericAssertion>();
@@ -431,7 +471,101 @@ export function extractOriginPremiseLedger(
     }
   });
 
+  deriveSelfAnchorResetEntries(messages, entries, nowMs);
   return entries;
+}
+
+/* ------------------------------------------------------------------ */
+/* Self-anchor reset derivation (G-2c (b'))                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Scans past assistant answers for each active registry concept and,
+ * when an answer applied a rate the registry does not allow, turns
+ * the most recent such misapplication into a ledger correction entry
+ * (see the module header). The judgement reuses C-2's applied-value
+ * extraction verbatim — one definition of "applied" for the exit
+ * check and the reset — and its fences: the concept must bind to the
+ * answer (its term in the answer, or 税込 in the answer with the
+ * term in the prompting user turn), and an answer to a user turn
+ * that explicitly frames a hypothetical is skipped (FP-04). The
+ * operative value the reset asserts is the conversation's own
+ * statement-derived correction when that value is itself a registry
+ * value, otherwise the registry's standard (first) allowed rate.
+ * The entry supersedes the statement-derived (b) entry for the
+ * concept via the ledger's upsert key: the reset line states the
+ * same corrected premise and additionally disowns the computation
+ * that anchors the wrong one.
+ */
+function deriveSelfAnchorResetEntries(
+  messages: readonly OriginChatMessage[],
+  entries: OriginPremiseLedgerEntry[],
+  nowMs: number | undefined,
+): void {
+  for (const fact of ORIGIN_STABLE_FACT_REGISTRY) {
+    if (!isOriginStableFactEntryActive(fact, nowMs ?? Number.NaN)) {
+      continue;
+    }
+    const allowed = new Set<number>(fact.allowedRatesPercent);
+    let latest: { rate: number; messageIndex: number } | null = null;
+    messages.forEach((message, messageIndex) => {
+      if (message.role !== "assistant") return;
+      const answerText = normalizeText(message.content ?? "");
+      let promptingUserText = "";
+      for (let i = messageIndex - 1; i >= 0; i -= 1) {
+        if (messages[i].role === "user") {
+          promptingUserText = normalizeText(messages[i].content ?? "");
+          break;
+        }
+      }
+      if (
+        HYPOTHETICAL_FENCE_MARKERS.some((marker) =>
+          promptingUserText.includes(marker),
+        )
+      ) {
+        return;
+      }
+      const conceptBound =
+        fact.conceptTerms.some((term) => answerText.includes(term)) ||
+        (answerText.includes("税込") &&
+          fact.conceptTerms.some((term) => promptingUserText.includes(term)));
+      if (!conceptBound) return;
+      for (const rate of extractAppliedRates(answerText, promptingUserText)) {
+        const isAllowed = [...allowed].some(
+          (value) => Math.abs(value - rate) < 0.01,
+        );
+        if (!isAllowed) latest = { rate, messageIndex };
+      }
+    });
+    if (latest === null) continue;
+    const misapplied: { rate: number; messageIndex: number } = latest;
+    const statementEntry = entries.find(
+      (candidate) =>
+        candidate.kind === "assistant-correction" &&
+        candidate.conceptId === fact.id,
+    );
+    let operativeRate = fact.allowedRatesPercent[0];
+    if (statementEntry?.numeric) {
+      const stated = statementEntry.numeric.newAmount;
+      if ([...allowed].some((value) => Math.abs(value - stated) < 0.01)) {
+        operativeRate = stated;
+      }
+    }
+    upsertLedgerEntry(entries, {
+      kind: "assistant-correction",
+      label: statementEntry?.label ?? fact.premiseLabel,
+      oldValue: `${misapplied.rate}%`,
+      newValue: `${operativeRate}%`,
+      numeric: {
+        family: "percent",
+        oldAmount: misapplied.rate,
+        newAmount: operativeRate,
+      },
+      conceptId: fact.id,
+      sourceMessageIndex: misapplied.messageIndex,
+      selfAnchorAppliedRatePercent: misapplied.rate,
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -476,6 +610,15 @@ function renderPremiseLedgerLine(entry: OriginPremiseLedgerEntry): string {
     entry.newValue === "存在しない"
   ) {
     return `- ${label}：存在しない`;
+  }
+  if (entry.selfAnchorAppliedRatePercent !== undefined) {
+    // G-2c reset line: assert the operative value and disown the
+    // past computation that applied the wrong one, in the design's
+    // fixed form. If the line ever exceeds the per-line cap, the
+    // generic fit drops this parenthetical first, leaving the bare
+    // operative premise — never a truncated value.
+    const head = label ? `- ${label}：${entry.newValue}` : `- ${entry.newValue}`;
+    return `${head}（過去の回答で ${entry.oldValue} を使った計算があるが、それは誤った前提によるもの。現在の前提は ${entry.newValue}）`;
   }
   if (entry.numeric) {
     const head = label ? `- ${label}：${entry.newValue}` : `- ${entry.newValue}`;
@@ -612,7 +755,7 @@ export function evaluateOriginPremiseGuardArming(input: {
   nowMs: number;
 }): OriginPremiseGuardArming {
   return armingFromLedger(
-    extractOriginPremiseLedger(input.messages),
+    extractOriginPremiseLedger(input.messages, input.nowMs),
     input.messages,
     input.nowMs,
   );
@@ -638,7 +781,7 @@ export function planOriginPremiseGuard(input: {
   messages: readonly OriginChatMessage[];
   nowMs: number;
 }): OriginPremiseGuardPlan {
-  const ledger = extractOriginPremiseLedger(input.messages);
+  const ledger = extractOriginPremiseLedger(input.messages, input.nowMs);
   return {
     ledger,
     block: buildOriginPremiseLedgerBlock(ledger),
@@ -997,7 +1140,7 @@ export function checkOriginPremiseGuard(input: {
   answerText: string;
   nowMs: number;
 }): OriginPremiseGuardResult {
-  const ledger = extractOriginPremiseLedger(input.messages);
+  const ledger = extractOriginPremiseLedger(input.messages, input.nowMs);
   const c1 = checkOldValueReuse(ledger, input.answerText, input.messages);
   const c2 = checkStableFactAppliedValue(
     ledger,
@@ -1049,12 +1192,16 @@ export function runOriginIntentPremiseGuardShadow(
       userCorrection: 0,
       assistantCorrection: 0,
       userAttribute: 0,
+      selfAnchorReset: 0,
     };
     for (const entry of result.ledger) {
       if (entry.kind === "user-correction") ledgerKindCounts.userCorrection += 1;
       else if (entry.kind === "assistant-correction") {
         ledgerKindCounts.assistantCorrection += 1;
       } else ledgerKindCounts.userAttribute += 1;
+      if (entry.selfAnchorAppliedRatePercent !== undefined) {
+        ledgerKindCounts.selfAnchorReset += 1;
+      }
     }
     logger("[origin-chat] intent premise guard", {
       requestId: input.requestId,
@@ -1062,6 +1209,7 @@ export function runOriginIntentPremiseGuardShadow(
       ledgerUserCorrections: ledgerKindCounts.userCorrection,
       ledgerAssistantCorrections: ledgerKindCounts.assistantCorrection,
       ledgerUserAttributes: ledgerKindCounts.userAttribute,
+      ledgerSelfAnchorResets: ledgerKindCounts.selfAnchorReset,
       violationOldValueReuse: result.violationCounts["old-value-reuse"],
       violationStableFactAppliedValue:
         result.violationCounts["stable-fact-applied-value"],

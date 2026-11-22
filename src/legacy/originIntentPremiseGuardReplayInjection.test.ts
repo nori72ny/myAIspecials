@@ -112,7 +112,14 @@ describe("premise guard replay — PR2 injection coverage (design 7.1 view)", ()
     for (const turn of [2, 3]) {
       const plan = replay.turnPlans.get(turn)!;
       expect(plan.block?.text, `R3/REP-01/t${turn}`).toContain("消費税率：10%");
-      expect(plan.block?.text, `R3/REP-01/t${turn}`).toContain("15%から訂正済み");
+      // G-2c: the R3 answers stated the correction yet still applied
+      // 15%, so the tax line takes the self-anchor reset form (the
+      // past computation is disowned), not the plain
+      // statement-derived form.
+      expect(plan.block?.text, `R3/REP-01/t${turn}`).toContain(
+        "過去の回答で 15% を使った計算があるが",
+      );
+      expect(plan.block?.text, `R3/REP-01/t${turn}`).not.toContain("15%から訂正済み");
       expect(plan.arming.reasons).toContain("ledger-correction");
     }
   });
