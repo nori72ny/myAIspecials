@@ -670,6 +670,15 @@ interface OriginGroqPacingContext {
    */
   waitedMs: number;
   /**
+   * This cascade's pacing-wait ceiling, when it differs from the
+   * pacing module's general ceiling. The allocated cascade sets
+   * ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS (see its comment for the
+   * production evidence): a wait past the ceiling proceeds unpaced,
+   * under exactly the rule paceGroqModelSend already applies at the
+   * general ceiling.
+   */
+  maxWaitMs?: number;
+  /**
    * When set, a send that does not fit this model's window defers to
    * this model if its window fits, instead of waiting. Set only on the
    * allocated cascade's first attempt: distribution is a choice between
@@ -722,7 +731,7 @@ async function paceGroqModelSend(
       });
       if (alternative.action === "send") throw new OriginGroqPacingDeferral(context.deferToModelId);
     }
-    if (context.waitedMs + decision.waitMs > ORIGIN_PROVIDER_PACING_MAX_WAIT_MS) {
+    if (context.waitedMs + decision.waitMs > (context.maxWaitMs ?? ORIGIN_PROVIDER_PACING_MAX_WAIT_MS)) {
       recordOriginProviderPacingSend(modelId, footprintTokens, nowMs());
       return;
     }
@@ -741,6 +750,32 @@ function withTransportCount(error: unknown, transport: { count: number }): unkno
   }
   return error;
 }
+
+/**
+ * Pacing-wait ceiling inside the allocated cascade: 12s, far below the
+ * pacing module's general 60s ceiling (ORIGIN_PROVIDER_PACING_MAX_WAIT_MS).
+ * Production evidence (2026-11-22, ALE wave-1 M&A attempt 8 / AGORA
+ * attempt 4 on release f53141f6): a pacing wait runs inside a failover
+ * dispatch whose total budget is 45s and whose Groq slice is only the
+ * remainder after the Cloudflare route (at least ~20s, never the whole
+ * 45s), so a wait longer than this ceiling is never followed by the
+ * send it was holding for — the dispatcher's bounded race aborts the
+ * dispatch as PROVIDER_TIMEOUT first. That code is one of the
+ * analyzer's transient-retry codes, so each paced-out chunk call
+ * multiplies into up to three 45s dispatches plus 15s/30s retry waits
+ * (~180s per chunk), and a four-chunk analyzer step can no longer
+ * settle inside one 120s run advance: the advance is cut with the step
+ * mid-flight, its state is never written (attempts stays 0), and the
+ * next advance replays the step from its first chunk — the observed
+ * deadlock. A wait within this ceiling is still taken (it fits the
+ * slice with room for the send itself); a longer one steps aside to
+ * the pre-D-1 behavior — send, and let the provider's answer classify
+ * the result — exactly as pacing already does past its own ceiling.
+ * Distribution is unaffected: the first attempt still plans onto the
+ * allocated bucket and still defers to the primary bucket when only
+ * the primary's window fits.
+ */
+export const ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS = 12_000;
 
 /**
  * Planned allocation cascade (design FREE_CAPACITY_EXPANSION_2026-11-22,
@@ -762,8 +797,20 @@ function withTransportCount(error: unknown, transport: { count: number }): unkno
  * Failure semantics mirror the standard cascade: preflight skips and
  * non-trigger failures surface immediately, and only a classified rate
  * limit or an upstream 5xx overload moves the cascade to its next
- * model. Nothing here is reachable for unmarked requests or while the
- * switch is off, and direct chat generation is never allocated.
+ * model. One deliberate widening, from the same 2026-11-22 production
+ * evidence: an empty response (PROVIDER_INVALID_RESPONSE) from the
+ * ALLOCATED model also moves the cascade to the primary model. The
+ * allocated bucket is the weaker model, chosen for load distribution
+ * on the premise that this call kind is verified mechanically
+ * downstream; an empty body from it (the gpt-oss reasoning-budget
+ * failure shape) says this bucket cannot serve this call, and the
+ * primary model is the attempt the call would have made first before
+ * D-1. The standard cascade keeps its fail-closed semantics for the
+ * same code, and whatever the primary returns is still judged by the
+ * analyzer's own parse and coverage gates — rotation changes who
+ * answers, never what is accepted. Nothing here is reachable for
+ * unmarked requests or while the switch is off, and direct chat
+ * generation is never allocated.
  */
 async function executeAllocatedGroqCascade(
   providerRequest: OriginProviderExecutionRequest,
@@ -774,15 +821,15 @@ async function executeAllocatedGroqCascade(
   transport: { count: number },
   env: NodeJS.ProcessEnv,
 ): Promise<OriginProviderExecutionResult> {
-  const firstPacing: OriginGroqPacingContext = { waitedMs: 0, deferToModelId: ORIGIN_GROQ_FREE_MODEL_ID };
+  const firstPacing: OriginGroqPacingContext = { waitedMs: 0, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS, deferToModelId: ORIGIN_GROQ_FREE_MODEL_ID };
   try {
     return await executeGroqModelAttempt(providerRequest, allocatedPlan, apiKey, fetchImpl, options, transport, firstPacing);
   } catch (error) {
     if (!(error instanceof OriginGroqPacingDeferral)
-      && !(error instanceof OriginProviderError && isGroqRotationTrigger(error))) {
+      && !(error instanceof OriginProviderError && (isGroqRotationTrigger(error) || error.code === "PROVIDER_INVALID_RESPONSE"))) {
       throw withTransportCount(error, transport);
     }
-    const primaryPacing: OriginGroqPacingContext = { waitedMs: firstPacing.waitedMs };
+    const primaryPacing: OriginGroqPacingContext = { waitedMs: firstPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS };
     try {
       return await executeGroqModelAttempt(providerRequest, providerRequest.plan, apiKey, fetchImpl, options, transport, primaryPacing);
     } catch (primaryError) {
@@ -792,7 +839,7 @@ async function executeAllocatedGroqCascade(
         const qwenPlan = buildGroqRotationPlan(providerRequest, options, ORIGIN_GROQ_QWEN_MODEL_ID);
         if (qwenPlan) {
           try {
-            return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport, { waitedMs: primaryPacing.waitedMs });
+            return await executeGroqModelAttempt(providerRequest, qwenPlan, apiKey, fetchImpl, options, transport, { waitedMs: primaryPacing.waitedMs, maxWaitMs: ORIGIN_GROQ_PACING_ALLOCATION_MAX_WAIT_MS });
           } catch (qwenError) {
             throw withTransportCount(qwenError, transport);
           }
