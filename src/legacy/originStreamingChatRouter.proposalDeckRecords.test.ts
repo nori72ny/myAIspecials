@@ -155,6 +155,35 @@ const STRUCTURED_MATERIAL = [
   "- まずは無料相談をお申し込みください",
 ].join("\n");
 
+/** DG-1 固定フィクスチャ（documentInspectionFixturesV1 と同一文面・同一組成）。 */
+const S1_MESSAGE =
+  "経費精算ツール SeisanPro の導入提案資料を作ってください。素材は別途渡した試用結果と価格表のとおりです。\n\n" +
+  "製品名: クラウド経費精算ツール SeisanPro。価格: 月額480円/人、初期費用0円、対象は従業員120人で月額の合計は57,600円。現状: 経費精算の作業に月90時間かかり、申請ミスが月25件ある。試用の結果（2週間）: 作業は月36時間まで減り（60%の削減）、申請ミスは月5件まで減った（80%の削減）。人件費の削減は月18万円の見込み。計画: 試用2週間、操作研修1回、本稼働まで6週間。";
+const S1_PLACEMENT =
+  '{"title_ref":"M15","summary_refs":["M9","M11","M12"],"sections":[' +
+  '{"topic_ref":"M5","headline_ref":"M7","body_refs":["M6"]},' +
+  '{"topic_ref":"M3","headline_ref":"M4","body_refs":["M2"]},' +
+  '{"topic_ref":"M13","headline_ref":"M14","body_refs":["M10"]}],' +
+  '"next_step_refs":["M8"],"missing":[]}';
+const S3_MESSAGE =
+  "物流コストの削減提案資料を作ってください。素材は現在の配送費と集約案の数値のとおりです。\n\n" +
+  "現行: 配送費は年4,800万円、配送は月12,000件、拠点は5か所、配送便は週5回。集約案: 拠点を3か所に集約し、配送便を週3回にする。削減の見込み: 年1,200万円（削減率25%）。移行: 期間は4か月、移行費用は300万円、効果は本稼働の翌月から。";
+const S3_PLACEMENT =
+  '{"title_ref":"M16","summary_refs":["M4","M11","M13"],"sections":[' +
+  '{"topic_ref":"M3","headline_ref":"M7","body_refs":["M5","M6"]},' +
+  '{"topic_ref":"M8","headline_ref":"M9","body_refs":["M14"]},' +
+  '{"topic_ref":"M10","headline_ref":"M15","body_refs":["M2"]}],' +
+  '"next_step_refs":["M12"],"missing":[]}';
+const S6_MESSAGE =
+  "四半期の経営レポート資料を作ってください。素材は四半期の実績と案件の進捗のとおりです。\n\n" +
+  "四半期の実績: 売上は3.2億円（前年同期比8%増）、営業利益は2,400万円。案件の進捗: 案件Aは完了、案件Bは3週間の遅れ、案件Cは予定どおり。来期の見込み: 売上3.5億円。判断事項: 採用5人の実施可否。";
+const S6_PLACEMENT =
+  '{"title_ref":"M15","summary_refs":["M4","M5","M6"],"sections":[' +
+  '{"topic_ref":"M7","headline_ref":"M10","body_refs":["M8"]},' +
+  '{"topic_ref":null,"headline_ref":"M12","body_refs":["M9"]},' +
+  '{"topic_ref":"M13","headline_ref":"M14","body_refs":["M3"]}],' +
+  '"next_step_refs":["M11"],"missing":[]}';
+
 describe("streaming router deck records path (D-PR-6)", () => {
   it("mode B: sends the draft instruction and returns the PPTX plus a tag-free rendering", async () => {
     let seenInstruction = "";
@@ -250,6 +279,104 @@ describe("streaming router deck records path (D-PR-6)", () => {
     const complete = completeEvent(response.text) as { artifacts?: unknown };
     expect(complete.artifacts).toBeUndefined();
     expect(chatTextOf(response.text)).toContain("資料の作成には、次の情報が不足しています。");
+  });
+
+  it("DG-1 cause 1: route 3 (Groq) instruction also carries the placement instruction when ON", async () => {
+    let seenGroqInstruction = "";
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenGroqInstruction = providerRequest.groqSystemInstruction;
+      handlers.onDelta(S1_PLACEMENT);
+      return makeResult(S1_PLACEMENT);
+    }) as unknown as OriginProviderStreamExecutor;
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createOriginStreamingChatRouter({
+        env: { ...ENV_ON },
+        streamExecute,
+        catalogNow,
+        createRequestId: () => "origin-stream-test",
+      }),
+    );
+    app.post("/api/chat", (_req, res) => res.status(418).json({ delegated: true }));
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody(S1_MESSAGE));
+
+    expect(response.status).toBe(200);
+    // 経路3の固定コンパクト指示の後ろに、配置指示＋材料一覧が動的付加として乗る。
+    expect(seenGroqInstruction).toContain("提案資料の配置計画");
+    expect(seenGroqInstruction).toContain("M15: 経費精算ツール SeisanPro の導入");
+    const complete = completeEvent(response.text) as {
+      artifacts?: Array<Record<string, unknown>>;
+    };
+    expect(complete.artifacts).toHaveLength(1);
+  });
+
+  it("DG-1 cause 1: mode B draft instruction is also carried to route 3 when ON", async () => {
+    let seenGroqInstruction = "";
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenGroqInstruction = providerRequest.groqSystemInstruction;
+      handlers.onDelta(VALID_DRAFT);
+      return makeResult(VALID_DRAFT);
+    }) as unknown as OriginProviderStreamExecutor;
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createOriginStreamingChatRouter({
+        env: { ...ENV_ON },
+        streamExecute,
+        catalogNow,
+        createRequestId: () => "origin-stream-test",
+      }),
+    );
+    app.post("/api/chat", (_req, res) => res.status(418).json({ delegated: true }));
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody("経費精算ツールの提案資料を作ってください"));
+
+    expect(response.status).toBe(200);
+    expect(seenGroqInstruction).toContain("提案資料の起草形式");
+  });
+
+  it("DG-1 cause 3: a materials-carrying deck request is not diverted to the research route when ON", async () => {
+    const app = appWith({ ...ENV_ON }, S3_PLACEMENT);
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody(S3_MESSAGE));
+
+    expect(response.status).toBe(200);
+    const complete = completeEvent(response.text) as {
+      artifacts?: Array<Record<string, unknown>>;
+    };
+    expect(complete.artifacts).toHaveLength(1);
+  });
+
+  it("DG-1 cause 3: the same request still delegates when the switch is OFF", async () => {
+    const app = appWith({ OPENROUTER_API_KEY: "synthetic-key" }, S3_PLACEMENT);
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody(S3_MESSAGE));
+
+    expect(response.status).toBe(418);
+  });
+
+  it("DG-1 cause 4: a report-material request without 提案/企画 wording reaches the records path", async () => {
+    const app = appWith({ ...ENV_ON }, S6_PLACEMENT);
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody(S6_MESSAGE));
+
+    expect(response.status).toBe(200);
+    const complete = completeEvent(response.text) as {
+      artifacts?: Array<Record<string, unknown>>;
+    };
+    expect(complete.artifacts).toHaveLength(1);
   });
 
   it("OFF: a draft-format answer still goes through the skeleton path (no new-path rescue)", async () => {

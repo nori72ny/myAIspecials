@@ -1042,10 +1042,17 @@ function buildAssembledSections(drafts: DeckSectionDraft[]): DeckAssembledSectio
  */
 export function assembleDeckFromMaterial(input: {
   materialText: string;
+  /**
+   * 材料単位列の明示指定（DG-1 修正）。レコード経路の配線側は、
+   * 依頼文の主題単位（'theme'）を末尾に足した単位列をここへ渡す
+   * （計画時にモデルへ見せた材料一覧と組立で使う単位列を一致
+   * させるため）。省略時は materialText から分割する（従来通り）。
+   */
+  units?: readonly DeckMaterialUnit[];
   /** モデルの配置計画出力。null／省略時は決定的配置を使う。 */
   placementOutputText?: string | null;
 }): DeckAssemblyResult {
-  const units = buildDeckMaterialUnits(input.materialText);
+  const units = input.units ?? buildDeckMaterialUnits(input.materialText);
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
   const ref = (id: string | null): DeckMaterialUnit | null =>
     id === null ? null : (unitById.get(id) ?? null);

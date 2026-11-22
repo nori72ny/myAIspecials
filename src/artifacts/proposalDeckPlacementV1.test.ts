@@ -592,4 +592,42 @@ describe('buildDeterministicDeckPlacement', () => {
     const units = buildDeckMaterialUnits('現状の課題\n\n経理担当者が少なく、月末に業務が集中しています。');
     expect(buildDeterministicDeckPlacement(units)).toEqual(buildDeterministicDeckPlacement(units));
   });
+
+  it('DG-1: uses label units as section topics for labeled prose', () => {
+    const material =
+      '製品名: クラウド経費精算ツール SeisanPro。価格: 月額480円/人、初期費用0円。現状: 精算作業に月40時間かかっています。';
+    const units = buildDeckMaterialUnits(material);
+    const result = buildDeterministicDeckPlacement(units);
+    // ラベルが節の題目になり、各ブロックの文が主張文になる。
+    expect(result.plan.sections.map((section) => section.topicRef)).toEqual([
+      'M1',
+      'M3',
+      'M5',
+    ]);
+    expect(result.plan.sections.map((section) => section.headlineRef)).toEqual([
+      'M2',
+      'M4',
+      'M6',
+    ]);
+    // 題名文が無い素材ではタイトル不足が立つ（主題単位がある場合と対比）。
+    expect(result.missing.map((entry) => entry.code)).toContain('MISSING_TITLE');
+  });
+
+  it('DG-1: adopts the theme unit as the title only when no title exists (R9)', () => {
+    const material =
+      '製品名: クラウド経費精算ツール SeisanPro。価格: 月額480円/人、初期費用0円。現状: 精算作業に月40時間かかっています。';
+    const base = buildDeckMaterialUnits(material);
+    const units = [
+      ...base,
+      {
+        id: `M${base.length + 1}`,
+        text: '経費精算ツールの導入',
+        kind: 'theme' as const,
+        sourceKind: 'user-material' as const,
+      },
+    ];
+    const result = buildDeterministicDeckPlacement(units);
+    expect(result.plan.titleRef).toBe(`M${base.length + 1}`);
+    expect(result.missing.map((entry) => entry.code)).not.toContain('MISSING_TITLE');
+  });
 });

@@ -60,6 +60,8 @@ import {
 import {
   buildDeckRecordsChatArtifact,
   isDeckRecordsEnabled,
+  isProposalDeckRecordsChatRequest,
+  matchesDeckRecordsRequestText,
   planDeckRecordsRequest,
   type DeckRecordsRequestPlan,
   type DeckRecordsStageMetrics,
@@ -136,9 +138,16 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     // delegating to the non-streaming router, which answers the same 422;
     // a sanitized screen continues here on the single redacted copy.
     const screenResult = screenConversationForSend(messages);
+    // DG-1 修正（原因3）: 資料レコード経路が ON のとき、資料化依頼は
+    // 鮮度要求として調査経路へ振り分けず、本ルーターの資料経路で
+    // 処理する（DG-1 の S-3・S-4 は素材つき資料化依頼が調査経路に
+    // 振り分けられて棄権した）。OFF の間は判定自体を行わず、現行の
+    // 振り分けと完全に同一に保つ。
+    const deckRecordsRequest = isDeckRecordsEnabled(env)
+      && matchesDeckRecordsRequestText(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)
       || isOriginCapabilityQuestion(lastUserMessage)
-      || requiresGroundedResearch(lastUserMessage, env)
+      || (requiresGroundedResearch(lastUserMessage, env) && !deckRecordsRequest)
       || screenResult.outcome === "blocked") {
       return next();
     }
@@ -179,7 +188,12 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // compact Groq instruction is deliberately left untouched (its
       // 2,000-3,800 character budget is a hard contract); a route-3 answer
       // simply will not match the skeleton and produces no file.
-      const deckRequested = isProposalDeckChatRequest(requestIntent, intentInput);
+      // DG-1 修正（原因4）: 資料レコード経路が ON のときは、判定に
+      // レコード経路専用の拡張（資料の種別語＋作成依頼の動詞句）を
+      // 重ねる。OFF の間は現行判定だけであり、挙動は変わらない。
+      const deckRequested = isDeckRecordsEnabled(env)
+        ? isProposalDeckRecordsChatRequest(requestIntent, intentInput, lastUserMessage)
+        : isProposalDeckChatRequest(requestIntent, intentInput);
       // D-PR-6: with the deck-records kill switch ON, a proposal-deck
       // request takes the records path instead of the skeleton path.
       // The plan is computed before generation (mode detection; for
@@ -229,6 +243,19 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         ? planOriginPremiseGuard({ messages, nowMs: now() })
         : null;
       const premiseGuardBlockSuffix = premiseGuardPlan?.block ? `\n\n${premiseGuardPlan.block.text}` : "";
+      // DG-1 修正（原因1）: 資料レコード経路の配置・起草指示は、
+      // 経路1・2の指示（fullSystemInstruction）には従来どおり乗り
+      // るが、経路3（Groq）の固定コンパクト指示には乗らず、DG-1 で
+      // 経路3が応答した S-1・S-2 が配置も起草もできないまま
+      // insufficient になった。ここではレコード経路の計画がある
+      // ときだけ、その指示を動的付加としてコンパクト基底の後ろに
+      // 足す（前提ガードのブロックと同じ運搬方式。固定基底の文字数
+      // 契約には触れない）。計画が無い（スイッチ OFF・通常依頼・
+      // 旧骨格経路）ときは空文字列であり、経路3の指示は従来と
+      // バイト単位で同一になる。
+      const deckRecordsGroqSuffix = deckRecordsPlan?.instruction
+        ? `\n\n${deckRecordsPlan.instruction}`
+        : "";
       const providerRequest: OriginProviderExecutionRequest = {
         plan: {
           ...planningResult.plan,
@@ -237,7 +264,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
         messages: contextResult.window.messages,
         systemInstruction: fullSystemInstruction + premiseGuardBlockSuffix,
         cloudflareSystemInstruction: originCloudflareRouteSystemInstruction(fullSystemInstruction) + premiseGuardBlockSuffix,
-        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix,
+        groqSystemInstruction: originGroqRouteSystemInstruction(answerQualityPolicy.businessPlanning) + premiseGuardBlockSuffix + deckRecordsGroqSuffix,
         // Progressive display for responses that need no verification: the
         // upstream executor forwards each fragment as it is generated (after
         // that fragment's own routing/billing checks), so the first characters

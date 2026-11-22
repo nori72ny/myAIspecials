@@ -36,6 +36,16 @@
  *   （形式の失敗そのものは不足とは扱わない、という D-PR-4 の
  *   切り分けは、モデル側の組立に対する分類として維持する）。
  *
+ * DG-1 修正（2026-11-22）: 測定（DOCUMENT_INSPECTION_DG1）で
+ * 確定した変換側の原因への対応として、本モジュールに次を加えた。
+ * いずれも本スイッチ ON の範囲内であり、OFF の挙動は変えない。
+ * - 資料リクエスト判定の拡張（matchesDeckRecordsRequestText）:
+ *   資料の種別語＋作成依頼の動詞句を現行判定に重ねる（原因4）。
+ * - 依頼文の主題単位（'theme'）: 散文形式の素材は題名文を持た
+ *   ないため、依頼の主題をタイトル候補として材料に加える
+ *   （原因2の一部。分割側の対応は D-PR-1 の追加分割）。
+ * - モード判定で 'label' 単位を文の単位と合算する（原因2）。
+ *
  * 自己チェックの扱い: 新経路の自己チェックは D-PR-4 の5ゲート
  * （組立に内包）である。変換後の ProposalDeck に対する現行
  * checkProposalDeck は、D-PR-5 が表面化させた衝突（60字ルール・
@@ -71,7 +81,9 @@ import {
 import { convertAssembledDeckToProposalDeck } from "../artifacts/proposalDeckRenderV1.js";
 import { renderProposalDeckPptx } from "../artifacts/proposalDeckPptxV1.js";
 import { checkProposalDeck } from "../artifacts/proposalDeckSelfCheckV1.js";
+import type { OriginRequestIntent } from "../lib/orchestration/OriginRequestIntent.js";
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
+import { isProposalDeckChatRequest } from "./originProposalDeckChat.js";
 
 // ---------------------------------------------------------------------------
 // キルスイッチ（設計 §10.2）
@@ -95,6 +107,64 @@ export function isDeckRecordsEnabled(env: {
 }
 
 // ---------------------------------------------------------------------------
+// 資料リクエスト判定（DG-1 修正, 2026-11-22）
+// ---------------------------------------------------------------------------
+
+/**
+ * 資料の作成依頼を表す動詞句（作成依頼の形だけを受け、方法の質問
+ * 「作るにはどうすれば」は含めない）。
+ */
+const DECK_RECORDS_CREATION_VERB_PATTERN =
+  "作って|作成して|作ってもらって|作成してもらって|作りたい|作成したい|作ってほしい|作成してほしい|にして|にまとめ|に仕上げ";
+
+/**
+ * レコード経路専用の資料リクエスト文面判定（DG-1 原因4の修正）。
+ *
+ * 現行判定（isProposalDeckChatRequest）は outputs=document の場合に
+ * 「提案／企画」を必須とするため、「経営レポート資料を作って
+ * ください」のような資料化依頼が資料リクエストと判定されなかった
+ * （DG-1 の S-6）。本判定は、キルスイッチ ON のときだけ使う拡張で、
+ * 資料の種別語＋作成依頼の動詞句の組み合わせを受け付ける。
+ * 調査経路の振り分け回避（原因3）の判定にも同じ関数を使う。
+ */
+export function matchesDeckRecordsRequestText(text: string): boolean {
+  if (typeof text !== "string" || text === "") return false;
+  if (/提案資料|企画資料|仕様資料|レポート資料/.test(text)) return true;
+  if (
+    new RegExp(`資料を?(?:${DECK_RECORDS_CREATION_VERB_PATTERN})`).test(text)
+  )
+    return true;
+  if (
+    new RegExp(
+      `(?:報告書|仕様書|提案書|企画書|レポート)を?(?:${DECK_RECORDS_CREATION_VERB_PATTERN})`,
+    ).test(text)
+  )
+    return true;
+  return false;
+}
+
+/**
+ * レコード経路の資料リクエスト判定: 現行判定（isProposalDeckChatRequest）
+ * に、依頼文そのものと直近ユーザー発話への文面判定を重ねる。
+ * キルスイッチ OFF の間は呼び出し側が現行判定だけを使うため、
+ * OFF の挙動は変わらない。
+ */
+export function isProposalDeckRecordsChatRequest(
+  intent: OriginRequestIntent,
+  intentInput: string,
+  lastUserMessage?: string,
+): boolean {
+  if (isProposalDeckChatRequest(intent, intentInput)) return true;
+  if (matchesDeckRecordsRequestText(intentInput)) return true;
+  if (
+    lastUserMessage !== undefined &&
+    matchesDeckRecordsRequestText(lastUserMessage)
+  )
+    return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // モード判定（設計 §2.3、§13-13 の初期閾値）
 // ---------------------------------------------------------------------------
 
@@ -109,13 +179,76 @@ function deckRecordsModeFromUnits(
 ): "A" | "B" {
   if (units.some((unit) => unit.kind === "table")) return "A";
   if (units.filter((unit) => unit.kind === "bullet").length >= 3) return "A";
-  if (units.filter((unit) => unit.kind === "sentence").length >= 2) return "A";
+  // DG-1 修正: 'label' 単位（「項目名：」の項目名）は、その後に
+  // 本文が続く構造化された材料の印であるため、文の単位と合算して
+  // 「複数文の本文」の閾値に数える（ラベル＋本文1文の材料を
+  // テーマだけの依頼と誤判定しない）。
+  if (
+    units.filter((unit) => unit.kind === "sentence" || unit.kind === "label")
+      .length >= 2
+  )
+    return "A";
   return "B";
 }
 
 /** 依頼文のモード判定（材料あり = 'A'、テーマだけ = 'B'）。 */
 export function detectDeckRecordsMode(requestText: string): "A" | "B" {
   return deckRecordsModeFromUnits(buildDeckMaterialUnits(requestText));
+}
+
+// ---------------------------------------------------------------------------
+// 依頼文の主題単位（DG-1 修正, 2026-11-22）
+// ---------------------------------------------------------------------------
+
+/**
+ * 依頼文の主題の抽出パターン: 依頼文の先頭文にある「主題＋資料の
+ * 種別語＋作成依頼の動詞句」から主題だけを取り出す。主題は依頼文
+ * の逐語の部分文字列であり、新しい文は作らない。
+ */
+const DECK_REQUEST_THEME_PATTERN =
+  /^(.{3,40}?)(?:の)?(提案資料|企画資料|仕様資料|レポート資料|報告書|仕様書|提案書|企画書|レポート|資料)(?:を|に|の)?(作って|作成して|作ってもらって|作成してもらって|作りたい|作成したい|作ってほしい|作成してほしい|ください|お願いします)/;
+
+/**
+ * 依頼文の主題（例: 「値引きキャンペーンの企画資料を作って
+ * ください」→「値引きキャンペーン」）。散文形式の素材は題名文を
+ * 含まないため、そのままでは資料のタイトルが常に不足する
+ * （DG-1 の十分群すべてで MISSING_TITLE が構造的に発生した）。
+ * 依頼の主題は利用者自身の言葉であり、タイトル候補として材料に
+ * 加える。抽出できない場合は null（従来通りタイトル不足として
+ * 扱う）。
+ */
+export function extractDeckRequestTheme(requestText: string): string | null {
+  const firstSentence = requestText.split(/[。\n]/, 1)[0] ?? "";
+  const match = DECK_REQUEST_THEME_PATTERN.exec(firstSentence);
+  if (match === null) return null;
+  const theme = match[1].trim();
+  if (theme.length < 3 || theme.length > 40) return null;
+  if (/[、，：:]/.test(theme)) return null;
+  if (/(?:は|が|を|に|へ|と|も|の)$/.test(theme)) return null;
+  return theme;
+}
+
+/**
+ * レコード経路が使う材料単位列: D-PR-1 の分割に、依頼文の主題
+ * 単位（'theme'、末尾）を足したもの。計画（モデルへ見せる材料
+ * 一覧）と組立で同じ単位列を使うため、両者は必ずこの関数を
+ * 経由する。主題が抽出できない場合は分割結果そのもの。
+ */
+export function buildDeckRecordsUnits(
+  requestText: string,
+): DeckMaterialUnit[] {
+  const units = buildDeckMaterialUnits(requestText);
+  const theme = extractDeckRequestTheme(requestText);
+  if (theme === null) return units;
+  return [
+    ...units,
+    {
+      id: `M${units.length + 1}`,
+      text: theme,
+      kind: "theme",
+      sourceKind: "user-material",
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -164,8 +297,14 @@ export interface DeckRecordsStageMetrics {
 
 export interface DeckRecordsRequestPlan {
   mode: "A" | "B";
-  /** 依頼文の材料単位件数。 */
+  /** 依頼文の材料単位件数（モードAでは主題単位を含む）。 */
   materialUnitCount: number;
+  /**
+   * 組立に使う材料単位列（DG-1 修正）。モードAでは主題単位を
+   * 含み、計画時にモデルへ見せた材料一覧と一致する。モードBでは
+   * 素材分割の結果そのもの（組立は起草側で行うため未使用）。
+   */
+  units: readonly DeckMaterialUnit[];
   /**
    * 生成（経路1・2）のシステム指示へ追加する固定文。モードBは
    * 起草指示、モードAで決定的配置が充足しなかった場合は配置
@@ -185,23 +324,28 @@ export interface DeckRecordsRequestPlan {
 export function planDeckRecordsRequest(
   requestText: string,
 ): DeckRecordsRequestPlan {
-  const units = buildDeckMaterialUnits(requestText);
-  const mode = deckRecordsModeFromUnits(units);
+  const baseUnits = buildDeckMaterialUnits(requestText);
+  const mode = deckRecordsModeFromUnits(baseUnits);
   if (mode === "B") {
     return {
       mode,
-      materialUnitCount: units.length,
+      materialUnitCount: baseUnits.length,
+      units: baseUnits,
       instruction: buildDeckDraftInstruction(),
       deterministicAssembly: null,
     };
   }
+  // モードA: 主題単位を含む単位列で決定的配置まで試す（DG-1 修正）。
+  const units = buildDeckRecordsUnits(requestText);
   const deterministicAssembly = assembleDeckFromMaterial({
     materialText: requestText,
+    units,
   });
   if (deterministicAssembly.ok) {
     return {
       mode,
       materialUnitCount: units.length,
+      units,
       instruction: null,
       deterministicAssembly,
     };
@@ -215,6 +359,7 @@ export function planDeckRecordsRequest(
   return {
     mode,
     materialUnitCount: units.length,
+    units,
     instruction,
     deterministicAssembly,
   };
@@ -302,6 +447,7 @@ export function buildDeckRecordsChatArtifact(input: {
   } else {
     assembly = assembleDeckFromMaterial({
       materialText: input.requestText,
+      units: input.plan.units,
       placementOutputText: input.answerText,
     });
     executionCount = 1;
