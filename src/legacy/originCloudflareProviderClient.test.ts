@@ -16,6 +16,7 @@ import {
   ORIGIN_CLOUDFLARE_WORKERS_AI_FREE_PROVIDER_ID,
   type OriginExecutionPlan,
 } from "../lib/orchestration/OriginExecutionPolicy";
+import { getOriginCapacityLedgerSnapshot, originCapacityBudgetDayKey, resetOriginCapacityLedgerForTests } from "./originProviderCapacityLedger";
 import { DEFAULT_ORIGIN_CLOUDFLARE_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginCloudflareFreeModelCatalog";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
@@ -440,6 +441,22 @@ describe("executeOriginCloudflareProvider", () => {
     expect(inferenceBody.messages[0]).toEqual({ role: "system", content: "安全に回答してください。" });
     expect(inferenceBody.messages[1]).toEqual({ role: "user", content: "確認してください" });
     expect(inferenceBody.max_tokens).toBe(4096);
+  });
+
+  it("records the result's Neurons in the capacity ledger's tracked estimate (capacity D-0)", async () => {
+    resetOriginCapacityLedgerForTests();
+    const fetchMock = fullFetch(async () => cloudflareJson({
+      response: "確認結果です。",
+      usage: { prompt_tokens: 100_000, completion_tokens: 50_000 },
+    }));
+    const result = await executeOriginCloudflareProvider(request, enabledEnv, fetchMock as unknown as OriginFetch, { nowMs: NOW_MS });
+    expect(result.routingEvidence.neurons).toBe(2273);
+    const ledger = getOriginCapacityLedgerSnapshot();
+    expect(ledger.cloudflareNeurons).toEqual({
+      budgetDay: originCapacityBudgetDayKey(Date.now()),
+      trackedEstimateNeurons: 2273,
+      source: "estimated",
+    });
   });
 
   it("sends the route-2 deduplicated instruction when the request carries one", async () => {

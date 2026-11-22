@@ -359,3 +359,36 @@ describe("buildOriginProviderFailureDiagnostic", () => {
     expect(safeOriginFinishReason(undefined)).toBeUndefined();
   });
 });
+
+describe("buildOriginProviderFailureDiagnostic rate-limit whitelist (capacity D-0)", () => {
+  it("passes a valid rate-limit snapshot and per-attempt hit flags through", () => {
+    const snapshot = { limitRequests: 1000, remainingRequests: 0, resetRequestsSeconds: 2 };
+    const error = new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, {
+      transportRequestCount: 1,
+      rateLimit: snapshot,
+      failoverAttempts: [
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: true, rateLimit: snapshot, transportRequestCount: 1 },
+      ],
+    });
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary.rateLimit).toEqual(snapshot);
+    expect(summary.failoverAttempts).toEqual([
+      { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: true, rateLimit: snapshot, transportRequestCount: 1 },
+    ]);
+  });
+
+  it("drops poisoned rate-limit values instead of passing them through", () => {
+    const poisoned = {
+      transportRequestCount: 1,
+      rateLimit: { limitRequests: "1000", remainingRequests: -1, limitTokens: 2_000_000_001, resetRequestsSeconds: "2s", resetTokensSeconds: 90_000 },
+      failoverAttempts: [
+        { providerId: "groq-free", modelId: "openai/gpt-oss-120b", outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: "yes", rateLimit: { remainingTokens: "many" }, transportRequestCount: 1 },
+      ],
+    } as unknown as ConstructorParameters<typeof OriginProviderError>[5];
+    const error = new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, poisoned);
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary.rateLimit).toBeUndefined();
+    expect(summary.failoverAttempts[0]?.rateLimitHit).toBeUndefined();
+    expect(summary.failoverAttempts[0]?.rateLimit).toBeUndefined();
+  });
+});

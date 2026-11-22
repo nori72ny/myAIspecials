@@ -20,6 +20,7 @@ beforeEach(() => {
   resetOriginProviderFailoverCircuitForTests();
 });
 import {
+  buildOriginProviderFailureDiagnostic,
   OriginProviderError,
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
@@ -150,7 +151,7 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(result.attempts).toEqual([
       { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
       { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "skipped", skipReason: "not-configured", transportRequestCount: 0 },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", rateLimitHit: false, transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
     expect(result.transportRequestCount).toBe(1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -170,6 +171,7 @@ describe("Groq third route in the failover dispatcher", () => {
       modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
       outcome: "availability-error",
       errorCode: "PROVIDER_RATE_LIMITED",
+      rateLimitHit: true,
       transportRequestCount: 4,
       durationMs: expect.any(Number),
     });
@@ -288,8 +290,8 @@ describe("Groq third route in the failover dispatcher", () => {
     expect(error.code).toBe("PROVIDER_RATE_LIMITED");
     expect(error.diagnostic?.failoverAttempts).toEqual([
       { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
-      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4, durationMs: expect.any(Number) },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: true, upstreamStatus: 429, upstreamErrorCode: "10023", transportRequestCount: 4, durationMs: expect.any(Number) },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: true, upstreamStatus: 429, upstreamErrorCode: "rate_limit_exceeded", transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
   });
 
@@ -345,6 +347,7 @@ describe("Groq third route in the failover dispatcher", () => {
       providerId: "groq-free",
       modelId: ORIGIN_GROQ_FREE_ROTATION_MODEL_ID,
       outcome: "succeeded",
+      rateLimitHit: false,
       transportRequestCount: 2,
       durationMs: expect.any(Number),
     });
@@ -761,7 +764,7 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     expect(cloudflareExecute).not.toHaveBeenCalled();
     expect(result.attempts).toEqual([
       { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "succeeded", rateLimitHit: false, transportRequestCount: 1, durationMs: expect.any(Number) },
     ]);
     expect(result.transportRequestCount).toBe(1);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -776,8 +779,8 @@ describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
     expect(result.text).toBe("第2経路の回答です。");
     expect(result.attempts).toEqual([
       { providerId: "openrouter-free", modelId: ORIGIN_OPENROUTER_FREE_MODEL, outcome: "skipped", skipReason: "route-stopped", transportRequestCount: 0 },
-      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", transportRequestCount: 1, durationMs: expect.any(Number) },
-      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "succeeded", transportRequestCount: 4, durationMs: expect.any(Number) },
+      { providerId: "groq-free", modelId: ORIGIN_GROQ_FREE_MODEL_ID, outcome: "availability-error", errorCode: "PROVIDER_RATE_LIMITED", rateLimitHit: true, transportRequestCount: 1, durationMs: expect.any(Number) },
+      { providerId: "cloudflare-workers-ai-free", modelId: ORIGIN_CLOUDFLARE_FREE_MODEL, outcome: "succeeded", rateLimitHit: false, transportRequestCount: 4, durationMs: expect.any(Number) },
     ]);
     expect(result.transportRequestCount).toBe(0 + 1 + 4);
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
@@ -1185,5 +1188,58 @@ describe("assertOriginZeroCostExecutionResultWithFailover with the Groq-first or
     };
     expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL))
       .toThrowError(expect.objectContaining({ code: "PROVIDER_ROUTING_UNVERIFIED" }));
+  });
+});
+
+describe("rate-limit attempt evidence (capacity D-0)", () => {
+  const RATE_LIMIT_SNAPSHOT = {
+    limitRequests: 1000,
+    remainingRequests: 0,
+    limitTokens: 200000,
+    remainingTokens: 0,
+    resetRequestsSeconds: 2,
+    resetTokensSeconds: 0.5,
+  };
+
+  it("carries the serving route's rate-limit snapshot and a false hit flag on its success attempt", async () => {
+    const groqExecute = vi.fn(async () => ({ ...groqSuccessResult(), rateLimit: RATE_LIMIT_SNAPSHOT }));
+    const result = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute: primaryRateLimited(), cloudflareExecute: cloudflareSkipped(), groqExecute,
+    });
+    expect(result.rateLimit).toEqual(RATE_LIMIT_SNAPSHOT);
+    expect(result.attempts?.[2]).toEqual({
+      providerId: "groq-free",
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "succeeded",
+      rateLimitHit: false,
+      rateLimit: RATE_LIMIT_SNAPSHOT,
+      transportRequestCount: 1,
+      durationMs: expect.any(Number),
+    });
+  });
+
+  it("marks a rate-limited attempt as a hit and surfaces the snapshot through the failure diagnostic", async () => {
+    const groqExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_RATE_LIMITED", "無料AIの利用上限に達しました。", 429, false, 120, {
+        transportRequestCount: 1, upstreamStatus: 429, rateLimit: RATE_LIMIT_SNAPSHOT,
+      });
+    });
+    const error = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute: primaryRateLimited(), cloudflareExecute: cloudflareSkipped(), groqExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.diagnostic?.failoverAttempts?.[2]).toEqual({
+      providerId: "groq-free",
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "availability-error",
+      errorCode: "PROVIDER_RATE_LIMITED",
+      rateLimitHit: true,
+      rateLimit: RATE_LIMIT_SNAPSHOT,
+      upstreamStatus: 429,
+      transportRequestCount: 1,
+      durationMs: expect.any(Number),
+    });
+    const summary = buildOriginProviderFailureDiagnostic(error);
+    expect(summary.rateLimit).toEqual(RATE_LIMIT_SNAPSHOT);
+    expect(summary.failoverAttempts[2]).toMatchObject({ rateLimitHit: true, rateLimit: RATE_LIMIT_SNAPSHOT });
   });
 });

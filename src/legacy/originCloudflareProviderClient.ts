@@ -17,6 +17,7 @@ import {
   type OriginProviderExecutionRequest,
   type OriginProviderExecutionResult,
 } from "./originProviderClient.js";
+import { recordOriginCloudflareNeuronEstimate } from "./originProviderCapacityLedger.js";
 import type { OriginProviderStreamHandlers } from "./originProviderStreamClient.js";
 
 /**
@@ -650,6 +651,12 @@ function composeOriginCloudflareResult(
     (usage.promptTokens / 1_000_000) * NEURONS_PER_MILLION_INPUT_TOKENS
     + (usage.completionTokens / 1_000_000) * NEURONS_PER_MILLION_OUTPUT_TOKENS,
   );
+  // Capacity observation (design FREE_CAPACITY_EXPANSION_2026-11-22, D-0):
+  // the Neurons this result reports for itself join the capacity ledger's
+  // tracked estimate for the budget day. Observation only — per W-1 the
+  // tracked figure is a lower bound (a 503 reconciliation failure spends
+  // Neurons no result reports), and no routing or stop line reads it.
+  recordOriginCloudflareNeuronEstimate(neurons);
   const result: OriginProviderExecutionResult = {
     text,
     // (PKG-2b) Truncation detection, method B: reaching the requested
