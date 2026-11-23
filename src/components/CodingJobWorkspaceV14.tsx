@@ -325,7 +325,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
       <header className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-xl font-black">コードを作る・直す</h1>
-          <p className="mt-1 text-sm leading-6 text-origin-muted">作りたいものや直したいことを書いてください。内容を確認し、作成・修正と動作確認まで進めます。</p>
+          <p className="mt-1 text-sm leading-6 text-origin-muted">作りたいものや直したいことを書いてください。内容を確認し、作成・修正と動作確認まで進めます。プログラム自体を作る・直す作業に向いています。</p>
         </div>
         
       </header>
@@ -361,6 +361,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
         {ready && !hasCredential && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">
             <span className="text-origin-muted">実行キーは、設定の「コード実行」で入力します。</span>
+            <span className="text-origin-muted">コードの相談や短いコードは、チャットでもそのまま頼めます。</span>
             <button type="button" onClick={() => onOpenSettings?.('coding')} className="origin-secondary-button inline-flex min-h-11 items-center rounded-xl border px-3 text-sm font-semibold">設定を開く</button>
           </div>
         )}

@@ -768,7 +768,7 @@ export default function AgentWorkspaceView() {
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-[13px] font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
         <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
-        <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。</p>
+        <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。調べる・まとめる・文書にするような、手順の多い作業に向いています。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">任せたいこと</label>
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}

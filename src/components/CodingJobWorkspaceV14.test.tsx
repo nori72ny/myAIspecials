@@ -291,6 +291,7 @@ describe('CodingJobWorkspaceV14', () => {
     // 依頼文を書く前（初期状態）でも、キーの入力先と設定を開く導線が見え、
     // 行き止まりにならない。
     expect(screen.getByText('実行キーは、設定の「コード実行」で入力します。')).toBeTruthy();
+    expect(screen.getByText('コードの相談や短いコードは、チャットでもそのまま頼めます。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '設定を開く' }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onOpenSettings).toHaveBeenCalledWith('coding');
