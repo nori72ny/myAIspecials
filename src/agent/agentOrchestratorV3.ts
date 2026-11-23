@@ -57,7 +57,7 @@ import {
   verifyAttachmentUploadCapability,
 } from './agentAttachmentCapability.js';
 import { buildAgentAttachmentDataView, type AgentAttachmentDataView } from './agentAttachmentData.js';
-import { AGENT_ATTACHMENT_MAX_PLAN_STEPS, augmentPlanWithAttachments } from './agentAttachmentPlanning.js';
+import { augmentPlanWithAttachments, resolveAgentAttachmentMaxPlanSteps } from './agentAttachmentPlanning.js';
 import { agentFindingsReconciliationMode } from './agentAttachmentTools.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
 
@@ -68,7 +68,7 @@ const isToolName = (value: unknown): value is ToolName => typeof value === 'stri
  * attachment plan, and the two ceilings must move together so an
  * issuable plan is always an executable one. Attachment-bound step
  * lists — whose data steps carry the set binding — are admitted up to
- * AGENT_ATTACHMENT_MAX_PLAN_STEPS instead (see parseStepInputs): the
+ * resolveAgentAttachmentMaxPlanSteps() instead (see parseStepInputs): the
  * reader plus up to six analyzers ride on top of the base plan, so a
  * flat 6 made mid-size sets unplannable and then unapprovable. */
 const MAX_EXECUTION_STEPS = 6;
@@ -201,7 +201,7 @@ function parseStepInputs(body: unknown): AgentStepInputV3[] | null {
     (step.toolName === 'attachment_reader' || step.toolName === 'attachment_analyzer' || step.toolName === 'attachment_reconciler')
     && typeof step.params.attachmentSetId === 'string'
     && typeof step.params.setDigest === 'string');
-  if (steps.length > (attachmentBound ? AGENT_ATTACHMENT_MAX_PLAN_STEPS : MAX_EXECUTION_STEPS)) return null;
+  if (steps.length > (attachmentBound ? resolveAgentAttachmentMaxPlanSteps() : MAX_EXECUTION_STEPS)) return null;
   return steps;
 }
 

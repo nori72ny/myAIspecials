@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
-  AGENT_ATTACHMENT_MAX_PLAN_STEPS,
+  resolveAgentAttachmentMaxPlanSteps,
   attachmentOutputKindForGoal,
   augmentPlanWithAttachments,
   extractAttachmentOutputFileSpec,
@@ -63,8 +63,8 @@ const K8S_FILES = ['cluster_state.txt', 'deployment.yaml', 'failing_pod.log'];
 
 describe('attachment plan step ceiling (defect 1)', () => {
   it('derives the ceiling from the parts it must hold, clamped to the record ceiling: min(6 + 1 + ceil(48 / 2), 20) = 20', () => {
-    expect(AGENT_ATTACHMENT_MAX_PLAN_STEPS).toBe(20);
-    expect(AGENT_ATTACHMENT_MAX_PLAN_STEPS).toBe(MAX_AGENT_RUN_PLAN_STEPS);
+    expect(resolveAgentAttachmentMaxPlanSteps()).toBe(20);
+    expect(resolveAgentAttachmentMaxPlanSteps()).toBe(MAX_AGENT_RUN_PLAN_STEPS);
   });
 
   it('forms a valid plan for the M&A shape (17 chunks, 3 base steps)', () => {
@@ -134,7 +134,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     // exactly the derived ceiling and exactly the record ceiling,
     // with no step to spare.
     expect(result.steps).toHaveLength(20);
-    expect(result.steps).toHaveLength(AGENT_ATTACHMENT_MAX_PLAN_STEPS);
+    expect(result.steps).toHaveLength(resolveAgentAttachmentMaxPlanSteps());
     expect(result.steps).toHaveLength(MAX_AGENT_RUN_PLAN_STEPS);
     const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
     expect(analyzers).toHaveLength(18);
@@ -158,7 +158,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     if (result.ok !== false) return;
     expect(result.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
     expect(result.limitKind).toBe('steps');
-    expect(result.limit).toBe(AGENT_ATTACHMENT_MAX_PLAN_STEPS);
+    expect(result.limit).toBe(resolveAgentAttachmentMaxPlanSteps());
     expect(result.stepCount).toBe(21);
     expect(result.chunkCount).toBe(37);
   });
@@ -217,7 +217,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     if (result.ok !== false) return;
     expect(result.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
     expect(result.limitKind).toBe('steps');
-    expect(result.limit).toBe(AGENT_ATTACHMENT_MAX_PLAN_STEPS);
+    expect(result.limit).toBe(resolveAgentAttachmentMaxPlanSteps());
     expect(result.stepCount).toBe(31);
     expect(result.chunkCount).toBe(48);
   });
@@ -250,7 +250,7 @@ describe('attachment plan step ceiling (defect 1)', () => {
     if (result.ok !== false) return;
     expect(result.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
     expect(result.limitKind).toBe('steps');
-    expect(result.limit).toBe(AGENT_ATTACHMENT_MAX_PLAN_STEPS);
+    expect(result.limit).toBe(resolveAgentAttachmentMaxPlanSteps());
     expect(result.stepCount).toBe(32);
     expect(result.chunkCount).toBe(48);
   });

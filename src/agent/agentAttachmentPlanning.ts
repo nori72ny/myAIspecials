@@ -125,16 +125,36 @@ export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params
  * set on a one-step base plan is the largest AGORA-shaped plan
  * that still fits (reader + 18 analyzers + document_generator =
  * 20), and 37+ chunks on the same shape are refused at plan time.
- * The executor's step-input validation uses this same constant for
+ * The executor's step-input validation uses this same ceiling for
  * attachment-bound step lists, so an issuable plan is always an
  * executable one. (The flat MAX_EXECUTION_STEPS of 6 that this
  * replaces made mid-size sets unplannable: a 17-chunk set already
  * needs reader + 9 analyzers on top of the goal's base steps.)
+ *
+ * The ceiling is resolved lazily, on first use, and memoized \u2014
+ * never at module evaluation time. This module sits in an import
+ * cycle with agentRunRecord.ts (which reaches this module through
+ * the orchestrator and capability modules), so in the production
+ * ESM bundle the MAX_AGENT_RUN_PLAN_STEPS binding can still be in
+ * its temporal dead zone while this module is being evaluated;
+ * computing the ceiling in a module-level const threw
+ * "Cannot access 'MAX_AGENT_RUN_PLAN_STEPS' before initialization"
+ * at server startup (CI serverless-runtime check, 2026-11-23).
+ * Deferring the read to the first call \u2014 by which time every
+ * module in the cycle has finished evaluating \u2014 keeps the value
+ * identical without depending on evaluation order.
  */
-export const AGENT_ATTACHMENT_MAX_PLAN_STEPS = Math.min(
-  MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP),
-  MAX_AGENT_RUN_PLAN_STEPS,
-);
+let cachedAgentAttachmentMaxPlanSteps: number | undefined;
+
+export function resolveAgentAttachmentMaxPlanSteps(): number {
+  if (cachedAgentAttachmentMaxPlanSteps === undefined) {
+    cachedAgentAttachmentMaxPlanSteps = Math.min(
+      MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP),
+      MAX_AGENT_RUN_PLAN_STEPS,
+    );
+  }
+  return cachedAgentAttachmentMaxPlanSteps;
+}
 
 const GENERATIVE_TOOLS: ReadonlySet<string> = new Set(['document_generator', 'file_writer']);
 
@@ -332,8 +352,9 @@ export function augmentPlanWithAttachments(input: {
   const reconcilerPlanned = auditMode && (input.reconciliationMode ?? 'off') !== 'off';
 
   const stepCount = steps.length + 1 + analyzerCount + (reconcilerPlanned ? 1 : 0);
-  if (stepCount > AGENT_ATTACHMENT_MAX_PLAN_STEPS) {
-    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: AGENT_ATTACHMENT_MAX_PLAN_STEPS, limitKind: 'steps', stepCount };
+  const maxPlanSteps = resolveAgentAttachmentMaxPlanSteps();
+  if (stepCount > maxPlanSteps) {
+    return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: maxPlanSteps, limitKind: 'steps', stepCount };
   }
 
   const outputSpec = extractAttachmentOutputFileSpec(goal);
