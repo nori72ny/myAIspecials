@@ -120,6 +120,48 @@ const PARTIAL_ANSWER_CHROME_KEYWORDS = [
 ];
 
 /**
+ * Caption credit markers (P3-0, WEEKLY_INSPECTION_P3_DESIGN_2026-11-23
+ * §3.6): the credit line of a photo caption — image/photo/illustration
+ * provision credits, photographer credits, and their English forms.
+ * A credit is never the source's gist, and its presence marks the
+ * surrounding run as a caption block (see the filter below). The
+ * markers are deliberately specific — a bare mention of a photo or a
+ * photographer in substantive text is not a credit.
+ */
+const PARTIAL_ANSWER_CAPTION_CREDIT_PATTERN =
+  /画像提供|写真提供|イラスト提供|動画提供|画像[：:]|写真[：:]|撮影[：:・＝=]|（撮影|撮影者[：:・]|（写真|（画像|\bphoto by\b|\bphotograph by\b|\bphoto credit\b|\bimage credit\b|\(\s*photo\b/iu;
+
+/**
+ * Predicate endings of a complete Japanese sentence, for the
+ * caption-fragment judgement below: a sentence whose body ends with
+ * one of these (auxiliaries, verb/adjective inflections, nominalized
+ * predicate forms) states something; a Japanese sentence that ends
+ * with anything else — a noun, a katakana run, a particle — is a
+ * noun-final fragment （体言止め), the shape of headlines and of
+ * photo descriptions.
+ */
+const PARTIAL_ANSWER_PREDICATE_ENDING_PATTERN =
+  /(?:です|ます|でした|ました|だ|である|ない|なかった|いる|ある|なる|する|した|される|れる|られる|せる|させる|たい|よう|こと|もの|ため|から|ので|けど|が|て|し|等|など|ね|よ|な|か|わ|ず|[るたいきくぐすつぬぶむれせめけげちり])$/u;
+
+/**
+ * Whether one sentence of a caption block is a caption fragment:
+ * a run without sentence-final punctuation, or a Japanese
+ * noun-final fragment with no predicate. Non-Japanese sentences are
+ * never judged fragments here — the credit rule alone applies to
+ * them. Only ever consulted for sentences of a quote that carries
+ * a caption credit (see below), where the run describes the photo
+ * rather than stating the source's content.
+ */
+function isPartialAnswerCaptionFragment(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  if (!trimmed) return true;
+  if (!/[。．！？!?」』）)]$/u.test(trimmed)) return true;
+  if (!/[぀-ヿ㐀-䶿一-鿿]/u.test(trimmed)) return false;
+  const body = trimmed.replace(/[。．！？!?」』）)]+$/u, "");
+  return !PARTIAL_ANSWER_PREDICATE_ENDING_PATTERN.test(body);
+}
+
+/**
  * Drops chrome sentences from a raw quote before the R-1
  * neutralization: the evidence packet can select a page's header or
  * navigation run as "answer-bearing" when it happens to contain the
@@ -129,10 +171,29 @@ const PARTIAL_ANSWER_CHROME_KEYWORDS = [
  * presentation-stage filter on the already-selected text, and a
  * source whose quote is entirely chrome simply shows no quote on
  * its card instead of showing the furniture.
+ *
+ * P3-0 (WEEKLY_INSPECTION_P3_DESIGN_2026-11-23 §3.6) adds the
+ * caption forms the 2026-11-23 weekly inspection caught in a tier-T3
+ * quote (a photo's alt-text description and its "画像提供, Reuters"
+ * credit, selected because the caption names the question's
+ * subject): a sentence carrying a caption credit is dropped, and
+ * when a quote carries any credit, the caption block's descriptive
+ * fragments go with it — the remaining substantive sentences (they
+ * end in predicates) are untouched. This is presentation only: the
+ * extraction and stated-answer judgements read the packet's
+ * sentences, never this filtered quote, so dropping a caption that
+ * happens to carry an answer's core costs the card its gist, never
+ * a judgement.
  */
 function cleanPartialAnswerQuoteText(text: string): string {
   if (!text) return "";
-  const kept = splitRecoverySentences(text).filter((sentence) => {
+  const sentences = splitRecoverySentences(text);
+  const hasCaptionCredit = sentences.some((sentence) =>
+    PARTIAL_ANSWER_CAPTION_CREDIT_PATTERN.test(sentence),
+  );
+  const kept = sentences.filter((sentence) => {
+    if (PARTIAL_ANSWER_CAPTION_CREDIT_PATTERN.test(sentence)) return false;
+    if (hasCaptionCredit && isPartialAnswerCaptionFragment(sentence)) return false;
     const haystack = sentence.toLowerCase();
     let hits = 0;
     for (const keyword of PARTIAL_ANSWER_CHROME_KEYWORDS) {
