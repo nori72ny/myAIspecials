@@ -100,6 +100,34 @@ describe('AgentWorkspaceView v3', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
+  it('says plainly that an oversize attachment set cannot fit one plan, instead of the generic plan failure (AGORA segment split)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') {
+        return json({
+          ok: false,
+          code: 'AGENT_ATTACHMENT_TOO_LARGE',
+          protocolVersion: 3,
+          chunkCount: 37,
+          limit: 20,
+          limitKind: 'steps',
+          stepCount: 21,
+        }, 422);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(screen.getByRole('button', { name: '実行計画を作る' }));
+
+    await screen.findByText('添付データが多すぎて、一度に処理できる計画に収まりませんでした。ファイルを減らすか、分割してご依頼ください。');
+    expect(screen.queryByText('計画を作成できませんでした。依頼内容をご確認のうえ、もう一度お試しください。')).toBeNull();
+  });
+
   it('shows the plan once on the left and keeps the results panel empty while approval is pending', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

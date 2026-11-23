@@ -1,4 +1,5 @@
 import { MAX_PLAN_STEPS, type AgentToolStepV3 } from './agentToolPlannerV3.js';
+import { MAX_AGENT_RUN_PLAN_STEPS } from './agentRunRecord.js';
 import type { ToolParams } from './toolRegistry.js';
 import {
   AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
@@ -18,7 +19,7 @@ import type { AgentDataOutputKind, AgentFindingsReconciliationMode } from './age
  * augmented deterministically:
  *
  * 1. `attachment_reader` leads the plan.
- * 2. One or more `attachment_analyzer` steps (at most 4 chunks each,
+ * 2. One or more `attachment_analyzer` steps (at most 2 chunks each,
  *    chained by `contentFromStep` so their bundles merge) sit
  *    immediately before the first generative step — or close the plan
  *    when the goal has no generative step, making the analyzer's
@@ -105,22 +106,35 @@ import type { AgentDataOutputKind, AgentFindingsReconciliationMode } from './age
 
 export type AgentStepInputLike = { toolName: AgentToolStepV3['toolName']; params: ToolParams };
 
-/**
- * The step ceiling for an attachment-bound plan, derived from the
+/** The step ceiling for an attachment-bound plan, derived from the
  * constants that bound its parts: the largest base plan the planner
  * can emit (MAX_PLAN_STEPS) + the reader + one analyzer per
  * AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP chunks of the largest
- * admissible set — 6 + 1 + ceil(48 / 4) = 19. Any set within the
- * attachment limits can therefore always form a plan, while the
- * ceiling stays a hard bound (and below the 20-step record ceiling).
+ * admissible set \u2014 6 + 1 + ceil(48 / 2) = 31 \u2014 clamped to the
+ * record ceiling MAX_AGENT_RUN_PLAN_STEPS (20), so the derived
+ * ceiling never exceeds what the run record can hold. A set that
+ * needs more than the record ceiling is therefore refused here, at
+ * plan time, with the step limit named, instead of passing planning
+ * and failing when the run is recorded. The clamp is what keeps the
+ * invariant "an issuable plan is always an executable one" true
+ * after the segment size dropped from 4 to 2 (AGORA timeout,
+ * 2026-11-23): without it the formula alone would admit 31-step
+ * plans the record layer refuses above 20. The price is a smaller
+ * admissible range \u2014 a set needs reader + ceil(chunks / 2)
+ * analyzers + its surviving base steps within 20, so a 36-chunk
+ * set on a one-step base plan is the largest AGORA-shaped plan
+ * that still fits (reader + 18 analyzers + document_generator =
+ * 20), and 37+ chunks on the same shape are refused at plan time.
  * The executor's step-input validation uses this same constant for
  * attachment-bound step lists, so an issuable plan is always an
  * executable one. (The flat MAX_EXECUTION_STEPS of 6 that this
  * replaces made mid-size sets unplannable: a 17-chunk set already
- * needs reader + 5 analyzers on top of the goal's base steps.)
+ * needs reader + 9 analyzers on top of the goal's base steps.)
  */
-export const AGENT_ATTACHMENT_MAX_PLAN_STEPS =
-  MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP);
+export const AGENT_ATTACHMENT_MAX_PLAN_STEPS = Math.min(
+  MAX_PLAN_STEPS + 1 + Math.ceil(AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN / AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP),
+  MAX_AGENT_RUN_PLAN_STEPS,
+);
 
 const GENERATIVE_TOOLS: ReadonlySet<string> = new Set(['document_generator', 'file_writer']);
 
