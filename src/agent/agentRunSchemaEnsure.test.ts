@@ -62,13 +62,14 @@ describe('createAgentRunSchemaEnsuringExecutor', () => {
     const store = storeOver(fake);
     const record = await store.get(runId, ownerBinding);
     expect(record).toBeNull();
-    expect(fake.calls).toHaveLength(6);
+    expect(fake.calls).toHaveLength(7);
     expect(fake.calls[0].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[0]);
     expect(fake.calls[1].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[1]);
     expect(fake.calls[2].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[2]);
     expect(fake.calls[3].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[3]);
     expect(fake.calls[4].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[4]);
-    expect(fake.calls[5].text).toContain('from public.origin_agent_runs');
+    expect(fake.calls[5].text).toBe(AGENT_RUN_SCHEMA_MIGRATIONS[5]);
+    expect(fake.calls[6].text).toContain('from public.origin_agent_runs');
   });
 
   it('does not re-send the migrations after a successful ensure', async () => {
@@ -76,7 +77,7 @@ describe('createAgentRunSchemaEnsuringExecutor', () => {
     const store = storeOver(fake);
     await store.get(runId, ownerBinding);
     await store.get(runId, ownerBinding);
-    expect(fake.migrationCalls()).toHaveLength(5);
+    expect(fake.migrationCalls()).toHaveLength(6);
     expect(fake.operationCalls()).toHaveLength(2);
   });
 
@@ -86,7 +87,7 @@ describe('createAgentRunSchemaEnsuringExecutor', () => {
     const [first, second] = await Promise.all([store.get(runId, ownerBinding), store.get(runId, ownerBinding)]);
     expect(first).toBeNull();
     expect(second).toBeNull();
-    expect(fake.migrationCalls()).toHaveLength(5);
+    expect(fake.migrationCalls()).toHaveLength(6);
     expect(fake.operationCalls()).toHaveLength(2);
   });
 
@@ -112,6 +113,7 @@ describe('createAgentRunSchemaEnsuringExecutor', () => {
       AGENT_RUN_SCHEMA_MIGRATIONS[2],
       AGENT_RUN_SCHEMA_MIGRATIONS[3],
       AGENT_RUN_SCHEMA_MIGRATIONS[4],
+      AGENT_RUN_SCHEMA_MIGRATIONS[5],
     ]);
     expect(fake.operationCalls()).toHaveLength(2);
   });

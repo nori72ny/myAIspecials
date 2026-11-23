@@ -448,9 +448,9 @@ function logAgentAttachmentStoreFailure(operation: string, error: unknown): void
  * is not a document envelope — an analyzer bundle, a reader's raw
  * text — yields null, and the caller reports the metadata as absent
  * rather than guessing. `hasContent` is the entity-presence signal:
- * it distinguishes a text deliverable, whose entity rides inline as
- * `content`, from a binary deliverable whose envelope (until the
- * base64 stage lands) declares an entity it does not yet carry.
+ * it distinguishes a deliverable whose entity rides inline — text
+ * as `content`, binary as `contentBase64` (artifact retrieval R-2)
+ * — from an envelope that declares an entity it does not carry.
  */
 type AgentDocumentEnvelopeView = {
   format: string | null;

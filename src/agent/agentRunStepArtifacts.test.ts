@@ -68,6 +68,99 @@ describe('step artifact record contract', () => {
   });
 });
 
+describe('binary deliverable envelope contract (R-2)', () => {
+  const entityBytes = Buffer.alloc(22_355, 7);
+  const entitySha256 = createHash('sha256').update(entityBytes).digest('hex');
+  const deliverableEnvelope = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+    kind: 'document',
+    format: 'xlsx',
+    filename: 'capital.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    bytes: entityBytes.length,
+    sha256: entitySha256,
+    verified: true,
+    verification: ['non-empty', 'zip-signature', 'xlsx-package'],
+    contentBase64: entityBytes.toString('base64'),
+    ...overrides,
+  });
+
+  it('accepts a binary deliverable whose declarations reproduce its decoded entity', () => {
+    const envelope = deliverableEnvelope();
+    const normalized = validatePutAgentRunStepArtifactInput(artifactInput({ artifact: envelope }));
+    // The stored-string measurements keep their meaning (the
+    // envelope string itself); the entity was verified separately
+    // against its declarations before the envelope was accepted.
+    expect(normalized.charCount).toBe(envelope.length);
+    expect(normalized.artifactBytes).toBe(Buffer.byteLength(envelope, 'utf8'));
+    expect(normalized.artifactSha256).toBe(sha256(envelope));
+  });
+
+  it('accepts an entity at the 512KiB cap and refuses one past it, never truncating', () => {
+    const atCapBytes = Buffer.alloc(512 * 1024, 3);
+    const atCap = validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({
+        bytes: atCapBytes.length,
+        sha256: createHash('sha256').update(atCapBytes).digest('hex'),
+        contentBase64: atCapBytes.toString('base64'),
+      }),
+    }));
+    // The stored envelope is far past the ordinary char cap: the
+    // deliverable branch, not truncation, is what lets it through.
+    expect(atCap.charCount).toBeGreaterThan(120_000);
+    const pastCapBytes = Buffer.alloc(512 * 1024 + 1, 3);
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({
+        bytes: pastCapBytes.length,
+        sha256: createHash('sha256').update(pastCapBytes).digest('hex'),
+        contentBase64: pastCapBytes.toString('base64'),
+      }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  });
+
+  it('refuses an envelope whose payload does not reproduce its declarations', () => {
+    // Declared byte count disagrees with the decoded payload.
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({ bytes: entityBytes.length + 1 }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+    // Declared digest disagrees with the decoded payload.
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({ sha256: 'f'.repeat(64) }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+    // A URL-safe base64 payload is not the canonical encoding the
+    // envelope contract carries, even for the same bytes.
+    const urlSafeBytes = Buffer.alloc(22_355, 0xff);
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({
+        bytes: urlSafeBytes.length,
+        sha256: createHash('sha256').update(urlSafeBytes).digest('hex'),
+        contentBase64: urlSafeBytes.toString('base64url'),
+      }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+  });
+
+  it('refuses a malformed deliverable declaration as invalid input', () => {
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({ contentBase64: 42 }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({ bytes: '22355' }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({
+      artifact: deliverableEnvelope({ sha256: 'not-a-hash' }),
+    }))).toThrow('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  });
+
+  it('keeps the ordinary caps for a text envelope past the char cap', () => {
+    const textEnvelope = JSON.stringify({
+      kind: 'document', format: 'markdown', filename: 'big.md', mimeType: 'text/markdown',
+      bytes: 120_001, sha256: 'a'.repeat(64), verified: true, verification: ['non-empty'],
+      content: 'x'.repeat(120_001),
+    });
+    expect(() => validatePutAgentRunStepArtifactInput(artifactInput({ artifact: textEnvelope })))
+      .toThrow('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  });
+});
+
 describe('step fingerprint', () => {
   const params = { contentFromStep: 0, path: 'docs/out.md' };
 
@@ -284,6 +377,36 @@ describe('postgres step artifact statements', () => {
     database.responses.push([{
       run_id: runId, step_index: 0, step_fingerprint: fingerprint, attempt: 1,
       artifact: 'first', artifact_bytes: 5, artifact_sha256: sha256('tampered'),
+      created_ms: String(now), expires_ms: String(now + 3_600_000),
+    }]);
+    await expect(store.listStepArtifacts(runId)).rejects.toThrow('AGENT_RUN_DB_ROW_INVALID');
+  });
+
+  it('reads back a binary deliverable row past the ordinary char cap (R-2)', async () => {
+    const database = new Recorder();
+    const now = 1_700_000_000_000;
+    const entity = Buffer.alloc(150_000, 0x5a);
+    const envelope = JSON.stringify({
+      kind: 'document', format: 'xlsx', filename: 'capital.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      bytes: entity.length, sha256: createHash('sha256').update(entity).digest('hex'),
+      verified: true, verification: ['non-empty', 'zip-signature', 'xlsx-package'],
+      contentBase64: entity.toString('base64'),
+    });
+    expect(envelope.length).toBeGreaterThan(120_000);
+    database.responses.push([{
+      run_id: runId, step_index: 0, step_fingerprint: fingerprint, attempt: 1,
+      artifact: envelope, artifact_bytes: Buffer.byteLength(envelope, 'utf8'), artifact_sha256: sha256(envelope),
+      created_ms: String(now), expires_ms: String(now + 3_600_000),
+    }]);
+    const store = new PostgresAgentRunStore(database);
+    const listed = await store.listStepArtifacts(runId);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].artifact).toBe(envelope);
+    // A non-envelope body of the same size stays over the cap.
+    database.responses.push([{
+      run_id: runId, step_index: 0, step_fingerprint: fingerprint, attempt: 1,
+      artifact: 'x'.repeat(150_000), artifact_bytes: 150_000, artifact_sha256: sha256('x'.repeat(150_000)),
       created_ms: String(now), expires_ms: String(now + 3_600_000),
     }]);
     await expect(store.listStepArtifacts(runId)).rejects.toThrow('AGENT_RUN_DB_ROW_INVALID');
