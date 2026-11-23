@@ -212,3 +212,36 @@ describe("defining-behavior rule (CB-3)", () => {
     expect(variant).toContain("what it returns, what it does, and what it does not do");
   });
 });
+
+describe("confusion-point supplement and code-handling rules (CB-4)", () => {
+  const SUPPLEMENT = "Where a concept has a well-known point of confusion";
+  const EQUIVALENCE = "first trace what the original code actually does";
+  const DEFINITION_USE = "use every name exactly as it was defined";
+
+  it("states the supplement and both general rules in the full base instruction", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain(SUPPLEMENT);
+    expect(instruction).toContain("name that point explicitly");
+    expect(instruction).toContain(EQUIVALENCE);
+    expect(instruction).toContain("never attribute to the original a behavior it does not have");
+    expect(instruction).toContain("aggregate from the full set with an outer join rather than from the detail side alone");
+    expect(instruction).toContain(DEFINITION_USE);
+    expect(instruction).toContain("trace each example once for definition/use mismatches");
+  });
+
+  it("keeps the rules for a plain conversational question (they are not creation-gated)", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    expect(instruction).toContain(SUPPLEMENT);
+    expect(instruction).toContain(EQUIVALENCE);
+    expect(instruction).toContain(DEFINITION_USE);
+  });
+
+  it("carries the rules in the route-2 compact variant (registered in the compact base)", () => {
+    const variant = originCloudflareRouteSystemInstruction(originChatSystemInstruction());
+    expect(variant).toContain(SUPPLEMENT);
+    expect(variant).toContain(EQUIVALENCE);
+    expect(variant).toContain(DEFINITION_USE);
+  });
+});

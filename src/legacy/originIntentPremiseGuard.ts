@@ -580,11 +580,11 @@ function deriveSelfAnchorResetEntries(
  * in the same layer as the planning augmentation: it is appended
  * after each route's instruction is built, is NOT part of the
  * route-3 compact base, and is not counted in that base's
- * 2,000-3,800 character contract; it carries its own caps here,
+ * 2,000-4,800 character contract; it carries its own caps here,
  * pinned by test. Worst case the block is 512 characters, which the
  * route-3 pre-send gate (characters/2) estimates at ~256 tokens —
  * inside the route's 6,000-token input budget next to the current
- * ~2,700-token planning-augmented payload. A ledger with nothing
+ * ~3,600-token planning-augmented payload. A ledger with nothing
  * injectable produces no block, so a conversation without a
  * correction keeps byte-identical instructions.
  */
