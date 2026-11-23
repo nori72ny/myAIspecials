@@ -2943,6 +2943,318 @@ export function evaluateGroundedResearchFactSlot(
   return { ...base, candidate, source, agreementSourceCount, supportSourceIds, code: null };
 }
 
+// ---------------------------------------------------------------------------
+// P3-1 (WEEKLY_INSPECTION_P3_DESIGN_2026-11-23 §3.3 / §4): the
+// deterministic stated-value evaluation — the slot adoption rules
+// above with the candidate DERIVED from the packet's own stated
+// answers instead of a generation, for the direct-answer layer at
+// the tier-T3 landing. The records slot spends a generation to
+// propose a candidate and then verifies it deterministically; this
+// evaluation skips the proposal entirely: a field's value can only
+// be a value the packet's excerpts STATE AS THEIR ANSWER for that
+// field (the field's stated-answer extraction, R-PR-8b/9c), and it
+// is adopted only under the design's stricter stated-agreement
+// rule — at least two distinct packet sources state the SAME value
+// as their answer, no packet source states a different value for
+// the field (the flat conflict rule; the layer never picks a
+// winner), and the value is not tier-opposed (§8c). Every field of
+// the entry must adopt (the composite contract, fail closed): a
+// field whose value no stated-answer extraction can read — the
+// vaccination entry's vaccine-name field is the registered case,
+// generation-derived on the records path — makes the whole entry
+// ineligible here, never partially adoptable. The candidate this
+// returns carries, per field, the verbatim surface form a
+// supporting source stated, that source's id, and a verbatim quote
+// (the evidence unit that states the value, else the source's whole
+// excerpt), so the caller can render and verify it exactly like a
+// generated candidate. Failure codes are the slot layer's own.
+// ---------------------------------------------------------------------------
+
+export interface GroundedResearchFactSlotStatedFieldDetail {
+  fieldId: string;
+  /** The adopted value's verbatim surface form; null when the field did not adopt. */
+  value: string | null;
+  /** Distinct packet sources stating the adopted value as their answer, in packet order. */
+  statedSupportSourceIds: string[];
+  /** A known-tier source states a different value and outranks the value's stated support (§8c). */
+  tierOpposed: boolean;
+  /** A packet source states a different value for this field as its answer. */
+  conflictDetected: boolean;
+}
+
+export interface GroundedResearchFactSlotStatedEvaluation {
+  /** The derived candidate; present exactly when code is null. */
+  candidate: GroundedResearchFactSlotCandidate | null;
+  /** The packet source the candidate's FIRST field was verified against. */
+  source: GroundedResearchRecordsPacketSource | null;
+  /** Distinct packet sources whose excerpt contains the whole field set verbatim. */
+  agreementSourceCount: number;
+  /** Source ids of the agreeing sources, in packet order. */
+  supportSourceIds: string[];
+  /** Any field saw a competing stated value. */
+  conflictDetected: boolean;
+  /** Why the entry was not adopted; null when it is adoptable. */
+  code: GroundedResearchFactSlotFailureCode | null;
+  /** Per-field judgement detail, in entry order — the direct-answer layer's shadow-log material. */
+  fields: GroundedResearchFactSlotStatedFieldDetail[];
+}
+
+/**
+ * The verbatim surface of a stated price token: slotStatedPrice
+ * returns a records numeric token (commas stripped, NFKC-folded) —
+ * a comparison form, not the source's words. The direct-answer
+ * layer renders what a source wrote, so the first amount mention
+ * in the text whose token equals the stated token is recovered as
+ * the surface. Null when no mention matches (the caller falls back
+ * to the token itself).
+ */
+function verbatimAmountSurface(text: string, token: string): string | null {
+  const mentions =
+    text.match(/(?:[$¥€£]\s*)?[0-9０-９][0-9０-９,，]*(?:\.[0-9０-９]+)?(?:%|円|ドル|usd|jpy|eur|gbp|年|月|日|万|億|兆)?/gi) ?? [];
+  for (const mention of mentions) {
+    const normalized = mention.normalize("NFKC").replace(/[\s,，]/g, "").toLowerCase();
+    if (normalized === token) return mention.trim();
+  }
+  return null;
+}
+
+/**
+ * One field's stated answers over one source, as a map from the
+ * comparison form (the §6.2 normalization, or the timing
+ * canonicalization for anchored pair timings) to the verbatim
+ * surface form the source states. Mirrors
+ * slotStatedValuesExtractorForField's resolution, keeping the
+ * surface forms the comparison sets discard — the direct-answer
+ * layer renders a source's own words, never a normalized rewrite.
+ * The anchor for an anchored-timings field is the ADOPTED anchor
+ * field's verbatim value (the records path reads it off the
+ * candidate instead).
+ */
+function slotStatedSurfaceValuesForField(
+  field: GroundedResearchFactSlotFieldDefinition,
+  anchorValue: string | undefined,
+  text: string,
+): Map<string, string> {
+  const surfaces = new Map<string, string>();
+  const add = (comparison: string, surface: string): void => {
+    if (!surfaces.has(comparison)) surfaces.set(comparison, surface);
+  };
+  if (field.statedAnswerExtractor === "incumbent-names") {
+    for (const name of slotStatedIncumbentNames(text)) {
+      add(normalizedRecordsText(name), name);
+    }
+    return surfaces;
+  }
+  if (field.statedAnswerExtractor === "single-price") {
+    const stated = slotStatedPrice(text);
+    if (stated !== null) {
+      add(normalizedRecordsText(stated), verbatimAmountSurface(text, stated) ?? stated);
+    }
+    return surfaces;
+  }
+  if (field.statedAnswerExtractor === "anchored-timings") {
+    if (anchorValue === undefined) return surfaces;
+    for (const timing of extractGroundedResearchFactSlotAnchoredTimings(text, anchorValue)) {
+      add(canonicalGroundedResearchFactSlotTiming(timing), timing);
+    }
+    return surfaces;
+  }
+  for (const value of extractGroundedResearchFactSlotStatedPatternValues(text, field)) {
+    add(normalizedRecordsText(value), value);
+  }
+  return surfaces;
+}
+
+/**
+ * Deterministic adoption judgement for an entry whose candidate is
+ * derived from the packet's stated answers (P3-1, see the section
+ * note above). Per field, in entry order: stated extraction,
+ * stated agreement (at least two distinct sources stating the same
+ * value as their answer), the §8c tier weighing, the flat
+ * stated-answer conflict, the §9.2(d) shape check, and the field's
+ * quote requirements against the derived quote. Then the
+ * field-set agreement over the whole packet, exactly as in
+ * evaluateGroundedResearchFactSlot. Every failure is a code, never
+ * a throw.
+ */
+export function evaluateGroundedResearchFactSlotStatedValues(
+  entry: GroundedResearchFactSlotEntry,
+  packet: GroundedResearchRecordsPacket,
+): GroundedResearchFactSlotStatedEvaluation {
+  const fieldDetails: GroundedResearchFactSlotStatedFieldDetail[] = [];
+  const candidateFields: Record<string, GroundedResearchFactSlotFieldCandidate> = {};
+  const adoptedSurfaces = new Map<string, string>();
+  let headlineSource: GroundedResearchRecordsPacketSource | null = null;
+  let anyConflict = false;
+  const fail = (
+    code: GroundedResearchFactSlotFailureCode,
+  ): GroundedResearchFactSlotStatedEvaluation => ({
+    candidate: null,
+    source: headlineSource,
+    agreementSourceCount: 0,
+    supportSourceIds: [],
+    conflictDetected: anyConflict,
+    code,
+    fields: fieldDetails,
+  });
+
+  for (const field of entry.fields) {
+    const detail: GroundedResearchFactSlotStatedFieldDetail = {
+      fieldId: field.id,
+      value: null,
+      statedSupportSourceIds: [],
+      tierOpposed: false,
+      conflictDetected: false,
+    };
+    fieldDetails.push(detail);
+    // A field with no stated-answer extraction has no deterministic
+    // derivation: the layer fails closed for the whole entry (the
+    // field takes no part in stated extraction on the records path
+    // either — its value there comes from the generation).
+    const hasStatedExtraction =
+      field.statedAnswerExtractor !== undefined || (field.statedAnswerPatterns ?? []).length > 0;
+    if (!hasStatedExtraction) return fail("SLOT_NO_CANDIDATE");
+    const anchorFieldId = field.statedAnswerAnchorFieldId;
+    const anchorValue =
+      field.statedAnswerExtractor === "anchored-timings" && anchorFieldId !== undefined
+        ? adoptedSurfaces.get(anchorFieldId)
+        : undefined;
+    if (field.statedAnswerExtractor === "anchored-timings" && anchorValue === undefined) {
+      return fail("SLOT_NO_CANDIDATE");
+    }
+    const perSource = packet.sources.map((source) =>
+      slotStatedSurfaceValuesForField(field, anchorValue, source.excerpt),
+    );
+    const statedUnion = new Set<string>();
+    for (const surfaces of perSource) {
+      for (const comparison of surfaces.keys()) statedUnion.add(comparison);
+    }
+    if (statedUnion.size === 0) return fail("SLOT_NO_CANDIDATE");
+    // Stated agreement: the values at least two distinct sources
+    // state as their answer for this field.
+    const statedSupportByValue = new Map<string, string[]>();
+    for (const comparison of statedUnion) {
+      const supporters: string[] = [];
+      packet.sources.forEach((source, index) => {
+        if (perSource[index]!.has(comparison)) supporters.push(source.id);
+      });
+      statedSupportByValue.set(comparison, supporters);
+    }
+    const agreedValues = [...statedUnion].filter(
+      (comparison) => (statedSupportByValue.get(comparison) ?? []).length >= 2,
+    );
+    if (agreedValues.length === 0) return fail("SLOT_INSUFFICIENT_AGREEMENT");
+    // Several values each reaching stated agreement means sources
+    // state different answers — a conflict the layer never resolves.
+    if (agreedValues.length > 1) {
+      detail.conflictDetected = true;
+      anyConflict = true;
+      return fail("SLOT_SOURCE_CONFLICT");
+    }
+    const comparisonValue = agreedValues[0]!;
+    detail.statedSupportSourceIds = statedSupportByValue.get(comparisonValue) ?? [];
+    // Tier/freshness weighing (§8c), with the comparison-form
+    // extractor built from the same surface maps.
+    const tierAssessment = assessGroundedResearchSlotValueTierWithExtractor(
+      packet,
+      (source) =>
+        new Set(
+          slotStatedSurfaceValuesForField(field, anchorValue, source.excerpt).keys(),
+        ),
+      comparisonValue,
+    );
+    if (tierAssessment.tierOpposed) {
+      detail.tierOpposed = true;
+      return fail("SLOT_INSUFFICIENT_AGREEMENT");
+    }
+    // Flat stated-answer conflict (R-PR-8b): any source stating a
+    // different value for this field vetoes the value.
+    if (statedUnion.size > 1) {
+      detail.conflictDetected = true;
+      anyConflict = true;
+      return fail("SLOT_SOURCE_CONFLICT");
+    }
+    // The verbatim surface: the first stated supporter's own form.
+    const supporterIndexes = packet.sources
+      .map((source, index) => (perSource[index]!.has(comparisonValue) ? index : -1))
+      .filter((index) => index >= 0);
+    const headlineIndex = supporterIndexes[0]!;
+    const fieldSource = packet.sources[headlineIndex]!;
+    const surface = perSource[headlineIndex]!.get(comparisonValue)!;
+    if (!checkGroundedResearchFactSlotFieldShape(field, surface)) {
+      return fail("SLOT_ANSWER_SHAPE_MISMATCH");
+    }
+    // The field's quote: the first evidence unit of the field's
+    // source that itself states the value, else the source's whole
+    // excerpt (a verbatim substring by construction either way).
+    let quote = fieldSource.excerpt;
+    for (const unit of fieldSource.units) {
+      if (slotStatedSurfaceValuesForField(field, anchorValue, unit.text).has(comparisonValue)) {
+        quote = unit.text;
+        break;
+      }
+    }
+    if (field.quotePattern !== undefined && !field.quotePattern.test(quote.normalize("NFKC"))) {
+      return fail("SLOT_QUOTE_REQUIREMENT_UNMET");
+    }
+    if (field.quoteIncludesFieldId !== undefined) {
+      const sibling = adoptedSurfaces.get(field.quoteIncludesFieldId);
+      if (sibling === undefined || !normalizedRecordsText(quote).includes(normalizedRecordsText(sibling))) {
+        return fail("SLOT_QUOTE_REQUIREMENT_UNMET");
+      }
+    }
+    candidateFields[field.id] = { value: surface, src: fieldSource.id, quote };
+    adoptedSurfaces.set(field.id, surface);
+    detail.value = surface;
+    if (headlineSource === null) headlineSource = fieldSource;
+  }
+
+  // Agreement over the field SET, as in the generated-candidate
+  // evaluation: a source supports the candidate only when its
+  // excerpt contains EVERY field's value verbatim — and, for an
+  // anchored pair field, when the pair co-occurs in one unit.
+  const supporting = packet.sources.filter((packetSource) => {
+    const normalizedExcerpt = normalizedRecordsText(packetSource.excerpt);
+    for (const field of entry.fields) {
+      if (!normalizedExcerpt.includes(normalizedRecordsText(candidateFields[field.id]!.value))) return false;
+    }
+    for (const field of entry.fields) {
+      const anchorFieldId = field.statedAnswerAnchorFieldId;
+      if (field.statedAnswerExtractor !== "anchored-timings" || anchorFieldId === undefined) continue;
+      const anchorValue = normalizedRecordsText(candidateFields[anchorFieldId]!.value);
+      const fieldValue = normalizedRecordsText(candidateFields[field.id]!.value);
+      const coOccurs = packetSource.units.some((unit) => {
+        const normalizedUnit = normalizedRecordsText(unit.text);
+        return normalizedUnit.includes(anchorValue) && normalizedUnit.includes(fieldValue);
+      });
+      if (!coOccurs) return false;
+    }
+    return true;
+  });
+  const agreementSourceCount = supporting.length;
+  const supportSourceIds = supporting.map((packetSource) => packetSource.id);
+  if (agreementSourceCount < 2) {
+    return {
+      candidate: null,
+      source: headlineSource,
+      agreementSourceCount,
+      supportSourceIds,
+      conflictDetected: anyConflict,
+      code: "SLOT_INSUFFICIENT_AGREEMENT",
+      fields: fieldDetails,
+    };
+  }
+  return {
+    candidate: { fields: candidateFields },
+    source: headlineSource,
+    agreementSourceCount,
+    supportSourceIds,
+    conflictDetected: anyConflict,
+    code: null,
+    fields: fieldDetails,
+  };
+}
+
 /**
  * The §9.3 template sentence for an adopted slot candidate: the type
  * entry's template with the base date (the first field's source's

@@ -42,6 +42,7 @@ import { planOriginPremiseGuard, resolveOriginIntentPremiseGuardEffectiveMode, r
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
+import { logResearchDirectAnswerShadow, resolveResearchDirectAnswerMode, tryResearchDirectAnswer } from "../research/groundedResearchDirectAnswer.js";
 import {
   analyzeRefusalLikeOutput,
   buildNonexistenceConditionalAnswer,
@@ -1308,6 +1309,35 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // its current value (PR-2 correction).
       if (recoveryTemplateMode !== "off" && grounded.sourceCount > 0) {
         tryRecoveryTemplateAtSite("t3", grounded.sources);
+      }
+      // P3-1 (WEEKLY_INSPECTION_P3_DESIGN_2026-11-23 §3.2): the
+      // deterministic direct-answer layer, in the same sequence as
+      // the other recovery sites — after the PR-4 template trial,
+      // before the PR-5 conditional. The layer derives its
+      // candidate only from the KEPT sources' own stated answers
+      // (the freshness gate's dropped candidates are never
+      // re-judged here) and spends no generation, so it can observe
+      // the answers the retrieved sources already confirm when the
+      // synthesis was not adopted. This stage wires the observation
+      // only: with the mode off the layer is not called at all (no
+      // extraction cost); in shadow — and, at this stage, in
+      // enforce as well — the attempt is computed and logged and
+      // the delivered answer stays byte-identical, because enforce
+      // delivery (P3-3) and, for the incumbent class, the
+      // verified-claim channel designed with the G-1 track (§3.4)
+      // are later stages. The attempt's rendered text is never
+      // used here.
+      const directAnswerMode = resolveResearchDirectAnswerMode(env);
+      if (directAnswerMode !== "off" && grounded.sourceCount > 0) {
+        const directAnswerAttempt = tryResearchDirectAnswer({
+          question: lastUserMessage,
+          sources: grounded.sources,
+          language: grounded.language,
+          mode: directAnswerMode,
+          env,
+          requestId,
+        });
+        logResearchDirectAnswerShadow({ requestId, attempt: directAnswerAttempt });
       }
       // PR-5, T3 site: the partial answer below would list excerpts
       // from the kept sources; when the question names an entity
