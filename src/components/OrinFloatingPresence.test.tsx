@@ -7,9 +7,6 @@ import OrinFloatingPresence, {
   ORIN_PRESENCE_FADE_MS,
   ORIN_PRESENCE_CAT_SIZE_PX,
   ORIN_PRESENCE_CAT_SIZE_COMPACT_PX,
-  ORIN_PRESENCE_SCROLL_OPACITY,
-  ORIN_PRESENCE_SCROLL_RESTORE_MS,
-  ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX,
   resolveOrinAgentBubbleText,
   resolveOrinBubbleText,
   resolveOrinPillState,
@@ -235,52 +232,25 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(cat.classList.contains('origin-cat-breathe')).toBe(false);
   });
 
-  it('shrinks to the compact cat-only form while the conversation is scrolled, and grows back at the top', () => {
-    const { props, rerender } = renderPresence({ scrolled: true });
-    // スクロール中は待機でも自動縮小：絵48px、テキストは出ず、
-    // オリンだけの小さい形（is-idle かつ is-compact）。
+  it('keeps the full idle size: scroll state no longer shrinks the presence (P4, 2026-11-23)', () => {
+    renderPresence();
+    // P4 改訂：プレゼンスは通常フロー内の行になり、スクロールで
+    // 縮むことも薄くなることもなくなった。待機中は常に 72px で、
+    // is-compact は付かず、円盤に is-scrolling も付かない。
     const cat = screen.getByTestId('origin-cat-state');
-    expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
+    expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
     const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
     expect(tap.classList.contains('is-idle')).toBe(true);
-    expect(tap.classList.contains('is-compact')).toBe(true);
-    // 先頭に戻ると通常の72pxに戻る。
-    rerender(<OrinFloatingPresence {...props} scrolled={false} />);
-    expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
-    expect(screen.getByRole('button', { name: 'いまの作業を表示' }).classList.contains('is-compact')).toBe(false);
+    expect(tap.classList.contains('is-compact')).toBe(false);
+    expect(cat.parentElement?.classList.contains('is-scrolling')).toBe(false);
   });
 
-  it('keeps the status text visible at the compact size while scrolled during work', () => {
-    renderPresence({ text: '回答を準備しています…', state: 'thinking', scrolled: true });
-    // スクロール＋作業中でも、状態テキストは隠さず絵だけが小さい。
+  it('keeps the status text visible at the compact size during work', () => {
+    renderPresence({ text: '回答を準備しています…', state: 'thinking' });
+    // 作業中は、状態テキストは隠さず絵だけが小さい。
     expect(screen.getByTestId('origin-orin-presence-status').textContent).toBe('回答を準備しています…');
     expect((screen.getByTestId('origin-cat-state') as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_COMPACT_PX}px`);
-  });
-
-  it('fades the disc while the conversation is actively scrolling (2026-11-20 15:36 real-device fix)', () => {
-    const { props, rerender } = renderPresence();
-    const discOf = () => screen.getByTestId('origin-cat-state').parentElement;
-    // スクロールしていない間は円盤は通常の不透明度（クラスなし）。
-    expect(discOf()?.classList.contains('origin-orin-presence__disc')).toBe(true);
-    expect(discOf()?.classList.contains('is-scrolling')).toBe(false);
-    // スクロール中は円盤だけが薄くなる（is-scrolling）。絵の
-    // サイズや状態テキストには触れない。
-    rerender(<OrinFloatingPresence {...props} scrolling={true} />);
-    expect(discOf()?.classList.contains('is-scrolling')).toBe(true);
-    // スクロールが止まれば（App 側が約300ms後に false に戻す）
-    // クラスが外れて不透明度が戻る。
-    rerender(<OrinFloatingPresence {...props} scrolling={false} />);
-    expect(discOf()?.classList.contains('is-scrolling')).toBe(false);
-  });
-
-  it('pins the scroll-shrink threshold the App side uses', () => {
-    expect(ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX).toBe(40);
-  });
-
-  it('pins the scroll fade values (opacity + restore delay)', () => {
-    expect(ORIN_PRESENCE_SCROLL_OPACITY).toBe(0.35);
-    expect(ORIN_PRESENCE_SCROLL_RESTORE_MS).toBe(300);
   });
 
   it('moves while working: the working state uses the motion video asset', () => {
@@ -398,23 +368,20 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(css).not.toContain('.origin-orin-presence__name');
     // 旧・濃色ピル（白文字＋強い影＋backdrop blur）は窓方式で廃止した。
     expect(css).not.toContain('.origin-orin-presence__pill');
-    // 浮遊配置（2026-11-20 10:10 refine）：プレゼンスはメイン列の
-    // 相対配置を基準に absolute で上部中央に浮く。ビューポート
-    // fixed にはしない（サイドバーの開閉で列の中心がずれない
-    // ようにするため）。列全体に広がる容器はタップを通し、
-    // タップ対象だけがタップを受ける。
-    // 全体表示の配置（2026-11-20 15:36）：top は 60px＝ヘッダー
-    // 下端の位置（デスクトップ60px／モバイル58px）。タップの
-    // パディング 6px 分だけ下に離れ、円盤は全体がヘッダーより
-    // 下に出る（頭が切れない）。プレゼンスの z-index は 30 のまま。
+    // 配置（P4 改訂、2026-11-23）：プレゼンスは浮遊（absolute）
+    // ではなく、メイン列の通常フロー内の行。ヘッダー直下に
+    // 自分の高さを確保し、会話スクローラはその下から始まる
+    // ため、本文が円盤の下に潜ることは物理的に起きない。
+    // 列全体に広がる容器はタップを通し、タップ対象だけが
+    // タップを受ける（従来どおり）。
     const floatRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
-    expect(floatRule).toContain('position: absolute;');
-    expect(floatRule).toContain('top: 60px;');
-    expect(floatRule).not.toContain('top: 46px;');
-    expect(floatRule).toContain('z-index: 30;');
+    expect(floatRule).toContain('flex: none;');
     expect(floatRule).toContain('display: flex;');
     expect(floatRule).toContain('justify-content: center;');
     expect(floatRule).toContain('pointer-events: none;');
+    expect(floatRule).not.toContain('position: absolute');
+    expect(floatRule).not.toContain('top: 60px;');
+    expect(floatRule).not.toContain('z-index: 30;');
     expect(floatRule).not.toContain('position: fixed');
     // 枠なし（2026-11-20 12:06 オーナー指示）：タップ対象は窓
     // パネルだったものをやめ、border・背景・影・パネル角丸を
@@ -450,14 +417,14 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(discAfterRule).toContain('pointer-events: none;');
     expect(discAfterRule).toContain('background: radial-gradient(ellipse at center,');
     expect(discAfterRule).not.toContain('box-shadow');
-    // スクロール中フェード（2026-11-20 15:36）：円盤は不透明度
-    // のトランジションを持ち、is-scrolling で約0.35まで薄くなる
-    // （ORIN_PRESENCE_SCROLL_OPACITY と一致させること）。
-    // transform はタップの手がかり（ホバー／押下）の遷移用に
-    // 同じ尺で足した（2026-11-20 外部デザイン評価の回収）。
-    expect(discRule).toContain('transition: opacity 200ms ease-out, transform 200ms ease-out;');
-    const discScrollRule = css.match(/\.origin-orin-presence__disc\.is-scrolling \{[^}]*\}/)?.[0] ?? '';
-    expect(discScrollRule).toContain(`opacity: ${ORIN_PRESENCE_SCROLL_OPACITY};`);
+    // 円盤のトランジションは transform（タップの手がかり＝
+    // ホバー／押下の反応、2026-11-20 外部デザイン評価の回収）
+    // だけ。スクロール中フェード（2026-11-20 15:36 の
+    // is-scrolling、不透明度0.35）は P4 改訂（2026-11-23）で
+    // 廃止した：フロー内の行では本文が下を通らない。
+    expect(discRule).toContain('transition: transform 200ms ease-out;');
+    expect(css).not.toContain('.origin-orin-presence__disc.is-scrolling');
+    expect(css).not.toContain('opacity: 0.35;');
     // 作業コメントは枠なしテキスト：背景・枠を持たず、
     // キャンバス色（--bg-primary）のハローで読めるようにする。
     const statusRule = css.match(/\.origin-orin-presence__status \{[^}]*\}/)?.[0] ?? '';
@@ -476,14 +443,15 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     const dotsRules = css.match(/\.origin-orin-presence__dots > span \{[^}]*\}/g) ?? [];
     expect(dotsRules.some((rule) => rule.includes('animation: origin-orin-dots'))).toBe(true);
     expect(dotsRules.some((rule) => rule.includes('animation: none;'))).toBe(true);
-    // 会話スクローラ：先頭行が円盤の下端（ヘッダー下端から
-    // 78px）より下に来るよう padding-top は 88px、
-    // scroll-padding-top は円盤の下端より下の 84px。スクロール
-    // した内容は円盤の下を通過できる（パディングはスクロール
-    // 領域の一部）。
+    // 会話スクローラ（P4 改訂、2026-11-23）：プレゼンスが
+    // フロー内の行になったため、円盤を避けるクリアランスは
+    // 不要。浮遊前提の padding-top 88px／scroll-padding-top
+    // 84px は撤去し、scrollIntoView の停止位置に少しだけ
+    // 余白を残す scroll-padding-top 16px のみ。
     expect(css).toContain('.origin-chat-scroll {');
-    expect(css).toContain('padding-top: 88px;');
-    expect(css).toContain('scroll-padding-top: 84px;');
+    expect(css).toContain('scroll-padding-top: 16px;');
+    expect(css).not.toContain('padding-top: 88px;');
+    expect(css).not.toContain('scroll-padding-top: 84px;');
     expect(css).not.toContain('padding-top: 64px;');
     expect(css).not.toContain('scroll-padding-top: 60px;');
     expect(css).not.toContain('scroll-padding-top: 52px;');

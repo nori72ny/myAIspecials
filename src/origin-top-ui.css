@@ -607,17 +607,17 @@
    the header:
    - The tap target carries no border, no background and no
      shadow — just the disc and, while work is in flight, the
-     status text beside it. The text has no box either; a soft
+     status text below it. The text has no box either; a soft
      halo in the canvas colour (--bg-primary, the token that
-     paints the app background) keeps it readable over the
-     conversation scrolling beneath.
-   - The presence starts at the header's bottom edge (top:
-     60px; the header is 60px tall on desktop and 58px under
-     the 640px breakpoint) and the tap target's 6px padding
-     leaves a small gap, so the disc hangs entirely below the
-     header and the cat's head is never cut. Nothing of the art
+     paints the app background) backs it (a leftover of the
+     floating form, kept because it costs nothing in flow).
+   - The presence row sits directly below the header in the
+     normal flow (P4 revision, 2026-11-23; before that it
+     floated at top: 60px) and the tap target's 6px padding
+     leaves a small gap, so the whole disc is below the header
+     and the cat's head is never cut. Nothing of the art
      hides behind the header (hidden amount: 0).
-   - The art floats as-is: the stills are transparent assets
+   - The art shows as-is: the stills are transparent assets
      now (2026-11-21 redesign), so the wrapper carries no ring,
      border or disc shadow — only a soft ground shadow under
      the feet (the __disc::after ellipse, light theme only).
@@ -627,40 +627,50 @@
      state (6px padding around the art plus 44px minimum
      dimensions): at the compact 48px size the target is 60px,
      so the smaller art never shrinks the target.
-   - While the conversation is actively scrolling, the disc
-     fades to opacity 0.35 (the is-scrolling state, driven by
-     the App side's scroll activity) so the text passing
-     beneath stays readable through it; the fade restores
-     ~300ms after scrolling stops.
    - While work is in flight, the status text carries three
      blinking dots at its end (the __dots element, driven by
      the component's active flag) so the text itself shows
      that Orin is running; the animation stops under
      prefers-reduced-motion (the dots stay, static).
-   Auto-shrink is unchanged in behaviour (2026-11-20 10:10):
-   while work is in flight (status text shown) and while the
-   conversation is scrolled, the art goes from 72px to 48px
-   (the is-compact state, driven by the component). The sizes
-   were enlarged on 2026-11-20 18:17 after the owner found
-   the 48/36px pair too small to read the cat's face on both
-   PC and phone (identical sizes on both, as before); the
-   status text stays visible at the compact size. The presence is absolutely
-   positioned within the relative main column (not
-   viewport-fixed, so it stays centred on the column when the
-   sidebar opens or closes), pointer-events only on the tap
-   target itself. The profile card overlay (z-40) still opens
-   over the presence (z-30). The status text's motion is a
-   gentle opacity fade driven by the component, and the art's
-   size change takes ~200ms; prefers-reduced-motion removes
-   both. No name text sits under the art (removed by owner
-   request, 2026-11-15; the name appears inside the profile
-   card instead). */
+   Auto-shrink (2026-11-20 10:10): while work is in flight
+   (status text shown) the art goes from 72px to 48px (the
+   is-compact state, driven by the component). The sizes were
+   enlarged on 2026-11-20 18:17 after the owner found the
+   48/36px pair too small to read the cat's face on both PC
+   and phone (identical sizes on both, as before); the status
+   text stays visible at the compact size.
+   P4 revision (2026-11-23, weekly quality inspection defect
+   #4, open since 2026-11-17): the floating form above still
+   occluded the conversation at rest — scrolled content passed
+   under the disc, and once scrolling stopped the disc sat
+   opaque over the text beneath it (the scroll fade to 0.35
+   only helped while the scroll was moving; the scroll
+   shrink to 48px only narrowed the occluded band). The
+   presence therefore no longer floats: it is a row in the
+   main column's normal flow, directly under the header and
+   above the conversation scroller, so no message can ever
+   slide under it (the same in-flow placement the 2026-11-17
+   band used, now with the frameless disc). The two overlay
+   mitigations retire with the overlay: no fade while
+   scrolling (nothing passes beneath to read through) and no
+   shrink while scrolled (in flow it would only make the
+   reading area jump by 24px at the threshold). The working
+   shrink stays, so the row is compact while the status text
+   shows. Pointer-events only on the tap target itself, as
+   before. The profile card overlay (z-40, fixed) still opens
+   over everything. The status text's motion is a gentle
+   opacity fade driven by the component, and the art's size
+   change takes ~200ms; prefers-reduced-motion removes both.
+   No name text sits under the art (removed by owner request,
+   2026-11-15; the name appears inside the profile card
+   instead). */
 .origin-orin-presence {
-  position: absolute;
-  top: 60px;
-  left: 0;
-  right: 0;
-  z-index: 30;
+  /* P4 (2026-11-23): a row in the main column's flow, not an
+     overlay — the column is a flex column (header, this row,
+     the flex-1 scroller, the composer), so the row reserves
+     its own height and the scroller's viewport starts below
+     it. flex: none keeps the row from being compressed. */
+  flex: none;
   display: flex;
   justify-content: center;
   box-sizing: border-box;
@@ -703,19 +713,14 @@
 .origin-orin-presence__disc {
   position: relative;
   flex: none;
-  /* スクロール中フェード（2026-11-20 15:36）の遷移：不透明度の
-     変化はサイズ変化と同じ約200ms。transform はタップの手がかり
-     （ホバー／押下の反応、2026-11-20 外部デザイン評価の回収）用。
-     reduced-motion では下の media 規則で即時に切り替える。 */
-  transition: opacity 200ms ease-out, transform 200ms ease-out;
-}
-/* スクロール中の絵（2026-11-20 15:36 の実機判定を受けた修正）：
-   スクロールが続く間は絵を約0.35まで薄くし、下を通る本文の
-   文字が透けて読めるようにする。状態テキストは絵の下にある
-   ため薄くならない。復帰は App 側がスクロール停止後 約300ms で
-   is-scrolling を外し、このトランジションで戻る。 */
-.origin-orin-presence__disc.is-scrolling {
-  opacity: 0.35;
+  /* transform はタップの手がかり（ホバー／押下の反応、
+     2026-11-20 外部デザイン評価の回収）用で、尺は約200ms。
+     スクロール中フェード（2026-11-20 15:36 の is-scrolling、
+     不透明度0.35）は P4（2026-11-23）で廃止した：プレゼンスが
+     通常フロー内の行になり、本文が円盤の下を通らなくなった
+     ため、透けて読む必要自体が無くなった。reduced-motion
+     では下の media 規則で即時に切り替える。 */
+  transition: transform 200ms ease-out;
 }
 .origin-orin-presence__disc::after {
   content: "";
@@ -822,34 +827,20 @@
   }
 }
 
-/* Conversation scroller clearance for Orin's presence
-   (2026-11-20; revised for the fully visible disc, 15:36;
-   enlarged disc, 18:17; status text moved below the art,
-   2026-11-21).
-   Only the presence floats over this scroller now: it hangs
-   entirely below the header (presence top 60px + 6px tap
-   padding + 72px art), so the art's bottom edge reaches 78px
-   below the header's bottom edge (80px on the 58px mobile
-   header; the scroller's top edge is the header's bottom
-   edge). While work is in flight the art is compact (48px)
-   and the one-line status text hangs below it, ending about
-   85px below the header — still inside the 88px padding.
-   Two clearances keep reading intact:
-   - padding-top (88px) holds the first line below the disc's
-     bottom edge (78px) with room to spare, so nothing starts
-     out hidden. The padding is part of the scrollable area, so
-     once the reader scrolls, content passes beneath the disc —
-     by then the art has shrunk to 48px (bottom edge 54px below
-     the header) and faded to opacity 0.35 while scrolling,
-     which is the requested Muse-app-style read-under
-     behaviour.
-   - scroll-padding-top (84px) stays below the full-size disc's
-     bottom edge and well below the shrunken disc's (54px), so
-     messages scrolled into view (scrollIntoView, anchor jumps)
-     stop just below the disc instead of sliding under it. */
+/* Conversation scroller clearance for Orin's presence.
+   P4 revision (2026-11-23): the presence no longer floats
+   over this scroller — it is a row in the normal flow above
+   it (see .origin-orin-presence) — so no clearance is needed
+   at all: the scroller's own padding (Tailwind p-2 / sm:p-4)
+   is the only inset, and content can never pass under the
+   disc. The 88px padding-top / 84px scroll-padding-top pair
+   that guarded the floating form (2026-11-20 – 2026-11-21)
+   is gone; a small scroll-padding-top remains so messages
+   scrolled into view (scrollIntoView, anchor jumps) stop a
+   breath below the scroller's top edge instead of flush
+   against it. */
 .origin-chat-scroll {
-  padding-top: 88px;
-  scroll-padding-top: 84px;
+  scroll-padding-top: 16px;
 }
 
 /* Orin profile card (owner request 2026-11-15, Muse-app style avatar
@@ -907,8 +898,10 @@
   /* Popover form (2026-11-21 redesign): anchored below the
      resident Orin instead of centered on the screen. The top
      padding clears the presence — its tap target ends 144px
-     below the viewport top (presence top 60px + 6px tap padding
-     + 72px art + 6px tap padding) — with an 8px gap. The card
+     below the viewport top (header 60px + the presence row's
+     6px tap padding + 72px art + 6px tap padding; the row is
+     in the normal flow since the P4 revision, 2026-11-23,
+     which lands on the same 144px) — with an 8px gap. The card
      keeps one hairline border and a single soft shadow layer,
      and the backdrop drops its dim and blur entirely. */
   .origin-orin-profile {

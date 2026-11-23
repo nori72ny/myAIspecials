@@ -64,10 +64,12 @@ import type { OriginLanguage } from '../i18n';
  *   的は小さくならない。
  * - スクロール中は円盤の不透明度を約0.35 に下げ（App 側の
  *   scrolling 信号、復帰はスクロール停止後 約300ms）、下を
- *   通る本文の文字が透けて読めるようにする。
+ *   通る本文の文字が透けて読めるようにする。（この緩和策は
+ *   P4 改訂で廃止した。下記の改訂項を参照）
  * 配置は浮遊のまま（メイン列の相対配置を基準に absolute で
  * 上部中央。列の幅に追随させるため fixed ではなく列内
- * absolute を採る）。姿の下の名前テキストは出さない
+ * absolute を採る）。（P4 改訂で通常フロー内の行へ変更した。
+ * 下記の改訂項を参照）姿の下の名前テキストは出さない
  * （2026-11-15 ノリ指示で削除。名前はタップで開くプロフィール
  * カードの中にだけ出す）。
  *
@@ -78,12 +80,15 @@ import type { OriginLanguage } from '../i18n';
  *   込み中・エージェント実行中・画像生成中を含む）：絵は
  *   48px に縮む。状態テキストは表示中は常に見える。
  * - 会話がスクロールされている間（scrollTop が閾値超）：絵は
- *   48px。待機中ならオリンだけの小さい形になる。
+ *   48px。待機中ならオリンだけの小さい形になる。（P4 改訂で
+ *   廃止。スクロールしても待機中は 72px のまま）
  * サイズ変化は約200msのトランジションで、prefers-reduced-motion
  * では即時切替。会話スクローラ側は、先頭行が円盤の下に隠れ
  * ないよう上部に円盤の下端より深いパディングを確保しつつ、
  * スクロールした内容は円盤の下を通過できる
- * （.origin-chat-scroll、CSS 側）。
+ * （.origin-chat-scroll、CSS 側）。（パディングによる逃がしは
+ * P4 改訂で不要になった：プレゼンスの行がスクローラの上に
+ * あるため、内容は物理的に円盤の下へ入れない）
  *
  * 状態文の正本は従来どおり：段階→文の対応は resolveOrinBubbleText
  * の1表に集約し、文そのものは App 側で既存正本（waitingText／
@@ -102,7 +107,7 @@ import type { OriginLanguage } from '../i18n';
  *
  * 姿は App 側の状態集約（orinPresenceState）をそのまま流用する：
  * working 状態では既存の動画アセットで動き、それ以外は状態別の
- * 静止画。待機中（テキストなし・未スクロール）は円盤の中で静かな
+ * 静止画。待機中（テキストなし）は円盤の中で静かな
  * 呼吸（上限は OriginCatState の ORIGIN_CAT_IDLE_MOTION_* の
  * とおり）。prefers-reduced-motion では動画を使わず静止画にし、
  * 呼吸もテキストのフェードも無くす（即時表示・即時消去）。
@@ -115,6 +120,19 @@ import type { OriginLanguage } from '../i18n';
  * （喜ぶ動きを見せるため）。「いまの作業を表示」という名前の
  * 操作はこのプレゼンスのタップ対象ただ1つだけ（ヘッダー側の
  * 同名ボタンは廃止した）。
+ *
+ * 2026-11-23 P4 改訂（週次品質検査の欠陥#4、2026-11-17 から
+ * 継続）：配置を浮遊（メイン列内 absolute）から通常フロー内の
+ * 専用行（ヘッダー直下・会話スクローラの上）へ戻した。浮遊形
+ * では、スクロールした本文が円盤の下を通過し、スクロールが
+ * 止まると不透明な円盤が本文の上に残って文字を隠した（フェード
+ * 0.35 はスクロール中だけの緩和で、停止後に効かなかった）。
+ * 行として場所を確保すれば、本文が下に潜る余地自体が無くなる。
+ * あわせて、浮遊前提の緩和策2つを廃止した：スクロール中の
+ * フェード（透けて読む対象が無くなった）とスクロール中の縮小
+ * （フロー内では読書領域が 24px 跳ねるだけになる）。寸法は
+ * 変えていない（待機 72px／作業中 48px）。名前が Floating の
+ * ままなのは旧名の名残で、実体はフロー内の行である。
  */
 
 /** 状態テキストの出現／消去トランジションの尺。 */
@@ -137,36 +155,15 @@ export const ORIN_PRESENCE_FADE_MS = 180;
 export const ORIN_PRESENCE_CAT_SIZE_PX = 72;
 
 /**
- * 自動縮小時の絵の寸法（px）。作業中（状態テキスト表示中）と
- * 会話のスクロール中にこの大きさになり、円盤の下を内容が
- * 読み進められる余地を広げる（2026-11-20 10:10 オーナー指示、
- * 寸法は同日 18:17 の実機判定で 36px から拡大）。
+ * 自動縮小時の絵の寸法（px）。作業中（状態テキスト表示中）に
+ * この大きさになり、プレゼンスの行が場所を取りすぎないように
+ * する（2026-11-20 10:10 オーナー指示、寸法は同日 18:17 の
+ * 実機判定で 36px から拡大）。スクロール中の縮小は P4 改訂
+ * （2026-11-23）で廃止した：通常フロー内の行では、縮小は
+ * 読書領域を 24px 跳ねさせるだけで、隠れ対策としての意味を
+ * 失ったため。
  */
 export const ORIN_PRESENCE_CAT_SIZE_COMPACT_PX = 48;
-
-/**
- * 会話スクローラの scrollTop がこの px を超えたら「スクロール
- * されている」とみなして絵を縮める閾値（App 側のスクロール
- * 判定が使う正本）。
- */
-export const ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX = 40;
-
-/**
- * スクロール中の円盤の不透明度（2026-11-20 15:36 の実機判定を
- * 受けた修正）。スクロール中は円盤をこの値まで薄くし、下を
- * 通る本文の文字が透けて読めるようにする。実際の不透明度は
- * CSS 側（.origin-orin-presence__disc.is-scrolling）が持ち、
- * この定数は App／テストとの照合用の正本。
- */
-export const ORIN_PRESENCE_SCROLL_OPACITY = 0.35;
-
-/**
- * スクロールが止まってから円盤の不透明度を戻し始めるまでの
- * 間隔（ms、App 側のスクロール停止判定が使う正本）。戻り自体
- * は CSS 側のトランジション（約200ms）で滑らかに行う。
- * prefers-reduced-motion ではトランジションを即時にする。
- */
-export const ORIN_PRESENCE_SCROLL_RESTORE_MS = 300;
 
 /** 絵のサイズ変化のトランジションの尺（CSS 側と一致させる）。 */
 export const ORIN_PRESENCE_RESIZE_MS = 200;
@@ -310,25 +307,9 @@ export interface OrinFloatingPresenceProps {
   hidden?: boolean;
   /** タップ時の一回性の「喜ぶ」動きの合図（App 側で数える）。 */
   joySignal?: number;
-  /**
-   * 会話がスクロールされているか（scrollTop が
-   * ORIN_PRESENCE_SCROLL_SHRINK_THRESHOLD_PX 超。App 側が
-   * chatScrollRef のスクロールから集約して渡す）。true の間は
-   * 作業中でなくても絵が自動で小さくなる。
-   */
-  scrolled?: boolean;
-  /**
-   * 会話のスクロールが進行中か（App 側がスクロールイベントの
-   * 継続から集約して渡す。止まって約
-   * ORIN_PRESENCE_SCROLL_RESTORE_MS 経つと false に戻る）。
-   * true の間は円盤の不透明度を ORIN_PRESENCE_SCROLL_OPACITY
-   * まで下げ、下を通る本文が透けて読めるようにする
-   * （2026-11-20 15:36 の実機判定を受けた修正）。
-   */
-  scrolling?: boolean;
 }
 
-export default function OrinFloatingPresence({ text, active = false, state, language, onOpenWorkSheet, hidden = false, joySignal = 0, scrolled = false, scrolling = false }: OrinFloatingPresenceProps) {
+export default function OrinFloatingPresence({ text, active = false, state, language, onOpenWorkSheet, hidden = false, joySignal = 0 }: OrinFloatingPresenceProps) {
   const reduced = usePrefersReducedMotion();
   const [pillText, setPillText] = useState<string | null>(null);
   const [pillRevealed, setPillRevealed] = useState(false);
@@ -373,9 +354,10 @@ export default function OrinFloatingPresence({ text, active = false, state, lang
   const ja = language !== 'en';
   // 自動縮小（2026-11-20 10:10）：状態テキストが表示されている間
   // （作業中。フェードアウトの間もテキストは見えているので含む）
-  // と、会話がスクロールされている間は絵を小さくする。テキスト
-  // 自体は縮小しても常に見える（作業中コメントの詳細化の要件）。
-  const compact = scrolled || pillText !== null;
+  // は絵を小さくする。テキスト自体は縮小しても常に見える
+  // （作業中コメントの詳細化の要件）。スクロールでの縮小は
+  // P4 改訂（2026-11-23）で廃止した（定数のコメント参照）。
+  const compact = pillText !== null;
   const catSize = compact ? ORIN_PRESENCE_CAT_SIZE_COMPACT_PX : ORIN_PRESENCE_CAT_SIZE_PX;
   // 待機中（テキストが消えきって・動画でない状態）だけ、円盤の中で
   // 静かな呼吸を付ける。テキストのフェードアウト中はまだ付けない。
@@ -398,7 +380,7 @@ export default function OrinFloatingPresence({ text, active = false, state, lang
         onClick={onOpenWorkSheet}
         aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
       >
-        <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}${scrolling ? ' is-scrolling' : ''}`}>
+        <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}`}>
           <OriginCatState state={state} size={catSize} breathing={breathing} />
         </span>
         {pillText !== null && (
