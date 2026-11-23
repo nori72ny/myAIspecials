@@ -138,7 +138,7 @@ describe("createOriginStreamingChatRouter", () => {
       // Route-3 activation wiring: the compact Groq substitute rides along on the
       // request while the standard instruction stays full-size for routes 1 and 2.
       expect(providerRequest.groqSystemInstruction).toBe(originGroqRouteSystemInstruction());
-      expect(providerRequest.groqSystemInstruction?.length).toBeLessThanOrEqual(3_800); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21)
+      expect(providerRequest.groqSystemInstruction?.length).toBeLessThanOrEqual(4_800); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21); CB-4: raised to 4,800 (CODEBENCH_CB4_DESIGN_2026-11-23)
       expect(providerRequest.systemInstruction.length).toBeGreaterThan(9_000);
       expect(providerRequest.systemInstruction).not.toContain("Business planning & marketing protocol");
       // Route-2 wiring: the deduplicated variant rides along for the

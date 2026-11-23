@@ -186,7 +186,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // deck skeleton in the (routes 1-2) system instruction so the single
       // ordinary generation can be converted into a deck afterwards. The
       // compact Groq instruction is deliberately left untouched (its
-      // 2,000-3,800 character budget is a hard contract); a route-3 answer
+      // 2,000-4,800 character budget is a hard contract); a route-3 answer
       // simply will not match the skeleton and produces no file.
       // DG-1 修正（原因4）: 資料レコード経路が ON のときは、判定に
       // レコード経路専用の拡張（資料の種別語＋作成依頼の動詞句）を
