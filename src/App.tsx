@@ -647,6 +647,179 @@ export function createOriginStreamRenderBatcher(
   };
 }
 
+/**
+ * 確定文の「再生表示」層（2026-11-23、表示まわり設計メモ段階1）。
+ *
+ * サーバー側の順序は一切変えない：回答文はゲート・検証が全て終わって
+ * から確定文として届く。ゲートが武装した直接経路と JSON 一括応答では
+ * その確定文が一括で届くため、画面では全文が一瞬で描かれてしまう。
+ * ここではクライアント側で「描画だけ」を書記素クラスタ単位で少しずつ
+ * 広げる。状態（message.content）には最初から全文が入っており、絞る
+ * のは描画だけなので、コピー・読み上げ・アクセシビリティは全文で
+ * 正しく動く。逐次に流れている経路（ゲートなし）と調査経路は対象外。
+ */
+export const ORIGIN_ANSWER_REPLAY_RATE_PER_SECOND = 1200;
+export const ORIGIN_ANSWER_REPLAY_MIN_SECONDS = 0.6;
+export const ORIGIN_ANSWER_REPLAY_MAX_SECONDS = 5;
+/** これ以下の短い回答は再生せず即時に全文表示する。 */
+export const ORIGIN_ANSWER_REPLAY_SKIP_MAX_GRAPHEMES = 48;
+/** 1回の表示更新でこれ以上増えたら「一括で届いた」とみなして再生を始める。 */
+export const ORIGIN_ANSWER_REPLAY_BULK_MIN_GRAPHEMES = 160;
+
+let graphemeSegmenter: Intl.Segmenter | null | undefined;
+const getGraphemeSegmenter = (): Intl.Segmenter | null => {
+  if (graphemeSegmenter === undefined) {
+    graphemeSegmenter = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+      : null;
+  }
+  return graphemeSegmenter;
+};
+
+export const splitOriginGraphemes = (text: string): string[] => {
+  if (!text) return [];
+  const segmenter = getGraphemeSegmenter();
+  if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
+  // Intl.Segmenter が無い環境ではコードポイント単位に落とす（サロゲート
+  // ペアは割れない。結合文字の途中で切れる劣化は許容する）。
+  return Array.from(text);
+};
+
+export const countOriginGraphemes = (text: string): number => splitOriginGraphemes(text).length;
+
+export const originGraphemePrefix = (text: string, graphemes: number): string => {
+  if (graphemes <= 0) return '';
+  const parts = splitOriginGraphemes(text);
+  if (graphemes >= parts.length) return text;
+  return parts.slice(0, graphemes).join('');
+};
+
+/** 総再生時間を約0.6〜5秒に収めるための所要秒数（目安1,200文字/秒）。 */
+export const originAnswerReplayDurationSeconds = (graphemes: number): number => {
+  if (graphemes <= 0) return 0;
+  return Math.min(
+    ORIGIN_ANSWER_REPLAY_MAX_SECONDS,
+    Math.max(ORIGIN_ANSWER_REPLAY_MIN_SECONDS, graphemes / ORIGIN_ANSWER_REPLAY_RATE_PER_SECOND),
+  );
+};
+
+export const shouldStartOriginAnswerReplay = (input: {
+  totalGraphemes: number;
+  addedGraphemes: number;
+  reducedMotion: boolean;
+}): boolean => !input.reducedMotion
+  && input.totalGraphemes > ORIGIN_ANSWER_REPLAY_SKIP_MAX_GRAPHEMES
+  && input.addedGraphemes >= ORIGIN_ANSWER_REPLAY_BULK_MIN_GRAPHEMES;
+
+const originPrefersReducedMotion = (): boolean => typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+export type OriginAnswerReplay = {
+  start: (totalGraphemes: number, revealedGraphemes: number) => void;
+  extend: (totalGraphemes: number) => void;
+  finish: () => void;
+  cancel: () => void;
+  isPlaying: () => boolean;
+};
+
+export function createOriginAnswerReplay(
+  onReveal: (revealedGraphemes: number) => void,
+  onDone: () => void,
+  scheduler: {
+    requestFrame?: (callback: FrameRequestCallback) => number;
+    cancelFrame?: (handle: number) => void;
+  } = {},
+): OriginAnswerReplay {
+  const requestFrame = scheduler.requestFrame ?? window.requestAnimationFrame.bind(window);
+  const cancelFrame = scheduler.cancelFrame ?? window.cancelAnimationFrame.bind(window);
+  let active = false;
+  let frameHandle: number | null = null;
+  let total = 0;
+  let revealed = 0;
+  let lastShown = -1;
+  let ratePerSecond = 0;
+  let lastTimestamp: number | null = null;
+
+  const stopFrame = () => {
+    if (frameHandle !== null) {
+      cancelFrame(frameHandle);
+      frameHandle = null;
+    }
+  };
+  const show = (count: number) => {
+    if (count !== lastShown) {
+      lastShown = count;
+      onReveal(count);
+    }
+  };
+  const complete = () => {
+    if (!active) return;
+    active = false;
+    stopFrame();
+    show(total);
+    onDone();
+  };
+  const retarget = () => {
+    const remaining = total - revealed;
+    ratePerSecond = remaining > 0 ? remaining / originAnswerReplayDurationSeconds(remaining) : 0;
+  };
+  const tick = (timestamp: number) => {
+    frameHandle = null;
+    if (!active) return;
+    if (lastTimestamp === null) {
+      lastTimestamp = timestamp;
+      frameHandle = requestFrame(tick);
+      return;
+    }
+    const elapsedSeconds = Math.max(0, (timestamp - lastTimestamp) / 1000);
+    lastTimestamp = timestamp;
+    revealed = Math.min(total, revealed + ratePerSecond * elapsedSeconds);
+    if (revealed >= total) {
+      complete();
+      return;
+    }
+    show(Math.floor(revealed));
+    frameHandle = requestFrame(tick);
+  };
+
+  return {
+    start(nextTotal, alreadyRevealed) {
+      stopFrame();
+      total = nextTotal;
+      revealed = Math.min(Math.max(alreadyRevealed, 0), nextTotal);
+      lastShown = Math.floor(revealed);
+      lastTimestamp = null;
+      active = true;
+      retarget();
+      if (revealed >= total) {
+        complete();
+        return;
+      }
+      frameHandle = requestFrame(tick);
+    },
+    extend(nextTotal) {
+      if (!active) return;
+      total = nextTotal;
+      if (revealed >= total) {
+        complete();
+        return;
+      }
+      retarget();
+    },
+    finish() {
+      complete();
+    },
+    cancel() {
+      active = false;
+      stopFrame();
+    },
+    isPlaying() {
+      return active;
+    },
+  };
+}
+
 const copyText = async (value: string) => {
   try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(value); return; } } catch { /* use fallback */ }
   const helper = document.createElement('textarea');
@@ -1591,6 +1764,40 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     }
     committedMessagesRef.current = messages;
   }, [messages]);
+  // 確定文の再生表示（段階1）：状態の content は全文のまま、描画だけを
+  // 絞るための「いま何書記素まで見せているか」。再生が終われば null に
+  // 戻り、全文がそのまま描かれる。対象メッセージが会話から消えたら
+  // （履歴の切替・新規会話）再生は取り消す。
+  const answerReplayRef = useRef<OriginAnswerReplay | null>(null);
+  const answerReplayTargetRef = useRef<string | null>(null);
+  const [answerReplayView, setAnswerReplayView] = useState<{ messageId: string; revealed: number } | null>(null);
+  const getAnswerReplayPlayer = (): OriginAnswerReplay => {
+    if (!answerReplayRef.current) {
+      answerReplayRef.current = createOriginAnswerReplay(
+        (count) => {
+          const target = answerReplayTargetRef.current;
+          if (target) setAnswerReplayView({ messageId: target, revealed: count });
+        },
+        () => setAnswerReplayView(null),
+      );
+    }
+    return answerReplayRef.current;
+  };
+  const finishAnswerReplay = () => { answerReplayRef.current?.finish(); };
+  const cancelAnswerReplay = () => {
+    answerReplayRef.current?.cancel();
+    answerReplayTargetRef.current = null;
+    setAnswerReplayView(null);
+  };
+  useEffect(() => () => { answerReplayRef.current?.cancel(); }, []);
+  useEffect(() => {
+    if (answerReplayView && !messages.some((message) => message.id === answerReplayView.messageId)) {
+      cancelAnswerReplay();
+    }
+    // cancelAnswerReplay は毎レンダー再生成される素の関数で、依存に
+    // 入れるとループするため意図的に外す。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, answerReplayView]);
   // 会話の自動スクロール（デザイン評価 第1回・第3回、2026-11-17）：
   // 生成中から完了まで、読み手が最下部付近にいるときだけ末尾へ追随
   // する。完了時に「回答を調整」のピルなどが新たに描画されて本文が
@@ -1801,7 +2008,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   }, []);
   const updateMessages = (updater: (current: ConversationMessage[]) => ConversationMessage[]) => { const next = updater(messagesRef.current); messagesRef.current = next; setUncontrolledMessages(next); onMessagesChange?.(next); return next; };
   const updateArtifacts = (updater: (current: ArtifactBlock[]) => ArtifactBlock[]) => { const next = updater([...artifacts]); setUncontrolledArtifacts(next); onArtifactsChange?.(next); return next; };
-  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
+  const resetConversation = () => { onArchiveSession?.(messagesRef.current); voiceSpeech.stop(); cancelAnswerReplay(); abortRef.current?.abort(); abortRef.current = null; pendingImageRequestRef.current = null; rasterSessionBlobs.current.clear(); setIsImageGenerationPanelOpen(false); setMotionImage(null); setImageEditTarget(null); setResearchMode(false); setResearchRun(null); setResearchReader(null); setIsLoading(false); setInputText(''); setAttachments([]); setAttachmentError(''); setIsSafeWaiting(false); setFailedChatRequest(null); setActiveArtifact(null); setIsWorkspaceOpen(false); setImagePhase(null); setWorkSheetOpen(false); setLastCompletedWork(null); updateMessages(() => []); };
   useEffect(() => { if (observedResetSignal.current === resetSignal) return; observedResetSignal.current = resetSignal; resetConversation(); }, [resetSignal]);
   useEffect(() => { if (!textareaRef.current) return; textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = `${Math.min(Math.max(textareaRef.current.scrollHeight, 44), 176)}px`; }, [inputText]);
   const attachFiles = async (fileList?: FileList | File[]) => {
@@ -1827,6 +2034,8 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
   const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string) => {
+    // 新しい送信が始まったら、再生中の前の回答は即時に全文表示へ倒す。
+    finishAnswerReplay();
     const text = textToSend !== undefined ? textToSend : inputText;
     const sendAttachments = attachmentSnapshot ?? attachments;
     const preservesComposer = attachmentSnapshot !== undefined;
@@ -2499,7 +2708,39 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       }
       const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = nextMessageId('a');
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
-      const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } };
+      // 再生表示の追跡（段階1）：対象は直接経路（検証済みSSE）と JSON
+      // 一括応答だけ。調査経路（phased）はサーバー側の再生が既にある
+      // ため対象外にし、二重に間引かない。状態の content は従来どおり
+      // 全文が入り、ここでは描画の広げ方だけを決める。
+      let answerReplayEligible = verifiedResponseText !== undefined;
+      let replayPrevGraphemes = 0;
+      let replayEngaged = false;
+      const trackAnswerReplay = (conversationalText: string) => {
+        if (!answerReplayEligible) return;
+        const nextGraphemes = countOriginGraphemes(conversationalText);
+        const previousGraphemes = replayPrevGraphemes;
+        replayPrevGraphemes = nextGraphemes;
+        if (replayEngaged) {
+          if (nextGraphemes < previousGraphemes) {
+            // 成果物の切り出し等で本文が書き換わったら絞るのをやめる。
+            replayEngaged = false;
+            cancelAnswerReplay();
+          } else {
+            getAnswerReplayPlayer().extend(nextGraphemes);
+          }
+          return;
+        }
+        if (!shouldStartOriginAnswerReplay({
+          totalGraphemes: nextGraphemes,
+          addedGraphemes: nextGraphemes - previousGraphemes,
+          reducedMotion: originPrefersReducedMotion(),
+        })) return;
+        replayEngaged = true;
+        answerReplayTargetRef.current = assistantId;
+        setAnswerReplayView({ messageId: assistantId, revealed: previousGraphemes });
+        getAnswerReplayPlayer().start(nextGraphemes, previousGraphemes);
+      };
+      const displayVerifiedText = (next: string) => { fullText += next; const parsed = StreamArtifactParser.parse(fullText); updateMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: parsed.conversationalText } : message)); if (parsed.activeArtifact) { const streamedArtifacts = parsed.artifacts.map((block) => ({ ...block, id: `${assistantId}-${block.id}` })); updateArtifacts((current) => [...current.filter((block) => !block.id.startsWith(`${assistantId}-`)), ...streamedArtifacts]); setActiveArtifact(streamedArtifacts.at(-1) ?? null); setIsWorkspaceOpen(true); } trackAnswerReplay(parsed.conversationalText); };
       if (verifiedResponseText !== undefined) displayVerifiedText(verifiedResponseText);
       if (reader) {
         streamRenderBatcher = createOriginStreamRenderBatcher(displayVerifiedText);
@@ -2550,6 +2791,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           streamRenderBatcher.flush();
           if (streamFailed || !complete || !doneSeen || !fullText.trim()) throw new Error('incomplete-stream');
         } else if (protocol === 'origin-verified-sse-v1') {
+          answerReplayEligible = true;
           let buffer = ''; let complete = false; let doneSeen = false;
           const consumeLine = (line: string) => {
             if (!line.startsWith('data:')) return;
@@ -2959,7 +3201,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         「いまの作業を表示」の操作もプレゼンス側だけに残す。 */}
     <div className="flex min-w-0 flex-1 items-center justify-end gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} currentMessages={messages} onRestoreSession={onRestoreSession} /></div>
   </div>
-</HeaderV12><OrinFloatingPresence text={bubbleText} active={bubblePill.active} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-[var(--content-reading)] flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div data-testid="origin-starter-chips" className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mt-7">{t.starterChips.map((chip) => <button key={chip.label} type="button" onClick={() => { void handleSend(chip.prompt); }} className="origin-secondary-button inline-flex h-11 items-center rounded-full px-4 text-sm font-semibold">{chip.label}</button>)}</div><div className="origin-home-composer w-full">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-[var(--content-reading)] flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <>{message.researchError ? <h3 className="m-0 mb-1 text-base font-bold">{language === 'ja' ? '調査を完了できませんでした' : 'The research could not be completed'}</h3> : null}<OriginAnswerMarkdown content={message.content} language={language} showActions={!isStreamingAssistant && !message.researchError} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[13px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}{!isStreamingAssistant && (message.researchFallback || message.researchError) && !isLoading && !isOffline && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? <div className="mt-3"><button type="button" data-testid="chat-research-retry-button" onClick={() => { const previous = messages[messageIndex - 1]; if (previous?.role === 'user') void handleSend(previous.content, false, undefined, message.researchError ? true : undefined, previous.displayContent); }} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? 'もう一度試す' : 'Try again'}</button></div> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-[var(--content-reading)] px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
+</HeaderV12><OrinFloatingPresence text={bubbleText} active={bubblePill.active} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-[var(--content-reading)] flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div data-testid="origin-starter-chips" className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mt-7">{t.starterChips.map((chip) => <button key={chip.label} type="button" onClick={() => { void handleSend(chip.prompt); }} className="origin-secondary-button inline-flex h-11 items-center rounded-full px-4 text-sm font-semibold">{chip.label}</button>)}</div><div className="origin-home-composer w-full">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-[var(--content-reading)] flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; const replayView = answerReplayView && message.role === 'assistant' && answerReplayView.messageId === message.id ? answerReplayView : null; const isReplayingAssistant = replayView !== null; const shownAnswerContent = replayView ? originGraphemePrefix(message.content, replayView.revealed) : message.content; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div onClick={isReplayingAssistant ? () => finishAnswerReplay() : undefined} data-answer-replaying={isReplayingAssistant ? 'true' : undefined} className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <>{message.researchError ? <h3 className="m-0 mb-1 text-base font-bold">{language === 'ja' ? '調査を完了できませんでした' : 'The research could not be completed'}</h3> : null}<OriginAnswerMarkdown content={shownAnswerContent} language={language} showActions={!isStreamingAssistant && !isReplayingAssistant && !message.researchError} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[13px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && !isReplayingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}{!isStreamingAssistant && (message.researchFallback || message.researchError) && !isLoading && !isOffline && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? <div className="mt-3"><button type="button" data-testid="chat-research-retry-button" onClick={() => { const previous = messages[messageIndex - 1]; if (previous?.role === 'user') void handleSend(previous.content, false, undefined, message.researchError ? true : undefined, previous.displayContent); }} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? 'もう一度試す' : 'Try again'}</button></div> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-[var(--content-reading)] px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
   language={language}
   onClose={() => setIsImageGenerationPanelOpen(false)}
   onGenerate={(prompt, width, height) => {
