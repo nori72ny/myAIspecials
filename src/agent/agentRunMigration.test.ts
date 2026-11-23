@@ -6,6 +6,7 @@ import {
   AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
   AGENT_RUN_MIGRATION_SQL_RUNS,
   AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS,
+  AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS_DELIVERABLE,
   AGENT_RUN_MIGRATION_SQL_WRITE_LOCKS,
   AGENT_RUN_SCHEMA_MIGRATIONS,
 } from './agentRunSchema.js';
@@ -124,6 +125,23 @@ describe('agent run artifacts migration contract', () => {
   });
 });
 
+describe('agent run artifacts deliverable migration contract', () => {
+  it('widens the size backstop only for base64-carrying deliverable rows', async () => {
+    const sql = await readFile(new URL('../../supabase/migrations/20261123090000_origin_agent_run_artifacts_deliverable.sql', import.meta.url), 'utf8');
+    // The replacement is idempotent, like the resume-evaluation
+    // migration's constraint swaps.
+    expect(sql).toContain('drop constraint if exists origin_agent_run_artifact_size_range');
+    expect(sql).toContain('add constraint origin_agent_run_artifact_size_range');
+    // Ordinary rows keep the original caps.
+    expect(sql).toContain('char_length(artifact) <= 120000 and artifact_bytes between 0 and 524288');
+    // The deliverable branch is sized for the stored envelope
+    // string (base64 cap plus envelope allowance, mirroring the
+    // store contract) and opens only for a body carrying base64.
+    expect(sql).toContain('char_length(artifact) <= 703148 and artifact_bytes between 0 and 703148');
+    expect(sql).toContain(`artifact like '%"contentBase64":"%'`);
+  });
+});
+
 describe('agent run schema constants mirror the migration files', () => {
   // The production bundle cannot read files at runtime, so the runs
   // schema is ensured lazily from in-code constants (agentRunSchema.ts).
@@ -136,6 +154,7 @@ describe('agent run schema constants mirror the migration files', () => {
     { constant: AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION, file: '../../supabase/migrations/20261108110000_origin_agent_run_resume_evaluation.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS, file: '../../supabase/migrations/20261108120000_origin_agent_consumed_runs.sql' },
     { constant: AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS, file: '../../supabase/migrations/20261122090000_origin_agent_run_artifacts.sql' },
+    { constant: AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS_DELIVERABLE, file: '../../supabase/migrations/20261123090000_origin_agent_run_artifacts_deliverable.sql' },
   ];
 
   it('keeps every schema constant identical to its migration file', async () => {
@@ -152,6 +171,7 @@ describe('agent run schema constants mirror the migration files', () => {
       AGENT_RUN_MIGRATION_SQL_RESUME_EVALUATION,
       AGENT_RUN_MIGRATION_SQL_CONSUMED_RUNS,
       AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS,
+      AGENT_RUN_MIGRATION_SQL_RUN_ARTIFACTS_DELIVERABLE,
     ]);
   });
 });

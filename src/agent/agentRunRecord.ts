@@ -79,6 +79,22 @@ export const MAX_AGENT_RUN_ARTIFACT_CHARS = 120_000;
 export const MAX_AGENT_RUN_ARTIFACT_BYTES = 512 * 1024;
 export const MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS = 2_000_000;
 /**
+ * Deliverable caps (artifact retrieval R-2; design
+ * AGENT_ARTIFACT_RETRIEVAL_2026-11-23 §3.2-3). A binary deliverable
+ * envelope carries its entity as base64, so the stored string is
+ * larger than the entity it holds: a 512KiB entity expands to
+ * ceil(524288 / 3) * 4 = 699,052 base64 characters. The deliverable
+ * cap therefore rides on the entity — the envelope's declared byte
+ * count against MAX_AGENT_RUN_ARTIFACT_BYTES, and its base64 form
+ * against the expansion below — never on the stored string's char
+ * count, which is bounded separately (and loosely) by
+ * MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS: the base64 cap plus room
+ * for the envelope's own JSON fields. The database backstop mirrors
+ * both numbers.
+ */
+export const MAX_AGENT_RUN_ARTIFACT_BASE64_CHARS = Math.ceil(MAX_AGENT_RUN_ARTIFACT_BYTES / 3) * 4;
+export const MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS = MAX_AGENT_RUN_ARTIFACT_BASE64_CHARS + 4_096;
+/**
  * Terminal retention grace (step-artifact persistence, PR-3; design
  * §4.6): a run's artifacts live as long as the run does, and for this
  * long after the run reaches a terminal status, so a just-finished
@@ -566,12 +582,85 @@ function canonicalJson(value: unknown): string {
   throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
 }
 
+const CANONICAL_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function parseDocumentEnvelope(artifact: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(parsed) || parsed.kind !== 'document') return null;
+  return parsed;
+}
+
+/**
+ * Whether a stored body is a binary deliverable envelope (artifact
+ * retrieval R-2): a document envelope carrying its entity as a
+ * base64 string. The store's read path mirrors the write path's
+ * caps with this same test, so a row the write path accepted can
+ * always be read back.
+ */
+export function isBinaryDeliverableEnvelope(artifact: string): boolean {
+  const envelope = parseDocumentEnvelope(artifact);
+  return envelope !== null && typeof envelope.contentBase64 === 'string';
+}
+
+/**
+ * Reads a stored body as a binary deliverable envelope (artifact
+ * retrieval R-2): a JSON object of kind 'document' that carries its
+ * entity as `contentBase64`. Anything else — raw text, an analyzer
+ * bundle, a text envelope carrying `content` — is not a deliverable
+ * and returns null, so the ordinary caps apply unchanged. A document
+ * envelope whose contentBase64 is present but not a string is
+ * malformed input, not an ordinary artifact.
+ */
+function documentDeliverableEnvelope(artifact: string): Record<string, unknown> | null {
+  const envelope = parseDocumentEnvelope(artifact);
+  if (envelope === null || !('contentBase64' in envelope)) return null;
+  if (typeof envelope.contentBase64 !== 'string') throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  return envelope;
+}
+
+/**
+ * Verifies a deliverable envelope's declared entity against the
+ * entity it actually carries (design §3.2-3): the declared byte
+ * count must fit the entity cap, and the base64 payload must be
+ * canonical and decode to exactly the declared byte count and
+ * digest. A declaration the payload does not reproduce is refused
+ * with AGENT_RUN_ARTIFACT_CONTENT_MISMATCH — the envelope is never
+ * stored on its own say-so.
+ */
+function validateDocumentDeliverableEnvelope(envelope: Record<string, unknown>): void {
+  const declaredBytes = envelope.bytes;
+  if (typeof declaredBytes !== 'number' || !Number.isInteger(declaredBytes) || declaredBytes < 0) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  if (declaredBytes > MAX_AGENT_RUN_ARTIFACT_BYTES) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  const declaredSha256 = envelope.sha256;
+  if (typeof declaredSha256 !== 'string' || !PLAN_DIGEST_PATTERN.test(declaredSha256)) {
+    throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
+  }
+  const contentBase64 = envelope.contentBase64 as string;
+  if (contentBase64.length > MAX_AGENT_RUN_ARTIFACT_BASE64_CHARS) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  if (!CANONICAL_BASE64_PATTERN.test(contentBase64)) throw new Error('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+  const decoded = Buffer.from(contentBase64, 'base64');
+  if (decoded.length !== declaredBytes) throw new Error('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+  if (createHash('sha256').update(decoded).digest('hex') !== declaredSha256) {
+    throw new Error('AGENT_RUN_ARTIFACT_CONTENT_MISMATCH');
+  }
+}
+
 /**
  * Validates one step-artifact write at the store boundary. The size
  * and digest are recomputed from the body itself (the attachment
  * store's rule), and the body passes the same likely-secret screening
  * as every other run payload: a body that trips it is refused whole,
- * never stored in part.
+ * never stored in part. A binary deliverable envelope is validated
+ * against its carried entity instead of the stored string (see
+ * validateDocumentDeliverableEnvelope); every other body keeps the
+ * char and byte caps above.
  */
 export function validatePutAgentRunStepArtifactInput(
   input: PutAgentRunStepArtifactInput,
@@ -589,9 +678,17 @@ export function validatePutAgentRunStepArtifactInput(
   }
   if (typeof artifact !== 'string') throw new Error('AGENT_RUN_ARTIFACT_INPUT_INVALID');
   const charCount = artifact.length;
-  if (charCount > MAX_AGENT_RUN_ARTIFACT_CHARS) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
   const artifactBytes = Buffer.byteLength(artifact, 'utf8');
-  if (artifactBytes > MAX_AGENT_RUN_ARTIFACT_BYTES) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  const deliverable = documentDeliverableEnvelope(artifact);
+  if (deliverable !== null) {
+    if (charCount > MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS || artifactBytes > MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS) {
+      throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+    }
+    validateDocumentDeliverableEnvelope(deliverable);
+  } else {
+    if (charCount > MAX_AGENT_RUN_ARTIFACT_CHARS) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+    if (artifactBytes > MAX_AGENT_RUN_ARTIFACT_BYTES) throw new Error('AGENT_RUN_ARTIFACT_TOO_LARGE');
+  }
   if (containsLikelySecret(artifact)) throw new Error('AGENT_RUN_ARTIFACT_SECRET_CONTENT_BLOCKED');
   return {
     stepIndex: Number(stepIndex),

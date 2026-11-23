@@ -16,6 +16,28 @@ export type ArtifactRunner = (toolName: ToolName, params: ToolParams) => Promise
 const MAX_REPAIR_ATTEMPTS = 2;
 const MAX_ARTIFACT_CHARS = 120_000;
 
+/**
+ * A document envelope carrying its entity as base64 (artifact
+ * retrieval R-2) is opaque to this verifier's textual checks, and
+ * truncating it at MAX_ARTIFACT_CHARS would corrupt the payload it
+ * exists to carry. Detection therefore runs on a probe copy with
+ * the payload elided; a clean envelope is returned byte-for-byte.
+ * Returns null for anything that is not such an envelope, so every
+ * other artifact keeps the existing verify-and-truncate behavior.
+ */
+function binaryEnvelopeProbe(artifact: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const envelope = parsed as Record<string, unknown>;
+  if (envelope.kind !== 'document' || typeof envelope.contentBase64 !== 'string') return null;
+  return JSON.stringify({ ...envelope, contentBase64: '' });
+}
+
 function detectIssues(artifact: string, toolName: ToolName): VerificationIssue[] {
   const issues: VerificationIssue[] = [];
   const value = artifact.trim();
@@ -65,6 +87,10 @@ export async function verifyAndSelfFixArtifact(
   params: ToolParams = {},
 ): Promise<VerificationResult> {
   let current = typeof artifact === 'string' ? artifact : '';
+  const probe = binaryEnvelopeProbe(current);
+  if (probe !== null && detectIssues(probe, toolName).length === 0) {
+    return { ok: true, artifact: current, attempts: 0, selfFixed: false, issues: [], diagnosis: 'Artifact passed local verification.' };
+  }
   let issues = detectIssues(current, toolName);
   if (!issues.length) return { ok: true, artifact: current.slice(0, MAX_ARTIFACT_CHARS), attempts: 0, selfFixed: false, issues: [], diagnosis: 'Artifact passed local verification.' };
 

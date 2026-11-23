@@ -287,3 +287,67 @@ describe('deliverable persistence round trip (R-1)', () => {
     expect(Buffer.byteLength(parsed.content, 'utf8')).toBe(parsed.bytes);
   });
 });
+
+describe('binary deliverable retrieval (R-2)', () => {
+  // A 150,000-byte entity: its envelope is ~200,000 characters,
+  // past the ordinary 120,000-char cap the R-1 stage enforced on
+  // every stored body — saving it at all exercises the deliverable
+  // validation, and the round trip proves the entity survives whole.
+  const entityBytes = Buffer.alloc(150_000, 0x5a);
+  const entitySha256 = createHash('sha256').update(entityBytes).digest('hex');
+  const binaryDeliverable = JSON.stringify({
+    kind: 'document',
+    format: 'xlsx',
+    filename: 'capital.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    bytes: entityBytes.length,
+    sha256: entitySha256,
+    verified: true,
+    verification: ['non-empty', 'zip-signature', 'xlsx-package'],
+    contentBase64: entityBytes.toString('base64'),
+  });
+
+  it('lists a base64 deliverable as carrying its entity and serves it verbatim', async () => {
+    const store = await seededStore(() => T0);
+    await store.updateProgress(RUN_ID, DRIVER, { artifacts: [artifactInput(2, binaryDeliverable)] });
+    const app = appFor(store);
+    const list = await asOperator(request(app).get(`/api/agent/v3/runs/${RUN_ID}/artifacts`));
+    expect(list.status).toBe(200);
+    expect(list.body.artifacts).toHaveLength(1);
+    expect(list.body.artifacts[0]).toMatchObject({
+      stepIndex: 2, kind: 'deliverable', format: 'xlsx', filename: 'capital.xlsx',
+      bytes: entityBytes.length, sha256: entitySha256, verified: true, hasContent: true,
+      artifactBytes: Buffer.byteLength(binaryDeliverable, 'utf8'),
+      artifactSha256: sha256(binaryDeliverable),
+    });
+    // The list still never carries a body.
+    expect(JSON.stringify(list.body)).not.toContain('contentBase64');
+    const entity = await asOperator(request(app).get(`/api/agent/v3/runs/${RUN_ID}/artifacts/2`));
+    expect(entity.status).toBe(200);
+    expect(entity.text).toBe(binaryDeliverable);
+    const parsed = JSON.parse(entity.text) as { contentBase64: string; sha256: string; bytes: number };
+    const decoded = Buffer.from(parsed.contentBase64, 'base64');
+    expect(decoded.equals(entityBytes)).toBe(true);
+    expect(createHash('sha256').update(decoded).digest('hex')).toBe(parsed.sha256);
+    expect(decoded.length).toBe(parsed.bytes);
+  });
+
+  it('refuses an over-cap binary deliverable at the store boundary instead of truncating it', async () => {
+    const store = await seededStore(() => T0);
+    const oversizeBytes = Buffer.alloc(512 * 1024 + 1, 0x5a);
+    const oversizeEnvelope = JSON.stringify({
+      kind: 'document',
+      format: 'xlsx',
+      filename: 'capital.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      bytes: oversizeBytes.length,
+      sha256: createHash('sha256').update(oversizeBytes).digest('hex'),
+      verified: true,
+      verification: ['non-empty', 'zip-signature', 'xlsx-package'],
+      contentBase64: oversizeBytes.toString('base64'),
+    });
+    await expect(store.updateProgress(RUN_ID, DRIVER, { artifacts: [artifactInput(2, oversizeEnvelope)] }))
+      .rejects.toThrow('AGENT_RUN_ARTIFACT_TOO_LARGE');
+    expect(await store.listStepArtifacts(RUN_ID)).toEqual([]);
+  });
+});

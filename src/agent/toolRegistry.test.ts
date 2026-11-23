@@ -179,6 +179,32 @@ describe('toolRegistry safety boundary', () => {
     expect(artifact.sha256).toBe(createHash('sha256').update(artifact.content ?? '', 'utf8').digest('hex'));
   });
 
+  it('carries binary formats as contentBase64 with declarations over the decoded bytes', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      title: '資本計算',
+      format: 'xlsx',
+      content: 'Event_ID,Loss_Amount_CNY\nOR001,1200000\nOR002,3400000',
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as {
+      format?: string; bytes?: number; sha256?: string; verified?: boolean; content?: string; contentBase64?: string;
+    };
+    expect(artifact.format).toBe('xlsx');
+    expect(artifact.verified).toBe(true);
+    // The entity rides as base64, never as text (artifact retrieval
+    // R-2): decoding it reproduces exactly the byte count and digest
+    // the envelope declares — the generated file itself.
+    expect(artifact.content).toBeUndefined();
+    expect(typeof artifact.contentBase64).toBe('string');
+    const decoded = Buffer.from(artifact.contentBase64 ?? '', 'base64');
+    expect(decoded.length).toBe(artifact.bytes);
+    const { createHash } = await import('node:crypto');
+    expect(createHash('sha256').update(decoded).digest('hex')).toBe(artifact.sha256);
+    // The decoded bytes are the generated workbook package.
+    expect(decoded.readUInt32LE(0)).toBe(0x04034b50);
+    expect(decoded.includes(Buffer.from('xl/workbook.xml'))).toBe(true);
+  });
+
   it('fails closed for a document request without any usable input', async () => {
     const result = await executeToolWithPermission('document_generator', {}, approved);
     expect(result.ok).toBe(false);

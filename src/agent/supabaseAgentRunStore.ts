@@ -6,10 +6,12 @@ import {
   AGENT_RUN_OWNER_BINDING_PATTERN,
   MAX_AGENT_RUN_ARTIFACTS_TOTAL_CHARS,
   MAX_AGENT_RUN_ARTIFACT_CHARS,
+  MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS,
   MAX_AGENT_RUN_PLAN_STEPS,
   MAX_AGENT_RUN_STEP_ATTEMPTS,
   assertAgentRunStatusTransition,
   isAgentRunRecordStatus,
+  isBinaryDeliverableEnvelope,
   normalizeAgentRunApprovalDeadlineAt,
   normalizeAgentRunGoal,
   normalizeAgentRunHold,
@@ -207,7 +209,13 @@ function parseArtifactRow(row: DbRow): AgentRunStepArtifact {
     throw new Error('AGENT_RUN_DB_ROW_INVALID');
   }
   const artifact = row.artifact;
-  if (typeof artifact !== 'string' || artifact.length > MAX_AGENT_RUN_ARTIFACT_CHARS) {
+  // The caps mirror the write path (artifact retrieval R-2): a
+  // binary deliverable envelope may run to the deliverable stored
+  // cap; every other body keeps the ordinary cap.
+  const artifactCharCap = typeof artifact === 'string' && isBinaryDeliverableEnvelope(artifact)
+    ? MAX_AGENT_RUN_DELIVERABLE_ARTIFACT_CHARS
+    : MAX_AGENT_RUN_ARTIFACT_CHARS;
+  if (typeof artifact !== 'string' || artifact.length > artifactCharCap) {
     throw new Error('AGENT_RUN_DB_ROW_INVALID');
   }
   const artifactBytes = Number(row.artifact_bytes);

@@ -388,10 +388,10 @@ const registry: Record<ToolName, ToolDefinition> = {
       // are measured from that string, never from the wrapped file
       // bytes (the markdown file wraps the body in a title heading;
       // measuring the file was the K8s deliverable's 225-byte
-      // mismatch). Binary formats carry no inline entity yet, so
-      // their declarations describe the generated file bytes, which
-      // is exactly what a later contentBase64 will decode to. The
-      // generator's own verification above stays a verification of
+      // mismatch). Binary formats carry the generated file bytes as
+      // `contentBase64` (artifact retrieval R-2), so their
+      // declarations describe exactly what the base64 decodes to.
+      // The generator's own verification above stays a verification of
       // the generated file and is reported unchanged.
       const carriedText = generated.type === 'markdown'
         ? content
@@ -408,7 +408,7 @@ const registry: Record<ToolName, ToolDefinition> = {
         sha256: carriedText !== undefined ? sha256(carriedText) : generated.sha256,
         verified: generated.verified,
         verification: generated.verification,
-        ...(carriedText !== undefined ? { content: carriedText } : {}),
+        ...(carriedText !== undefined ? { content: carriedText } : { contentBase64: generated.bytes.toString('base64') }),
       });
       return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${declaredBytes.length} bytes).` };
     },
