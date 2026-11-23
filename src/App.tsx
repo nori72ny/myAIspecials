@@ -302,7 +302,7 @@ type PendingImageRequest = {
 // intent (e.g. it answers a raster clarification question), the intent is
 // stored on the item and restored when the item drains, so queueing never
 // silently turns an image answer into plain chat.
-type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean; imageRequest?: PendingImageRequest; displayContent?: string };
+type QueuedChatRequest = { id: string; text: string; attachments: Attachment[]; research?: boolean; imageRequest?: PendingImageRequest; displayContent?: string; refinementOfPreviousAnswer?: boolean };
 export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string; title: string; detail: string; session?: ConversationSession; artifact?: ArtifactBlock };
 
 // 履歴パネルの表示専用に Markdown 記法を取り除く（デザイン評価
@@ -1717,7 +1717,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // (rate limit, busy, transport, generic). Drives the inline retry button;
   // only set for sends without attachments, whose content is baked into the
   // history entry and could not be reconstructed faithfully on a retry.
-  const [failedChatRequest, setFailedChatRequest] = useState<{ text: string; displayContent?: string } | null>(null);
+  const [failedChatRequest, setFailedChatRequest] = useState<{ text: string; displayContent?: string; refinementOfPreviousAnswer?: boolean } | null>(null);
   const [queuedRequests, setQueuedRequests] = useState<QueuedChatRequest[]>([]);
   const [queueNotice, setQueueNotice] = useState('');
   const queuedRequestsRef = useRef<QueuedChatRequest[]>([]);
@@ -1732,7 +1732,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   const committedLoadingRef = useRef(isLoading);
   const idleWaitersRef = useRef<Array<() => void>>([]);
   const queueDrainPendingRef = useRef(false);
-  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string) => Promise<void>) | null>(null);
+  const handleSendRef = useRef<((textToSend?: string, interruptCurrent?: boolean, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean) => Promise<void>) | null>(null);
   const [isImageGenerationPanelOpen, setIsImageGenerationPanelOpen] = useState(false);
   const [motionImage, setMotionImage] = useState<{ url: string; downloadName: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1954,7 +1954,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         if (head.imageRequest && pendingImageRequestRef.current === null) {
           pendingImageRequestRef.current = head.imageRequest;
         }
-        void send(head.text, false, head.attachments, head.research ?? false, head.displayContent);
+        void send(head.text, false, head.attachments, head.research ?? false, head.displayContent, head.refinementOfPreviousAnswer);
       }
     })();
   };
@@ -2033,7 +2033,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (loaded.length) setAttachments((current) => [...current, ...loaded]);
   };
   const handleDrop = (event: React.DragEvent<HTMLElement>) => { event.preventDefault(); setIsDragging(false); void attachFiles(event.dataTransfer.files); };
-  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string) => {
+  const handleSend = async (textToSend?: string, interruptCurrent = false, attachmentSnapshot?: Attachment[], researchOverride?: boolean, displayContent?: string, refinementOfPreviousAnswer?: boolean) => {
     // 新しい送信が始まったら、再生中の前の回答は即時に全文表示へ倒す。
     finishAnswerReplay();
     const text = textToSend !== undefined ? textToSend : inputText;
@@ -2050,6 +2050,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       && sendAttachments.length === 0
       && !imageEditTarget
       && pendingImageRequestRef.current === null
+      && !refinementOfPreviousAnswer
       && (researchOverride ?? researchMode);
     // The in-flight gate reads the ref, not the render-closure state: the ref
     // is updated synchronously where generation starts and settles, so a
@@ -2066,7 +2067,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       // Do not stop or drop the in-flight response: hold this request in the
       // send queue with a snapshot of the current attachments. It is sent via
       // handleSend once the current response completes naturally.
-      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested, ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}) }]);
+      const nextQueue = updateQueue((current) => [...current, { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, attachments: [...sendAttachments], research: researchRequested, ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) }]);
       if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
       setQueueNotice(t.queueAcceptedNotice.replace('{count}', String(nextQueue.length)));
       return;
@@ -2100,7 +2101,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         const entry: OriginOutboxEntry = { id: `q-${Date.now()}-${(queueSequenceRef.current += 1)}`, text, createdAt: Date.now() };
         outboxEntryIdsRef.current.add(entry.id);
         void saveOriginOutboxEntry(entry);
-        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [], ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}) }]);
+        const nextQueue = updateQueue((current) => [...current, { id: entry.id, text, attachments: [], ...(queuedImageRequest ? { imageRequest: queuedImageRequest } : {}), ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) }]);
         if (textToSend === undefined && attachmentSnapshot === undefined) { setInputText(''); setAttachments([]); }
         setQueueNotice(t.queueOfflineNotice.replace('{count}', String(nextQueue.length)));
         return;
@@ -2610,7 +2611,11 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         return;
       }
 
-      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages });
+      // P1 countermeasure 2: a refinement-pill send carries the explicit
+      // refinementOfPreviousAnswer marker, so the server can tell this
+      // machine-generated instruction apart from a user-authored request
+      // by the field — never by scanning its text.
+      const requestBody = JSON.stringify({ model: ORIGIN_FIXED_FREE_MODEL, systemPrompt: getOriginSystemPrompt(language), messages: requestMessages, ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
       chatExchangeStarted = true;
       let response = await fetchOriginChat(requestBody, controller.signal);
       let failure: OriginChatFailurePayload | null = null;
@@ -2641,7 +2646,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           // failure is surfaced honestly with the existing retry affordance
           // instead of being papered over by an outside answer.
           appendFailure(language === 'en' ? MODEL_BUSY_MESSAGE_EN : MODEL_BUSY_MESSAGE);
-          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
+          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
           return;
         }
         if (failure?.code === 'PROVIDER_RATE_LIMITED') {
@@ -2654,7 +2659,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           const rateLimitBase = language === 'en' ? RATE_LIMIT_MESSAGE_EN : RATE_LIMIT_MESSAGE;
           const recoveryEstimate = recoveryEstimateSentence(failure?.retryAfterSeconds, Date.now(), language === 'en' ? 'en' : 'ja');
           appendFailure(recoveryEstimate ? `${rateLimitBase}${language === 'en' ? ' ' : ''}${recoveryEstimate}` : rateLimitBase);
-          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
+          if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
           return;
         }
         if (typeof failure?.code === 'string' && SAFE_WAITING_PROVIDER_CODES.has(failure.code)) {
@@ -2662,7 +2667,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           return;
         }
         appendFailure(t.error);
-        if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
+        if (sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
         return;
       }
       const reportedCost = response.headers.get('x-origin-cost-usd') ?? response.headers.get('x-openrouter-cost');
@@ -2867,7 +2872,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         // connection, an incomplete stream, or an unverifiable response —
         // and each is named accurately instead of "busy".
         appendFailure(chatSendFailureMessage(chatSendFailureKind(error), language));
-        if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}) });
+        if (chatExchangeStarted && sendAttachments.length === 0) setFailedChatRequest({ text, ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { refinementOfPreviousAnswer: true } : {}) });
       }
     }
     finally {
@@ -3055,7 +3060,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (item.imageRequest && pendingImageRequestRef.current === null) {
       pendingImageRequestRef.current = item.imageRequest;
     }
-    void handleSend(item.text, false, item.attachments, item.research ?? false, item.displayContent);
+    void handleSend(item.text, false, item.attachments, item.research ?? false, item.displayContent, item.refinementOfPreviousAnswer);
   };
   const queuedRequestSummary = (item: QueuedChatRequest) => {
     const firstLine = (item.displayContent ?? item.text).trim().split('\n').find((line) => line.trim()) ?? '';
@@ -3066,13 +3071,14 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (!failedChatRequest || isLoading || isOffline) return;
     const retryText = failedChatRequest.text;
     const retryDisplayContent = failedChatRequest.displayContent;
+    const retryRefinementOfPreviousAnswer = failedChatRequest.refinementOfPreviousAnswer;
     setFailedChatRequest(null);
     setAttachmentError('');
     setIsSafeWaiting(false);
     // Drop the failed exchange's user turn first: handleSend appends it
     // again as part of the new attempt, so the log must not keep both.
     updateMessages((current) => current.at(-1)?.role === 'user' ? current.slice(0, -1) : current);
-    void handleSend(retryText, false, undefined, false, retryDisplayContent);
+    void handleSend(retryText, false, undefined, false, retryDisplayContent, retryRefinementOfPreviousAnswer);
   };
   const requestImageEdit = async (image: GeneratedImageMessage) => {
     if (isLoading || isOffline) return;
@@ -3201,7 +3207,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
         「いまの作業を表示」の操作もプレゼンス側だけに残す。 */}
     <div className="flex min-w-0 flex-1 items-center justify-end gap-1 whitespace-nowrap sm:gap-2"><KnowledgeMap sessions={sessions} currentMessages={messages} onRestoreSession={onRestoreSession} /></div>
   </div>
-</HeaderV12><OrinFloatingPresence text={bubbleText} active={bubblePill.active} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-[var(--content-reading)] flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div data-testid="origin-starter-chips" className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mt-7">{t.starterChips.map((chip) => <button key={chip.label} type="button" onClick={() => { void handleSend(chip.prompt); }} className="origin-secondary-button inline-flex h-11 items-center rounded-full px-4 text-sm font-semibold">{chip.label}</button>)}</div><div className="origin-home-composer w-full">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-[var(--content-reading)] flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; const replayView = answerReplayView && message.role === 'assistant' && answerReplayView.messageId === message.id ? answerReplayView : null; const isReplayingAssistant = replayView !== null; const shownAnswerContent = replayView ? originGraphemePrefix(message.content, replayView.revealed) : message.content; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div onClick={isReplayingAssistant ? () => finishAnswerReplay() : undefined} data-answer-replaying={isReplayingAssistant ? 'true' : undefined} className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <>{message.researchError ? <h3 className="m-0 mb-1 text-base font-bold">{language === 'ja' ? '調査を完了できませんでした' : 'The research could not be completed'}</h3> : null}<OriginAnswerMarkdown content={shownAnswerContent} language={language} showActions={!isStreamingAssistant && !isReplayingAssistant && !message.researchError} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[13px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && !isReplayingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}{!isStreamingAssistant && (message.researchFallback || message.researchError) && !isLoading && !isOffline && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? <div className="mt-3"><button type="button" data-testid="chat-research-retry-button" onClick={() => { const previous = messages[messageIndex - 1]; if (previous?.role === 'user') void handleSend(previous.content, false, undefined, message.researchError ? true : undefined, previous.displayContent); }} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? 'もう一度試す' : 'Try again'}</button></div> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-[var(--content-reading)] px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
+</HeaderV12><OrinFloatingPresence text={bubbleText} active={bubblePill.active} state={orinPresenceState} language={language} onOpenWorkSheet={toggleWorkSheet} joySignal={orinJoySignal} scrolled={chatScrolled} scrolling={chatScrolling} /><OriginWorkSheet open={workSheetOpen} items={workSheetItems} language={language} onClose={() => setWorkSheetOpen(false)} onOpenAgent={onOpenAgent} /><div ref={chatScrollRef} onScroll={handleChatScroll} className="origin-chat-scroll min-h-0 flex-1 overflow-y-auto p-2 sm:p-4">{messages.length === 0 ? <div className="origin-home-layout mx-auto flex min-h-full w-full max-w-[var(--content-reading)] flex-col items-center justify-start pt-8 pb-0 sm:pt-4"><section className="origin-home-intro flex w-full flex-1 flex-col items-center justify-center"><h1 className="text-center text-[24px] font-semibold leading-[1.35] tracking-[-0.01em] sm:text-[28px]">{t.homeHeading}</h1><p className="origin-home-description origin-muted mt-3 max-w-lg text-center text-base leading-[1.7]">{t.homeDescription}</p></section><div data-testid="origin-starter-chips" className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mt-7">{t.starterChips.map((chip) => <button key={chip.label} type="button" onClick={() => { void handleSend(chip.prompt); }} className="origin-secondary-button inline-flex h-11 items-center rounded-full px-4 text-sm font-semibold">{chip.label}</button>)}</div><div className="origin-home-composer w-full">{composer}</div></div> : <div ref={chatLogRef} role="log" aria-label={t.conversationLog} aria-live="off" aria-busy={isLoading} className="origin-conversation-log mx-auto flex w-full max-w-[var(--content-reading)] flex-1 flex-col gap-6 pb-8">{messages.map((message, messageIndex) => { const isStreamingAssistant = isLoading && message.role === 'assistant' && message.id === messages.at(-1)?.id; const replayView = answerReplayView && message.role === 'assistant' && answerReplayView.messageId === message.id ? answerReplayView : null; const isReplayingAssistant = replayView !== null; const shownAnswerContent = replayView ? originGraphemePrefix(message.content, replayView.revealed) : message.content; return <article key={message.id} aria-label={message.role === 'user' ? t.userRequest : t.assistantResponse} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}><div onClick={isReplayingAssistant ? () => finishAnswerReplay() : undefined} data-answer-replaying={isReplayingAssistant ? 'true' : undefined} className={`${message.role === 'user' ? 'origin-chat-user max-w-[88%] rounded-2xl px-4 py-3 sm:max-w-[76%]' : 'origin-chat-assistant w-full px-1 py-2 sm:px-2'} text-base leading-7`}>{message.role === 'user' ? <p className="m-0 whitespace-pre-wrap break-words">{conversationMessageDisplayText(message)}</p> : message.research ? <ResearchMessageView result={message.research} language={language} onOpenReader={() => setResearchReader({ result: message.research!, title: messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? conversationMessageDisplayText(messages[messageIndex - 1]) : '' })} /> : <>{message.researchError ? <h3 className="m-0 mb-1 text-base font-bold">{language === 'ja' ? '調査を完了できませんでした' : 'The research could not be completed'}</h3> : null}<OriginAnswerMarkdown content={shownAnswerContent} language={language} showActions={!isStreamingAssistant && !isReplayingAssistant && !message.researchError} onRefine={!isLoading && !isOffline && !inputText.trim() && attachments.length === 0 && message.deliveryState !== 'error' && message.id === messages.at(-1)?.id ? (prompt, displayLabel) => { void handleSend(prompt, false, undefined, undefined, displayLabel, true); } : undefined} />{message.files?.length ? <div className="mt-3 flex flex-wrap gap-2">{message.files.map((file) => <button key={file.id} type="button" data-testid={`chat-file-artifact-${file.id}`} aria-label={language === 'ja' ? `${file.filename}をダウンロード` : `Download ${file.filename}`} onClick={() => { void downloadChatFileArtifact(file); }} className="origin-secondary-button inline-flex min-h-11 max-w-full items-center gap-2 px-3 text-sm font-semibold"><span aria-hidden="true">↓</span><span className="truncate">{file.filename}</span></button>)}</div> : null}{message.image && <figure className="mt-3 max-w-2xl overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2">{message.image.url ? <img src={message.image.url} alt={language === 'ja' ? 'ORIGINが生成した画像' : 'Image generated by ORIGIN'} className="block h-auto max-h-[70vh] w-full rounded-xl object-contain" /> : <div role="status" className="origin-surface-muted flex min-h-52 items-center justify-center rounded-xl px-4 text-sm">{language === 'ja' ? '保存済み画像を端末から復元しています…' : 'Restoring the saved image from this device…'}</div>}<figcaption className="origin-muted mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[13px]"><span>{message.image.width}×{message.image.height} · {language === 'ja' ? '品質確認済み' : 'Quality checked'}</span><span className="flex flex-wrap gap-2"><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageEdit(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '画像を編集' : 'Edit image'}</button><button type="button" disabled={isLoading || isOffline} onClick={() => void requestImageVariation(message.image!)} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{language === 'ja' ? '別案を作る' : 'Create variation'}</button>{message.image.url && <a href={message.image.url} download={message.image.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? '画像を保存' : 'Save image'}</a>}{message.image.url && <button type="button" onClick={() => setMotionImage({ url: message.image!.url!, downloadName: message.image!.downloadName })} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">▶ {language === 'ja' ? '動画化' : 'Animate'}</button>}</span></figcaption></figure>}{!isStreamingAssistant && !isReplayingAssistant && message.deliveryState !== 'error' && message.content.trim() ? <SpeakAnswerButton messageId={message.id} text={message.content} language={language} /> : null}{!isStreamingAssistant && (message.researchFallback || message.researchError) && !isLoading && !isOffline && messageIndex > 0 && messages[messageIndex - 1]?.role === 'user' ? <div className="mt-3"><button type="button" data-testid="chat-research-retry-button" onClick={() => { const previous = messages[messageIndex - 1]; if (previous?.role === 'user') void handleSend(previous.content, false, undefined, message.researchError ? true : undefined, previous.displayContent); }} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">{language === 'ja' ? 'もう一度試す' : 'Try again'}</button></div> : null}</>}</div></article>; })}{isLoading && streamSources.length > 0 && <div data-testid="origin-stream-sources" role="status" aria-live="polite" className="origin-surface-muted w-full max-w-2xl rounded-2xl px-4 py-3 shadow-sm"><p className="m-0 text-sm font-semibold text-[var(--accent-primary)]">{t.streamSourcesHeading}</p><ul className="m-0 mt-2 grid list-none gap-1.5 p-0">{streamSources.map((source, index) => <li key={`${source.domain}-${index}`} className="flex min-w-0 items-baseline justify-between gap-3 text-sm"><span className="min-w-0 truncate">{source.title}</span><span className="origin-muted shrink-0">{source.domain}</span></li>)}</ul></div>}{messages.some((message) => message.role === 'assistant' && !isLoading) && <p data-testid="response-announcement" role="status" className="sr-only">{t.responseReady}</p>}</div>}</div>{messages.length > 0 && <div className="safe-area-bottom mx-auto w-full max-w-[var(--content-reading)] px-2 sm:px-4">{composer}</div>}</main>{isImageGenerationPanelOpen && <ImageGenerationPanel
   language={language}
   onClose={() => setIsImageGenerationPanelOpen(false)}
   onGenerate={(prompt, width, height) => {

@@ -15,7 +15,7 @@ import {
 } from "../research/groundedResearchSynthesisV12.js";
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
-import { originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { isRefinementOfPreviousAnswer, originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
@@ -327,7 +327,14 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     const codeTaskPassthrough = !explicitResearch
       && resolveOriginCodeTaskRoutingMode(env) !== "off"
       && isSelfContainedCodeTaskRequest(query);
-    if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query) || codeTaskPassthrough) return next();
+    // P1 countermeasure 2: a client-marked refinement of the previous
+    // answer is a transformation of that answer, never a research
+    // request, so it passes through without the text scans above —
+    // the marker is an explicit request field, not a text pattern,
+    // and it counts only when a previous answer actually exists (see
+    // isRefinementOfPreviousAnswer).
+    const refinementPassthrough = isRefinementOfPreviousAnswer(body, messages);
+    if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query) || codeTaskPassthrough || refinementPassthrough) return next();
     // S-1b: the same shared structured screen as the chat routers. This
     // router never sends conversation history externally (only the final
     // user query and source-derived prompts leave), so a sanitized

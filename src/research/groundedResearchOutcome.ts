@@ -116,13 +116,29 @@ const ABSTAIN_REASON_TEXT: Record<OriginResearchAbstainReason, { ja: string; en:
   },
 };
 
-/** Query as it may be echoed back in the hold text: collapsed, bounded, quote-safe. */
+/**
+ * Upper bound on a query that may be echoed in the hold text. The echo
+ * exists so a person can recognize their own short question in the
+ * hold; it is not a quotation channel. Text that was never written to
+ * be displayed — an internal instruction sent as a message, a long
+ * pasted passage — must never reappear in the answer body (P1,
+ * WEEKLY_INSPECTION_P1_DIAGNOSIS_2026-11-23), so above this length the
+ * hold falls back to its generic lead. The rule is all-or-nothing on
+ * the whole query: merely truncating harder would still leak the head
+ * of such a text. This builder is the single generator shared by
+ * every tier-T4 landing (the grounded path, the terminal guard, and
+ * the publication gate's hold on both chat routers), so this one
+ * bound closes the echo on all of them.
+ */
+const MAX_ECHOED_QUERY_LENGTH = 40;
+
+/** Query as it may be echoed back in the hold text: collapsed, quote-safe, short queries only. */
 function displayQueryTopic(query: string): string {
-  return query
+  const normalized = query
     .normalize("NFKC")
     .replace(/[\s「」『』"“”]+/g, " ")
-    .trim()
-    .slice(0, 120);
+    .trim();
+  return normalized.length <= MAX_ECHOED_QUERY_LENGTH ? normalized : "";
 }
 
 /**

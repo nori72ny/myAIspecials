@@ -70,6 +70,7 @@ import type { ProposalDeckAnswerShape } from "../artifacts/proposalDeckFailureSh
 import type { OriginSupervisorArtifactPayloadV2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import {
   isOriginWeatherRequest,
+  isRefinementOfPreviousAnswer,
   originClientPolicy,
   screenConversationForSend,
   type OriginChatBody,
@@ -134,6 +135,10 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     if (!messages || messages.at(-1)?.role !== "user") return next();
 
     const lastUserMessage = messages.at(-1)?.content ?? "";
+    // P1 countermeasure 2: a client-marked refinement of the previous
+    // answer stays on the direct path instead of being delegated to
+    // the research routing (see originChatRouter).
+    const refinementOfPreviousAnswer = isRefinementOfPreviousAnswer(body, messages);
     // S-1b: the shared structured screen decides. A blocked screen keeps
     // delegating to the non-streaming router, which answers the same 422;
     // a sanitized screen continues here on the single redacted copy.
@@ -147,7 +152,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       && matchesDeckRecordsRequestText(lastUserMessage);
     if (isOriginWeatherRequest(lastUserMessage)
       || isOriginCapabilityQuestion(lastUserMessage)
-      || (requiresGroundedResearch(lastUserMessage, env) && !deckRecordsRequest)
+      || (requiresGroundedResearch(lastUserMessage, env) && !deckRecordsRequest && !refinementOfPreviousAnswer)
       || screenResult.outcome === "blocked") {
       return next();
     }
@@ -186,7 +191,7 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
       // deck skeleton in the (routes 1-2) system instruction so the single
       // ordinary generation can be converted into a deck afterwards. The
       // compact Groq instruction is deliberately left untouched (its
-      // 2,000-5,600 character budget is a hard contract); a route-3 answer
+      // 2,000-3,800 character budget is a hard contract); a route-3 answer
       // simply will not match the skeleton and produces no file.
       // DG-1 修正（原因4）: 資料レコード経路が ON のときは、判定に
       // レコード経路専用の拡張（資料の種別語＋作成依頼の動詞句）を
