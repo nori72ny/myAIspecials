@@ -56,9 +56,10 @@ import {
 } from './agentAttachmentCapability.js';
 import { buildAgentAttachmentDataView, type AgentAttachmentDataView } from './agentAttachmentData.js';
 import { AGENT_ATTACHMENT_MAX_PLAN_STEPS, augmentPlanWithAttachments } from './agentAttachmentPlanning.js';
+import { agentFindingsReconciliationMode } from './agentAttachmentTools.js';
 import type { AgentModelExecutor } from './agentModelCall.js';
 
-const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner', 'attachment_reader', 'attachment_analyzer'];
+const TOOL_NAMES: readonly ToolName[] = ['code_interpreter', 'document_generator', 'web_search_grounding', 'image_prompt_compiler', 'repository_explorer', 'file_reader', 'file_writer', 'verification_runner', 'attachment_reader', 'attachment_analyzer', 'attachment_reconciler'];
 const isToolName = (value: unknown): value is ToolName => typeof value === 'string' && TOOL_NAMES.includes(value as ToolName);
 /** Raised 4 → 6 together with the planner (file-input foundation F2,
  * design §3.6, J7): reader + analyzer + generative step is the smallest
@@ -86,6 +87,7 @@ const STEP_TITLES: Record<ToolName, string> = {
   verification_runner: 'テストと動作確認をする',
   attachment_reader: '添付データを読む',
   attachment_analyzer: 'データを読み解いて処理する',
+  attachment_reconciler: '所見を照合する',
 };
 const createExecutionId = () => `exec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const digestGoal = (goal: string) => createHash('sha256').update(goal).digest('hex');
@@ -194,7 +196,7 @@ function parseStepInputs(body: unknown): AgentStepInputV3[] | null {
   // that follow bind the submitted steps to the issued plan — it only
   // has to admit every plan /plan can issue.
   const attachmentBound = steps.some((step) =>
-    (step.toolName === 'attachment_reader' || step.toolName === 'attachment_analyzer')
+    (step.toolName === 'attachment_reader' || step.toolName === 'attachment_analyzer' || step.toolName === 'attachment_reconciler')
     && typeof step.params.attachmentSetId === 'string'
     && typeof step.params.setDigest === 'string');
   if (steps.length > (attachmentBound ? AGENT_ATTACHMENT_MAX_PLAN_STEPS : MAX_EXECUTION_STEPS)) return null;
@@ -606,6 +608,11 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
         setId: boundAttachment.set.setId,
         setDigest: boundAttachment.setDigest,
         view: boundAttachment.view,
+        // The reconciliation mode in force at plan time decides
+        // whether an audit plan gains its reconciler step (design
+        // AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23 §2); the
+        // mode the step applies is read again at execution time.
+        reconciliationMode: agentFindingsReconciliationMode(env),
       });
       if (augmented.ok === false) {
         return res.status(422).json({
@@ -1007,6 +1014,10 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       setId,
       setDigest,
       view,
+      // Same plan-time reconciliation wiring as the /plan pipeline
+      // above: a resumed audit run must reproduce the plan it was
+      // approved with, reconciler step included.
+      reconciliationMode: agentFindingsReconciliationMode(env),
     });
     if (augmented.ok === false) {
       return {

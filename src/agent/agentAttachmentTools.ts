@@ -92,6 +92,26 @@ export const AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS: readonly number[] = [15_0
  */
 export const AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS = 60_000;
 
+export const ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED_ENV = 'ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED' as const;
+
+export type AgentFindingsReconciliationMode = 'off' | 'shadow' | 'enforce';
+
+/** The findings-reconciliation switch (design
+ * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23 §2 layer 2), in the
+ * staged-rollout house style (I-5 premise guard, answer
+ * verification): only the exact strings "shadow" and "enforce"
+ * select those modes; anything else — including the variable being
+ * unregistered — is OFF. OFF is the pre-measure behavior exactly:
+ * the planner issues no reconciler step and the analyzers carry no
+ * audit sections, so plans and bundles stay byte-identical. Shadow
+ * runs the reconciliation and records its vetted list and counts in
+ * the bundle while the deliverable remains the unreconciled one;
+ * enforce makes the vetted list the deliverable. */
+export function agentFindingsReconciliationMode(env: NodeJS.ProcessEnv): AgentFindingsReconciliationMode {
+  const value = env[ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED_ENV];
+  return value === 'shadow' || value === 'enforce' ? value : 'off';
+}
+
 export const ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED' as const;
 
 /** The inter-chunk interval switch (design CAPACITY_RATE_LIMIT_
@@ -130,7 +150,7 @@ type LoadedData = {
 };
 
 async function loadBoundData(
-  tool: 'attachment_reader' | 'attachment_analyzer',
+  tool: 'attachment_reader' | 'attachment_analyzer' | 'attachment_reconciler',
   params: ToolParams,
   context: AgentAttachmentToolContext | undefined,
 ): Promise<{ data: LoadedData } | { failure: ToolResult }> {
@@ -201,6 +221,7 @@ function analyzerInstruction(
   goalInstruction: string,
   view: AgentAttachmentDataView,
   structuredJsonKeys?: readonly string[],
+  auditMode = false,
 ): string {
   const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
   // The rows contract names its target table when the set has one
@@ -216,7 +237,7 @@ function analyzerInstruction(
   const rowsTarget = view.primaryFileName
     ? `対象はファイル「${view.primaryFileName}」の行だけです。他のファイルは参照用ですので、その行を出力しないでください。`
     : '';
-  const shape = outputKind === 'rows'
+  const baseShape = outputKind === 'rows'
     ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
@@ -233,6 +254,19 @@ function analyzerInstruction(
         ? '出力形式: {"findings":[{"claim":"所見","evidence":"根拠となる入力の引用","file":"ファイル名","location":"行番号や見出し","type":"所見の短い分類ラベル","severity":"critical/high/medium/low"}],"resources":[{"kind":"リソース種別","name":"名前","namespace":"名前空間"}],"remediations":[{"action":"是正手順","priority":"high/medium/low"}]}。所見・リソース・是正手順は断片の内容だけを根拠にしてください。'
         : '出力形式: {"findings":[{"claim":"所見","evidence":"根拠となる入力の引用","file":"ファイル名","location":"行番号や見出し"}]}。所見は断片の内容だけを根拠にしてください。'
       : '出力形式: {"text":"作成した文章"}。文章は断片の内容だけを使い、無い事実を書かないでください。';
+  // Audit mode (misreading countermeasure design §2, layers 1 and
+  // 3): the finding shape grows the explanation and the pair's
+  // second citation, and the chunk also reports the layer-1 value
+  // table and structure map on the SAME call — no extra model call.
+  // The wording is kept short on purpose: head + shape + this
+  // addition must leave room for the goal inside
+  // AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS (with the plain
+  // findings shape the goal still gets its full
+  // AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS clip).
+  const auditShape = auditMode && outputKind === 'findings'
+    ? '監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。'
+    : '';
+  const shape = baseShape + auditShape;
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
   const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
   return `${head}${shape}依頼: ${clipped}`;
@@ -279,12 +313,33 @@ type ChunkOutput = {
    * resources and remediations the chunks name. */
   resources: AgentDataResource[];
   remediations: AgentDataRemediation[];
+  /** Layer-1 audit sections (design
+   * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23 §2 C-1/C-2): the
+   * comparable values and the document structure the chunks report.
+   * Only populated in audit mode, and the bundle only carries them
+   * in audit mode, so non-audit bundles keep their previous shape
+   * byte for byte. */
+  values: AgentDataValue[];
+  structure: AgentDataStructure;
 };
 type AgentDataFinding = {
   claim: string;
   evidence: string;
   file: string;
   location: string;
+  /** Why the pair of citations is inconsistent (layer 3 of the
+   * misreading countermeasure design). Optional in the schema —
+   * required only in audit mode, where its absence is a parse
+   * failure — because outside audit mode a finding is exactly the
+   * pre-extension shape. */
+  explanation?: string;
+  /** The second citation of the finding's pair (layer 3): the other
+   * document (or the other passage) whose value disagrees with
+   * `evidence`. Optional outside the reconciliation output, whose
+   * pairing discipline requires both citations. */
+  evidenceB?: string;
+  fileB?: string;
+  locationB?: string;
   /** Short classification label (e.g. "OOMKilled"); optional — the
    * document assembler defaults it. */
   type?: string;
@@ -294,6 +349,61 @@ type AgentDataFinding = {
 };
 type AgentDataResource = { kind: string; name: string; namespace: string };
 type AgentDataRemediation = { action: string; priority?: string };
+
+/**
+ * One comparable value a chunk reports (layer 1, C-1): a quantity,
+ * date, ratio or classification stated for one entity's one
+ * attribute, with the citation it came from. Extraction rides the
+ * existing per-chunk call; the deterministic side normalizes and
+ * cross-checks these, never the model.
+ */
+export type AgentDataValue = {
+  entity: string;
+  attribute: string;
+  value: string;
+  /** The model's own normalization, when it could write one. The
+   * deterministic grouping prefers its own normalization of `value`
+   * and only falls back to this — a model-written key is never the
+   * primary anchor. */
+  normalizedValue?: string;
+  file: string;
+  location: string;
+};
+
+/** One abbreviation definition a chunk reports (layer 1, C-2). */
+export type AgentDataStructureDefinition = { short: string; full: string; file: string; location: string };
+export type AgentDataStructureAgreement = { name: string; parties: { name: string; role: string }[] };
+/**
+ * The document structure map (layer 1, C-2): which agreements exist
+ * and who their parties are, and which short names the documents
+ * themselves define. Merged deterministically across chunks. It is
+ * reconciliation material and observability only — never a gate —
+ * because its extraction is model work and can be wrong.
+ */
+export type AgentDataStructure = {
+  agreements: AgentDataStructureAgreement[];
+  definitions: AgentDataStructureDefinition[];
+};
+
+/**
+ * One deterministic value-mismatch candidate (layer 1, C-1): an
+ * (entity, attribute) group whose normalized values disagree. A
+ * candidate is NOT a finding — nothing surfaces it as one; it is
+ * the reconciliation step's input, and the pairing discipline
+ * there decides which candidates become findings.
+ */
+export type AgentDataValueMismatch = {
+  entity: string;
+  attribute: string;
+  values: { value: string; normalizedValue: string; file: string; location: string }[];
+};
+
+/** Candidate ceiling: a noisy extraction must not flood the
+ * reconciliation input (or the bundle) without bound. */
+export const AGENT_DATA_VALUE_MISMATCH_MAX = 200;
+const AGENT_DATA_VALUE_MISMATCH_VALUES_MAX = 8;
+
+const emptyAgentDataStructure = (): AgentDataStructure => ({ agreements: [], definitions: [] });
 
 export const AGENT_FINDING_SEVERITIES: readonly string[] = ['critical', 'high', 'medium', 'low'];
 const REMEDIATION_PRIORITIES: readonly string[] = ['high', 'medium', 'low'];
@@ -333,6 +443,253 @@ export function parseAgentDataRemediations(raw: unknown): AgentDataRemediation[]
   return remediations;
 }
 
+function trimmedAuditText(value: unknown, max: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+/**
+ * Tolerant parser for the layer-1 `values` section, in the same
+ * style as the resources/remediations parsers: an item missing its
+ * entity, attribute or value is dropped, never allowed to fail the
+ * chunk — the value table is reconciliation material, and its
+ * judgment happens deterministically at mismatch computation.
+ */
+export function parseAgentDataValues(raw: unknown): AgentDataValue[] {
+  if (!Array.isArray(raw)) return [];
+  const values: AgentDataValue[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const entity = trimmedAuditText(record.entity, 120);
+    const attribute = trimmedAuditText(record.attribute, 120);
+    const value = trimmedAuditText(record.value, 200);
+    if (!entity || !attribute || !value) continue;
+    const normalizedValue = trimmedAuditText(record.normalizedValue, 200);
+    values.push({
+      entity,
+      attribute,
+      value,
+      ...(normalizedValue ? { normalizedValue } : {}),
+      file: trimmedAuditText(record.file, 200),
+      location: trimmedAuditText(record.location, 200),
+    });
+  }
+  return values;
+}
+
+/** Tolerant parser for the layer-1 `structure` section. */
+export function parseAgentDataStructure(raw: unknown): AgentDataStructure {
+  const structure = emptyAgentDataStructure();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return structure;
+  const record = raw as Record<string, unknown>;
+  if (Array.isArray(record.agreements)) {
+    for (const item of record.agreements) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const agreement = item as Record<string, unknown>;
+      const name = trimmedAuditText(agreement.name, 120);
+      if (!name) continue;
+      const parties: { name: string; role: string }[] = [];
+      if (Array.isArray(agreement.parties)) {
+        for (const rawParty of agreement.parties) {
+          if (!rawParty || typeof rawParty !== 'object' || Array.isArray(rawParty)) continue;
+          const party = rawParty as Record<string, unknown>;
+          const partyName = trimmedAuditText(party.name, 120);
+          if (!partyName) continue;
+          parties.push({ name: partyName, role: trimmedAuditText(party.role, 80) });
+        }
+      }
+      structure.agreements.push({ name, parties });
+    }
+  }
+  if (Array.isArray(record.definitions)) {
+    for (const item of record.definitions) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const definition = item as Record<string, unknown>;
+      const short = trimmedAuditText(definition.short, 120);
+      const full = trimmedAuditText(definition.full, 200);
+      if (!short || !full) continue;
+      structure.definitions.push({
+        short,
+        full,
+        file: trimmedAuditText(definition.file, 200),
+        location: trimmedAuditText(definition.location, 200),
+      });
+    }
+  }
+  return structure;
+}
+
+/**
+ * Deterministic value normalization (layer 1, C-1): full-width →
+ * half-width (NFKC), ISO dates from `YYYY/MM/DD`-style forms, and a
+ * canonical numeric form (commas and spaces removed, a trailing
+ * `%` removed, a zero-only fraction dropped, leading zeros folded)
+ * so the same quantity written two ways compares equal —
+ * `146,660,332.00` and `146660332` are one value, `45%` and `45.0`
+ * are one value. Anything that is neither a date nor a number is
+ * NOT normalized (undefined): classification values （自有資金 vs
+ * 一部銀行借入） compare by their NFKC text instead, which is the
+ * reconciliation model's material, not a deterministic verdict.
+ */
+export function normalizeAgentDataValueText(raw: string): string | undefined {
+  const text = raw.normalize('NFKC').trim();
+  if (!text) return undefined;
+  const date = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(text);
+  if (date) {
+    const month = Number(date[2]);
+    const day = Number(date[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+    return `${date[1]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  const numeric = text.replace(/[,\s]/g, '').replace(/%$/, '');
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(numeric)) return undefined;
+  const [intPart, fracPart] = numeric.split('.');
+  const intCanonical = intPart.replace(/^([+-]?)0+(?=\d)/, '$1');
+  const fracCanonical = (fracPart ?? '').replace(/0+$/, '');
+  return fracCanonical ? `${intCanonical}.${fracCanonical}` : intCanonical;
+}
+
+/**
+ * The deterministic structure merge (layer 1, C-2), first-seen
+ * like the resources merge: agreements unite by name (their
+ * parties by name + role), definitions by short + full.
+ */
+export function mergeAgentDataStructures(
+  base: AgentDataStructure,
+  extra: AgentDataStructure,
+): AgentDataStructure {
+  const agreements: AgentDataStructureAgreement[] = base.agreements.map((agreement) => ({
+    name: agreement.name,
+    parties: agreement.parties.map((party) => ({ ...party })),
+  }));
+  for (const agreement of extra.agreements) {
+    const existing = agreements.find((candidate) => candidate.name === agreement.name);
+    if (!existing) {
+      agreements.push({ name: agreement.name, parties: agreement.parties.map((party) => ({ ...party })) });
+      continue;
+    }
+    for (const party of agreement.parties) {
+      if (!existing.parties.some((candidate) => candidate.name === party.name && candidate.role === party.role)) {
+        existing.parties.push({ ...party });
+      }
+    }
+  }
+  const definitions = base.definitions.map((definition) => ({ ...definition }));
+  for (const definition of extra.definitions) {
+    if (!definitions.some((candidate) => candidate.short === definition.short && candidate.full === definition.full)) {
+      definitions.push({ ...definition });
+    }
+  }
+  return { agreements, definitions };
+}
+
+/**
+ * Resolves an entity name through the structure map's definitions
+ * (layer 1, C-2 (a)): a name the documents define as an abbreviation
+ * groups under its full form, so the same party named two ways is
+ * one entity in the value table. An unresolvable name stays as it
+ * is — the resolver never guesses two names together.
+ */
+export function resolveAgentDataEntity(entity: string, structure: AgentDataStructure): string {
+  const key = entity.normalize('NFKC').trim();
+  if (!key) return key;
+  const definition = structure.definitions.find(
+    (candidate) => candidate.short.normalize('NFKC').trim() === key,
+  );
+  return definition ? definition.full.normalize('NFKC').trim() : key;
+}
+
+/** The comparison key of one reported value: the deterministic
+ * normalization of the raw value first, then of the model's own
+ * normalizedValue, then the NFKC text itself (classification
+ * values, whose disagreement is real but not numerically
+ * decidable). */
+function effectiveAgentDataValue(entry: AgentDataValue): string {
+  return normalizeAgentDataValueText(entry.value)
+    ?? (entry.normalizedValue ? normalizeAgentDataValueText(entry.normalizedValue) : undefined)
+    ?? entry.value.normalize('NFKC').trim();
+}
+
+/**
+ * The deterministic cross-check (layer 1, C-1): group the value
+ * table by (resolved entity, attribute); a group holding two or
+ * more distinct effective values is a mismatch candidate. The same
+ * value cited from several places is one entry (first-seen) — a
+ * candidate needs differing values, not differing citations.
+ * Capped at AGENT_DATA_VALUE_MISMATCH_MAX groups.
+ */
+export function computeAgentDataValueMismatches(
+  values: readonly AgentDataValue[],
+  structure: AgentDataStructure,
+): AgentDataValueMismatch[] {
+  const groups = new Map<string, {
+    entity: string;
+    attribute: string;
+    byValue: Map<string, AgentDataValueMismatch['values'][number]>;
+  }>();
+  for (const entry of values) {
+    const entity = resolveAgentDataEntity(entry.entity, structure);
+    const attribute = entry.attribute.normalize('NFKC').trim();
+    if (!entity || !attribute) continue;
+    const key = `${entity}\u0001${attribute}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { entity, attribute, byValue: new Map() };
+      groups.set(key, group);
+    }
+    const effective = effectiveAgentDataValue(entry);
+    if (!group.byValue.has(effective)) {
+      group.byValue.set(effective, {
+        value: entry.value,
+        normalizedValue: effective,
+        file: entry.file,
+        location: entry.location,
+      });
+    }
+  }
+  const mismatches: AgentDataValueMismatch[] = [];
+  for (const group of groups.values()) {
+    if (group.byValue.size < 2) continue;
+    mismatches.push({
+      entity: group.entity,
+      attribute: group.attribute,
+      values: [...group.byValue.values()].slice(0, AGENT_DATA_VALUE_MISMATCH_VALUES_MAX),
+    });
+    if (mismatches.length >= AGENT_DATA_VALUE_MISMATCH_MAX) break;
+  }
+  return mismatches;
+}
+
+/** Tolerant parser for a recorded candidate list (bundle
+ * round-trip), mirroring computeAgentDataValueMismatches' shape. */
+export function parseAgentDataValueMismatches(raw: unknown): AgentDataValueMismatch[] {
+  if (!Array.isArray(raw)) return [];
+  const mismatches: AgentDataValueMismatch[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const entity = trimmedAuditText(record.entity, 120);
+    const attribute = trimmedAuditText(record.attribute, 120);
+    if (!entity || !attribute || !Array.isArray(record.values)) continue;
+    const values: AgentDataValueMismatch['values'] = [];
+    for (const rawValue of record.values) {
+      if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) continue;
+      const entry = rawValue as Record<string, unknown>;
+      const value = trimmedAuditText(entry.value, 200);
+      if (!value) continue;
+      values.push({
+        value,
+        normalizedValue: trimmedAuditText(entry.normalizedValue, 200) || value,
+        file: trimmedAuditText(entry.file, 200),
+        location: trimmedAuditText(entry.location, 200),
+      });
+    }
+    if (values.length >= 2) mismatches.push({ entity, attribute, values });
+    if (mismatches.length >= AGENT_DATA_VALUE_MISMATCH_MAX) break;
+  }
+  return mismatches;
+}
+
 /**
  * Why a chunk response failed the per-chunk format validation
  * (Basel fix D, diagnosis
@@ -352,6 +709,7 @@ export type AgentDataParseFailureReason =
   | 'findings-not-array'
   | 'finding-not-object'
   | 'finding-claim-missing'
+  | 'finding-explanation-missing'
   | 'text-not-string';
 
 /** The closed set of parse-failure reason tokens, for consumers
@@ -364,6 +722,7 @@ export const AGENT_DATA_PARSE_FAILURE_REASONS: readonly AgentDataParseFailureRea
   'findings-not-array',
   'finding-not-object',
   'finding-claim-missing',
+  'finding-explanation-missing',
   'text-not-string',
 ];
 
@@ -375,13 +734,22 @@ export function parseChunkOutputDetailed(
   outputKind: AgentDataOutputKind,
   text: string,
   view: AgentAttachmentDataView,
+  options?: { auditMode?: boolean },
 ): AgentDataParseResult {
   const parsed = extractJsonObject(text);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ok: false, reason: 'json-not-extractable' };
   }
   const record = parsed as Record<string, unknown>;
-  const output: ChunkOutput = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
+  const output: ChunkOutput = {
+    rows: [],
+    findings: [],
+    textParts: [],
+    resources: [],
+    remediations: [],
+    values: [],
+    structure: emptyAgentDataStructure(),
+  };
   if (outputKind === 'rows') {
     if (!Array.isArray(record.rows)) return { ok: false, reason: 'rows-not-array' };
     for (const raw of record.rows) {
@@ -403,6 +771,23 @@ export function parseChunkOutputDetailed(
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, reason: 'finding-not-object' };
       const finding = raw as Record<string, unknown>;
       if (typeof finding.claim !== 'string' || !finding.claim.trim()) return { ok: false, reason: 'finding-claim-missing' };
+      // Layer 3 (misreading countermeasure design §2): the
+      // explanation is part of the schema in every mode — parsed
+      // whenever present — but only audit mode makes it a validity
+      // condition. The chunk-local requirement stops at claim +
+      // explanation + one citation: the pair's second citation
+      // cannot be required per chunk, because the other half of a
+      // pair lives in another chunk by the nature of the task; the
+      // pair is judged by the reconciliation step alone.
+      const explanation = typeof finding.explanation === 'string'
+        ? finding.explanation.trim().slice(0, 1000)
+        : '';
+      if (options?.auditMode === true && !explanation) {
+        return { ok: false, reason: 'finding-explanation-missing' };
+      }
+      const evidenceB = typeof finding.evidenceB === 'string' ? finding.evidenceB.trim().slice(0, 200) : '';
+      const fileB = typeof finding.fileB === 'string' ? finding.fileB.trim() : '';
+      const locationB = typeof finding.locationB === 'string' ? finding.locationB.trim() : '';
       const type = typeof finding.type === 'string' && finding.type.trim()
         ? finding.type.trim().slice(0, 80)
         : undefined;
@@ -412,6 +797,10 @@ export function parseChunkOutputDetailed(
         evidence: typeof finding.evidence === 'string' ? finding.evidence.trim().slice(0, 200) : '',
         file: typeof finding.file === 'string' ? finding.file.trim() : '',
         location: typeof finding.location === 'string' ? finding.location.trim() : '',
+        ...(explanation ? { explanation } : {}),
+        ...(evidenceB ? { evidenceB } : {}),
+        ...(fileB ? { fileB } : {}),
+        ...(locationB ? { locationB } : {}),
         ...(type ? { type } : {}),
         ...(severity ? { severity } : {}),
       });
@@ -420,6 +809,12 @@ export function parseChunkOutputDetailed(
     // allowed to fail the chunk — coverage is judged on findings.
     output.resources = parseAgentDataResources(record.resources);
     output.remediations = parseAgentDataRemediations(record.remediations);
+    // Layer-1 audit sections ride the same tolerance: parsed
+    // whenever present, merged only in audit mode (the analyzer
+    // decides), so a stray section can never change a non-audit
+    // bundle.
+    output.values = parseAgentDataValues(record.values);
+    output.structure = parseAgentDataStructure(record.structure);
     return { ok: true, output };
   }
   if (typeof record.text !== 'string') return { ok: false, reason: 'text-not-string' };
@@ -458,6 +853,8 @@ export function parseFailureRepairGuidance(
       return `${base}findingsの要素がオブジェクトになっていませんでした。各所見を{...}のオブジェクトとして返してください。`;
     case 'finding-claim-missing':
       return `${base}claimが空か欠けている所見がありました。全ての所見にclaim（所見の文）を含めてください。`;
+    case 'finding-explanation-missing':
+      return `${base}explanation（なぜ矛盾と言えるのかの説明）が空か欠けている所見がありました。全ての所見にexplanationを含めてください。`;
     case 'text-not-string':
       return `${base}textが文字列になっていませんでした。{"text":"作成した文章"}の形で返してください。`;
     default:
@@ -518,6 +915,35 @@ export function analyzerProviderFailureMessage(
   return encoded.length > 0 ? `${result.code} (attempts: ${encoded.join('; ')})` : result.code;
 }
 
+/**
+ * The transient-retry caller shared by the analyzer and the
+ * reconciler (design AGENT_SEGMENT2_WALL_DIAGNOSIS_2026-11-22 §6):
+ * only provider-availability codes retry, only within one step's
+ * cumulative wait ceiling; every other failure — and a transient
+ * failure that exhausts its retries — returns exactly the result
+ * the unretried call returned, so the step fails with the
+ * provider's own code as before. The step's declared quota charge
+ * is unaffected: retries are inside the step, and the ledger
+ * counts the step once.
+ */
+function createTransientRetryCaller(
+  modelCall: AgentModelExecutor,
+  sleepMs: (ms: number) => Promise<void>,
+): (input: AgentModelCallInput) => Promise<AgentModelCallResult> {
+  let transientWaitMs = 0;
+  return async (input: AgentModelCallInput): Promise<AgentModelCallResult> => {
+    let result = await modelCall(input);
+    for (const delayMs of AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS) {
+      if (result.ok !== false || !AGENT_ANALYZER_TRANSIENT_FAILURE_CODES.has(result.code)) break;
+      if (transientWaitMs + delayMs > AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS) break;
+      await sleepMs(delayMs);
+      transientWaitMs += delayMs;
+      result = await modelCall(input);
+    }
+    return result;
+  };
+}
+
 type PriorBundle = ChunkOutput & {
   /** The predecessor chain's recorded processed-chunk count (its
    * artifact coverage block). The final step of a file-name-key rows
@@ -530,6 +956,11 @@ type PriorBundle = ChunkOutput & {
    * block. Observability only — no gate reads it — so a bundle
    * written before the count existed simply contributes 0. */
   discardedRows?: number;
+  /** The final analyzer step's deterministic value-mismatch
+   * candidates (layer 1), present only on an audit bundle that
+   * completed the set. The reconciliation step reads them from
+   * here; analyzer continuations never do. */
+  candidates?: AgentDataValueMismatch[];
 };
 
 function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view: AgentAttachmentDataView): PriorBundle | null {
@@ -542,7 +973,15 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const bundle = parsed as Record<string, unknown>;
   if (bundle.kind !== 'data-analysis' || bundle.outputKind !== outputKind) return null;
-  const prior: PriorBundle = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
+  const prior: PriorBundle = {
+    rows: [],
+    findings: [],
+    textParts: [],
+    resources: [],
+    remediations: [],
+    values: [],
+    structure: emptyAgentDataStructure(),
+  };
   if (outputKind === 'rows') {
     if (!Array.isArray(bundle.rows)) return null;
     for (const raw of bundle.rows) {
@@ -568,6 +1007,10 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
         evidence: typeof finding.evidence === 'string' ? finding.evidence : '',
         file: typeof finding.file === 'string' ? finding.file : '',
         location: typeof finding.location === 'string' ? finding.location : '',
+        ...(typeof finding.explanation === 'string' && finding.explanation ? { explanation: finding.explanation } : {}),
+        ...(typeof finding.evidenceB === 'string' && finding.evidenceB ? { evidenceB: finding.evidenceB } : {}),
+        ...(typeof finding.fileB === 'string' && finding.fileB ? { fileB: finding.fileB } : {}),
+        ...(typeof finding.locationB === 'string' && finding.locationB ? { locationB: finding.locationB } : {}),
         ...(type ? { type } : {}),
         ...(severity ? { severity } : {}),
       });
@@ -577,6 +1020,14 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
     // chunks' resources and remediations from the final bundle.
     prior.resources = parseAgentDataResources(bundle.resources);
     prior.remediations = parseAgentDataRemediations(bundle.remediations);
+    // Layer-1 audit sections survive the chain the same way; a
+    // bundle written before they existed simply contributes empty
+    // sections, and a non-audit bundle never carries them at all.
+    prior.values = parseAgentDataValues(bundle.values);
+    prior.structure = parseAgentDataStructure(bundle.structure);
+    if (Array.isArray(bundle.candidates)) {
+      prior.candidates = parseAgentDataValueMismatches(bundle.candidates);
+    }
   } else {
     if (typeof bundle.content !== 'string') return null;
     if (bundle.content.length > 0) prior.textParts.push(bundle.content);
@@ -595,12 +1046,58 @@ function parsePriorBundle(content: string, outputKind: AgentDataOutputKind, view
   return prior;
 }
 
-function renderFindings(findings: readonly AgentDataFinding[]): string {
-  return findings.map((finding) => {
+const AGENT_GOAL_CJK_PATTERN = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+
+/**
+ * Whether the goal text is written in a CJK language — the
+ * deterministic language switch for the layer-3 rendering labels
+ * (design §2 C-4). The finding texts themselves are the model's,
+ * written in the goal's language because the goal rides the
+ * analyzer instruction; only the fixed labels are chosen here.
+ */
+export function agentGoalUsesCjk(goal: string): boolean {
+  return AGENT_GOAL_CJK_PATTERN.test(goal);
+}
+
+function renderFindingPair(finding: AgentDataFinding, index: number, japanese: boolean): string {
+  const citation = (file: string, location: string, evidence: string): string => {
+    const source = [file, location].filter(Boolean).join(', ');
+    return japanese ? `  - \`${source}\`: 「${evidence}」` : `  - \`${source}\`: \`${evidence}\``;
+  };
+  const lines = [
+    japanese ? `## 所見 ${index}: ${finding.claim}` : `## Finding ${index}: ${finding.claim}`,
+    japanese ? `- 矛盾の説明: ${finding.explanation ?? ''}` : `- Why it is inconsistent: ${finding.explanation ?? ''}`,
+    japanese ? '- 根拠:' : '- Evidence:',
+    citation(finding.file, finding.location, finding.evidence),
+  ];
+  if (finding.evidenceB) {
+    lines.push(citation(finding.fileB ?? '', finding.locationB ?? '', finding.evidenceB));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Renders the findings bundle's text form. A finding carrying an
+ * explanation renders in the layer-3 pair structure (design §2
+ * C-4) — heading, why-it-is-inconsistent, and the pair of citations
+ * — with labels in the goal's language; a finding without one
+ * renders exactly as it did before the extension, so a non-audit
+ * bundle's text is byte-identical to the pre-measure rendering.
+ */
+function renderFindings(findings: readonly AgentDataFinding[], goal = ''): string {
+  const japanese = agentGoalUsesCjk(goal);
+  const hasPairs = findings.some((finding) => Boolean(finding.explanation));
+  let pairIndex = 0;
+  const segments = findings.map((finding) => {
+    if (finding.explanation) {
+      pairIndex += 1;
+      return renderFindingPair(finding, pairIndex, japanese);
+    }
     const source = [finding.file, finding.location].filter(Boolean).join(' ');
     const evidence = finding.evidence ? `「${finding.evidence}」` : '';
     return source || evidence ? `- ${finding.claim}（根拠: ${[source, evidence].filter(Boolean).join(' ')}）` : `- ${finding.claim}`;
-  }).join('\n');
+  });
+  return segments.join(hasPairs ? '\n\n' : '\n');
 }
 
 export type AgentDataCoverageFailure = Extract<AgentDataCoverageResult, { ok: false }>;
@@ -670,6 +1167,12 @@ export async function executeAttachmentAnalyzer(
       .filter((key): key is string => typeof key === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
       .slice(0, 12)
     : [];
+  // Audit mode (misreading countermeasure design §2): the planner
+  // marks analyzer steps of an inconsistency-audit goal, and only
+  // those steps ask for — and validate — the explanation and the
+  // layer-1 sections. Any other value, including absence, is the
+  // pre-measure behavior exactly.
+  const auditMode = params.auditMode === true;
 
   const loaded = await loadBoundData(tool, params, context);
   if ('failure' in loaded) return loaded.failure;
@@ -678,7 +1181,15 @@ export async function executeAttachmentAnalyzer(
   const range = view.chunks.slice(chunkOffset, chunkOffset + chunkCount);
   const isFinalStep = chunkOffset + range.length >= view.totalChunks;
 
-  let merged: ChunkOutput = { rows: [], findings: [], textParts: [], resources: [], remediations: [] };
+  let merged: ChunkOutput = {
+    rows: [],
+    findings: [],
+    textParts: [],
+    resources: [],
+    remediations: [],
+    values: [],
+    structure: emptyAgentDataStructure(),
+  };
   // The predecessor chain's recorded processed-chunk count: 0 for a
   // first step, the prior bundle's coverage count for a continuation,
   // and null when a continuation's bundle carries no count — the
@@ -700,31 +1211,13 @@ export async function executeAttachmentAnalyzer(
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
   const sleepMs = context?.sleepMs ?? defaultSleepMs;
-  // Transient-retry wrapper (design AGENT_SEGMENT2_WALL_DIAGNOSIS_2026-11-22
-  // §6): only provider-availability codes retry, only within this
-  // step's cumulative wait ceiling; every other failure — and a
-  // transient failure that exhausts its retries — returns exactly
-  // the result the pre-retry code returned, so the step fails with
-  // the provider's own code as before. The step's declared quota
-  // charge is unaffected: retries are inside the step, and the
-  // ledger counts the step once.
-  let transientWaitMs = 0;
-  const callModelWithTransientRetry = async (input: AgentModelCallInput): Promise<AgentModelCallResult> => {
-    let result = await modelCall(input);
-    for (const delayMs of AGENT_ANALYZER_TRANSIENT_RETRY_DELAYS_MS) {
-      if (result.ok !== false || !AGENT_ANALYZER_TRANSIENT_FAILURE_CODES.has(result.code)) break;
-      if (transientWaitMs + delayMs > AGENT_ANALYZER_TRANSIENT_RETRY_MAX_STEP_WAIT_MS) break;
-      await sleepMs(delayMs);
-      transientWaitMs += delayMs;
-      result = await modelCall(input);
-    }
-    return result;
-  };
+  const callModelWithTransientRetry = createTransientRetryCaller(modelCall, sleepMs);
   const instruction = analyzerInstruction(
     outputKind,
     goalInstruction,
     view,
     structuredJsonKeys.length > 0 ? structuredJsonKeys : undefined,
+    auditMode,
   );
   // Inter-chunk interval (design §2-E): while its switch is on, the
   // sends of one step are spaced by AGENT_ANALYZER_CHUNK_INTERVAL_MS
@@ -752,7 +1245,7 @@ export async function executeAttachmentAnalyzer(
     // across a resume that replays the step.
     const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction, chunkIndex: chunk.index });
     if (first.ok === false) return fail(analyzerProviderFailureMessage(first));
-    const firstParsed = parseChunkOutputDetailed(outputKind, first.text, view);
+    const firstParsed = parseChunkOutputDetailed(outputKind, first.text, view, { auditMode });
     let output: ChunkOutput | null = firstParsed.ok ? firstParsed.output : null;
     if (firstParsed.ok === false) {
       // Exactly one repair retry (§4.2), now told which validation
@@ -767,7 +1260,7 @@ export async function executeAttachmentAnalyzer(
         chunkIndex: chunk.index,
       });
       if (repair.ok === false) return fail(analyzerProviderFailureMessage(repair));
-      const repairParsed = parseChunkOutputDetailed(outputKind, repair.text, view);
+      const repairParsed = parseChunkOutputDetailed(outputKind, repair.text, view, { auditMode });
       if (repairParsed.ok === false) {
         // Observability (Basel fix, diagnosis §4): the terminal code
         // stays AGENT_DATA_OUTPUT_INVALID — the advancer's code
@@ -815,6 +1308,19 @@ export async function executeAttachmentAnalyzer(
         merged.remediations.push(remediation);
       }
     }
+    // Layer-1 audit sections merge only in audit mode: values with
+    // exact-duplicate removal (the same value reported by two
+    // chunks is one row of the table), the structure map with the
+    // deterministic first-seen merge.
+    if (auditMode && outputKind === 'findings') {
+      for (const value of output.values) {
+        const key = `${value.entity}|${value.attribute}|${value.value}|${value.file}|${value.location}`;
+        if (!merged.values.some((existing) => `${existing.entity}|${existing.attribute}|${existing.value}|${existing.file}|${existing.location}` === key)) {
+          merged.values.push(value);
+        }
+      }
+      merged.structure = mergeAgentDataStructures(merged.structure, output.structure);
+    }
   }
 
   // Chunk-local coverage (Basel segment-2 fix, 案2): a step whose
@@ -857,7 +1363,7 @@ export async function executeAttachmentAnalyzer(
   const content = outputKind === 'rows'
     ? renderAgentDataRowsCsv(view, merged.rows)
     : outputKind === 'findings'
-      ? renderFindings(merged.findings)
+      ? renderFindings(merged.findings, goalInstruction)
       : merged.textParts.join('\n\n');
   const artifact = JSON.stringify({
     kind: 'data-analysis',
@@ -869,6 +1375,19 @@ export async function executeAttachmentAnalyzer(
     // for them; other runs keep the previous bundle shape.
     ...(outputKind === 'findings' && structuredJsonKeys.length > 0
       ? { resources: merged.resources, remediations: merged.remediations }
+      : {}),
+    // Layer-1 audit sections ride the bundle only in audit mode;
+    // the mismatch candidates are computed once, deterministically,
+    // on the step that completes the set — intermediate bundles
+    // carry the table and the map the final step cross-checks.
+    ...(outputKind === 'findings' && auditMode
+      ? {
+          values: merged.values,
+          structure: merged.structure,
+          ...(isFinalStep
+            ? { candidates: computeAgentDataValueMismatches(merged.values, merged.structure) }
+            : {}),
+        }
       : {}),
     ...(outputKind === 'rows' && Object.keys(view.aggregates).length > 0 ? { aggregates: view.aggregates } : {}),
     coverage: {
@@ -887,5 +1406,364 @@ export async function executeAttachmentAnalyzer(
     tool,
     artifact,
     message: `Attachment data analyzed (${chunkOffset + range.length}/${view.totalChunks} chunk(s)).`,
+  };
+}
+
+/**
+ * The closed set of drop-reason categories the reconciliation
+ * records (design §2 layer 2, observability): why a finding did
+ * not survive the pairing discipline, in the failure-type
+ * vocabulary of the diagnosis (協議混同／主体混同／略称／定型開示／
+ * 対なし). Anything outside the set is not a recorded reason.
+ */
+export const AGENT_RECONCILIATION_DROP_REASONS: readonly string[] = [
+  'agreement-mismatch',
+  'entity-mismatch',
+  'abbreviation',
+  'boilerplate',
+  'no-pair',
+  'other',
+];
+
+/**
+ * The reconciliation's recorded outcome (design §2 layer 2,
+ * observability): counts only — never finding text — carried in
+ * the output bundle and read back into the step's live detail by
+ * the advancer, in the same style as the coverage breakdown.
+ * `failed` marks a shadow run whose reconciliation could not be
+ * judged (provider failure or unparseable output): shadow never
+ * fails a run or changes its deliverable, so the failure is
+ * recorded here instead.
+ */
+export type AgentDataReconciliationSummary = {
+  mode: 'shadow' | 'enforce';
+  candidateCount: number;
+  keptCount: number;
+  droppedCount: number;
+  droppedReasons: Record<string, number>;
+  pickedUpCount: number;
+  failed?: boolean;
+};
+
+type AuditBundle = {
+  findings: AgentDataFinding[];
+  values: AgentDataValue[];
+  structure: AgentDataStructure;
+  candidates: AgentDataValueMismatch[];
+  /** Whether the source bundle carried the layer-1 sections at
+   * all: the pass-through forms re-emit them only when present,
+   * so a bundle without them keeps its shape. */
+  hasAuditSections: boolean;
+  coverage?: unknown;
+  chunkRange?: unknown;
+};
+
+function parseAuditBundle(content: string, view: AgentAttachmentDataView): AuditBundle | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content) as unknown;
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const raw = parsed as Record<string, unknown>;
+  if (raw.kind !== 'data-analysis' || raw.outputKind !== 'findings') return null;
+  const prior = parsePriorBundle(content, 'findings', view);
+  if (!prior) return null;
+  const isPlain = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  return {
+    findings: prior.findings,
+    values: prior.values,
+    structure: prior.structure,
+    candidates: prior.candidates ?? [],
+    hasAuditSections: 'values' in raw || 'structure' in raw || 'candidates' in raw,
+    ...(isPlain(raw.coverage) ? { coverage: raw.coverage } : {}),
+    ...(isPlain(raw.chunkRange) ? { chunkRange: raw.chunkRange } : {}),
+  };
+}
+
+function reconcilerInstruction(goalInstruction: string): string {
+  const head = 'あなたは監査所見の照合担当です。与えられた所見リスト・値の食い違い候補・構造マップだけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。生の文書本文は渡されていません。引用は素材に載っているものだけを使い、新しい引用や値を作らないでください。';
+  const discipline = '所見を残す条件（対の規律）: (1) 1つの属性（金額・比率・資金源泉・日付など）が明示されていること。(2) 比較の両辺が同一の主体・同一の合意の範囲に属すること（構造マップで確認し、範囲が不明なものは落とすこと）。(3) 食い違う2値が、それぞれ異なる引用（異なる文書、または同一文書内の異なる箇所）で示されていること。(4) 手続き未了などの定型の状況開示だけで、他文書が異なる状態を述べていないものは不整合ではないこと。(5) 略称は構造マップの定義で解決してから比較すること。';
+  const shape = '出力形式: {"findings":[{"claim":"所見","explanation":"なぜ矛盾と言えるのかの説明","evidence":"引用1","file":"ファイル名1","location":"場所1","evidenceB":"引用2","fileB":"ファイル名2","locationB":"場所2","source":{"kind":"kept","index":0}}],"dropped":[{"index":0,"reason":"no-pair"}]}。findingsには吟味済みの所見だけを入れ、各所見にsource（元の所見は{"kind":"kept","index":元の番号}、候補から作った所見は{"kind":"candidate","index":候補の番号}）を付けてください。droppedには落とした元の所見の番号と理由（agreement-mismatch／entity-mismatch／abbreviation／boilerplate／no-pair／other）を入れてください。値の食い違い候補のうち対の規律を満たすものは所見化してください。';
+  const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - discipline.length - shape.length - '依頼: '.length;
+  const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
+  return `${head}${discipline}${shape}依頼: ${clipped}`;
+}
+
+/**
+ * The reconciliation's model input: the merged findings (numbered,
+ * so the output can name them), the deterministic candidates and
+ * the structure map — never raw chunk text. Field lengths are the
+ * stored caps, with claim and explanation additionally clipped
+ * for input size only; the bundle keeps the full text.
+ */
+function reconcilerMaterials(bundle: AuditBundle): string {
+  const findings = bundle.findings.map((finding, index) => ({
+    index,
+    claim: finding.claim.slice(0, 500),
+    ...(finding.explanation ? { explanation: finding.explanation.slice(0, 800) } : {}),
+    evidence: finding.evidence,
+    file: finding.file,
+    location: finding.location,
+    ...(finding.evidenceB ? { evidenceB: finding.evidenceB } : {}),
+    ...(finding.fileB ? { fileB: finding.fileB } : {}),
+    ...(finding.locationB ? { locationB: finding.locationB } : {}),
+  }));
+  return JSON.stringify({ findings, candidates: bundle.candidates, structure: bundle.structure });
+}
+
+export type AgentReconciliationParseResult =
+  | {
+      ok: true;
+      findings: AgentDataFinding[];
+      dropped: { index: number; reason: string }[];
+      keptCount: number;
+      pickedUpCount: number;
+    }
+  | { ok: false };
+
+/**
+ * Validates the reconciliation model's output against the pairing
+ * discipline's mechanical half: every vetted finding must carry a
+ * claim, an explanation and TWO citations (the discipline's rule
+ * 3 — a finding whose pair cannot be shown is not vetted), and
+ * must name its source — a kept original (index in range, no
+ * duplicates) or a candidate it was built from (index in range).
+ * The semantic half (same entity, same agreement, boilerplate
+ * judgment) is the model's, instructed above. Dropped entries are
+ * observability: malformed ones are discarded, never fatal, and
+ * an index that was also kept is kept (the kept list wins).
+ */
+export function parseReconciliationOutput(
+  text: string,
+  originalCount: number,
+  candidateCount: number,
+): AgentReconciliationParseResult {
+  const parsed = extractJsonObject(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false };
+  const record = parsed as Record<string, unknown>;
+  if (!Array.isArray(record.findings)) return { ok: false };
+  const findings: AgentDataFinding[] = [];
+  const keptIndexes = new Set<number>();
+  let pickedUpCount = 0;
+  for (const raw of record.findings) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false };
+    const item = raw as Record<string, unknown>;
+    const claim = typeof item.claim === 'string' ? item.claim.trim() : '';
+    const explanation = typeof item.explanation === 'string' ? item.explanation.trim().slice(0, 1000) : '';
+    const evidence = typeof item.evidence === 'string' ? item.evidence.trim().slice(0, 200) : '';
+    const evidenceB = typeof item.evidenceB === 'string' ? item.evidenceB.trim().slice(0, 200) : '';
+    if (!claim || !explanation || !evidence || !evidenceB) return { ok: false };
+    const source = item.source;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return { ok: false };
+    const sourceRecord = source as Record<string, unknown>;
+    const index = typeof sourceRecord.index === 'number' && Number.isInteger(sourceRecord.index)
+      ? sourceRecord.index
+      : -1;
+    if (sourceRecord.kind === 'kept') {
+      if (index < 0 || index >= originalCount || keptIndexes.has(index)) return { ok: false };
+      keptIndexes.add(index);
+    } else if (sourceRecord.kind === 'candidate') {
+      if (index < 0 || index >= candidateCount) return { ok: false };
+      pickedUpCount += 1;
+    } else {
+      return { ok: false };
+    }
+    const type = typeof item.type === 'string' && item.type.trim() ? item.type.trim().slice(0, 80) : undefined;
+    const severity = validFindingSeverity(item.severity);
+    findings.push({
+      claim,
+      evidence,
+      file: typeof item.file === 'string' ? item.file.trim() : '',
+      location: typeof item.location === 'string' ? item.location.trim() : '',
+      explanation,
+      evidenceB,
+      fileB: typeof item.fileB === 'string' ? item.fileB.trim() : '',
+      locationB: typeof item.locationB === 'string' ? item.locationB.trim() : '',
+      ...(type ? { type } : {}),
+      ...(severity ? { severity } : {}),
+    });
+  }
+  const dropped: { index: number; reason: string }[] = [];
+  if (Array.isArray(record.dropped)) {
+    for (const raw of record.dropped) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const item = raw as Record<string, unknown>;
+      const index = typeof item.index === 'number' && Number.isInteger(item.index) ? item.index : -1;
+      const reason = typeof item.reason === 'string' && AGENT_RECONCILIATION_DROP_REASONS.includes(item.reason)
+        ? item.reason
+        : '';
+      if (index < 0 || index >= originalCount || !reason) continue;
+      if (keptIndexes.has(index)) continue;
+      if (dropped.some((entry) => entry.index === index)) continue;
+      dropped.push({ index, reason });
+    }
+  }
+  return { ok: true, findings, dropped, keptCount: keptIndexes.size, pickedUpCount };
+}
+
+function countReconciliationDropReasons(
+  dropped: readonly { reason: string }[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const entry of dropped) counts[entry.reason] = (counts[entry.reason] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * attachment_reconciler (misreading countermeasure design §2,
+ * layer 2 — the single most effective move): the step the planner
+ * issues after the last analyzer step of an inconsistency-audit
+ * run, and only then. It makes exactly one model call over
+ * deterministic material — the merged findings, the layer-1
+ * value-mismatch candidates and the structure map; never raw
+ * chunk text — and applies the pairing discipline: a finding
+ * survives only with one attribute, both sides in the same
+ * entity's and agreement's scope, and two differing values shown
+ * by two citations; boilerplate status disclosures and unresolved
+ * abbreviations are dropped; candidates that satisfy the
+ * discipline are picked up into findings.
+ *
+ * Mode comes from ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED at
+ * execution time (the planner issues the step only when the mode
+ * was on at plan time; a switch turned off in between degrades
+ * the step to an identity pass-through rather than failing a run
+ * over a configuration change). Enforce fails closed when
+ * candidates exist but the vetted list is empty
+ * (AGENT_RECONCILIATION_NO_FINDINGS): an audit that could not
+ * judge its candidates must not silently report nothing. Shadow
+ * never fails the step and never changes the deliverable — an
+ * unjudgeable reconciliation is recorded with `failed: true` and
+ * the original bundle passes through.
+ */
+export async function executeAttachmentReconciler(
+  params: ToolParams,
+  context?: AgentAttachmentToolContext,
+): Promise<ToolResult> {
+  const tool = 'attachment_reconciler' as const;
+  const fail = (message: string): ToolResult => ({ ok: false, tool, message });
+  const loaded = await loadBoundData(tool, params, context);
+  if ('failure' in loaded) return loaded.failure;
+  const { view } = loaded.data;
+  const goalInstruction = typeof params.instruction === 'string' ? params.instruction : '';
+  if (typeof params.content !== 'string' || params.content.trim().length === 0) {
+    // Without the last analyzer step's bundle there is nothing to
+    // reconcile; refuse instead of reporting an empty audit.
+    return fail('AGENT_STEP_INPUT_UNAVAILABLE');
+  }
+  const bundle = parseAuditBundle(params.content, view);
+  if (!bundle) return fail('AGENT_DATA_OUTPUT_INVALID');
+
+  const buildArtifact = (input: {
+    findings: AgentDataFinding[];
+    content: string;
+    summary?: AgentDataReconciliationSummary;
+    reconciledFindings?: AgentDataFinding[];
+  }): string => JSON.stringify({
+    kind: 'data-analysis',
+    content: input.content,
+    outputKind: 'findings',
+    findings: input.findings,
+    ...(bundle.hasAuditSections
+      ? { values: bundle.values, structure: bundle.structure, candidates: bundle.candidates }
+      : {}),
+    ...(input.summary ? { reconciliation: input.summary } : {}),
+    ...(input.reconciledFindings ? { reconciledFindings: input.reconciledFindings } : {}),
+    ...(bundle.coverage !== undefined ? { coverage: bundle.coverage } : {}),
+    ...(bundle.chunkRange !== undefined ? { chunkRange: bundle.chunkRange } : {}),
+  });
+  const passThrough = (summary?: AgentDataReconciliationSummary): ToolResult => ({
+    ok: true,
+    tool,
+    artifact: buildArtifact({
+      findings: bundle.findings,
+      content: renderFindings(bundle.findings, goalInstruction),
+      ...(summary ? { summary } : {}),
+    }),
+    message: summary
+      ? `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`
+      : 'Attachment findings passed through without reconciliation.',
+  });
+
+  const mode = agentFindingsReconciliationMode(context?.env ?? process.env);
+  if (mode === 'off') return passThrough();
+  const shadowFailure = (): ToolResult => passThrough({
+    mode: 'shadow',
+    candidateCount: bundle.candidates.length,
+    keptCount: 0,
+    droppedCount: 0,
+    droppedReasons: {},
+    pickedUpCount: 0,
+    failed: true,
+  });
+
+  const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
+  const sleepMs = context?.sleepMs ?? defaultSleepMs;
+  const callModelWithTransientRetry = createTransientRetryCaller(modelCall, sleepMs);
+  const instruction = reconcilerInstruction(goalInstruction);
+  const userText = reconcilerMaterials(bundle);
+  const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction });
+  if (first.ok === false) {
+    if (mode === 'shadow') return shadowFailure();
+    return fail(analyzerProviderFailureMessage(first));
+  }
+  let parsed = parseReconciliationOutput(first.text, bundle.findings.length, bundle.candidates.length);
+  if (!parsed.ok) {
+    // Exactly one repair retry, told the concrete defect class —
+    // the same discipline as the analyzer's parse repair.
+    const repair = await callModelWithTransientRetry({
+      instruction: `${instruction}前回の応答は指定のJSON形式に適合しませんでした。各所見にはclaim・explanation・evidence・evidenceBとsource（kind と番号）を必ず含め、JSONだけを返してください。`,
+      userText,
+      goal: goalInstruction,
+    });
+    if (repair.ok === false) {
+      if (mode === 'shadow') return shadowFailure();
+      return fail(analyzerProviderFailureMessage(repair));
+    }
+    parsed = parseReconciliationOutput(repair.text, bundle.findings.length, bundle.candidates.length);
+    if (!parsed.ok) {
+      if (mode === 'shadow') return shadowFailure();
+      return fail('AGENT_RECONCILIATION_OUTPUT_INVALID');
+    }
+  }
+  const summary: AgentDataReconciliationSummary = {
+    mode,
+    candidateCount: bundle.candidates.length,
+    keptCount: parsed.keptCount,
+    droppedCount: parsed.dropped.length,
+    droppedReasons: countReconciliationDropReasons(parsed.dropped),
+    pickedUpCount: parsed.pickedUpCount,
+  };
+  if (bundle.candidates.length > 0 && parsed.findings.length === 0) {
+    // Fail closed (enforce): candidates the run could not judge
+    // must not become a silently empty report. Shadow records the
+    // same fact and passes the original findings through.
+    if (mode === 'enforce') return fail('AGENT_RECONCILIATION_NO_FINDINGS');
+    return passThrough({ ...summary, failed: true });
+  }
+  if (mode === 'shadow') {
+    return {
+      ok: true,
+      tool,
+      artifact: buildArtifact({
+        findings: bundle.findings,
+        content: renderFindings(bundle.findings, goalInstruction),
+        summary,
+        reconciledFindings: parsed.findings,
+      }),
+      message: `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
+    };
+  }
+  return {
+    ok: true,
+    tool,
+    artifact: buildArtifact({
+      findings: parsed.findings,
+      content: renderFindings(parsed.findings, goalInstruction),
+      summary,
+    }),
+    message: `Attachment findings reconciled (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
   };
 }

@@ -58,6 +58,13 @@ export const MAX_AGENT_RUN_LIVE_SOURCE_EXCERPT_LENGTH = 160;
  * tries at most three routes, so six leaves generous headroom while
  * keeping the per-step worst case bounded. */
 export const MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS = 6;
+/** Cap on the counts kept in one step's reconciliation summary
+ * (misreading countermeasure design §2 layer 2): the candidate
+ * list itself is capped at 200 and a run's findings are bounded
+ * by its chunks, so this bound is generous headroom, not a working
+ * limit — it exists so a malformed summary is dropped, never
+ * stored unbounded. */
+export const MAX_AGENT_RUN_LIVE_RECONCILIATION_COUNT = 1_000_000;
 export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 /**
@@ -287,6 +294,26 @@ export type AgentRunStepProviderAttempt = {
   transportRequestCount?: number;
 };
 
+/**
+ * The recorded outcome of an attachment_reconciler step (design
+ * AGENT_MA_MISREADING_COUNTERMEASURE_2026-11-23 §2 layer 2): how
+ * many deterministic value-mismatch candidates the step judged,
+ * how many original findings it kept, how many it dropped under
+ * the pairing discipline, and how many findings it picked up from
+ * candidates. Counts and the mode only — finding text never enters
+ * the record, exactly like the rest of the live detail. `failed`
+ * marks a shadow step whose reconciliation could not be judged;
+ * shadow never fails a run, so the fact is recorded instead.
+ */
+export type AgentRunStepReconciliation = {
+  mode: 'shadow' | 'enforce';
+  candidateCount: number;
+  keptCount: number;
+  droppedCount: number;
+  pickedUpCount: number;
+  failed?: boolean;
+};
+
 export type AgentRunStepLiveDetail = {
   startedAt?: number;
   finishedAt?: number;
@@ -295,6 +322,7 @@ export type AgentRunStepLiveDetail = {
   parseFailure?: AgentRunStepParseFailure;
   coverageFailure?: AgentRunStepCoverageFailure;
   providerAttempts?: AgentRunStepProviderAttempt[];
+  reconciliation?: AgentRunStepReconciliation;
 };
 
 /** Per-step progress. Status vocabulary matches the agent task graph. */
@@ -899,6 +927,34 @@ function normalizeAgentRunStepProviderAttempts(value: unknown): AgentRunStepProv
   return attempts.length > 0 ? attempts : undefined;
 }
 
+function normalizeAgentRunStepReconciliation(value: unknown): AgentRunStepReconciliation | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const mode = value.mode === 'shadow' || value.mode === 'enforce' ? value.mode : undefined;
+  if (mode === undefined) return undefined;
+  const count = (raw: unknown): number | undefined => {
+    if (!Number.isInteger(raw) || Number(raw) < 0 || Number(raw) > MAX_AGENT_RUN_LIVE_RECONCILIATION_COUNT) {
+      return undefined;
+    }
+    return Number(raw);
+  };
+  const candidateCount = count(value.candidateCount);
+  const keptCount = count(value.keptCount);
+  const droppedCount = count(value.droppedCount);
+  const pickedUpCount = count(value.pickedUpCount);
+  if (candidateCount === undefined || keptCount === undefined || droppedCount === undefined || pickedUpCount === undefined) {
+    return undefined;
+  }
+  const reconciliation: AgentRunStepReconciliation = {
+    mode,
+    candidateCount,
+    keptCount,
+    droppedCount,
+    pickedUpCount,
+  };
+  if (value.failed === true) reconciliation.failed = true;
+  return reconciliation;
+}
+
 function normalizeLiveTimestamp(value: unknown): number | undefined {
   if (!Number.isFinite(value) || Number(value) <= 0 || Number(value) > MAX_LIVE_TIMESTAMP_MS) return undefined;
   return Math.floor(Number(value));
@@ -927,6 +983,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (coverageFailure !== undefined) detail.coverageFailure = coverageFailure;
   const providerAttempts = normalizeAgentRunStepProviderAttempts(value.providerAttempts);
   if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
+  const reconciliation = normalizeAgentRunStepReconciliation(value.reconciliation);
+  if (reconciliation !== undefined) detail.reconciliation = reconciliation;
   if (Array.isArray(value.sources)) {
     const sources: AgentRunStepLiveSource[] = [];
     for (const raw of value.sources) {

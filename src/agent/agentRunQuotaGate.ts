@@ -136,6 +136,7 @@ export function agentRunStepCostClass(toolName: ToolName): AgentRunStepCostClass
     case 'code_interpreter':
       return 'delegated-job';
     case 'attachment_analyzer':
+    case 'attachment_reconciler':
       return 'model';
     default:
       return 'local';
@@ -170,6 +171,12 @@ export function agentRunStepQuotaCharge(toolName: ToolName, params?: ToolParams)
       counter: 'calls',
       units: Math.max(1, Math.min(declared, AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP)),
     };
+  }
+  if (toolName === 'attachment_reconciler') {
+    // Exactly one model call per reconciliation (plus its in-step
+    // retries, which the ledger never counts separately — the same
+    // convention as the analyzer's chunk retries).
+    return { provider: 'origin-llm', counter: 'calls', units: 1 };
   }
   return null;
 }

@@ -6,6 +6,7 @@ import {
   augmentPlanWithAttachments,
   extractAttachmentOutputFileSpec,
   goalExplicitlyRequestsExternalResearch,
+  goalRequestsInconsistencyAudit,
   type AgentStepInputLike,
 } from './agentAttachmentPlanning.js';
 import type { AgentAttachmentDataView } from './agentAttachmentData.js';
@@ -615,5 +616,107 @@ describe('attachment output file specification (artifact format)', () => {
     expect(document?.params).not.toHaveProperty('outputFilename');
     expect(document?.params).not.toHaveProperty('jsonTopLevelKeys');
     expect(document?.params.format).toBe('markdown');
+  });
+});
+
+describe('attachment plan inconsistency-audit mode (misreading countermeasure)', () => {
+  const MA_GOAL = '添付文書を照合して不整合を監査し、レポートを作成してください';
+  const maBase = () => basePlan([
+    { toolName: 'document_generator', params: { title: '監査レポート', format: 'markdown', brief: '監査' }, reasonCode: 'document-request' },
+    { toolName: 'file_writer', params: { path: 'artifacts/document.md', contentFromPreviousArtifact: true }, reasonCode: 'write-specific-file' },
+    { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
+  ]);
+
+  it('detects the audit intent separately from the output kind', () => {
+    expect(goalRequestsInconsistencyAudit('文書の不整合を監査する')).toBe(true);
+    expect(goalRequestsInconsistencyAudit('Run an inconsistency audit of the documents')).toBe(true);
+    expect(goalRequestsInconsistencyAudit('audit the consistency of these filings')).toBe(true);
+    // A root-cause findings goal is findings, but not an audit.
+    expect(goalRequestsInconsistencyAudit('障害の原因を分析してください')).toBe(false);
+    expect(goalRequestsInconsistencyAudit('添付文書を分類して一覧化してください')).toBe(false);
+  });
+
+  it('marks the analyzers auditMode for an audit goal even with the switch off, and issues no reconciler', () => {
+    const result = augmentPlanWithAttachments({
+      goal: MA_GOAL,
+      ...maBase(),
+      setId: 'att-ma',
+      setDigest: 'digest-ma',
+      view: viewWith(17, MA_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(8);
+    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers.every((step) => step.params.auditMode === true)).toBe(true);
+    expect(result.steps.some((step) => step.toolName === 'attachment_reconciler')).toBe(false);
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.contentFromStep).toBe(5);
+  });
+
+  it('issues the reconciler after the last analyzer while the switch is on, and regrounds the document step on it', () => {
+    const result = augmentPlanWithAttachments({
+      goal: MA_GOAL,
+      ...maBase(),
+      setId: 'att-ma',
+      setDigest: 'digest-ma',
+      view: viewWith(17, MA_FILES),
+      reconciliationMode: 'enforce',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // 8 steps of the switch-off plan + 1 reconciler.
+    expect(result.steps).toHaveLength(9);
+    expect(result.plannedSteps.map((step) => step.toolName)).toEqual(result.steps.map((step) => step.toolName));
+    const reconcilerIndex = result.steps.findIndex((step) => step.toolName === 'attachment_reconciler');
+    expect(reconcilerIndex).toBe(6);
+    expect(result.steps[reconcilerIndex]?.params.contentFromStep).toBe(5);
+    expect(result.steps[reconcilerIndex]?.params.attachmentSetId).toBe('att-ma');
+    expect(result.steps[reconcilerIndex]?.params.setDigest).toBe('digest-ma');
+    const document = result.steps.find((step) => step.toolName === 'document_generator');
+    expect(document?.params.contentFromStep).toBe(6);
+  });
+
+  it('issues no reconciler and no auditMode for a non-audit findings goal, even in enforce mode', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '原因分析', format: 'markdown', brief: '分析' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '添付資料を分析して障害の原因を特定してください',
+      ...base,
+      setId: 'att-k8s',
+      setDigest: 'digest-k8s',
+      view: viewWith(4, K8S_FILES),
+      reconciliationMode: 'enforce',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers.every((step) => step.params.auditMode === undefined)).toBe(true);
+    expect(result.steps.some((step) => step.toolName === 'attachment_reconciler')).toBe(false);
+  });
+
+  it('refuses the largest audit shape at plan time: the reconciler counts toward the ceiling', () => {
+    const base = basePlan([
+      { toolName: 'repository_explorer', params: {}, reasonCode: 'repository-overview' },
+      { toolName: 'web_search_grounding', params: { query: '最新動向' }, reasonCode: 'current-research' },
+      { toolName: 'code_interpreter', params: { mode: 'generate', instruction: '集計コード' }, reasonCode: 'code-analysis' },
+      { toolName: 'document_generator', params: { title: '報告書', format: 'markdown', brief: '報告' }, reasonCode: 'document-request' },
+      { toolName: 'image_prompt_compiler', params: { prompt: '図表' }, reasonCode: 'visual-request' },
+      { toolName: 'verification_runner', params: {}, reasonCode: 'verification-command' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '添付文書の不整合を監査し、最新の動向も調査して報告書を作成してください',
+      ...base,
+      setId: 'att-max-audit',
+      setDigest: 'digest-max-audit',
+      view: viewWith(48, MA_FILES),
+      reconciliationMode: 'shadow',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok !== false) return;
+    expect(result.code).toBe('AGENT_ATTACHMENT_TOO_LARGE');
+    expect(result.limitKind).toBe('steps');
+    expect(result.stepCount).toBe(20);
   });
 });
