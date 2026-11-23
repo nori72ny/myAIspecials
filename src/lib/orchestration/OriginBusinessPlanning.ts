@@ -201,7 +201,11 @@ function firstMatch(text: string, patterns: readonly RegExp[]): RegExpMatchArray
   return null;
 }
 
-const AMOUNT = "([0-9][0-9,]*\\.?[0-9]*)";
+// The decimal part hangs off the literal dot, so a digit run has
+// exactly one parse: previously the run could split between the
+// comma class and a trailing digit run while backtracking (CodeQL
+// js/polynomial-redos). The matched language is unchanged.
+const AMOUNT = "([0-9][0-9,]*(?:\\.[0-9]*)?)";
 const YEN_UNIT = "(億円|万円|千円|円|億|万)?";
 
 export function parseBusinessPlanningFigures(input: string): OriginBusinessPlanningFigures {
@@ -236,7 +240,7 @@ export function parseBusinessPlanningFigures(input: string): OriginBusinessPlann
   }
 
   const meetingToOrder = firstMatch(text, [
-    /(?:成約率|受注率|クロージング率)(?:は|が|：|:|\s)*([0-9]+\.?[0-9]*)\s*(?:%|％|パーセント)/,
+    /(?:成約率|受注率|クロージング率)(?:は|が|：|:|\s)*([0-9]+(?:\.[0-9]*)?)\s*(?:%|％|パーセント)/,
   ]);
   if (meetingToOrder) {
     const rate = Number(meetingToOrder[1]) / 100;
@@ -244,7 +248,7 @@ export function parseBusinessPlanningFigures(input: string): OriginBusinessPlann
   }
 
   const sqlToMeeting = firstMatch(text, [
-    /(?:商談化率|アポ率|面談化率|面談率)(?:は|が|：|:|\s)*([0-9]+\.?[0-9]*)\s*(?:%|％|パーセント)/,
+    /(?:商談化率|アポ率|面談化率|面談率)(?:は|が|：|:|\s)*([0-9]+(?:\.[0-9]*)?)\s*(?:%|％|パーセント)/,
   ]);
   if (sqlToMeeting) {
     const rate = Number(sqlToMeeting[1]) / 100;

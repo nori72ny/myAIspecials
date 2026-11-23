@@ -82,8 +82,13 @@ function isSuppliedPriceArithmeticRequest(message: string): boolean {
   // Only exempt explicit arithmetic with supplied amounts and percentages.
   // Live rates/prices and external verification still require evidence.
   if (hasExplicitExternalFreshnessIntent(message)) return false;
-  const suppliedAmount = /(?:[0-9][0-9,.]*\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9][0-9,.]*)/i.test(message);
-  const suppliedPercentage = /[0-9]+(?:\.[0-9]+)?\s*(?:[%％]|パーセント|percent\b)/i.test(message);
+  // Amount / percentage tokens are digit runs joined by single
+  // separators, every run bounded — no quantified class mixes digits
+  // with separators, so a long digit run cannot be re-split while
+  // backtracking (CodeQL js/polynomial-redos). Real amounts and
+  // percentages match exactly as before.
+  const suppliedAmount = /(?:[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3}\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3})/i.test(message);
+  const suppliedPercentage = /[0-9]{1,12}(?:\.[0-9]{1,10})?\s*(?:[%％]|パーセント|percent\b)/i.test(message);
   // The calculation cue is the explicit 計算 wording, or the derived-price
   // question shape (routing calibration, 2026-11-16 measurement H-05 /
   // H-10): with an amount and a percentage both supplied, asking back for
@@ -155,7 +160,9 @@ function isProvidedPriceDecisionRequest(message: string): boolean {
     || normalized.includes("pricing");
   const hasDecisionIntent = ["迷", "検討", "比較", "決め", "判断", "検証"].some((token) => message.includes(token))
     || ["choose", "decide", "test", "validate", "compare"].some((token) => normalized.includes(token));
-  const suppliedAmounts = message.match(/(?:[0-9][0-9,.]*\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9][0-9,.]*)/gi) ?? [];
+  // Amount token shape: see isSuppliedPriceArithmeticRequest (bounded
+  // digit runs, no overlapping quantifiers — CodeQL js/polynomial-redos).
+  const suppliedAmounts = message.match(/(?:[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3}\s*(?:円|ドル|ユーロ|USD|JPY|EUR)|[$€£]\s*[0-9]{1,20}(?:[.,][0-9]{1,20}){0,12}[.,]{0,3})/gi) ?? [];
   const suppliedOptions = suppliedAmounts.length >= 2
     || /(?:データがない|データなし|与えた(?:価格|料金)|提示した(?:価格|料金)|supplied\s+(?:prices?|options?)|given\s+(?:prices?|options?))/i.test(message);
   return hasPriceTopic && hasDecisionIntent && suppliedOptions;
