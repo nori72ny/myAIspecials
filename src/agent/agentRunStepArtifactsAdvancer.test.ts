@@ -109,8 +109,10 @@ describe('stepArtifactPersistIndexes (design §4.2 selectivity)', () => {
     ];
     // contentFromStep selects step 2; the legacy marker on step 4
     // selects every textual producer before it (1, 2, 3) — but not the
-    // repository_explorer, whose artifact has no textual form.
-    expect([...stepArtifactPersistIndexes(plan)].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    // repository_explorer, whose artifact has no textual form. Step 4
+    // itself joins as the plan's final document_generator: the
+    // deliverable is always persisted (retrieval design §3.2).
+    expect([...stepArtifactPersistIndexes(plan)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
   });
 
   it('selects nothing when no step consumes an earlier artifact', () => {
@@ -281,8 +283,9 @@ describe('advanceAgentRun with step-artifact persistence ON', () => {
     expect(new Set(docReceivedRows)).toEqual(new Set(Array.from({ length: 36 }, (_, k) => `chunk-${k}`)));
     const saved = await store.listStepArtifacts(RUN_ID);
     // Every analyzer segment was saved (each is consumed by the next);
-    // the reader, consumed by nobody, was not.
-    expect(saved.map((row) => row.stepIndex).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // the reader, consumed by nobody, was not. The final document
+    // step (10) is saved as the run's deliverable (retrieval §3.2).
+    expect(saved.map((row) => row.stepIndex).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect((await store.get(RUN_ID, OWNER))?.status).toBe('completed');
   });
 
@@ -469,7 +472,8 @@ describe('advanceAgentRun with step-artifact persistence ON', () => {
     expect(second.kind).toBe('completed');
     expect(readerCalls).toBe(2);
     const saved = await store.listStepArtifacts(RUN_ID);
-    expect(saved).toHaveLength(1);
-    expect(saved[0]?.stepIndex).toBe(0);
+    // Step 0 (the consumed producer) and step 1 (the final
+    // document_generator — the deliverable, retrieval design §3.2).
+    expect(saved.map((row) => row.stepIndex).sort((a, b) => a - b)).toEqual([0, 1]);
   });
 });

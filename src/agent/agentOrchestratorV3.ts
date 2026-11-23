@@ -18,10 +18,12 @@ import { advanceAgentRun, resolveStepParams, textualArtifactOf } from './agentRu
 import { evaluateAgentRunPiggyback, type AgentRunPiggybackSummary, type AgentRunReplanOutcome, type AgentRunReplanPort } from './agentRunPiggybackEvaluation.js';
 import type { AgentRunWriteLockStore } from './agentRunWriteLock.js';
 import { diffAgentRunPlans } from './agentRunPlanDiff.js';
-import type { AgentRunRecord, AgentRunStore } from './agentRunRecord.js';
+import type { AgentRunRecord, AgentRunStepArtifact, AgentRunStore } from './agentRunRecord.js';
 import {
   agentRunPlanAttachmentSetId,
+  agentStepArtifactsEnabled,
   isAgentRunRecordStatus,
+  MAX_AGENT_RUN_PLAN_STEPS,
   MAX_AGENT_RUN_TTL_MS,
   normalizeAgentRunHold,
   type AgentRunHold,
@@ -436,6 +438,60 @@ function logAgentAttachmentStoreFailure(operation: string, error: unknown): void
     name: safeRunStoreErrorField(error, 'name'),
     code: safeRunStoreErrorField(error, 'code'),
   });
+}
+
+/**
+ * The document-envelope fields an artifact list entry may surface
+ * (artifact retrieval, design AGENT_ARTIFACT_RETRIEVAL_2026-11-23
+ * §3.3): the metadata the generator declared about the entity the
+ * envelope carries, read from the stored body itself. Anything that
+ * is not a document envelope — an analyzer bundle, a reader's raw
+ * text — yields null, and the caller reports the metadata as absent
+ * rather than guessing. `hasContent` is the entity-presence signal:
+ * it distinguishes a text deliverable, whose entity rides inline as
+ * `content`, from a binary deliverable whose envelope (until the
+ * base64 stage lands) declares an entity it does not yet carry.
+ */
+type AgentDocumentEnvelopeView = {
+  format: string | null;
+  filename: string | null;
+  mimeType: string | null;
+  bytes: number | null;
+  sha256: string | null;
+  verified: boolean | null;
+  hasContent: boolean;
+};
+
+function documentEnvelopeView(artifact: string): AgentDocumentEnvelopeView | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const envelope = parsed as Record<string, unknown>;
+  if (envelope.kind !== 'document') return null;
+  return {
+    format: typeof envelope.format === 'string' ? envelope.format : null,
+    filename: typeof envelope.filename === 'string' ? envelope.filename : null,
+    mimeType: typeof envelope.mimeType === 'string' ? envelope.mimeType : null,
+    bytes: typeof envelope.bytes === 'number' && Number.isFinite(envelope.bytes) ? envelope.bytes : null,
+    sha256: typeof envelope.sha256 === 'string' ? envelope.sha256 : null,
+    verified: typeof envelope.verified === 'boolean' ? envelope.verified : null,
+    hasContent: typeof envelope.content === 'string' || typeof envelope.contentBase64 === 'string',
+  };
+}
+
+/** Whether a stored artifact body is JSON text (an envelope or a
+ * structured bundle), for the entity route's content type choice. */
+function isJsonArtifactText(artifact: string): boolean {
+  try {
+    JSON.parse(artifact);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The longest reservation expiry the consumption store contract accepts,
@@ -930,6 +986,38 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
     updatedAt: new Date(record.updatedAt).toISOString(),
     expiresAt: new Date(record.expiresAt).toISOString(),
   });
+  /**
+   * One persisted step artifact as the retrieval list reports it
+   * (design §3.3): identity and storage measurements always, the
+   * document envelope's declared metadata when the stored body is an
+   * envelope, and the deliverable/intermediate distinction derived
+   * from the stored plan — the final step is the deliverable exactly
+   * when it is the document_generator, the same rule the advancer's
+   * persistence selectivity applies. The body itself is never part
+   * of a list entry.
+   */
+  const artifactListEntryView = (record: AgentRunRecord, row: AgentRunStepArtifact) => {
+    const envelope = documentEnvelopeView(row.artifact);
+    const plan = record.plan ?? [];
+    const finalIndex = plan.length - 1;
+    const deliverable = finalIndex >= 0 && row.stepIndex === finalIndex && plan[finalIndex].toolName === 'document_generator';
+    return {
+      stepIndex: row.stepIndex,
+      kind: deliverable ? 'deliverable' : 'intermediate',
+      attempt: row.attempt,
+      format: envelope?.format ?? null,
+      filename: envelope?.filename ?? null,
+      mimeType: envelope?.mimeType ?? null,
+      bytes: envelope?.bytes ?? null,
+      sha256: envelope?.sha256 ?? null,
+      verified: envelope?.verified ?? null,
+      hasContent: envelope ? envelope.hasContent : true,
+      artifactBytes: row.artifactBytes,
+      artifactSha256: row.artifactSha256,
+      createdAt: new Date(row.createdAt).toISOString(),
+      expiresAt: new Date(row.expiresAt).toISOString(),
+    };
+  };
   type RunsAuth = { mode: AgentApprovalAuthModeV3; ownerBinding: string };
   const authenticateRunsRequest = (req: Request, planToken: string | undefined, runId?: string): { auth: RunsAuth } | { status: number; code: string } => {
     if (agentOperatorConfiguredV3(env) && authenticateAgentOperatorV3(req, env)) {
@@ -1202,6 +1290,64 @@ export function createAgentOrchestratorV3Router(env: NodeJS.ProcessEnv = process
       return res.json({ ok: true, protocolVersion: 3, run: publicAgentRunView(record), ...(evaluation ? { piggybackEvaluation: evaluation } : {}), ...runEnvelope });
     } catch (error) {
       return runsStoreFailure(res, 'get', error);
+    }
+  });
+
+  // Artifact retrieval (file-input foundation F5's promised routes;
+  // design AGENT_ARTIFACT_RETRIEVAL_2026-11-23 §3.3): a run's
+  // persisted step artifacts — intermediate outputs and the final
+  // deliverable — read back by the run's owner. Authorization is the
+  // runs authorization unchanged, and ownership is proven with the
+  // same store read as GET /runs/:runId before any artifact row is
+  // touched, so another owner's run is the same 404 as a missing
+  // one. Both routes ride the step-artifact switch: OFF saves
+  // nothing, and these routes then answer 404 exactly as the
+  // unimplemented routes did.
+  router.get('/api/agent/v3/runs/:runId/artifacts', agentV3RateLimitGuard, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const planToken = typeof req.headers['x-agent-plan-token'] === 'string' ? req.headers['x-agent-plan-token'] : undefined;
+    const resolved = authenticateRunsRequest(req, planToken, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    if (!agentStepArtifactsEnabled(env)) return res.status(404).json({ ok: false, code: 'AGENT_RUN_ARTIFACT_NOT_FOUND', runId });
+    try {
+      const record = await runStore.get(runId, resolved.auth.ownerBinding);
+      if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+      const rows = await runStore.listStepArtifacts(runId);
+      return res.json({ ok: true, protocolVersion: 3, runId, artifacts: rows.map((row) => artifactListEntryView(record, row)), ...runEnvelope });
+    } catch (error) {
+      return runsStoreFailure(res, 'list-artifacts', error);
+    }
+  });
+
+  router.get('/api/agent/v3/runs/:runId/artifacts/:stepIndex', agentV3RateLimitGuard, async (req, res) => {
+    if (!runStore) return runsStoreUnavailable(res);
+    const runId = typeof req.params.runId === 'string' ? req.params.runId : '';
+    if (!runId.startsWith('run-')) return res.status(400).json({ ok: false, code: 'INVALID_AGENT_RUN_ID' });
+    const stepIndexText = typeof req.params.stepIndex === 'string' ? req.params.stepIndex : '';
+    if (!/^\d+$/.test(stepIndexText) || Number(stepIndexText) >= MAX_AGENT_RUN_PLAN_STEPS) {
+      return res.status(400).json({ ok: false, code: 'AGENT_RUN_ARTIFACT_INPUT_INVALID', runId });
+    }
+    const stepIndex = Number(stepIndexText);
+    const planToken = typeof req.headers['x-agent-plan-token'] === 'string' ? req.headers['x-agent-plan-token'] : undefined;
+    const resolved = authenticateRunsRequest(req, planToken, runId);
+    if ('status' in resolved) return res.status(resolved.status).json({ ok: false, code: resolved.code });
+    if (!agentStepArtifactsEnabled(env)) return res.status(404).json({ ok: false, code: 'AGENT_RUN_ARTIFACT_NOT_FOUND', runId, stepIndex });
+    try {
+      const record = await runStore.get(runId, resolved.auth.ownerBinding);
+      if (!record) return res.status(404).json({ ok: false, code: 'AGENT_RUN_NOT_FOUND', runId });
+      const rows = await runStore.listStepArtifacts(runId);
+      const row = rows.find((entry) => entry.stepIndex === stepIndex);
+      if (!row) return res.status(404).json({ ok: false, code: 'AGENT_RUN_ARTIFACT_NOT_FOUND', runId, stepIndex });
+      // The stored body is returned verbatim: a document envelope
+      // stays the exact JSON the generator produced, so the caller
+      // verifies the carried entity against its declared sha256
+      // without a re-serialization in between.
+      if (isJsonArtifactText(row.artifact)) return res.type('application/json').send(row.artifact);
+      return res.type('text/plain; charset=utf-8').send(row.artifact);
+    } catch (error) {
+      return runsStoreFailure(res, 'get-artifact', error);
     }
   });
 

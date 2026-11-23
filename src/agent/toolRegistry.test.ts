@@ -136,6 +136,49 @@ describe('toolRegistry safety boundary', () => {
     expect(artifact.content).not.toBe(request);
   });
 
+  it('declares markdown bytes/sha256 over the carried content, not the wrapped file', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      title: 'M&A 整合性監査',
+      format: 'markdown',
+      content: '## 所見 1\n\n買手2の対価は 146,660,323.00 元と 146,660,332.00 元で一致しない。',
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as {
+      format?: string; bytes?: number; sha256?: string; verified?: boolean; content?: string;
+    };
+    expect(artifact.format).toBe('markdown');
+    expect(artifact.verified).toBe(true);
+    // The envelope's declared bytes/hash reproduce the delivered
+    // content exactly — the same rule the JSON path pins (the K8s
+    // deliverable's 225-byte mismatch came from measuring the
+    // title-wrapped file instead of the carried body).
+    expect(artifact.bytes).toBe(Buffer.byteLength(artifact.content ?? '', 'utf8'));
+    const { createHash } = await import('node:crypto');
+    expect(artifact.sha256).toBe(createHash('sha256').update(artifact.content ?? '', 'utf8').digest('hex'));
+    // The carried content stays the pre-wrap body the display uses:
+    // no generated title heading is mixed in.
+    expect(artifact.content?.startsWith('## 所見 1')).toBe(true);
+  });
+
+  it('carries the csv file text as content with declarations over that text', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      title: 'イベント一覧',
+      format: 'csv',
+      content: 'Event_ID,Loss_Amount_CNY\nOR001,1200000\nOR002,3400000',
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as {
+      format?: string; bytes?: number; sha256?: string; verified?: boolean; content?: string;
+    };
+    expect(artifact.format).toBe('csv');
+    expect(artifact.verified).toBe(true);
+    expect(typeof artifact.content).toBe('string');
+    expect(artifact.content).toContain('OR001,1200000');
+    expect(artifact.bytes).toBe(Buffer.byteLength(artifact.content ?? '', 'utf8'));
+    const { createHash } = await import('node:crypto');
+    expect(artifact.sha256).toBe(createHash('sha256').update(artifact.content ?? '', 'utf8').digest('hex'));
+  });
+
   it('fails closed for a document request without any usable input', async () => {
     const result = await executeToolWithPermission('document_generator', {}, approved);
     expect(result.ok).toBe(false);
