@@ -141,7 +141,7 @@ const PARTIAL_ANSWER_CAPTION_CREDIT_PATTERN =
  * photo descriptions.
  */
 const PARTIAL_ANSWER_PREDICATE_ENDING_PATTERN =
-  /(?:です|ます|でした|ました|だ|である|ない|なかった|いる|ある|なる|する|した|される|れる|られる|せる|させる|たい|よう|こと|もの|ため|から|ので|けど|が|て|し|等|など|ね|よ|な|か|わ|ず|[るたいたきくぐすつぬぶむれせめけげちり])$/u;
+  /(?:です|ます|でした|ました|だ|である|ない|なかった|いる|ある|なる|する|した|される|れる|られる|せる|させる|たい|よう|こと|もの|ため|から|ので|けど|が|て|し|等|など|ね|よ|な|か|わ|ず|[るたいきくぐすつぬぶむれせめけげちり])$/u;
 
 /**
  * Whether one sentence of a caption block is a caption fragment:
