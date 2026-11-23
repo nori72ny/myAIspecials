@@ -3,6 +3,7 @@ import {
   isSelfContainedCodeTaskRequest,
   originChatSystemInstruction,
   originCloudflareRouteSystemInstruction,
+  originGroqRouteSystemInstruction,
   requiresOriginGroundedResearch,
   requiresOriginGroundedResearchRouted,
   resolveOriginCodeTaskRoutingMode,
@@ -243,5 +244,60 @@ describe("confusion-point supplement and code-handling rules (CB-4)", () => {
     expect(variant).toContain(SUPPLEMENT);
     expect(variant).toContain(EQUIVALENCE);
     expect(variant).toContain(DEFINITION_USE);
+  });
+});
+
+describe("code-handling rules (CB-5)", () => {
+  const AWAIT_NONBLOCKING = "await suspends only the async function and does not block the thread";
+  const SCOPE = "Each example must define every name it uses";
+  const GOVERN = "Let that traced behavior govern every description of the original in the answer";
+  const API_CONVENTIONS = "keep the API conventions the given code shows";
+
+  it("states the await non-blocking canon and the scope, governing, and API rules in the full base instruction", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain(AWAIT_NONBLOCKING);
+    expect(instruction).toContain("while one async function waits, the event loop keeps running other code");
+    expect(instruction).toContain("Never describe waiting as blocking");
+    expect(instruction).toContain(SCOPE);
+    expect(instruction).toContain("a name defined inside one function is not available in another function or example");
+    expect(instruction).toContain("so give each example its own inputs or pass them in as parameters");
+    expect(instruction).toContain(GOVERN);
+    expect(instruction).toContain("in prose, tables, and summaries alike");
+    expect(instruction).toContain("check each such claim against the trace and against the replacement code");
+    expect(instruction).toContain(API_CONVENTIONS);
+    expect(instruction).toContain("do not switch dialects or libraries");
+    expect(instruction).toContain("a hedge in the prose does not excuse a different choice in the code");
+  });
+
+  it("keeps the rules for a plain conversational question (they are not creation-gated)", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    expect(instruction).toContain(AWAIT_NONBLOCKING);
+    expect(instruction).toContain(SCOPE);
+    expect(instruction).toContain(GOVERN);
+    expect(instruction).toContain(API_CONVENTIONS);
+  });
+
+  it("carries the rules in the route-2 compact variant (registered in the compact base)", () => {
+    const variant = originCloudflareRouteSystemInstruction(originChatSystemInstruction());
+    expect(variant).toContain(AWAIT_NONBLOCKING);
+    expect(variant).toContain(SCOPE);
+    expect(variant).toContain(GOVERN);
+    expect(variant).toContain(API_CONVENTIONS);
+  });
+
+  it("carries the condensed rules on the route-3 compact instruction within its budget", () => {
+    const compact = originGroqRouteSystemInstruction();
+    expect(compact).toContain(AWAIT_NONBLOCKING);
+    expect(compact).toContain("other code keeps running while it waits");
+    expect(compact).toContain("never present waiting as blocking");
+    expect(compact).toContain("each example must define every name it uses");
+    expect(compact).toContain("a name defined inside one function is not available in another");
+    expect(compact).toContain("govern every description of the original");
+    expect(compact).toContain("check each claim against the trace and the code");
+    expect(compact).toContain(API_CONVENTIONS);
+    expect(compact).toContain("do not switch dialects");
+    expect(compact.length).toBeLessThanOrEqual(5_600);
   });
 });
