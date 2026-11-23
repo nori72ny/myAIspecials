@@ -320,13 +320,18 @@ test.describe('ORIGIN Personal 2.0 production surface', () => {
       expect(metrics.composer!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.main!.bottom + 1);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.main!.top - 1);
       console.log('MOBILE_HOME_LAYOUT_METRICS', JSON.stringify(metrics));
-      // 見出しの縦位置は、ヘッダー＋オリンの帯の下にあるスクロール
-      // 領域を基準に測る。帯方式（2026-11-17）でプレゼンスが通常
-      // フロー内の帯になったため、見出しは帯の分だけ下がり、
-      // ビューポート全体基準では旧浮遊方式の比率に収まらない。
-      // 領域内での相対位置（18%〜40%）という検証の意図は維持する。
+      // 見出しの縦位置は、ヘッダー＋オリンの行の下にあるスクロール
+      // 領域を基準に測る。P4（2026-11-24）でプレゼンスは通常
+      // フロー内の専用行になり、スクローラは行の直下（上端142px）
+      // から始まる。浮遊方式にあった 88px の余白が無くなった
+      // ため、見出しの相対位置は小さな画面ほど領域の上端へ
+      // 寄る。実測（2026-11-24）：320x568 で 44.2px／領域 426px
+      // ＝0.104、360x640 で 80.2px／498px＝0.161、390x844 で
+      // 0.226、412x915 で 0.251。下限は最小の実測（0.104）に
+      // 約25%の余裕を見て 0.08 とし、上限 0.40 は「見出しが
+      // 領域の上部に収まる」という検証の意図どおり維持する。
       const headingTopInScrollViewport = metrics.heading!.top - metrics.scrollViewport!.top;
-      expect(headingTopInScrollViewport, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.scrollViewport!.height * 0.18);
+      expect(headingTopInScrollViewport, JSON.stringify(metrics)).toBeGreaterThanOrEqual(metrics.scrollViewport!.height * 0.08);
       expect(headingTopInScrollViewport, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.scrollViewport!.height * 0.40);
       expect(metrics.description!.bottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.composer!.top);
       expect(metrics.composer!.top, JSON.stringify(metrics)).toBeGreaterThanOrEqual(viewport.height * 0.55);

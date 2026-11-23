@@ -2823,10 +2823,10 @@ describe('cat visibility on the top screen and while generating (owner request 2
     fireEvent.click(screen.getByTestId('start-request-button'));
     const presence = await screen.findByTestId('origin-orin-presence');
     // 作業中表示（2026-11-14）：会話内の1行表示は廃止し、段階は
-    // 上部中央に浮く大きなオリンの状態ピルが一文で表す。姿の下の
-    // 名前テキストは出さない（2026-11-15 ノリ指示で削除）。
+    // 上部中央のオリンの状態ピルが一文で表す。名前タグ「Orin」は
+    // 作業中も円盤の横に出続ける（2026-11-24 オーナー指示）。
     expect(presence.textContent).toContain('回答を準備しています');
-    expect(within(presence).queryByTestId('origin-orin-presence-name')).toBeNull();
+    expect(within(presence).getByTestId('origin-orin-presence-name').textContent).toBe('Orin');
     expect(screen.queryByTestId('origin-orin-bubble')).toBeNull();
     expect(screen.queryByTestId('origin-thinking')).toBeNull();
     // 状態はプレゼンスのオリンが表す。送信中はタイピング動画で
@@ -3013,31 +3013,34 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('72px');
   });
 
-  it('shrinks Orin while the conversation is scrolled and restores it at the top (2026-11-20 10:10 auto-shrink wiring)', async () => {
+  it('keeps Orin at full size in its own row while the conversation is scrolled (P4, 2026-11-23)', async () => {
     const { container } = render(<App language="ja" />);
     const presence = await screen.findByTestId('origin-orin-presence');
     const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
     const disc = cat.parentElement as HTMLElement;
-    // 未スクロールの待機中は通常の72px（2026-11-20 18:17 の実機
-    // 判定で顔が読める大きさへ拡大）。円盤は薄くなっていない。
+    // 待機中は通常の72px（2026-11-20 18:17 の実機判定）。薄くもなっていない。
     expect(cat.style.width).toBe('72px');
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
     expect(scroller).toBeTruthy();
+    // P4 の構造条件：プレゼンスはスクローラの中にも上にもなく、
+    // メイン列の中でスクローラより前に置かれた独立の行。本文が
+    // 円盤の下に潜る余地がないことを構造で固定する。
+    expect(scroller.contains(presence)).toBe(false);
+    expect(presence.parentElement).toBe(scroller.parentElement);
+    expect(presence.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     let scrollTop = 120;
     Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
     fireEvent.scroll(scroller);
-    // 閾値（40px）を超えてスクロールされている間は48pxに縮む。
-    await waitFor(() => expect(cat.style.width).toBe('48px'));
-    // スクロール中は円盤が薄くなる（is-scrolling、2026-11-20
-    // 15:36 の実機判定を受けた修正）。
-    await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(true));
-    // 先頭に戻ると72pxに戻る。
+    // 閾値を超えてスクロールしても、絵は縮まず薄くもならない
+    // （浮遊前提の自動縮小・フェードは P4 で廃止）。
+    await waitFor(() => expect(cat.style.width).toBe('72px'));
+    expect(disc.classList.contains('is-scrolling')).toBe(false);
+    // 先頭に戻っても同じ大きさのまま。
     scrollTop = 0;
     fireEvent.scroll(scroller);
     await waitFor(() => expect(cat.style.width).toBe('72px'));
-    // スクロールが止まって約300ms経つと円盤の不透明度も戻る。
-    await waitFor(() => expect(disc.classList.contains('is-scrolling')).toBe(false));
+    expect(disc.classList.contains('is-scrolling')).toBe(false);
   });
 
   it('shows the existing failure text in the presence pill when the send fails', async () => {
