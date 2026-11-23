@@ -16,6 +16,7 @@ import {
 import { buildQuoteFirstContractInstruction, buildQuoteFirstRegistry, buildQuoteFirstRegistrySection, resolveQuoteFirstMode } from "../research/groundedResearchQuoteFirst.js";
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled, RECORDS_PACKET_EXCERPT_CHARS } from "../research/groundedResearchRecordsV13.js";
 import { originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { isSelfContainedCodeTaskRequest, resolveOriginCodeTaskRoutingMode } from "./originChatResponsePolicy.js";
 import { buildResearchReport } from "./originResearchReport.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
@@ -311,7 +312,22 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
     if (!messages || messages[messages.length - 1].role !== "user") return next();
     const query = messages[messages.length - 1].content;
     const explicitResearch = /調査レポート|出典付き|出典つき|ファクトチェック|複数ソース|\b(?:research report|fact[- ]check|compare sources)\b/i.test(query);
-    if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query)) return next();
+    // CB-1 passthrough (CODE_TASK_PREDICATE_PROD_GAP_DIAGNOSIS_2026-11-23,
+    // 案1): this router's own freshness scan runs over the raw text —
+    // fenced code included — so a self-contained code task whose pasted
+    // code merely contains words like `price` was intercepted here and
+    // never reached the chat routers' policy layer where the CB-1
+    // exemption lives. When the code-task routing mode is not off, a
+    // request the shared predicate accepts is handed down to the chat
+    // routers instead, exactly like the weather exclusion above. The
+    // predicate itself already refuses any prose with explicit
+    // freshness intent, and an explicit research request is still
+    // intercepted here in every mode. With the mode off (the default)
+    // the predicate is not evaluated and interception is unchanged.
+    const codeTaskPassthrough = !explicitResearch
+      && resolveOriginCodeTaskRoutingMode(env) !== "off"
+      && isSelfContainedCodeTaskRequest(query);
+    if ((!isFreshnessRequest(query) && !explicitResearch) || isWeatherRequest(query) || codeTaskPassthrough) return next();
     // S-1b: the same shared structured screen as the chat routers. This
     // router never sends conversation history externally (only the final
     // user query and source-derived prompts leave), so a sanitized

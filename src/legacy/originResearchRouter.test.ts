@@ -7,6 +7,8 @@ vi.mock("./originResearchSource.js", () => ({ researchCurrentInformation: resear
 
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginResearchRouter, type OriginResearchSynthesisExecutor } from "./originResearchRouter.js";
+import { requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
+import type { OriginResearchResult } from "./originResearchSource.js";
 
 const verifiedCatalogTime = Date.parse(DEFAULT_ORIGIN_FREE_MODEL_CATALOG[0].verifiedAt) + 1;
 
@@ -316,5 +318,218 @@ describe("originResearchRouter", () => {
     expect(response.status).toBe(200);
     expect(response.body.content).toContain("出典付き調査レポート（抽出方式）");
     expect(response.body.research.synthesis.status).toBe("provider-failed");
+  });
+});
+
+// CB-1 passthrough (CODE_TASK_PREDICATE_PROD_GAP_DIAGNOSIS_2026-11-23 案1):
+// this router's freshness scan runs over the raw text — fenced code
+// included — so the three codebench prompts below (verbatim task texts)
+// were intercepted here on the strength of `price` / `prices` inside the
+// pasted code and never reached the chat routers' policy layer. With
+// ORIGIN_CODE_TASK_ROUTING_MODE not off, a request the shared predicate
+// accepts must be handed down instead; with the mode off, interception
+// is byte-identical to the historical behaviour.
+describe("originResearchRouter CB-1 code-task passthrough", () => {
+  const evidenceResult: OriginResearchResult = {
+    ok: true,
+    sources: [{ title: "Evidence", url: "https://en.wikipedia.org/wiki/AI", excerpt: "Retrieved evidence.", evidenceLevel: "page-verified", freshness: "unknown", retrievedAt: "2026-09-10T00:00:00Z" }],
+  };
+
+  const c05Prompt = [
+    "次のPythonコードを、動作を変えずにリファクタリングしてください。検証・金額計算・文字列整形をそれぞれ別の関数に分け、process_order はそれらを組み合わせるだけにしてください。返り値の文字列の形式は変えないでください。修正後のコード全体をコードブロックで返してください。変更のポイントも簡潔に説明してください。",
+    "",
+    "```python",
+    "def process_order(order):",
+    "    if not order.get('items'):",
+    "        return 'error: no items'",
+    "    total = 0",
+    "    for item in order['items']:",
+    "        total += item['price'] * item['qty']",
+    "    tax = total * 0.1",
+    "    total_with_tax = total + tax",
+    "    name = order.get('customer', 'unknown')",
+    "    return f\"{name}: total={total_with_tax:.0f} yen (tax {tax:.0f} yen)\"",
+    "```",
+  ].join("\n");
+
+  const e05Prompt = [
+    "次のPythonコードをレビューしてください。性能上の問題点があれば、理由と、結果が同じになる改善コードを示してください。",
+    "",
+    "```python",
+    "def order_totals(db):",
+    "    orders = db.execute('SELECT id FROM orders').fetchall()",
+    "    result = []",
+    "    for (order_id,) in orders:",
+    "        rows = db.execute('SELECT price, qty FROM items WHERE order_id = ?', (order_id,)).fetchall()",
+    "        result.append((order_id, sum(p * q for p, q in rows)))",
+    "    return result",
+    "```",
+  ].join("\n");
+
+  const b01Prompt = [
+    "次のPythonコードにはバグがあります。バグを特定し、修正したコード全体をコードブロックで返してください。何がバグだったかの説明も簡潔に付けてください。なお、空のリストの平均は 0 を返す仕様にしてください。",
+    "",
+    "```python",
+    "def add_price(price, prices=[]):",
+    "    prices.append(price)",
+    "    return prices",
+    "",
+    "def average_price(prices):",
+    "    return sum(prices) / len(prices)",
+    "```",
+  ].join("\n");
+
+  const codeTaskPrompts: Array<[string, string]> = [
+    ["C-05", c05Prompt],
+    ["E-05", e05Prompt],
+    ["B-01", b01Prompt],
+  ];
+
+  function buildApp(env: NodeJS.ProcessEnv, research: (query: string) => Promise<OriginResearchResult>) {
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({ env, research }));
+    // Stand-in for the chat routers mounted after this router.
+    app.use((_req, res) => { res.status(200).json({ downstream: true }); });
+    return app;
+  }
+
+  it.each(codeTaskPrompts)("hands %s down to the chat routers in shadow mode", async (_id, prompt) => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" }, research);
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ downstream: true });
+    expect(research).not.toHaveBeenCalled();
+  });
+
+  it.each(codeTaskPrompts)("hands %s down to the chat routers in enforce mode", async (_id, prompt) => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "enforce" }, research);
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ downstream: true });
+    expect(research).not.toHaveBeenCalled();
+  });
+
+  it.each(codeTaskPrompts)("still intercepts %s with the mode off (kill switch)", async (_id, prompt) => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "off" }, research);
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBeUndefined();
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+
+  it("still intercepts C-05 when the mode variable is unset (default off)", async () => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({}, research);
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: c05Prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBeUndefined();
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+
+  it("still intercepts a genuine freshness request with a code block in shadow mode (prose does not refer to the code)", async () => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" }, research);
+    const prompt = [
+      "最新の料金を調べてください。",
+      "",
+      "```python",
+      "def total(price, qty):",
+      "    return price * qty",
+      "```",
+    ].join("\n");
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBeUndefined();
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+
+  it("still intercepts a code task whose prose asks for the latest information in enforce mode", async () => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "enforce" }, research);
+    const prompt = [
+      "このコードを、最新の料金体系に合わせて修正してください。",
+      "",
+      "```python",
+      "def total(price, qty):",
+      "    return price * qty",
+      "```",
+    ].join("\n");
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBeUndefined();
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+
+  it("still intercepts an explicit research request with a code block in enforce mode", async () => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = buildApp({ ORIGIN_CODE_TASK_ROUTING_MODE: "enforce" }, research);
+    const prompt = [
+      "次のコードについて、調査レポートを出典付きで作成してください。",
+      "",
+      "```python",
+      "def total(price, qty):",
+      "    return price * qty",
+      "```",
+    ].join("\n");
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBeUndefined();
+    expect(research).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(codeTaskPrompts)("the handed-down %s request is evaluated by the chat-side routed determination in shadow mode", async (_id, prompt) => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({ env: { ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" }, research }));
+    // Stand-in for the chat routers: runs the same routed determination
+    // they run and returns the captured shadow fields.
+    app.post("/api/chat", (req, res) => {
+      const logs: Array<Record<string, unknown>> = [];
+      const content = (req.body as { messages: Array<{ content: string }> }).messages.at(-1)!.content;
+      requiresOriginGroundedResearchRouted(content, {
+        env: { ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" },
+        logger: (_message, fields) => { logs.push(fields); },
+      });
+      res.status(200).json({ downstream: true, logs });
+    });
+    const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+    expect(response.status).toBe(200);
+    expect(response.body.downstream).toBe(true);
+    expect(research).not.toHaveBeenCalled();
+    expect(response.body.logs).toHaveLength(1);
+    expect(response.body.logs[0].codeTaskRequestMatched).toBe(true);
+  });
+
+  it("shadow evaluation of the handed-down requests reports the expected exemption outcomes", async () => {
+    const research = vi.fn(async (_query: string): Promise<OriginResearchResult> => evidenceResult);
+    const app = express();
+    app.use(express.json());
+    app.use(createOriginResearchRouter({ env: { ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" }, research }));
+    app.post("/api/chat", (req, res) => {
+      const logs: Array<Record<string, unknown>> = [];
+      const content = (req.body as { messages: Array<{ content: string }> }).messages.at(-1)!.content;
+      requiresOriginGroundedResearchRouted(content, {
+        env: { ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" },
+        logger: (_message, fields) => { logs.push(fields); },
+      });
+      res.status(200).json({ downstream: true, logs });
+    });
+    const expectations: Array<[string, boolean]> = [
+      [c05Prompt, true],
+      [e05Prompt, true],
+      [b01Prompt, false],
+    ];
+    for (const [prompt, wouldExempt] of expectations) {
+      const response = await request(app).post("/api/chat").send({ messages: [{ role: "user", content: prompt }] });
+      expect(response.status).toBe(200);
+      expect(response.body.logs).toHaveLength(1);
+      expect(response.body.logs[0]).toMatchObject({ codeTaskRequestMatched: true, codeTaskWouldExempt: wouldExempt });
+    }
+    expect(research).not.toHaveBeenCalled();
   });
 });
