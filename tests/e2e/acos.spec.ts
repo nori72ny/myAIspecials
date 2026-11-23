@@ -83,14 +83,17 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
     });
     await page.goto('/');
-    // 待機中からプレゼンスはヘッダー直下に上部中央で浮遊して
-    // 出ている（姿のみ、状態ピルは作業中だけ）。2026-11-17 に
-    // 帯方式（通常フロー）へ移したが、2026-11-20 10:10 の
+    // 待機中からプレゼンスはヘッダー直下に上部中央で出ている
+    // （姿のみ、状態ピルは作業中だけ）。配置の履歴：2026-11-17
+    // に帯方式（通常フロー）へ移し、2026-11-20 10:10 の
     // オーナー refine で浮遊配置（メイン列内 absolute）へ戻し、
-    // 作業中・スクロール中は自動で小さくなるようにした。同日
-    // 12:06 に窓の枠は撤去されて枠なしになり、同日 15:36 の
-    // 実機判定（頭が切れて見える）を受けて、円盤の全体が
-    // ヘッダー下端より下に見える形になっている。
+    // 同日 12:06 に窓の枠は撤去されて枠なしになり、同日 15:36
+    // の実機判定（頭が切れて見える）を受けて全体表示にした。
+    // その後、週次品質検査（2026-11-23）の欠陥 #4（スクロール
+    // した回答文の上にオリンが重なって文字が隠れる）への対策
+    // として、通常フロー内の専用行へ戻した（P4）。浮遊前提の
+    // 緩和策（スクロール中のフェードと自動縮小）は廃止し、
+    // 本文が円盤の下に潜る余地自体を無くした。
     // ヘッダーにオリンは置かない。
     // 常駐の名前テキストは2026-11-15 のオーナー指示で削除済み
     // （カード内表示は残る）。
@@ -98,7 +101,18 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     await expect(presence).toBeVisible();
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveCount(0);
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0);
-    await expect(presence).toHaveCSS('position', 'absolute');
+    await expect(presence).toHaveCSS('position', 'static');
+    // 専用行の位置（P4）：行はヘッダーの直下にあり、会話
+    // スクローラは行の直下から始まる。行とスクローラが
+    // 重なることはない。
+    const presenceBoxAcos = await presence.boundingBox();
+    const headerBoxAcos = await page.locator('.origin-header').boundingBox();
+    const scrollerBoxAcos = await page.locator('.origin-chat-scroll').boundingBox();
+    expect(presenceBoxAcos).not.toBeNull();
+    expect(headerBoxAcos).not.toBeNull();
+    expect(scrollerBoxAcos).not.toBeNull();
+    expect(presenceBoxAcos!.y).toBeGreaterThanOrEqual(headerBoxAcos!.y + headerBoxAcos!.height - 1);
+    expect(presenceBoxAcos!.y + presenceBoxAcos!.height).toBeLessThanOrEqual(scrollerBoxAcos!.y + 1);
     await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
