@@ -5,6 +5,7 @@ import { createOriginStreamingChatRouter } from "../legacy/originStreamingChatRo
 import { createOriginResearchRouter } from "../legacy/originResearchRouter.js";
 import { executeOriginProviderWithFailover } from "../legacy/originProviderFailover.js";
 import { createOriginLegacyProviderBoundaryRouter } from "../legacy/originLegacyProviderBoundaryGuard.js";
+import { resolveOriginCodeTaskRoutingMode } from "../legacy/originChatResponsePolicy.js";
 import { applyOriginSecurityHeaders, createOriginChatRateLimiter, requireSafeOriginChatRequest } from "./originSecurity.js";
 import { createAgentOrchestratorRouter } from "../agent/agentOrchestrator.js";
 import { createAgentOrchestratorV3Router } from "../agent/agentOrchestratorV3.js";
@@ -117,6 +118,11 @@ export function createOriginApp(
     // this reads true — the same fail-closed status shape as the
     // agent status' attachmentsEnabled (F3).
     voiceOutputEnabled: voiceOutputEnabled(env),
+    // CB-1 observability: the resolved code-task routing mode, so
+    // an observation window can confirm from outside that the
+    // switch value reached this instance exactly (anything other
+    // than the exact "shadow" / "enforce" resolves to "off").
+    codeTaskRoutingMode: resolveOriginCodeTaskRoutingMode(env),
     freeOnly: true,
     paidFallbackEnabled: false,
     secretDelivery: "server-only",

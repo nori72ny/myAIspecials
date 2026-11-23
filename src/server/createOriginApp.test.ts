@@ -124,6 +124,7 @@ describe("createOriginApp provider isolation", () => {
       service: "acos-2",
       releaseSha: "d128f5dcc826d4dfae83f7b004f38af1dad9bc14",
       voiceOutputEnabled: false,
+      codeTaskRoutingMode: "off",
       freeOnly: true,
       paidFallbackEnabled: false,
       secretDelivery: "server-only",
@@ -141,6 +142,28 @@ describe("createOriginApp provider isolation", () => {
 
     expect(enabled.body.voiceOutputEnabled).toBe(true);
     expect(truthy.body.voiceOutputEnabled).toBe(false);
+  });
+
+  it("reports codeTaskRoutingMode only for the exact switch values", async () => {
+    const shadow = await request(createOriginApp({
+      ORIGIN_CODE_TASK_ROUTING_MODE: "shadow",
+    })).get("/api/health");
+    const enforce = await request(createOriginApp({
+      ORIGIN_CODE_TASK_ROUTING_MODE: "enforce",
+    })).get("/api/health");
+    const inexact = await request(createOriginApp({
+      ORIGIN_CODE_TASK_ROUTING_MODE: "SHADOW",
+    })).get("/api/health");
+    const unset = await request(createOriginApp({})).get("/api/health");
+
+    expect(shadow.body.codeTaskRoutingMode).toBe("shadow");
+    expect(enforce.body.codeTaskRoutingMode).toBe("enforce");
+    // The resolver is exact-match: a differently-cased value and an
+    // unset switch both resolve to "off", which is exactly what an
+    // observation window needs to tell a delivery failure apart
+    // from a live shadow.
+    expect(inexact.body.codeTaskRoutingMode).toBe("off");
+    expect(unset.body.codeTaskRoutingMode).toBe("off");
   });
 
   it("keeps the local health path aligned with the production API health path", async () => {

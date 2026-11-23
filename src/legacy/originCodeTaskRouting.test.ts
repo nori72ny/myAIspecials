@@ -115,15 +115,49 @@ describe("requiresOriginGroundedResearchRouted (CB-1)", () => {
     expect(fields.codeTaskWouldExempt).toBe(true);
     // Booleans only — the log never carries the message text.
     expect(Object.values(fields).every((value) => typeof value === "boolean")).toBe(true);
+    // The line itself is a single JSON-bearing string, so the field
+    // names sit in the message text where log text search reaches
+    // them (the 2026-11-23 shadow window found no line at all when
+    // the fields rode only in the second argument).
+    const line = logger.mock.calls[0][0] as string;
+    expect(line.startsWith("[origin-chat] code task routing (shadow) {")).toBe(true);
+    expect(JSON.parse(line.slice(line.indexOf("{")))).toEqual(fields);
+    expect(line).not.toContain("process_order");
   });
 
-  it("shadow mode stays silent for messages the predicate does not match", () => {
+  it("shadow mode logs every determination, including predicate misses", () => {
+    // A miss line is what makes the mode itself observable: without
+    // it, a silent window cannot distinguish "off" from "no match"
+    // (the 2026-11-23 production shadow window hit exactly that).
     const logger = vi.fn();
-    requiresOriginGroundedResearchRouted("現在の最低賃金はいくらですか？", {
+    const message = "現在の最低賃金はいくらですか？";
+    const routed = requiresOriginGroundedResearchRouted(message, {
       env: { ORIGIN_CODE_TASK_ROUTING_MODE: "shadow" } as NodeJS.ProcessEnv,
       logger,
     });
-    expect(logger).not.toHaveBeenCalled();
+    expect(routed).toBe(requiresOriginGroundedResearch(message));
+    expect(logger).toHaveBeenCalledTimes(1);
+    const fields = logger.mock.calls[0][1] as Record<string, unknown>;
+    expect(fields.codeTaskRequestMatched).toBe(false);
+    expect(fields.groundedResearchRequired).toBe(true);
+    expect(fields.codeTaskWouldExempt).toBe(false);
+    const line = logger.mock.calls[0][0] as string;
+    expect(JSON.parse(line.slice(line.indexOf("{")))).toEqual(fields);
+  });
+
+  it("off and enforce modes never log", () => {
+    const offLogger = vi.fn();
+    requiresOriginGroundedResearchRouted(C05_PROMPT, {
+      env: {} as NodeJS.ProcessEnv,
+      logger: offLogger,
+    });
+    expect(offLogger).not.toHaveBeenCalled();
+    const enforceLogger = vi.fn();
+    requiresOriginGroundedResearchRouted(C05_PROMPT, {
+      env: { ORIGIN_CODE_TASK_ROUTING_MODE: "enforce" } as NodeJS.ProcessEnv,
+      logger: enforceLogger,
+    });
+    expect(enforceLogger).not.toHaveBeenCalled();
   });
 
   it("enforce mode keeps the measured code tasks on the direct path", () => {

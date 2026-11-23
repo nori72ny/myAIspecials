@@ -503,9 +503,10 @@ export function resolveOriginBenefitProcedureRoutingMode(
 /**
  * The CB-1 exemption's dedicated switch: ORIGIN_CODE_TASK_ROUTING
  * _MODE, default OFF (the same staging the G3-a / G5 routing changes
- * use). "shadow" logs the comparison — whether the self-contained
- * code-task predicate matched and whether the exemption would have
- * changed the routing — and routes exactly as before; "enforce" lets
+ * use). "shadow" logs every determination — whether the
+ * self-contained code-task predicate matched and whether the
+ * exemption would have changed the routing — as a single
+ * JSON-bearing line and routes exactly as before; "enforce" lets
  * a matched request skip the current-information promotion. An
  * explicit research request still grounds in every mode. Logs carry
  * booleans only, never the message text.
@@ -544,26 +545,35 @@ export function requiresOriginGroundedResearchRouted(
   let routed = base;
 
   const codeTaskMode = resolveOriginCodeTaskRoutingMode(env);
-  if (codeTaskMode !== "off" && isSelfContainedCodeTaskRequest(message)) {
+  const codeTaskMatched = codeTaskMode !== "off" && isSelfContainedCodeTaskRequest(message);
+  if (codeTaskMode === "shadow") {
+    // Shadow logs EVERY determination — matched or not — so an
+    // observation window can prove the mode itself reached the
+    // serving instance: a silent window used to mean either "off"
+    // or "no match", indistinguishably. The line is a single
+    // JSON-bearing string (the field names sit in the message text,
+    // where log text search reaches them); the fields object still
+    // rides along for structured loggers. Booleans only — the log
+    // never carries the message text.
+    const fields = {
+      codeTaskRequestMatched: codeTaskMatched,
+      groundedResearchRequired: base,
+      codeTaskWouldExempt: codeTaskMatched
+        ? base && !requiresOriginGroundedResearchWithCurrentInformation(message, false)
+        : false,
+    };
+    const logger = input?.logger ?? ((logMessage: string, _fields?: Record<string, unknown>) => console.info(logMessage));
+    try {
+      logger(`[origin-chat] code task routing (shadow) ${JSON.stringify(fields)}`, fields);
+    } catch {
+      // A routing shadow log must never break or delay the answer.
+    }
+  } else if (codeTaskMatched) {
     // The determination with ONLY the current-information promotion
     // removed: the transform-only / hypothetical short-circuits and
     // an explicit research request apply exactly as in the canonical
     // result, so "調べて直して" still grounds.
-    const exempted = requiresOriginGroundedResearchWithCurrentInformation(message, false);
-    if (codeTaskMode === "shadow") {
-      const logger = input?.logger ?? ((logMessage: string, fields: Record<string, unknown>) => console.info(logMessage, fields));
-      try {
-        logger("[origin-chat] code task routing (shadow)", {
-          codeTaskRequestMatched: true,
-          groundedResearchRequired: base,
-          codeTaskWouldExempt: base && !exempted,
-        });
-      } catch {
-        // A routing shadow log must never break or delay the answer.
-      }
-    } else {
-      routed = exempted;
-    }
+    routed = requiresOriginGroundedResearchWithCurrentInformation(message, false);
   }
 
   const priceMode = resolveOriginOfficialPriceRoutingMode(env);
