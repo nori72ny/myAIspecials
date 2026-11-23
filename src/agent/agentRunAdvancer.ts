@@ -255,9 +255,13 @@ function stepConsumesRawArtifact(step: { toolName?: ToolName; params: ToolParams
  * every step a later step names through `contentFromStep`, plus — for
  * each step carrying the position-dependent
  * `contentFromPreviousArtifact` marker — every textual producer before
- * it. Deterministic from the approved plan alone, so the rule adds no
- * runtime judgment to what gets stored. Steps nobody consumes are
- * never saved.
+ * it. Artifact retrieval (design AGENT_ARTIFACT_RETRIEVAL_2026-11-23
+ * §3.2) adds one more member: the plan's final step when it is the
+ * document_generator, so the run's deliverable stays retrievable
+ * after the completing advance's one-time hand-off. Deterministic
+ * from the approved plan alone, so the rule adds no runtime judgment
+ * to what gets stored. Steps nobody consumes and that are not the
+ * deliverable are never saved.
  */
 export function stepArtifactPersistIndexes(plan: readonly AgentRunPlanStep[]): ReadonlySet<number> {
   const selected = new Set<number>();
@@ -272,6 +276,10 @@ export function stepArtifactPersistIndexes(plan: readonly AgentRunPlanStep[]): R
       }
     }
   });
+  const finalIndex = plan.length - 1;
+  if (finalIndex >= 0 && plan[finalIndex].toolName === 'document_generator') {
+    selected.add(finalIndex);
+  }
   return selected;
 }
 

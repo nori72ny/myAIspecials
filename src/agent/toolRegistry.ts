@@ -380,18 +380,37 @@ const registry: Record<ToolName, ToolDefinition> = {
         }
         filename = override;
       }
+      // Envelope rule (the JSON path's discipline, applied to every
+      // format): the declared bytes/sha256 describe the entity this
+      // envelope carries. Text formats carry it inline as `content` —
+      // for markdown the pre-wrap body string the display consumes,
+      // for csv the generated file text itself — so the declarations
+      // are measured from that string, never from the wrapped file
+      // bytes (the markdown file wraps the body in a title heading;
+      // measuring the file was the K8s deliverable's 225-byte
+      // mismatch). Binary formats carry no inline entity yet, so
+      // their declarations describe the generated file bytes, which
+      // is exactly what a later contentBase64 will decode to. The
+      // generator's own verification above stays a verification of
+      // the generated file and is reported unchanged.
+      const carriedText = generated.type === 'markdown'
+        ? content
+        : generated.type === 'csv'
+          ? generated.bytes.toString('utf8')
+          : undefined;
+      const declaredBytes = carriedText !== undefined ? Buffer.from(carriedText, 'utf8') : generated.bytes;
       const artifact = JSON.stringify({
         kind: 'document',
         format: generated.type,
         filename,
         mimeType: generated.mimeType,
-        bytes: generated.bytes.length,
-        sha256: generated.sha256,
+        bytes: declaredBytes.length,
+        sha256: carriedText !== undefined ? sha256(carriedText) : generated.sha256,
         verified: generated.verified,
         verification: generated.verification,
-        ...(generated.type === 'markdown' ? { content } : {}),
+        ...(carriedText !== undefined ? { content: carriedText } : {}),
       });
-      return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${generated.bytes.length} bytes).` };
+      return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${declaredBytes.length} bytes).` };
     },
   },
   web_search_grounding: {
