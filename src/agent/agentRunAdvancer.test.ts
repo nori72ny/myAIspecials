@@ -917,8 +917,9 @@ describe('advanceAgentRun rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICA
       rateLimitHolds: 1,
     });
     // The executed step's declared charge stays journaled (the ledger
-    // counts attempts, not outcomes).
-    expect(record?.quotaLedger['origin-llm']?.calls).toBe(4);
+    // counts attempts, not outcomes). The seeded step declares 4
+    // chunks, but the charge is capped at the 2-chunk segment size.
+    expect(record?.quotaLedger['origin-llm']?.calls).toBe(2);
   });
 
   it('resumes the parked run through the §8 flow and completes it from the parked step', async () => {

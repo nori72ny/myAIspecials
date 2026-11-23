@@ -118,7 +118,7 @@ export type AgentMultiToolPlanV3 =
  * and both the planner and the executor move together so a plan the
  * planner emits is always executable. Exported so the attachment
  * augmentation can derive its own step ceiling from this base
- * (AGENT_ATTACHMENT_MAX_PLAN_STEPS in agentAttachmentPlanning.ts).
+ * (resolveAgentAttachmentMaxPlanSteps in agentAttachmentPlanning.ts).
  */
 export const MAX_PLAN_STEPS = 6;
 

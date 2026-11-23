@@ -525,6 +525,13 @@ export default function AgentWorkspaceView() {
     setPhase('planning');
     setLog(['実行計画を作っています。']);
     setArtifact('計画を作成しています…');
+    // A plan-time refusal the user can act on: an oversize
+    // attachment set is refused with AGENT_ATTACHMENT_TOO_LARGE
+    // (plan-time, with the reason attached — see the 422 body),
+    // and the generic "could not create a plan" line below would
+    // hide that reason. Keep the plain-language reason in this
+    // variable so the catch block can show it instead.
+    let planFailureReason: string | undefined;
     try {
       const response = await fetch('/api/agent/v3/plan', {
         method: 'POST',
@@ -539,8 +546,13 @@ export default function AgentWorkspaceView() {
         body: JSON.stringify({ goal: trimmed, ...(attachmentSetId ? { attachmentSetId } : {}) }),
         signal: controller.signal,
       });
-      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string; steps?: Array<{ toolName?: unknown; params?: unknown }>; attachments?: unknown };
+      const data = await response.json() as Partial<AgentPlan> & { ok?: boolean; code?: string; limitKind?: string; steps?: Array<{ toolName?: unknown; params?: unknown }>; attachments?: unknown };
       if (!response.ok || data.ok !== true || typeof data.runId !== 'string' || typeof data.planToken !== 'string' || !Array.isArray(data.plan) || !isAgentTool(data.selectedTool) || !data.params || typeof data.params !== 'object' || Array.isArray(data.params)) {
+        if (data.code === 'AGENT_ATTACHMENT_TOO_LARGE') {
+          planFailureReason = data.limitKind === 'chunks'
+            ? '添付データの量が上限を超えています。ファイルを減らすか、分割してご依頼ください。'
+            : '添付データが多すぎて、一度に処理できる計画に収まりませんでした。ファイルを減らすか、分割してご依頼ください。';
+        }
         throw new Error(data.code ?? 'AGENT_PLAN_FAILED');
       }
       const parsedSteps: AgentToolStep[] = Array.isArray(data.steps)
@@ -572,7 +584,7 @@ export default function AgentWorkspaceView() {
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         setPhase('failed');
-        setLog((current) => [...current, '計画を作成できませんでした。依頼内容をご確認のうえ、もう一度お試しください。']);
+        setLog((current) => [...current, planFailureReason ?? '計画を作成できませんでした。依頼内容をご確認のうえ、もう一度お試しください。']);
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;

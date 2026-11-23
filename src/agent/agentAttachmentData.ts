@@ -21,13 +21,19 @@
 
 export const AGENT_ATTACHMENT_CHUNK_MAX_CHARS = 3_500;
 /** Analyzer segment size: one step processes at most this many chunks,
- * one sequential model call per chunk. Kept at 4 after the ALE wave-1
- * production measurement (2026-11-21): an 8-chunk segment — eight
- * back-to-back calls over ~59s — failed deterministically with
- * PROVIDER_RATE_LIMITED on the free routes in two consecutive trials,
- * while a 4-chunk segment (the K8s shape) completed on the same path.
- * Diagnosis: AGENT_MA_SEGMENT_LIMIT_DIAGNOSIS_2026-11-21. */
-export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP = 4;
+ * one sequential model call per chunk. Lowered from 4 to 2 after the
+ * AGORA timeout (2026-11-23, run-4aaf8df2): a 4-chunk segment ran
+ * ~104s in production — about 87% of the 120s function limit — so
+ * one provider timeout plus its retry wait could not fit inside the
+ * step at all. At 2 chunks a step runs at roughly 50s, leaving room
+ * for one timeout and its retry inside the same step. Diagnosis:
+ * AGENT_AGORA_PROVIDER_TIMEOUT_DIAGNOSIS_2026-11-23. The 4-chunk
+ * value it replaces had been kept after the ALE wave-1 measurement
+ * (2026-11-21), when an 8-chunk segment failed deterministically
+ * with PROVIDER_RATE_LIMITED while a 4-chunk segment completed;
+ * the 4-chunk segment was then measured to complete, but only just
+ * inside the function limit, which the AGORA timeout exposed. */
+export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP = 2;
 export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN = 48;
 /** Goal-derived analyzer instruction cap (design §3.3): the fixed
  * template plus this stays within the 1,700-char instruction pin. */

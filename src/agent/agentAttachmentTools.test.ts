@@ -586,7 +586,7 @@ const result = await toolRegistry.attachment_analyzer.execute(
 {
 attachmentSetId: SET_ID, setDigest,
 instruction: '障害の原因を分析してください',
-outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+outputKind: 'findings', chunkOffset: 0, chunkCount: 2,
 },
 contextFor(store, executor),
 );
@@ -595,15 +595,13 @@ const bundle = JSON.parse(result.artifact?? '{}') as {
 coverage: { processedChunks: number};
 findings: { file: string}[];
 };
-expect(bundle.coverage.processedChunks).toBe(4);
+expect(bundle.coverage.processedChunks).toBe(2);
 expect(bundle.findings.map((finding) => finding.file)).toEqual([
-'cluster_state.txt', 'cluster_state.txt', 'deployment.yaml', 'failing_pod.log',
+'cluster_state.txt', 'cluster_state.txt',
 ]);
 expect(seenFrames).toEqual([
 '【出典: cluster_state.txt（チャンク 1/4）】',
 '【出典: cluster_state.txt（チャンク 2/4）】',
-'【出典: deployment.yaml（チャンク 3/4）】',
-'【出典: failing_pod.log（チャンク 4/4）】',
 ]);
 });
 
@@ -663,7 +661,7 @@ const result = await toolRegistry.attachment_analyzer.execute(
 {
 attachmentSetId: SET_ID, setDigest,
 instruction: '障害の原因を分析してください',
-outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+outputKind: 'findings', chunkOffset: 0, chunkCount: 2,
 structuredJsonKeys: ['root_causes', 'affected_resources', 'remediation_plan'],
 },
 contextFor(store, executor),
@@ -694,22 +692,22 @@ instruction: '各断片から対象を抽出してください',
 outputKind: 'rows',
 ...extra,
 });
-const step1 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 0, chunkCount: 4}), contextFor(store, executor));
-expect(step1.ok).toBe(true);
-const step2 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 4, chunkCount: 4, content: step1.artifact}), contextFor(store, executor));
-expect(step2.ok).toBe(true);
-const step3 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 8, chunkCount: 4, content: step2.artifact}), contextFor(store, executor));
-expect(step3.ok).toBe(true);
-const step4 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 12, chunkCount: 4, content: step3.artifact}), contextFor(store, executor));
-expect(step4.ok).toBe(true);
-const step5 = await toolRegistry.attachment_analyzer.execute(
-params({ chunkOffset: 16, chunkCount: 1, content: step4.artifact}), contextFor(store, executor));
-expect(step5.ok).toBe(true);
-const bundle = JSON.parse(step5.artifact?? '{}') as {
+// Nine 2-chunk steps cover the 17 chunks (the 2-chunk segment
+// size after the AGORA timeout fix); the merged bundle and the
+// coverage gate are unchanged by the finer split.
+const steps: Array<Awaited<ReturnType<typeof toolRegistry.attachment_analyzer.execute>>> = [];
+for (let offset = 0; offset < 17; offset += 2) {
+  const chunkCount = Math.min(2, 17 - offset);
+  const content = steps.length > 0 ? steps[steps.length - 1].artifact : undefined;
+  const step = await toolRegistry.attachment_analyzer.execute(
+    params({ chunkOffset: offset, chunkCount, ...(content ? { content } : {}) }),
+    contextFor(store, executor),
+  );
+  expect(step.ok).toBe(true);
+  steps.push(step);
+}
+expect(steps).toHaveLength(9);
+const bundle = JSON.parse(steps[steps.length - 1].artifact ?? '{}') as {
 coverage: { processedChunks: number};
 rows: { file: string}[];
 };
@@ -752,11 +750,23 @@ expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
 it('fails coverage when rows over a prose set come back empty', async () => {
 const { store, setDigest} = await storeWithFiles(K8S_SHAPE_FILES);
 const emptyExecutor: AgentModelExecutor = async () => ({ ok: true, text: JSON.stringify({ rows: []})});
+// The coverage gate runs only on the final step (chunkOffset +
+// range == totalChunks): with the 2-chunk segment size the
+// 4-chunk K8s set needs two steps to reach it.
+const first = await toolRegistry.attachment_analyzer.execute(
+{
+attachmentSetId: SET_ID, setDigest,
+instruction: '各断片から対象を抽出してください',
+outputKind: 'rows', chunkOffset: 0, chunkCount: 2,
+},
+contextFor(store, emptyExecutor),
+);
+expect(first.ok).toBe(true);
 const result = await toolRegistry.attachment_analyzer.execute(
 {
 attachmentSetId: SET_ID, setDigest,
 instruction: '各断片から対象を抽出してください',
-outputKind: 'rows', chunkOffset: 0, chunkCount: 4,
+outputKind: 'rows', chunkOffset: 2, chunkCount: 2, content: first.artifact,
 },
 contextFor(store, emptyExecutor),
 );
@@ -863,12 +873,12 @@ describe('attachment_analyzer alternating allocation + chunk interval (design §
       env: { ORIGIN_AGENT_ANALYZER_CHUNK_INTERVAL_ENABLED: 'true' },
     };
     const result = await toolRegistry.attachment_analyzer.execute(
-      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 3 }),
+      analyzerParams(setDigest, { outputKind: 'text', chunkOffset: 0, chunkCount: 2 }),
       context,
     );
     expect(result.ok).toBe(true);
-    // Three chunks → two intervals, none before the first chunk.
-    expect(sleeps).toEqual([AGENT_ANALYZER_CHUNK_INTERVAL_MS, AGENT_ANALYZER_CHUNK_INTERVAL_MS]);
+    // Two chunks → one interval, none before the first chunk.
+    expect(sleeps).toEqual([AGENT_ANALYZER_CHUNK_INTERVAL_MS]);
 
     // A transient retry inside chunk 1 keeps its own backoff; the
     // interval before chunk 2 follows it, unmerged and uncounted
@@ -1329,7 +1339,7 @@ describe('misreading countermeasure layers 1+3: audit-mode analyzer', () => {
       {
         attachmentSetId: SET_ID, setDigest,
         instruction: '障害の原因を分析してください',
-        outputKind: 'findings', chunkOffset: 0, chunkCount: 4,
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 2,
       },
       contextFor(store, executor),
     );
@@ -1338,24 +1348,23 @@ describe('misreading countermeasure layers 1+3: audit-mode analyzer', () => {
     // implementation produced for this exact scenario (generated
     // from the untouched base, 2026-11-23): same keys, same order,
     // same rendering — no values/structure/candidates, no
-    // explanation fields.
+    // explanation fields. The scenario drives the 2-chunk segment
+    // size (AGORA split, 2026-11-23): the expected bundle is the
+    // base-generated bundle for chunks 0-1, the first two findings
+    // of the full-range bundle pinned before the split.
     const expected = {
       kind: 'data-analysis',
       content: [
         '- 断片から読み取れる所見（根拠: cluster_state.txt 冒頭 「引用」）',
         '- 断片から読み取れる所見（根拠: cluster_state.txt 冒頭 「引用」）',
-        '- 断片から読み取れる所見（根拠: deployment.yaml 冒頭 「引用」）',
-        '- 断片から読み取れる所見（根拠: failing_pod.log 冒頭 「引用」）',
       ].join('\n'),
       outputKind: 'findings',
       findings: [
         { claim: '断片から読み取れる所見', evidence: '引用', file: 'cluster_state.txt', location: '冒頭' },
         { claim: '断片から読み取れる所見', evidence: '引用', file: 'cluster_state.txt', location: '冒頭' },
-        { claim: '断片から読み取れる所見', evidence: '引用', file: 'deployment.yaml', location: '冒頭' },
-        { claim: '断片から読み取れる所見', evidence: '引用', file: 'failing_pod.log', location: '冒頭' },
       ],
-      coverage: { totalChunks: 4, processedChunks: 4 },
-      chunkRange: { offset: 0, count: 4 },
+      coverage: { totalChunks: 4, processedChunks: 2 },
+      chunkRange: { offset: 0, count: 2 },
     };
     expect(result.artifact).toBe(JSON.stringify(expected));
   });
