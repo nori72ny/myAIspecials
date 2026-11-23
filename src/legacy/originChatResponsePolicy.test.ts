@@ -323,9 +323,9 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
 describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () => {
   const compact = originGroqRouteSystemInstruction();
 
-  it("stays within the 2,000-4,800 character budget the Groq TPM gate can carry", () => {
+  it("stays within the 2,000-5,600 character budget the Groq TPM gate can carry", () => {
     expect(compact.length).toBeGreaterThanOrEqual(2_000);
-    expect(compact.length).toBeLessThanOrEqual(4_800);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
     // The full standard instruction is several times larger; the compact variant
     // must remain a small fraction of it.
     expect(compact.length * 3).toBeLessThan(originChatSystemInstruction().length);
@@ -362,6 +362,15 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
       "make the code do what the prose claims",
       "use every name exactly as it was defined",
       "trace each example once for definition/use mismatches that would throw an error when run",
+      // CB-5 (CODEBENCH_CB5_DESIGN_2026-11-23): the await
+      // non-blocking canon and the scope, governing, and
+      // API-conventions additions, in condensed form.
+      "await suspends only the async function and does not block the thread",
+      "each example must define every name it uses",
+      "a name defined inside one function is not available in another",
+      "govern every description of the original",
+      "keep the API conventions the given code shows",
+      "do not switch dialects",
     ]) {
       expect(compact).toContain(phrase);
     }
@@ -385,10 +394,17 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
     // and about 2,414 with this shortest question, so the pin sits at
     // 2,500 - and even cap + question + a 256-token completion
     // (~2,670) stays far under the ceiling below.
+    // CB-5 (CODEBENCH_CB5_DESIGN_2026-11-23) raised the base budget to
+    // 5,600 so this route could carry the await non-blocking canon and
+    // the scope, governing, and API-conventions additions; at that cap
+    // the estimator reads ceil(5600/2)+4 = 2,804 tokens for the
+    // instruction alone and about 2,814 with this shortest question, so
+    // the pin sits at 2,900 - and even cap + question + a 256-token
+    // completion (~3,070) stays far under the ceiling below.
     const productionAssembledEstimate = estimateOriginGroqInputTokens(["x".repeat(15_713), "日本の首都はどこですか？"]);
     expect(productionAssembledEstimate + 256).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
     const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
-    expect(compactEstimate).toBeLessThanOrEqual(2_500);
+    expect(compactEstimate).toBeLessThanOrEqual(2_900);
     expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
   });
 });
@@ -567,8 +583,8 @@ describe("answer-quality follow-ups (PKG-9 batch 1: safety standards and form/le
       "Specified form or length (brief, items only, one line) is strict",
       "no added versions, premises, or follow-up questions; otherwise one version only",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(4_800);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_500);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
   });
 });
 
@@ -657,8 +673,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "once per topic, never repeat",
       "If unclear, keep the neutral style",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(4_800);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_500);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
   });
 
   it("pins false-premise correction: correct first at the start, then answer under the corrected premise (I-2)", () => {
@@ -778,8 +794,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "Assumptions stand as posed only when explicitly framed as an assumption or hypothetical",
       "Corrections replace the old premise: rebuild on the new one alone",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(4_800);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_500);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
   });
 
   // The I-1 measurement's REP-02 was fatal: the turn-2 correction
@@ -862,8 +878,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "a hypothetical framed as one may be answered as one",
       "Stated backgrounds and form preferences persist across topics",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(4_800);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_500);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
   });
 
   // The I-1 R2 re-measurement (production bc1c1918, I-3 live) found the
@@ -922,8 +938,8 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(compact).toContain("\n- Corrections replace the old premise");
     // The unbounded exception form is gone.
     expect(compact).not.toContain("Hypotheticals and assumptions stand as posed");
-    expect(compact.length).toBeLessThanOrEqual(4_800);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_500);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
   });
 
   it("pins the attribute/topic split and the vacuum rule on the route-3 compact instruction (I-4, D-1/D-2/D-3)", () => {
@@ -937,7 +953,7 @@ describe("intent awareness (request-context adaptation)", () => {
     ]) expect(compact).toContain(phrase);
     // The general negative form measured too weak in R2 is gone.
     expect(compact).not.toContain("never drag them in when they do not");
-    expect(compact.length).toBeLessThanOrEqual(4_800);
+    expect(compact.length).toBeLessThanOrEqual(5_600);
   });
 });
 
@@ -1035,7 +1051,7 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
     expect(originGroqRouteSystemInstruction(null)).toBe(base);
     expect(originGroqRouteSystemInstruction(undefined)).toBe(base);
     expect(base.length).toBeGreaterThanOrEqual(2_000);
-    expect(base.length).toBeLessThanOrEqual(4_800);
+    expect(base.length).toBeLessThanOrEqual(5_600);
     expect(base).not.toContain("Business planning rules for this request");
   });
 
@@ -1082,9 +1098,18 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       // measured maxima are now combined 7,049 characters and an
       // estimated 3,565 input tokens - still about sixty percent of
       // the route's 6,000-token input budget.
+      // CB-5 (CODEBENCH_CB5_DESIGN_2026-11-23) raised the base
+      // substitute's budget from 4,800 to 5,600 characters (base
+      // measured 5,352 after the change) to carry the await
+      // non-blocking canon and the scope, governing, and
+      // API-conventions additions on route 3, so the combined and
+      // estimate pins rose with it: measured maxima are now combined
+      // 7,742 characters and an estimated 3,911 input tokens - still
+      // about sixty-five percent of the route's 6,000-token input
+      // budget.
       expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(2_400);
-      expect(augmented.length, brief.id).toBeLessThanOrEqual(7_200);
-      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(3_700);
+      expect(augmented.length, brief.id).toBeLessThanOrEqual(7_900);
+      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(4_000);
     }
   });
 });
@@ -1220,6 +1245,16 @@ describe("originCloudflareRouteSystemInstruction (route-2 compressed instruction
       "Make the replacement code actually implement every property the explanation claims for it",
       "use every name exactly as it was defined",
       "trace each example once for definition/use mismatches that would throw an error if the example were run",
+      // CB-5 (CODEBENCH_CB5_DESIGN_2026-11-23): the await
+      // non-blocking canon, the scope and self-containment
+      // addition, the governing addition, and the API-conventions
+      // rule, carried verbatim from the full base.
+      "await suspends only the async function and does not block the thread",
+      "Each example must define every name it uses",
+      "a name defined inside one function is not available in another",
+      "govern every description of the original",
+      "keep the API conventions the given code shows",
+      "do not switch dialects",
       "state that basis compactly when it helps the user inspect the reasoning",
       "never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications",
       "do not turn a possible rule into a universal rule without verified jurisdiction/context",
