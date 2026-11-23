@@ -276,6 +276,24 @@ export type AgentRunStepParseFailure = {
  * by the analyzer; the normalizer below validates shapes and caps,
  * in the fail-soft style of this module.
  */
+/** One numeric column's sums in a coverage failure (coverage
+ * observability follow-on, diagnosis 2026-11-23): the yardstick's
+ * own sum for the column, the sum over the output rows' readable
+ * values, their difference, and how many output cells carried a
+ * value the numeric parser could not read and the sum therefore
+ * excluded. A nonzero difference with an unparseable count of
+ * zero is a transcription error (a dropped digit); a positive
+ * count marks values written in a notation the parser rejects.
+ * Deterministic aggregates only — no cell text ever enters the
+ * record, exactly like the rest of the live detail. */
+export type AgentRunStepCoverageNumericDetail = {
+  column: string;
+  expectedSum: number;
+  outputSum: number;
+  difference: number;
+  unparseableCount: number;
+};
+
 export type AgentRunStepCoverageFailure = {
   scope: 'final' | 'local';
   chunkOffset?: number;
@@ -286,6 +304,26 @@ export type AgentRunStepCoverageFailure = {
   duplicated: number;
   unexpected: number;
   numericMismatch: string[];
+  numericDetails?: AgentRunStepCoverageNumericDetail[];
+};
+
+/**
+ * Which route/model served an attachment_analyzer step's chunk
+ * calls, and whether the parse repair retry ran (coverage
+ * observability follow-on, diagnosis 2026-11-23). Until now a
+ * successful call reported only its text, so the step that
+ * produced a coverage failure's rows could not be attributed to
+ * the model that actually served it. The servings are the step's
+ * distinct serving routes/models in first-seen order (a step's
+ * calls may alternate across the capacity buckets). Identifiers
+ * and a boolean only — no request or response body ever enters
+ * the record, exactly like the rest of the live detail. Optional
+ * and additive: records written before the field existed read
+ * back unchanged.
+ */
+export type AgentRunStepAnalyzerExecution = {
+  servings: { providerId: string; modelId?: string }[];
+  repairRetried: boolean;
 };
 
 /**
@@ -337,6 +375,7 @@ export type AgentRunStepLiveDetail = {
   sources?: AgentRunStepLiveSource[];
   parseFailure?: AgentRunStepParseFailure;
   coverageFailure?: AgentRunStepCoverageFailure;
+  analyzerExecution?: AgentRunStepAnalyzerExecution;
   providerAttempts?: AgentRunStepProviderAttempt[];
   reconciliation?: AgentRunStepReconciliation;
 };
@@ -967,7 +1006,77 @@ function normalizeAgentRunStepCoverageFailure(value: unknown): AgentRunStepCover
   if (offset !== undefined) failure.chunkOffset = offset;
   const count = normalizeLiveCoverageCount(chunkCount);
   if (count !== undefined) failure.chunkCount = count;
+  const numericDetails = normalizeLiveCoverageNumericDetails(value.numericDetails);
+  if (numericDetails !== undefined) failure.numericDetails = numericDetails;
   return failure;
+}
+
+/** Upper bound for a recorded coverage sum. The sums are
+ * deterministic totals over an attachment table's numeric column;
+ * a value beyond this — or not finite at all — is not a sum this
+ * system produced, and the detail entry carrying it is dropped,
+ * fail-soft like the counts above. */
+const MAX_LIVE_COVERAGE_SUM = 1e15;
+
+function normalizeLiveCoverageSum(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > MAX_LIVE_COVERAGE_SUM) {
+    return undefined;
+  }
+  return value;
+}
+
+function normalizeLiveCoverageNumericDetails(
+  value: unknown,
+): AgentRunStepCoverageNumericDetail[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const details: AgentRunStepCoverageNumericDetail[] = [];
+  for (const raw of value) {
+    if (details.length >= MAX_LIVE_COVERAGE_NUMERIC_COLUMNS) break;
+    if (!isPlainObject(raw)) continue;
+    const column = truncateLiveText(raw.column, 80);
+    const expectedSum = normalizeLiveCoverageSum(raw.expectedSum);
+    const outputSum = normalizeLiveCoverageSum(raw.outputSum);
+    const difference = normalizeLiveCoverageSum(raw.difference);
+    const unparseableCount = normalizeLiveCoverageCount(raw.unparseableCount);
+    if (
+      column === undefined
+      || expectedSum === undefined
+      || outputSum === undefined
+      || difference === undefined
+      || unparseableCount === undefined
+    ) {
+      continue;
+    }
+    details.push({ column, expectedSum, outputSum, difference, unparseableCount });
+  }
+  return details.length > 0 ? details : undefined;
+}
+
+/** Distinct servings a step's execution trace may record. A
+ * step's calls realistically touch one route per capacity bucket;
+ * the cap keeps a malformed record from smuggling an unbounded
+ * list into the step state. */
+const MAX_LIVE_ANALYZER_SERVINGS = 4;
+
+function normalizeAgentRunStepAnalyzerExecution(
+  value: unknown,
+): AgentRunStepAnalyzerExecution | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const { servings, repairRetried } = value;
+  if (!Array.isArray(servings) || typeof repairRetried !== 'boolean') return undefined;
+  const normalized: AgentRunStepAnalyzerExecution['servings'] = [];
+  for (const raw of servings) {
+    if (normalized.length >= MAX_LIVE_ANALYZER_SERVINGS) break;
+    if (!isPlainObject(raw)) continue;
+    const { providerId, modelId } = raw;
+    if (typeof providerId !== 'string' || !LIVE_PROVIDER_ID_PATTERN.test(providerId)) continue;
+    if (modelId !== undefined && (typeof modelId !== 'string' || !LIVE_MODEL_ID_PATTERN.test(modelId))) continue;
+    const serving: { providerId: string; modelId?: string } = { providerId };
+    if (typeof modelId === 'string') serving.modelId = modelId;
+    normalized.push(serving);
+  }
+  if (normalized.length === 0) return undefined;
+  return { servings: normalized, repairRetried };
 }
 
 /** Provider-attempt field vocabularies for the live detail. Route
@@ -1078,6 +1187,8 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (parseFailure !== undefined) detail.parseFailure = parseFailure;
   const coverageFailure = normalizeAgentRunStepCoverageFailure(value.coverageFailure);
   if (coverageFailure !== undefined) detail.coverageFailure = coverageFailure;
+  const analyzerExecution = normalizeAgentRunStepAnalyzerExecution(value.analyzerExecution);
+  if (analyzerExecution !== undefined) detail.analyzerExecution = analyzerExecution;
   const providerAttempts = normalizeAgentRunStepProviderAttempts(value.providerAttempts);
   if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
   const reconciliation = normalizeAgentRunStepReconciliation(value.reconciliation);

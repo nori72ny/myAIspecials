@@ -886,6 +886,12 @@ const ANALYZER_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
   'skipped',
 ]);
 const ANALYZER_ATTEMPT_MAX_CARRIED = 6;
+/** Distinct servings one step's execution trace carries at most
+ * (coverage observability follow-on): a step's chunk calls
+ * realistically touch one route per allocation bucket, so four is
+ * generous headroom, and the cap keeps the trace a bounded shape
+ * like the attempts above. */
+const ANALYZER_EXECUTION_SERVINGS_MAX = 4;
 
 export function analyzerProviderFailureMessage(
   result: Extract<AgentModelCallResult, { ok: false }>,
@@ -1114,6 +1120,21 @@ export type AgentDataCoverageFailure = Extract<AgentDataCoverageResult, { ok: fa
  * parenthetical. Counts and numeric column names only; key values
  * and row data never enter the message.
  */
+/** Deterministic plain-decimal rendering for the coverage
+ * message's numeric segment: at most four fractional digits, no
+ * exponent, so the advancer's fixed-shape parser reads the value
+ * back exactly. A sum outside the carried range (or not finite)
+ * cannot be rendered in that shape and its detail entry is left
+ * out of the message — the column still appears in numericMismatch
+ * — rather than rounded into a wrong value. */
+const MAX_COVERAGE_SUM_CARRIED = 1e15;
+
+function formatCoverageSum(value: number): string | undefined {
+  if (!Number.isFinite(value) || Math.abs(value) >= MAX_COVERAGE_SUM_CARRIED) return undefined;
+  const text = value.toFixed(4);
+  return text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text;
+}
+
 export function agentDataCoverageFailureMessage(
   scope: 'final' | 'local',
   coverage: AgentDataCoverageFailure,
@@ -1121,7 +1142,24 @@ export function agentDataCoverageFailureMessage(
 ): string {
   const human = `AGENT_DATA_COVERAGE_INSUFFICIENT (対象${coverage.expected}件中${coverage.covered}件を処理、未処理${coverage.missing.length}件、重複${coverage.duplicated.length}件、対象外${coverage.unexpected.length}件、数値不一致${coverage.numericMismatch.length}件)`;
   const rangePart = range ? `, range=${range.chunkOffset}+${range.chunkCount}` : '';
-  const machine = `(coverage: scope=${scope}${rangePart}, expected=${coverage.expected}, covered=${coverage.covered}, missing=${coverage.missing.length}, duplicated=${coverage.duplicated.length}, unexpected=${coverage.unexpected.length}, numericMismatch=${coverage.numericMismatch.join('|')})`;
+  // The per-column sums ride the same parenthetical (coverage
+  // observability follow-on, diagnosis 2026-11-23): for each
+  // checked numeric column, `column:expected:output:difference:
+  // unparseable`, so the step record can show how far the output
+  // sum landed from the input's own sum and whether unreadable
+  // values were excluded on the way — the two facts that separate
+  // a digit-drop transcription error from a notation failure.
+  // Deterministic aggregates only; no cell text ever enters here.
+  const numericEntries: string[] = [];
+  for (const detail of coverage.numericDetails) {
+    const expected = formatCoverageSum(detail.expectedSum);
+    const output = formatCoverageSum(detail.outputSum);
+    const difference = formatCoverageSum(detail.difference);
+    if (expected === undefined || output === undefined || difference === undefined) continue;
+    numericEntries.push(`${detail.column}:${expected}:${output}:${difference}:${detail.unparseableCount}`);
+  }
+  const numericPart = numericEntries.length > 0 ? `, numeric=${numericEntries.join('|')}` : '';
+  const machine = `(coverage: scope=${scope}${rangePart}, expected=${coverage.expected}, covered=${coverage.covered}, missing=${coverage.missing.length}, duplicated=${coverage.duplicated.length}, unexpected=${coverage.unexpected.length}, numericMismatch=${coverage.numericMismatch.join('|')}${numericPart})`;
   return `${human} ${machine}`;
 }
 
@@ -1212,6 +1250,37 @@ export async function executeAttachmentAnalyzer(
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
   const sleepMs = context?.sleepMs ?? defaultSleepMs;
   const callModelWithTransientRetry = createTransientRetryCaller(modelCall, sleepMs);
+  // Execution trace (coverage observability follow-on, diagnosis
+  // 2026-11-23): which route/model actually served this step's
+  // chunk calls, and whether the parse repair retry ran. Until now
+  // a coverage failure could not be attributed past "the model" —
+  // the serving of the step that produced the rows was recorded
+  // nowhere. The trace rides the same two carriers as the rest of
+  // the step's observability: the success artifact's `execution`
+  // block (the reconciler pattern) and a fixed parenthetical on
+  // this step's failure messages (the parse-failure pattern); the
+  // advancer reads both back into the step's live detail.
+  // Identifiers and a boolean only — never a response body. A call
+  // whose executor reports no serving (an injected double)
+  // contributes nothing, so a step with no recorded serving
+  // carries neither carrier and its messages stay byte-identical
+  // to before this trace existed.
+  const executionServings: { providerId: string; modelId?: string }[] = [];
+  let executionRepairRetried = false;
+  const noteExecutionServing = (result: AgentModelCallResult): void => {
+    if (!result.ok || !result.serving) return;
+    const { providerId } = result.serving;
+    if (typeof providerId !== 'string' || !ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(providerId)) return;
+    const modelId = typeof result.serving.modelId === 'string' && ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(result.serving.modelId)
+      ? result.serving.modelId
+      : undefined;
+    if (executionServings.some((serving) => serving.providerId === providerId && serving.modelId === modelId)) return;
+    if (executionServings.length >= ANALYZER_EXECUTION_SERVINGS_MAX) return;
+    executionServings.push({ providerId, ...(modelId ? { modelId } : {}) });
+  };
+  const executionParenthetical = (): string => (executionServings.length === 0
+    ? ''
+    : ` (execution: servings=${executionServings.map((serving) => `${serving.providerId}|${serving.modelId ?? '-'}`).join(',')}; repair=${executionRepairRetried ? 1 : 0})`);
   const instruction = analyzerInstruction(
     outputKind,
     goalInstruction,
@@ -1244,7 +1313,8 @@ export async function executeAttachmentAnalyzer(
     // (design §2-C) assigns the chunk deterministically, including
     // across a resume that replays the step.
     const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction, chunkIndex: chunk.index });
-    if (first.ok === false) return fail(analyzerProviderFailureMessage(first));
+    noteExecutionServing(first);
+    if (first.ok === false) return fail(analyzerProviderFailureMessage(first) + executionParenthetical());
     const firstParsed = parseChunkOutputDetailed(outputKind, first.text, view, { auditMode });
     let output: ChunkOutput | null = firstParsed.ok ? firstParsed.output : null;
     if (firstParsed.ok === false) {
@@ -1253,13 +1323,15 @@ export async function executeAttachmentAnalyzer(
       // generic "return JSON" wording made a model resubmit the same
       // shape — for a fragment with no key-bearing target, the same
       // failing rows — because nothing named the actual defect.
+      executionRepairRetried = true;
       const repair = await callModelWithTransientRetry({
         instruction: `${instruction}${parseFailureRepairGuidance(firstParsed.reason, outputKind, view)}`,
         userText,
         goal: goalInstruction,
         chunkIndex: chunk.index,
       });
-      if (repair.ok === false) return fail(analyzerProviderFailureMessage(repair));
+      noteExecutionServing(repair);
+      if (repair.ok === false) return fail(analyzerProviderFailureMessage(repair) + executionParenthetical());
       const repairParsed = parseChunkOutputDetailed(outputKind, repair.text, view, { auditMode });
       if (repairParsed.ok === false) {
         // Observability (Basel fix, diagnosis §4): the terminal code
@@ -1269,11 +1341,11 @@ export async function executeAttachmentAnalyzer(
         // names the chunk's global index and the parse-failure
         // reason, never the response body, so the step record can
         // say which chunk failed and why.
-        return fail(`AGENT_DATA_OUTPUT_INVALID (chunk ${chunk.index}, parse: ${repairParsed.reason})`);
+        return fail(`AGENT_DATA_OUTPUT_INVALID (chunk ${chunk.index}, parse: ${repairParsed.reason})${executionParenthetical()}`);
       }
       output = repairParsed.output;
     }
-    if (!output) return fail('AGENT_DATA_OUTPUT_INVALID');
+    if (!output) return fail('AGENT_DATA_OUTPUT_INVALID' + executionParenthetical());
     if (outputKind === 'rows' && primaryFileName !== undefined && chunk.fileName !== primaryFileName) {
       // Primary-table contract (Basel segment-2 fix, 案1): in a
       // keyed rows run only the primary table's chunks are
@@ -1333,7 +1405,7 @@ export async function executeAttachmentAnalyzer(
     if (primaryChunksInRange.length > 0) {
       const localCoverage = verifyAgentDataLocalCoverage(view, primaryChunksInRange, stepPrimaryRows);
       if (localCoverage.ok === false) {
-        return fail(agentDataCoverageFailureMessage('local', localCoverage, { chunkOffset, chunkCount: range.length }));
+        return fail(agentDataCoverageFailureMessage('local', localCoverage, { chunkOffset, chunkCount: range.length }) + executionParenthetical());
       }
     }
   }
@@ -1350,12 +1422,12 @@ export async function executeAttachmentAnalyzer(
       const processedChunks = priorProcessedChunks === null ? -1 : priorProcessedChunks + range.length;
       const chunkCoverage = verifyAgentDataChunkCoverage(view, processedChunks, merged.rows.length);
       if (chunkCoverage.ok === false) {
-        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)`);
+        return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)${executionParenthetical()}`);
       }
     } else {
       const coverage = verifyAgentDataCoverage(view, merged.rows);
       if (coverage.ok === false) {
-        return fail(agentDataCoverageFailureMessage('final', coverage));
+        return fail(agentDataCoverageFailureMessage('final', coverage) + executionParenthetical());
       }
     }
   }
@@ -1399,6 +1471,13 @@ export async function executeAttachmentAnalyzer(
       // total observable. Observability only — never a gate.
       ...(outputKind === 'rows' ? { discardedRows: priorDiscardedRows + discardedRowsThisStep } : {}),
     },
+    // Execution trace (see the trace note at the chunk loop): the
+    // servings this step's calls actually used and whether the
+    // repair retry ran, read back by the advancer into the step's
+    // live detail. Present only when a serving was recorded.
+    ...(executionServings.length > 0
+      ? { execution: { servings: executionServings, repairRetried: executionRepairRetried } }
+      : {}),
     chunkRange: { offset: chunkOffset, count: range.length },
   });
   return {

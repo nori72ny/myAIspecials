@@ -141,6 +141,35 @@ describe('agentAttachmentData coverage verification', () => {
     if (result.ok === false) expect(result.numericMismatch).toEqual(['amount']);
   });
 
+  it('records the expected/output sums and their difference for a mismatching column (coverage observability follow-on)', () => {
+    // A-3's 300 transcribed as 30 — a digit drop: the difference is
+    // the whole story, and no value was unreadable.
+    const tampered = fullRows.map((row) => (row.id === 'A-3' ? { ...row, amount: '30' } : row));
+    const result = verifyAgentDataCoverage(view, tampered);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.numericDetails).toEqual([
+        { column: 'amount', expectedSum: 500, outputSum: 230, difference: -270, unparseableCount: 0 },
+      ]);
+    }
+  });
+
+  it('counts output values the numeric parser cannot read, apart from the sum difference (coverage observability follow-on)', () => {
+    // A-2's 80 written in a notation the parser rejects: the value
+    // is excluded from the output sum AND counted, so this failure
+    // signature (unparseableCount 1) is distinguishable from the
+    // digit drop above (unparseableCount 0).
+    const notated = fullRows.map((row) => (row.id === 'A-2' ? { ...row, amount: '八十' } : row));
+    const result = verifyAgentDataCoverage(view, notated);
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.numericMismatch).toEqual(['amount']);
+      expect(result.numericDetails).toEqual([
+        { column: 'amount', expectedSum: 500, outputSum: 420, difference: -80, unparseableCount: 1 },
+      ]);
+    }
+  });
+
   it('ignores formatting differences in numeric values (commas, currency marks)', () => {
     const formatted = fullRows.map((row) => ({ ...row, amount: `${row.amount}円` }));
     expect(verifyAgentDataCoverage(view, formatted).ok).toBe(true);
