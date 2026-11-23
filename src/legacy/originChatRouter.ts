@@ -55,7 +55,7 @@ import {
 } from "../research/groundedResearchRefusalValidation.js";
 import { applyOriginUngroundedAssertionGate, originChatSystemInstruction, originCloudflareRouteSystemInstruction, originCurrentDateInstruction, originGroqRouteSystemInstruction, requiresOriginGroundedResearchRouted } from "./originChatResponsePolicy.js";
 import { rasterProviderRuntimeStatusV15 } from "../creative/rasterProviderRegistryV15.js";
-import { hasOriginWeatherLocation, isOriginWeatherRequest, originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
+import { hasOriginWeatherLocation, isOriginWeatherRequest, isRefinementOfPreviousAnswer, originClientPolicy, screenConversationForSend, type OriginChatBody, validateOriginChatMessages } from "./originChatValidation.js";
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
@@ -366,7 +366,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
     const requestId = createRequestId(); const body = (req.body ?? {}) as OriginChatBody; const messages = validateOriginChatMessages(body.messages);
     if (!messages) return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "チャットメッセージの形式が正しくありません。", retryable: false, requestId });
     if (messages[messages.length - 1].role !== "user") return res.status(400).json({ code: "INVALID_CHAT_MESSAGES", message: "最後のメッセージはユーザーからのものである必要があります。", retryable: false, requestId });
-    const lastUserMessage = messages[messages.length - 1].content; const groundedResearchRequired = requiresGroundedResearch(lastUserMessage, env);
+    const lastUserMessage = messages[messages.length - 1].content;
+    // P1 countermeasure 2: a client-marked refinement of the previous
+    // answer is a transformation of that answer, not a new request, so
+    // the text-scan route classification does not apply to it — its
+    // machine-generated instruction text can coincidentally match the
+    // research-request patterns (the P1 misrouting).
+    const refinementOfPreviousAnswer = isRefinementOfPreviousAnswer(body, messages);
+    const groundedResearchRequired = !refinementOfPreviousAnswer && requiresGroundedResearch(lastUserMessage, env);
     if (isOriginWeatherRequest(lastUserMessage)) { const isEnglish = /[a-zA-Z]/.test(lastUserMessage); if (!hasOriginWeatherLocation(lastUserMessage, body.userLocation)) { const content = isEnglish ? "Which location would you like to know the weather for?" : "どの地域の天気をお調べしますか？"; const reason = "地域確認のため外部AIを呼びませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-required", reason), routing: applicationRouting(requestId, reason) }); } const weather = await fetchOriginWeatherAnswer(lastUserMessage, body.userLocation, searchGroundingDeps); if (weather.ok) { const content = weather.text; const reason = isEnglish ? "Answered directly from the latest Open-Meteo forecast data without a model call." : "Open-Meteoの最新予報データから、モデルを使わずに回答しました。"; const weatherEvidence = [{ label: isEnglish ? `Open-Meteo weather forecast (${weather.forecast.place})` : `Open-Meteo 天気予報（${weather.forecast.place}）`, sourceUrl: weather.forecast.sourceUrl, evidenceLevel: "provided" as const, checks: { safeUrl: "passed" as const, content: "not-run" as const, freshness: "not-run" as const, claimSupport: "not-run" as const } }]; const weatherLimitations = [isEnglish ? "Forecast data by Open-Meteo (CC BY 4.0); conditions may change after retrieval." : "Open-Meteoの予報データ（CC BY 4.0）に基づきます。取得後に天気が変わる場合があります。"]; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason, weatherEvidence, weatherLimitations), routing: { ...applicationRouting(requestId, reason, "not-run"), answerMode: "weather", weatherProvider: "Open-Meteo" } }); } const content = isEnglish ? "I tried to retrieve the latest weather information, but could not obtain it." : "最新の天気情報を取得しようとしましたが、取得できませんでした。"; const reason = isEnglish ? "Weather retrieval failed, so no forecast was guessed." : "天気情報を取得できなかったため、推測で回答しませんでした。"; return res.json({ content, answer: answerEnvelope(content, isEnglish ? "en" : "ja", "not-run", reason), routing: applicationRouting(requestId, reason, "not-run") }); }
     const screenResult = screenConversationForSend(messages);
     if (screenResult.outcome === "blocked") return res.status(422).json({ code: "SENSITIVE_INPUT_BLOCKED", messageKey: "errors.sensitiveInputBlocked", message: "秘密情報の可能性がある内容を検出したため、外部AIへの送信を停止しました。値を削除し、必要な内容だけを要約して再入力してください。", retryable: false, requestId, sensitiveKinds: screenResult.sensitiveKinds });

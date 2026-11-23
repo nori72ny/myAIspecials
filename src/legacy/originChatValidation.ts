@@ -14,6 +14,13 @@ export interface OriginChatBody {
   userLocation?: unknown;
   activeContext?: unknown;
   executionPolicy?: { maxEstimatedCostUsd?: unknown; timeoutMs?: unknown };
+  /**
+   * Explicit client marker (P1 countermeasure 2): this send is a
+   * transformation of the previous answer (an answer-refinement
+   * pill), not a new user-authored request. It is judged only through
+   * isRefinementOfPreviousAnswer — never by scanning the send's text.
+   */
+  refinementOfPreviousAnswer?: unknown;
 }
 
 export function validateOriginChatMessages(value: unknown): OriginChatMessage[] | null {
@@ -28,6 +35,25 @@ export function validateOriginChatMessages(value: unknown): OriginChatMessage[] 
     messages.push({ role, content });
   }
   return messages;
+}
+
+/**
+ * Whether this request carries the refinement marker AND the marker
+ * matches the conversation shape it asserts: the final message is the
+ * user's, and the immediately preceding message is an assistant answer
+ * — the answer the send transforms. A marker without a previous
+ * answer is ignored, so a stray or forged marker never changes routing
+ * on its own and the send is treated exactly like an ordinary one.
+ * Marked sends are excluded from the text-scan route classification
+ * (research-request patterns and the like): a refinement instruction
+ * is machine-generated prose that can coincidentally match those
+ * patterns, which is exactly how the P1 misrouting happened.
+ */
+export function isRefinementOfPreviousAnswer(body: OriginChatBody, messages: OriginChatMessage[]): boolean {
+  if (body.refinementOfPreviousAnswer !== true) return false;
+  if (messages.length < 2) return false;
+  if (messages[messages.length - 1].role !== "user") return false;
+  return messages[messages.length - 2].role !== "user";
 }
 
 export function detectSensitiveConversation(messages: OriginChatMessage[]): SensitiveInputKind[] {
