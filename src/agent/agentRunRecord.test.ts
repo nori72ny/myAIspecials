@@ -301,6 +301,98 @@ describe('agent run step live detail (PR-L1)', () => {
     expect(finalStep?.liveDetail).toEqual(finalDetail);
   });
 
+  it('round-trips a coverage failure with per-column numeric details unchanged (coverage observability follow-on)', () => {
+    const liveDetail = {
+      coverageFailure: {
+        scope: 'local' as const,
+        chunkOffset: 0,
+        chunkCount: 2,
+        expected: 60,
+        covered: 60,
+        missing: 0,
+        duplicated: 0,
+        unexpected: 0,
+        numericMismatch: ['Loss_Amount_CNY'],
+        numericDetails: [
+          { column: 'Loss_Amount_CNY', expectedSum: 212750000, outputSum: 202750000, difference: -10000000, unparseableCount: 0 },
+        ],
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+  });
+
+  it('drops malformed numeric detail entries but keeps the coverage failure (fail-soft)', () => {
+    const base = {
+      scope: 'final' as const,
+      expected: 3,
+      covered: 3,
+      missing: 0,
+      duplicated: 0,
+      unexpected: 0,
+      numericMismatch: ['amount'],
+    };
+    const malformedDetails: unknown[] = [
+      [{ column: 'amount', expectedSum: '500', outputSum: 230, difference: -270, unparseableCount: 0 }],
+      [{ column: 'amount', expectedSum: 500, outputSum: 230, difference: -270, unparseableCount: -1 }],
+      [{ column: 'amount', expectedSum: Number.POSITIVE_INFINITY, outputSum: 230, difference: -270, unparseableCount: 0 }],
+      [{ column: 'amount', expectedSum: 500, outputSum: 230, difference: -270 }],
+      'amount:500:230:-270:0',
+    ];
+    for (const numericDetails of malformedDetails) {
+      const [step] = normalizeAgentRunStepsState([
+        { ...baseStep, liveDetail: { coverageFailure: { ...base, numericDetails } } } as unknown as AgentRunStepState,
+      ]);
+      expect(step?.liveDetail?.coverageFailure).toEqual(base);
+    }
+    // A valid entry beside a malformed one survives on its own.
+    const [step] = normalizeAgentRunStepsState([
+      {
+        ...baseStep,
+        liveDetail: {
+          coverageFailure: {
+            ...base,
+            numericDetails: [
+              { column: 42, expectedSum: 1, outputSum: 1, difference: 0, unparseableCount: 0 },
+              { column: 'amount', expectedSum: 500, outputSum: 230, difference: -270, unparseableCount: 2 },
+            ],
+          },
+        },
+      } as unknown as AgentRunStepState,
+    ]);
+    expect(step?.liveDetail?.coverageFailure?.numericDetails).toEqual([
+      { column: 'amount', expectedSum: 500, outputSum: 230, difference: -270, unparseableCount: 2 },
+    ]);
+  });
+
+  it('round-trips an analyzer execution trace and drops malformed ones (coverage observability follow-on)', () => {
+    const liveDetail = {
+      analyzerExecution: {
+        servings: [
+          { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b' },
+          { providerId: 'cloudflare-workers-ai-free' },
+        ],
+        repairRetried: true,
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail).toEqual(liveDetail);
+    const malformed: unknown[] = [
+      { servings: [], repairRetried: false },
+      { servings: [{ providerId: 'groq-free' }], repairRetried: 'yes' },
+      { servings: [{ providerId: 'Bad Provider' }], repairRetried: false },
+      { servings: 'groq-free', repairRetried: false },
+      'execution',
+    ];
+    for (const analyzerExecution of malformed) {
+      const [dropped] = normalizeAgentRunStepsState([
+        { ...baseStep, liveDetail: { startedAt: now - 1_000, analyzerExecution } } as unknown as AgentRunStepState,
+      ]);
+      expect(dropped?.liveDetail?.analyzerExecution).toBeUndefined();
+      expect(dropped?.liveDetail?.startedAt).toBe(now - 1_000);
+    }
+  });
+
   it('drops a malformed coverage failure but keeps the rest of the live detail (fail-soft)', () => {
     const base = {
       scope: 'local',

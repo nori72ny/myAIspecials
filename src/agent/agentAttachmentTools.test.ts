@@ -775,6 +775,138 @@ expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
 });
 });
 
+describe('attachment_analyzer coverage observability (numeric details + execution trace)', () => {
+  const EVENTS = ['Event_ID,Loss_Amount_CNY', 'OR001,11000000', 'OR002,5000000'].join('\n');
+  const SERVING: { providerId: string; modelId: string } = { providerId: 'groq-free', modelId: 'openai/gpt-oss-120b' };
+
+  async function storeWithEvents() {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const measured = validateAgentAttachmentFileText(EVENTS);
+    await store.addFile(SET_ID, OWNER, {
+      name: 'events.csv',
+      mediaType: 'text/csv',
+      kind: 'text',
+      byteSize: measured.byteSize,
+      charCount: measured.charCount,
+      sha256: measured.sha256,
+      extractedText: EVENTS,
+    });
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  /** Echo stand-in at the provider port: returns the chunk's data
+   * rows with an optional per-key value transform, optionally
+   * reporting the serving that produced them. */
+  function echoExecutor(
+    transform?: (id: string, amount: string) => string,
+    serving?: { providerId: string; modelId: string },
+  ): AgentModelExecutor {
+    return async ({ userText }) => {
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
+      const rows = lines.slice(1).map((line) => {
+        const [id, amount] = line.split(',');
+        return { Event_ID: id, Loss_Amount_CNY: transform ? transform(id, amount) : amount };
+      });
+      return { ok: true, text: JSON.stringify({ rows }), ...(serving ? { serving } : {}) };
+    };
+  }
+
+  it('carries the exact sum difference in the coverage failure message when a digit is dropped', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    // OR001's 11,000,000 transcribed as 1,000,000 — a dropped digit.
+    const dropping = echoExecutor((id, amount) => (id === 'OR001' ? '1000000' : amount));
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, dropping),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
+    // The record-bound segment names the column and reads the whole
+    // failure off the sums: expected 16,000,000, output 6,000,000,
+    // difference exactly -10,000,000, nothing unreadable.
+    expect(result.message).toContain(
+      'numericMismatch=Loss_Amount_CNY, numeric=Loss_Amount_CNY:16000000:6000000:-10000000:0',
+    );
+  });
+
+  it('counts an unreadable notation in the coverage failure message, apart from the difference', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    // OR002's value written as 500万円 — a notation the numeric
+    // parser rejects (the 万 survives its cleaning), so the value
+    // drops out of the output sum and is counted instead.
+    const notating = echoExecutor((id, amount) => (id === 'OR002' ? '500万円' : amount));
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, notating),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain(
+      'numeric=Loss_Amount_CNY:16000000:11000000:-5000000:1',
+    );
+  });
+
+  it('passes verbatim rows exactly as before, and records the serving in the artifact execution block', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, echoExecutor(undefined, SERVING)),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { execution?: unknown };
+    expect(bundle.execution).toEqual({ servings: [SERVING], repairRetried: false });
+  });
+
+  it('appends the execution trace to a coverage failure when a serving was recorded', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    const dropping = echoExecutor((id, amount) => (id === 'OR001' ? '1000000' : amount), SERVING);
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, dropping),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('(execution: servings=groq-free|openai/gpt-oss-120b; repair=0)');
+  });
+
+  it('records repairRetried when the first response fails parsing and the repair succeeds', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    let calls = 0;
+    const flaky: AgentModelExecutor = async (input) => {
+      calls += 1;
+      if (calls === 1) return { ok: true, text: 'not json at all', serving: SERVING };
+      return echoExecutor(undefined, SERVING)(input);
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, flaky),
+    );
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(2);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { execution?: unknown };
+    expect(bundle.execution).toEqual({ servings: [SERVING], repairRetried: true });
+  });
+
+  it('appends the execution trace to the terminal parse failure when a serving was recorded', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    const garbage: AgentModelExecutor = async () => ({ ok: true, text: 'not json at all', serving: SERVING });
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, garbage),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(
+      'AGENT_DATA_OUTPUT_INVALID (chunk 0, parse: json-not-extractable) (execution: servings=groq-free|openai/gpt-oss-120b; repair=1)',
+    );
+  });
+});
+
 describe('attachment_analyzer alternating allocation + chunk interval (design §2-C / §2-E)', () => {
   async function storeWithBigSet() {
     const store = new InMemoryAgentAttachmentStore();

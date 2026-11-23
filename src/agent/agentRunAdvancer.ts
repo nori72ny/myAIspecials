@@ -23,6 +23,7 @@ import {
   type AgentRunPlanStep,
   type AgentRunQuotaLedger,
   type AgentRunRecord,
+  type AgentRunStepAnalyzerExecution,
   type AgentRunStepCoverageFailure,
   type AgentRunStepLiveDetail,
   type AgentRunStepReconciliation,
@@ -377,7 +378,50 @@ export function parseFailureFromAnalyzerMessage(
  * fixed shape contributes nothing. The record normalizer re-checks
  * every value's shape and caps before it is stored.
  */
-const ANALYZER_COVERAGE_FAILURE_PATTERN = /AGENT_DATA_COVERAGE_INSUFFICIENT.*?\(coverage: scope=(final|local)(?:, range=(\d+)\+(\d+))?, expected=(\d+), covered=(\d+), missing=(\d+), duplicated=(\d+), unexpected=(\d+), numericMismatch=([^)]*)\)/;
+const ANALYZER_COVERAGE_FAILURE_PATTERN = /AGENT_DATA_COVERAGE_INSUFFICIENT.*?\(coverage: scope=(final|local)(?:, range=(\d+)\+(\d+))?, expected=(\d+), covered=(\d+), missing=(\d+), duplicated=(\d+), unexpected=(\d+), numericMismatch=([^,)]*)(?:, numeric=([^)]*))?\)/;
+
+const ANALYZER_COVERAGE_SUM_PATTERN = /^-?\d+(?:\.\d+)?$/;
+const ANALYZER_COVERAGE_COUNT_PATTERN = /^\d+$/;
+const ANALYZER_COVERAGE_NUMERIC_DETAILS_MAX = 8;
+
+/** The numeric segment's entries are `column:expected:output:
+ * difference:unparseable` joined by `|` (coverage observability
+ * follow-on). The four numeric fields are read from the right, so
+ * a column name may itself contain `:`; every field is re-validated
+ * against its fixed shape here, a malformed entry is dropped, and
+ * the record normalizer re-checks the values again before they are
+ * stored. Messages written before the segment existed carry none
+ * and parse exactly as before. */
+function coverageNumericDetailsFromSegment(
+  segment: string | undefined,
+): AgentRunStepCoverageFailure['numericDetails'] {
+  if (!segment) return undefined;
+  const details: NonNullable<AgentRunStepCoverageFailure['numericDetails']> = [];
+  for (const entry of segment.split('|')) {
+    if (details.length >= ANALYZER_COVERAGE_NUMERIC_DETAILS_MAX) break;
+    const parts = entry.split(':');
+    if (parts.length < 5) continue;
+    const [expectedText, outputText, differenceText, unparseableText] = parts.slice(-4);
+    const column = parts.slice(0, -4).join(':');
+    if (column.length === 0) continue;
+    if (
+      !ANALYZER_COVERAGE_SUM_PATTERN.test(expectedText)
+      || !ANALYZER_COVERAGE_SUM_PATTERN.test(outputText)
+      || !ANALYZER_COVERAGE_SUM_PATTERN.test(differenceText)
+      || !ANALYZER_COVERAGE_COUNT_PATTERN.test(unparseableText)
+    ) {
+      continue;
+    }
+    details.push({
+      column,
+      expectedSum: Number(expectedText),
+      outputSum: Number(outputText),
+      difference: Number(differenceText),
+      unparseableCount: Number(unparseableText),
+    });
+  }
+  return details.length > 0 ? details : undefined;
+}
 
 export function coverageFailureFromAnalyzerMessage(
   message: string | undefined,
@@ -399,7 +443,92 @@ export function coverageFailureFromAnalyzerMessage(
     failure.chunkOffset = Number(match[2]);
     failure.chunkCount = Number(match[3]);
   }
+  const numericDetails = coverageNumericDetailsFromSegment(match[10]);
+  if (numericDetails !== undefined) failure.numericDetails = numericDetails;
   return failure;
+}
+
+/**
+ * The analyzer's execution trace on a failure message (coverage
+ * observability follow-on, diagnosis 2026-11-23): a fixed
+ * parenthetical naming the distinct route/model servings the
+ * step's chunk calls used and whether the parse repair retry ran
+ * — the same "structure out of the message" pattern as the parse
+ * failure above. Every field is re-validated against its closed
+ * shape here: a malformed entry is dropped, never repaired, and
+ * anything outside the fixed shape contributes nothing. At most
+ * four servings are read back, matching the record layer's cap.
+ */
+const ANALYZER_EXECUTION_PATTERN = /\(execution: servings=([^;()]*); repair=([01])\)/;
+const ANALYZER_EXECUTION_SERVINGS_MAX = 4;
+
+function validateAnalyzerServings(
+  entries: { providerId: string; modelId?: string }[],
+): AgentRunStepAnalyzerExecution['servings'] {
+  const servings: AgentRunStepAnalyzerExecution['servings'] = [];
+  for (const entry of entries) {
+    if (servings.length >= ANALYZER_EXECUTION_SERVINGS_MAX) break;
+    if (!ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN.test(entry.providerId)) continue;
+    if (entry.modelId !== undefined && !ANALYZER_ATTEMPT_MODEL_ID_PATTERN.test(entry.modelId)) continue;
+    servings.push({
+      providerId: entry.providerId,
+      ...(entry.modelId !== undefined ? { modelId: entry.modelId } : {}),
+    });
+  }
+  return servings;
+}
+
+export function analyzerExecutionFromAnalyzerMessage(
+  message: string | undefined,
+): AgentRunStepAnalyzerExecution | undefined {
+  if (!message) return undefined;
+  const match = ANALYZER_EXECUTION_PATTERN.exec(message);
+  if (!match) return undefined;
+  const entries = match[1].split(',').map((entry) => {
+    const [providerId, modelId] = entry.split('|');
+    return { providerId: providerId ?? '', ...(modelId !== undefined && modelId !== '-' ? { modelId } : {}) };
+  });
+  const servings = validateAnalyzerServings(entries);
+  if (servings.length === 0) return undefined;
+  return { servings, repairRetried: match[2] === '1' };
+}
+
+/**
+ * The analyzer's execution trace on a successful step rides the
+ * artifact bundle's `execution` block (the reconciler pattern) —
+ * the advancer reads the block back into the step's live detail,
+ * in the same fail-soft style as the rest of the live detail: an
+ * absent or malformed block contributes nothing, and every value
+ * is re-validated here before the record normalizer re-checks it
+ * again. Identifiers and a boolean only; the bundle's row data
+ * never crosses into the record.
+ */
+export function analyzerExecutionFromArtifact(
+  artifact: string | undefined,
+): AgentRunStepAnalyzerExecution | undefined {
+  if (!artifact) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const block = (parsed as { execution?: unknown }).execution;
+  if (typeof block !== 'object' || block === null || Array.isArray(block)) return undefined;
+  const record = block as Record<string, unknown>;
+  if (!Array.isArray(record.servings) || typeof record.repairRetried !== 'boolean') return undefined;
+  const entries = record.servings.map((raw) => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { providerId: '' };
+    const serving = raw as Record<string, unknown>;
+    return {
+      providerId: typeof serving.providerId === 'string' ? serving.providerId : '',
+      ...(typeof serving.modelId === 'string' ? { modelId: serving.modelId } : {}),
+    };
+  });
+  const servings = validateAnalyzerServings(entries);
+  if (servings.length === 0) return undefined;
+  return { servings, repairRetried: record.repairRetried };
 }
 
 /**
@@ -535,6 +664,9 @@ export function buildStepLiveDetail(input: {
       if (coverageFailure) detail.coverageFailure = coverageFailure;
       const providerAttempts = providerAttemptsFromAnalyzerMessage(input.failureMessage);
       if (providerAttempts) detail.providerAttempts = providerAttempts;
+      const analyzerExecution = analyzerExecutionFromAnalyzerMessage(input.failureMessage)
+        ?? analyzerExecutionFromArtifact(input.artifact);
+      if (analyzerExecution) detail.analyzerExecution = analyzerExecution;
     }
     if (input.toolName === 'attachment_reconciler') {
       const reconciliation = reconciliationFromReconcilerArtifact(input.artifact);

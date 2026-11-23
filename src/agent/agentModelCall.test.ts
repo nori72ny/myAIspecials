@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError } from './agentModelCall.js';
+import { agentAnalyzerCapacityAllocation, createAgentModelExecutor, failoverAttemptsFromProviderError, servingFromRoutingEvidence } from './agentModelCall.js';
 import { OriginProviderError } from '../legacy/originProviderClient.js';
 
 describe('agentModelCall (failover-backed model executor)', () => {
@@ -16,6 +16,25 @@ describe('agentModelCall (failover-backed model executor)', () => {
     const execute = createAgentModelExecutor({ OPENROUTER_API_KEY: '' });
     await expect(execute({ instruction: 'x', userText: 'y', goal: 'z' }))
       .resolves.toEqual({ ok: false, code: 'FREE_PROVIDER_NOT_CONFIGURED' });
+  });
+});
+
+describe('servingFromRoutingEvidence (coverage observability follow-on)', () => {
+  it('reduces routing evidence to the serving route and model', () => {
+    expect(servingFromRoutingEvidence({
+      provider: 'groq-free', servedModel: 'openai/gpt-oss-120b', requestedModel: 'openai/gpt-oss-120b', strategy: 'failover', attempt: 3, fallbackUsed: true,
+    })).toEqual({ providerId: 'groq-free', modelId: 'openai/gpt-oss-120b' });
+    expect(servingFromRoutingEvidence({ provider: 'cloudflare-workers-ai-free' }))
+      .toEqual({ providerId: 'cloudflare-workers-ai-free' });
+  });
+
+  it('contributes nothing for absent or malformed evidence', () => {
+    expect(servingFromRoutingEvidence(undefined)).toBeUndefined();
+    expect(servingFromRoutingEvidence(null)).toBeUndefined();
+    expect(servingFromRoutingEvidence('groq-free')).toBeUndefined();
+    expect(servingFromRoutingEvidence({ servedModel: 'openai/gpt-oss-120b' })).toBeUndefined();
+    expect(servingFromRoutingEvidence({ provider: '' })).toBeUndefined();
+    expect(servingFromRoutingEvidence({ provider: 42 })).toBeUndefined();
   });
 });
 

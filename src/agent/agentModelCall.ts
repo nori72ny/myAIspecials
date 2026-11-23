@@ -116,8 +116,34 @@ export type AgentModelCallInput = {
   chunkIndex?: number;
 };
 
+/** Which route and model actually served one model call (coverage
+ * observability follow-on, diagnosis 2026-11-23): the dispatch's
+ * own routing evidence, reduced to the two identifiers. Until now
+ * a successful call reported only its text, so which model produced
+ * an analyzer step's rows was recorded nowhere and a coverage
+ * failure could not be attributed past "the model". Identifiers
+ * only — never a request or response body. */
+export type AgentModelServing = {
+  providerId: string;
+  modelId?: string;
+};
+
+/** Reduces a dispatch result's routing evidence to the serving
+ * identifiers. Anything that is not an object carrying a non-empty
+ * provider string contributes nothing, in the fail-soft style of
+ * the attempt evidence below. */
+export function servingFromRoutingEvidence(evidence: unknown): AgentModelServing | undefined {
+  if (!evidence || typeof evidence !== 'object') return undefined;
+  const { provider, servedModel } = evidence as { provider?: unknown; servedModel?: unknown };
+  if (typeof provider !== 'string' || provider.length === 0) return undefined;
+  return {
+    providerId: provider,
+    ...(typeof servedModel === 'string' && servedModel.length > 0 ? { modelId: servedModel } : {}),
+  };
+}
+
 export type AgentModelCallResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; serving?: AgentModelServing }
   | {
       ok: false;
       code: string;
@@ -167,7 +193,8 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
       }, env);
       const text = typeof result.text === 'string' ? result.text : '';
       if (!text.trim()) return { ok: false, code: 'PROVIDER_INVALID_RESPONSE' };
-      return { ok: true, text };
+      const serving = servingFromRoutingEvidence(result.routingEvidence);
+      return { ok: true, text, ...(serving ? { serving } : {}) };
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const providerAttempts = failoverAttemptsFromProviderError(error);

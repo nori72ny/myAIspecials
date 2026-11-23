@@ -662,6 +662,49 @@ describe('advanceAgentRun', () => {
     expect(record?.stepsState[0]?.liveDetail?.coverageFailure).toBeUndefined();
   });
 
+  it('records the per-column sums of an analyzer coverage failure in the step live detail (coverage observability follow-on)', async () => {
+    const store = new InMemoryAgentRunStore();
+    const { store: consumptionStore } = makeConsumptionStore();
+    // The production Basel signature: all 60 keys covered, the one
+    // numeric column short by exactly 10,000,000 with no unreadable
+    // values — a transcription error, now readable from the record
+    // itself instead of being indistinguishable from a notation
+    // failure.
+    const message = 'AGENT_DATA_COVERAGE_INSUFFICIENT (対象60件中60件を処理、未処理0件、重複0件、対象外0件、数値不一致1件) (coverage: scope=local, range=0+2, expected=60, covered=60, missing=0, duplicated=0, unexpected=0, numericMismatch=Loss_Amount_CNY, numeric=Loss_Amount_CNY:212750000:202750000:-10000000:0)';
+    const runTool = vi.fn(async (name: ToolName, _input: ToolParams): Promise<ToolResult> => (
+      name === 'attachment_analyzer'
+        ? { ok: false, tool: name, message }
+        : { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' }
+    ));
+    const seeded = await seedRun(store, [
+      { toolName: 'repository_explorer' },
+      { toolName: 'attachment_analyzer', params: { outputKind: 'rows', chunkOffset: 0, chunkCount: 2 } },
+    ]);
+
+    const outcome = await advanceAgentRun(
+      { runStore: store, consumptionStore, runTool, verifyArtifact: okVerifier },
+      seeded,
+      'driver-alpha-01',
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'AGENT_DATA_COVERAGE_INSUFFICIENT' });
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.stepsState[1]?.liveDetail?.coverageFailure).toEqual({
+      scope: 'local',
+      chunkOffset: 0,
+      chunkCount: 2,
+      expected: 60,
+      covered: 60,
+      missing: 0,
+      duplicated: 0,
+      unexpected: 0,
+      numericMismatch: ['Loss_Amount_CNY'],
+      numericDetails: [
+        { column: 'Loss_Amount_CNY', expectedSum: 212750000, outputSum: 202750000, difference: -10000000, unparseableCount: 0 },
+      ],
+    });
+  });
+
   it('records no coverage failure for an analyzer coverage failure without the fixed message shape', async () => {
     const store = new InMemoryAgentRunStore();
     const { store: consumptionStore } = makeConsumptionStore();
@@ -1094,5 +1137,60 @@ describe('step live detail: reconciliation summary (misreading countermeasure)',
       finishedAt: 1_700_000_005_000,
     });
     expect(detail?.reconciliation).toBeUndefined();
+  });
+});
+describe('step live detail: analyzer execution trace (coverage observability follow-on)', () => {
+  it('surfaces the execution trace from the failure message parenthetical', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: undefined,
+      failureMessage: 'AGENT_DATA_OUTPUT_INVALID (chunk 3, parse: row-key-missing) (execution: servings=groq-free|openai/gpt-oss-120b; repair=1)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.parseFailure).toEqual({ chunkIndex: 3, reason: 'row-key-missing' });
+    expect(detail?.analyzerExecution).toEqual({
+      servings: [{ providerId: 'groq-free', modelId: 'openai/gpt-oss-120b' }],
+      repairRetried: true,
+    });
+  });
+
+  it('surfaces the execution trace from the success artifact execution block', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        execution: { servings: [{ providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b' }], repairRetried: false },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.analyzerExecution).toEqual({
+      servings: [{ providerId: 'cloudflare-workers-ai-free', modelId: '@cf/openai/gpt-oss-120b' }],
+      repairRetried: false,
+    });
+  });
+
+  it('omits the trace when neither carrier is present or the shapes are malformed', () => {
+    const bare = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: JSON.stringify({ kind: 'data-analysis' }),
+      failureMessage: 'AGENT_DATA_OUTPUT_INVALID',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(bare?.analyzerExecution).toBeUndefined();
+    const poisoned = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: JSON.stringify({ execution: { servings: [{ providerId: 'Bad Provider' }], repairRetried: 'yes' } }),
+      failureMessage: 'PROVIDER_TIMEOUT (execution: servings=bad provider|m; repair=1)',
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(poisoned?.analyzerExecution).toBeUndefined();
   });
 });

@@ -368,6 +368,34 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
 
 export type AgentDataRow = Record<string, string>;
 
+/** Per-numeric-column sums of a failed coverage verification
+ * (coverage observability follow-on, diagnosis 2026-11-23): the
+ * yardstick's own sum, the sum over the output rows' readable
+ * values, their difference, and how many output cells carried a
+ * value the numeric parser could not read. Until now the sums were
+ * computed for the comparison and discarded at that instant, so a
+ * numeric mismatch recorded only the column's name and a
+ * transcription error (a dropped digit) was indistinguishable from
+ * a notation error (a value written in a form the parser rejects).
+ * The two signatures separate here: a digit drop shows a nonzero
+ * difference with an unparseable count of zero; a notation failure
+ * shows the count. Deterministic aggregates only — no cell text
+ * ever enters this shape. */
+export type AgentDataNumericColumnDetail = {
+  column: string;
+  /** The yardstick's own sum for the column (the input side). */
+  expectedSum: number;
+  /** The sum over the output rows' values the numeric parser
+   * could read. */
+  outputSum: number;
+  /** outputSum - expectedSum: what the transcription lost (or
+   * gained), in the column's own units. */
+  difference: number;
+  /** Output cells that carried a non-blank value the numeric
+   * parser could not read and the sum therefore excluded. */
+  unparseableCount: number;
+};
+
 export type AgentDataCoverageResult =
   | { ok: true; coveredKeys: number }
   | {
@@ -378,6 +406,7 @@ export type AgentDataCoverageResult =
       duplicated: string[];
       unexpected: string[];
       numericMismatch: string[];
+      numericDetails: AgentDataNumericColumnDetail[];
     };
 
 /**
@@ -418,20 +447,36 @@ function verifyCoverageAgainstYardstick(
   const unexpected = [...counts.keys()].filter((key) => !expected.has(key));
 
   const numericMismatch: string[] = [];
+  const numericDetails: AgentDataNumericColumnDetail[] = [];
   for (const columnName of yardstick.numericColumns) {
     const aggregate = yardstick.aggregates[columnName];
     if (!aggregate) continue;
     let outputSum = 0;
     let seen = 0;
+    let unparseable = 0;
     for (const row of rows) {
       const raw = row[columnName];
       if (typeof raw !== 'string') continue;
       const value = parseNumericCell(raw);
       if (value !== null) { outputSum += value; seen += 1; }
+      else if (raw.trim().length > 0) unparseable += 1;
     }
-    if (seen === 0) continue;
-    const tolerance = 0.01 * Math.max(1, aggregate.count);
-    if (Math.abs(outputSum - aggregate.sum) > tolerance) numericMismatch.push(columnName);
+    // The judgment is unchanged: a column with no readable value at
+    // all is not compared, exactly as before — the detail record
+    // below is observability only and never feeds the verdict.
+    if (seen > 0) {
+      const tolerance = 0.01 * Math.max(1, aggregate.count);
+      if (Math.abs(outputSum - aggregate.sum) > tolerance) numericMismatch.push(columnName);
+    }
+    if (seen > 0 || unparseable > 0) {
+      numericDetails.push({
+        column: columnName,
+        expectedSum: aggregate.sum,
+        outputSum,
+        difference: outputSum - aggregate.sum,
+        unparseableCount: unparseable,
+      });
+    }
   }
 
   if (missing.length === 0 && duplicated.length === 0 && unexpected.length === 0 && numericMismatch.length === 0) {
@@ -445,6 +490,7 @@ function verifyCoverageAgainstYardstick(
     duplicated,
     unexpected,
     numericMismatch,
+    numericDetails,
   };
 }
 
