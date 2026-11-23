@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginStreamRenderBatcher, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -3205,5 +3205,209 @@ describe('image phase pill text (2026-11-20 detail pass, summarised 18:17)', () 
         expect(text).not.toContain('『');
       }
     }
+  });
+});
+
+describe('answer replay for bulk-delivered finalized text (display stage 1)', () => {
+  afterEach(cleanup);
+
+  it('splits text into grapheme clusters without breaking surrogate pairs or combining marks', () => {
+    expect(splitOriginGraphemes('あいう')).toEqual(['あ', 'い', 'う']);
+    expect(splitOriginGraphemes('𐮷野家')).toEqual(['𐮷', '野', '家']);
+    expect(splitOriginGraphemes('がく')).toEqual(['が', 'く']);
+    expect(countOriginGraphemes('👨‍👩‍👧家族')).toBe(3);
+    expect(countOriginGraphemes('')).toBe(0);
+  });
+
+  it('takes grapheme prefixes without splitting a cluster', () => {
+    expect(originGraphemePrefix('あ𐮷い', 2)).toBe('あ𐮷');
+    expect(originGraphemePrefix('あい', 0)).toBe('');
+    expect(originGraphemePrefix('あい', 5)).toBe('あい');
+  });
+
+  it('clamps the total replay duration into 0.6–5 seconds at about 1,200 graphemes per second', () => {
+    expect(originAnswerReplayDurationSeconds(0)).toBe(0);
+    expect(originAnswerReplayDurationSeconds(120)).toBe(0.6);
+    expect(originAnswerReplayDurationSeconds(720)).toBe(0.6);
+    expect(originAnswerReplayDurationSeconds(1200)).toBe(1);
+    expect(originAnswerReplayDurationSeconds(3600)).toBe(3);
+    expect(originAnswerReplayDurationSeconds(12000)).toBe(5);
+  });
+
+  it('starts replay only for bulk arrivals of long answers without reduced motion', () => {
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 1200, reducedMotion: false })).toBe(true);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 1200, reducedMotion: true })).toBe(false);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 48, addedGraphemes: 48, reducedMotion: false })).toBe(false);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 159, reducedMotion: false })).toBe(false);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 160, reducedMotion: false })).toBe(true);
+  });
+
+  const manualScheduler = () => {
+    let scheduled: FrameRequestCallback | undefined;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => { scheduled = callback; return 7; });
+    const cancelFrame = vi.fn(() => { scheduled = undefined; });
+    const runFrame = (timestamp: number) => { const callback = scheduled; scheduled = undefined; callback?.(timestamp); };
+    return { requestFrame, cancelFrame, runFrame };
+  };
+
+  it('reveals graphemes at the clamped rate and completes exactly at the total', () => {
+    const { requestFrame, cancelFrame, runFrame } = manualScheduler();
+    const onReveal = vi.fn();
+    const onDone = vi.fn();
+    const player = createOriginAnswerReplay(onReveal, onDone, { requestFrame, cancelFrame });
+    player.start(1200, 0);
+    runFrame(0);
+    expect(onReveal).not.toHaveBeenCalled();
+    runFrame(500);
+    expect(onReveal).toHaveBeenLastCalledWith(600);
+    runFrame(1000);
+    expect(onReveal).toHaveBeenLastCalledWith(1200);
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(player.isPlaying()).toBe(false);
+  });
+
+  it('honours already-revealed graphemes when only the tail arrived in bulk', () => {
+    const { requestFrame, cancelFrame, runFrame } = manualScheduler();
+    const onReveal = vi.fn();
+    const onDone = vi.fn();
+    const player = createOriginAnswerReplay(onReveal, onDone, { requestFrame, cancelFrame });
+    player.start(1200, 600);
+    runFrame(0);
+    runFrame(300);
+    expect(onReveal).toHaveBeenLastCalledWith(900);
+    runFrame(600);
+    expect(onReveal).toHaveBeenLastCalledWith(1200);
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('extends the target when more finalized text lands mid-play', () => {
+    const { requestFrame, cancelFrame, runFrame } = manualScheduler();
+    const onReveal = vi.fn();
+    const onDone = vi.fn();
+    const player = createOriginAnswerReplay(onReveal, onDone, { requestFrame, cancelFrame });
+    player.start(600, 0);
+    runFrame(0);
+    runFrame(300);
+    expect(onReveal).toHaveBeenLastCalledWith(300);
+    player.extend(2400);
+    runFrame(2050);
+    expect(onReveal).toHaveBeenLastCalledWith(2400);
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('caps the rate so a very long answer still finishes within five seconds', () => {
+    const { requestFrame, cancelFrame, runFrame } = manualScheduler();
+    const onReveal = vi.fn();
+    const onDone = vi.fn();
+    const player = createOriginAnswerReplay(onReveal, onDone, { requestFrame, cancelFrame });
+    player.start(12000, 0);
+    runFrame(0);
+    runFrame(2500);
+    expect(onReveal).toHaveBeenLastCalledWith(6000);
+    runFrame(5000);
+    expect(onReveal).toHaveBeenLastCalledWith(12000);
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('finish reveals everything at once and cancel stays silent', () => {
+    const { requestFrame, cancelFrame, runFrame } = manualScheduler();
+    const onReveal = vi.fn();
+    const onDone = vi.fn();
+    const player = createOriginAnswerReplay(onReveal, onDone, { requestFrame, cancelFrame });
+    player.start(6000, 0);
+    runFrame(0);
+    runFrame(100);
+    expect(onReveal).toHaveBeenLastCalledWith(120);
+    player.finish();
+    expect(onReveal).toHaveBeenLastCalledWith(6000);
+    expect(onDone).toHaveBeenCalledOnce();
+
+    const quietReveal = vi.fn();
+    const quietDone = vi.fn();
+    const cancelled = createOriginAnswerReplay(quietReveal, quietDone, { requestFrame, cancelFrame });
+    cancelled.start(6000, 0);
+    cancelled.cancel();
+    runFrame(1000);
+    expect(quietReveal).not.toHaveBeenCalled();
+    expect(quietDone).not.toHaveBeenCalled();
+    expect(cancelled.isPlaying()).toBe(false);
+  });
+
+  const longJsonPayload = () => {
+    const model = 'google/gemma-4-31b-it:free';
+    return {
+      content: `${'あ'.repeat(300)}終わりの文です。`,
+      routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+      usage: { costUsd: 0 },
+    };
+  };
+
+  it('replays a long JSON answer progressively and finishes it on tap', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(longJsonPayload()), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    // Freeze animation frames so the replay cannot advance on its own;
+    // the tap is what finishes it in this test.
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      expect(container.textContent).not.toContain('終わりの文です');
+      expect(screen.queryByText('回答をコピー')).toBeNull();
+      fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
+      await waitFor(() => expect(container.textContent).toContain('終わりの文です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+      expect(screen.getByText('回答をコピー')).toBeTruthy();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('replays a bulk-released verified SSE answer and finishes it on tap', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const body = [
+      `data: ${JSON.stringify({ type: 'delta', text: `${'い'.repeat(300)}最後の文です。` })}`,
+      `data: ${JSON.stringify({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      expect(container.textContent).not.toContain('最後の文です');
+      fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
+      await waitFor(() => expect(container.textContent).toContain('最後の文です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('shows a long JSON answer at once when the user prefers reduced motion', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(longJsonPayload()), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    await waitFor(() => expect(container.textContent).toContain('終わりの文です'));
+    expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    vi.unstubAllGlobals();
   });
 });
