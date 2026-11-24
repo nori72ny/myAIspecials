@@ -378,7 +378,9 @@ const EXCERPT_PARTICLES = 'はがをにのとへでもやねよわ';
 export const excerptAtBoundary = (text: string, maxLength: number): string => {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxLength) return normalized;
-  const head = normalized.slice(0, maxLength);
+  // K-14: 上限位置でサロゲートペアや結合文字を割らない（文字化けした
+  // 切れ目は「文の途中で切れた」見え方になる）。書記素単位で頭を取る。
+  const head = originGraphemePrefix(normalized, maxLength);
   const minimum = Math.floor(maxLength * 0.4);
   let cut = -1;
   // 文の終わりと閉じ括弧はその文字の直後、読点類と空白はその
@@ -402,6 +404,29 @@ export const excerptAtBoundary = (text: string, maxLength: number): string => {
 // から境界で切ることで、両行の扱いを揃える（デザイン評価 第5回）。
 export const historyExcerptText = (text: string, maxLength: number): string => excerptAtBoundary(stripMarkdownForDisplay(text), maxLength);
 
+// K-14 (2026-11-24): 抜粋の源はここを正本とし、履歴ドロワーの一覧と
+// 検索結果で共有する。タイトル（historySessionTitle）が「最初の利用者
+// メッセージ」から作られるのに対し、抜粋が「最後のメッセージ」だと、
+// 会話が最初の話題から進んだ途端にタイトルと抜粋が別の内容を指し、
+// データの取り違えに見えた（LIVE-5：最低賃金のタイトルに祝日一覧の
+// 抜粋、首都のタイトルに無関係な文）。源はタイトルと同じ最初の交換に
+// 固定する：最初の利用者メッセージへの最初の回答（assistant）を第一
+// の源とし、回答が無い／空なら最初の利用者メッセージ、それも無ければ
+// 最後のメッセージに落とす。表示文は conversationMessageDisplayText
+// 経由（K-04 の種別の印の解決と一致させ、調整の内部指示文を源にしない）。
+export const historySessionExcerptSource = (session: ConversationSession): string => {
+  const firstUserIndex = session.messages.findIndex((message) => message.role === 'user');
+  if (firstUserIndex >= 0) {
+    const firstAnswer = session.messages.slice(firstUserIndex + 1).find((message) => message.role === 'assistant' && conversationMessageDisplayText(message).trim().length > 0);
+    if (firstAnswer) return conversationMessageDisplayText(firstAnswer);
+    return conversationMessageDisplayText(session.messages[firstUserIndex]);
+  }
+  const last = session.messages.at(-1);
+  return last ? conversationMessageDisplayText(last) : '';
+};
+
+export const historySessionExcerpt = (session: ConversationSession, maxLength = 160): string => historyExcerptText(historySessionExcerptSource(session), maxLength) || '会話';
+
 export const searchOriginLocalSnapshot = (query: string, sessions: readonly ConversationSession[], artifacts: readonly ArtifactBlock[]): OriginLocalSearchResult[] => {
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
   if (!terms.length) return [];
@@ -409,7 +434,7 @@ export const searchOriginLocalSnapshot = (query: string, sessions: readonly Conv
   const results: OriginLocalSearchResult[] = [];
   sessions.forEach((session) => {
     const source = `${session.title}\n${session.messages.map((message) => conversationMessageDisplayText(message)).join('\n')}`;
-    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: historyExcerptText(session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '', 160) || '会話', session });
+    if (matches(source)) results.push({ kind: 'session', id: session.id, title: session.title, detail: historySessionExcerpt(session), session });
   });
   artifacts.forEach((artifact) => {
     const revisions = artifact.revisions?.map((revision) => revision.content).join('\n') || '';
@@ -1363,7 +1388,11 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
         if (!value || typeof value !== 'object') return [];
         const candidate = value as Partial<ConversationSession>;
         if (typeof candidate.id !== 'string' || typeof candidate.title !== 'string' || typeof candidate.createdAt !== 'number' || !Array.isArray(candidate.messages)) return [];
-        const messages = candidate.messages.flatMap((message): ConversationMessage[] => message && typeof message === 'object' && ((message as ConversationMessage).role === 'user' || (message as ConversationMessage).role === 'assistant') && typeof (message as ConversationMessage).content === 'string' ? [{ id: String((message as ConversationMessage).id || ''), role: (message as ConversationMessage).role, content: (message as ConversationMessage).content, ...(typeof (message as ConversationMessage).displayContent === 'string' ? { displayContent: (message as ConversationMessage).displayContent } : {}) }] : []);
+        // K-14: 送信の種別（K-04）も検証できた場合だけ保持する
+        // （main.tsx の parseImportedHistory と同じ物差し）。これを落とすと、
+        // 表示文が欠けた復元データで抜粋・タイトルの表示解決が内部指示文へ
+        // 戻りうる。
+        const messages = candidate.messages.flatMap((message): ConversationMessage[] => message && typeof message === 'object' && ((message as ConversationMessage).role === 'user' || (message as ConversationMessage).role === 'assistant') && typeof (message as ConversationMessage).content === 'string' ? [{ id: String((message as ConversationMessage).id || ''), role: (message as ConversationMessage).role, content: (message as ConversationMessage).content, ...(typeof (message as ConversationMessage).displayContent === 'string' ? { displayContent: (message as ConversationMessage).displayContent } : {}), ...((message as ConversationMessage).requestKind === 'refinement' ? { requestKind: 'refinement' as const } : {}) }] : []);
         return [{ id: candidate.id, title: candidate.title, createdAt: candidate.createdAt, messages }];
       });
       setStoredSessions(restoredSessions);
@@ -1413,7 +1442,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
   }, [displaySessions]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold sm:w-auto sm:min-w-11 sm:px-3"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
-    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface flex max-h-[calc(100dvh-5rem)] flex-col absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historyExcerptText(session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '', 160) || '会話'}{(titleCounts.get(session.title) ?? 0) > 1 ? ` · ${historySessionTimeLabel(session.createdAt)}` : ''}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
+    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface flex max-h-[calc(100dvh-5rem)] flex-col absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historySessionExcerpt(session)}{(titleCounts.get(session.title) ?? 0) > 1 ? ` · ${historySessionTimeLabel(session.createdAt)}` : ''}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
   </>;
 };
 

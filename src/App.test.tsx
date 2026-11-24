@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, conversationMessageDisplayText, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, conversationMessageDisplayText, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionExcerpt, historySessionExcerptSource, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1759,6 +1759,73 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const bold = historyExcerptText(`**${'あ'.repeat(45)}運営計画は${'い'.repeat(100)}**`, 60);
     expect(bold).toBe(`${'あ'.repeat(45)}運営計画は…`);
     expect(bold).not.toContain('*');
+  });
+
+  it('takes history excerpts from the first exchange so the excerpt matches the title (K-14)', () => {
+    // タイトルは最初の利用者メッセージから作られる。抜粋の源も同じ
+    // 最初の交換に固定しないと、会話が別の話題へ進んだ途端にタイトルと
+    // 抜粋が食い違い、データの取り違えに見える（LIVE-5 の実働証拠）。
+    const drifted: ConversationSession = {
+      id: 'k14-drifted', title: '最低賃金について教えて', createdAt: 1,
+      messages: [
+        { id: 'u1', role: 'user', content: '最低賃金について教えて' },
+        { id: 'a1', role: 'assistant', content: '2026年度の最低賃金は全国加重平均で1,121円です。' },
+        { id: 'u2', role: 'user', content: 'ついでに祝日も教えて' },
+        { id: 'a2', role: 'assistant', content: '2026年の祝日一覧は次のとおりです。1月1日は元日です。' },
+      ],
+    };
+    expect(historySessionExcerptSource(drifted)).toBe('2026年度の最低賃金は全国加重平均で1,121円です。');
+    expect(historySessionExcerpt(drifted)).toContain('最低賃金');
+    expect(historySessionExcerpt(drifted)).not.toContain('祝日');
+    // 検索結果の detail も同じ抜粋になる（経路の一貫性）。
+    const found = searchOriginLocalSnapshot('祝日', [drifted], []);
+    expect(found).toHaveLength(1);
+    expect(found[0].detail).toBe(historySessionExcerpt(drifted));
+    // 回答がまだ無い会話は、最初の利用者メッセージが源になる。
+    const unanswered: ConversationSession = { id: 'k14-unanswered', title: '質問だけの会話です', createdAt: 2, messages: [{ id: 'u1', role: 'user', content: '質問だけの会話です' }] };
+    expect(historySessionExcerpt(unanswered)).toBe('質問だけの会話です');
+    // 利用者メッセージが無い旧データは、最後のメッセージに落とす。
+    const legacy: ConversationSession = { id: 'k14-legacy', title: 'ORIGIN セッション', createdAt: 3, messages: [{ id: 'a1', role: 'assistant', content: '回答だけの記録です' }] };
+    expect(historySessionExcerpt(legacy)).toBe('回答だけの記録です');
+    // 空のセッションは固定文。
+    expect(historySessionExcerpt({ id: 'k14-empty', title: '', createdAt: 4, messages: [] })).toBe('会話');
+    // 最初の交換が調整ターンでも、抜粋は調整後の回答（または表示ラベル）
+    // であり、内部指示文にはならない（K-04 の表示解決と一致）。
+    const refined: ConversationSession = {
+      id: 'k14-refined', title: '回答を調整', createdAt: 5,
+      messages: [
+        { id: 'u1', role: 'user', content: '直前の回答を、実務でそのまま判断・実行に使える深さまで引き上げてください。', requestKind: 'refinement' },
+        { id: 'a1', role: 'assistant', content: '調整した回答です。' },
+      ],
+    };
+    expect(historySessionExcerpt(refined)).toBe('調整した回答です。');
+    expect(historySessionExcerpt(refined)).not.toContain('実務でそのまま');
+    const refinedOnly: ConversationSession = { id: 'k14-refined-only', title: '回答を調整', createdAt: 6, messages: [{ id: 'u1', role: 'user', content: '直前の回答を圧縮してください。', requestKind: 'refinement' }] };
+    expect(historySessionExcerpt(refinedOnly)).toBe('回答を調整');
+  });
+
+  it('does not split a surrogate pair at the history excerpt limit (K-14)', () => {
+    const emoji = excerptAtBoundary(`${'あ'.repeat(99)}😀${'い'.repeat(100)}`, 100);
+    expect(emoji).toBe(`${'あ'.repeat(99)}😀…`);
+    expect(emoji).not.toContain('\uFFFD');
+  });
+
+  it('shows the first-exchange excerpt beside the title in the history drawer (K-14)', () => {
+    const drifted: ConversationSession = {
+      id: 'session-drift', title: '最低賃金について教えて', createdAt: 1,
+      messages: [
+        { id: 'u1', role: 'user', content: '最低賃金について教えて' },
+        { id: 'a1', role: 'assistant', content: '2026年度の最低賃金は全国加重平均で1,121円です。' },
+        { id: 'u2', role: 'user', content: 'ついでに祝日も教えて' },
+        { id: 'a2', role: 'assistant', content: '2026年の祝日一覧は次のとおりです。' },
+      ],
+    };
+    render(<App messages={[]} sessions={[drifted]} language="ja" />);
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    const item = within(screen.getByTestId('history-session-list')).getByTestId('history-session-item-0');
+    expect(item.textContent).toContain('最低賃金について教えて');
+    expect(item.textContent).toContain('1,121円');
+    expect(item.textContent).not.toContain('祝日一覧');
   });
 
   it('builds a display-only current-conversation session without duplicating an identical stored session', () => {
