@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, conversationMessageDisplayText, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -2678,6 +2678,11 @@ describe('answer refinement pill display label', () => {
     const refinementTurn = latest.filter((message) => message.role === 'user').at(-1);
     expect(refinementTurn?.content).toContain('意思決定に必要な結論と次の行動');
     expect(refinementTurn?.displayContent).toBe('要点だけ');
+    // K-04: 調整である種別がメッセージ自体にも刻まれる（表示文の有無に
+    // 依存しない印）。サーバーへも同じ印がフィールドで送られる。
+    expect(refinementTurn?.requestKind).toBe('refinement');
+    const lastBody = chatBodies[1] as unknown as { refinementOfPreviousAnswer?: unknown };
+    expect(lastBody.refinementOfPreviousAnswer).toBe(true);
   });
 
   it('prefers the display label for the session title and falls back to content for legacy messages', () => {
@@ -2688,6 +2693,48 @@ describe('answer refinement pill display label', () => {
     expect(session?.title).toBe('要点だけ');
     const legacy = currentConversationSession([{ id: 'u1', role: 'user', content: '昔の質問' }], 1);
     expect(legacy?.title).toBe('昔の質問');
+  });
+
+  it('never surfaces the internal instruction for a marked refinement turn even when its display label is missing (K-04)', () => {
+    const instruction = '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。重要な条件、リスク、不確実性は残し、必要情報ではなく重複を削ってください。';
+    const marked: ConversationMessage = { id: 'u1', role: 'user', content: instruction, requestKind: 'refinement' };
+    expect(conversationMessageDisplayText(marked)).toBe('回答を調整');
+    const session = currentConversationSession([marked, { id: 'a1', role: 'assistant', content: '回答' }], 1);
+    expect(session?.title).toBe('回答を調整');
+    expect(session?.title).not.toContain('意思決定に必要な結論');
+    // 表示文がある印付きターンは従来どおりラベルを優先する
+    expect(conversationMessageDisplayText({ ...marked, displayContent: '要点だけ' })).toBe('要点だけ');
+    // 印の無いメッセージは従来どおり content を表示する（通常送信は不変）
+    expect(conversationMessageDisplayText({ id: 'u2', role: 'user', content: '普通の質問' })).toBe('普通の質問');
+  });
+
+  it('a refinement pill send is never diverted to the coding or creative workspace and reaches chat with the marker (K-04)', async () => {
+    const chatBodies: Record<string, unknown>[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (requestPath(input) === '/api/chat') {
+        chatBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return jsonChatReply(chatBodies.length === 1 ? '最初の回答です' : 'プランの回答です');
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onOpenCoding = vi.fn();
+    const onOpenCreative = vi.fn();
+    render(<App language="ja" onOpenCoding={onOpenCoding} onOpenCreative={onOpenCreative} />);
+
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '進め方を教えて' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('最初の回答です')).toBeTruthy();
+
+    // 「実行プランにする」の指示文にはコード作業への言及（ファイル・
+    // コンポーネント・テスト等）が含まれるが、印付き送信は本文テキスト
+    // による画面振り分けに掛けず、チャットの直接経路で処理する。
+    fireEvent.click(screen.getByRole('button', { name: '実行プランにする' }));
+    expect(await screen.findByText('プランの回答です')).toBeTruthy();
+    expect(onOpenCoding).not.toHaveBeenCalled();
+    expect(onOpenCreative).not.toHaveBeenCalled();
+    expect(chatBodies).toHaveLength(2);
+    expect(chatBodies[1]?.refinementOfPreviousAnswer).toBe(true);
   });
 });
 

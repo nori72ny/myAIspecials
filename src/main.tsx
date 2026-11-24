@@ -153,6 +153,9 @@ export function parseImportedHistory(value: unknown): ConversationMessage[] {
       // 保持する。これを落とすと復元後に内部指示文が吹き出しへ戻ってしまう。
       // 旧データには無いので、その場合は undefined のまま（content を表示）。
       displayContent: typeof candidate.displayContent === 'string' && candidate.displayContent.length > 0 ? candidate.displayContent.slice(0, 2_000) : undefined,
+      // 送信の種別（K-04）も検証できた場合だけ保持する。表示文が欠けた
+      // データでも、印があれば表示解決が内部指示文を出さずに済む。
+      requestKind: candidate.requestKind === 'refinement' ? 'refinement' : undefined,
       deliveryState: candidate.deliveryState === 'verified' || candidate.deliveryState === 'error' ? candidate.deliveryState : undefined,
       image,
       research,
