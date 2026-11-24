@@ -504,6 +504,14 @@
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { white-space: nowrap; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
+/* 表の右端の手がかり（K-26、2026-11-24）：枠組み（frame）が
+   スクロール枠の余白を引き受け、まだ右へスクロールできる
+   ときだけ右端にフェードを重ねる（判定は MarkdownTableV12 が
+   scrollWidth／scrollLeft で実測する）。枠内横スクロールの
+   仕様そのもの（C-10 合格形）は変えない。 */
+.origin-answer-table-frame { position: relative; margin: 1rem 0; }
+.origin-answer-table-frame .origin-answer-table-scroll { margin: 0; }
+.origin-answer-table-fade { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 2.25rem; pointer-events: none; border-radius: 0 var(--radius-control) var(--radius-control) 0; background: linear-gradient(to right, transparent, color-mix(in srgb, var(--text-primary) 16%, transparent)); }
 .origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
 .origin-dialog-overlay { background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .origin-workspace { background: var(--bg-surface); border-color: var(--border-default); color: var(--text-primary); }
@@ -533,8 +541,13 @@
 /* Home description wrapping: keep-all folds the Japanese text at
    phrase boundaries instead of mid-phrase (the round-2 evaluation
    caught 頼むだけ／で、 at 1280px), with break-word kept as the
-   fallback for a phrase longer than the line itself. */
-.origin-home-description { word-break: keep-all; overflow-wrap: break-word; }
+   fallback for a phrase longer than the line itself.
+   K-32 (2026-11-24): text-wrap: balance added — on mobile the
+   phrase-boundary folds alone left a line ending right after
+   "ORIGIN" with the last line nearly empty (3 lines); balancing
+   redistributes the folds so no line ends immediately after a
+   proper noun. line-break: strict matches the answer surface. */
+.origin-home-description { line-break: strict; word-break: keep-all; overflow-wrap: break-word; text-wrap: balance; }
 .origin-verification summary::-webkit-details-marker { display: none; }
 .origin-verification summary { cursor: pointer; }
 .origin-shell [role="log"] article[aria-label*="ORIGIN"] .markdown-body { color: var(--text-primary); font-size: 1rem; line-height: 1.75; }

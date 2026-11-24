@@ -141,6 +141,24 @@ function normalizeAnswerBreaks(text: string): string {
   return converted.join('\n').replace(new RegExp(`${BREAK_PLACEHOLDER}\\n?`, 'g'), '\\\n');
 }
 
+/**
+ * K-27（2026-11-24）：参考リンクの表示名。モデルがリンク文に
+ * URL そのものを書いた場合（自動リンク化された素の URL を含む）、
+ * 長いエンコード URL がそのまま表示されて折り返しが乱れた
+ * （実働検査 LIVE-4）。その場合は表示をドメインに留め、URL は
+ * リンク先にだけ残す。タイトル付きのリンクは従来どおり表示する。
+ */
+function answerLinkLabel(children: ReactNode, href: string | undefined): ReactNode {
+  if (typeof children !== 'string' || !href) return children;
+  const text = children.trim();
+  if (text !== href && !/^https?:\/\/\S+$/.test(text)) return children;
+  try {
+    return new URL(href).hostname || children;
+  } catch {
+    return children;
+  }
+}
+
 function splitCellBreaks(node: ReactNode): ReactNode {
   if (typeof node === 'string') {
     const parts = node.split(/(<br\s*\/?>|&lt;br\s*\/?&gt;)/gi);
@@ -208,7 +226,7 @@ export default function OriginAnswerMarkdown({ content, language, onRefine, show
       components={{
         pre: ({ children }) => <AnswerCodeBlock language={language}>{children}</AnswerCodeBlock>,
         a: ({ children, href }) => (
-          <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
+          <a href={href} target="_blank" rel="noreferrer noopener">{answerLinkLabel(children, href)}</a>
         ),
         img: ({ alt, src, title }) => {
           const safeSource = typeof src === 'string' && (
