@@ -257,12 +257,12 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
               </div>
               {artifact && previewUrl && (
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <a href={previewUrl} download={artifact.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-bold shadow-sm">SVG保存</a>
-                  <button type="button" disabled={!canPreparePng} onClick={() => void preparePng()} className="origin-secondary-button inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-40">
+                  <a href={previewUrl} download={artifact.downloadName} className="origin-secondary-button inline-flex min-h-11 items-center px-4 text-sm font-bold shadow-sm">SVG保存</a>
+                  <button type="button" disabled={!canPreparePng} onClick={() => void preparePng()} className="origin-secondary-button inline-flex min-h-11 items-center px-4 text-sm font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-40">
                     {pngBusy ? 'PNG変換中…' : pngUrl ? 'PNGを再作成' : 'PNGを作成'}
                   </button>
                   {pngUrl && <a href={pngUrl} download={pngDownloadName} className="origin-primary-button inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-black shadow-sm">PNG保存</a>}
-                  <button type="button" onClick={() => setMotionOpen(true)} className="origin-secondary-button inline-flex min-h-11 items-center gap-1.5 rounded-xl px-4 text-sm font-bold shadow-sm"><Play aria-hidden="true" className="h-4 w-4" />動画化</button>
+                  <button type="button" onClick={() => setMotionOpen(true)} className="origin-secondary-button inline-flex min-h-11 items-center gap-1.5 px-4 text-sm font-bold shadow-sm"><Play aria-hidden="true" className="h-4 w-4" />動画化</button>
                 </div>
               )}
             </div>
@@ -301,10 +301,10 @@ export default function CreativePanelV15({ initialRequest = '', onClose, onArtif
                       <p className="mt-1 text-[13px] opacity-70">{CREATIVE_PRESET_LABELS_V15[entry.preset]} · {HISTORY_DATE.format(new Date(entry.createdAt))}</p>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="origin-secondary-button min-h-11 flex-1 rounded-xl px-3 text-[13px] font-bold disabled:opacity-40">
+                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void openHistoryEntry(entry)} aria-label={`履歴を開く: ${entry.title}`} className="origin-secondary-button min-h-11 flex-1 px-3 text-[13px] font-bold disabled:opacity-40">
                         {waiting ? '確認中…' : active ? '表示中' : '開く'}
                       </button>
-                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-bold disabled:opacity-40">削除</button>
+                      <button type="button" disabled={Boolean(historyBusyId) || busy || pngBusy} onClick={() => void removeHistoryEntry(entry)} aria-label={`履歴から削除: ${entry.title}`} className="origin-secondary-button min-h-11 px-3 text-[13px] font-bold disabled:opacity-40">削除</button>
                     </div>
                   </article>
                 );

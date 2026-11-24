@@ -663,14 +663,34 @@
    change takes ~200ms; prefers-reduced-motion removes both.
    No name text sits under the art (removed by owner request,
    2026-11-15; the name appears inside the profile card
-   instead). */
+   instead — superseded 2026-11-24: the speech-bubble name tag
+   beside the disc is back, by owner request; see the __name
+   rule below).
+   K-01 revision (2026-11-24, correction list K-01, option C):
+   the P4 column row still kept Orin permanently parked over
+   the reading area's top edge — in the 2026-11-24 live
+   inspection the first line under the row read as covered by
+   Orin while scrolling, and the row's height was taken from
+   the conversation at every scroll position. The row now
+   lives INSIDE the conversation scroller as its first
+   in-flow child (App.tsx renders the presence as the
+   scroller's first child, ahead of the home layout and the
+   conversation log), so Orin greets the user at the head of
+   the conversation and then scrolls away together with the
+   content. Nothing is positioned over the scroller at all,
+   so at every scroll position the overlap is structurally
+   zero — not merely mitigated. The working-state linkage
+   while Orin is scrolled out of view is carried by the
+   in-conversation work display, as the correction list
+   prescribes. Sizes, the name tag, the status pill and the
+   tap behaviour are unchanged. */
 .origin-orin-presence {
-  /* P4 (2026-11-23): a row in the main column's flow, not an
-     overlay — the column is a flex column (header, this row,
-     the flex-1 scroller, the composer), so the row reserves
-     its own height and the scroller's viewport starts below
-     it. flex: none keeps the row from being compressed. */
-  flex: none;
+  /* K-01 (2026-11-24): the first in-flow child of the
+     conversation scroller — a block-level row at the head of
+     the scroll content, centred on the column. It is not a
+     flex item of the main column any more (the P4 form), and
+     it carries no positioning of any kind: it scrolls with
+     the content, so the disc can never cover a message. */
   display: flex;
   justify-content: center;
   box-sizing: border-box;
@@ -876,7 +896,14 @@
    is gone; a small scroll-padding-top remains so messages
    scrolled into view (scrollIntoView, anchor jumps) stop a
    breath below the scroller's top edge instead of flush
-   against it. */
+   against it.
+   K-01 revision (2026-11-24): the presence row moved once
+   more — from the column row above the scroller into the
+   scroller itself, as its first in-flow child — so Orin
+   scrolls away with the content and the full viewport height
+   returns to reading. Still no clearance is needed: the row
+   is ordinary scroll content, and the scroller's own padding
+   (Tailwind p-2 / sm:p-4) insets it like any other content. */
 .origin-chat-scroll {
   scroll-padding-top: 16px;
 }
@@ -941,10 +968,17 @@
      in the normal flow since the P4 revision, 2026-11-23,
      which lands on the same 144px) — with an 8px gap. The card
      keeps one hairline border and a single soft shadow layer,
-     and the backdrop drops its dim and blur entirely. */
+     and the backdrop drops its dim and blur entirely.
+     K-01 revision (2026-11-24): the presence row now sits
+     inside the conversation scroller, whose top padding
+     (sm:p-4 = 16px at this breakpoint) pushes the tap
+     target's bottom edge to 160px when the conversation is
+     scrolled to the top — the only position from which Orin
+     can be tapped at the head of the content — so the top
+     padding grows by the same 16px to keep the 8px gap. */
   .origin-orin-profile {
     align-items: flex-start;
-    padding: 152px 24px 24px;
+    padding: 168px 24px 24px;
   }
   .origin-orin-profile__backdrop {
     background: transparent;
@@ -954,7 +988,7 @@
   .origin-orin-profile__card {
     width: 320px;
     max-width: calc(100vw - 48px);
-    max-height: calc(100dvh - 176px);
+    max-height: calc(100dvh - 192px);
     border-bottom: 1px solid var(--border-default);
     border-radius: 12px;
     box-shadow: 0 12px 32px rgb(15 23 42 / 16%);

@@ -188,7 +188,7 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
         <ul className="mt-1 space-y-1">
           {otherSources.map(({ source, index }) => <li key={`${source.url}-${index}`}>
             <button type="button" onClick={() => setSelectedSource({ stepId: focusStepId, index })}
-              className="origin-secondary-button flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left">
+              className="origin-secondary-button flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left">
               <SourceFavicon url={source.url} domain={source.domain} />
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">{source.title}</span>
               {source.domain && <span className="shrink-0 text-[13px] text-origin-muted">{source.domain}</span>}

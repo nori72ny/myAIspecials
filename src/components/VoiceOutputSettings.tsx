@@ -128,7 +128,7 @@ export default function VoiceOutputSettings({ language }: Props) {
             type="button"
             data-testid="orin-voice-preview-button"
             onClick={togglePreview}
-            className="origin-secondary-button inline-flex min-h-12 items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold"
+            className="origin-secondary-button inline-flex min-h-12 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold"
           >
             {previewing
               ? <Square className="h-4 w-4" aria-hidden="true" />

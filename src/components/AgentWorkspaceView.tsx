@@ -799,7 +799,7 @@ export default function AgentWorkspaceView() {
             }} />
           <button type="button" onClick={() => attachmentInputRef.current?.click()}
             disabled={Boolean(plan) || phase === 'planning' || phase === 'executing' || attachmentBusy}
-            className="origin-secondary-button mt-2 min-h-11 rounded-xl px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+            className="origin-secondary-button mt-2 min-h-11 px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">
             {attachmentBusy ? '添付しています…' : 'ファイルを選ぶ'}
           </button>
           {attachmentFiles.length > 0 && <>
@@ -854,7 +854,7 @@ export default function AgentWorkspaceView() {
               className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
               承認して実行
             </button>
-            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">計画をやめる</button>
+            <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">計画をやめる</button>
           </div>
         </section>}
 
@@ -902,7 +902,7 @@ export default function AgentWorkspaceView() {
                 const view = savedResultView(item);
                 return <li key={item.checkpointId}>
                   <button type="button" onClick={() => restoreLocalCheckpoint(item)}
-                    className="origin-secondary-button flex min-h-11 w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left">
+                    className="origin-secondary-button flex min-h-11 w-full items-start justify-between gap-3 px-3 py-2 text-left">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold">{view.title}</span>
                       {view.meta && <span className="mt-0.5 block truncate text-[13px] text-origin-muted">{view.meta}</span>}

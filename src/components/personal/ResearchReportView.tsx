@@ -159,7 +159,7 @@ export function ResearchReaderOverlay({ result, title, language, onClose }: {
   return <div className="fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)]" role="dialog" aria-modal="true" aria-label={isEn ? 'Research report' : '調査レポート'}>
     <div className="origin-surface flex shrink-0 items-center justify-between gap-3 border-b border-origin-border px-3 py-2 sm:px-4">
       <p className="min-w-0 flex-1 truncate text-sm font-bold">{title || (isEn ? 'Research report' : '調査レポート')}</p>
-      <button ref={closeRef} type="button" onClick={onClose} className="origin-secondary-button min-h-11 shrink-0 rounded-xl px-4 text-sm font-semibold">{isEn ? 'Back to chat' : '会話に戻る'}</button>
+      <button ref={closeRef} type="button" onClick={onClose} className="origin-secondary-button min-h-11 shrink-0 px-4 text-sm font-semibold">{isEn ? 'Back to chat' : '会話に戻る'}</button>
     </div>
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
       <div className="mx-auto w-full max-w-[var(--content-reading)]">

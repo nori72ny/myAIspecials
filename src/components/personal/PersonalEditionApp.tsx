@@ -156,7 +156,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     {workspace === 'chat' && <a href="#origin-main" className="origin-skip-link">{isEn ? 'Skip to main content' : 'メインコンテンツへスキップ'}</a>}
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 sm:px-4">
       <div className="mx-auto flex min-h-14 w-full max-w-[var(--content-wide)] items-center gap-3">
-        <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={2.1} /></button>
+        <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={2.1} /></button>
         <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'agent' ? (isEn ? 'Agent' : 'エージェント') : (isEn ? 'Code' : 'コード')}</span>
         <span aria-hidden="true" className="min-w-11 shrink-0" />
       </div>
