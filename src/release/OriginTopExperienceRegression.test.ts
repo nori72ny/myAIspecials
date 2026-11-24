@@ -315,4 +315,50 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(assistantRule).toContain('background: transparent !important;');
     expect(assistantRule).toContain('box-shadow: none !important;');
   });
+
+  it('keeps the mic button hover on the surface token instead of raw black/white (K-28)', () => {
+    // D-15：マイクボタンの hover が black/5・white/10 の直書きで、
+    // テーマ展開時に取り残される。面トークンへ寄せる。
+    expect(app).toContain('hover:bg-[var(--bg-surface-muted)]');
+    const micStart = app.indexOf('data-testid="voice-input-button"');
+    const micButton = app.slice(micStart, micStart + 1200);
+    expect(micButton).not.toContain('hover:bg-black/5');
+    expect(micButton).not.toContain('dark:hover:bg-white/10');
+  });
+
+  it('uses Lucide icons in the send-queue chips instead of an emoji and a glyph (K-29)', () => {
+    // D-16：キューチップの 📎（絵文字）と ▶（文字グリフ）は
+    // アイコン体系（Lucide）の外。Paperclip／Play へ置き換える。
+    expect(app).not.toContain('📎');
+    expect(app).not.toContain('>▶</button>');
+    const chip = app.slice(app.indexOf('data-testid="origin-send-queue-chip"'), app.indexOf('data-testid="origin-send-queue-chip"') + 1800);
+    expect(chip).toContain('<Paperclip');
+    expect(chip).toContain('<Play');
+  });
+
+  it('aligns the attachment chip height with its 44px remove button (K-30)', () => {
+    // D-17：削除ボタン（44px）がチップの自然高より大きく、チップが
+    // 膨らんで見えた。チップ自体の高さを 44px に揃える。
+    expect(app).toContain('origin-surface-muted flex h-11 items-center gap-2 rounded-[var(--radius-control)] pl-2.5 pr-1');
+  });
+
+  it('unifies the sidebar toggle icon stroke with the sidebar close icon (K-31)', () => {
+    // D-18：兄弟コントロールで線の太さが 2.1 と 1.9 に分かれていた。
+    expect(app).toContain('<PanelLeft aria-hidden="true" size={18} strokeWidth={1.9} />');
+    const sidebar = readFileSync(resolve(root, 'components/personal/OriginSidebar.tsx'), 'utf8');
+    expect(sidebar).toContain('<PanelLeftClose aria-hidden="true" size={18} strokeWidth={1.9} />');
+  });
+
+  it('balances the home description folds so a line does not end right after a proper noun (K-32)', () => {
+    // D-23：モバイルで説明文が「ORIGIN」の直後で折り返し3行に
+    // なった。keep-all に加えて行バランスを指定する。
+    const rule = indexCss.match(/\.origin-home-description \{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('word-break: keep-all;');
+    expect(rule).toContain('text-wrap: balance;');
+  });
+
+  it('defines the answer table right-edge scroll cue (K-26)', () => {
+    expect(indexCss).toContain('.origin-answer-table-frame { position: relative; margin: 1rem 0; }');
+    expect(indexCss).toContain('.origin-answer-table-fade');
+  });
 });
