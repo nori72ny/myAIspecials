@@ -1846,16 +1846,55 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     expect(result.ok).toBe(true);
     const bundle = JSON.parse(result.artifact ?? '{}') as {
       findings: { claim: string }[];
-      reconciliation: { failed?: boolean; candidateCount: number; keptIndexes?: number[]; droppedIndexes?: unknown[] };
+      reconciliation: { failed?: boolean; failureCode?: string; candidateCount: number; keptIndexes?: number[]; droppedIndexes?: unknown[] };
     };
     expect(bundle.findings).toHaveLength(2);
     expect(bundle.reconciliation.failed).toBe(true);
     expect(bundle.reconciliation.candidateCount).toBe(1);
+    // The failure's reason rides the record (D4): the output
+    // stayed unparseable after the repair retry, which is the
+    // code the step would have failed with under enforce.
+    expect(bundle.reconciliation.failureCode).toBe('AGENT_RECONCILIATION_OUTPUT_INVALID');
     // Nothing was judged, so no index lists are recorded — an
     // unjudged reconciliation must not read as an empty judgment
     // (対策1(a)).
     expect(bundle.reconciliation.keptIndexes).toBeUndefined();
     expect(bundle.reconciliation.droppedIndexes).toBeUndefined();
+  });
+
+  it('shadow: a provider failure records the provider code as the failure reason (D4)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: false, code: 'PROVIDER_INVALID_RESPONSE' });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'shadow'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      reconciliation: { failed?: boolean; failureCode?: string; candidateCount: number };
+    };
+    expect(bundle.reconciliation.failed).toBe(true);
+    expect(bundle.reconciliation.failureCode).toBe('PROVIDER_INVALID_RESPONSE');
+    expect(bundle.reconciliation.candidateCount).toBe(1);
+  });
+
+  it('shadow: candidates with no vetted findings record AGENT_RECONCILIATION_NO_FINDINGS (D4)', async () => {
+    const { store, setDigest } = await storeWithFiles(RECONCILER_FILES);
+    const executor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({ findings: [], dropped: [{ index: 0, reason: 'no-pair' }, { index: 1, reason: 'boilerplate' }] }),
+    });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      reconcilerParams(setDigest),
+      contextWithMode(store, executor, 'shadow'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      reconciliation: { failed?: boolean; failureCode?: string; keptCount: number };
+    };
+    expect(bundle.reconciliation.failed).toBe(true);
+    expect(bundle.reconciliation.failureCode).toBe('AGENT_RECONCILIATION_NO_FINDINGS');
+    expect(bundle.reconciliation.keptCount).toBe(0);
   });
 
   it('off: passes the bundle through with no reconciliation record', async () => {

@@ -699,6 +699,116 @@ describe("second-route circuit breaker and attempt cap (speed wave 1, 2026-11-16
   });
 });
 
+describe("agent data-step invalid-response route switch (D1, 2026-11-25)", () => {
+  // The agent model-call adapter is the only caller that sets the
+  // capacity-allocation hint, in exactly these two values; the hint
+  // is the dispatch's agent marker.
+  const agentRequest = (allocation: "agent-analyzer-chunk" | "agent-analyzer-chunk-primary"): OriginProviderExecutionRequest => ({
+    ...request,
+    groqSystemInstruction: "経路3専用の短縮指示です。",
+    groqCapacityAllocation: allocation,
+  });
+  const invalidResponseError = (transportRequestCount = 4): OriginProviderError =>
+    new OriginProviderError("PROVIDER_INVALID_RESPONSE", "無料AIから有効な応答を取得できません。", 502, true, undefined, { transportRequestCount });
+
+  it.each(["agent-analyzer-chunk", "agent-analyzer-chunk-primary"] as const)(
+    "switches to Groq when the Cloudflare route answers with no usable text on an agent dispatch (%s)",
+    async (allocation) => {
+      const primaryExecute = primaryRateLimited();
+      const cloudflareExecute = vi.fn(async () => { throw invalidResponseError(4); });
+      const groqExecute = groqOk();
+      const result = await executeOriginProviderWithFailover(agentRequest(allocation), bothEnv, fetch, {
+        nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+      });
+      expect(primaryExecute).not.toHaveBeenCalled();
+      expect(result.text).toBe("第3経路の回答です。");
+      // The Cloudflare attempt keeps its honest "failed" outcome —
+      // it executed and produced nothing usable — and the composed
+      // result still passes the zero-cost assertion: the route
+      // demonstrably did not serve.
+      expect(result.attempts?.[1]).toEqual({
+        providerId: "cloudflare-workers-ai-free",
+        modelId: ORIGIN_CLOUDFLARE_FREE_MODEL,
+        outcome: "failed",
+        errorCode: "PROVIDER_INVALID_RESPONSE",
+        rateLimitHit: false,
+        transportRequestCount: 4,
+        durationMs: expect.any(Number),
+      });
+      expect(result.attempts).toHaveLength(3);
+      expect(result.attempts?.[2]?.outcome).toBe("succeeded");
+      expect(result.transportRequestCount).toBe(0 + 4 + 1);
+      expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+    },
+  );
+
+  it("never switches on an invalid response for a dispatch without the agent marker", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => { throw invalidResponseError(4); });
+    const groqExecute = groqOk();
+    const error = await executeOriginProviderWithFailover(request, bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(groqExecute).not.toHaveBeenCalled();
+    expect(error.code).toBe("PROVIDER_INVALID_RESPONSE");
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "failed"]);
+  });
+
+  it("surfaces the final route's own error when both routes answer with no usable text on an agent dispatch", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => { throw invalidResponseError(4); });
+    const groqExecute = vi.fn(async () => { throw invalidResponseError(1); });
+    const error = await executeOriginProviderWithFailover(agentRequest("agent-analyzer-chunk"), bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(error.code).toBe("PROVIDER_INVALID_RESPONSE");
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.outcome)).toEqual(["skipped", "failed", "failed"]);
+    expect(error.diagnostic?.failoverAttempts?.map((attempt) => attempt.providerId)).toEqual([
+      "openrouter-free", "cloudflare-workers-ai-free", "groq-free",
+    ]);
+  });
+
+  it("keeps every other integrity code terminal on an agent dispatch", async () => {
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => {
+      throw new OriginProviderError("PROVIDER_POLICY_VIOLATION", "0ドル・ZDR固定ポリシーに適合しない実行計画です。", 400, false, undefined, { transportRequestCount: 4 });
+    });
+    const groqExecute = groqOk();
+    const error = await executeOriginProviderWithFailover(agentRequest("agent-analyzer-chunk"), bothEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    }).catch((caught: unknown) => caught) as OriginProviderError;
+    expect(groqExecute).not.toHaveBeenCalled();
+    expect(error.code).toBe("PROVIDER_POLICY_VIOLATION");
+  });
+
+  it("falls through to Cloudflare in the Groq-first order when Groq answers with no usable text on an agent dispatch", async () => {
+    const groqFirstAgentEnv = {
+      ORIGIN_CF_FAILOVER_ENABLED: "true",
+      GROQ_API_KEY: SYNTHETIC_KEY,
+      ORIGIN_GROQ_FIRST_ENABLED: "true",
+    } as NodeJS.ProcessEnv;
+    const primaryExecute = primaryRateLimited();
+    const cloudflareExecute = vi.fn(async () => cloudflareSuccessResult());
+    const groqExecute = vi.fn(async () => { throw invalidResponseError(1); });
+    const result = await executeOriginProviderWithFailover(agentRequest("agent-analyzer-chunk"), groqFirstAgentEnv, fetch, {
+      nowMs: NOW_MS, primaryExecute, cloudflareExecute, groqExecute,
+    });
+    expect(result.text).toBe("第2経路の回答です。");
+    expect(result.attempts?.[1]).toEqual({
+      providerId: "groq-free",
+      modelId: ORIGIN_GROQ_FREE_MODEL_ID,
+      outcome: "failed",
+      errorCode: "PROVIDER_INVALID_RESPONSE",
+      rateLimitHit: false,
+      transportRequestCount: 1,
+      durationMs: expect.any(Number),
+    });
+    expect(result.attempts).toHaveLength(3);
+    expect(result.transportRequestCount).toBe(0 + 1 + 4);
+    expect(() => assertOriginZeroCostExecutionResultWithFailover(result, ORIGIN_OPENROUTER_FREE_MODEL)).not.toThrow();
+  });
+});
+
 describe("Groq-first direct chat order (S-1, 2026-11-17)", () => {
   const groqFirstEnv = {
     ORIGIN_CF_FAILOVER_ENABLED: "true",
