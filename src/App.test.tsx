@@ -2901,19 +2901,19 @@ describe('cat visibility on the top screen and while generating (owner request 2
   });
 });
 
-describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
+describe('Orin panel (stage 1, owner request 2026-11-24)', () => {
   afterEach(cleanup);
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('opens from the floating presence and shows only the profile while nothing is in progress', () => {
+  it('opens from the floating presence and shows the profile plus the empty work state while nothing is in progress', () => {
     render(<App language="ja" />);
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-    const sheet = screen.getByTestId('origin-work-sheet');
-    // 待機中は「いまの作業」の節自体を出さない（空状態文も廃止、
-    // 2026-11-21 再デザイン）。
-    expect(sheet.textContent).not.toContain('いまの作業');
-    expect(sheet.textContent).not.toContain('いまは作業していません');
-    expect(within(sheet).getByTestId('origin-orin-profile-name').textContent).toBe('オリン');
+    const sheet = screen.getByTestId('origin-orin-panel');
+    // パネルではタブ画面の空状態として「いまは作業していません」を
+    // 1行出す（パネル設計 §4.5、2026-11-24。旧カードの空状態廃止
+    // とは別判断）。名前表記は「Orin」に統一（同日の統括裁定）。
+    expect(within(sheet).getByTestId('origin-orin-panel-empty').textContent).toBe('いまは作業していません');
+    expect(within(sheet).getByTestId('origin-orin-profile-name').textContent).toBe('Orin');
   });
 
   it('shows the agent plan steps (not just the current step) in the work sheet', () => {
@@ -2933,12 +2933,13 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     try {
       render(<App language="ja" onOpenAgent={vi.fn()} />);
       fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-      const sheet = screen.getByTestId('origin-work-sheet');
-      // 項目の行は従来どおり現在のステップと n/m、行の下に計画の
-      // ステップ列（各ステップの状態）が出る。
-      expect(within(sheet).getByTestId('origin-work-sheet-agent-link')).toBeTruthy();
-      expect(sheet.textContent).toContain('2/3');
-      const steps = within(sheet).getByTestId('origin-work-sheet-steps');
+      const sheet = screen.getByTestId('origin-orin-panel');
+      // 一覧が引けない環境では共有ストアの要約が項目になり、進捗は
+      // %＋n/m 併記で出る。ステップ列は開くと見える（設計 §4.1）。
+      expect(within(sheet).getByTestId('origin-orin-panel-agent-link')).toBeTruthy();
+      expect(sheet.textContent).toContain('33%（3ステップ中 1つ完了）');
+      fireEvent.click(within(sheet).getByRole('button', { name: 'ステップを見る' }));
+      const steps = within(sheet).getByTestId('origin-orin-panel-steps');
       expect(steps.textContent).toContain('ウェブで調べる');
       expect(steps.textContent).toContain('完了');
       expect(steps.textContent).toContain('実行中');
@@ -2964,11 +2965,11 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     await screen.findByTestId('origin-orin-presence');
 
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-    const sheet = screen.getByTestId('origin-work-sheet');
+    const sheet = screen.getByTestId('origin-orin-panel');
     expect(within(sheet).getByText('回答を準備しています')).toBeTruthy();
-    expect(sheet.textContent).toContain('進行中');
+    expect(sheet.textContent).toContain('作業中');
     fireEvent.click(within(sheet).getByRole('button', { name: '閉じる' }));
-    expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
+    expect(screen.queryByTestId('origin-orin-panel')).toBeNull();
 
     resolveChat(new Response(JSON.stringify({
       content: 'シート確認の回答',
@@ -2977,7 +2978,7 @@ describe('Orin work sheet (PR-β, owner request 2026-11-13)', () => {
     expect(await screen.findByText('シート確認の回答')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-    const reopened = screen.getByTestId('origin-work-sheet');
+    const reopened = screen.getByTestId('origin-orin-panel');
     expect(within(reopened).getByText('質問への回答')).toBeTruthy();
     expect(reopened.textContent).toContain('完了');
   });
@@ -3038,12 +3039,12 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     // 中央カード／下部シートで重ならないため、プレゼンスは残したまま
     // タップの「喜ぶ」動きを見せる。
     fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-    const card = screen.getByTestId('origin-work-sheet');
-    expect(within(card).getByTestId('origin-orin-profile-name').textContent).toBe('オリン');
+    const card = screen.getByTestId('origin-orin-panel');
+    expect(within(card).getByTestId('origin-orin-profile-name').textContent).toBe('Orin');
     const presence = screen.getByTestId('origin-orin-presence');
     expect(presence.querySelector('.origin-cat-joy')).not.toBeNull();
     fireEvent.click(within(card).getByRole('button', { name: '閉じる' }));
-    expect(screen.queryByTestId('origin-work-sheet')).toBeNull();
+    expect(screen.queryByTestId('origin-orin-panel')).toBeNull();
     expect(await screen.findByTestId('origin-orin-presence')).toBeTruthy();
   });
 
@@ -3240,7 +3241,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
       render(<App language="ja" />);
       expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('文書を作る...');
       fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
-      expect(screen.getByTestId('origin-work-sheet')).toBeTruthy();
+      expect(screen.getByTestId('origin-orin-panel')).toBeTruthy();
       await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     } finally {
       reportAgentActivity(null);

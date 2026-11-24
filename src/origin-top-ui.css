@@ -949,99 +949,147 @@
   scroll-padding-top: 16px;
 }
 
-/* Orin profile card (owner request 2026-11-15, Muse-app style avatar
-   tap). Tapping the resident Orin opens this card: Orin's profile
-   (art, name, one-line introduction) plus the same "current work"
-   list the old top sheet carried. The content is identical on every
-   device; only the form factor changes at the 640px breakpoint
-   (the app's sm breakpoint): below it the card is a bottom sheet
-   over a dimmed backdrop; at or above it the card is a light
-   popover hanging below the resident Orin with no dim at all
-   (2026-11-21 redesign, external design review follow-up — the
-   full-screen modal read as far too heavy for a short profile
-   and a status glance). The overlay is fixed over the viewport
-   at z-index 40 — above the presence band so the backdrop
-   catches taps, below the header (z-50). On wide screens the
-   backdrop is transparent and only keeps its close-on-outside-tap
-   role, so the presence stays fully visible and the tap joy
-   motion can play. Entry motion is a short fade plus a small
-   rise; prefers-reduced-motion removes it. */
-.origin-orin-profile {
+/* Orin panel (owner request 2026-11-24, panel design
+   ORIN_PANEL_DESIGN_2026-11-24). Tapping the resident Orin opens
+   this panel: the profile header (art, the name "Orin", one-line
+   introduction) inherited from the old profile card, plus two
+   tabs — work status and what Orin can do. The form follows one
+   breakpoint, 1024px, aligned with the sidebar's push band:
+   below it the panel takes over the whole screen as a screen
+   transition (its own top bar carries the Back control); at or
+   above it the panel is a right rail that pushes the body —
+   App adds padding to the main column while the panel is open,
+   so the rail never floats over the conversation (the P4
+   lesson). The 640px card breakpoint is retired with the card. */
+.origin-orin-panel {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 70;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
-.origin-orin-profile__backdrop {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
+.origin-orin-panel__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+.origin-orin-panel__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 10px 0 4px;
   border: 0;
-  background: var(--scrim);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  cursor: default;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.origin-orin-profile__card {
-  position: relative;
-  width: 100%;
-  max-height: calc(100dvh - 24px);
+.origin-orin-panel__close {
+  display: none;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.origin-orin-panel__close:hover {
+  background: var(--bg-surface-muted);
+}
+.origin-orin-panel__scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  border: 1px solid var(--border-default);
-  border-bottom: 0;
-  border-radius: 24px 24px 0 0;
   padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
-  box-shadow: 0 -12px 32px rgb(15 23 42 / 18%);
-  animation: origin-orin-profile-in 220ms ease-out;
 }
-@media (min-width: 640px) {
-  /* Popover form (2026-11-21 redesign): anchored below the
-     resident Orin instead of centered on the screen. The top
-     padding clears the presence — its tap target ends 144px
-     below the viewport top (header 60px + the presence row's
-     6px tap padding + 72px art + 6px tap padding; the row is
-     in the normal flow since the P4 revision, 2026-11-23,
-     which lands on the same 144px) — with an 8px gap. The card
-     keeps one hairline border and a single soft shadow layer,
-     and the backdrop drops its dim and blur entirely.
-     K-01 revision (2026-11-24): the presence row now sits
-     inside the conversation scroller, whose top padding
-     (sm:p-4 = 16px at this breakpoint) pushes the tap
-     target's bottom edge to 160px when the conversation is
-     scrolled to the top — the only position from which Orin
-     can be tapped at the head of the content — so the top
-     padding grows by the same 16px to keep the 8px gap. */
-  .origin-orin-profile {
-    align-items: flex-start;
-    padding: 168px 24px 24px;
-  }
-  .origin-orin-profile__backdrop {
-    background: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  .origin-orin-profile__card {
-    width: 320px;
-    max-width: calc(100vw - 48px);
-    max-height: calc(100dvh - 192px);
-    border-bottom: 1px solid var(--border-default);
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
-  }
+.origin-orin-panel__tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 20px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
 }
-@keyframes origin-orin-profile-in {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+.origin-orin-panel__tab {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-@media (prefers-reduced-motion: reduce) {
-  .origin-orin-profile__card {
-    animation: none;
+.origin-orin-panel__tab.is-selected {
+  background: var(--bg-surface-muted);
+  color: var(--text-primary);
+}
+.origin-orin-panel__chip {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--success) 14%, var(--bg-surface));
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.origin-orin-panel__chip.is-partial {
+  background: color-mix(in oklch, var(--accent-primary) 10%, var(--bg-surface));
+  color: var(--accent-primary);
+}
+.origin-orin-panel__chip.is-preparing {
+  background: var(--bg-surface-muted);
+  color: var(--text-secondary);
+}
+.origin-orin-panel__empty-guide {
+  display: block;
+  margin: 0 auto;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-panel__empty-guide:hover {
+  background: var(--bg-surface-muted);
+}
+@media (min-width: 1024px) {
+  .origin-orin-panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: auto;
+    width: min(360px, 33.333vw);
+    border-left: 1px solid var(--border-default);
+    background: var(--bg-surface);
+  }
+  .origin-orin-panel__topbar {
+    display: none;
+  }
+  .origin-orin-panel__close {
+    display: inline-flex;
+  }
+  /* While the rail is open, the main column yields the same
+     width on its right side so the body is pushed, not covered. */
+  .origin-main--orin-panel-open {
+    padding-right: min(360px, 33.333vw);
   }
 }
 
