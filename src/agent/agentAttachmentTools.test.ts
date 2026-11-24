@@ -10,7 +10,11 @@ import { servingFromRoutingEvidence, type AgentModelExecutor } from './agentMode
 import {
   AGENT_ANALYZER_CHUNK_INTERVAL_MS,
   AGENT_AUDIT_ATTRIBUTE_VOCABULARY,
+  agentDataCitationPairKey,
   agentGoalUsesCjk,
+  applyAgentDataPairGate,
+  canonicalAgentDataAttribute,
+  canonicalAgentDataFundingKey,
   computeAgentDataValueMismatches,
   mergeAgentDataStructures,
   normalizeAgentDataValueText,
@@ -1660,7 +1664,16 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
         evidence: '尚需取得上证合规性审查意见', file: 'announcement.txt', location: 'p.5',
       },
     ],
-    values: [],
+    // The layer-1 value table the analyzer contract requires:
+    // every finding's pair stands in the table under one label.
+    // The pair gate (D3) anchors against this table, so the
+    // fixture carries it like a real analyzer bundle does.
+    values: [
+      { entity: '买方一', attribute: '金額', value: '146,660,323.00', file: 'announcement.txt', location: 'p.2' },
+      { entity: '买方一', attribute: '金額', value: '146,660,332.00', file: 'buyer1_report.txt', location: 'p.3' },
+      { entity: '聚源盛业', attribute: '比率・持分', value: '45%', file: 'announcement.txt', location: 'p.2' },
+      { entity: '聚源盛业', attribute: '比率・持分', value: '40%', file: 'buyer1_report.txt', location: 'p.4' },
+    ],
     structure: { agreements: [{ name: '協議一', parties: [{ name: '买方一', role: '受让方' }] }], definitions: [] },
     candidates: [{
       entity: '聚源盛业',
@@ -1970,6 +1983,353 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     }), 2, 0);
     expect(withBadDrop.ok).toBe(true);
     if (withBadDrop.ok) expect(withBadDrop.dropped).toEqual([]);
+  });
+});
+
+describe('function inspection 2026-11-25: D2 deterministic pairing, D3 pair gate', () => {
+  const value = (entity: string, attribute: string, raw: string, file: string): AgentDataValue => ({
+    entity, attribute, value: raw, file, location: 'p.1',
+  });
+  const NO_STRUCTURE = { agreements: [], definitions: [] };
+
+  it('canonicalizes written attribute labels onto the controlled vocabulary (D2)', () => {
+    expect(canonicalAgentDataAttribute('金額')).toBe('金額');
+    expect(canonicalAgentDataAttribute('対価')).toBe('金額');
+    expect(canonicalAgentDataAttribute('对价')).toBe('金額');
+    expect(canonicalAgentDataAttribute('持分')).toBe('比率・持分');
+    expect(canonicalAgentDataAttribute('持股比例')).toBe('比率・持分');
+    expect(canonicalAgentDataAttribute('比率・持分')).toBe('比率・持分');
+    expect(canonicalAgentDataAttribute('资金来源')).toBe('資金源泉');
+    expect(canonicalAgentDataAttribute('funding source')).toBe('資金源泉');
+    expect(canonicalAgentDataAttribute('数量')).toBe('株数');
+    expect(canonicalAgentDataAttribute('日付')).toBe('日付');
+    // A label outside the vocabulary and its aliases never pairs.
+    expect(canonicalAgentDataAttribute('承認状態')).toBeUndefined();
+    expect(canonicalAgentDataAttribute('')).toBeUndefined();
+  });
+
+  it('reads funding-source values as compositions, across languages and wordings (D2)', () => {
+    expect(canonicalAgentDataFundingKey('自有资金')).toBe('funding:self');
+    expect(canonicalAgentDataFundingKey('自己資金のみ')).toBe('funding:self');
+    expect(canonicalAgentDataFundingKey('self-funded only')).toBe('funding:self');
+    expect(canonicalAgentDataFundingKey('自有資金及银行借款')).toBe('funding:bank+self');
+    expect(canonicalAgentDataFundingKey('部分来源于自有资金及向银行的借款')).toBe('funding:bank+self');
+    expect(canonicalAgentDataFundingKey('partly bank loans')).toBe('funding:bank');
+    // A status disclosure states no funding composition.
+    expect(canonicalAgentDataFundingKey('尚需取得上证合规性审查意见')).toBeUndefined();
+  });
+
+  it('raises all three verified M&A pairs from mixed free labels (D2 yardstick)', () => {
+    const candidates = computeAgentDataValueMismatches([
+      // R1 対価: the same attribute under two different writings.
+      value('买方一', '対価', '146,660,323.00', 'announcement.txt'),
+      value('买方一', '金額', '146,660,332.00', 'buyer1_report.txt'),
+      // R2 持分: 45% vs 40% under two different writings.
+      value('聚源盛业', '持分', '45%', 'announcement.txt'),
+      value('聚源盛业', '持株比率', '40%', 'buyer1_report.txt'),
+      // R3 資金源泉: the English forms the inspection fixed.
+      value('买方一', '資金源泉', 'self-funded only', 'announcement.txt'),
+      value('买方一', 'funding source', 'partly bank loans', 'buyer1_report.txt'),
+    ], NO_STRUCTURE);
+    expect(candidates).toHaveLength(3);
+    const consideration = candidates.find((candidate) => candidate.entity === '买方一'
+      && candidate.values.some((entry) => entry.normalizedValue === '146660323'));
+    expect(consideration?.values.map((entry) => entry.normalizedValue)).toEqual(['146660323', '146660332']);
+    const stake = candidates.find((candidate) => candidate.entity === '聚源盛业');
+    expect(stake?.values.map((entry) => entry.normalizedValue)).toEqual(['45', '40']);
+    const funding = candidates.find((candidate) => candidate.values.some((entry) => entry.value === 'self-funded only'));
+    expect(funding?.values.map((entry) => entry.value)).toEqual(['self-funded only', 'partly bank loans']);
+    expect(funding?.values.map((entry) => entry.normalizedValue)).toEqual(['funding:self', 'funding:bank']);
+  });
+
+  it('does not raise pairs the deterministic reading judges equal, nor pairs outside the vocabulary (D2)', () => {
+    // The same funding composition written two ways agrees.
+    expect(computeAgentDataValueMismatches([
+      value('买方一', '資金源泉', '自有资金', 'announcement.txt'),
+      value('买方一', '資金源泉', '自己資金のみ', 'buyer1_report.txt'),
+    ], NO_STRUCTURE)).toEqual([]);
+    // A unit decoration is not a different amount.
+    expect(computeAgentDataValueMismatches([
+      value('买方一', '金額', '146,660,323.00元', 'announcement.txt'),
+      value('买方一', '金額', '146,660,323', 'buyer1_report.txt'),
+    ], NO_STRUCTURE)).toEqual([]);
+    // …but the decorated writings of the two R1 amounts still pair.
+    const decorated = computeAgentDataValueMismatches([
+      value('买方一', '金額', '146,660,323.00元', 'announcement.txt'),
+      value('买方一', '金額', '146,660,332.00元', 'buyer1_report.txt'),
+    ], NO_STRUCTURE);
+    expect(decorated).toHaveLength(1);
+    expect(decorated[0]?.values.map((entry) => entry.normalizedValue)).toEqual(['146660323', '146660332']);
+    // Dates pair across writings, and agree across writings.
+    const dates = computeAgentDataValueMismatches([
+      value('买方一', '日付', '2024年3月31日', 'announcement.txt'),
+      value('买方一', '日付', '2024/04/01', 'buyer1_report.txt'),
+    ], NO_STRUCTURE);
+    expect(dates).toHaveLength(1);
+    expect(dates[0]?.values.map((entry) => entry.normalizedValue)).toEqual(['2024-03-31', '2024-04-01']);
+    expect(computeAgentDataValueMismatches([
+      value('买方一', '日付', '2024年3月31日', 'announcement.txt'),
+      value('买方一', '日付', '2024-03-31', 'buyer1_report.txt'),
+    ], NO_STRUCTURE)).toEqual([]);
+    // A label outside the controlled vocabulary never pairs,
+    // even with differing values on both sides.
+    expect(computeAgentDataValueMismatches([
+      value('买方一', '承認状態', '未了', 'announcement.txt'),
+      value('买方一', '承認状態', '完了', 'buyer1_report.txt'),
+    ], NO_STRUCTURE)).toEqual([]);
+  });
+
+  it('summarizes the value table in the canonical grouping (D2)', () => {
+    const summary = summarizeAgentDataValueTable([
+      value('买方一', '対価', '146,660,323.00', 'announcement.txt'),
+      value('买方一', '金額', '146,660,332.00', 'buyer1_report.txt'),
+      value('买方一', '承認状態', '未了', 'announcement.txt'),
+    ], NO_STRUCTURE);
+    expect(summary.entryCount).toBe(3);
+    expect(summary.groupCount).toBe(1);
+    expect(summary.groups[0]).toEqual({ entity: '买方一', attribute: '対価', entries: 2, distinctValues: 2 });
+  });
+
+  it('extracts the pair key of a citation deterministically (D3)', () => {
+    expect(agentDataCitationPairKey('146,660,323.00元')).toBe('146660323');
+    expect(agentDataCitationPairKey('対価 146,660,323.00 元')).toBe('146660323');
+    expect(agentDataCitationPairKey('45%')).toBe('45');
+    expect(agentDataCitationPairKey('自有资金')).toBe('funding:self');
+    expect(agentDataCitationPairKey('尚需取得上证合规性审查意见')).toBeUndefined();
+  });
+
+  // The bundle behind the gate tests: the consideration pair and
+  // a real funding pair stand in the table; the second original
+  // finding is the production D3 mispair (a funding value glued
+  // to an unrelated approval-status disclosure).
+  const GATE_BUNDLE = JSON.stringify({
+    kind: 'data-analysis',
+    content: 'prior rendering',
+    outputKind: 'findings',
+    findings: [
+      {
+        claim: '対価の金額が食い違う',
+        explanation: '公告と買主1報告で同一主体の対価が異なる',
+        evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '146,660,332.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+      },
+      {
+        claim: '資金源泉と承認手続きが不整合である',
+        explanation: '資金源泉の開示と承認の状態が食い違う',
+        evidence: '自有资金', file: 'announcement.txt', location: '資金源泉欄',
+        evidenceB: '尚需取得上证合规性审查意见', fileB: 'announcement.txt', locationB: 'p.5',
+      },
+    ],
+    values: [
+      { entity: '买方一', attribute: '金額', value: '146,660,323.00', file: 'announcement.txt', location: 'p.2' },
+      { entity: '买方一', attribute: '金額', value: '146,660,332.00', file: 'buyer1_report.txt', location: 'p.3' },
+      { entity: '买方一', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: '資金源泉欄' },
+      { entity: '买方一', attribute: '資金源泉', value: '部分来源于自有资金及向银行的借款', file: 'buyer1_report.txt', location: '12頁' },
+    ],
+    structure: { agreements: [], definitions: [] },
+    candidates: [{
+      entity: '买方一',
+      attribute: '金額',
+      values: [
+        { value: '146,660,323.00', normalizedValue: '146660323', file: 'announcement.txt', location: 'p.2' },
+        { value: '146,660,332.00', normalizedValue: '146660332', file: 'buyer1_report.txt', location: 'p.3' },
+      ],
+    }],
+  });
+
+  const GATE_BUNDLE_MATERIAL = {
+    values: [
+      value('买方一', '金額', '146,660,323.00', 'announcement.txt'),
+      value('买方一', '金額', '146,660,332.00', 'buyer1_report.txt'),
+      value('买方一', '資金源泉', '自有资金', 'announcement.txt'),
+      value('买方一', '資金源泉', '部分来源于自有资金及向银行的借款', 'buyer1_report.txt'),
+    ],
+    structure: NO_STRUCTURE,
+    candidates: [{
+      entity: '买方一',
+      attribute: '金額',
+      values: [
+        { value: '146,660,323.00', normalizedValue: '146660323', file: 'announcement.txt', location: 'p.2' },
+        { value: '146,660,332.00', normalizedValue: '146660332', file: 'buyer1_report.txt', location: 'p.3' },
+      ],
+    }],
+  };
+
+  it('gates out a kept finding whose pair does not stand in the table (D3)', () => {
+    const parsed = parseReconciliationOutput(JSON.stringify({
+      findings: [
+        {
+          claim: '対価の金額が食い違う', explanation: '説明',
+          evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2',
+          evidenceB: '146,660,332.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+          source: { kind: 'kept', index: 0 },
+        },
+        {
+          claim: '資金源泉と承認手続きが不整合である', explanation: '説明',
+          evidence: '自有资金', file: 'announcement.txt', location: '資金源泉欄',
+          evidenceB: '尚需取得上证合规性审查意见', fileB: 'announcement.txt', locationB: 'p.5',
+          source: { kind: 'kept', index: 1 },
+        },
+      ],
+      dropped: [],
+    }), 2, 1);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const gated = applyAgentDataPairGate(parsed, GATE_BUNDLE_MATERIAL);
+    expect(gated.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う']);
+    expect(gated.keptIndexes).toEqual([0]);
+    expect(gated.gatedOutKeptIndexes).toEqual([1]);
+    expect(gated.dropped).toEqual([{ index: 1, reason: 'no-pair' }]);
+    expect(gated.pickedUpCount).toBe(0);
+  });
+
+  it('gates out a candidate-built finding that misquotes its own candidate (D3)', () => {
+    const bundle = {
+      values: [] as AgentDataValue[],
+      structure: NO_STRUCTURE,
+      candidates: [{
+        entity: '聚源盛业',
+        attribute: '比率・持分',
+        values: [
+          { value: '45%', normalizedValue: '45', file: 'announcement.txt', location: 'p.2' },
+          { value: '40%', normalizedValue: '40', file: 'buyer1_report.txt', location: 'p.4' },
+        ],
+      }],
+    };
+    const misquote = parseReconciliationOutput(JSON.stringify({
+      findings: [{
+        claim: '持分が食い違う', explanation: '説明',
+        evidence: '50%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'candidate', index: 0 },
+      }],
+    }), 0, 1);
+    expect(misquote.ok).toBe(true);
+    if (!misquote.ok) return;
+    const gatedMisquote = applyAgentDataPairGate(misquote, bundle);
+    expect(gatedMisquote.findings).toEqual([]);
+    expect(gatedMisquote.pickedUpCount).toBe(0);
+    const faithful = parseReconciliationOutput(JSON.stringify({
+      findings: [{
+        claim: '持分が食い違う', explanation: '説明',
+        evidence: '45%', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '40%', fileB: 'buyer1_report.txt', locationB: 'p.4',
+        source: { kind: 'candidate', index: 0 },
+      }],
+    }), 0, 1);
+    expect(faithful.ok).toBe(true);
+    if (!faithful.ok) return;
+    const gatedFaithful = applyAgentDataPairGate(faithful, bundle);
+    expect(gatedFaithful.findings).toHaveLength(1);
+    expect(gatedFaithful.pickedUpCount).toBe(1);
+  });
+
+  const GATE_FILES = [
+    { name: 'announcement.txt', text: '公告本文。' },
+    { name: 'buyer1_report.txt', text: '買主一報告本文。' },
+  ];
+  const gateParams = (setDigest: string) => ({
+    attachmentSetId: SET_ID,
+    setDigest,
+    instruction: 'Audit the documents for inconsistencies and report each inconsistency with its explanation.',
+    content: GATE_BUNDLE,
+  });
+  const gateContext = (
+    store: InMemoryAgentAttachmentStore,
+    modelCall: AgentModelExecutor,
+    mode: string,
+  ): ToolExecutionContext => ({
+    ...contextFor(store, modelCall),
+    env: { ORIGIN_AGENT_FINDINGS_RECONCILIATION_ENABLED: mode },
+  });
+  const KEEPS_BOTH_OUTPUT = JSON.stringify({
+    findings: [
+      {
+        claim: '対価の金額が食い違う', explanation: '公告と買主1報告で同一主体の対価が異なる',
+        evidence: '146,660,323.00元', file: 'announcement.txt', location: 'p.2',
+        evidenceB: '146,660,332.00元', fileB: 'buyer1_report.txt', locationB: 'p.3',
+        source: { kind: 'kept', index: 0 },
+      },
+      {
+        claim: '資金源泉と承認手続きが不整合である', explanation: '資金源泉の開示と承認の状態が食い違う',
+        evidence: '自有资金', file: 'announcement.txt', location: '資金源泉欄',
+        evidenceB: '尚需取得上证合规性审查意见', fileB: 'announcement.txt', locationB: 'p.5',
+        source: { kind: 'kept', index: 1 },
+      },
+    ],
+    dropped: [],
+  });
+
+  it('enforce: the mispair does not reach the deliverable, and the drop is recorded as no-pair (D3)', async () => {
+    const { store, setDigest } = await storeWithFiles(GATE_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: KEEPS_BOTH_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      gateParams(setDigest),
+      gateContext(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { claim: string }[];
+      reconciliation: {
+        keptCount: number; droppedCount: number; droppedReasons: Record<string, number>;
+        keptIndexes?: number[]; droppedIndexes?: { index: number; reason: string }[];
+      };
+      content: string;
+    };
+    expect(bundle.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う']);
+    expect(bundle.content).not.toContain('資金源泉と承認手続きが不整合である');
+    expect(bundle.reconciliation.keptCount).toBe(1);
+    expect(bundle.reconciliation.droppedCount).toBe(1);
+    expect(bundle.reconciliation.droppedReasons).toEqual({ 'no-pair': 1 });
+    expect(bundle.reconciliation.keptIndexes).toEqual([0]);
+    expect(bundle.reconciliation.droppedIndexes).toEqual([{ index: 1, reason: 'no-pair' }]);
+  });
+
+  it('enforce: fails closed when the gate empties the vetted list (D3)', async () => {
+    const { store, setDigest } = await storeWithFiles(GATE_FILES);
+    const executor: AgentModelExecutor = async () => ({
+      ok: true,
+      text: JSON.stringify({
+        findings: [{
+          claim: '資金源泉と承認手続きが不整合である', explanation: '説明',
+          evidence: '自有资金', file: 'announcement.txt', location: '資金源泉欄',
+          evidenceB: '尚需取得上证合规性审查意见', fileB: 'announcement.txt', locationB: 'p.5',
+          source: { kind: 'kept', index: 1 },
+        }],
+        dropped: [{ index: 0, reason: 'other' }],
+      }),
+    });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      gateParams(setDigest),
+      gateContext(store, executor, 'enforce'),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('AGENT_RECONCILIATION_NO_FINDINGS');
+  });
+
+  it('shadow: the gate shapes the recorded judgment but the deliverable still ships the originals (D3)', async () => {
+    const { store, setDigest } = await storeWithFiles(GATE_FILES);
+    const executor: AgentModelExecutor = async () => ({ ok: true, text: KEEPS_BOTH_OUTPUT });
+    const result = await toolRegistry.attachment_reconciler.execute(
+      gateParams(setDigest),
+      gateContext(store, executor, 'shadow'),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      findings: { claim: string }[];
+      reconciledFindings: { claim: string }[];
+      reconciliation: {
+        failed?: boolean; keptIndexes?: number[];
+        droppedIndexes?: { index: number; reason: string }[];
+      };
+    };
+    expect(bundle.findings.map((finding) => finding.claim)).toEqual([
+      '対価の金額が食い違う', '資金源泉と承認手続きが不整合である',
+    ]);
+    expect(bundle.reconciledFindings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う']);
+    expect(bundle.reconciliation.failed).toBeUndefined();
+    expect(bundle.reconciliation.keptIndexes).toEqual([0]);
+    expect(bundle.reconciliation.droppedIndexes).toEqual([{ index: 1, reason: 'no-pair' }]);
   });
 });
 

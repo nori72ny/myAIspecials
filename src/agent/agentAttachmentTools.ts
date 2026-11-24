@@ -247,6 +247,66 @@ export const AGENT_AUDIT_ATTRIBUTE_VOCABULARY: readonly string[] = [
   '主体名',
 ];
 
+/**
+ * Deterministic attribute canonicalization (function inspection
+ * 2026-11-25, D2). 対策3 named the vocabulary in the audit
+ * contract, but the deterministic side grouped the value table by
+ * the label each chunk happened to write, so the same attribute
+ * named two ways — 対価 vs 金額, 持分 vs 持株比率, 資金源泉 vs
+ * funding source — never grouped, and the cross-document
+ * candidates the audit exists for silently stayed unraised for
+ * two of the three verified M&A pairs whenever a chunk strayed
+ * from the vocabulary wording. The grouping key is now the
+ * canonical vocabulary label: a written label folds (NFKC, case,
+ * separators) and maps through the closed alias table below; a
+ * label that maps to nothing does not pair at all — the pairing
+ * contract is that a finding's pair stands in the table under
+ * one controlled label, and a label outside the vocabulary is
+ * not one. The alias table is deliberately closed: a synonym is
+ * added here, never guessed at runtime.
+ */
+const AGENT_AUDIT_ATTRIBUTE_ALIASES: Readonly<Record<string, string>> = {
+  '対価': '金額', '对价': '金額', '購入価格': '金額', '売買代金': '金額', '代金': '金額',
+  '価格': '金額', '取引金額': '金額', '対価金額': '金額', '譲渡価格': '金額',
+  'consideration': '金額', 'price': '金額', 'amount': '金額',
+  'purchase price': '金額', 'transaction amount': '金額',
+  '数量': '株数', '個数': '株数', '株式数': '株数',
+  'quantity': '株数', 'count': '株数', 'number of shares': '株数', 'share count': '株数',
+  '持分': '比率・持分', '持株比率': '比率・持分', '持股比例': '比率・持分',
+  '出資比率': '比率・持分', '株式割合': '比率・持分', '持ち分': '比率・持分',
+  '割合': '比率・持分', '比率': '比率・持分', '持分割合': '比率・持分', '出資割合': '比率・持分',
+  'stake': '比率・持分', 'shareholding': '比率・持分', 'shareholding ratio': '比率・持分',
+  'equity share': '比率・持分', 'ratio': '比率・持分',
+  '资金来源': '資金源泉', '資金調達': '資金源泉', '資金調達方法': '資金源泉', '調達方法': '資金源泉',
+  'funding source': '資金源泉', 'source of funds': '資金源泉', 'funding': '資金源泉',
+  '期日': '日付', '年月日': '日付', 'date': '日付',
+  '名称': '主体名', '会社名': '主体名', '名前': '主体名', '当事者名': '主体名',
+  'entity name': '主体名', 'name': '主体名',
+};
+
+function foldAgentDataAttributeLabel(raw: string): string {
+  return raw.normalize('NFKC').trim().toLowerCase().replace(/[\s・/]/g, '');
+}
+
+const AGENT_AUDIT_ATTRIBUTE_BY_FOLDED_LABEL: ReadonlyMap<string, string> = (() => {
+  const map = new Map<string, string>();
+  for (const label of AGENT_AUDIT_ATTRIBUTE_VOCABULARY) {
+    map.set(foldAgentDataAttributeLabel(label), label);
+  }
+  for (const [alias, canonical] of Object.entries(AGENT_AUDIT_ATTRIBUTE_ALIASES)) {
+    map.set(foldAgentDataAttributeLabel(alias), canonical);
+  }
+  return map;
+})();
+
+/** The canonical controlled-vocabulary label of a written
+ * attribute label, or undefined when the label is outside the
+ * vocabulary and its aliases — such a label never pairs. */
+export function canonicalAgentDataAttribute(raw: string): string | undefined {
+  if (!raw) return undefined;
+  return AGENT_AUDIT_ATTRIBUTE_BY_FOLDED_LABEL.get(foldAgentDataAttributeLabel(raw));
+}
+
 function analyzerInstruction(
   outputKind: AgentDataOutputKind,
   goalInstruction: string,
@@ -608,6 +668,13 @@ export function normalizeAgentDataValueText(raw: string): string | undefined {
     if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
     return `${date[1]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
+  const ymd = /^(\d{4})年(\d{1,2})月(\d{1,2})日$/.exec(text);
+  if (ymd) {
+    const month = Number(ymd[2]);
+    const day = Number(ymd[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+    return `${ymd[1]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
   const numeric = text.replace(/[,\s]/g, '').replace(/%$/, '');
   if (!/^[+-]?\d+(?:\.\d+)?$/.test(numeric)) return undefined;
   const [intPart, fracPart] = numeric.split('.');
@@ -666,20 +733,108 @@ export function resolveAgentDataEntity(entity: string, structure: AgentDataStruc
   return definition ? definition.full.normalize('NFKC').trim() : key;
 }
 
+/**
+ * The closed set of unit decorations a reported value may carry
+ * (D2): one trailing unit word （元・円・株…) and/or one leading
+ * 約 or currency symbol. Stripping is only ever a retry — the
+ * remainder must then normalize as a whole — so a sentence that
+ * merely contains a number is never reduced to one.
+ */
+const AGENT_DATA_VALUE_UNIT_SUFFIXES: readonly string[] = [
+  'USD', 'CNY', 'JPY', 'EUR', '元', '円', 'ドル', 'ユーロ', '株', '個', '件', '名', '人',
+];
+const AGENT_DATA_VALUE_UNIT_PREFIXES: readonly string[] = ['約', '¥', '$', '€'];
+
+function stripAgentDataValueUnit(text: string): string {
+  let out = text;
+  for (const prefix of AGENT_DATA_VALUE_UNIT_PREFIXES) {
+    if (out.startsWith(prefix)) {
+      out = out.slice(prefix.length).trim();
+      break;
+    }
+  }
+  for (const suffix of AGENT_DATA_VALUE_UNIT_SUFFIXES) {
+    if (out.length > suffix.length && out.toUpperCase().endsWith(suffix.toUpperCase())) {
+      out = out.slice(0, out.length - suffix.length).trim();
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * The deterministic typed reading of one reported value (D2):
+ * the whole-text normalization, retried once with a unit
+ * decoration stripped — `146,660,323.00元` is the amount
+ * 146660323, `45％` is the ratio 45, `2024年3月31日` is the date
+ * 2024-03-31. A value that is neither a quantity nor a date has
+ * no typed reading (undefined).
+ */
+function normalizeAgentDataTypedValue(raw: string): string | undefined {
+  const direct = normalizeAgentDataValueText(raw);
+  if (direct !== undefined) return direct;
+  const text = raw.normalize('NFKC').trim();
+  if (!text) return undefined;
+  const stripped = stripAgentDataValueUnit(text);
+  return stripped !== text ? normalizeAgentDataValueText(stripped) : undefined;
+}
+
+/**
+ * The deterministic reading of a funding-source value (D2): the
+ * composition of funding the text states, as a sorted component
+ * set. Two writings of the same composition — 自有资金 and
+ * 自己資金のみ, self-funded only — read equal; a composition
+ * that adds bank borrowing — 自有資金及银行借款, partly bank
+ * loans — reads different, so the pair is raised (or not)
+ * regardless of the language or wording each document used. A
+ * text stating no known component is not read this way at all
+ * (undefined): a composition is claimed only from markers
+ * actually present, and a raised candidate remains material for
+ * the reconciliation's judgment, never a verdict by itself.
+ */
+const AGENT_DATA_FUNDING_COMPONENTS: readonly { component: string; markers: readonly string[] }[] = [
+  { component: 'bank', markers: ['銀行', '借款', '借入', 'ローン', 'bank', 'loan', 'borrowing'] },
+  { component: 'self', markers: ['自有', '自己資金', '自己资金', 'selffunded', 'ownfunds'] },
+];
+
+export function canonicalAgentDataFundingKey(raw: string): string | undefined {
+  const folded = raw.normalize('NFKC').trim().toLowerCase().replace(/[\s-]/g, '');
+  if (!folded) return undefined;
+  const components = AGENT_DATA_FUNDING_COMPONENTS
+    .filter(({ markers }) => markers.some((marker) => folded.includes(marker)))
+    .map(({ component }) => component)
+    .sort();
+  return components.length > 0 ? `funding:${components.join('+')}` : undefined;
+}
+
 /** The comparison key of one reported value: the deterministic
- * normalization of the raw value first, then of the model's own
- * normalizedValue, then the NFKC text itself (classification
- * values, whose disagreement is real but not numerically
- * decidable). */
-function effectiveAgentDataValue(entry: AgentDataValue): string {
-  return normalizeAgentDataValueText(entry.value)
-    ?? (entry.normalizedValue ? normalizeAgentDataValueText(entry.normalizedValue) : undefined)
-    ?? entry.value.normalize('NFKC').trim();
+ * typed reading of the raw value first (amounts, ratios and
+ * dates read across writings and unit decorations), for a
+ * funding-source value its stated composition, then the model's
+ * own normalizedValue read the same two ways, and only then the
+ * NFKC text itself (classification values whose disagreement is
+ * real but not deterministically decidable). */
+function effectiveAgentDataValue(entry: AgentDataValue, canonicalAttribute: string | undefined): string {
+  const typed = normalizeAgentDataTypedValue(entry.value);
+  if (typed !== undefined) return typed;
+  if (canonicalAttribute === '資金源泉') {
+    const funding = canonicalAgentDataFundingKey(entry.value);
+    if (funding !== undefined) return funding;
+  }
+  if (entry.normalizedValue) {
+    const modelTyped = normalizeAgentDataTypedValue(entry.normalizedValue);
+    if (modelTyped !== undefined) return modelTyped;
+    if (canonicalAttribute === '資金源泉') {
+      const modelFunding = canonicalAgentDataFundingKey(entry.normalizedValue);
+      if (modelFunding !== undefined) return modelFunding;
+    }
+  }
+  return entry.value.normalize('NFKC').trim();
 }
 
 /**
  * The deterministic cross-check (layer 1, C-1): group the value
- * table by (resolved entity, attribute); a group holding two or
+ * table by (resolved entity, canonical attribute); a group holding two or
  * more distinct effective values is a mismatch candidate. The same
  * value cited from several places is one entry (first-seen) — a
  * candidate needs differing values, not differing citations.
@@ -696,15 +851,20 @@ export function computeAgentDataValueMismatches(
   }>();
   for (const entry of values) {
     const entity = resolveAgentDataEntity(entry.entity, structure);
-    const attribute = entry.attribute.normalize('NFKC').trim();
-    if (!entity || !attribute) continue;
-    const key = `${entity}\u0001${attribute}`;
+    // The pairing contract (D2): grouping is by the canonical
+    // attribute, so the same attribute written two ways groups
+    // together; a label outside the controlled vocabulary does
+    // not pair at all. The candidate keeps the first-seen
+    // written label for display, as the merges elsewhere do.
+    const canonicalAttribute = canonicalAgentDataAttribute(entry.attribute);
+    if (!entity || !canonicalAttribute) continue;
+    const key = `${entity}\u0001${canonicalAttribute}`;
     let group = groups.get(key);
     if (!group) {
-      group = { entity, attribute, byValue: new Map() };
+      group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), byValue: new Map() };
       groups.set(key, group);
     }
-    const effective = effectiveAgentDataValue(entry);
+    const effective = effectiveAgentDataValue(entry, canonicalAttribute);
     if (!group.byValue.has(effective)) {
       group.byValue.set(effective, {
         value: entry.value,
@@ -760,16 +920,20 @@ export function summarizeAgentDataValueTable(
   }>();
   for (const entry of values) {
     const entity = resolveAgentDataEntity(entry.entity, structure);
-    const attribute = entry.attribute.normalize('NFKC').trim();
-    if (!entity || !attribute) continue;
-    const key = `${entity}\u0001${attribute}`;
+    // The same canonical grouping the candidate computation
+    // uses (D2): an entry whose label is outside the controlled
+    // vocabulary belongs to no group here either, so the summary
+    // can say the table held entries that could not pair.
+    const canonicalAttribute = canonicalAgentDataAttribute(entry.attribute);
+    if (!entity || !canonicalAttribute) continue;
+    const key = `${entity}\u0001${canonicalAttribute}`;
     let group = groups.get(key);
     if (!group) {
-      group = { entity, attribute, entries: 0, distinct: new Set() };
+      group = { entity, attribute: entry.attribute.normalize('NFKC').trim(), entries: 0, distinct: new Set() };
       groups.set(key, group);
     }
     group.entries += 1;
-    group.distinct.add(effectiveAgentDataValue(entry));
+    group.distinct.add(effectiveAgentDataValue(entry, canonicalAttribute));
   }
   const listed = [...groups.values()].slice(0, AGENT_DATA_VALUE_MISMATCH_MAX).map((group) => ({
     entity: group.entity,
@@ -1801,10 +1965,19 @@ function reconcilerMaterials(bundle: AuditBundle): string {
   return JSON.stringify({ findings, candidates: bundle.candidates, structure: bundle.structure });
 }
 
+/** Where one vetted finding came from: a kept original (by its
+ * index in the source bundle) or a value-mismatch candidate it
+ * was built from (by the candidate's index). Carried per finding
+ * so the pair gate (D3) can anchor each finding to the pair it
+ * claims descent from. */
+export type AgentReconciliationFindingSource = { kind: 'kept' | 'candidate'; index: number };
+
 export type AgentReconciliationParseResult =
   | {
       ok: true;
       findings: AgentDataFinding[];
+      /** Aligned with `findings`: each vetted finding's source. */
+      sources: AgentReconciliationFindingSource[];
       dropped: { index: number; reason: string }[];
       keptCount: number;
       /** The kept originals' indexes, ascending (対策1(a)). */
@@ -1821,7 +1994,10 @@ export type AgentReconciliationParseResult =
  * must name its source — a kept original (index in range, no
  * duplicates) or a candidate it was built from (index in range).
  * The semantic half (same entity, same agreement, boilerplate
- * judgment) is the model's, instructed above. Dropped entries are
+ * judgment) is the model's, instructed above; whether the cited
+ * pair actually stands in the value table is NOT judged here —
+ * that half is deterministic and applied by the pair gate
+ * (applyAgentDataPairGate) on the parsed result. Dropped entries are
  * observability: malformed ones are discarded, never fatal, and
  * an index that was also kept is kept (the kept list wins).
  */
@@ -1835,6 +2011,7 @@ export function parseReconciliationOutput(
   const record = parsed as Record<string, unknown>;
   if (!Array.isArray(record.findings)) return { ok: false };
   const findings: AgentDataFinding[] = [];
+  const sources: AgentReconciliationFindingSource[] = [];
   const keptIndexes = new Set<number>();
   let pickedUpCount = 0;
   for (const raw of record.findings) {
@@ -1854,9 +2031,11 @@ export function parseReconciliationOutput(
     if (sourceRecord.kind === 'kept') {
       if (index < 0 || index >= originalCount || keptIndexes.has(index)) return { ok: false };
       keptIndexes.add(index);
+      sources.push({ kind: 'kept', index });
     } else if (sourceRecord.kind === 'candidate') {
       if (index < 0 || index >= candidateCount) return { ok: false };
       pickedUpCount += 1;
+      sources.push({ kind: 'candidate', index });
     } else {
       return { ok: false };
     }
@@ -1893,6 +2072,7 @@ export function parseReconciliationOutput(
   return {
     ok: true,
     findings,
+    sources,
     dropped,
     keptCount: keptIndexes.size,
     keptIndexes: [...keptIndexes].sort((a, b) => a - b),
@@ -1906,6 +2086,180 @@ function countReconciliationDropReasons(
   const counts: Record<string, number> = {};
   for (const entry of dropped) counts[entry.reason] = (counts[entry.reason] ?? 0) + 1;
   return counts;
+}
+
+/**
+ * One anchor group for the pair gate (D3): the conflicting
+ * values of one (entity, canonical attribute) group, each with
+ * its deterministic comparison key and its raw text.
+ */
+type AgentDataPairAnchorGroup = {
+  values: { key: string; raw: string }[];
+};
+
+function pairAnchorGroupFromCandidate(candidate: AgentDataValueMismatch): AgentDataPairAnchorGroup | null {
+  const canonicalAttribute = canonicalAgentDataAttribute(candidate.attribute);
+  const byKey = new Map<string, string>();
+  for (const entry of candidate.values) {
+    const key = effectiveAgentDataValue(
+      {
+        entity: candidate.entity,
+        attribute: candidate.attribute,
+        value: entry.value,
+        ...(entry.normalizedValue ? { normalizedValue: entry.normalizedValue } : {}),
+        file: entry.file,
+        location: entry.location,
+      },
+      canonicalAttribute,
+    );
+    if (!byKey.has(key)) byKey.set(key, entry.value);
+  }
+  if (byKey.size < 2) return null;
+  return { values: [...byKey.entries()].map(([key, raw]) => ({ key, raw })) };
+}
+
+function buildPairAnchorGroups(bundle: {
+  values: readonly AgentDataValue[];
+  structure: AgentDataStructure;
+  candidates: readonly AgentDataValueMismatch[];
+}): {
+  tableGroups: AgentDataPairAnchorGroup[];
+  candidateGroups: (AgentDataPairAnchorGroup | null)[];
+} {
+  // The table's own groups, recomputed from the value table so a
+  // bundle whose candidate list is stale or absent still anchors
+  // against the table itself; the bundle's candidates anchor
+  // additionally, aligned by index for candidate-built findings.
+  const tableGroups = computeAgentDataValueMismatches(bundle.values, bundle.structure)
+    .map((mismatch) => ({
+      values: mismatch.values.map((entry) => ({ key: entry.normalizedValue, raw: entry.value })),
+    }));
+  const candidateGroups = bundle.candidates.map((candidate) => pairAnchorGroupFromCandidate(candidate));
+  return { tableGroups, candidateGroups };
+}
+
+/**
+ * The deterministic key of one citation for the pair gate: the
+ * typed value the citation quotes — the whole citation read as
+ * a value, else the first date or amount token it carries, else
+ * its funding composition. A citation quoting no typed value has
+ * no key and can only match an anchor value verbatim.
+ */
+export function agentDataCitationPairKey(citation: string): string | undefined {
+  const typed = normalizeAgentDataTypedValue(citation);
+  if (typed !== undefined) return typed;
+  const text = citation.normalize('NFKC');
+  const ymd = /(\d{4})年(\d{1,2})月(\d{1,2})日/.exec(text);
+  if (ymd) {
+    const iso = normalizeAgentDataValueText(`${ymd[1]}-${ymd[2]}-${ymd[3]}`);
+    if (iso !== undefined) return iso;
+  }
+  const token = /[+-]?\d[\d,]*(?:\.\d+)?\s*[%％]?/.exec(text);
+  if (token) {
+    const key = normalizeAgentDataValueText(token[0]);
+    if (key !== undefined) return key;
+  }
+  return canonicalAgentDataFundingKey(citation);
+}
+
+/** The anchor values one citation matches in a group: by its
+ * deterministic key, or verbatim when the citation carries the
+ * value's text but no typed reading (a name, a classification
+ * phrase). Verbatim matching needs a value text of at least two
+ * characters so a stray digit or mark cannot anchor a pair. */
+function citationAnchorKeys(citation: string, group: AgentDataPairAnchorGroup): Set<string> {
+  const matched = new Set<string>();
+  const key = agentDataCitationPairKey(citation);
+  const text = citation.normalize('NFKC').trim();
+  for (const value of group.values) {
+    if (key !== undefined && value.key === key) {
+      matched.add(value.key);
+      continue;
+    }
+    const raw = value.raw.normalize('NFKC').trim();
+    if (raw.length >= 2 && text.includes(raw)) matched.add(value.key);
+  }
+  return matched;
+}
+
+function findingAnchoredToGroup(finding: AgentDataFinding, group: AgentDataPairAnchorGroup): boolean {
+  const first = citationAnchorKeys(finding.evidence, group);
+  if (first.size === 0) return false;
+  const second = citationAnchorKeys(finding.evidenceB ?? '', group);
+  for (const key of second) {
+    if (!first.has(key)) return true;
+  }
+  return false;
+}
+
+export type AgentDataPairGateResult = {
+  findings: AgentDataFinding[];
+  keptIndexes: number[];
+  dropped: { index: number; reason: string }[];
+  pickedUpCount: number;
+  /** Kept originals the gate removed, ascending (observability:
+   * they join `dropped` with the reason 'no-pair'). */
+  gatedOutKeptIndexes: number[];
+};
+
+/**
+ * The pair gate (function inspection 2026-11-25, D3): the
+ * deterministic half of the reconciliation's publication
+ * condition. A vetted finding publishes only when its pair
+ * actually stands in the value table — one (entity, canonical
+ * attribute) group holding the two conflicting values its two
+ * citations quote. A candidate-built finding must anchor to the
+ * very candidate it claims descent from; a kept original may
+ * anchor to any table or candidate group. A finding that cannot
+ * form such a pair — the production M&A mispair combined a
+ * funding-source value with an unrelated status disclosure —
+ * does not publish: kept originals move to the dropped list
+ * with the reason 'no-pair' (the record the enforce decision
+ * reads, D4), candidate-built ones simply do not count as
+ * picked up. The model's semantic judgment (agreement scope,
+ * boilerplate) is untouched; the gate removes only what the
+ * table itself cannot support.
+ */
+export function applyAgentDataPairGate(
+  parsed: Extract<AgentReconciliationParseResult, { ok: true }>,
+  bundle: {
+    values: readonly AgentDataValue[];
+    structure: AgentDataStructure;
+    candidates: readonly AgentDataValueMismatch[];
+  },
+): AgentDataPairGateResult {
+  const { tableGroups, candidateGroups } = buildPairAnchorGroups(bundle);
+  const findings: AgentDataFinding[] = [];
+  const keptIndexes: number[] = [];
+  const gatedOutKeptIndexes: number[] = [];
+  let pickedUpCount = 0;
+  parsed.findings.forEach((finding, position) => {
+    const source = parsed.sources[position];
+    let anchored = false;
+    if (source?.kind === 'candidate') {
+      const group = candidateGroups[source.index];
+      anchored = group !== null && group !== undefined && findingAnchoredToGroup(finding, group);
+    } else {
+      anchored = tableGroups.some((group) => findingAnchoredToGroup(finding, group))
+        || candidateGroups.some((group) => group !== null && findingAnchoredToGroup(finding, group));
+    }
+    if (!anchored) {
+      if (source?.kind === 'kept') gatedOutKeptIndexes.push(source.index);
+      return;
+    }
+    findings.push(finding);
+    if (source?.kind === 'kept') keptIndexes.push(source.index);
+    else if (source?.kind === 'candidate') pickedUpCount += 1;
+  });
+  const dropped = [...parsed.dropped];
+  for (const index of gatedOutKeptIndexes) {
+    if (!dropped.some((entry) => entry.index === index)) {
+      dropped.push({ index, reason: 'no-pair' });
+    }
+  }
+  keptIndexes.sort((a, b) => a - b);
+  gatedOutKeptIndexes.sort((a, b) => a - b);
+  return { findings, keptIndexes, dropped, pickedUpCount, gatedOutKeptIndexes };
 }
 
 /**
@@ -1926,13 +2280,18 @@ function countReconciliationDropReasons(
  * execution time (the planner issues the step only when the mode
  * was on at plan time; a switch turned off in between degrades
  * the step to an identity pass-through rather than failing a run
- * over a configuration change). Enforce fails closed when
- * candidates exist but the vetted list is empty
- * (AGENT_RECONCILIATION_NO_FINDINGS): an audit that could not
- * judge its candidates must not silently report nothing. Shadow
- * never fails the step and never changes the deliverable — an
- * unjudgeable reconciliation is recorded with `failed: true` and
- * the original bundle passes through.
+ * over a configuration change). The vetted list then passes the
+ * deterministic pair gate (D3, applyAgentDataPairGate): a finding
+ * whose cited pair does not stand in the value table does not
+ * publish, in either mode's judgment — shadow records the gated
+ * list and the 'no-pair' drops exactly as enforce publishes
+ * them, and still ships the original bundle untouched. Enforce
+ * fails closed when candidates exist but the vetted list is
+ * empty — or the gate emptied it (AGENT_RECONCILIATION_NO_FINDINGS):
+ * an audit that could not judge its candidates must not silently
+ * report nothing. Shadow never fails the step and never changes
+ * the deliverable — an unjudgeable reconciliation is recorded
+ * with `failed: true` and the original bundle passes through.
  */
 export async function executeAttachmentReconciler(
   params: ToolParams,
@@ -2028,22 +2387,36 @@ export async function executeAttachmentReconciler(
       return fail('AGENT_RECONCILIATION_OUTPUT_INVALID');
     }
   }
+  // The pair gate (D3): the vetted list publishes only the
+  // findings whose cited pair stands in the value table. Audit
+  // bundles only — a bundle without the layer-1 sections has no
+  // table to anchor against and keeps the pre-gate judgment.
+  const gated = bundle.hasAuditSections
+    ? applyAgentDataPairGate(parsed, bundle)
+    : {
+        findings: parsed.findings,
+        keptIndexes: parsed.keptIndexes,
+        dropped: parsed.dropped,
+        pickedUpCount: parsed.pickedUpCount,
+        gatedOutKeptIndexes: [] as number[],
+      };
   const summary: AgentDataReconciliationSummary = {
     mode,
     candidateCount: bundle.candidates.length,
-    keptCount: parsed.keptCount,
-    droppedCount: parsed.dropped.length,
-    droppedReasons: countReconciliationDropReasons(parsed.dropped),
-    pickedUpCount: parsed.pickedUpCount,
+    keptCount: gated.keptIndexes.length,
+    droppedCount: gated.dropped.length,
+    droppedReasons: countReconciliationDropReasons(gated.dropped),
+    pickedUpCount: gated.pickedUpCount,
     // Which findings were kept/dropped (対策1(a)): the judged case
     // only — the shadow-failure summaries built earlier carry
     // neither list, because nothing was judged there.
-    keptIndexes: parsed.keptIndexes,
-    droppedIndexes: parsed.dropped.map((dropped) => ({ index: dropped.index, reason: dropped.reason })),
+    keptIndexes: gated.keptIndexes,
+    droppedIndexes: gated.dropped.map((dropped) => ({ index: dropped.index, reason: dropped.reason })),
   };
-  if (bundle.candidates.length > 0 && parsed.findings.length === 0) {
-    // Fail closed (enforce): candidates the run could not judge
-    // must not become a silently empty report. Shadow records the
+  if (gated.findings.length === 0 && (bundle.candidates.length > 0 || parsed.findings.length > 0)) {
+    // Fail closed (enforce): candidates the run could not judge —
+    // or vetted findings the pair gate could not anchor — must
+    // not become a silently empty report. Shadow records the
     // same fact and passes the original findings through.
     if (mode === 'enforce') return fail('AGENT_RECONCILIATION_NO_FINDINGS');
     return passThrough({ ...summary, failed: true, failureCode: 'AGENT_RECONCILIATION_NO_FINDINGS' });
@@ -2056,7 +2429,7 @@ export async function executeAttachmentReconciler(
         findings: bundle.findings,
         content: renderFindings(bundle.findings, goalInstruction),
         summary,
-        reconciledFindings: parsed.findings,
+        reconciledFindings: gated.findings,
       }),
       message: `Attachment findings reconciliation recorded in shadow (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
     };
@@ -2065,8 +2438,8 @@ export async function executeAttachmentReconciler(
     ok: true,
     tool,
     artifact: buildArtifact({
-      findings: parsed.findings,
-      content: renderFindings(parsed.findings, goalInstruction),
+      findings: gated.findings,
+      content: renderFindings(gated.findings, goalInstruction),
       summary,
     }),
     message: `Attachment findings reconciled (candidates ${summary.candidateCount}, kept ${summary.keptCount}, dropped ${summary.droppedCount}, picked up ${summary.pickedUpCount}).`,
