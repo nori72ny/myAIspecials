@@ -139,6 +139,31 @@ describe('message display label (displayContent) history round-trip', () => {
   });
 });
 
+describe('message request kind (requestKind) history round-trip (K-04)', () => {
+  it('keeps the refinement marker through persistence and import', () => {
+    const source: ConversationMessage[] = [{
+      id: 'refine-kind-1',
+      role: 'user',
+      content: '直前の回答を、意思決定に必要な結論と次の行動がすぐ分かる形に圧縮してください。',
+      displayContent: '要点だけ',
+      requestKind: 'refinement',
+    }];
+    const persisted = persistableConversationMessages(source);
+    expect(persisted[0]?.requestKind).toBe('refinement');
+    const imported = parseImportedHistory({ messages: persisted });
+    expect(imported[0]?.requestKind).toBe('refinement');
+  });
+
+  it('drops an unknown request kind on import instead of carrying it through', () => {
+    const imported = parseImportedHistory({ messages: [
+      { id: 'kind-1', role: 'user', content: '質問', requestKind: 'research' },
+      { id: 'kind-2', role: 'user', content: '質問2', requestKind: true },
+    ] });
+    expect(imported[0]?.requestKind).toBeUndefined();
+    expect(imported[1]?.requestKind).toBeUndefined();
+  });
+});
+
 describe('conversation file artifact history persistence', () => {
   it('strips inline file artifacts (base64 payloads) while keeping the answer text (PR-3a)', () => {
     const source: ConversationMessage[] = [{

@@ -253,6 +253,12 @@ export type ConversationMessage = {
   // セッションタイトルにはこちらを表示する。モデルへの送信には一切
   // 使わない。未設定（旧データ含む）なら content を表示する。
   displayContent?: string;
+  // 送信の種別（K-04）。'refinement' は「回答を調整」ピルが生成した
+  // 内部指示文のターンであることを、表示文の有無に依存せずメッセージ
+  // 自体に刻む印。表示解決（conversationMessageDisplayText）はこの印を
+  // 見て、表示文が欠けていても内部指示文ではなく短いラベルを返す。
+  // モデルへの送信内容（content）には影響しない。
+  requestKind?: 'refinement';
   deliveryState?: 'verified' | 'error';
   // 回答が長さの上限で未完のまま届いたこと（PKG-2）。部分回答は破棄せず、
   // この印とともに表示し、画面末尾に未完であることを明示する。
@@ -280,9 +286,20 @@ export type ConversationMessage = {
   files?: readonly ChatFileArtifact[];
 };
 export type ConversationSession = { id: string; title: string; createdAt: number; messages: readonly ConversationMessage[] };
+// 調整ピルの表示文が欠けた場合の固定ラベル（K-04）。ピル送信では
+// displayContent にピルのラベルが必ず入るため、これは防御的な経路で、
+// 印だけが残ったデータでも内部指示文が利用者の目に触れないためのもの。
+// この関数は言語を持たないため、既存の言語非依存フォールバック
+// （'会話'・'ORIGIN セッション'）と同じく日本語を既定にする。
+export const REFINEMENT_DISPLAY_FALLBACK = '回答を調整';
 // 吹き出し・履歴・タイトル等、利用者の目に触れる場所で使う文面。
 // displayContent があればそちらを優先し、なければ content を使う。
-export const conversationMessageDisplayText = (message: ConversationMessage): string => message.displayContent ?? message.content;
+// ただし調整ピル由来のターン（requestKind の印）は、表示文が欠けて
+// いても内部指示文ではなく固定ラベルを返す（K-04）。
+export const conversationMessageDisplayText = (message: ConversationMessage): string => {
+  if (message.requestKind === 'refinement') return message.displayContent ?? REFINEMENT_DISPLAY_FALLBACK;
+  return message.displayContent ?? message.content;
+};
 type Attachment = { name: string; content: string; mediaType: string; kind: 'image' | 'text'; bytes: number };
 // An image generation/edit intent armed outside the send pipeline (image
 // panel, edit/variation actions, or a raster clarification round-trip). The
@@ -2112,6 +2129,10 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     // 方向修正（割り込み）と添付ファイル付きの送信は調査にしない。
     // 画像パネルや画像編集の明示的なインテントがある送信も調査にせず、
     // そちらを優先する（インテントはこの後の処理で一度だけ消費される）。
+    // 調整ピル由来の送信（refinementOfPreviousAnswer）は、機械生成の
+    // 指示文を本文に持つため、本文テキストによる経路分類（調査・
+    // コード画面・作る画面・画像生成）には一切掛けない（K-04）。
+    // サーバー側も同じ印でテキスト分類を除外する（P1 対策2）。
     const researchRequested = !interruptCurrent
       && sendAttachments.length === 0
       && !imageEditTarget
@@ -2206,6 +2227,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (
       !interruptCurrent
       && sendAttachments.length === 0
+      && !refinementOfPreviousAnswer
       && onOpenCoding
       && isDirectCodingWorkspaceRequest(text.trim())
     ) {
@@ -2228,6 +2250,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (
       !interruptCurrent
       && sendAttachments.length === 0
+      && !refinementOfPreviousAnswer
       && onOpenCreative
       && isDirectCreativeWorkspaceRequest(text.trim())
     ) {
@@ -2260,7 +2283,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     if (interruptCurrent) abortRef.current?.abort();
     const attachmentMessage = sendAttachments.map((attachment) => attachment.kind === 'image' ? `\n\n[${attachment.name}: ${attachment.content}]` : `\n\n[${attachment.name}]\n${attachment.content}`).join('');
     const displayText = interruptCurrent ? `⚡ ${language === 'ja' ? '修正を指示' : 'Change requested'}: ${text.trim()}` : text.trim();
-    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim(), ...(displayContent ? { displayContent } : {}) };
+    const userMessage: ConversationMessage = { id: nextMessageId('u'), role: 'user', content: `${displayText}${attachmentMessage}`.trim(), ...(displayContent ? { displayContent } : {}), ...(refinementOfPreviousAnswer ? { requestKind: 'refinement' as const } : {}) };
     const conversation = updateMessages((current) => [...current, userMessage]);
     const requestMessages = conversation.map((message) => ({ role: message.role, content: message.content }));
     if (interruptedArtifact?.content) {
@@ -2294,6 +2317,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       const shouldGenerateImage = !interruptCurrent
         && sendAttachments.length === 0
         && !researchRequested
+        && !refinementOfPreviousAnswer
         && !isImageClarificationCancellation(text.trim())
         && (Boolean(pendingImageRequest) || isDirectImageGenerationRequest(text.trim()));
       if (shouldGenerateImage) {

@@ -150,8 +150,8 @@ export function createOriginStreamingChatRouter(options: OriginStreamingChatRout
     // 振り分けと完全に同一に保つ。
     const deckRecordsRequest = isDeckRecordsEnabled(env)
       && matchesDeckRecordsRequestText(lastUserMessage);
-    if (isOriginWeatherRequest(lastUserMessage)
-      || isOriginCapabilityQuestion(lastUserMessage)
+    if ((isOriginWeatherRequest(lastUserMessage) && !refinementOfPreviousAnswer)
+      || (isOriginCapabilityQuestion(lastUserMessage) && !refinementOfPreviousAnswer)
       || (requiresGroundedResearch(lastUserMessage, env) && !deckRecordsRequest && !refinementOfPreviousAnswer)
       || screenResult.outcome === "blocked") {
       return next();

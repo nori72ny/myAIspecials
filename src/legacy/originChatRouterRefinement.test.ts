@@ -213,6 +213,43 @@ describe("P1 countermeasure 2: the explicit refinement marker", () => {
   });
 });
 
+describe("K-04: the marker also excludes the weather and capability text-scan routes", () => {
+  it("marked: a weather-shaped text stays on the direct path (no weather route)", async () => {
+    const research = failingResearch();
+    const execute = vi.fn().mockResolvedValue(executionResult) as unknown as OriginChatExecutor & ReturnType<typeof vi.fn>;
+    const response = await request(createChatApp(research, { execute }))
+      .post("/api/chat")
+      .send({ messages: [QUESTION, ANSWER, { role: "user", content: "東京の天気を教えてください" }], refinementOfPreviousAnswer: true });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(DIRECT_TEXT);
+    expect(response.body.routing?.answerMode).not.toBe("weather");
+    expect(execute).toHaveBeenCalled();
+    expect(research).not.toHaveBeenCalled();
+  });
+
+  it("marked: a capability-shaped text stays on the direct path (no capability guide)", async () => {
+    const research = failingResearch();
+    const execute = vi.fn().mockResolvedValue(executionResult) as unknown as OriginChatExecutor & ReturnType<typeof vi.fn>;
+    const response = await request(createChatApp(research, { execute }))
+      .post("/api/chat")
+      .send({ messages: [QUESTION, ANSWER, { role: "user", content: "あなたは何ができますか？" }], refinementOfPreviousAnswer: true });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toBe(DIRECT_TEXT);
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it("unmarked: the same capability-shaped text still takes the capability guide route", async () => {
+    const research = failingResearch();
+    const execute = vi.fn().mockResolvedValue(executionResult) as unknown as OriginChatExecutor & ReturnType<typeof vi.fn>;
+    const response = await request(createChatApp(research, { execute }))
+      .post("/api/chat")
+      .send({ messages: [QUESTION, ANSWER, { role: "user", content: "あなたは何ができますか？" }] });
+    expect(response.status).toBe(200);
+    expect(response.body.content).toContain("Grounded Research");
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
 describe("isRefinementOfPreviousAnswer", () => {
   const asMessages = (entries: Array<[string, string]>): OriginChatMessage[] =>
     entries.map(([role, content]) => ({ role: role as OriginChatMessage["role"], content }));
@@ -283,6 +320,28 @@ describe("P1 countermeasure 2: streaming router delegation", () => {
       .post("/api/chat")
       .set("Accept", "text/event-stream")
       .send({ messages: [QUESTION, ANSWER, { role: "user", content: PROMPTS.depthJa }] });
+    expect(response.status).toBe(418);
+    expect(response.body).toEqual({ delegated: true });
+    expect(streamExecute).not.toHaveBeenCalled();
+  });
+
+  it("a marked capability-shaped text is streamed directly instead of delegated (K-04)", async () => {
+    const streamExecute = streamExecutor();
+    const response = await request(createStreamApp(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [QUESTION, ANSWER, { role: "user", content: "あなたは何ができますか？" }], refinementOfPreviousAnswer: true });
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(streamExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("the same capability-shaped text unmarked is delegated (routing unchanged)", async () => {
+    const streamExecute = streamExecutor();
+    const response = await request(createStreamApp(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [QUESTION, ANSWER, { role: "user", content: "あなたは何ができますか？" }] });
     expect(response.status).toBe(418);
     expect(response.body).toEqual({ delegated: true });
     expect(streamExecute).not.toHaveBeenCalled();
