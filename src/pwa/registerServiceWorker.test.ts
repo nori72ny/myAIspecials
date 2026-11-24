@@ -21,8 +21,9 @@ function eventTarget() {
   };
 }
 
-async function launch(controlled = false, waiting = false, claimBeforeResolve = false) {
+async function launch(controlled = false, waiting = false, claimBeforeResolve = false, documentReadyState = 'complete') {
   let reloads = 0;
+  let registrations = 0;
   let activations = 0;
   let announcements = 0;
   let updateChecks = 0;
@@ -44,6 +45,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     ...eventTarget(),
     controller: controlled ? {} : null as object | null,
     register: async () => {
+      registrations += 1;
       if (claimBeforeResolve) {
         serviceWorker.controller = {};
         serviceWorker.emit('controllerchange');
@@ -53,6 +55,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   };
   const document = {
     ...eventTarget(),
+    readyState: documentReadyState,
     visibilityState: 'visible',
     documentElement: { dataset: { originStorageState: 'ready' } },
     activeElement: {
@@ -94,6 +97,7 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
   return {
     draft, files, busy, dialog, activeEditable, document, window, registration,
     reloads: () => reloads,
+    registrations: () => registrations,
     activations: () => activations,
     announcements: () => announcements,
     updateChecks: () => updateChecks,
@@ -110,6 +114,24 @@ async function launch(controlled = false, waiting = false, claimBeforeResolve = 
     retry: () => { for (const callback of intervals) callback(); },
   };
 }
+
+describe('PWA registration timing', () => {
+  it('defers registration only until DOMContentLoaded while the document is still parsing', async () => {
+    const app = await launch(false, false, false, 'loading');
+    // Window load has already been emitted by the launch sequence; the
+    // registration must not have waited for it.
+    assert.equal(app.registrations(), 0);
+    app.document.emit('DOMContentLoaded');
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(app.registrations(), 1);
+  });
+
+  it('registers immediately once the document has been parsed', async () => {
+    const app = await launch();
+    assert.equal(app.registrations(), 1);
+  });
+});
 
 describe('PWA controller changes preserve user work', () => {
   it('does not show an update notice for the first installation', async () => {

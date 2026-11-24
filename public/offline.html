@@ -12,13 +12,17 @@
       .mark { width: 64px; height: 64px; margin: 0 auto 24px; border-radius: 16px; display: grid; place-items: center; background: #1f4765; color: white; font: 700 28px Georgia, serif; }
       h1 { font-size: 24px; margin: 0 0 16px; }
       p { color: #5f676e; line-height: 1.8; }
+      .retry { display: inline-block; margin-top: 16px; min-height: 48px; padding: 12px 32px; box-sizing: border-box; border-radius: 12px; background: #1f4765; color: white; font-weight: 600; line-height: 24px; text-decoration: none; }
+      .retry:focus-visible { outline: 3px solid #7aa5c4; outline-offset: 2px; }
     </style>
   </head>
   <body>
     <main>
       <div class="mark" aria-hidden="true">O</div>
-      <h1>現在オフラインです</h1>
-      <p>インターネットに接続してから、もう一度お試しください。オフライン中はAIを利用できません。</p>
+      <h1>インターネットに接続できません</h1>
+      <p>現在オフラインです。接続が回復したら、再試行してください。オフラインの間はAIを利用できません。</p>
+      <a class="retry" href="/">再試行</a>
     </main>
+    <script src="/offline.js"></script>
   </body>
 </html>
