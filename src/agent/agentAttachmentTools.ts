@@ -1691,7 +1691,17 @@ export const AGENT_RECONCILIATION_DROP_REASONS: readonly string[] = [
  * `failed` marks a shadow run whose reconciliation could not be
  * judged (provider failure or unparseable output): shadow never
  * fails a run or changes its deliverable, so the failure is
- * recorded here instead.
+ * recorded here instead. `failureCode` names why it could not be
+ * judged (function inspection 2026-11-25, D4): the code the step
+ * would have failed with under enforce — the provider's own code
+ * for a provider failure, AGENT_RECONCILIATION_OUTPUT_INVALID
+ * for output that stayed unparseable after the repair retry, or
+ * AGENT_RECONCILIATION_NO_FINDINGS when candidates existed but
+ * no finding survived the discipline. Until now `failed` was
+ * recorded without its reason, so each shadow failure spent the
+ * observation the mode exists to collect: the enforce decision
+ * could not tell a provider outage from an output-shape problem
+ * from an empty judgment. Present only with `failed`.
  */
 export type AgentDataReconciliationSummary = {
   mode: 'shadow' | 'enforce';
@@ -1701,6 +1711,7 @@ export type AgentDataReconciliationSummary = {
   droppedReasons: Record<string, number>;
   pickedUpCount: number;
   failed?: boolean;
+  failureCode?: string;
   /**
    * Which original findings the judgment kept and dropped, by
    * their index in the source bundle, with the drop reasons
@@ -1974,7 +1985,10 @@ export async function executeAttachmentReconciler(
 
   const mode = agentFindingsReconciliationMode(context?.env ?? process.env);
   if (mode === 'off') return passThrough();
-  const shadowFailure = (): ToolResult => passThrough({
+  // A shadow failure records the code the step would have failed
+  // with under enforce (D4): nothing was judged, so neither index
+  // list is carried, but the reason always is.
+  const shadowFailure = (failureCode: string): ToolResult => passThrough({
     mode: 'shadow',
     candidateCount: bundle.candidates.length,
     keptCount: 0,
@@ -1982,6 +1996,7 @@ export async function executeAttachmentReconciler(
     droppedReasons: {},
     pickedUpCount: 0,
     failed: true,
+    failureCode,
   });
 
   const modelCall = context?.modelCall ?? createAgentModelExecutor(context?.env ?? process.env);
@@ -1991,7 +2006,7 @@ export async function executeAttachmentReconciler(
   const userText = reconcilerMaterials(bundle);
   const first = await callModelWithTransientRetry({ instruction, userText, goal: goalInstruction });
   if (first.ok === false) {
-    if (mode === 'shadow') return shadowFailure();
+    if (mode === 'shadow') return shadowFailure(first.code);
     return fail(analyzerProviderFailureMessage(first));
   }
   let parsed = parseReconciliationOutput(first.text, bundle.findings.length, bundle.candidates.length);
@@ -2004,12 +2019,12 @@ export async function executeAttachmentReconciler(
       goal: goalInstruction,
     });
     if (repair.ok === false) {
-      if (mode === 'shadow') return shadowFailure();
+      if (mode === 'shadow') return shadowFailure(repair.code);
       return fail(analyzerProviderFailureMessage(repair));
     }
     parsed = parseReconciliationOutput(repair.text, bundle.findings.length, bundle.candidates.length);
     if (!parsed.ok) {
-      if (mode === 'shadow') return shadowFailure();
+      if (mode === 'shadow') return shadowFailure('AGENT_RECONCILIATION_OUTPUT_INVALID');
       return fail('AGENT_RECONCILIATION_OUTPUT_INVALID');
     }
   }
@@ -2031,7 +2046,7 @@ export async function executeAttachmentReconciler(
     // must not become a silently empty report. Shadow records the
     // same fact and passes the original findings through.
     if (mode === 'enforce') return fail('AGENT_RECONCILIATION_NO_FINDINGS');
-    return passThrough({ ...summary, failed: true });
+    return passThrough({ ...summary, failed: true, failureCode: 'AGENT_RECONCILIATION_NO_FINDINGS' });
   }
   if (mode === 'shadow') {
     return {

@@ -640,6 +640,40 @@ describe('agent run step live detail: reconciliation summary', () => {
     const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
     expect(step?.liveDetail?.reconciliation).toBeUndefined();
   });
+
+  it('round-trips the failure reason code of a failed reconciliation (D4)', () => {
+    const liveDetail = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+        failed: true, failureCode: 'AGENT_RECONCILIATION_OUTPUT_INVALID',
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.reconciliation).toEqual({
+      mode: 'shadow', candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+      failed: true, failureCode: 'AGENT_RECONCILIATION_OUTPUT_INVALID',
+    });
+  });
+
+  it('drops a malformed failure code fail-soft and never carries one without a failure (D4)', () => {
+    const malformed = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+        failed: true, failureCode: 'not a code!',
+      },
+    } as never;
+    const [malformedStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: malformed }]);
+    expect(malformedStep?.liveDetail?.reconciliation?.failed).toBe(true);
+    expect(malformedStep?.liveDetail?.reconciliation?.failureCode).toBeUndefined();
+    const unfailed = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 2, keptCount: 1, droppedCount: 1, pickedUpCount: 0,
+        failureCode: 'PROVIDER_INVALID_RESPONSE',
+      },
+    };
+    const [unfailedStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: unfailed }]);
+    expect(unfailedStep?.liveDetail?.reconciliation?.failureCode).toBeUndefined();
+  });
 });
 
 describe('agent run step live detail: wave-1 observability (対策1(a)(c)(d))', () => {

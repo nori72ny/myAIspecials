@@ -60,7 +60,10 @@ import {
  *
  * Failover triggers are availability errors only. Integrity failures after a response is
  * received (cost, routing, policy) never switch routes: they fail closed on the spot so a
- * second route can never hide them. Required-tool requests never fail over in Phase 1.
+ * second route can never hide them. The single exception, since the 2026-11-25 agent
+ * inspection (D1): an agent data-step dispatch switches routes on PROVIDER_INVALID_RESPONSE,
+ * a response that carried no usable text at all — see failoverSwitchApplies. Required-tool
+ * requests never fail over in Phase 1.
  * When the failover flag is unset, this module is a transparent pass-through to the
  * existing executors and behavior is identical to before.
  *
@@ -226,6 +229,50 @@ export const ORIGIN_FAILOVER_TRIGGER_CODES: ReadonlySet<OriginProviderErrorCode>
   "PROVIDER_TIMEOUT",
   "PROVIDER_NOT_CONFIGURED",
 ]);
+
+/**
+ * Whether a dispatch is an agent data-step call (an analyzer chunk
+ * call or the findings reconciler). The request type admits the
+ * capacity-allocation hint only in its two agent values, and the
+ * agent model-call adapter is the only caller that sets it — every
+ * chat, research and records caller leaves it unset — so its
+ * presence is exactly the agent marker. This call kind is the one
+ * whose output is verified mechanically downstream (coverage,
+ * format and pairing checks on the assembled bundle), which is
+ * what qualifies it for the invalid-response route switch below.
+ */
+function isAgentAnalyzerDispatch(request: OriginProviderExecutionRequest): boolean {
+  return request.groqCapacityAllocation !== undefined;
+}
+
+/**
+ * Whether a route failure switches the dispatch to the next route.
+ * The availability trigger codes switch for every call kind. An
+ * agent data-step dispatch (above) additionally switches on
+ * PROVIDER_INVALID_RESPONSE (function inspection 2026-11-25, D1):
+ * in the Basel re-run of 2026-11-25 the second route's model
+ * answered with no usable text, the code sat outside the trigger
+ * set, no later route was ever attempted, and the whole run died
+ * at its first analyzer step with zero artifacts. For this call
+ * kind the failure is recoverable by construction — the route's
+ * client throws the code exactly when the inference produced no
+ * usable text, so nothing the route made can leak into a
+ * deliverable, and the route's $0 proof is established before the
+ * send, never from the response. Every other call kind keeps the
+ * standing rule exactly (integrity failures never switch routes),
+ * and every other integrity code — policy, cost, routing — keeps
+ * it for agent dispatches too. The switch is bounded by the
+ * dispatch itself: each route is still attempted at most once,
+ * under the one total budget, and when both routes fail the final
+ * route's own error surfaces, exactly as for a trigger failure.
+ * The streaming mirrors apply the same predicate (with their
+ * delivered-fragment guard unchanged); no streaming caller sets
+ * the agent hint today, so their behavior is unchanged.
+ */
+function failoverSwitchApplies(request: OriginProviderExecutionRequest, error: OriginProviderError): boolean {
+  if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) return true;
+  return error.code === "PROVIDER_INVALID_RESPONSE" && isAgentAnalyzerDispatch(request);
+}
 
 /** Dispatcher-enforced budget for one primary attempt, including its internal retries. */
 export const ORIGIN_PRIMARY_ATTEMPT_BUDGET_MS = 8_000;
@@ -909,7 +956,8 @@ function composeGroqResult(
 
 /**
  * Third-route attempt, entered only from availability failures or pre-execution
- * skips of the earlier routes. When GROQ_API_KEY is not configured the route does
+ * skips of the earlier routes — plus, for an agent data-step dispatch, an invalid
+ * response of the second route (failoverSwitchApplies, D1). When GROQ_API_KEY is not configured the route does
  * not exist: the fallback error is thrown with the prior attempts unchanged, exactly
  * as the two-route dispatcher behaved. When the route is skipped before execution,
  * the earlier routes' error stays the surfaced one; when the route executed and
@@ -1010,7 +1058,8 @@ async function attemptCloudflareRoute(
  * attempted and sends nothing. An availability failure — including the
  * attempt budget expiring — and a pre-execution skip both move on to the
  * Cloudflare route as the final route; an integrity failure fails closed on
- * the spot, exactly as in the current order. The error surfaced when the
+ * the spot, exactly as in the current order (with the one agent data-step
+ * exception: an invalid response switches — see failoverSwitchApplies). The error surfaced when the
  * final route is skipped before execution is the Groq route's own error when
  * it executed and failed, or the caller's fallback error (built lazily by
  * `skippedFallbackError`) when the Groq route was skipped too.
@@ -1040,7 +1089,7 @@ async function failOverFromGroqRoute(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
       );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+      if (failoverSwitchApplies(request, error)) {
         return attemptCloudflareRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
       }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
@@ -1385,7 +1434,7 @@ async function failOverStreamFromGroqRoute(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - groqStartedAtMs },
       );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) && !delivery.delivered) {
+      if (failoverSwitchApplies(request, error) && !delivery.delivered) {
         return attemptCloudflareStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, failed], error);
       }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
@@ -1450,7 +1499,7 @@ async function failOverStreamFromCloudflareRoute(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
       );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) && !delivery.delivered) {
+      if (failoverSwitchApplies(request, error) && !delivery.delivered) {
         return attemptGroqStreamRoute(request, trackingHandlers, env, fetchImpl, options, delivery, [primaryAttempt, failed], error);
       }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
@@ -1573,7 +1622,7 @@ async function failOverFromCloudflareRoute(
         ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code) ? "availability-error" : "failed",
         { errorCode: error.code, ...upstreamAttemptFields(error), transportRequestCount: error.diagnostic?.transportRequestCount, durationMs: Date.now() - cloudflareStartedAtMs },
       );
-      if (ORIGIN_FAILOVER_TRIGGER_CODES.has(error.code)) {
+      if (failoverSwitchApplies(request, error)) {
         return attemptGroqRoute(request, env, fetchImpl, options, [primaryAttempt, failed], error);
       }
       throw withFailoverAttempts(error, [primaryAttempt, failed]);
@@ -1645,7 +1694,9 @@ function circuitPrimaryError(circuit: OriginPrimaryCircuitState, options: Origin
  * the route still counts as the single third attempt, and the attempt evidence
  * names the model that actually served. Integrity
  * failures on any route still never switch routes: the third route is reached only
- * from availability failures or pre-execution skips of the routes before it.
+ * from availability failures or pre-execution skips of the routes before it
+ * (plus the one agent data-step exception: an invalid response of the second
+ * route — see failoverSwitchApplies).
  */
 async function failOverFromOpenCircuit(
   request: OriginProviderExecutionRequest,
@@ -1920,7 +1971,16 @@ function attemptDidNotServe(attempt: OriginProviderAttemptEvidence): boolean {
     && typeof attempt.skipReason === "string"
     && attempt.skipReason.length > 0
     && attempt.transportRequestCount === 0;
-  return isAvailabilityFailure || isPreExecutionSkip;
+  // An agent data-step dispatch may switch routes after an invalid
+  // response (failoverSwitchApplies, D1): the attempt keeps its
+  // honest "failed" outcome, and it demonstrably did not serve —
+  // the route's client throws that code exactly when the inference
+  // produced no usable text, so no answer from it can be inside
+  // the composed result. No other call kind can compose this
+  // shape, because no other call kind switches on the code.
+  const isInvalidResponseFailure = attempt.outcome === "failed"
+    && attempt.errorCode === "PROVIDER_INVALID_RESPONSE";
+  return isAvailabilityFailure || isPreExecutionSkip || isInvalidResponseFailure;
 }
 
 /**

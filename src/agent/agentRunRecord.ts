@@ -387,6 +387,18 @@ export type AgentRunStepReconciliation = {
   pickedUpCount: number;
   failed?: boolean;
   /**
+   * Why a failed reconciliation could not be judged (function
+   * inspection 2026-11-25, D4): the code the step would have
+   * failed with under enforce — a provider error code, or
+   * AGENT_RECONCILIATION_OUTPUT_INVALID /
+   * AGENT_RECONCILIATION_NO_FINDINGS. `failed` alone spent the
+   * shadow observation without its reason, leaving the enforce
+   * decision unable to tell a provider outage from an
+   * output-shape problem from an empty judgment. Present only
+   * with `failed`.
+   */
+  failureCode?: string;
+  /**
    * Which original findings the judgment kept and dropped, by
    * index, with the drop reasons (failure diagnosis 2026-11-24,
    * 対策1(a)). Counts alone could not answer the shadow question
@@ -1222,7 +1234,16 @@ function normalizeAgentRunStepReconciliation(value: unknown): AgentRunStepReconc
     droppedCount,
     pickedUpCount,
   };
-  if (value.failed === true) reconciliation.failed = true;
+  if (value.failed === true) {
+    reconciliation.failed = true;
+    // The failure's reason code (D4): carried only for a failed
+    // reconciliation and only in the error-code shape, fail-soft
+    // like the rest of the detail — a malformed code is dropped,
+    // never fatal, and the failure itself stays recorded.
+    if (typeof value.failureCode === 'string' && ERROR_CODE_PATTERN.test(value.failureCode)) {
+      reconciliation.failureCode = value.failureCode;
+    }
+  }
   // Kept/dropped indexes (対策1(a)): validated per entry and
   // fail-soft like the rest of the detail — a malformed entry is
   // skipped, an overlong list truncated, and an absent or

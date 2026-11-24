@@ -1154,6 +1154,58 @@ describe('step live detail: reconciliation summary (misreading countermeasure)',
     });
     expect(detail?.reconciliation).toBeUndefined();
   });
+
+  it('surfaces the failure reason code of a failed reconciliation (D4)', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: {
+          mode: 'shadow', candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+          failed: true, failureCode: 'PROVIDER_INVALID_RESPONSE',
+        },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.reconciliation).toEqual({
+      mode: 'shadow', candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+      failed: true, failureCode: 'PROVIDER_INVALID_RESPONSE',
+    });
+  });
+
+  it('drops a malformed failure code fail-soft and never projects one without a failure (D4)', () => {
+    const malformed = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: {
+          mode: 'shadow', candidateCount: 2, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+          failed: true, failureCode: 'not a code!',
+        },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(malformed?.reconciliation?.failed).toBe(true);
+    expect(malformed?.reconciliation?.failureCode).toBeUndefined();
+    const unfailed = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: {
+          mode: 'shadow', candidateCount: 2, keptCount: 1, droppedCount: 1, pickedUpCount: 0,
+          failureCode: 'PROVIDER_INVALID_RESPONSE',
+        },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(unfailed?.reconciliation?.failureCode).toBeUndefined();
+  });
 });
 describe('step live detail: analyzer execution trace (coverage observability follow-on)', () => {
   it('surfaces the execution trace from the failure message parenthetical', () => {

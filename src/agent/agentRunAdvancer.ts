@@ -618,7 +618,9 @@ export function providerAttemptsFromAnalyzerMessage(
  * every value is re-validated here before the record normalizer
  * re-checks it again. Counts, the mode, and — since the 2026-11-24
  * diagnosis (対策1(a)) — the kept/dropped finding indexes with
- * their closed-vocabulary drop reasons; the bundle's finding text
+ * their closed-vocabulary drop reasons; since the 2026-11-25
+ * inspection (D4) a failed reconciliation also carries the reason
+ * code it could not be judged with. The bundle's finding text
  * never crosses into the record.
  */
 export function reconciliationFromReconcilerArtifact(
@@ -657,6 +659,17 @@ export function reconciliationFromReconcilerArtifact(
   // closed lowercase shape; anything else is dropped.
   const keptIndexes = reconciliationIndexList(record.keptIndexes);
   const droppedIndexes = reconciliationDroppedList(record.droppedIndexes);
+  // The failure's reason code (function inspection 2026-11-25,
+  // D4): read back only for a failed reconciliation and only in
+  // the error-code shape, fail-soft like the rest of the block —
+  // a malformed code is dropped while the failure itself stays
+  // recorded. A bundle written before this projection carries
+  // no code and projects exactly as before.
+  const failureCode = record.failed === true
+    && typeof record.failureCode === 'string'
+    && ANALYZER_ATTEMPT_ERROR_CODE_PATTERN.test(record.failureCode)
+    ? record.failureCode
+    : undefined;
   return {
     mode,
     candidateCount,
@@ -664,6 +677,7 @@ export function reconciliationFromReconcilerArtifact(
     droppedCount,
     pickedUpCount,
     ...(record.failed === true ? { failed: true } : {}),
+    ...(failureCode !== undefined ? { failureCode } : {}),
     ...(keptIndexes !== undefined ? { keptIndexes } : {}),
     ...(droppedIndexes !== undefined ? { droppedIndexes } : {}),
   };
