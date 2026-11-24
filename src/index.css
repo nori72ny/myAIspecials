@@ -455,15 +455,9 @@
   box-shadow: none;
   color: var(--text-secondary);
 }
-.origin-chat-assistant {
-  width: 100%;
-  max-width: 45rem;
-  margin-inline: auto;
-  background: color-mix(in oklch, var(--bg-surface) 96%, var(--bg-primary));
-  border-color: color-mix(in oklch, var(--border-default) 88%, var(--accent-primary));
-  color: var(--text-primary);
-  box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
-}
+/* The assistant reading surface has a single canon in
+   origin-top-ui.css (transparent surface, K-19 2026-11-24); the
+   duplicate definition that used to live here is removed. */
 .origin-answer-markdown { min-width: 0; max-width: 45rem; margin-inline: auto; color: var(--text-primary); }
 /* 日本語の改行規則（P6、2026-11-24、週次品質検査の欠陥#6）：
    以前は overflow-wrap: anywhere で、行末に来た文字が何でも
