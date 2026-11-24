@@ -1,8 +1,11 @@
 /**
  * D-PR-6: ORIGIN_DECK_RECORDS_ENABLED=ON のとき、資料リクエストが
- * レコード経路（起草／配置／決定的組立）を通ること。OFF の間は
- * 現行経路が無変更であることは originStreamingChatRouter.proposalDeck
- * .test.ts が証明し、本ファイルは ON の配線だけを固定する。
+ * レコード経路（起草／配置／決定的組立）を通ること。本ファイルは
+ * 主として ON の配線を固定する。OFF の間の旧骨格経路は
+ * originStreamingChatRouter.proposalDeck.test.ts が固定するが、
+ * 資料第1波（2026-11-25）で OFF でも変わった到達性（資料リクエスト
+ * 判定の文面拡張・調査経路への振り分け回避・経路3への骨格指示の
+ * 同席）については、本ファイル末尾の第1波テストが固定する。
  */
 import express from "express";
 import request from "supertest";
@@ -355,14 +358,41 @@ describe("streaming router deck records path (D-PR-6)", () => {
     expect(complete.artifacts).toHaveLength(1);
   });
 
-  it("DG-1 cause 3: the same request still delegates when the switch is OFF", async () => {
-    const app = appWith({ OPENROUTER_API_KEY: "synthetic-key" }, S3_PLACEMENT);
+  it("資料第1波: the same request no longer delegates when the switch is OFF (skeleton path)", async () => {
+    let seenInstruction = "";
+    const app = appWith({ OPENROUTER_API_KEY: "synthetic-key" }, S3_PLACEMENT, (instruction) => {
+      seenInstruction = instruction;
+    });
     const response = await request(app)
       .post("/api/chat")
       .set("Accept", "text/event-stream")
       .send(chatBody(S3_MESSAGE));
 
-    expect(response.status).toBe(418);
+    // DG-1 では OFF の間は調査経路へ委譲され（418）、素材つき資料化
+    // 依頼は棄権で止まった。資料第1波（2026-11-25）以降は OFF でも
+    // 資料経路（旧骨格経路）で処理する。配置計画の文面は骨格として
+    // 読めないため成果物は付かず、旧経路の失敗注記が出る。
+    expect(response.status).toBe(200);
+    expect(seenInstruction).toContain("提案資料の作成形式");
+    expect(seenInstruction).not.toContain("提案資料の配置計画");
+    const complete = completeEvent(response.text) as { artifacts?: unknown };
+    expect(complete.artifacts).toBeUndefined();
+    expect(chatTextOf(response.text)).toContain("（資料ファイルの作成はできませんでした");
+  });
+
+  it("資料第1波: a report-material request reaches the deck path when the switch is OFF (DG-1 S-6)", async () => {
+    let seenInstruction = "";
+    const app = appWith({ OPENROUTER_API_KEY: "synthetic-key" }, S6_PLACEMENT, (instruction) => {
+      seenInstruction = instruction;
+    });
+    const response = await request(app)
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send(chatBody(S6_MESSAGE));
+
+    expect(response.status).toBe(200);
+    expect(seenInstruction).toContain("提案資料の作成形式");
+    expect(seenInstruction).not.toContain("提案資料の配置計画");
   });
 
   it("DG-1 cause 4: a report-material request without 提案/企画 wording reaches the records path", async () => {
