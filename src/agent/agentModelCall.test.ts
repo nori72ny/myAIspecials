@@ -36,6 +36,28 @@ describe('servingFromRoutingEvidence (coverage observability follow-on)', () => 
     expect(servingFromRoutingEvidence({ provider: '' })).toBeUndefined();
     expect(servingFromRoutingEvidence({ provider: 42 })).toBeUndefined();
   });
+
+  it('normalizes the production display names to the slugs the record carriers accept', () => {
+    // Production routing evidence carries display names, not slugs
+    // (Basel coverage diagnosis 2026-11-24): before normalization
+    // the serving was rejected at the analyzer's trace entrance
+    // every time, so no analyzer step ever recorded its execution.
+    expect(servingFromRoutingEvidence({ provider: 'Cloudflare', servedModel: '@cf/openai/gpt-oss-120b' }))
+      .toEqual({ providerId: 'cloudflare', modelId: '@cf/openai/gpt-oss-120b' });
+    expect(servingFromRoutingEvidence({ provider: 'Groq', servedModel: 'openai/gpt-oss-120b' }))
+      .toEqual({ providerId: 'groq', modelId: 'openai/gpt-oss-120b' });
+    expect(servingFromRoutingEvidence({ provider: 'OpenRouter' }))
+      .toEqual({ providerId: 'openrouter' });
+    // The slug vocabulary already in use passes through unchanged.
+    expect(servingFromRoutingEvidence({ provider: 'Cloudflare Workers AI' }))
+      .toEqual({ providerId: 'cloudflare-workers-ai' });
+  });
+
+  it('contributes nothing when a display name leaves no slug behind', () => {
+    expect(servingFromRoutingEvidence({ provider: '!!!' })).toBeUndefined();
+    expect(servingFromRoutingEvidence({ provider: '123' })).toBeUndefined();
+    expect(servingFromRoutingEvidence({ provider: '   ' })).toBeUndefined();
+  });
 });
 
 describe('failoverAttemptsFromProviderError (AGORA observability)', () => {
