@@ -118,7 +118,21 @@ function distill(text: string): string {
 
 function isQuestion(sentence: string): boolean {
   return /[？?]\s*$/.test(sentence)
-    || /(?:ですか|ますか|でしょうか|かしら|かな)[。．]?\s*$/.test(sentence);
+    || /(?:ですか|ますか|でしょうか|かしら|かな)[。．]?\s*$/.test(sentence)
+    // Bare sentence-final か without a question mark ("今後はどうなるか")
+    // is still a question form; a declarative sentence does not end in か.
+    || /か[。．]?\s*$/.test(sentence);
+}
+
+// One-off imperative / request form (K-24): the sentence is an instruction
+// for this turn — it ends in a て-form imperative or a request auxiliary
+// (ください/くれ/ちょうだい/お願い/頼む) — not a statement about the
+// owner. Such a sentence is not an attribute of the owner even when a
+// kind pattern (e.g. a format keyword like 箇条書き) happens to match it:
+// "箇条書きでまとめて" is this turn's task, not a standing preference.
+function isImperativeRequestForm(sentence: string): boolean {
+  return /(?:ください|下さい|くれ|ちょうだい|お願い|頼む)[。．]?\s*$/.test(sentence)
+    || /[てで][。．]?\s*$/.test(sentence);
 }
 
 // --- Protective exclusions (rule-level layer, design §3.3) -------------------
@@ -330,6 +344,11 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
       noteGuardBlock(guardBlocks, sentence, classifyKind(sentence) ?? undefined);
       return;
     }
+    // K-24: a question that merely carries a continuation marker
+    // ("次回も会議はありますか") is still a question, not an attribute —
+    // without this check it fell through to the 'preference' default
+    // below. The B pass skips it for the same reason.
+    if (isQuestion(sentence)) return;
 
     let content = sentence;
     let sourceIndex = index;
@@ -345,6 +364,10 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
         if (neighborIndex < 0) return;
         const neighbor = sentences[neighborIndex];
         if (isQuestion(neighbor)) return;
+        // K-24: the pointed-at sentence is not an attribute either when
+        // it is itself a one-off instruction ("この表をまとめて。
+        // 覚えておいてください").
+        if (isImperativeRequestForm(neighbor)) return;
         if (isBlockedSentence(neighbor)) {
           noteGuardBlock(guardBlocks, neighbor, classifyKind(neighbor) ?? undefined);
           return;
@@ -360,6 +383,15 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
         : sentence.replace(continuationPhrase as RegExp, '');
       if (substantiveLength(remainder) < 4) return;
     }
+
+    // K-24: content that rode in on a remember phrase is not an
+    // attribute when it is itself a question or a one-off instruction
+    // ("覚えておいて、明日の天気はどうなるか" stored the question as a
+    // 'fact'). Standing instructions carried by a continuation phrase
+    // are unaffected: their content is the whole sentence, already
+    // question-checked above, and the marker itself is the durability
+    // signal A-1 exists to capture.
+    if (rememberPhrase && (isQuestion(content) || isImperativeRequestForm(content))) return;
 
     const kind = classifyKind(content) ?? (rememberPhrase ? 'fact' : 'preference');
     candidates.push({
@@ -383,6 +415,14 @@ function extractUserCandidates(userText: string, guardBlocks?: GuardBlock[]): Me
       noteGuardBlock(guardBlocks, sentence, kind);
       return;
     }
+    // K-24: a one-off imperative is this turn's instruction, not an
+    // attribute of the owner, even when a kind pattern matches it —
+    // the format keywords in PREFERENCE_PATTERNS (箇条書き/表で/文章で/
+    // 短くまとめ…) used to store "箇条書きでまとめて" itself as a
+    // 'preference'. Durable requests are exempt: a sentence classified
+    // as 'request' matched the continuity-bearing REQUEST_PATTERNS and
+    // is stored as a 頼まれごと by design (§3.2), never as an attribute.
+    if (kind !== 'request' && isImperativeRequestForm(sentence)) return;
     candidates.push({
       kind,
       text: distill(sentence),

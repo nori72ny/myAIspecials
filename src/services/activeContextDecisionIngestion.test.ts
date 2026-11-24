@@ -322,6 +322,72 @@ describe('B sentence-pattern extraction', () => {
   });
 });
 
+// --- K-24: questions and one-off requests are not attributes ----------------------
+
+// Correction list K-24 (LIVE-7): a user question sentence had been stored
+// in the management screen's item list as a 'preference'. The leak had
+// three shapes, all pinned here: a one-off imperative whose wording hits
+// a format keyword in PREFERENCE_PATTERNS, a question riding on an A-1
+// continuation marker (which used to fall through to the 'preference'
+// default), and question content attached to a remember phrase (stored
+// as a 'fact'). Declarative preference statements and durable requests
+// must keep working.
+
+describe('K-24 question / one-off request guard', () => {
+  it('extracts nothing from one-off imperatives that match format keywords', async () => {
+    const { graph, ingestion } = await loadModules();
+    const imperatives = [
+      'この文章を箇条書きでまとめて',
+      '短くまとめて',
+      '表で見せて',
+      '結論から教えて',
+      '箇条書きでまとめてください',
+      '辛いものは苦手なので、別の店にして',
+    ];
+    for (const userText of imperatives) {
+      await ingestion.ingestCompletedChatTurn({ userText, answerText: PLAIN_ANSWER });
+    }
+    await expect(storedItems(graph)).resolves.toEqual([]);
+  });
+
+  it('extracts nothing from questions, with or without a question mark or marker', async () => {
+    const { graph, ingestion } = await loadModules();
+    const questions = [
+      '次回も会議はありますか',
+      '今後はどうなるか',
+      'コーヒーは好きか',
+      '覚えておいて、明日の天気はどうなるか',
+    ];
+    for (const userText of questions) {
+      await ingestion.ingestCompletedChatTurn({ userText, answerText: PLAIN_ANSWER });
+    }
+    await expect(storedItems(graph)).resolves.toEqual([]);
+  });
+
+  it('still stores a declarative taste statement as a preference', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '辛いものは苦手です',
+      answerText: PLAIN_ANSWER,
+    });
+    const items = await storedItems(graph);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe('preference');
+    expect(items[0].origin).toBe('inferred');
+  });
+
+  it('still stores a durable request as a request, not an attribute', async () => {
+    const { graph, ingestion } = await loadModules();
+    await ingestion.ingestCompletedChatTurn({
+      userText: '来週金曜までに進捗を確認しておいてください',
+      answerText: PLAIN_ANSWER,
+    });
+    const items = await storedItems(graph);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe('request');
+  });
+});
+
 // --- Commitment from the answer side ----------------------------------------------
 
 describe('commitment extraction from the answer', () => {
