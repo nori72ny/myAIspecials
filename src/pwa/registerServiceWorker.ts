@@ -47,7 +47,7 @@ export function registerOriginServiceWorker(): void {
 
   sessionStorage.removeItem(UPDATE_RELOAD_GUARD_KEY);
 
-  window.addEventListener('load', () => {
+  const startRegistration = () => {
     // A first install calls clients.claim(), but the current page is already fresh.
     // Subscribe before register() resolves so a fast first claim cannot be missed.
     let hadController = Boolean(navigator.serviceWorker.controller);
@@ -142,5 +142,17 @@ export function registerOriginServiceWorker(): void {
     }).catch(() => {
       // PWA registration failure must not interrupt the application UI.
     });
-  }, { once: true });
+  };
+
+  // Registration used to wait for the window load event. On a slow
+  // connection that postpones the worker setup — and with it the offline
+  // shell — until every subresource has finished, leaving a long first-visit
+  // window in which an offline reload hits the browser default error page.
+  // Start as soon as the document has been parsed instead; registration is
+  // asynchronous and never blocks rendering.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startRegistration, { once: true });
+  } else {
+    startRegistration();
+  }
 }

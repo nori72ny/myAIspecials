@@ -4,6 +4,7 @@ const CACHE_NAME = `${CACHE_PREFIX}${RELEASE_SHA}`;
 const APP_SHELL_KEY = '/__origin-app-shell__';
 const SAFE_STATIC_PATHS = new Set([
   '/offline.html',
+  '/offline.js',
   '/origin-artifact-sandbox.html',
   '/manifest.json',
   '/manifest.webmanifest',
@@ -31,8 +32,18 @@ const SAFE_STATIC_PATHS = new Set([
 ]);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then(async (cache) => {
-    await cache.addAll([...SAFE_STATIC_PATHS]);
+  const opening = caches.open(CACHE_NAME);
+  const critical = opening.then(async (cache) => {
+    // The offline guidance page is the minimum viable fallback, so it and
+    // its script are cached first — in parallel with the app shell fetch,
+    // and each on its own: one failing asset, or the connection dropping
+    // partway through, must never leave the browser default error page as
+    // the only offline response. The shell and its own assets complete the
+    // critical set; everything else follows without delaying activation.
+    const guidance = Promise.all([
+      cache.add('/offline.html').catch(() => undefined),
+      cache.add('/offline.js').catch(() => undefined),
+    ]);
     try {
       const response = await fetch('/', { credentials: 'same-origin' });
       if (response.ok) {
@@ -51,7 +62,19 @@ self.addEventListener('install', (event) => {
         }
       }
     } catch { /* offline-first installation fallback */ }
-  }));
+    await guidance;
+  });
+  event.waitUntil(critical);
+  // The remaining static assets (icons, manifest, brand artwork) are not
+  // needed to answer an offline navigation, so they are precached only
+  // after the critical set, without holding up activation: the sooner the
+  // worker activates, the sooner offline reloads stop hitting the browser
+  // default error page. Each item settles on its own — a single failure
+  // must not abort the rest.
+  critical.then(async () => {
+    const cache = await opening;
+    await Promise.all([...SAFE_STATIC_PATHS].map((path) => cache.add(path).catch(() => undefined)));
+  }).catch(() => undefined);
 });
 
 self.addEventListener('activate', (event) => {

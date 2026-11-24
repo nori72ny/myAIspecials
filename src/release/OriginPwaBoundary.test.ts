@@ -142,6 +142,34 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).not.toContain('/api/chat');
   });
 
+  it('caches the offline guidance first and never lets one failed asset abort the install', () => {
+    const worker = read('public/sw.js');
+    const offlinePage = read('public/offline.html');
+    const offlineScript = read('public/offline.js');
+
+    // An all-or-nothing precache aborts the whole install on any single
+    // failure, which can leave the browser default error page as the only
+    // offline response. The guidance page is cached on its own first.
+    expect(worker).not.toContain('cache.addAll');
+    expect(worker).toContain("cache.add('/offline.html').catch(() => undefined)");
+    expect(worker).toContain("cache.add('/offline.js').catch(() => undefined)");
+    expect(worker).toContain("'/offline.js'");
+    // The guidance page is viewed while offline, so its script must belong
+    // to the precached static set that the fetch handler answers cache-first.
+    expect(worker).toContain('SAFE_STATIC_PATHS.has(url.pathname)');
+
+    // The guidance itself: Japanese wording, a retry path back to the app
+    // root, and no inline script (the document CSP is script-src 'self', so
+    // the return-online enhancement lives in a precached external file).
+    expect(offlinePage).toContain('インターネットに接続できません');
+    expect(offlinePage).toContain('再試行');
+    expect(offlinePage).toContain('href="/"');
+    expect(offlinePage).toContain('src="/offline.js"');
+    expect(offlinePage).not.toContain('<script>');
+    expect(offlineScript).toContain("addEventListener('online'");
+    expect(offlineScript).toContain("location.replace('/')");
+  });
+
   it('serves the fixed offline page for cookie-bearing navigations without caching them', async () => {
     const listeners = new Map<string, (event: any) => void>();
     const offlineResponse = new Response('offline');
