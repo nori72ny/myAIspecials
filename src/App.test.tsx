@@ -1660,12 +1660,13 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model: string; systemPrompt: string };
     expect(request.model).toBe('google/gemma-4-31b-it:free');
     expect(request.systemPrompt).toBe(getOriginSystemPrompt('en'));
-    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready', 'never substitute an image-generation prompt', 'never spend the first turn asking only questions', 'usable Version 1 draft', 'at most one or two high-impact refinement questions']) expect(request.systemPrompt).toContain(phrase);
+    for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready', 'never substitute an image-generation prompt', 'never spend the first turn asking only questions', 'usable first draft', 'production-process disclaimer', 'version numbers or production-process labels', 'at most one or two high-impact refinement questions']) expect(request.systemPrompt).toContain(phrase);
     const japanesePrompt = getOriginSystemPrompt('ja');
-    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', '画像生成プロンプト・SVG・HTML・文章説明を代用品として返さない', 'Artifact-1のような機械的な名前', '端末内保存', '質問だけで最初の1ターンを使い切らない', 'Version 1のたたき台', '最大1〜2個だけ']) expect(japanesePrompt).toContain(phrase);
+    for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', '画像生成プロンプト・SVG・HTML・文章説明を代用品として返さない', 'Artifact-1のような機械的な名前', '端末内保存', '質問だけで最初の1ターンを使い切らない', 'すぐに使える叩き台', '制作過程の内部ラベル', '最大1〜2個だけ']) expect(japanesePrompt).toContain(phrase);
     // K-03 (2026-11-24): the internal production label itself is gone
     // from the Japanese instruction, so the model no longer echoes it
     // into answer headings.
+    expect(japanesePrompt).not.toContain('Version 1');
     vi.unstubAllGlobals();
   });
 
