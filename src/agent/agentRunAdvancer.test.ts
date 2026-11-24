@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { advanceAgentRun, buildStepLiveDetail, resolveStepParams } from './agentRunAdvancer.js';
+import {
+  advanceAgentRun,
+  buildStepLiveDetail,
+  resolveStepParams,
+  rowsOutputFromAnalyzerArtifact,
+  valueTableFromAnalyzerArtifact,
+} from './agentRunAdvancer.js';
 import {
   AGENT_RUN_CONSUMPTION_MAX_TTL_MS,
   AGENT_RUN_CONSUMPTION_RESERVATION_TTL_MS,
@@ -1192,5 +1198,132 @@ describe('step live detail: analyzer execution trace (coverage observability fol
       finishedAt: 1_700_000_005_000,
     });
     expect(poisoned?.analyzerExecution).toBeUndefined();
+  });
+});
+
+describe('step live detail: wave-1 observability (対策1(a)(c)(d))', () => {
+  it('surfaces the kept/dropped indexes from the reconciler artifact', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: {
+          mode: 'shadow', candidateCount: 0, keptCount: 2, droppedCount: 3, pickedUpCount: 0,
+          keptIndexes: [0, 3],
+          droppedIndexes: [
+            { index: 1, reason: 'agreement-mismatch' },
+            { index: 2, reason: 'abbreviation' },
+            { index: 4, reason: 'boilerplate' },
+          ],
+        },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.reconciliation?.keptIndexes).toEqual([0, 3]);
+    expect(detail?.reconciliation?.droppedIndexes).toEqual([
+      { index: 1, reason: 'agreement-mismatch' },
+      { index: 2, reason: 'abbreviation' },
+      { index: 4, reason: 'boilerplate' },
+    ]);
+  });
+
+  it('projects a bundle without index lists exactly as before (unjudged or older bundle)', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_reconciler',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        reconciliation: { mode: 'shadow', candidateCount: 1, keptCount: 2, droppedCount: 0, pickedUpCount: 0, failed: true },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.reconciliation).toEqual({
+      mode: 'shadow', candidateCount: 1, keptCount: 2, droppedCount: 0, pickedUpCount: 0, failed: true,
+    });
+  });
+
+  it('reads the column set back from a final rows bundle only', () => {
+    const finalBundle = JSON.stringify({
+      kind: 'data-analysis',
+      outputKind: 'rows',
+      rows: [
+        { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100' },
+        { Event_ID: 'OR002', Loss_Event_Category: 'EL4', Business_Line: 'BL7', Loss_Amount_CNY: '200' },
+      ],
+      coverage: { totalChunks: 2, processedChunks: 2, chunkRange: { offset: 0, count: 2 } },
+      chunkRange: { offset: 0, count: 2 },
+    });
+    expect(rowsOutputFromAnalyzerArtifact(finalBundle)).toEqual({
+      columns: ['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY'],
+      rowCount: 2,
+    });
+    // An intermediate bundle (the set not fully processed) must
+    // not masquerade as the deliverable's column set.
+    const intermediateBundle = JSON.stringify({
+      kind: 'data-analysis',
+      outputKind: 'rows',
+      rows: [{ Event_ID: 'OR001', Loss_Amount_CNY: '100' }],
+      coverage: { totalChunks: 3, processedChunks: 2, chunkRange: { offset: 0, count: 2 } },
+      chunkRange: { offset: 0, count: 2 },
+    });
+    expect(rowsOutputFromAnalyzerArtifact(intermediateBundle)).toBeUndefined();
+    // A findings bundle carries no rows output.
+    const findingsBundle = JSON.stringify({ kind: 'data-analysis', outputKind: 'findings', findings: [] });
+    expect(rowsOutputFromAnalyzerArtifact(findingsBundle)).toBeUndefined();
+    expect(rowsOutputFromAnalyzerArtifact(undefined)).toBeUndefined();
+    expect(rowsOutputFromAnalyzerArtifact('not json')).toBeUndefined();
+  });
+
+  it('surfaces the rows output through buildStepLiveDetail', () => {
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: JSON.stringify({
+        kind: 'data-analysis',
+        outputKind: 'rows',
+        rows: [{ Event_ID: 'OR001', Loss_Amount_CNY: '100' }],
+        coverage: { totalChunks: 1, processedChunks: 1, chunkRange: { offset: 0, count: 1 } },
+        chunkRange: { offset: 0, count: 1 },
+      }),
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.rowsOutput).toEqual({ columns: ['Event_ID', 'Loss_Amount_CNY'], rowCount: 1 });
+  });
+
+  it('reads the value-table summary back from a final audit bundle, fail-soft', () => {
+    const bundle = JSON.stringify({
+      kind: 'data-analysis',
+      outputKind: 'findings',
+      valueTable: {
+        entryCount: 12,
+        groupCount: 6,
+        groups: [
+          { entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 },
+          { entity: '买方二', attribute: '資金源泉', entries: 2, distinctValues: 1 },
+        ],
+      },
+    });
+    expect(valueTableFromAnalyzerArtifact(bundle)).toEqual({
+      entryCount: 12,
+      groupCount: 6,
+      groups: [
+        { entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 },
+        { entity: '买方二', attribute: '資金源泉', entries: 2, distinctValues: 1 },
+      ],
+    });
+    expect(valueTableFromAnalyzerArtifact(JSON.stringify({ kind: 'data-analysis' }))).toBeUndefined();
+    expect(valueTableFromAnalyzerArtifact(JSON.stringify({ valueTable: { entryCount: 'x' } }))).toBeUndefined();
+    const detail = buildStepLiveDetail({
+      toolName: 'attachment_analyzer',
+      params: {},
+      artifact: bundle,
+      startedAt: 1_700_000_000_000,
+      finishedAt: 1_700_000_005_000,
+    });
+    expect(detail?.valueTable?.entryCount).toBe(12);
   });
 });

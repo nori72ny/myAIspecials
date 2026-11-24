@@ -641,3 +641,90 @@ describe('agent run step live detail: reconciliation summary', () => {
     expect(step?.liveDetail?.reconciliation).toBeUndefined();
   });
 });
+
+describe('agent run step live detail: wave-1 observability (対策1(a)(c)(d))', () => {
+  const baseStep: AgentRunStepState = { id: 'task-7', status: 'completed', attempts: 1 };
+
+  it('round-trips the kept/dropped indexes with their reasons', () => {
+    const liveDetail = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 0, keptCount: 2, droppedCount: 3, pickedUpCount: 0,
+        keptIndexes: [0, 3],
+        droppedIndexes: [
+          { index: 1, reason: 'agreement-mismatch' },
+          { index: 2, reason: 'abbreviation' },
+          { index: 4, reason: 'boilerplate' },
+        ],
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.reconciliation?.keptIndexes).toEqual([0, 3]);
+    expect(step?.liveDetail?.reconciliation?.droppedIndexes).toEqual([
+      { index: 1, reason: 'agreement-mismatch' },
+      { index: 2, reason: 'abbreviation' },
+      { index: 4, reason: 'boilerplate' },
+    ]);
+  });
+
+  it('skips malformed index entries and truncates overlong lists fail-soft', () => {
+    const liveDetail = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 0, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+        keptIndexes: [0, -1, 1.5, 'x', 2],
+        droppedIndexes: [
+          { index: 1, reason: 'boilerplate' },
+          { index: 2, reason: 'Not A Token!' },
+          { index: -3, reason: 'boilerplate' },
+          { index: 4, reason: 'entity-mismatch' },
+        ],
+      },
+    } as never;
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.reconciliation?.keptIndexes).toEqual([0, 2]);
+    expect(step?.liveDetail?.reconciliation?.droppedIndexes).toEqual([
+      { index: 1, reason: 'boilerplate' },
+      { index: 4, reason: 'entity-mismatch' },
+    ]);
+    const longList = {
+      reconciliation: {
+        mode: 'shadow' as const, candidateCount: 0, keptCount: 0, droppedCount: 0, pickedUpCount: 0,
+        keptIndexes: Array.from({ length: 250 }, (_, i) => i),
+      },
+    };
+    const [longStep] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: longList }]);
+    expect(longStep?.liveDetail?.reconciliation?.keptIndexes).toHaveLength(200);
+  });
+
+  it('round-trips the rows output column set and the value-table summary', () => {
+    const liveDetail = {
+      rowsOutput: { columns: ['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY'], rowCount: 60 },
+      valueTable: {
+        entryCount: 12,
+        groupCount: 6,
+        groups: [{ entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 }],
+      },
+    };
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.rowsOutput).toEqual({
+      columns: ['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY'], rowCount: 60,
+    });
+    expect(step?.liveDetail?.valueTable).toEqual({
+      entryCount: 12,
+      groupCount: 6,
+      groups: [{ entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 }],
+    });
+  });
+
+  it('drops malformed rows output and value-table summaries fail-soft', () => {
+    const liveDetail = {
+      rowsOutput: { columns: [], rowCount: 3 },
+      valueTable: { entryCount: -1, groupCount: 1, groups: [] },
+    } as never;
+    const [step] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail }]);
+    expect(step?.liveDetail?.rowsOutput).toBeUndefined();
+    expect(step?.liveDetail?.valueTable).toBeUndefined();
+    const badRowCount = { rowsOutput: { columns: ['a'], rowCount: -2 } } as never;
+    const [step2] = normalizeAgentRunStepsState([{ ...baseStep, liveDetail: badRowCount }]);
+    expect(step2?.liveDetail?.rowsOutput).toBeUndefined();
+  });
+});

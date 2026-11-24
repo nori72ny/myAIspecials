@@ -40,6 +40,85 @@ export const AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN = 48;
 export const AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS = 800;
 export const AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS = 1_700;
 
+/**
+ * A goal section heading that opens the deliverable specification:
+ * a markdown heading naming the outputs, or a bare label line of
+ * the same words. The vocabulary is the goal's own — English ALE
+ * briefs write "Required Outputs", Japanese briefs write 成果物／
+ * 出力仕様 — and the match is deliberately narrow (a heading or a
+ * line starting with the label), so a prose mention of an output
+ * never opens a "section".
+ */
+const OUTPUT_SECTION_LABEL_PATTERN = /^(?:required\s+outputs?|deliverables|output\s+files|成果物|出力仕様|出力要件)/i;
+const OUTPUT_SECTION_KEYWORD_PATTERN = /required\s+outputs?|deliverables|output\s+files|成果物|出力仕様|出力要件/i;
+const MARKDOWN_HEADING_PATTERN = /^#{1,6}\s/;
+
+function outputSectionStart(lines: readonly string[]): number {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const stripped = line.replace(/^#{1,6}\s+/, '').trim();
+    if (OUTPUT_SECTION_LABEL_PATTERN.test(stripped)) return index;
+    if (MARKDOWN_HEADING_PATTERN.test(line) && OUTPUT_SECTION_KEYWORD_PATTERN.test(line)) return index;
+  }
+  return -1;
+}
+
+/** Whole lines of `lines` that fit `budget`, in order; when even
+ * the first line exceeds the budget it is hard-sliced, so the
+ * result is empty only when the budget is. */
+function fillInstructionLines(lines: readonly string[], budget: number): string {
+  if (budget <= 0 || lines.length === 0) return '';
+  let taken = '';
+  for (const line of lines) {
+    const candidate = taken.length === 0 ? line : `${taken}\n${line}`;
+    if (candidate.length > budget) break;
+    taken = candidate;
+  }
+  if (taken.length === 0) return (lines[0] ?? '').slice(0, budget);
+  return taken;
+}
+
+/**
+ * Clips a goal text to an instruction budget WITHOUT losing the
+ * deliverable specification (failure diagnosis 2026-11-24, 対策2).
+ * The plain head slice this replaces cut the Basel goal at exactly
+ * 800 chars — inside its "Visible Inputs" list, before the
+ * "Required Outputs" section — so no analyzer call ever saw the
+ * required columns, the EL/BL code ranges or the BIA fields: the
+ * task's operative requirements were dropped at plan time, before
+ * any model ran. When the goal carries an outputs section, the
+ * clip keeps the goal's opening lines plus that section and
+ * squeezes the middle: the section is filled first with up to
+ * seven eighths of the budget — it is the part whose loss the
+ * diagnosis measured — and the prefix (preamble, title, goal
+ * statement, the inputs list) takes what remains, at least the
+ * reserved eighth when the section is short. Both parts fill
+ * whole-line by whole-line so nothing is cut mid-token. A goal
+ * with no outputs section, or one that fits the budget, keeps
+ * the previous behavior exactly.
+ */
+export function clipAgentAttachmentInstruction(text: string, maxChars: number): string {
+  if (maxChars <= 0) return '';
+  if (text.length <= maxChars) return text;
+  const lines = text.split('\n');
+  const sectionStart = outputSectionStart(lines);
+  if (sectionStart < 0) return text.slice(0, maxChars);
+  let sectionEnd = lines.length;
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (MARKDOWN_HEADING_PATTERN.test(lines[index])) {
+      sectionEnd = index;
+      break;
+    }
+  }
+  const prefixLines = lines.slice(0, sectionStart);
+  const sectionLines = lines.slice(sectionStart, sectionEnd);
+  const prefixFloor = Math.min(prefixLines.join('\n').length, Math.floor(maxChars / 8));
+  const sectionTaken = fillInstructionLines(sectionLines, maxChars - prefixFloor);
+  const prefixBudget = maxChars - sectionTaken.length - (sectionTaken.length > 0 ? 1 : 0);
+  const prefixTaken = fillInstructionLines(prefixLines, prefixBudget);
+  return prefixTaken.length > 0 ? `${prefixTaken}\n${sectionTaken}` : sectionTaken;
+}
+
 export type AgentAttachmentDataInput = { name: string; text: string };
 
 export type AgentDataFileProfile = {
@@ -114,6 +193,21 @@ export interface AgentAttachmentDataView {
    * the first table), with aggregates recomputed from the input. */
   numericColumns: string[];
   aggregates: Readonly<Record<string, AgentDataAggregate>>;
+  /**
+   * Required output columns (failure diagnosis 2026-11-24, 対策4):
+   * the header of the set's output-schema file (a `*.schema.csv` /
+   * `*.schema.tsv` table — the ALE Basel set ships
+   * `classified_events.schema.csv` naming exactly the columns the
+   * deliverable must carry), when the set carries one. The rows
+   * contract names these columns as mandatory and the final
+   * coverage gate fails closed when one is missing, so a run can
+   * no longer "complete" with the task's derived columns absent —
+   * the failure shape the diagnosis measured (the input copied
+   * verbatim, no classification columns, scored Fail/0 while the
+   * coverage gate passed). Absent when the set carries no schema
+   * file: every other set's behavior is unchanged.
+   */
+  requiredOutputColumns?: string[];
 }
 
 type ParsedTable = {
@@ -404,6 +498,22 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
     }
   }
 
+  // Required output columns from the set's output-schema file
+  // (対策4): the first file, in set order, named as a schema
+  // (`*.schema.csv` / `*.schema.tsv`) that parses as a table with
+  // a fully named header. The schema's own sample rows play no
+  // part — only its header is the contract.
+  let requiredOutputColumns: string[] | undefined;
+  for (const file of files) {
+    if (!OUTPUT_SCHEMA_FILE_PATTERN.test(file.name)) continue;
+    const entry = tables.get(file.name);
+    if (!entry) continue;
+    if (entry.table.header.length === 0) continue;
+    if (entry.table.header.some((cell) => cell.length === 0)) continue;
+    requiredOutputColumns = [...entry.table.header];
+    break;
+  }
+
   return {
     files: profiles,
     chunks,
@@ -414,8 +524,13 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
     ...(primaryNumericCellsByKey ? { primaryNumericCellsByKey } : {}),
     numericColumns,
     aggregates,
+    ...(requiredOutputColumns ? { requiredOutputColumns } : {}),
   };
 }
+
+/** The file-name shape of an output schema (対策4): a table file
+ * whose name marks it as the deliverable's schema, not data. */
+const OUTPUT_SCHEMA_FILE_PATTERN = /\.schema\.(?:csv|tsv)$/i;
 
 export type AgentDataRow = Record<string, string>;
 
@@ -474,6 +589,27 @@ export function verifyAgentDataCoverage(
   rows: readonly AgentDataRow[],
 ): AgentDataCoverageResult {
   return verifyCoverageAgainstYardstick(view, rows);
+}
+
+/**
+ * The required-columns check (failure diagnosis 2026-11-24, 対策4):
+ * the schema columns the merged rows fail to carry. A column is
+ * missing when at least one row lacks a non-blank value for it —
+ * the deliverable's contract is per row (one classified row per
+ * input event), so a column present on some rows and blank on
+ * others is a column the run did not produce. Returns the missing
+ * column names in schema order; empty when the set carries no
+ * schema or every row carries every column.
+ */
+export function findMissingAgentDataRequiredColumns(
+  view: AgentAttachmentDataView,
+  rows: readonly AgentDataRow[],
+): string[] {
+  const required = view.requiredOutputColumns;
+  if (!required || required.length === 0) return [];
+  if (rows.length === 0) return [...required];
+  return required.filter((column) =>
+    rows.some((row) => typeof row[column] !== 'string' || row[column].trim().length === 0));
 }
 
 type AgentDataCoverageYardstick = {

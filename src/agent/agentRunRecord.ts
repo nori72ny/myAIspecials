@@ -65,6 +65,26 @@ export const MAX_AGENT_RUN_LIVE_PROVIDER_ATTEMPTS = 6;
  * limit — it exists so a malformed summary is dropped, never
  * stored unbounded. */
 export const MAX_AGENT_RUN_LIVE_RECONCILIATION_COUNT = 1_000_000;
+/** Caps on the kept/dropped index lists of one step's
+ * reconciliation summary (failure diagnosis 2026-11-24, 対策1(a)):
+ * the findings a run can carry are bounded by its chunks, so 200
+ * — the same bound as the candidate list — is generous headroom. */
+export const MAX_AGENT_RUN_LIVE_RECONCILIATION_INDEXES = 200;
+/** Cap on the drop-reason token length in a reconciliation
+ * summary: reasons are a closed lowercase vocabulary. */
+export const MAX_AGENT_RUN_LIVE_RECONCILIATION_REASON_LENGTH = 32;
+/** Caps on a rows bundle's recorded column set (対策1(c)): a
+ * deliverable's columns are bounded by its input tables' width;
+ * 64 names of at most 200 chars is generous headroom. */
+export const MAX_AGENT_RUN_LIVE_ROWS_COLUMNS = 64;
+export const MAX_AGENT_RUN_LIVE_ROWS_COLUMN_LENGTH = 200;
+export const MAX_AGENT_RUN_LIVE_ROWS_COUNT = 1_000_000;
+/** Caps on the recorded value-table summary (対策1(d)): the group
+ * list mirrors the candidate list's 200 cap, and the key strings
+ * mirror the live source title cap. */
+export const MAX_AGENT_RUN_LIVE_VALUE_TABLE_GROUPS = 200;
+export const MAX_AGENT_RUN_LIVE_VALUE_TABLE_KEY_LENGTH = 120;
+export const MAX_AGENT_RUN_LIVE_VALUE_TABLE_COUNT = 1_000_000;
 export const MAX_AGENT_RUN_PRIORITY = 100;
 export const MAX_AGENT_RUN_STEP_ATTEMPTS = 10;
 /**
@@ -366,6 +386,49 @@ export type AgentRunStepReconciliation = {
   droppedCount: number;
   pickedUpCount: number;
   failed?: boolean;
+  /**
+   * Which original findings the judgment kept and dropped, by
+   * index, with the drop reasons (failure diagnosis 2026-11-24,
+   * 対策1(a)). Counts alone could not answer the shadow question
+   * the record exists for — the production M&A run kept 2 of 5
+   * findings with at least one necessarily a misreading, and
+   * which two was unrecoverable. Indexes and closed-vocabulary
+   * reason tokens are not finding text, so the counts-only
+   * discipline's purpose (no model prose in the record) is kept.
+   * Present only when the reconciliation was actually judged.
+   */
+  keptIndexes?: number[];
+  droppedIndexes?: { index: number; reason: string }[];
+};
+
+/**
+ * The column set a completed rows run actually produced (failure
+ * diagnosis 2026-11-24, 対策1(c)): the merged rows bundle's
+ * column names, in first-seen order, with the row count. Until
+ * now the record could prove the input was fully covered but not
+ * which columns the deliverable carried — the production Basel
+ * run "completed" with the input's columns and no derived ones,
+ * and only the retrieved artifact showed it. Column names are
+ * the run's own output structure, not finding text.
+ */
+export type AgentRunStepRowsOutput = {
+  columns: string[];
+  rowCount: number;
+};
+
+/**
+ * The audit value table's recorded summary (failure diagnosis
+ * 2026-11-24, 対策1(d)): entry count, and the (entity, attribute)
+ * group keys with their entry and distinct-value counts — the
+ * grouping the deterministic candidate computation uses. It
+ * separates "the table was empty" from "the keys never aligned"
+ * when a run records zero candidates; values themselves never
+ * enter the summary.
+ */
+export type AgentRunStepValueTableSummary = {
+  entryCount: number;
+  groupCount: number;
+  groups: { entity: string; attribute: string; entries: number; distinctValues: number }[];
 };
 
 export type AgentRunStepLiveDetail = {
@@ -378,6 +441,8 @@ export type AgentRunStepLiveDetail = {
   analyzerExecution?: AgentRunStepAnalyzerExecution;
   providerAttempts?: AgentRunStepProviderAttempt[];
   reconciliation?: AgentRunStepReconciliation;
+  rowsOutput?: AgentRunStepRowsOutput;
+  valueTable?: AgentRunStepValueTableSummary;
 };
 
 /** Per-step progress. Status vocabulary matches the agent task graph. */
@@ -1158,7 +1223,74 @@ function normalizeAgentRunStepReconciliation(value: unknown): AgentRunStepReconc
     pickedUpCount,
   };
   if (value.failed === true) reconciliation.failed = true;
+  // Kept/dropped indexes (対策1(a)): validated per entry and
+  // fail-soft like the rest of the detail — a malformed entry is
+  // skipped, an overlong list truncated, and an absent or
+  // non-array value simply carries no list (a reconciliation that
+  // was never judged records neither).
+  if (Array.isArray(value.keptIndexes)) {
+    const keptIndexes: number[] = [];
+    for (const raw of value.keptIndexes) {
+      if (keptIndexes.length >= MAX_AGENT_RUN_LIVE_RECONCILIATION_INDEXES) break;
+      if (!Number.isInteger(raw) || Number(raw) < 0 || Number(raw) > MAX_AGENT_RUN_LIVE_RECONCILIATION_COUNT) continue;
+      keptIndexes.push(Number(raw));
+    }
+    reconciliation.keptIndexes = keptIndexes;
+  }
+  if (Array.isArray(value.droppedIndexes)) {
+    const droppedIndexes: { index: number; reason: string }[] = [];
+    for (const raw of value.droppedIndexes) {
+      if (droppedIndexes.length >= MAX_AGENT_RUN_LIVE_RECONCILIATION_INDEXES) break;
+      if (!isPlainObject(raw)) continue;
+      if (!Number.isInteger(raw.index) || Number(raw.index) < 0 || Number(raw.index) > MAX_AGENT_RUN_LIVE_RECONCILIATION_COUNT) continue;
+      const reason = truncateLiveText(raw.reason, MAX_AGENT_RUN_LIVE_RECONCILIATION_REASON_LENGTH);
+      if (reason === undefined || !/^[a-z][a-z-]*$/.test(reason)) continue;
+      droppedIndexes.push({ index: Number(raw.index), reason });
+    }
+    reconciliation.droppedIndexes = droppedIndexes;
+  }
   return reconciliation;
+}
+
+function normalizeAgentRunStepRowsOutput(value: unknown): AgentRunStepRowsOutput | undefined {
+  if (!isPlainObject(value)) return undefined;
+  if (!Array.isArray(value.columns)) return undefined;
+  if (!Number.isInteger(value.rowCount) || Number(value.rowCount) < 0 || Number(value.rowCount) > MAX_AGENT_RUN_LIVE_ROWS_COUNT) {
+    return undefined;
+  }
+  const columns: string[] = [];
+  for (const raw of value.columns) {
+    if (columns.length >= MAX_AGENT_RUN_LIVE_ROWS_COLUMNS) break;
+    const column = truncateLiveText(raw, MAX_AGENT_RUN_LIVE_ROWS_COLUMN_LENGTH);
+    if (column === undefined) continue;
+    columns.push(column);
+  }
+  if (columns.length === 0) return undefined;
+  return { columns, rowCount: Number(value.rowCount) };
+}
+
+function normalizeAgentRunStepValueTableSummary(value: unknown): AgentRunStepValueTableSummary | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const count = (raw: unknown): number | undefined => {
+    if (!Number.isInteger(raw) || Number(raw) < 0 || Number(raw) > MAX_AGENT_RUN_LIVE_VALUE_TABLE_COUNT) return undefined;
+    return Number(raw);
+  };
+  const entryCount = count(value.entryCount);
+  const groupCount = count(value.groupCount);
+  if (entryCount === undefined || groupCount === undefined) return undefined;
+  if (!Array.isArray(value.groups)) return undefined;
+  const groups: AgentRunStepValueTableSummary['groups'] = [];
+  for (const raw of value.groups) {
+    if (groups.length >= MAX_AGENT_RUN_LIVE_VALUE_TABLE_GROUPS) break;
+    if (!isPlainObject(raw)) continue;
+    const entity = truncateLiveText(raw.entity, MAX_AGENT_RUN_LIVE_VALUE_TABLE_KEY_LENGTH);
+    const attribute = truncateLiveText(raw.attribute, MAX_AGENT_RUN_LIVE_VALUE_TABLE_KEY_LENGTH);
+    const entries = count(raw.entries);
+    const distinctValues = count(raw.distinctValues);
+    if (entity === undefined || attribute === undefined || entries === undefined || distinctValues === undefined) continue;
+    groups.push({ entity, attribute, entries, distinctValues });
+  }
+  return { entryCount, groupCount, groups };
 }
 
 function normalizeLiveTimestamp(value: unknown): number | undefined {
@@ -1193,6 +1325,10 @@ function normalizeAgentRunStepLiveDetail(value: unknown): AgentRunStepLiveDetail
   if (providerAttempts !== undefined) detail.providerAttempts = providerAttempts;
   const reconciliation = normalizeAgentRunStepReconciliation(value.reconciliation);
   if (reconciliation !== undefined) detail.reconciliation = reconciliation;
+  const rowsOutput = normalizeAgentRunStepRowsOutput(value.rowsOutput);
+  if (rowsOutput !== undefined) detail.rowsOutput = rowsOutput;
+  const valueTable = normalizeAgentRunStepValueTableSummary(value.valueTable);
+  if (valueTable !== undefined) detail.valueTable = valueTable;
   if (Array.isArray(value.sources)) {
     const sources: AgentRunStepLiveSource[] = [];
     for (const raw of value.sources) {

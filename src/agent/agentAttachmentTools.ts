@@ -7,6 +7,8 @@ import {
   agentDataUsesFileNameKeys,
   applyAgentDataNumericCopy,
   buildAgentAttachmentDataView,
+  clipAgentAttachmentInstruction,
+  findMissingAgentDataRequiredColumns,
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
@@ -217,6 +219,27 @@ export async function executeAttachmentReader(
 
 const OUTPUT_KINDS: readonly AgentDataOutputKind[] = ['rows', 'findings', 'text'];
 
+/**
+ * The controlled attribute vocabulary of the audit value table
+ * (failure diagnosis 2026-11-24, 対策3). The deterministic
+ * candidate computation groups the table by (entity, attribute),
+ * and the attribute is a label each independent chunk call writes
+ * on its own: with free wording, the same attribute named two ways
+ * never groups, and the cross-document comparison the audit exists
+ * for silently produces zero candidates — the production M&A run
+ * recorded candidateCount 0 even for the one pair the analyzer HAD
+ * caught as a finding. The audit contract therefore names the
+ * vocabulary and requires the label be chosen from it.
+ */
+export const AGENT_AUDIT_ATTRIBUTE_VOCABULARY: readonly string[] = [
+  '金額',
+  '株数',
+  '比率・持分',
+  '資金源泉',
+  '日付',
+  '主体名',
+];
+
 function analyzerInstruction(
   outputKind: AgentDataOutputKind,
   goalInstruction: string,
@@ -238,8 +261,18 @@ function analyzerInstruction(
   const rowsTarget = view.primaryFileName
     ? `対象はファイル「${view.primaryFileName}」の行だけです。他のファイルは参照用ですので、その行を出力しないでください。`
     : '';
+  // Required output columns (failure diagnosis 2026-11-24, 対策4):
+  // when the set carries an output schema, its columns are named
+  // here as mandatory per-row output — the contract half of the
+  // measure whose gate half is the final-step check in
+  // executeAttachmentAnalyzer. Until now nothing named the derived
+  // columns the task required, so the model was never asked for
+  // them in any form it could answer.
+  const rowsRequiredColumns = view.requiredOutputColumns && view.requiredOutputColumns.length > 0
+    ? `各行には次の列を必ず含め、空にしないでください: ${view.requiredOutputColumns.join(', ')}。`
+    : '';
   const baseShape = outputKind === 'rows'
-    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
+    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}${rowsRequiredColumns}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
         // Structured-JSON deliverables (design
@@ -265,11 +298,18 @@ function analyzerInstruction(
   // findings shape the goal still gets its full
   // AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS clip).
   const auditShape = auditMode && outputKind === 'findings'
-    ? '監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。'
+    ? `監査: 各所見にexplanation（なぜ矛盾か）と対の2番目の引用evidenceB・fileB・locationBも付けること。加えて比較可能な値と文書構造を {"values":[{"entity":"主体","attribute":"属性","value":"原文の値","normalizedValue":"正規化値","file":"ファイル名","location":"場所"}],"structure":{"agreements":[{"name":"合意名","parties":[{"name":"当事者","role":"役割"}]}],"definitions":[{"short":"略称","full":"正式名","file":"ファイル名","location":"場所"}]}} の形で返すこと。値テーブルの属性は統制語彙（${AGENT_AUDIT_ATTRIBUTE_VOCABULARY.join('／')}）から選ぶこと。所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること。`
     : '';
   const shape = baseShape + auditShape;
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - shape.length - '依頼: '.length;
-  const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
+  // The runtime clip preserves the deliverable specification the
+  // same way the plan-time clip does (対策2): a plain slice here
+  // would re-drop the outputs section the planner preserved
+  // whenever the fixed template leaves less than the plan cap.
+  const clipped = clipAgentAttachmentInstruction(
+    goalInstruction,
+    Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)),
+  );
   return `${head}${shape}依頼: ${clipped}`;
 }
 
@@ -659,6 +699,59 @@ export function computeAgentDataValueMismatches(
     if (mismatches.length >= AGENT_DATA_VALUE_MISMATCH_MAX) break;
   }
   return mismatches;
+}
+
+/**
+ * The recorded summary of one bundle's value table (failure
+ * diagnosis 2026-11-24, 対策1(d)): how many entries the table
+ * holds and how they group — the (entity, attribute) group keys
+ * with their entry counts and distinct-value counts, in the same
+ * grouping the candidate computation uses. The production M&A run
+ * recorded candidateCount 0 with no way to tell whether the table
+ * itself was empty or its keys simply never aligned; this summary
+ * separates the two (entryCount 0 vs groups whose every entry
+ * agrees), and the advancer projects it into the final analyzer
+ * step's live detail. Group keys and counts only — the values
+ * themselves never enter the summary. The group list is capped
+ * like the candidate list; `groupCount` keeps the true total so
+ * a capped list is visible as one.
+ */
+export type AgentDataValueTableSummary = {
+  entryCount: number;
+  groupCount: number;
+  groups: { entity: string; attribute: string; entries: number; distinctValues: number }[];
+};
+
+export function summarizeAgentDataValueTable(
+  values: readonly AgentDataValue[],
+  structure: AgentDataStructure,
+): AgentDataValueTableSummary {
+  const groups = new Map<string, {
+    entity: string;
+    attribute: string;
+    entries: number;
+    distinct: Set<string>;
+  }>();
+  for (const entry of values) {
+    const entity = resolveAgentDataEntity(entry.entity, structure);
+    const attribute = entry.attribute.normalize('NFKC').trim();
+    if (!entity || !attribute) continue;
+    const key = `${entity}\u0001${attribute}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { entity, attribute, entries: 0, distinct: new Set() };
+      groups.set(key, group);
+    }
+    group.entries += 1;
+    group.distinct.add(effectiveAgentDataValue(entry));
+  }
+  const listed = [...groups.values()].slice(0, AGENT_DATA_VALUE_MISMATCH_MAX).map((group) => ({
+    entity: group.entity,
+    attribute: group.attribute,
+    entries: group.entries,
+    distinctValues: group.distinct.size,
+  }));
+  return { entryCount: values.length, groupCount: groups.size, groups: listed };
 }
 
 /** Tolerant parser for a recorded candidate list (bundle
@@ -1447,6 +1540,22 @@ export async function executeAttachmentAnalyzer(
     }
   }
 
+  // Required output columns (failure diagnosis 2026-11-24, 対策4):
+  // when the set carries an output schema, the final rows must
+  // carry its columns on every row. The coverage gates above judge
+  // the input's own yardstick (keys and copied numbers); they say
+  // nothing about derived columns, so a run whose rows were the
+  // input copied verbatim — no classification columns at all —
+  // passed them and "completed" (production Basel, scored Fail/0).
+  // This check is the schema contract's gate half: fail closed,
+  // naming the missing columns, instead of completing.
+  if (isFinalStep && outputKind === 'rows') {
+    const missingColumns = findMissingAgentDataRequiredColumns(view, merged.rows);
+    if (missingColumns.length > 0) {
+      return fail(`AGENT_DATA_REQUIRED_COLUMNS_MISSING (columns: ${missingColumns.join(', ')})${executionParenthetical()}`);
+    }
+  }
+
   const content = outputKind === 'rows'
     ? renderAgentDataRowsCsv(view, merged.rows)
     : outputKind === 'findings'
@@ -1472,7 +1581,13 @@ export async function executeAttachmentAnalyzer(
           values: merged.values,
           structure: merged.structure,
           ...(isFinalStep
-            ? { candidates: computeAgentDataValueMismatches(merged.values, merged.structure) }
+            ? {
+                candidates: computeAgentDataValueMismatches(merged.values, merged.structure),
+                // The value table's recorded summary (対策1(d)):
+                // computed on the same final step as the
+                // candidates, from the same merged table.
+                valueTable: summarizeAgentDataValueTable(merged.values, merged.structure),
+              }
             : {}),
         }
       : {}),
@@ -1537,6 +1652,21 @@ export type AgentDataReconciliationSummary = {
   droppedReasons: Record<string, number>;
   pickedUpCount: number;
   failed?: boolean;
+  /**
+   * Which original findings the judgment kept and dropped, by
+   * their index in the source bundle, with the drop reasons
+   * (failure diagnosis 2026-11-24, 対策1(a)). Indexes and reason
+   * tokens are not finding text, so carrying them does not break
+   * the counts-only discipline the record layer keeps — but
+   * without them the shadow observation could not answer its own
+   * question (the production M&A run kept 2 of 5 findings, at
+   * least one of them necessarily a misreading, and which two was
+   * unrecoverable from the record). Present only when the
+   * reconciliation was actually judged; a shadow failure that
+   * could not judge carries neither list.
+   */
+  keptIndexes?: number[];
+  droppedIndexes?: { index: number; reason: string }[];
 };
 
 type AuditBundle = {
@@ -1582,7 +1712,10 @@ function reconcilerInstruction(goalInstruction: string): string {
   const discipline = '所見を残す条件（対の規律）: (1) 1つの属性（金額・比率・資金源泉・日付など）が明示されていること。(2) 比較の両辺が同一の主体・同一の合意の範囲に属すること（構造マップで確認し、範囲が不明なものは落とすこと）。(3) 食い違う2値が、それぞれ異なる引用（異なる文書、または同一文書内の異なる箇所）で示されていること。(4) 手続き未了などの定型の状況開示だけで、他文書が異なる状態を述べていないものは不整合ではないこと。(5) 略称は構造マップの定義で解決してから比較すること。';
   const shape = '出力形式: {"findings":[{"claim":"所見","explanation":"なぜ矛盾と言えるのかの説明","evidence":"引用1","file":"ファイル名1","location":"場所1","evidenceB":"引用2","fileB":"ファイル名2","locationB":"場所2","source":{"kind":"kept","index":0}}],"dropped":[{"index":0,"reason":"no-pair"}]}。findingsには吟味済みの所見だけを入れ、各所見にsource（元の所見は{"kind":"kept","index":元の番号}、候補から作った所見は{"kind":"candidate","index":候補の番号}）を付けてください。droppedには落とした元の所見の番号と理由（agreement-mismatch／entity-mismatch／abbreviation／boilerplate／no-pair／other）を入れてください。値の食い違い候補のうち対の規律を満たすものは所見化してください。';
   const budget = AGENT_ATTACHMENT_INSTRUCTION_TOTAL_MAX_CHARS - head.length - discipline.length - shape.length - '依頼: '.length;
-  const clipped = goalInstruction.slice(0, Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)));
+  const clipped = clipAgentAttachmentInstruction(
+    goalInstruction,
+    Math.max(0, Math.min(AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS, budget)),
+  );
   return `${head}${discipline}${shape}依頼: ${clipped}`;
 }
 
@@ -1614,6 +1747,8 @@ export type AgentReconciliationParseResult =
       findings: AgentDataFinding[];
       dropped: { index: number; reason: string }[];
       keptCount: number;
+      /** The kept originals' indexes, ascending (対策1(a)). */
+      keptIndexes: number[];
       pickedUpCount: number;
     }
   | { ok: false };
@@ -1695,7 +1830,14 @@ export function parseReconciliationOutput(
       dropped.push({ index, reason });
     }
   }
-  return { ok: true, findings, dropped, keptCount: keptIndexes.size, pickedUpCount };
+  return {
+    ok: true,
+    findings,
+    dropped,
+    keptCount: keptIndexes.size,
+    keptIndexes: [...keptIndexes].sort((a, b) => a - b),
+    pickedUpCount,
+  };
 }
 
 function countReconciliationDropReasons(
@@ -1829,6 +1971,11 @@ export async function executeAttachmentReconciler(
     droppedCount: parsed.dropped.length,
     droppedReasons: countReconciliationDropReasons(parsed.dropped),
     pickedUpCount: parsed.pickedUpCount,
+    // Which findings were kept/dropped (対策1(a)): the judged case
+    // only — the shadow-failure summaries built earlier carry
+    // neither list, because nothing was judged there.
+    keptIndexes: parsed.keptIndexes,
+    droppedIndexes: parsed.dropped.map((dropped) => ({ index: dropped.index, reason: dropped.reason })),
   };
   if (bundle.candidates.length > 0 && parsed.findings.length === 0) {
     // Fail closed (enforce): candidates the run could not judge
