@@ -180,7 +180,10 @@ export function resolveStepParams(
   else lookup = artifacts;
   const raw = step.toolName === 'attachment_analyzer'
     || step.toolName === 'attachment_reconciler'
-    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
+    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys))
+    // Multi-file role steps (対策6) assemble from the analyzer
+    // bundle exactly like the structured-JSON step does.
+    || (step.toolName === 'document_generator' && typeof step.params.outputRole === 'string');
   const fromStep = step.params.contentFromStep;
   if (typeof fromStep === 'number' && Number.isInteger(fromStep) && fromStep >= 0) {
     const content = raw ? lookup.rawByStep?.get(fromStep) : lookup.byStep?.get(fromStep);
@@ -250,7 +253,8 @@ const TEXTUAL_ARTIFACT_PRODUCER_TOOLS: ReadonlySet<ToolName> = new Set([
 function stepConsumesRawArtifact(step: { toolName?: ToolName; params: ToolParams }): boolean {
   return step.toolName === 'attachment_analyzer'
     || step.toolName === 'attachment_reconciler'
-    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys));
+    || (step.toolName === 'document_generator' && Array.isArray(step.params.jsonTopLevelKeys))
+    || (step.toolName === 'document_generator' && typeof step.params.outputRole === 'string');
 }
 
 /**
@@ -283,6 +287,16 @@ export function stepArtifactPersistIndexes(plan: readonly AgentRunPlanStep[]): R
   if (finalIndex >= 0 && plan[finalIndex].toolName === 'document_generator') {
     selected.add(finalIndex);
   }
+  // Multi-file deliverables (対策6): every role-carrying document
+  // step is a deliverable in its own right, not only the plan's
+  // final step — without this, all but the last file of a
+  // multi-file run would be produced but never persisted, and the
+  // retrieval path could not return them.
+  plan.forEach((step, index) => {
+    if (step.toolName === 'document_generator' && typeof step.params.outputRole === 'string') {
+      selected.add(index);
+    }
+  });
   return selected;
 }
 

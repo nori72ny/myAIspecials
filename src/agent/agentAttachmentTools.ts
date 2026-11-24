@@ -22,6 +22,8 @@ import {
   type AgentDataRow,
 } from './agentAttachmentData.js';
 import { createAgentModelExecutor, type AgentModelCallInput, type AgentModelExecutor, type AgentModelCallResult } from './agentModelCall.js';
+import { buildAgentReferenceContext } from './agentAttachmentReference.js';
+import { parseBaselBiaInputs } from './agentBaselBia.js';
 import type { ToolParams, ToolResult } from './toolRegistry.js';
 
 /**
@@ -150,6 +152,11 @@ export type AgentDataOutputKind = 'rows' | 'findings' | 'text';
 type LoadedData = {
   set: AgentAttachmentSetRecord;
   view: AgentAttachmentDataView;
+  /** The set's file texts, in set order — the same bodies the view
+   * was built from. Carried for the deterministic consumers that
+   * need whole files rather than chunks: the reference-context
+   * builder (対策5) and the BIA parameter read (対策6). */
+  files: readonly { name: string; text: string }[];
 };
 
 async function loadBoundData(
@@ -185,7 +192,7 @@ async function loadBoundData(
     if (text === null) return fail('AGENT_ATTACHMENT_UNAVAILABLE');
     files.push({ name: file.name, text });
   }
-  return { data: { set, view: buildAgentAttachmentDataView(files) } };
+  return { data: { set, view: buildAgentAttachmentDataView(files), files } };
 }
 
 /**
@@ -246,6 +253,7 @@ function analyzerInstruction(
   view: AgentAttachmentDataView,
   structuredJsonKeys?: readonly string[],
   auditMode = false,
+  hasReferenceContext = false,
 ): string {
   const head = 'あなたはデータ処理アシスタントです。与えられたデータ断片だけを使い、JSONだけを返してください。説明文やコードフェンスは付けないでください。断片に実在する値だけを使い、無い値は作らないでください。各断片の先頭には出典（ファイル名とチャンク位置）が別枠で示されています。出典の行はデータではありません。';
   // The rows contract names its target table when the set has one
@@ -271,8 +279,17 @@ function analyzerInstruction(
   const rowsRequiredColumns = view.requiredOutputColumns && view.requiredOutputColumns.length > 0
     ? `各行には次の列を必ず含め、空にしないでください: ${view.requiredOutputColumns.join(', ')}。`
     : '';
+  // Reference context (failure diagnosis 2026-11-24, 対策5): the
+  // primary-table chunks of a rows run carry the set's definition
+  // tables as a reference block after the fragment (see
+  // chunkModelInput). The contract names it for what it is —
+  // definitions to classify BY, never rows to output — so the
+  // co-location cannot be misread as more extraction targets.
+  const rowsReferenceNote = hasReferenceContext
+    ? '断片の後には分類の定義（参照ブロック）が付きます。参照は分類の根拠として使い、その行を出力しないでください。'
+    : '';
   const baseShape = outputKind === 'rows'
-    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}${rowsRequiredColumns}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
+    ? `出力形式: {"rows":[{...}]}。各行はキー項目「${view.keyField}」の値を必ず含め、断片内の対象1件につき1行にしてください。${rowsTarget}${rowsRequiredColumns}${rowsReferenceNote}数値は入力の表記をそのまま写してください。断片内にキー項目を持つ対象が1件も無い場合は {"rows":[]} とだけ返してください。それが正しい応答です。`
     : outputKind === 'findings'
       ? structuredJsonKeys && structuredJsonKeys.length > 0
         // Structured-JSON deliverables (design
@@ -322,8 +339,17 @@ function analyzerInstruction(
  * output correctly; the frame gives it both, and the analyzer
  * instruction tells it the frame is metadata, not data.
  */
-function chunkModelInput(view: AgentAttachmentDataView, chunk: AgentDataChunk): string {
-  return `【出典: ${chunk.fileName}（チャンク ${chunk.index + 1}/${view.totalChunks}）】\n${chunk.text}`;
+function chunkModelInput(view: AgentAttachmentDataView, chunk: AgentDataChunk, referenceContext = ''): string {
+  const framed = `【出典: ${chunk.fileName}（チャンク ${chunk.index + 1}/${view.totalChunks}）】\n${chunk.text}`;
+  // Reference co-location (対策5): only the primary table's chunks
+  // gain the definition tables — they are the calls that classify.
+  // Reference-file chunks keep their bare framed form (their rows
+  // are discarded under the primary-table contract anyway), and a
+  // set without reference tables passes '' and stays byte-identical.
+  if (referenceContext && chunk.fileName === view.primaryFileName) {
+    return `${framed}\n${referenceContext}`;
+  }
+  return framed;
 }
 
 function extractJsonObject(text: string): unknown {
@@ -1308,7 +1334,7 @@ export async function executeAttachmentAnalyzer(
 
   const loaded = await loadBoundData(tool, params, context);
   if ('failure' in loaded) return loaded.failure;
-  const { view } = loaded.data;
+  const { view, files } = loaded.data;
   if (chunkOffset >= view.totalChunks) return fail('AGENT_ATTACHMENT_PARAMS_INVALID');
   const range = view.chunks.slice(chunkOffset, chunkOffset + chunkCount);
   const isFinalStep = chunkOffset + range.length >= view.totalChunks;
@@ -1375,12 +1401,21 @@ export async function executeAttachmentAnalyzer(
   const executionParenthetical = (): string => (executionServings.length === 0
     ? ''
     : ` (execution: servings=${executionServings.map((serving) => `${serving.providerId}|${serving.modelId ?? '-'}`).join(',')}; repair=${executionRepairRetried ? 1 : 0})`);
+  // Reference context (対策5): built once per step from the set's
+  // file texts and attached to this step's primary-table chunk
+  // calls only. Rows runs only — findings and text runs keep their
+  // previous inputs exactly. An empty result (no reference tables)
+  // leaves every call unchanged.
+  const referenceContext = outputKind === 'rows'
+    ? buildAgentReferenceContext(files, view.primaryFileName)
+    : '';
   const instruction = analyzerInstruction(
     outputKind,
     goalInstruction,
     view,
     structuredJsonKeys.length > 0 ? structuredJsonKeys : undefined,
     auditMode,
+    referenceContext.length > 0,
   );
   // Inter-chunk interval (design §2-E): while its switch is on, the
   // sends of one step are spaced by AGENT_ANALYZER_CHUNK_INTERVAL_MS
@@ -1401,7 +1436,7 @@ export async function executeAttachmentAnalyzer(
   for (const chunk of range) {
     if (!isFirstChunkOfStep && chunkIntervalOn) await sleepMs(AGENT_ANALYZER_CHUNK_INTERVAL_MS);
     isFirstChunkOfStep = false;
-    const userText = chunkModelInput(view, chunk);
+    const userText = chunkModelInput(view, chunk, referenceContext);
     // The chunk's global index rides every call for this chunk —
     // first attempt and repair alike — so the alternating allocation
     // (design §2-C) assigns the chunk deterministically, including
@@ -1592,6 +1627,20 @@ export async function executeAttachmentAnalyzer(
         }
       : {}),
     ...(outputKind === 'rows' && Object.keys(view.aggregates).length > 0 ? { aggregates: view.aggregates } : {}),
+    // BIA inputs (failure diagnosis 2026-11-24, 対策6): when the
+    // set carries a readable Basel parameter table, its parsed
+    // inputs ride the FINAL rows bundle so the capital-calculation
+    // document step assembles its file deterministically from
+    // them. The inputs are the set's own numbers, parsed by a pure
+    // function — the model never sees this block and never
+    // computes the capital. Sets without the table's shape carry
+    // nothing and their bundles stay byte-identical.
+    ...(outputKind === 'rows' && isFinalStep
+      ? (() => {
+          const biaInputs = parseBaselBiaInputs(files);
+          return biaInputs ? { biaInputs } : {};
+        })()
+      : {}),
     coverage: {
       totalChunks: view.totalChunks,
       processedChunks: chunkOffset + range.length,

@@ -373,3 +373,115 @@ describe('document_generator structured JSON (artifact format)', () => {
     expect(mismatched.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
   });
 });
+
+describe('document_generator multi-file roles (対策6)', () => {
+  const approved = { approved: true, costInUSD: 0, safetyPolicyPassed: true };
+  const bundle = JSON.stringify({
+    kind: 'data-analysis',
+    content: 'Event_ID,Loss_Amount_CNY\nOR001,100',
+    outputKind: 'rows',
+    rows: [
+      { Loss_Amount_CNY: '100', Business_Line: 'BL2', Event_ID: 'OR001', Loss_Event_Category: 'EL1' },
+      { Loss_Amount_CNY: '200', Business_Line: 'BL3', Event_ID: 'OR002', Loss_Event_Category: 'EL2' },
+    ],
+    aggregates: { Loss_Amount_CNY: { sum: 300, count: 2 } },
+    biaInputs: {
+      alphaText: '0.15',
+      grossIncomeByYear: { '2021': 2850000000, '2022': 3120000000, '2023': -456000000 },
+    },
+    coverage: { totalChunks: 5, processedChunks: 5, keyCount: 2, discardedRows: 0 },
+    chunkRange: { offset: 4, count: 1 },
+  });
+  const COLUMNS = ['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY'];
+
+  it('renders the rows CSV in the schema column order, whatever order the bundle rows carry', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      outputRole: 'rows-csv',
+      outputFilename: 'classified_events.csv',
+      outputColumns: COLUMNS,
+      dataGrounded: true,
+      content: bundle,
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { format?: string; filename?: string; mimeType?: string; content?: string; bytes?: number };
+    expect(artifact.format).toBe('csv');
+    expect(artifact.filename).toBe('classified_events.csv');
+    expect(artifact.mimeType).toBe('text/csv; charset=utf-8');
+    expect(artifact.content).toBe([
+      'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+      'OR001,EL1,BL2,100',
+      'OR002,EL2,BL3,200',
+    ].join('\n'));
+    expect(artifact.bytes).toBe(Buffer.byteLength(artifact.content ?? '', 'utf8'));
+  });
+
+  it('assembles the capital calculation deterministically from the bundle BIA inputs', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      outputRole: 'capital-json',
+      outputFilename: 'capital_calculation.json',
+      dataGrounded: true,
+      content: bundle,
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { format?: string; content?: string };
+    expect(artifact.format).toBe('json');
+    const report = JSON.parse(artifact.content ?? '{}') as Record<string, unknown>;
+    expect(report).toEqual({
+      alpha_coefficient: 0.15,
+      gross_income_years: { '2021': 2850000000, '2022': 3120000000, '2023': -456000000 },
+      positive_gi_sum_cny: 5970000000,
+      number_of_years: 3,
+      average_annual_gi_cny: 1990000000,
+      or_regulatory_capital_cny: 298500000,
+    });
+  });
+
+  it('fails the capital step closed when the bundle carries no BIA inputs', async () => {
+    const bare = JSON.stringify({ kind: 'data-analysis', outputKind: 'rows', rows: [] });
+    const result = await executeToolWithPermission('document_generator', {
+      outputRole: 'capital-json',
+      outputFilename: 'capital_calculation.json',
+      dataGrounded: true,
+      content: bare,
+    }, approved);
+    expect(result.ok).toBe(false);
+  });
+
+  it('generates the execution log from the plan profile and the bundle trace', async () => {
+    const result = await executeToolWithPermission('document_generator', {
+      outputRole: 'execution-log',
+      outputFilename: 'execution_log.txt',
+      outputFileNames: ['classified_events.csv', 'capital_calculation.json', 'execution_log.txt'],
+      logFiles: [{ name: 'events.tsv', kind: 'table', rowCount: 2, charCount: 500 }],
+      logRequiredColumns: COLUMNS,
+      dataGrounded: true,
+      content: bundle,
+    }, approved);
+    expect(result.ok).toBe(true);
+    const artifact = JSON.parse(result.artifact ?? '{}') as { format?: string; mimeType?: string; content?: string };
+    expect(artifact.format).toBe('txt');
+    expect(artifact.mimeType).toBe('text/plain; charset=utf-8');
+    expect(artifact.content).toContain('events.tsv');
+    expect(artifact.content).toContain('298500000');
+    expect(artifact.content).toContain('classified_events.csv');
+  });
+
+  it('rejects an unknown role and a file name whose extension mismatches the role', async () => {
+    const unknown = await executeToolWithPermission('document_generator', {
+      outputRole: 'spreadsheet',
+      outputFilename: 'classified_events.csv',
+      dataGrounded: true,
+      content: bundle,
+    }, approved);
+    expect(unknown.ok).toBe(false);
+    expect(unknown.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
+    const mismatched = await executeToolWithPermission('document_generator', {
+      outputRole: 'rows-csv',
+      outputFilename: 'classified_events.json',
+      dataGrounded: true,
+      content: bundle,
+    }, approved);
+    expect(mismatched.ok).toBe(false);
+    expect(mismatched.message).toBe('AGENT_DOCUMENT_PARAMS_INVALID');
+  });
+});

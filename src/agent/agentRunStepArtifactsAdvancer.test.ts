@@ -122,6 +122,19 @@ describe('stepArtifactPersistIndexes (design §4.2 selectivity)', () => {
     ];
     expect(stepArtifactPersistIndexes(plan).size).toBe(0);
   });
+
+  it('persists every role-carrying document step of a multi-file plan (対策6)', () => {
+    const plan = [
+      { toolName: 'attachment_reader' as ToolName, params: {}, dependsOn: [] },
+      { toolName: 'attachment_analyzer' as ToolName, params: { chunkOffset: 0, chunkCount: 2 }, dependsOn: [0] },
+      { toolName: 'document_generator' as ToolName, params: { contentFromStep: 1, outputRole: 'rows-csv' }, dependsOn: [1] },
+      { toolName: 'document_generator' as ToolName, params: { contentFromStep: 1, outputRole: 'capital-json' }, dependsOn: [1] },
+      { toolName: 'document_generator' as ToolName, params: { contentFromStep: 1, outputRole: 'execution-log' }, dependsOn: [1] },
+    ];
+    // Step 1 is selected as the named producer; steps 2–4 are all
+    // deliverables of the multi-file run, not only the final one.
+    expect([...stepArtifactPersistIndexes(plan)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+  });
 });
 
 describe('advanceAgentRun with step-artifact persistence OFF (default)', () => {

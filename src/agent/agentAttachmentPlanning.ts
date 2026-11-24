@@ -9,6 +9,11 @@ import {
   type AgentAttachmentDataView,
 } from './agentAttachmentData.js';
 import type { AgentDataOutputKind, AgentFindingsReconciliationMode } from './agentAttachmentTools.js';
+import {
+  extractAttachmentOutputFileSpecs,
+  type AgentOutputRole,
+  type AttachmentOutputFileEntry,
+} from './agentMultiFileSpec.js';
 
 /**
  * Plan augmentation for attachment-bound goals (agent file-input
@@ -268,6 +273,26 @@ export function extractAttachmentOutputFileSpec(goal: string): AttachmentOutputF
 }
 
 /**
+ * The document-step role that assembles one deliverable file of a
+ * multi-file rows goal (対策6): the classified table renders as
+ * CSV, the capital calculation assembles as JSON from the bundle's
+ * BIA inputs, and the run log generates as text from the trace.
+ * Any other shape — a findings/text goal, a markdown deliverable —
+ * has no deterministic role and returns null, which keeps the
+ * multi-file mode off for that goal (see augmentPlanWithAttachments).
+ */
+function outputRoleForSpec(
+  spec: AttachmentOutputFileEntry,
+  outputKind: AgentDataOutputKind,
+): AgentOutputRole | null {
+  if (outputKind !== 'rows') return null;
+  if (spec.format === 'csv') return 'rows-csv';
+  if (spec.format === 'json') return 'capital-json';
+  if (spec.format === 'txt') return 'execution-log';
+  return null;
+}
+
+/**
  * Whether the goal itself explicitly asks for external research, as
  * opposed to merely containing a word the planner's research
  * heuristic reacts to. Conservative by design (header point 5): an
@@ -352,7 +377,25 @@ export function augmentPlanWithAttachments(input: {
   const auditMode = outputKind === 'findings' && goalRequestsInconsistencyAudit(goal);
   const reconcilerPlanned = auditMode && (input.reconciliationMode ?? 'off') !== 'off';
 
-  const stepCount = steps.length + 1 + analyzerCount + (reconcilerPlanned ? 1 : 0);
+  // Multi-file deliverables (failure diagnosis 2026-11-24, 対策6):
+  // a rows goal naming several deliverable files gets one document
+  // step per file, each assembled deterministically by role from
+  // the final analyzer bundle (see agentMultiFileSpec). The mode
+  // engages only when EVERY named file has a buildable role — a
+  // partially buildable list keeps the pre-measure single-file
+  // behavior rather than silently dropping a named deliverable —
+  // and only when the plan actually carries a document step to
+  // replicate. The extra steps count toward the ceiling below.
+  const outputSpecs = extractAttachmentOutputFileSpecs(goal);
+  const outputRoles: (AgentOutputRole | null)[] = outputSpecs.map((spec) => outputRoleForSpec(spec, outputKind));
+  const multiFileOutputs: { entry: AttachmentOutputFileEntry; role: AgentOutputRole }[] | null =
+    outputSpecs.length >= 2 && outputRoles.every((role) => role !== null)
+      ? outputSpecs.map((entry, index) => ({ entry, role: outputRoles[index] as AgentOutputRole }))
+      : null;
+  const hasDocumentStep = steps.some((step) => step.toolName === 'document_generator');
+  const docExpansion = multiFileOutputs && hasDocumentStep ? multiFileOutputs.length - 1 : 0;
+
+  const stepCount = steps.length + 1 + analyzerCount + (reconcilerPlanned ? 1 : 0) + docExpansion;
   const maxPlanSteps = resolveAgentAttachmentMaxPlanSteps();
   if (stepCount > maxPlanSteps) {
     return { ok: false, code: 'AGENT_ATTACHMENT_TOO_LARGE', chunkCount: totalChunks, limit: maxPlanSteps, limitKind: 'steps', stepCount };
@@ -474,5 +517,52 @@ export function augmentPlanWithAttachments(input: {
     ...(reconcilerPlannedStep ? [reconcilerPlannedStep] : []),
     ...plannedSteps.slice(insertAt),
   ];
+
+  // Multi-file replication (対策6): the regrounded document step —
+  // the step right after its source — is replaced by one document
+  // step per deliverable file, in the goal's order. Every clone
+  // consumes the same final analyzer bundle by name (contentFromStep
+  // is positional, not previous-step, so the clones do not chain
+  // into each other) and carries its file name and assembly role;
+  // the single-file JSON params are stripped so a role step can
+  // never be mistaken for the structured-JSON path. The execution
+  // log's step additionally carries the set's file profile and the
+  // full deliverable list, so its text is generated from plan-time
+  // facts plus the bundle's trace.
+  if (multiFileOutputs && docExpansion > 0) {
+    const docIndex = generativeSourceIndex + 1;
+    const base = augmentedSteps[docIndex];
+    if (base && base.toolName === 'document_generator') {
+      const { format: _format, jsonTopLevelKeys: _keys, outputFilename: _name, ...baseParams } = base.params;
+      const clones: AgentStepInputLike[] = multiFileOutputs.map(({ entry, role }) => ({
+        toolName: 'document_generator',
+        params: {
+          ...baseParams,
+          outputFilename: entry.filename,
+          outputRole: role,
+          ...(role === 'rows-csv'
+            ? { outputColumns: view.requiredOutputColumns ?? [] }
+            : {}),
+          ...(role === 'execution-log'
+            ? {
+                outputFileNames: multiFileOutputs.map((output) => output.entry.filename),
+                logFiles: view.files.map((file) => ({
+                  name: file.name,
+                  kind: file.kind,
+                  ...(typeof file.rowCount === 'number' ? { rowCount: file.rowCount } : {}),
+                  charCount: file.charCount,
+                })),
+                ...(view.requiredOutputColumns
+                  ? { logRequiredColumns: view.requiredOutputColumns }
+                  : {}),
+              }
+            : {}),
+        },
+      }));
+      const plannedBase = augmentedPlanned[docIndex];
+      augmentedSteps.splice(docIndex, 1, ...clones);
+      augmentedPlanned.splice(docIndex, 1, ...clones.map(() => ({ ...plannedBase })));
+    }
+  }
   return { ok: true, steps: augmentedSteps, plannedSteps: augmentedPlanned };
 }
