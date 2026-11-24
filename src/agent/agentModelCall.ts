@@ -128,16 +128,50 @@ export type AgentModelServing = {
   modelId?: string;
 };
 
+/** The slug shape every downstream carrier of a serving accepts:
+ * the analyzer's execution trace and the run record both validate
+ * provider ids against this exact pattern. Routing evidence speaks
+ * in provider display names instead ("Cloudflare", "Groq",
+ * "OpenRouter"), so a serving reduced without normalization was
+ * rejected at every carrier's entrance and the trace never
+ * survived into a record (Basel coverage diagnosis 2026-11-24). */
+const AGENT_MODEL_PROVIDER_SLUG_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+
+/** Normalizes a provider display name to the slug the serving
+ * carriers accept: lowercased, runs of characters outside
+ * [a-z0-9-] collapsed to a single hyphen, edge hyphens trimmed. A
+ * name that leaves nothing slug-shaped behind contributes no
+ * serving at all — the fail-soft direction, as with malformed
+ * evidence: an unattributable call is better than a fabricated
+ * identifier. */
+function providerSlugFromDisplayName(provider: string): string | undefined {
+  const slug = provider
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+    .slice(0, 64)
+    .replace(/-+$/, '');
+  return AGENT_MODEL_PROVIDER_SLUG_PATTERN.test(slug) ? slug : undefined;
+}
+
 /** Reduces a dispatch result's routing evidence to the serving
- * identifiers. Anything that is not an object carrying a non-empty
- * provider string contributes nothing, in the fail-soft style of
- * the attempt evidence below. */
+ * identifiers. The provider arrives as the provider layer's
+ * display name and is normalized to its slug here, at the one
+ * entrance every serving passes through, so the recorded
+ * identifiers are the slug vocabulary the rest of the system
+ * validates against. Anything that is not an object carrying a
+ * non-empty provider string — or whose provider name reduces to
+ * no slug — contributes nothing, in the fail-soft style of the
+ * attempt evidence below. */
 export function servingFromRoutingEvidence(evidence: unknown): AgentModelServing | undefined {
   if (!evidence || typeof evidence !== 'object') return undefined;
   const { provider, servedModel } = evidence as { provider?: unknown; servedModel?: unknown };
   if (typeof provider !== 'string' || provider.length === 0) return undefined;
+  const providerId = providerSlugFromDisplayName(provider);
+  if (providerId === undefined) return undefined;
   return {
-    providerId: provider,
+    providerId,
     ...(typeof servedModel === 'string' && servedModel.length > 0 ? { modelId: servedModel } : {}),
   };
 }
