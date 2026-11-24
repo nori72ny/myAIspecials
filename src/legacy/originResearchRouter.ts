@@ -367,6 +367,25 @@ export function createOriginResearchRouter(options: OriginResearchRouterOptions 
                     groundingCandidateTotalCount: result.grounding.candidateStats.totalCount,
                     groundingCandidateDroppedByScreenCount: result.grounding.candidateStats.droppedByScreenCount,
                     groundingCandidateDroppedByFreshnessCount: result.grounding.candidateStats.droppedByFreshnessCount,
+                    // Full disposition chain (案1): same flat scalars
+                    // as the chat router's fail-closed line.
+                    ...(result.grounding.candidateStats.keptCount !== undefined
+                      ? { groundingCandidateKeptCount: result.grounding.candidateStats.keptCount }
+                      : {}),
+                    ...(result.grounding.candidateStats.selectedCount !== undefined
+                      ? { groundingCandidateSelectedCount: result.grounding.candidateStats.selectedCount }
+                      : {}),
+                    ...(result.grounding.candidateStats.droppedBySelectionCount !== undefined
+                      ? { groundingCandidateDroppedBySelectionCount: result.grounding.candidateStats.droppedBySelectionCount }
+                      : {}),
+                    ...(result.grounding.candidateStats.selectionDropReasonCounts
+                      ? {
+                          groundingSelectionDroppedMissingIdentityCount: result.grounding.candidateStats.selectionDropReasonCounts.missingIdentity ?? 0,
+                          groundingSelectionDroppedDuplicateUrlCount: result.grounding.candidateStats.selectionDropReasonCounts.duplicateUrl ?? 0,
+                          groundingSelectionDroppedDuplicateDomainCount: result.grounding.candidateStats.selectionDropReasonCounts.duplicateDomain ?? 0,
+                          groundingSelectionDroppedOverLimitCount: result.grounding.candidateStats.selectionDropReasonCounts.overLimit ?? 0,
+                        }
+                      : {}),
                   }
                 : {}),
             }

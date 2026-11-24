@@ -675,6 +675,27 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                       groundingCandidateTotalCount: researchResult.grounding.candidateStats.totalCount,
                       groundingCandidateDroppedByScreenCount: researchResult.grounding.candidateStats.droppedByScreenCount,
                       groundingCandidateDroppedByFreshnessCount: researchResult.grounding.candidateStats.droppedByFreshnessCount,
+                      // Full disposition chain (案1): the same flat-
+                      // scalar treatment for the post-gate stages, so
+                      // a zero-source refusal can be attributed to the
+                      // gate, the screen, or selection per request.
+                      ...(researchResult.grounding.candidateStats.keptCount !== undefined
+                        ? { groundingCandidateKeptCount: researchResult.grounding.candidateStats.keptCount }
+                        : {}),
+                      ...(researchResult.grounding.candidateStats.selectedCount !== undefined
+                        ? { groundingCandidateSelectedCount: researchResult.grounding.candidateStats.selectedCount }
+                        : {}),
+                      ...(researchResult.grounding.candidateStats.droppedBySelectionCount !== undefined
+                        ? { groundingCandidateDroppedBySelectionCount: researchResult.grounding.candidateStats.droppedBySelectionCount }
+                        : {}),
+                      ...(researchResult.grounding.candidateStats.selectionDropReasonCounts
+                        ? {
+                            groundingSelectionDroppedMissingIdentityCount: researchResult.grounding.candidateStats.selectionDropReasonCounts.missingIdentity ?? 0,
+                            groundingSelectionDroppedDuplicateUrlCount: researchResult.grounding.candidateStats.selectionDropReasonCounts.duplicateUrl ?? 0,
+                            groundingSelectionDroppedDuplicateDomainCount: researchResult.grounding.candidateStats.selectionDropReasonCounts.duplicateDomain ?? 0,
+                            groundingSelectionDroppedOverLimitCount: researchResult.grounding.candidateStats.selectionDropReasonCounts.overLimit ?? 0,
+                          }
+                        : {}),
                     }
                   : {}),
               }
