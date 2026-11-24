@@ -100,6 +100,34 @@ describe('AgentWorkspaceView v3', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/agent')).toBe(false);
   });
 
+  it('keeps headings at weight 700 and primary buttons on the disabled canon (K-07/K-08)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/agent/v3/status') return json(readyStatus());
+      if (url === '/api/agent/v3/plan') return json(planResponse(), 201);
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AgentWorkspaceView />);
+    await screen.findByText('利用できます');
+    // 見出しは正本のウェイト階層（700まで）に従い、900（font-black）は使わない。
+    const heading = screen.getByRole('heading', { name: 'エージェントに任せる' });
+    expect(heading.className).toContain('font-bold');
+    expect(heading.className).not.toContain('font-black');
+    // 主ボタンの無効時は正本（index.css の :disabled 仕様）に任せ、
+    // opacity の上書きや文字色の直書きで崩さない。
+    const planButton = screen.getByRole('button', { name: '実行計画を作る' });
+    expect(planButton.className).not.toContain('opacity-50');
+    expect(planButton.className).not.toContain('text-white');
+
+    fireEvent.change(screen.getByLabelText('任せたいこと'), { target: { value: '文書案を作ってください' } });
+    fireEvent.click(planButton);
+    await screen.findByText('まだ実行していません · 承認待ち');
+    expect(screen.getByRole('heading', { name: '実行の流れ' }).className).not.toContain('font-black');
+    expect(screen.getByRole('button', { name: '承認して実行' }).className).not.toContain('opacity-50');
+  });
+
   it('says plainly that an oversize attachment set cannot fit one plan, instead of the generic plan failure (AGORA segment split)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -926,6 +954,12 @@ describe('AgentWorkspaceView attachments (F3)', () => {
     const file = new File([FRUITS], 'fruits.csv', { type: 'text/csv' });
     fireEvent.change(screen.getByLabelText('添付ファイルを選ぶ'), { target: { files: [file] } });
     await screen.findByText(`fruits.csv（${FRUITS.length}文字）`);
+
+    // 添付を取り消す小ボタンは、最小36pxの押下領域を持つ（K-21）。
+    const removeButton = screen.getByRole('button', { name: '添付を取り消す' });
+    expect(removeButton.className).toContain('h-9');
+    expect(removeButton.className).toContain('w-9');
+    expect(removeButton.className).not.toContain('h-7');
 
     fireEvent.click(screen.getByRole('button', { name: '添付を取り消す' }));
     await waitFor(() => expect(screen.queryByText(`fruits.csv（${FRUITS.length}文字）`)).toBeNull());

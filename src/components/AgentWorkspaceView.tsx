@@ -779,7 +779,7 @@ export default function AgentWorkspaceView() {
     <div className="mx-auto grid w-full max-w-[var(--content-wide)] items-start gap-4 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.35fr)]">
       <aside className="origin-workspace rounded-2xl p-4">
         <p className="text-[13px] font-bold uppercase tracking-[0.16em] text-origin-brand">エージェント</p>
-        <h1 className="mt-1 text-xl font-black">エージェントに任せる</h1>
+        <h1 className="mt-1 text-xl font-bold">エージェントに任せる</h1>
         <p className="mt-1 text-sm leading-6 text-origin-muted">任せたいことを書くと、まず実行計画を作ります。内容を確認して承認すると、計画に沿って作業し、結果を表示します。調べる・まとめる・文書にするような、手順の多い作業に向いています。</p>
 
         <label htmlFor="agent-goal" className="mt-4 block text-sm font-bold">任せたいこと</label>
@@ -808,7 +808,7 @@ export default function AgentWorkspaceView() {
                 <span>{file.name}（{file.charCount.toLocaleString()}文字）</span>
                 <button type="button" onClick={() => void removeAttachments()} aria-label="添付を取り消す"
                   disabled={Boolean(plan) || phase === 'planning' || phase === 'executing'}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-origin-muted disabled:cursor-not-allowed disabled:opacity-50"><X aria-hidden="true" size={14} /></button>
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-origin-muted disabled:cursor-not-allowed disabled:opacity-50"><X aria-hidden="true" size={14} /></button>
               </li>)}
             </ul>
             <p className="mt-1 text-[13px] leading-5 text-origin-muted">取り消すと、添付したファイルはすべて削除されます。</p>
@@ -827,17 +827,17 @@ export default function AgentWorkspaceView() {
         </div>
 
         <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
-          className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+          className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold disabled:cursor-not-allowed">
           {phase === 'planning' ? '計画を作っています…' : '実行計画を作る'}
         </button>
 
         {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-black">実行の流れ</h2>
+            <h2 className="text-sm font-bold">実行の流れ</h2>
             <span className="text-[13px] font-bold text-origin-warning">まだ実行していません · 承認待ち</span>
           </div>
           <ol className="mt-2 space-y-2 text-sm">{plan.plan.map((step, index) => <li key={step.id} className="flex gap-2">
-            <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[13px] font-black text-origin-brand">{index + 1}</span>
+            <span aria-hidden="true" className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-origin-brand-soft text-[13px] font-bold text-origin-brand">{index + 1}</span>
             <span>{step.title}</span>
           </li>)}</ol>
 
@@ -851,7 +851,7 @@ export default function AgentWorkspaceView() {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => void approveAndExecute()} disabled={phase !== 'awaiting_approval' || !plannedParamsReady}
-              className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold disabled:opacity-50">
+              className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-bold">
               承認して実行
             </button>
             <button type="button" onClick={resetPlan} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">計画をやめる</button>
@@ -893,7 +893,7 @@ export default function AgentWorkspaceView() {
         </div>
 
         <section className="border-t border-origin-border p-4">
-          <h3 className="text-sm font-black">この端末に保存した結果</h3>
+          <h3 className="text-sm font-bold">この端末に保存した結果</h3>
           {restoring ? <p className="mt-2 text-[13px] text-origin-muted">読み込み中…</p> : checkpoints.length === 0
             ? <p className="mt-2 text-[13px] text-origin-muted">終わった作業の結果がここに保存されます。選ぶと、上の欄に表示されます。</p>
             : <>

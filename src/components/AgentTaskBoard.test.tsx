@@ -56,6 +56,8 @@ describe('AgentTaskBoard', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<AgentTaskBoard />);
+    // 見出しは正本のウェイト階層（700まで）に従う（K-08）。
+    expect(screen.getByRole('heading', { name: 'これまでの作業' }).className).not.toContain('font-black');
     fireEvent.click(screen.getByRole('button', { name: '作業を表示' }));
 
     expect(await screen.findByText(/上の画面で計画を作ると、ここに表示されます/)).toBeTruthy();

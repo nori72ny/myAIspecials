@@ -268,7 +268,9 @@
      markdown 16px/1.75, meta 13px/400 in --text-secondary. 12.5px and
      12px are outside the scale: 13px is the floor for secondary text.
      Weights are fixed by role: 500 = UI labels, 600 = buttons / active /
-     small headings, 700 = headings. */
+     small headings, 700 = headings. No other weight is used: 900
+     (font-black) is outside the scale and is not used anywhere,
+     headings included (K-08, 2026-11-24). */
   h1, h2, h3 { font-family: var(--font-sans); }
   button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
   button:disabled { cursor: not-allowed; }

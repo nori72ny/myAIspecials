@@ -89,7 +89,7 @@ function SourceFavicon({ url, domain }: { url: string; domain?: string }) {
   }
   const letter = (host || '?').charAt(0).toUpperCase();
   if (!origin || failed) {
-    return <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-origin-surface-muted text-[13px] font-black text-origin-muted">{letter}</span>;
+    return <span aria-hidden="true" className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-origin-surface-muted text-[13px] font-bold text-origin-muted">{letter}</span>;
   }
   return <img src={`${origin}/favicon.ico`} alt="" width={20} height={20} loading="lazy" onError={() => setFailed(true)} className="h-5 w-5 shrink-0 rounded" />;
 }
@@ -161,7 +161,7 @@ export default function AgentLivePanel({ steps, runView, statusHint, catState }:
   return <section aria-label="いまの作業" className="p-4">
     <div className="flex items-center gap-2">
       <OriginCatState state={catState} size={32} />
-      <h3 className="text-sm font-black">いまの作業</h3>
+      <h3 className="text-sm font-bold">いまの作業</h3>
       <span className="text-sm font-semibold">{headline}</span>
     </div>
 
@@ -276,7 +276,7 @@ export function parseAgentResearchArtifact(text: string): { sources: AgentResear
 export function AgentResearchSourceCards({ sources }: { sources: AgentResearchArtifactSource[] }) {
   return <section aria-label="出典">
     <div className="flex flex-wrap items-center gap-2">
-      <h3 className="m-0 text-sm font-black">出典</h3>
+      <h3 className="m-0 text-sm font-bold">出典</h3>
       <span className="rounded-full border border-origin-border px-3 py-1 text-[13px]">{sources.length}件</span>
     </div>
     {sources.length === 0

@@ -37,6 +37,8 @@ describe('AgentLivePanel (PR-L2)', () => {
   it('renders the timeline with durations and the research frame', () => {
     render(<AgentLivePanel steps={steps} runView={researchRunView} statusHint="active" catState="working" />);
     expect(screen.getByText('いまの作業')).toBeTruthy();
+    // 見出しは正本のウェイト階層（700まで）に従う（K-08）。
+    expect(screen.getByRole('heading', { name: 'いまの作業' }).className).not.toContain('font-black');
     expect(screen.getByText('文書を作っています')).toBeTruthy();
     expect(screen.getByText('出典2件 · 12秒')).toBeTruthy();
     expect(screen.getByText('富士山の高さと登山情報')).toBeTruthy();
