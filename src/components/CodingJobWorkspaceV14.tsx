@@ -338,7 +338,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
           onChange={event => setGoal(event.target.value)}
           maxLength={4000}
           placeholder="例：家計簿アプリを作ってください。金額を入力すると、月ごとの合計を表示したいです。"
-          className="mt-2 min-h-32 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
+          className="mt-2 min-h-32 w-full resize-none rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand"
         />
         <p className="mt-1 text-[13px] leading-5 text-origin-muted">新しいものを作る場合も、今あるコードを直す場合も、ここに書いてください。</p>
         <div className="mt-1 text-right text-[13px] text-origin-muted">{goal.length}/4000</div>
@@ -349,7 +349,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
           disabled={!ready || !goal.trim() || busy || Boolean(job && ACTIVE.has(job.status))}
           aria-describedby="coding-run-status"
           title={!ready ? '今は利用できないため、始められません' : !goal.trim() ? '作りたいもの・直したいことを入力してください' : job && ACTIVE.has(job.status) ? '今の作業が終わるまで、新しい依頼は始められません' : undefined}
-          className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed"
         >
           {busy ? '始めています…' : job && ACTIVE.has(job.status) ? '実行中' : promptForCredential ? '実行キーを入力する' : '作成・修正を始める'}
         </button>
@@ -357,6 +357,17 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
         <div id="coding-run-status" role="status" className="mt-3 text-[13px]">
           <span className={ready && hasCredential ? 'font-bold text-origin-success' : 'text-origin-muted'}>{checkingCapability ? '利用できるか確認しています…' : !ready ? '今は利用できません' : hasCredential ? '利用できます' : '実行キーを入力すると始められます'}</span>
         </div>
+        {/* External evaluation fix (2026-11-25): the disabled start
+            button no longer fades to opacity 0.5 — the class-level
+            disabled recipe (--text-secondary on --bg-surface-muted,
+            ~5.9:1) now stands on its own instead of washing out to
+            a measured 2.16:1 — and when the only missing step is
+            the request text itself, the reason is stated next to
+            the availability line instead of living only in the
+            button's title attribute. */}
+        {ready && hasCredential && !goal.trim() && !busy && !(job && ACTIVE.has(job.status)) && (
+          <p className="mt-1 text-[13px] leading-5 text-origin-muted">作りたいもの・直したいことを書くと始められます。</p>
+        )}
 
         {ready && !hasCredential && (
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">
@@ -392,9 +403,17 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
             ['確認', '確認と、必要な修正'],
             ['最終確認', '結果をまとめる'],
             ['結果表示', '結果と変更内容を表示'],
-          ].map(([label, detail]) => <li key={label} className="rounded-xl border border-origin-border p-3">
-            <span className="text-[13px] font-black tracking-wide">{label}</span>
-            <p className="mt-1 text-[13px] leading-5 text-origin-muted">{detail}</p>
+          ].map(([label, detail], index) => <li key={label} className="flex gap-2.5">
+            {/* External evaluation fix (2026-11-25): the steps are a
+                status display, not controls — the bordered card
+                treatment made them read as buttons. A muted number
+                disc (the step-list recipe, quieter than the agent
+                plan's brand discs) carries the sequence instead. */}
+            <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-origin-surface-muted text-[13px] font-black text-origin-muted">{index + 1}</span>
+            <span>
+              <span className="block text-[13px] font-black tracking-wide">{label}</span>
+              <span className="mt-0.5 block text-[13px] leading-5 text-origin-muted">{detail}</span>
+            </span>
           </li>)}
         </ol>
         <p className="mt-3 text-[13px] leading-5 text-origin-muted">上に書いて「作成・修正を始める」を押すと、進み具合と結果はここに表示されます。</p>

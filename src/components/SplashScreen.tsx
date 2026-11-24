@@ -88,6 +88,18 @@ export default function SplashScreen({ ready = false, oncePerSession = true }: S
       <div className="origin-ultra-splash__aurora" aria-hidden="true" />
       <div className="origin-ultra-splash__content">
         <OriginBrandLockup variant="splash" markSrc={STARTUP_BRAND_MARK_SRC} markDarkSrc={STARTUP_BRAND_MARK_DARK_SRC} />
+        {/* Identifiable loading state (external evaluation fix,
+            2026-11-25): under a slow network the entrance sequence
+            left only a faint mark on screen — no words, nothing
+            recognisable as "loading". A navy spinner and the words
+            読み込んでいます now sit under the lockup from the first
+            frame, independent of the letter animation. The status
+            is announced by the overlay's aria-label, so this row is
+            decorative for assistive tech. */}
+        <div className="origin-ultra-splash__status" aria-hidden="true">
+          <span className="origin-ultra-splash__spinner" />
+          <span className="origin-ultra-splash__status-text">読み込んでいます</span>
+        </div>
       </div>
     </div>
   );

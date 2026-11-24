@@ -74,7 +74,13 @@ export default function OriginSidebar({
             data-testid="sidebar-close"
             aria-label={isEn ? 'Close sidebar' : 'サイドバーを閉じる'}
             onClick={onClose}
-            className="origin-sidebar-item inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center"
+            // Desktop keeps ONE sidebar toggle (external evaluation
+            // fix, 2026-11-25): at lg the sidebar is a static column
+            // and the main header's own toggle stays visible next to
+            // it, so this close button only serves the drawer forms
+            // below lg, where the header toggle sits under the
+            // drawer and its scrim.
+            className="origin-sidebar-item inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center lg:hidden"
           >
             <PanelLeftClose aria-hidden="true" size={18} strokeWidth={1.9} />
           </button>

@@ -3021,7 +3021,7 @@ describe('Orin panel (stage 1, owner request 2026-11-24)', () => {
 
   it('opens from the floating presence and shows the profile plus the empty work state while nothing is in progress', () => {
     render(<App language="ja" />);
-    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
     const sheet = screen.getByTestId('origin-orin-panel');
     // パネルではタブ画面の空状態として「いまは作業していません」を
     // 1行出す（パネル設計 §4.5、2026-11-24。旧カードの空状態廃止
@@ -3046,7 +3046,7 @@ describe('Orin panel (stage 1, owner request 2026-11-24)', () => {
     });
     try {
       render(<App language="ja" onOpenAgent={vi.fn()} />);
-      fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
       const sheet = screen.getByTestId('origin-orin-panel');
       // 一覧が引けない環境では共有ストアの要約が項目になり、進捗は
       // %＋n/m 併記で出る。ステップ列は開くと見える（設計 §4.1）。
@@ -3078,7 +3078,7 @@ describe('Orin panel (stage 1, owner request 2026-11-24)', () => {
     fireEvent.click(screen.getByTestId('start-request-button'));
     await screen.findByTestId('origin-orin-presence');
 
-    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
     const sheet = screen.getByTestId('origin-orin-panel');
     expect(within(sheet).getByText('回答を準備しています')).toBeTruthy();
     expect(sheet.textContent).toContain('作業中');
@@ -3091,7 +3091,7 @@ describe('Orin panel (stage 1, owner request 2026-11-24)', () => {
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     expect(await screen.findByText('シート確認の回答')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
     const reopened = screen.getByTestId('origin-orin-panel');
     expect(within(reopened).getByText('質問への回答')).toBeTruthy();
     expect(reopened.textContent).toContain('完了');
@@ -3131,12 +3131,12 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     // （ヘッダー側の同名ボタンは廃止した。PR #1253 のマージ結果で
     // 起きた同名操作の二重化に対する回帰テスト）。
     expect(screen.queryByTestId('origin-header-orin')).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'いまの作業を表示' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Orin（いまの作業を表示）' })).toHaveLength(1);
     fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '単一操作の確認' } });
     fireEvent.click(screen.getByTestId('start-request-button'));
     await screen.findByTestId('origin-orin-presence-status');
     // 作業中もただ1つで、それはプレゼンスの中にある。
-    const controls = screen.getAllByRole('button', { name: 'いまの作業を表示' });
+    const controls = screen.getAllByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(controls).toHaveLength(1);
     expect(screen.getByTestId('origin-orin-presence').contains(controls[0])).toBe(true);
   });
@@ -3152,7 +3152,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     // いたが、新仕様（2026-11-15、Muse アプリのアバタータップ式）は
     // 中央カード／下部シートで重ならないため、プレゼンスは残したまま
     // タップの「喜ぶ」動きを見せる。
-    fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
     const card = screen.getByTestId('origin-orin-panel');
     expect(within(card).getByTestId('origin-orin-profile-name').textContent).toBe('Orin');
     const presence = screen.getByTestId('origin-orin-presence');
@@ -3424,7 +3424,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     try {
       render(<App language="ja" />);
       expect((await screen.findByTestId('origin-orin-presence-status')).textContent).toBe('文書を作る...');
-      fireEvent.click(screen.getByRole('button', { name: 'いまの作業を表示' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Orin（いまの作業を表示）' }));
       expect(screen.getByTestId('origin-orin-panel')).toBeTruthy();
       await waitFor(() => expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull(), { timeout: 5000 });
     } finally {

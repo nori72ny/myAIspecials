@@ -192,7 +192,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(cat.parentElement?.classList.contains('origin-orin-presence__disc')).toBe(true);
     // 待機中はオリンだけの形（is-idle）になり、
     // 自動縮小（is-compact）はまだ発火していない。
-    const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
+    const tap = screen.getByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(tap.classList.contains('is-idle')).toBe(true);
     expect(tap.classList.contains('is-compact')).toBe(false);
     // 待機中は絵に静かな呼吸が付く。
@@ -229,7 +229,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     // 名前タグは作業中（48px の縮小状態）でも常に出て読める。
     expect(screen.getByTestId('origin-orin-presence-name').textContent).toBe('Orin');
     // テキストが出ている間はオリンだけの形ではなく、呼吸も付けない。
-    const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
+    const tap = screen.getByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(tap.classList.contains('is-idle')).toBe(false);
     expect(tap.classList.contains('is-compact')).toBe(true);
     expect(cat.classList.contains('origin-cat-breathe')).toBe(false);
@@ -243,7 +243,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
     expect(screen.queryByTestId('origin-orin-presence-status')).toBeNull();
-    const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
+    const tap = screen.getByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(tap.classList.contains('is-idle')).toBe(true);
     expect(tap.classList.contains('is-compact')).toBe(false);
     expect(cat.parentElement?.classList.contains('is-scrolling')).toBe(false);
@@ -321,7 +321,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(screen.getByTestId('origin-orin-presence')).toBeTruthy();
     const cat = screen.getByTestId('origin-cat-state');
     expect((cat as HTMLElement).style.width).toBe(`${ORIN_PRESENCE_CAT_SIZE_PX}px`);
-    const tap = screen.getByRole('button', { name: 'いまの作業を表示' });
+    const tap = screen.getByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(tap.classList.contains('is-idle')).toBe(true);
     expect(tap.classList.contains('is-compact')).toBe(false);
   });
@@ -351,10 +351,10 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     const onOpenWorkSheet = vi.fn();
     const { props, rerender } = renderPresence({ onOpenWorkSheet });
     // 待機中：「いまの作業を表示」はこのタップ対象ただ1つ。
-    expect(screen.getAllByRole('button', { name: 'いまの作業を表示' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Orin（いまの作業を表示）' })).toHaveLength(1);
     rerender(<OrinFloatingPresence {...props} text="回答を準備しています…" state="thinking" />);
     // 作業中もただ1つ（ヘッダー側の同名ボタンは廃止した）。
-    const controls = screen.getAllByRole('button', { name: 'いまの作業を表示' });
+    const controls = screen.getAllByRole('button', { name: 'Orin（いまの作業を表示）' });
     expect(controls).toHaveLength(1);
     expect(screen.getByTestId('origin-orin-presence').contains(controls[0])).toBe(true);
     fireEvent.click(controls[0]);

@@ -81,6 +81,7 @@
   z-index: 2;
   display: grid;
   justify-items: center;
+  gap: 20px;
 }
 
 html[data-origin-focus-mode="true"] body > * header,
