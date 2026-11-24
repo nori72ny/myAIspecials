@@ -17,7 +17,7 @@ import { getSessionCredential } from '../security/sessionCredentials';
  * U5): an operator credential lists the operator's runs; otherwise the
  * plan capability currently open in the workspace lists the runs bound
  * to it. Nothing is persisted — the credential (entered in Settings
- * under 詳細（管理者向け）) and the plan tokens live in memory only.
+ * under 管理者キー) and the plan tokens live in memory only.
  *
  * Loading policy (revised 2026-11-09, owner direction: delegated work
  * must be visible as the agent screen's showcase): when the workspace
@@ -350,7 +350,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const load = async (authOverride?: BoardAuth) => {
     const resolved = authOverride ?? resolveAuth();
     if (!resolved) {
-      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「詳細（管理者向け）」でキーを入力すると表示できます。');
+      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「管理者キー」でキーを入力すると表示できます。');
       return;
     }
     setAuth(resolved);
@@ -463,7 +463,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const startResume = async (run: RunView) => {
     const resolved = auth ?? resolveAuth();
     if (!resolved) {
-      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「詳細（管理者向け）」でキーを入力すると表示できます。');
+      setNotice('上の画面で計画を作ると、ここに表示されます。管理者として作成した作業は、設定の「管理者キー」でキーを入力すると表示できます。');
       return;
     }
     setAuth(resolved);
@@ -745,7 +745,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
 
     {notice && <p role="status" className="mt-2 text-[13px] leading-5 text-origin-muted">{notice}</p>}
     {loadState === 'unavailable' && <p role="status" className="mt-2 text-sm text-origin-muted">作業の記録を今は利用できません。</p>}
-    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。キーは設定の「詳細（管理者向け）」で入力できます。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
+    {loadState === 'auth-error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">{auth?.kind === 'operator' ? '認証できませんでした。入力したキーを確認してください。キーは設定の「管理者キー」で入力できます。' : '作業を表示できませんでした。上の画面で計画を作ると、ここにも表示されます。'}</p>}
     {loadState === 'error' && <p role="alert" className="mt-2 text-sm font-semibold text-origin-danger">作業を読み込めませんでした。</p>}
     {loadState === 'ready' && runs !== null && runs.length === 0 && (
       <p className="mt-2 text-sm text-origin-muted">表示できる作業はありません。</p>

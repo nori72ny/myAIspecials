@@ -28,6 +28,7 @@ import OrinFloatingPresence, { resolveOrinAgentBubbleText, resolveOrinBubbleText
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
 import { ingestCompletedChatTurn } from './services/activeContextDecisionIngestion';
+import { ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN, ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA } from './legacy/originChatResponsePolicy';
 import { ResearchMessageView, ResearchReaderOverlay } from './components/personal/ResearchReportView';
 import { recoveryEstimateSentence } from './utils/recoveryEstimate';
 import { useVoiceInput } from './hooks/useVoiceInput';
@@ -404,6 +405,21 @@ export const excerptAtBoundary = (text: string, maxLength: number): string => {
 // から境界で切ることで、両行の扱いを揃える（デザイン評価 第5回）。
 export const historyExcerptText = (text: string, maxLength: number): string => excerptAtBoundary(stripMarkdownForDisplay(text), maxLength);
 
+// 履歴の抜粋に使わない「失敗した回答」の決定的な判定（モデル不使用）。
+// 対象は (1) 配送状態が error の回答と調査の失敗表示（メッセージ自体の
+// 印）、(2) 根拠なし断定ゲートの差し替え定型文そのもの（応答ポリシーの
+// 正本定数と完全一致）。部分回答（truncated）や調査の部分着地
+// （researchFallback）は会話の実質を含むため失敗扱いしない。
+const HISTORY_EXCERPT_FALLBACK_TEXTS: ReadonlySet<string> = new Set([
+  ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA,
+  ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN,
+]);
+export const isHistoryExcerptFailureMessage = (message: ConversationMessage): boolean => {
+  if (message.role !== 'assistant') return false;
+  if (message.deliveryState === 'error' || message.researchError) return true;
+  return HISTORY_EXCERPT_FALLBACK_TEXTS.has(conversationMessageDisplayText(message).trim());
+};
+
 // K-14 (2026-11-24): 抜粋の源はここを正本とし、履歴ドロワーの一覧と
 // 検索結果で共有する。タイトル（historySessionTitle）が「最初の利用者
 // メッセージ」から作られるのに対し、抜粋が「最後のメッセージ」だと、
@@ -414,10 +430,17 @@ export const historyExcerptText = (text: string, maxLength: number): string => e
 // の源とし、回答が無い／空なら最初の利用者メッセージ、それも無ければ
 // 最後のメッセージに落とす。表示文は conversationMessageDisplayText
 // 経由（K-04 の種別の印の解決と一致させ、調整の内部指示文を源にしない）。
+// 2026-11-25 追加：最初の回答が失敗文（上の決定的判定）だけの場合は、
+// 会話の実質を表す最初の成功した回答まで進める。実測では、最初の回答
+// が「確認できなかったため」の定型文で再送後に正しい表が返った会話の
+// 抜粋が失敗文のまま残り、答えた会話が「答えられなかった」と誤読され
+// た。成功した回答が一つも無い会話では、従来どおり最初の回答（失敗文）
+// が源になる（失敗した事実自体がその会話の実質のため）。
 export const historySessionExcerptSource = (session: ConversationSession): string => {
   const firstUserIndex = session.messages.findIndex((message) => message.role === 'user');
   if (firstUserIndex >= 0) {
-    const firstAnswer = session.messages.slice(firstUserIndex + 1).find((message) => message.role === 'assistant' && conversationMessageDisplayText(message).trim().length > 0);
+    const answers = session.messages.slice(firstUserIndex + 1).filter((message) => message.role === 'assistant' && conversationMessageDisplayText(message).trim().length > 0);
+    const firstAnswer = answers.find((message) => !isHistoryExcerptFailureMessage(message)) ?? answers[0];
     if (firstAnswer) return conversationMessageDisplayText(firstAnswer);
     return conversationMessageDisplayText(session.messages[firstUserIndex]);
   }
@@ -1442,7 +1465,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
   }, [displaySessions]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold sm:w-auto sm:min-w-11 sm:px-3"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
-    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface flex max-h-[calc(100dvh-5rem)] flex-col absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historySessionExcerpt(session)}{(titleCounts.get(session.title) ?? 0) > 1 ? ` · ${historySessionTimeLabel(session.createdAt)}` : ''}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
+    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface flex max-h-[calc(100dvh-5rem)] flex-col absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historySessionExcerpt(session)}{(titleCounts.get(session.title) ?? 0) > 1 ? ` · ${historySessionTimeLabel(session.createdAt)}` : ''}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
   </>;
 };
 

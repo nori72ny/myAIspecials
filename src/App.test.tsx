@@ -53,7 +53,8 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, conversationMessageDisplayText, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionExcerpt, historySessionExcerptSource, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN, ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA } from './legacy/originChatResponsePolicy';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, conversationMessageDisplayText, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionExcerpt, historySessionExcerptSource, historySessionTitle, isHistoryExcerptFailureMessage, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1802,6 +1803,59 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(historySessionExcerpt(refined)).not.toContain('実務でそのまま');
     const refinedOnly: ConversationSession = { id: 'k14-refined-only', title: '回答を調整', createdAt: 6, messages: [{ id: 'u1', role: 'user', content: '直前の回答を圧縮してください。', requestKind: 'refinement' }] };
     expect(historySessionExcerpt(refinedOnly)).toBe('回答を調整');
+  });
+
+  it('skips a failed first answer so the history excerpt reflects the first successful answer (2026-11-25)', () => {
+    // 本番実測：最初の回答が「確認できなかったため」の定型文で、同じ
+    // 会話で再送して正しい表が返ったのに、履歴の抜粋が失敗文のまま
+    // 残り、答えた会話が「答えられなかった」と誤読された。抜粋の源は
+    // 最初の成功した回答へ進める（タイトルとの対応は K-14 のまま）。
+    const recovered: ConversationSession = {
+      id: 'excerpt-recovered', title: '日本の歴代首相を表で10人挙げてください', createdAt: 10,
+      messages: [
+        { id: 'u1', role: 'user', content: '日本の歴代首相を表で10人挙げてください' },
+        { id: 'a1', role: 'assistant', content: ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA, deliveryState: 'verified' },
+        { id: 'u2', role: 'user', content: '日本の歴代首相を表で10人挙げてください' },
+        { id: 'a2', role: 'assistant', content: '歴代首相を表で10人挙げます。初代は伊藤博文です。', deliveryState: 'verified' },
+      ],
+    };
+    expect(historySessionExcerptSource(recovered)).toBe('歴代首相を表で10人挙げます。初代は伊藤博文です。');
+    expect(historySessionExcerpt(recovered)).not.toContain('確認できなかったため');
+    // 英語の定型文も同じく失敗扱いになる。
+    const recoveredEn: ConversationSession = {
+      id: 'excerpt-recovered-en', title: 'List the prime ministers', createdAt: 11,
+      messages: [
+        { id: 'u1', role: 'user', content: 'List the prime ministers' },
+        { id: 'a1', role: 'assistant', content: ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_EN, deliveryState: 'verified' },
+        { id: 'a2', role: 'assistant', content: 'Here are the prime ministers in a table.', deliveryState: 'verified' },
+      ],
+    };
+    expect(historySessionExcerptSource(recoveredEn)).toBe('Here are the prime ministers in a table.');
+    // 配送状態が error の回答・調査の失敗表示も飛ばす。
+    const errorFirst: ConversationSession = {
+      id: 'excerpt-error-first', title: '調べて', createdAt: 12,
+      messages: [
+        { id: 'u1', role: 'user', content: '調べて' },
+        { id: 'a1', role: 'assistant', content: '調査できませんでした。', deliveryState: 'error', researchError: true },
+        { id: 'a2', role: 'assistant', content: '調べた結果です。', deliveryState: 'verified' },
+      ],
+    };
+    expect(historySessionExcerptSource(errorFirst)).toBe('調べた結果です。');
+    // 成功した回答が一つも無い会話では、失敗文がその会話の実質として残る。
+    const failedOnly: ConversationSession = {
+      id: 'excerpt-failed-only', title: '日本の歴代首相を表で10人挙げてください', createdAt: 13,
+      messages: [
+        { id: 'u1', role: 'user', content: '日本の歴代首相を表で10人挙げてください' },
+        { id: 'a1', role: 'assistant', content: ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA, deliveryState: 'verified' },
+      ],
+    };
+    expect(historySessionExcerptSource(failedOnly)).toBe(ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA);
+    // 判定自体の境界：利用者メッセージと通常の回答は失敗扱いしない。
+    // 未完の部分回答は実質を含むため失敗扱いしない。
+    expect(isHistoryExcerptFailureMessage({ id: 'u', role: 'user', content: ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA })).toBe(false);
+    expect(isHistoryExcerptFailureMessage({ id: 'a', role: 'assistant', content: '通常の回答です。' })).toBe(false);
+    expect(isHistoryExcerptFailureMessage({ id: 'a', role: 'assistant', content: '途中までの回答です。', truncated: true })).toBe(false);
+    expect(isHistoryExcerptFailureMessage({ id: 'a', role: 'assistant', content: ORIGIN_UNGROUNDED_ASSERTION_FALLBACK_JA })).toBe(true);
   });
 
   it('does not split a surrogate pair at the history excerpt limit (K-14)', () => {
