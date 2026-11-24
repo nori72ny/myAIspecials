@@ -95,6 +95,21 @@ export interface AgentAttachmentDataView {
    * only; every other file is reference material.
    */
   primaryFileName?: string;
+  /**
+   * The primary table's numeric cells by key value (deterministic
+   * numeric copy, Basel coverage diagnosis 2026-11-24 案1): for
+   * each key of the primary table, the input's own cell text for
+   * every declared numeric column, taken from the same parse that
+   * produced the chunk texts. Present exactly when the primary
+   * table carries the key column and declares at least one
+   * numeric column. The analyzer replaces a model row's numeric
+   * cells with these values before coverage runs, so a
+   * transcription error in a copied column can neither fail nor
+   * silently pass the gate. A key value that appears more than
+   * once in the input is absent: the copy never guesses between
+   * two source rows.
+   */
+  primaryNumericCellsByKey?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Numeric columns of the primary table (the key-bearing one, else
    * the first table), with aggregates recomputed from the input. */
   numericColumns: string[];
@@ -354,6 +369,41 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
     }
   }
 
+  // The primary table's numeric cells by key (deterministic
+  // numeric copy, diagnosis 案1): the same parse's cell text,
+  // indexed for the analyzer's pre-coverage replacement. Built
+  // only for a keyed primary table — the same anchor the rows
+  // contract and both coverage gates already use.
+  let primaryNumericCellsByKey: Record<string, Record<string, string>> | undefined;
+  if (primary?.key) {
+    const keyIndex = primary.key.index;
+    const numericIndexes: { name: string; index: number }[] = [];
+    for (const columnName of numericColumns) {
+      const columnIndex = primary.table.header.indexOf(columnName);
+      if (columnIndex >= 0) numericIndexes.push({ name: columnName, index: columnIndex });
+    }
+    if (numericIndexes.length > 0) {
+      const byKey = new Map<string, Record<string, string>>();
+      const ambiguous = new Set<string>();
+      for (const row of primary.table.rows) {
+        const keyValue = row[keyIndex];
+        if (keyValue === undefined || keyValue.length === 0) continue;
+        if (ambiguous.has(keyValue)) continue;
+        if (byKey.has(keyValue)) {
+          // A repeated key cannot anchor a copy: drop the entry
+          // rather than pick one of two source rows.
+          byKey.delete(keyValue);
+          ambiguous.add(keyValue);
+          continue;
+        }
+        const cells: Record<string, string> = {};
+        for (const { name, index } of numericIndexes) cells[name] = row[index];
+        byKey.set(keyValue, cells);
+      }
+      if (byKey.size > 0) primaryNumericCellsByKey = Object.fromEntries(byKey);
+    }
+  }
+
   return {
     files: profiles,
     chunks,
@@ -361,6 +411,7 @@ export function buildAgentAttachmentDataView(files: readonly AgentAttachmentData
     keyField,
     expectedKeys,
     ...(primaryFileName ? { primaryFileName } : {}),
+    ...(primaryNumericCellsByKey ? { primaryNumericCellsByKey } : {}),
     numericColumns,
     aggregates,
   };
@@ -533,6 +584,52 @@ export function verifyAgentDataLocalCoverage(
     { keyField: view.keyField, expectedKeys, numericColumns: view.numericColumns, aggregates },
     rows,
   );
+}
+
+/**
+ * The deterministic numeric copy (Basel coverage diagnosis
+ * 2026-11-24, 案1): replaces, in place, the declared numeric
+ * columns of every output row whose key matches a primary-table
+ * row with the input's own cell text for that key. The model is
+ * thereby never the source of a copied number: a transcription
+ * error in a numeric column (production measurement: an output
+ * sum of 65,030,000 against the input's 212,750,000, compounded
+ * across cells with nothing unparseable) is corrected before
+ * either coverage gate runs, and the gates keep judging what
+ * they are meant to judge — key coverage and the generated
+ * columns — over values that are the input's by construction.
+ * This is the mechanical form of the instruction the coverage
+ * contract already states ("the values themselves are supposed
+ * to be copied verbatim"), not a change of meaning. Only the
+ * primary table's declared numeric columns are touched; every
+ * other cell, including model-generated columns, stays exactly
+ * as the model wrote it. A row whose key matches no input row
+ * is left untouched — the copy never invents a source — as is a
+ * row without a key; coverage still fails such rows on its own
+ * terms. Returns the number of cells replaced.
+ */
+export function applyAgentDataNumericCopy(
+  view: AgentAttachmentDataView,
+  rows: readonly AgentDataRow[],
+): number {
+  const byKey = view.primaryNumericCellsByKey;
+  if (!byKey || view.numericColumns.length === 0) return 0;
+  let replaced = 0;
+  for (const row of rows) {
+    const key = row[view.keyField];
+    if (typeof key !== 'string' || key.length === 0) continue;
+    if (!Object.prototype.hasOwnProperty.call(byKey, key)) continue;
+    const cells = byKey[key];
+    for (const columnName of view.numericColumns) {
+      const inputValue = cells[columnName];
+      if (inputValue === undefined) continue;
+      if (row[columnName] !== inputValue) {
+        row[columnName] = inputValue;
+        replaced += 1;
+      }
+    }
+  }
+  return replaced;
 }
 
 /**
