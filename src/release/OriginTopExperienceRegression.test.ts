@@ -221,11 +221,15 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(app).not.toContain('origin-danger-button');
     expect(indexCss).not.toContain('.origin-stop-button');
     // The danger class stays separate from the stop button. D-PR-3
-    // redefined it as a white surface with danger text and a 40% danger
+    // redefined it as a white surface with danger text and a danger
     // border (spec §4.5: state colors are never a filled surface), for
     // genuinely destructive actions such as clearing history in the
-    // legacy settings UI.
-    expect(indexCss).toContain('.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }');
+    // legacy settings UI. The frame's mix changed on 2026-11-25
+    // (external evaluation fix): mixing toward --border-default
+    // rotated the hue to ~309 (a brand-foreign mauve, measured);
+    // mixing toward transparent keeps the red hue at 55%.
+    expect(indexCss).toContain('.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 55%, transparent); color: var(--danger); }');
+    expect(indexCss).not.toContain('color-mix(in oklch, var(--danger) 40%, var(--border-default))');
   });
 
   it('canonises the secondary-button frame in the class itself (K-02, 2026-11-24)', () => {
@@ -360,5 +364,83 @@ describe('ORIGIN top experience regression boundary', () => {
   it('defines the answer table right-edge scroll cue (K-26)', () => {
     expect(indexCss).toContain('.origin-answer-table-frame { position: relative; margin: 1rem 0; }');
     expect(indexCss).toContain('.origin-answer-table-fade');
+  });
+
+  it('applies the 2026-11-25 external-evaluation display fixes', () => {
+    // Home group: the intro no longer flexes the group apart, the
+    // chips attach to the group at a fixed 24px, the composer keeps
+    // the bottom pin through an auto top margin, and the mobile
+    // heading-to-description span returns to a fixed 16px / 1.75.
+    const groupBlock = topUi.slice(topUi.indexOf('Home group spacing (external evaluation fix, 2026-11-25)'));
+    expect(groupBlock).toContain('.origin-app main .origin-home-intro');
+    expect(groupBlock).toContain('flex: 0 1 auto !important;');
+    expect(groupBlock).toContain('[data-testid="origin-starter-chips"]');
+    expect(groupBlock).toContain('margin-top: 24px !important;');
+    expect(groupBlock).toContain('.origin-app main .origin-home-composer');
+    expect(groupBlock).toContain('margin-top: auto !important;');
+    expect(groupBlock).toContain('margin-top: 16px !important;');
+    expect(groupBlock).toContain('line-height: 1.75 !important;');
+    expect(groupBlock).toContain('padding-top: 40px !important;');
+    // One Orin at a time + the history drawer never covers the name
+    // tag: both are visibility rules, so geometry contracts hold.
+    expect(topUi).toContain('.origin-main--orin-panel-open .origin-orin-presence');
+    expect(topUi).toContain('.origin-app main:has([data-testid="history-drawer"]) .origin-orin-presence__name');
+    // Panel tabs meet the 44px floor and the segmented control is
+    // capped at 560px; the availability chip takes the navy wash.
+    const tabRule = topUi.match(/\.origin-orin-panel__tab \{[^}]*\}/)?.[0] ?? '';
+    expect(tabRule).toContain('min-height: 44px;');
+    const tabsRule = topUi.match(/\.origin-orin-panel__tabs \{[^}]*\}/)?.[0] ?? '';
+    expect(tabsRule).toContain('max-width: 560px;');
+    const chipRule = topUi.match(/\.origin-orin-panel__chip \{[^}]*\}/)?.[0] ?? '';
+    expect(chipRule).toContain('background: var(--accent-soft);');
+    expect(chipRule).toContain('color: var(--accent-primary);');
+    // The add-menu scrim covers the sidebar too (geometry in the
+    // functional layer, background in the visual layer, as with the
+    // app-root scrim).
+    expect(functionalUi).toContain('.origin-sidebar[data-open="true"]::after');
+    expect(topUi).toContain('.origin-sidebar[data-open="true"]::after');
+    // The workspace tool header shares the chat header's 60px.
+    const toolHeaderRule = topUi.match(/section\[aria-label="Workspace tool header"\] \{[^}]*\}/)?.[0] ?? '';
+    expect(toolHeaderRule).toContain('min-height: 60px;');
+    // The focused skip link lands below the header, not on it.
+    expect(indexCss).toContain('top: calc(max(1rem, env(safe-area-inset-top)) + 3.75rem);');
+    // Settings rows stop 24px below the scroll region's top edge,
+    // and the release-identity disclosure carries a chevron.
+    expect(indexCss).toContain('[data-testid="settings-scroll-region"]');
+    expect(indexCss).toContain('scroll-padding-top: 24px;');
+    expect(indexCss).toContain('.release-identity__chevron');
+    const settingsLegacy = readFileSync(resolve(root, 'components/SettingsModalLegacy.tsx'), 'utf8');
+    expect(settingsLegacy).toContain('release-identity__chevron');
+    // The Orin tap target's accessible name contains the visible
+    // "Orin" label (WCAG 2.5.3).
+    const presence = readFileSync(resolve(root, 'components/OrinFloatingPresence.tsx'), 'utf8');
+    expect(presence).toContain("aria-label={ja ? 'Orin（いまの作業を表示）' : 'Orin (Show current work)'}");
+    // The sidebar close button serves only the drawer forms; at lg
+    // the header toggle is the single sidebar control.
+    const sidebar = readFileSync(resolve(root, 'components/personal/OriginSidebar.tsx'), 'utf8');
+    expect(sidebar).toContain('items-center justify-center lg:hidden');
+    // Both loading splashes carry a spinner and the words
+    // 読み込んでいます (boot splash in index.html, React splash in
+    // SplashScreen + splash-brand.css).
+    const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(indexHtml).toContain('origin-boot-splash__spinner');
+    expect(indexHtml).toContain('読み込んでいます');
+    expect(indexHtml).not.toContain('origin-boot-splash__loading');
+    const splash = readFileSync(resolve(root, 'components/SplashScreen.tsx'), 'utf8');
+    expect(splash).toContain('origin-ultra-splash__spinner');
+    expect(splash).toContain('読み込んでいます');
+    expect(splashBrand).toContain('.origin-ultra-splash__spinner');
+    // The coding start button keeps the readable class-level
+    // disabled recipe (no opacity wash) and the agent plan button
+    // gains its missing-step hint; both workspace goal textareas
+    // drop the resize handle.
+    const coding = readFileSync(resolve(root, 'components/CodingJobWorkspaceV14.tsx'), 'utf8');
+    expect(coding).toContain('className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold text-white disabled:cursor-not-allowed"');
+    expect(coding).toContain('作りたいもの・直したいことを書くと始められます。');
+    expect(coding).toContain('resize-none');
+    const agent = readFileSync(resolve(root, 'components/AgentWorkspaceView.tsx'), 'utf8');
+    expect(agent).toContain('agent-plan-button-hint');
+    expect(agent).toContain('「任せたいこと」を書くと、このボタンを押せます。');
+    expect(agent).toContain('resize-none');
   });
 });

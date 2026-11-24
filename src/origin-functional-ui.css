@@ -54,6 +54,29 @@
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
+/* The sidebar paints above the app-root scrim — it is a z-60 flex
+   item on desktop and a z-50 drawer below that, while the scrim is
+   z-15 — so the scrim alone never dims it (external evaluation fix,
+   2026-11-25: with the add menu open, only the main column dimmed
+   and the sidebar stayed bright). A second overlay inside the
+   sidebar itself mirrors the sidebar's own box (fixed, left
+   anchored, 280px / 85vw — the aside's geometry in both forms) and
+   carries the same scrim treatment, its background likewise from
+   origin-top-ui.css, so the whole screen dims uniformly while the
+   composer (z-20, above the z-15 scrim) stays lit. The overlay only
+   exists while the sidebar is open, and a tap on it is an outside
+   tap for the menu, so the App-level handler closes the menu. */
+.origin-personal-shell:has(.origin-add-menu[open]) .origin-sidebar[data-open="true"]::after {
+  content: "";
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 280px;
+  max-width: 85vw;
+  z-index: 1;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
 .artifact-workspace__header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

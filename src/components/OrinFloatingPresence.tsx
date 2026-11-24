@@ -405,7 +405,11 @@ export default function OrinFloatingPresence({ text, active = false, state, lang
         type="button"
         className={`origin-orin-presence__tap${pillText === null ? ' is-idle' : ''}${compact ? ' is-compact' : ''}`}
         onClick={onOpenWorkSheet}
-        aria-label={ja ? 'いまの作業を表示' : 'Show current work'}
+        // WCAG 2.5.3 label-in-name (external evaluation fix,
+        // 2026-11-25, axe serious): the visible name tag reads
+        // "Orin", so the accessible name starts with it instead of
+        // naming only the action.
+        aria-label={ja ? 'Orin（いまの作業を表示）' : 'Orin (Show current work)'}
       >
         <span className="origin-orin-presence__unit">
           <span key={joySignal} className={`origin-orin-presence__disc inline-flex${joySignal > 0 ? ' origin-cat-joy' : ''}`}>

@@ -433,7 +433,15 @@
    showed the frame, while the history drawer and the profile card
    rendered as bare glyphs (measured border-width 0px). */
 .origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-primary); flex-shrink: 0; }
-.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
+/* Danger frame (external evaluation fix, 2026-11-25): the former
+   40% mix with --border-default landed on hue ~309 in oklch (a
+   brand-foreign mauve, measured oklch(0.743 0.0756 308.8)) because
+   the hue arc from danger red (25) to the border's blue-grey (258)
+   swings through magenta. Mixing toward transparent instead keeps
+   the hue at 25 — alpha compositing over the button's own surface
+   lightens the red without rotating it — so the frame reads as a
+   red-family frame on every theme. */
+.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 55%, transparent); color: var(--danger); }
 /* Same canonisation as .origin-secondary-button (K-02, 2026-11-24):
    the frame is declared here, not left to a per-site utility. */
 .origin-badge { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
@@ -605,9 +613,35 @@
   text-decoration: none;
 }
 .origin-skip-link:focus-visible {
-  top: max(1rem, env(safe-area-inset-top));
+  /* External evaluation fix (2026-11-25): the focused link used to
+     land on the header's top-left corner and cover the brand lockup
+     and the sidebar toggle (measured overlap 36px). It now appears
+     directly below the 60px header, clear of every header control. */
+  top: calc(max(1rem, env(safe-area-inset-top)) + 3.75rem);
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+
+/* Settings scroll region (external evaluation fix, 2026-11-25):
+   rows scrolled into view (keyboard focus, the coding-key guidance)
+   used to stop flush against the dialog header and read as tucked
+   under it. The scroll padding keeps a 24px breathing room — the
+   region's own 20px padding plus 4px — at the stop position. */
+[data-testid="settings-scroll-region"] {
+  scroll-padding-top: 24px;
+}
+
+/* Release-identity disclosure chevron (external evaluation fix,
+   2026-11-25): the summary is a flex row, which suppresses the
+   native disclosure marker, so the closed section read as a plain
+   heading over ~65px of blank. The chevron restores the disclosure
+   affordance (the same reading the native marker gives the
+   administrator details below it) and rotates while open. */
+[data-testid="release-identity"] .release-identity__chevron {
+  transition: transform 160ms ease;
+}
+[data-testid="release-identity"][open] .release-identity__chevron {
+  transform: rotate(90deg);
 }
 
 .origin-pwa-update-notice {

@@ -201,6 +201,38 @@
   transition: opacity 240ms ease;
 }
 
+/* Loading status row (external evaluation fix, 2026-11-25): a navy
+   spinner and the words 読み込んでいます, centred under the brand
+   lockup — the same treatment the pre-mount boot splash in
+   index.html carries, so the loading state is identifiable from
+   the first paint through the React handoff. (These rules live
+   here, with the rest of the splash's own styles, rather than in
+   ultra-optics.css, whose typography layer must not carry a
+   14px declaration.) */
+.origin-ultra-splash__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.origin-ultra-splash__spinner {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 999px;
+  border: 3px solid color-mix(in oklch, var(--accent-primary) 18%, transparent);
+  border-top-color: var(--accent-primary);
+  animation: origin-splash-spin .9s linear infinite;
+}
+.origin-ultra-splash__status-text {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--accent-primary);
+}
+@keyframes origin-splash-spin {
+  to { transform: rotate(360deg); }
+}
+
 .origin-ultra-splash.is-leaving {
   opacity: 0;
 }
@@ -243,6 +275,10 @@
   .origin-brand-lockup--splash .origin-ribbon-wordmark__letter,
   .origin-brand-lockup--splash .origin-ribbon-wordmark__line {
     animation: none;
+  }
+
+  .origin-ultra-splash__spinner {
+    animation-duration: 2.4s;
   }
 
   .origin-brand-lockup--splash .origin-ribbon-wordmark__letter {

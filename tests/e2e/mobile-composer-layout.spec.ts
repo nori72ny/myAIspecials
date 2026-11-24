@@ -122,7 +122,7 @@ test.describe('mobile composer layout', () => {
   });
 });
 
-  test('keeps the intro centered in the upper zone and pins the composer to the bottom at 390px', async ({ page }) => {
+  test('keeps the home group tight at the top and pins the composer to the bottom at 390px', async ({ page }) => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -130,8 +130,10 @@ test.describe('mobile composer layout', () => {
     const scrollBottom = await scrollViewportBottom(page);
     const bottomOffset = Math.max(COMPOSER_BOTTOM_FLOOR_PX, safeAreaBottom) + await scrollViewportBottomPadding(page);
 
+    const presence = page.getByTestId('origin-orin-presence');
     const heading = page.locator('.origin-app main h1').first();
     const description = page.locator('.origin-app main h1 + p').first();
+    const chips = page.getByTestId('origin-starter-chips');
     const composer = page.locator('.origin-composer');
 
     await expect(page.getByTestId('origin-core-logo')).toHaveCount(0);
@@ -139,18 +141,35 @@ test.describe('mobile composer layout', () => {
     await expect(description).toBeVisible();
     await expect(composer).toBeVisible();
 
+    const presenceBox = await presence.boundingBox();
     const headingBox = await heading.boundingBox();
     const descriptionBox = await description.boundingBox();
+    const chipsBox = await chips.boundingBox();
     const composerBox = await composer.boundingBox();
 
+    expect(presenceBox).not.toBeNull();
     expect(headingBox).not.toBeNull();
     expect(descriptionBox).not.toBeNull();
+    expect(chipsBox).not.toBeNull();
     expect(composerBox).not.toBeNull();
 
     expect(headingBox!.y).toBeGreaterThan(80);
     expect(headingBox!.y).toBeLessThan(viewport.height * 0.55);
+    // Home group contract (external evaluation fix, 2026-11-25):
+    // the Orin presence, the heading, the description and the
+    // starter chips form ONE group with fixed internal spacing
+    // (24px / 16px / 24px design values, asserted with slack for
+    // font rendering). This supersedes the 2026-11-14 calibration,
+    // which centred the intro and capped the description-to-
+    // composer distance at 30% of the viewport: the group's gaps
+    // are now the contract, and the flexible void collects above
+    // the bottom-pinned composer instead of inside the group
+    // (measured before the fix: presence-to-heading 151px,
+    // heading-to-description 64px).
+    expect(headingBox!.y - (presenceBox!.y + presenceBox!.height)).toBeLessThanOrEqual(48);
+    expect(descriptionBox!.y - (headingBox!.y + headingBox!.height)).toBeLessThanOrEqual(24);
+    expect(chipsBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(40);
     expect(descriptionBox!.y + descriptionBox!.height).toBeLessThan(composerBox!.y);
-    expect(composerBox!.y - (descriptionBox!.y + descriptionBox!.height)).toBeLessThanOrEqual(viewport.height * 0.30);
     expect(composerBox!.y + composerBox!.height).toBeGreaterThanOrEqual(scrollBottom - bottomOffset - 1);
     expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(scrollBottom - bottomOffset + 1);
   });

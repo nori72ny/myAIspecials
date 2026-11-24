@@ -786,7 +786,7 @@ export default function AgentWorkspaceView() {
         <textarea id="agent-goal" value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={4000}
           disabled={phase === 'planning' || Boolean(plan) || phase === 'executing'}
           placeholder="例：このテーマを調べて要点をまとめ、文書案を作ってください"
-          className="mt-2 min-h-28 w-full resize-y rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand disabled:cursor-not-allowed disabled:opacity-70" />
+          className="mt-2 min-h-28 w-full resize-none rounded-xl border border-origin-border bg-origin-surface p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-origin-brand disabled:cursor-not-allowed disabled:opacity-70" />
 
         {capability?.attachmentsEnabled && <div className="mt-3">
           <span className="block text-sm font-bold">添付データ</span>
@@ -827,9 +827,18 @@ export default function AgentWorkspaceView() {
         </div>
 
         <button type="button" onClick={() => void requestPlan()} disabled={!ready || !goal.trim() || Boolean(plan) || phase === 'planning' || phase === 'executing'}
+          {...(ready && !goal.trim() && !plan && phase === 'idle' ? { 'aria-describedby': 'agent-plan-button-hint' } : {})}
           className="origin-primary-button mt-3 min-h-11 w-full rounded-xl px-4 font-bold disabled:cursor-not-allowed">
           {phase === 'planning' ? '計画を作っています…' : '実行計画を作る'}
         </button>
+        {/* External evaluation fix (2026-11-25): with the service
+            ready but nothing written yet, the status row said
+            「利用できます」 while this button stayed unpressable
+            with no visible reason. The hint names the one missing
+            step, directly under the button it belongs to. */}
+        {ready && !goal.trim() && !plan && phase === 'idle' && (
+          <p id="agent-plan-button-hint" className="mt-2 text-[13px] leading-5 text-origin-muted">「任せたいこと」を書くと、このボタンを押せます。</p>
+        )}
 
         {plan && <section className="mt-4 rounded-xl border border-origin-border p-3" aria-label="実行計画">
           <div className="flex items-center justify-between gap-2">
