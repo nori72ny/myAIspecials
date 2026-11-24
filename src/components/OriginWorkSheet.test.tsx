@@ -107,6 +107,12 @@ describe('OriginWorkSheet', () => {
     const steps = screen.getByTestId('origin-work-sheet-steps');
     expect(steps.textContent).toContain('ファイルを作る・直す');
     expect(steps.textContent).toContain('止まりました');
+    // 失敗したステップはドットと状態文に状態色（--danger）が付き、
+    // 完了のステップには付かない（K-10：色でも区別できること）。
+    const rows = steps.querySelectorAll('li');
+    expect(rows[0].innerHTML).not.toContain('--danger');
+    expect(rows[1].innerHTML).toContain('bg-[var(--danger)]');
+    expect(rows[1].innerHTML).toContain('text-[var(--danger)]');
   });
 
   it('does not offer the agent jump for a completed agent item', () => {

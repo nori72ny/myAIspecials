@@ -652,7 +652,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   const renderResumePanel = (run: RunView, session: ResumeSession) => {
     const lines = diffLines(session.diffSteps);
     return <div className="mt-3 rounded-xl border border-origin-warning/40 bg-origin-warning/10 p-3" role="group" aria-label="再開する計画の承認">
-      <p className="text-sm font-black">再開する計画</p>
+      <p className="text-sm font-bold">再開する計画</p>
       {session.planChanged
         ? <>
           <p className="mt-1 text-[13px] font-semibold text-origin-warning">計画が前回から変わっています。内容を確認してから承認してください。</p>
@@ -734,7 +734,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
   return <section className="origin-workspace rounded-2xl p-4" aria-label="これまでの作業">
     <div className="flex items-center justify-between gap-3">
       <div>
-        <h2 className="text-base font-black">これまでの作業</h2>
+        <h2 className="text-base font-bold">これまでの作業</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
         className="origin-secondary-button min-h-11 px-3 text-[13px] font-semibold disabled:opacity-50">
@@ -752,7 +752,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
     )}
     {grouped.map((group) => (
       <div key={group.key} className="mt-4">
-        <h3 className="text-sm font-black">{group.title} <span className="text-[13px] font-semibold text-origin-muted">{group.items.length}件</span></h3>
+        <h3 className="text-sm font-bold">{group.title} <span className="text-[13px] font-semibold text-origin-muted">{group.items.length}件</span></h3>
         <div className="mt-2 space-y-2">{group.items.map(renderRun)}</div>
       </div>
     ))}

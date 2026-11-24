@@ -51,7 +51,13 @@ export interface OriginWorkSheetItem {
   steps?: readonly OriginWorkSheetStep[];
 }
 
-/** ステップ状態の平易な表示文（実況パネルの語彙と揃える）。 */
+/**
+ * ステップ状態の平易な表示文（実況パネルの語彙と揃える）。
+ * 失敗・停止（failed／blocked）は、ドットと状態文の両方に状態色
+ * --danger を割り当て、文字を読まなくても完了・未着手と区別できる
+ * ようにする（K-10、2026-11-24）。完了のドットは「静かな面」の
+ * 方針で --text-secondary のままにする。
+ */
 function workSheetStepStatusText(status: OriginWorkSheetStep['status'], ja: boolean): string {
   if (status === 'running') return ja ? '実行中' : 'In progress';
   if (status === 'completed') return ja ? '完了' : 'Done';
@@ -156,7 +162,7 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
         </div>
         {items.length > 0 && (
         <div className="mt-5 border-t border-[var(--border-default)] pt-4">
-          <h3 className="m-0 text-sm font-black">{ja ? 'いまの作業' : 'Current work'}</h3>
+          <h3 className="m-0 text-sm font-bold">{ja ? 'いまの作業' : 'Current work'}</h3>
             <ul className="m-0 mt-2 grid list-none gap-1 p-0">
               {items.map((item) => {
                 const statusText = item.status === 'active' ? (ja ? '進行中' : 'In progress') : (ja ? '完了' : 'Done');
@@ -192,10 +198,10 @@ export default function OriginWorkSheet({ open, items, language, onClose, onOpen
                             <span aria-hidden="true" className="origin-muted shrink-0">{stepIndex + 1}.</span>
                             <span
                               aria-hidden="true"
-                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${step.status === 'running' ? 'animate-pulse bg-[var(--accent-primary)]' : step.status === 'completed' ? 'bg-[var(--text-secondary)]' : 'bg-[var(--border-default)]'}`}
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${step.status === 'running' ? 'animate-pulse bg-[var(--accent-primary)]' : step.status === 'completed' ? 'bg-[var(--text-secondary)]' : step.status === 'failed' || step.status === 'blocked' ? 'bg-[var(--danger)]' : 'bg-[var(--border-default)]'}`}
                             />
                             <span className="min-w-0 flex-1 truncate font-semibold">{step.title}</span>
-                            <span className="origin-muted shrink-0">{workSheetStepStatusText(step.status, ja)}</span>
+                            <span className={step.status === 'failed' || step.status === 'blocked' ? 'shrink-0 text-[var(--danger)]' : 'origin-muted shrink-0'}>{workSheetStepStatusText(step.status, ja)}</span>
                           </li>
                         ))}
                       </ol>
