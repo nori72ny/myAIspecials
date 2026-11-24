@@ -9,6 +9,7 @@ import { executeNextTask } from './taskGraphExecutor.js';
 import {
   AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP,
   AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS,
+  AGENT_RUN_RATE_LIMIT_HOLD_MAX_WAIT_MS,
   AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS,
   MAX_AGENT_RUN_LIVE_QUERY_LENGTH,
   MAX_AGENT_RUN_LIVE_SOURCES,
@@ -125,6 +126,20 @@ import type { AgentAttachmentStore } from './agentAttachmentRecord.js';
  *   bound the step fails terminally with the provider's code, exactly
  *   as with the switch OFF. Parse and coverage verification are never
  *   touched: the hold changes only what a rate limit DOES to a run.
+ * - Wave 4 (design AGENT_QUOTA_HOLD_WAVE4_2026-11-25) completes the
+ *   hold's quota watchdog: the provider's own stated recovery
+ *   (Retry-After / rate-limit reset, observed by the provider layer
+ *   and carried through the model-call adapter and the tool failure
+ *   message) now replaces the per-minute floor as the hold's resume
+ *   instant — bounded below by the floor and above by
+ *   AGENT_RUN_RATE_LIMIT_HOLD_MAX_WAIT_MS — so a daily-window
+ *   exhaustion is held for the window's real recovery instead of
+ *   being re-presented every minute until the bounds kill it. The
+ *   park also covers the attachment_reconciler, the second
+ *   model-calling step: it spends the same provider quotas and
+ *   returns the same code, and its exclusion was chronological
+ *   (it did not exist when §2-B was scoped), not principled. With
+ *   no observed recovery the behavior is exactly §2-B's.
  */
 
 export const AGENT_RUN_ADVANCE_DEFAULT_BUDGET_MS = 100_000;
@@ -221,6 +236,29 @@ export function toolFailureCodeFromMessage(message: string | undefined): string 
   const trimmed = message.trim();
   if (/^[A-Z][A-Z0-9_]+$/.test(trimmed)) return trimmed;
   return TOOL_FAILURE_CODE_PATTERN.exec(trimmed)?.[0] ?? 'TOOL_EXECUTION_FAILED';
+}
+
+/**
+ * The provider-stated quota recovery a model step's failure message
+ * carries (multitask wave 4, design AGENT_QUOTA_HOLD_WAVE4_
+ * 2026-11-25), in the same fixed-shape parenthetical style as the
+ * parse and coverage failures below: `(quota-recovery: N)` with N a
+ * positive whole-second count the provider itself stated. Anything
+ * that does not match the fixed shape — absent, non-numeric, zero,
+ * negative, or beyond the safe-integer range — contributes
+ * nothing: the rate-limit hold then records its per-minute floor
+ * exactly as before wave 4. Fail-soft by construction, like every
+ * message reader in this module.
+ */
+const QUOTA_RECOVERY_FAILURE_PATTERN = /\(quota-recovery: (\d{1,10})\)/;
+
+export function quotaRecoverySecondsFromFailureMessage(message: string | undefined): number | undefined {
+  if (!message) return undefined;
+  const match = QUOTA_RECOVERY_FAILURE_PATTERN.exec(message);
+  if (!match) return undefined;
+  const seconds = Number(match[1]);
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) return undefined;
+  return seconds;
 }
 
 export function textualArtifactOf(toolName: ToolName, artifact: string): string | undefined {
@@ -1057,17 +1095,27 @@ export async function advanceAgentRun(
     index: number,
     priorStepState: AgentRunStepState,
     liveDetail: AgentRunStepLiveDetail | undefined,
+    observedRecoverySeconds?: number,
   ): Promise<AdvanceAgentRunOutcome | null> => {
     const priorHolds = priorStepState.rateLimitHolds ?? 0;
     if (priorHolds >= AGENT_RUN_RATE_LIMIT_HOLD_MAX_PER_STEP) return null;
     const parkedAt = now();
     if (parkedAt - record.createdAt >= AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS) return null;
     // The resume instant is the per-minute window's recovery floor
-    // (AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS). A provider Retry-After
-    // or reset replaces the floor when it becomes observable on the
-    // model-call path; the result type carries only the failure code
-    // today, so the floor is what the hold records (design §1.5).
-    const retryAt = parkedAt + AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS;
+    // (AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS), unless the failing
+    // dispatch stated its own recovery (wave 4): a provider
+    // Retry-After / rate-limit reset that reached this path through
+    // the failure message replaces the floor — bounded above by
+    // AGENT_RUN_RATE_LIMIT_HOLD_MAX_WAIT_MS, and never below the
+    // floor, so an optimistic or per-minute statement can only
+    // extend the wait to the window's real recovery, never shorten
+    // it past the floor. With no observed recovery the floor is
+    // what the hold records, exactly as in §2-B.
+    const observedWaitMs = typeof observedRecoverySeconds === 'number'
+      && Number.isFinite(observedRecoverySeconds) && observedRecoverySeconds > 0
+      ? Math.min(observedRecoverySeconds * 1000, AGENT_RUN_RATE_LIMIT_HOLD_MAX_WAIT_MS)
+      : undefined;
+    const retryAt = parkedAt + Math.max(AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS, observedWaitMs ?? 0);
     stepsState[index] = {
       id: `task-${index + 1}`,
       status: 'queued',
@@ -1435,16 +1483,24 @@ export async function advanceAgentRun(
         if (savedText !== undefined) persistedTextualByStep.set(index, savedText);
       }
       if (!executionRecord?.toolExecuted || !executionRecord.verified || executionRecord.status !== 'completed' || finalTask.status !== 'completed') {
-        // Rate-limit hold (design §2-B): an analyzer step the provider
+        // Rate-limit hold (design §2-B): a model step the provider
         // rate-limited parks the run instead of failing it, when the
         // switch is on and the hold's runaway bounds allow. Every
         // other failure — and a rate limit past the bounds — fails
-        // exactly as before, with the same code.
+        // exactly as before, with the same code. Wave 4: the park
+        // covers the reconciler beside the analyzer, and the
+        // provider-stated recovery the failure message carries
+        // times the hold.
         if (rateLimitHoldOn
-          && step.toolName === 'attachment_analyzer'
+          && (step.toolName === 'attachment_analyzer' || step.toolName === 'attachment_reconciler')
           && failureCode === 'PROVIDER_RATE_LIMITED'
           && executionRecord?.toolExecuted) {
-          const parked = await tryParkRateLimitedStep(index, stepStateBeforeExecution, liveDetail);
+          const parked = await tryParkRateLimitedStep(
+            index,
+            stepStateBeforeExecution,
+            liveDetail,
+            quotaRecoverySecondsFromFailureMessage(executionRecord.toolFailureMessage),
+          );
           if (parked) return parked;
         }
         return failRun(failureCode);
@@ -1502,8 +1558,14 @@ export async function advanceAgentRun(
       if (rateLimitHoldOn
         && errorCode === 'PROVIDER_RATE_LIMITED'
         && priorStepState !== undefined
-        && plan[currentStepIndex]?.toolName === 'attachment_analyzer') {
-        const parked = await tryParkRateLimitedStep(currentStepIndex, priorStepState, undefined).catch(() => null);
+        && (plan[currentStepIndex]?.toolName === 'attachment_analyzer'
+          || plan[currentStepIndex]?.toolName === 'attachment_reconciler')) {
+        const parked = await tryParkRateLimitedStep(
+          currentStepIndex,
+          priorStepState,
+          undefined,
+          quotaRecoverySecondsFromFailureMessage(message),
+        ).catch(() => null);
         if (parked) return parked;
       }
     }
