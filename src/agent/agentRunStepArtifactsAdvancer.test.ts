@@ -490,3 +490,136 @@ describe('advanceAgentRun with step-artifact persistence ON', () => {
     expect(saved.map((row) => row.stepIndex).sort((a, b) => a - b)).toEqual([0, 1]);
   });
 });
+
+describe('diagnostic retention of verification-failed artifacts (K-17, PR-α)', () => {
+  const refusingVerifier = async (artifact: string, toolName: ToolName) =>
+    (toolName === 'document_generator'
+      ? { ok: false, artifact, attempts: 1 }
+      : { ok: true, artifact, attempts: 0 });
+
+  it('keeps the artifact verification refused, alongside the completed producer row', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const calls: Array<{ name: ToolName; input: ToolParams }> = [];
+    const runTool = makeChainTool(calls);
+    const seeded = await seedRun(store, clock, chainPlan);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: refusingVerifier,
+        now: () => clock,
+        stepArtifactsEnabled: true,
+      },
+      seeded,
+      'driver-diag-01',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    // The failure itself is unchanged: same kind, same code, and the
+    // run record carries no artifact on the outcome.
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    expect(outcome).not.toHaveProperty('artifact');
+    const record = await store.get(RUN_ID, OWNER);
+    expect(record?.status).toBe('failed');
+    expect(record?.stepsState[1]?.status).toBe('failed');
+    // Both rows are in the store: the producer's (its step state is
+    // completed) and the refused document's — the read side tells
+    // the diagnostic row apart by exactly that step state.
+    const saved = await store.listStepArtifacts(RUN_ID);
+    expect(saved.map((row) => row.stepIndex).sort((a, b) => a - b)).toEqual([0, 1]);
+    const diagnostic = saved.find((row) => row.stepIndex === 1);
+    expect(diagnostic?.artifact).toBe(JSON.stringify({ content: 'doc:FILE TEXT' }));
+    expect(diagnostic?.attempt).toBe(record?.stepsState[1]?.attempts);
+  });
+
+  it('saves no diagnostic row while persistence is OFF', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const calls: Array<{ name: ToolName; input: ToolParams }> = [];
+    const runTool = makeChainTool(calls);
+    const seeded = await seedRun(store, clock, chainPlan);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: refusingVerifier,
+        now: () => clock,
+      },
+      seeded,
+      'driver-diag-02',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    expect(await store.listStepArtifacts(RUN_ID)).toEqual([]);
+  });
+
+  it('keeps the §4.2 selectivity for diagnostic rows: a refused step nobody consumes is not saved', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const runTool = vi.fn(async (name: ToolName): Promise<ToolResult> => ({
+      ok: true,
+      tool: name,
+      artifact: `artifact:${name}`,
+      message: 'ok',
+    }));
+    const refuseAll = async (artifact: string) => ({ ok: false, artifact, attempts: 1 });
+    const seeded = await seedRun(store, clock, [{ toolName: 'repository_explorer', params: {} }]);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: refuseAll,
+        now: () => clock,
+        stepArtifactsEnabled: true,
+      },
+      seeded,
+      'driver-diag-03',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    expect(await store.listStepArtifacts(RUN_ID)).toEqual([]);
+  });
+
+  it('does not save a secret-like diagnostic artifact', async () => {
+    let clock = 1_700_000_000_000;
+    const store = new InMemoryAgentRunStore(() => clock);
+    const secretDoc = 'draft document api_key: "supersecretvalue" end of draft';
+    const runTool = vi.fn(async (name: ToolName, input: ToolParams): Promise<ToolResult> => {
+      if (name === 'file_reader') return { ok: true, tool: name, artifact: 'FILE TEXT', message: 'ok' };
+      if (name === 'document_generator') return { ok: true, tool: name, artifact: secretDoc, message: 'ok' };
+      return { ok: true, tool: name, artifact: `artifact:${name}`, message: 'ok' };
+    });
+    const seeded = await seedRun(store, clock, chainPlan);
+
+    const outcome = await advanceAgentRun(
+      {
+        runStore: store,
+        consumptionStore: makeConsumptionStore(),
+        runTool,
+        verifyArtifact: refusingVerifier,
+        now: () => clock,
+        stepArtifactsEnabled: true,
+      },
+      seeded,
+      'driver-diag-04',
+      { budgetMs: 60_000, leaseSeconds: LEASE_SECONDS },
+    );
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'ARTIFACT_VERIFICATION_FAILED' });
+    const saved = await store.listStepArtifacts(RUN_ID);
+    // The producer's clean row is saved; the refused secret-like
+    // document is screened out exactly like a completed step's
+    // artifact would be — never truncated, never stored.
+    expect(saved.map((row) => row.stepIndex)).toEqual([0]);
+    expect(JSON.stringify(saved)).not.toContain('supersecretvalue');
+  });
+});
