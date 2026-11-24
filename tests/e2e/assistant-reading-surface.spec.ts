@@ -370,16 +370,19 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
       const scroller = page.locator('.origin-chat-scroll');
       const scrollerBox = await scroller.boundingBox();
       expect(scrollerBox).not.toBeNull();
-      // ここで固定するのは CSS 側の保証範囲：最終スクロール
-      // 位置（最下部）でピル行まで含めて収まり、末尾余白が
-      // 確保されていること。最下部への追随そのものは App 側
-      // ロジックの責任で、負荷の高い全体実行では追随が先頭の
-      // まま止まる事象を実測したため（scrollTop=1 のまま
-      // ピルが文書末尾に残る）、このテストでは最終位置を
-      // 明示的に作って余白の保証だけを切り分けて固定する。
-      // 追随が効いた通常経路では、単独実行で「追加スクロール
-      // なしにピルが全見え」を実測済み（2026-11-24）。
-      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      // 追随そのものもここで固定する（K-16 残件、2026-11-24）：
+      // 負荷の高い全体実行では、短い内容の最下部にいた時点で
+      // 発生したスクロールイベントが本文の伸びた後に遅れて
+      // 配送され、追随判定が「読み手が上へ動いた」と誤認して
+      // 追随が先頭のまま止まる事象があった（scrollTop=1 のまま
+      // ピルが文書末尾に残る）。App 側は、追随処理が自分で
+      // 置いた位置から動いていないイベントでは追随を落とさ
+      // ないようになり、競合の再現条件は App.test.tsx の
+      // 単体テストで決定的に固定した。ここでは完了直後に
+      // 追加スクロールなしで最下部へ到達していることと、
+      // その位置でピル行まで含めて収まり末尾余白が確保され
+      // ていること（CSS 側の保証）を合わせて確認する。
+      await expect.poll(async () => scroller.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)), { timeout: 15_000 }).toBeLessThanOrEqual(2);
       const pillBox = await pills.boundingBox();
       expect(pillBox).not.toBeNull();
       expect(pillBox!.y).toBeGreaterThanOrEqual(scrollerBox!.y - 1);

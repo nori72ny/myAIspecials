@@ -1927,14 +1927,31 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
   // 行になり、本文が円盤の下を通らなくなったため、スクロール
   // 状態をプレゼンスへ渡す必要が無くなった。ここに残るのは
   // 末尾追随の判定（followChatBottomRef）だけ。
+  // 追随処理が自分で置いたスクロール位置（設定直後の読み戻し）。
+  // スクロールイベントは非同期に届くため、短い内容の最下部に
+  // いた時点で発生したイベントが、本文が伸びた後に配送される
+  // ことがある。その場合、最下部からの見かけの距離は大きく
+  // 開くが、読み手は動いていない。自分が置いた位置から動いて
+  // いないイベントでは追随を落とさない（K-16 残件、2026-11-24：
+  // 負荷の高い E2E 全体実行で、追随が先頭のまま止まり調整ピル
+  // が文書末尾に残る事象の対策）。読み手が実際に上へスクロール
+  // した場合は位置が変わるため、従来どおり追随は落ちる。
+  const followScrollTopRef = useRef<number | null>(null);
   const scrollChatToBottom = useCallback(() => {
     const scroller = chatScrollRef.current;
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    if (!scroller) return;
+    scroller.scrollTop = scroller.scrollHeight;
+    followScrollTopRef.current = scroller.scrollTop;
   }, []);
   const handleChatScroll = useCallback(() => {
     const scroller = chatScrollRef.current;
     if (!scroller) return;
-    followChatBottomRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120) {
+      followChatBottomRef.current = true;
+      return;
+    }
+    if (followScrollTopRef.current !== null && scroller.scrollTop === followScrollTopRef.current) return;
+    followChatBottomRef.current = false;
   }, []);
   useEffect(() => {
     // 自分が送った直後は常に末尾へ追随する。

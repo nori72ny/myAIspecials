@@ -3252,6 +3252,76 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     await waitFor(() => expect(scrollTop).toBe(1400), { timeout: 3000 });
   });
 
+  it('keeps following when a stale scroll event is delivered after late growth (K-16 residual, 2026-11-24)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestPath(input) === '/api/chat') {
+        return new Response(JSON.stringify({
+          content: '遅れて届くスクロールイベントでも追随が切れないことを確認する回答',
+          routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    let scrollHeight = 600;
+    let scrollTop = 0;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 200 });
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '遅延イベントでの追随確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('遅れて届くスクロールイベントでも追随が切れないことを確認する回答')).toBeTruthy();
+    // 完了時の追随で、短い内容の最下部（600）に置かれている。
+    await waitFor(() => expect(scrollTop).toBe(600));
+    // 本文が遅れて伸びた直後、短い内容の最下部にいた時点で
+    // 発生したスクロールイベントが遅れて配送されたとする。
+    // 位置は追随処理が置いた 600 のままで読み手は動いておらず、
+    // 見かけの距離は 600px 開くが、追随は切れてはいけない。
+    // 対策が無いと、このイベントで追随が落ち、寄せ直しが
+    // 効かず 600 で止まる（E2E 全体実行で実測した残件）。
+    scrollHeight = 1400;
+    fireEvent.scroll(scroller);
+    await waitFor(() => expect(scrollTop).toBe(1400), { timeout: 3000 });
+  });
+
+  it('stops following when the reader actually scrolls up before the settle passes (K-16 residual guard, 2026-11-24)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestPath(input) === '/api/chat') {
+        return new Response(JSON.stringify({
+          content: '読み手が上へスクロールしたら追随が止まることを確認する回答',
+          routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    let scrollHeight = 600;
+    let scrollTop = 0;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 200 });
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '上スクロールでの追随停止確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('読み手が上へスクロールしたら追随が止まることを確認する回答')).toBeTruthy();
+    await waitFor(() => expect(scrollTop).toBe(600));
+    // 読み手が実際に上へスクロールした（追随処理が置いた位置
+    // から動いた）。本文が伸びても、寄せ直しは効いてはいけない
+    // （邪魔をしない従来の配慮の維持）。
+    scrollTop = 100;
+    scrollHeight = 1400;
+    fireEvent.scroll(scroller);
+    await new Promise((resolve) => { setTimeout(resolve, 700); });
+    expect(scrollTop).toBe(100);
+  });
+
   it('shows the existing failure text in the presence pill when the send fails', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('network down'); });
     vi.stubGlobal('fetch', fetchMock);
