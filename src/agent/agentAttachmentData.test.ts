@@ -4,6 +4,8 @@ import {
   agentDataUsesFileNameKeys,
   applyAgentDataNumericCopy,
   buildAgentAttachmentDataView,
+  clipAgentAttachmentInstruction,
+  findMissingAgentDataRequiredColumns,
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
   verifyAgentDataCoverage,
@@ -493,5 +495,141 @@ describe('agentAttachmentData chunk-local yardsticks (Basel segment-2 fix)', () 
     const tamperedResult = verifyAgentDataLocalCoverage(view, [first], tampered);
     expect(tamperedResult.ok).toBe(false);
     if (tamperedResult.ok === false) expect(tamperedResult.numericMismatch).toEqual(['amount']);
+  });
+});
+
+describe('instruction clip preserving the outputs section (対策2)', () => {
+  // The Basel brief's shape, as measured in the failure diagnosis
+  // (2026-11-24): the "Required Outputs" section starts beyond
+  // the 800-char instruction cap, so the plain head slice the
+  // planner used to apply cut the goal inside its inputs list
+  // and no analyzer ever saw the deliverable specification.
+  const BASEL_GOAL = [
+    'Classify the operational risk loss events in the attached files into Loss Event Categories and Business Lines, and calculate the regulatory capital charge under the Basic Indicator Approach (BIA).',
+    '',
+    '## Visible Inputs',
+    '- operational_risk_events.tsv: the operational risk loss events to classify; one row per event, keyed by Event_ID (OR001 to OR060).',
+    '- loss_event_categories.tsv: the Loss Event Category definitions used for the classification.',
+    '- business_line_mapping.tsv: the Business Line mapping used for the classification.',
+    '- capital_calculation_params.tsv: the parameters of the BIA capital calculation.',
+    '- classified_events.schema.csv: the output schema of the classified events deliverable.',
+    '- capital_calculation.schema.json: the output schema of the capital calculation deliverable.',
+    '- execution_log.schema.txt: the format of the execution log deliverable.',
+    '',
+    '## Required Outputs',
+    '1. classified_events.csv columns:',
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'Loss_Event_Category is one of EL1-EL7: EL1 Internal Fraud; EL2 External Fraud; EL3 Employment Practices; EL4 Clients, Products and Business Practices; EL5 Damage to Physical Assets; EL6 Business Disruption; EL7 Execution, Delivery and Process Management.',
+    'Business_Line is one of BL1-BL8: BL1 Corporate Finance; BL2 Trading and Sales; BL3 Retail Banking; BL4 Commercial Banking; BL5 Payment and Settlement; BL6 Agency Services; BL7 Asset Management; BL8 Retail Brokerage.',
+    '2. capital_calculation.json fields:',
+    'alpha_coefficient, kbia, or_regulatory_capital_cny',
+    '3. execution_log.txt in the format of execution_log.schema.txt.',
+  ].join('\n');
+
+  it('keeps the classification columns, the EL/BL code ranges and the BIA fields within the cap', () => {
+    expect(BASEL_GOAL.length).toBeGreaterThan(800);
+    // The regression shape: the plain head slice never reaches
+    // the outputs section.
+    expect(BASEL_GOAL.slice(0, 800)).not.toContain('Required Outputs');
+    const clipped = clipAgentAttachmentInstruction(BASEL_GOAL, 800);
+    expect(clipped.length).toBeLessThanOrEqual(800);
+    expect(clipped).toContain('Classify the operational risk loss events');
+    expect(clipped).toContain('## Required Outputs');
+    expect(clipped).toContain('Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY');
+    expect(clipped).toContain('EL1');
+    expect(clipped).toContain('EL7');
+    expect(clipped).toContain('BL1');
+    expect(clipped).toContain('BL8');
+    expect(clipped).toContain('alpha_coefficient');
+    expect(clipped).toContain('or_regulatory_capital_cny');
+  });
+
+  it('returns a goal that fits the budget unchanged', () => {
+    const goal = '短い依頼です。集計してください。';
+    expect(clipAgentAttachmentInstruction(goal, 800)).toBe(goal);
+  });
+
+  it('keeps the plain head slice for a goal with no outputs section', () => {
+    const goal = ['# 依頼', ...Array.from({ length: 60 }, (_, i) => `補足説明の行 ${i} です。`)].join('\n');
+    expect(goal.length).toBeGreaterThan(800);
+    expect(clipAgentAttachmentInstruction(goal, 800)).toBe(goal.slice(0, 800));
+  });
+
+  it('preserves a Japanese outputs section and stops it at the next heading', () => {
+    const goal = [
+      '添付ファイルを分析してください。',
+      '',
+      '## 入力',
+      ...Array.from({ length: 30 }, (_, i) => `- 入力ファイル${i}.txt: 説明文がここに入ります。`),
+      '',
+      '## 成果物',
+      'result.csv の列: id, category, score',
+      '',
+      '## 備考',
+      'この節の内容は指示に含めない。',
+    ].join('\n');
+    expect(goal.length).toBeGreaterThan(800);
+    const clipped = clipAgentAttachmentInstruction(goal, 800);
+    expect(clipped).toContain('## 成果物');
+    expect(clipped).toContain('result.csv の列: id, category, score');
+    expect(clipped).not.toContain('この節の内容は指示に含めない');
+  });
+});
+
+describe('required output columns from an output schema (対策4)', () => {
+  const EVENTS = ['Event_ID\tLoss_Amount_CNY', 'OR001\t100', 'OR002\t200'].join('\n');
+  const SCHEMA = [
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'EXAMPLE001,EL1,BL2,100000',
+    'EXAMPLE002,EL4,BL7,250000',
+  ].join('\n');
+
+  it('reads the schema header as the required columns', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS },
+      { name: 'classified_events.schema.csv', text: SCHEMA },
+    ]);
+    expect(view.requiredOutputColumns).toEqual([
+      'Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY',
+    ]);
+  });
+
+  it('carries no required columns when the set has no schema file', () => {
+    const view = buildAgentAttachmentDataView([{ name: 'fruits.csv', text: FRUITS }]);
+    expect(view.requiredOutputColumns).toBeUndefined();
+    expect(findMissingAgentDataRequiredColumns(view, [])).toEqual([]);
+  });
+
+  it('ignores a schema-named file whose header has an unnamed column', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS },
+      { name: 'broken.schema.csv', text: 'Event_ID,,Loss_Amount_CNY\nOR001,x,100' },
+    ]);
+    expect(view.requiredOutputColumns).toBeUndefined();
+  });
+
+  it('names exactly the columns a row set fails to carry', () => {
+    const view = buildAgentAttachmentDataView([
+      { name: 'operational_risk_events.tsv', text: EVENTS },
+      { name: 'classified_events.schema.csv', text: SCHEMA },
+    ]);
+    const complete = [
+      { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100' },
+      { Event_ID: 'OR002', Loss_Event_Category: 'EL4', Business_Line: 'BL7', Loss_Amount_CNY: '200' },
+    ];
+    expect(findMissingAgentDataRequiredColumns(view, complete)).toEqual([]);
+    const copied = [
+      { Event_ID: 'OR001', Loss_Amount_CNY: '100' },
+      { Event_ID: 'OR002', Loss_Amount_CNY: '200' },
+    ];
+    expect(findMissingAgentDataRequiredColumns(view, copied)).toEqual(['Loss_Event_Category', 'Business_Line']);
+    const oneBlank = [
+      complete[0],
+      { Event_ID: 'OR002', Loss_Event_Category: ' ', Business_Line: 'BL7', Loss_Amount_CNY: '200' },
+    ];
+    expect(findMissingAgentDataRequiredColumns(view, oneBlank)).toEqual(['Loss_Event_Category']);
+    expect(findMissingAgentDataRequiredColumns(view, [])).toEqual([
+      'Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY',
+    ]);
   });
 });

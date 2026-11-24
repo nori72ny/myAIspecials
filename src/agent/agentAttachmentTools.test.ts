@@ -9,6 +9,7 @@ import {
 import { servingFromRoutingEvidence, type AgentModelExecutor } from './agentModelCall.js';
 import {
   AGENT_ANALYZER_CHUNK_INTERVAL_MS,
+  AGENT_AUDIT_ATTRIBUTE_VOCABULARY,
   agentGoalUsesCjk,
   computeAgentDataValueMismatches,
   mergeAgentDataStructures,
@@ -16,6 +17,7 @@ import {
   parseChunkOutputDetailed,
   parseFailureRepairGuidance,
   parseReconciliationOutput,
+  summarizeAgentDataValueTable,
   type AgentDataValue,
 } from './agentAttachmentTools.js';
 import { buildAgentAttachmentDataView } from './agentAttachmentData.js';
@@ -1251,7 +1253,16 @@ describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () 
       }
       return {
         ok: true,
-        text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
+        // The event rows carry the schema's columns: since the
+        // 2026-11-24 wave (対策4) an output schema makes its
+        // columns mandatory at the final gate, and a run whose
+        // rows lack them fails closed instead of completing.
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100', Amount: '100' },
+            { Event_ID: 'OR002', Loss_Event_Category: 'EL4', Business_Line: 'BL7', Loss_Amount_CNY: '200', Amount: '200' },
+          ],
+        }),
       };
     };
     const result = await toolRegistry.attachment_analyzer.execute(
@@ -1295,7 +1306,14 @@ describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () 
       }
       return {
         ok: true,
-        text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
+        // Schema columns included for the same reason as the
+        // sibling test above (対策4 mandatory output columns).
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100', Amount: '100' },
+            { Event_ID: 'OR002', Loss_Event_Category: 'EL4', Business_Line: 'BL7', Loss_Amount_CNY: '200', Amount: '200' },
+          ],
+        }),
       };
     };
     const step1 = await toolRegistry.attachment_analyzer.execute(
@@ -1707,6 +1725,11 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
       droppedCount: 1,
       droppedReasons: { boilerplate: 1 },
       pickedUpCount: 1,
+      // Which findings were kept/dropped rides the summary since
+      // the 2026-11-24 wave (対策1(a)): kept the paired finding
+      // (index 0), dropped the boilerplate one (index 1).
+      keptIndexes: [0],
+      droppedIndexes: [{ index: 1, reason: 'boilerplate' }],
     });
     expect(bundle.content).toContain('## Finding 1: 対価の金額が食い違う');
     expect(bundle.content).toContain('- Why it is inconsistent:');
@@ -1788,13 +1811,20 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     const bundle = JSON.parse(result.artifact ?? '{}') as {
       findings: { claim: string }[];
       reconciledFindings: { claim: string }[];
-      reconciliation: { mode: string; droppedCount: number; pickedUpCount: number };
+      reconciliation: {
+        mode: string; droppedCount: number; pickedUpCount: number;
+        keptIndexes?: number[]; droppedIndexes?: { index: number; reason: string }[];
+      };
       content: string;
     };
     expect(bundle.findings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う', '承認手続きが未了である']);
     expect(bundle.reconciledFindings.map((finding) => finding.claim)).toEqual(['対価の金額が食い違う', '持股比例が食い違う']);
     expect(bundle.reconciliation.mode).toBe('shadow');
     expect(bundle.reconciliation.droppedCount).toBe(1);
+    // The judged indexes ride the summary (対策1(a)): without
+    // them the shadow record cannot say WHICH findings were kept.
+    expect(bundle.reconciliation.keptIndexes).toEqual([0]);
+    expect(bundle.reconciliation.droppedIndexes).toEqual([{ index: 1, reason: 'boilerplate' }]);
     expect(bundle.content).toContain('承認手続きが未了である');
   });
 
@@ -1808,11 +1838,16 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     expect(result.ok).toBe(true);
     const bundle = JSON.parse(result.artifact ?? '{}') as {
       findings: { claim: string }[];
-      reconciliation: { failed?: boolean; candidateCount: number };
+      reconciliation: { failed?: boolean; candidateCount: number; keptIndexes?: number[]; droppedIndexes?: unknown[] };
     };
     expect(bundle.findings).toHaveLength(2);
     expect(bundle.reconciliation.failed).toBe(true);
     expect(bundle.reconciliation.candidateCount).toBe(1);
+    // Nothing was judged, so no index lists are recorded — an
+    // unjudged reconciliation must not read as an empty judgment
+    // (対策1(a)).
+    expect(bundle.reconciliation.keptIndexes).toBeUndefined();
+    expect(bundle.reconciliation.droppedIndexes).toBeUndefined();
   });
 
   it('off: passes the bundle through with no reconciliation record', async () => {
@@ -1853,6 +1888,20 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
       evidenceB: 'v2', fileB: 'f2', locationB: 'l2',
     };
     expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...vetted, source: { kind: 'kept', index: 0 } }] }), 1, 0).ok).toBe(true);
+    // The kept originals' indexes are part of the parse result
+    // (対策1(a)), ascending regardless of output order.
+    const multi = parseReconciliationOutput(JSON.stringify({
+      findings: [
+        { ...vetted, source: { kind: 'kept', index: 2 } },
+        { ...vetted, source: { kind: 'kept', index: 0 } },
+      ],
+      dropped: [{ index: 1, reason: 'boilerplate' }],
+    }), 3, 0);
+    expect(multi.ok).toBe(true);
+    if (multi.ok) {
+      expect(multi.keptIndexes).toEqual([0, 2]);
+      expect(multi.dropped).toEqual([{ index: 1, reason: 'boilerplate' }]);
+    }
     // Kept index out of range.
     expect(parseReconciliationOutput(JSON.stringify({ findings: [{ ...vetted, source: { kind: 'kept', index: 1 } }] }), 1, 0).ok).toBe(false);
     // The same original kept twice.
@@ -1874,5 +1923,273 @@ describe('misreading countermeasure layer 2: attachment_reconciler tool', () => 
     }), 2, 0);
     expect(withBadDrop.ok).toBe(true);
     if (withBadDrop.ok) expect(withBadDrop.dropped).toEqual([]);
+  });
+});
+
+describe('failure diagnosis 2026-11-24 wave 1 (対策3・対策4・対策1(d))', () => {
+  async function storeWithTypedFiles(files: ReadonlyArray<readonly [string, string, string]>) {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    for (const [name, text, mediaType] of files) {
+      const measured = validateAgentAttachmentFileText(text);
+      await store.addFile(SET_ID, OWNER, {
+        name,
+        mediaType,
+        kind: 'text',
+        byteSize: measured.byteSize,
+        charCount: measured.charCount,
+        sha256: measured.sha256,
+        extractedText: text,
+      });
+    }
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  const BASEL_EVENTS = ['Event_ID\tLoss_Amount_CNY', 'OR001\t100', 'OR002\t200'].join('\n');
+  const BASEL_SCHEMA = [
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'EXAMPLE001,EL1,BL2,100000',
+    'EXAMPLE002,EL4,BL7,250000',
+  ].join('\n');
+  const BASEL_FILES: ReadonlyArray<readonly [string, string, string]> = [
+    ['operational_risk_events.tsv', BASEL_EVENTS, 'text/tab-separated-values'],
+    ['classified_events.schema.csv', BASEL_SCHEMA, 'text/csv'],
+  ];
+
+  it('fails the final rows step closed, naming the missing schema columns (対策4)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles(BASEL_FILES);
+    // The production failure shape: the model returns the input
+    // rows faithfully — keys and amounts all correct — but never
+    // produces the derived columns the schema names. Before this
+    // wave the coverage gates passed and the run "completed".
+    const copyExecutor: AgentModelExecutor = async ({ userText }) => {
+      if (frameFileName(userText) === 'classified_events.schema.csv') {
+        return { ok: true, text: JSON.stringify({ rows: [] }) };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Amount_CNY: '100' },
+            { Event_ID: 'OR002', Loss_Amount_CNY: '200' },
+          ],
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, {
+        instruction: 'Classify each operational risk event and compute the BIA capital',
+        chunkOffset: 0,
+        chunkCount: 2,
+      }),
+      contextFor(store, copyExecutor),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      // The failure code is the message's leading token (the
+      // shape every analyzer gate failure takes; the advancer
+      // derives the step errorCode from it).
+      expect(result.message).toContain('AGENT_DATA_REQUIRED_COLUMNS_MISSING');
+      expect(result.message).toContain('Loss_Event_Category');
+      expect(result.message).toContain('Business_Line');
+    }
+  });
+
+  it('completes when every row carries the schema columns, and names them as mandatory in the instruction (対策4)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles(BASEL_FILES);
+    const instructions: string[] = [];
+    const classifyingExecutor: AgentModelExecutor = async ({ instruction, userText }) => {
+      instructions.push(instruction);
+      if (frameFileName(userText) === 'classified_events.schema.csv') {
+        return { ok: true, text: JSON.stringify({ rows: [] }) };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100' },
+            { Event_ID: 'OR002', Loss_Event_Category: 'EL4', Business_Line: 'BL7', Loss_Amount_CNY: '200' },
+          ],
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, {
+        instruction: 'Classify each operational risk event and compute the BIA capital',
+        chunkOffset: 0,
+        chunkCount: 2,
+      }),
+      contextFor(store, classifyingExecutor),
+    );
+    expect(result.ok).toBe(true);
+    expect(instructions[0]).toContain(
+      '各行には次の列を必ず含め、空にしないでください: Event_ID, Loss_Event_Category, Business_Line, Loss_Amount_CNY',
+    );
+  });
+
+  it('fails when a schema column is present on some rows but blank on others (対策4)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles(BASEL_FILES);
+    const partialExecutor: AgentModelExecutor = async ({ userText }) => {
+      if (frameFileName(userText) === 'classified_events.schema.csv') {
+        return { ok: true, text: JSON.stringify({ rows: [] }) };
+      }
+      return {
+        ok: true,
+        text: JSON.stringify({
+          rows: [
+            { Event_ID: 'OR001', Loss_Event_Category: 'EL1', Business_Line: 'BL2', Loss_Amount_CNY: '100' },
+            { Event_ID: 'OR002', Loss_Event_Category: '', Business_Line: 'BL7', Loss_Amount_CNY: '200' },
+          ],
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest, {
+        instruction: 'Classify each operational risk event and compute the BIA capital',
+        chunkOffset: 0,
+        chunkCount: 2,
+      }),
+      contextFor(store, partialExecutor),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.message).toContain('AGENT_DATA_REQUIRED_COLUMNS_MISSING');
+      expect(result.message).toContain('Loss_Event_Category');
+      expect(result.message).not.toContain('Business_Line');
+    }
+  });
+
+  it('gives the audit contract the controlled attribute vocabulary and the finding-to-table pairing rule (対策3)', async () => {
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['announcement.txt', '公告本文。', 'text/plain'],
+    ]);
+    const instructions: string[] = [];
+    const executor: AgentModelExecutor = async ({ instruction }) => {
+      instructions.push(instruction);
+      return { ok: true, text: JSON.stringify({ findings: [] }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: '文書の不整合を監査してください',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 1, auditMode: true,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    for (const label of AGENT_AUDIT_ATTRIBUTE_VOCABULARY) {
+      expect(instructions[0]).toContain(label);
+    }
+    expect(instructions[0]).toContain('値テーブルの属性は統制語彙');
+    expect(instructions[0]).toContain('所見として挙げた食い違いのペアは、同じ主体・同じ属性ラベルで値テーブルにも必ず入れること');
+  });
+
+  // The three discrepancies the 2026-11-24 diagnosis verified by
+  // hand in the four M&A source documents, entered in the value
+  // table under the controlled vocabulary (対策3), plus agreeing
+  // controls. The candidate computation must raise exactly the
+  // three verified pairs.
+  const VERIFIED_MA_VALUES: AgentDataValue[] = [
+    // 対価: the announcement's own tables disagree (p.2 carries
+    // both figures; 323 appears once).
+    { entity: '买方一', attribute: '金額', value: '146,660,332.00', file: 'announcement.txt', location: '2頁' },
+    { entity: '买方一', attribute: '金額', value: '146,660,323.00', file: 'announcement.txt', location: '2頁 表' },
+    // 持分: 聚源盛业's stake is 45% in the announcement (which
+    // makes the stated total 105%) and 40% in buyer 1's report.
+    { entity: '聚源盛业投资（宁波）有限公司', attribute: '比率・持分', value: '45%', file: 'announcement.txt', location: '4頁' },
+    { entity: '聚源盛业投资（宁波）有限公司', attribute: '比率・持分', value: '40%', file: 'buyer1_report.txt', location: '5頁' },
+    // 資金源泉: the announcement checks 自有资金 for buyer 1;
+    // buyer 1's own report says part came from bank borrowing.
+    { entity: '买方一', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: '資金源泉欄' },
+    { entity: '买方一', attribute: '資金源泉', value: '部分来源于自有资金及向银行的借款', file: 'buyer1_report.txt', location: '12頁' },
+    // Controls: buyer 2's funding agrees across documents, and
+    // the other shareholders' stakes agree — no candidates.
+    { entity: '买方二', attribute: '資金源泉', value: '自有资金', file: 'announcement.txt', location: '資金源泉欄' },
+    { entity: '买方二', attribute: '資金源泉', value: '自有资金', file: 'buyer2_report.txt', location: '3頁' },
+    { entity: '其他股东甲', attribute: '比率・持分', value: '33.33333%', file: 'announcement.txt', location: '4頁' },
+    { entity: '其他股东甲', attribute: '比率・持分', value: '33.33333%', file: 'buyer1_report.txt', location: '6頁' },
+    { entity: '其他股东乙', attribute: '比率・持分', value: '26.66667%', file: 'announcement.txt', location: '4頁' },
+    { entity: '其他股东乙', attribute: '比率・持分', value: '26.66667%', file: 'buyer2_report.txt', location: '6頁' },
+  ];
+
+  it('raises all three verified M&A pairs as candidates under the controlled vocabulary (対策3)', () => {
+    const candidates = computeAgentDataValueMismatches(VERIFIED_MA_VALUES, { agreements: [], definitions: [] });
+    expect(candidates).toHaveLength(3);
+    const consideration = candidates.find((candidate) => candidate.attribute === '金額');
+    expect(consideration?.entity).toBe('买方一');
+    expect(consideration?.values.map((entry) => entry.normalizedValue)).toEqual(['146660332', '146660323']);
+    const stake = candidates.find((candidate) => candidate.attribute === '比率・持分');
+    // The candidate carries the resolved entity: grouping
+    // normalizes with NFKC, so the fullwidth parentheses of the
+    // source name appear in their ASCII form.
+    expect(stake?.entity).toBe('聚源盛业投资(宁波)有限公司');
+    expect(stake?.values.map((entry) => entry.normalizedValue)).toEqual(['45', '40']);
+    const funding = candidates.find((candidate) => candidate.attribute === '資金源泉');
+    expect(funding?.entity).toBe('买方一');
+    expect(funding?.values.map((entry) => entry.value)).toEqual(['自有资金', '部分来源于自有资金及向银行的借款']);
+  });
+
+  it('summarizes the value table in the candidate computation grouping (対策1(d))', () => {
+    const summary = summarizeAgentDataValueTable(VERIFIED_MA_VALUES, { agreements: [], definitions: [] });
+    expect(summary.entryCount).toBe(VERIFIED_MA_VALUES.length);
+    expect(summary.groupCount).toBe(6);
+    const consideration = summary.groups.find((group) => group.attribute === '金額');
+    expect(consideration).toEqual({ entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 });
+    const buyerTwoFunding = summary.groups.find(
+      (group) => group.attribute === '資金源泉' && group.entity === '买方二',
+    );
+    expect(buyerTwoFunding).toEqual({ entity: '买方二', attribute: '資金源泉', entries: 2, distinctValues: 1 });
+  });
+
+  it('carries the value-table summary in the final audit bundle (対策1(d))', async () => {
+    const { store, setDigest } = await storeWithTypedFiles([
+      ['announcement.txt', '公告本文。买方一の対価は146,660,323.00元と記載。', 'text/plain'],
+      ['buyer1_report.txt', '買主一報告本文。対価は146,660,332.00元と記載。', 'text/plain'],
+    ]);
+    const executor: AgentModelExecutor = async ({ userText }) => {
+      const file = frameFileName(userText);
+      const amount = file === 'announcement.txt' ? '146,660,323.00' : '146,660,332.00';
+      return {
+        ok: true,
+        text: JSON.stringify({
+          findings: [{
+            claim: '対価の金額が文書間で食い違う',
+            explanation: '同一主体の同一属性で2つの異なる金額が記載されている',
+            evidence: `対価 ${amount} 元`,
+            file,
+            location: '第1頁',
+            evidenceB: '',
+          }],
+          values: [{ entity: '买方一', attribute: '金額', value: amount, file, location: '第1頁' }],
+          structure: { agreements: [], definitions: [] },
+        }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      {
+        attachmentSetId: SET_ID, setDigest,
+        instruction: '文書の不整合を監査してください',
+        outputKind: 'findings', chunkOffset: 0, chunkCount: 2, auditMode: true,
+      },
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      candidates: unknown[];
+      valueTable?: { entryCount: number; groupCount: number; groups: { entity: string; attribute: string; entries: number; distinctValues: number }[] };
+    };
+    expect(bundle.candidates).toHaveLength(1);
+    expect(bundle.valueTable).toEqual({
+      entryCount: 2,
+      groupCount: 1,
+      groups: [{ entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 }],
+    });
   });
 });

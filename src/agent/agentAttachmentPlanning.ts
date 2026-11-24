@@ -5,6 +5,7 @@ import {
   AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
   AGENT_ATTACHMENT_MAX_CHUNKS_PER_RUN,
   AGENT_ATTACHMENT_MAX_CHUNKS_PER_STEP,
+  clipAgentAttachmentInstruction,
   type AgentAttachmentDataView,
 } from './agentAttachmentData.js';
 import type { AgentDataOutputKind, AgentFindingsReconciliationMode } from './agentAttachmentTools.js';
@@ -361,7 +362,17 @@ export function augmentPlanWithAttachments(input: {
   const structuredJsonKeys = outputSpec?.format === 'json' && outputSpec.topLevelKeys.length > 0
     ? outputSpec.topLevelKeys
     : undefined;
-  const instruction = goal.normalize('NFKC').trim().slice(0, AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS);
+  // The instruction clip preserves the goal's deliverable
+  // specification (failure diagnosis 2026-11-24, 対策2): the plain
+  // head slice this replaces cut the Basel goal inside its inputs
+  // list, before the "Required Outputs" section, so the required
+  // columns, code ranges and calculation fields never reached an
+  // analyzer. Goals without an outputs section clip exactly as
+  // before.
+  const instruction = clipAgentAttachmentInstruction(
+    goal.normalize('NFKC').trim(),
+    AGENT_ATTACHMENT_INSTRUCTION_MAX_CHARS,
+  );
   const binding = { attachmentSetId: input.setId, setDigest: input.setDigest };
 
   const readerStep: AgentStepInputLike = { toolName: 'attachment_reader', params: { ...binding } };

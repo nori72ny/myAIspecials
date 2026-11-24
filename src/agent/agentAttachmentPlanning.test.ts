@@ -809,3 +809,72 @@ describe('attachment plan inconsistency-audit mode (misreading countermeasure)',
     expect(result.stepCount).toBe(32);
   });
 });
+
+describe('plan instruction preserves the deliverable specification (対策2)', () => {
+  // The Basel brief's shape (failure diagnosis 2026-11-24): the
+  // "Required Outputs" section starts beyond the 800-char
+  // instruction cap, and the plan-time head slice used to drop it
+  // whole — the classification columns, the EL/BL code ranges and
+  // the BIA fields never reached any analyzer step.
+  const BASEL_GOAL = [
+    'Classify the operational risk loss events in the attached files into Loss Event Categories and Business Lines, and calculate the regulatory capital charge under the Basic Indicator Approach (BIA).',
+    '',
+    '## Visible Inputs',
+    '- operational_risk_events.tsv: the operational risk loss events to classify; one row per event, keyed by Event_ID (OR001 to OR060).',
+    '- loss_event_categories.tsv: the Loss Event Category definitions used for the classification.',
+    '- business_line_mapping.tsv: the Business Line mapping used for the classification.',
+    '- capital_calculation_params.tsv: the parameters of the BIA capital calculation.',
+    '- classified_events.schema.csv: the output schema of the classified events deliverable.',
+    '- capital_calculation.schema.json: the output schema of the capital calculation deliverable.',
+    '- execution_log.schema.txt: the format of the execution log deliverable.',
+    '',
+    '## Required Outputs',
+    '1. classified_events.csv columns:',
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'Loss_Event_Category is one of EL1-EL7: EL1 Internal Fraud; EL2 External Fraud; EL3 Employment Practices; EL4 Clients, Products and Business Practices; EL5 Damage to Physical Assets; EL6 Business Disruption; EL7 Execution, Delivery and Process Management.',
+    'Business_Line is one of BL1-BL8: BL1 Corporate Finance; BL2 Trading and Sales; BL3 Retail Banking; BL4 Commercial Banking; BL5 Payment and Settlement; BL6 Agency Services; BL7 Asset Management; BL8 Retail Brokerage.',
+    '2. capital_calculation.json fields:',
+    'alpha_coefficient, kbia, or_regulatory_capital_cny',
+    '3. execution_log.txt in the format of execution_log.schema.txt.',
+  ].join('\n');
+
+  const BASEL_FILES = [
+    'operational_risk_events.tsv',
+    'loss_event_categories.tsv',
+    'business_line_mapping.tsv',
+    'capital_calculation_params.tsv',
+    'classified_events.schema.csv',
+    'capital_calculation.schema.json',
+    'execution_log.schema.txt',
+  ];
+
+  it('pins the classification columns, EL/BL ranges and BIA fields in every analyzer instruction', () => {
+    expect(BASEL_GOAL.length).toBeGreaterThan(800);
+    expect(BASEL_GOAL.slice(0, 800)).not.toContain('Required Outputs');
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '分類結果', format: 'markdown', brief: '分類' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: BASEL_GOAL,
+      ...base,
+      setId: 'att-basel',
+      setDigest: 'digest-basel',
+      view: viewWith(3, BASEL_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const analyzers = result.steps.filter((step) => step.toolName === 'attachment_analyzer');
+    expect(analyzers.length).toBeGreaterThan(0);
+    for (const analyzer of analyzers) {
+      const instruction = String(analyzer.params.instruction ?? '');
+      expect(instruction.length).toBeLessThanOrEqual(800);
+      expect(instruction).toContain('Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY');
+      expect(instruction).toContain('EL1');
+      expect(instruction).toContain('EL7');
+      expect(instruction).toContain('BL1');
+      expect(instruction).toContain('BL8');
+      expect(instruction).toContain('alpha_coefficient');
+      expect(instruction).toContain('or_regulatory_capital_cny');
+    }
+  });
+});

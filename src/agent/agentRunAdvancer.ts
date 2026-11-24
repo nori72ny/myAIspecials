@@ -27,6 +27,8 @@ import {
   type AgentRunStepCoverageFailure,
   type AgentRunStepLiveDetail,
   type AgentRunStepReconciliation,
+  type AgentRunStepRowsOutput,
+  type AgentRunStepValueTableSummary,
   type AgentRunStepState,
   type AgentRunStore,
   type PutAgentRunStepArtifactInput,
@@ -600,8 +602,10 @@ export function providerAttemptsFromAnalyzerMessage(
  * live detail, in the same fail-soft style as the rest of the live
  * detail: an absent or malformed block contributes nothing, and
  * every value is re-validated here before the record normalizer
- * re-checks it again. Counts and the mode only; the bundle's
- * finding text never crosses into the record.
+ * re-checks it again. Counts, the mode, and — since the 2026-11-24
+ * diagnosis (対策1(a)) — the kept/dropped finding indexes with
+ * their closed-vocabulary drop reasons; the bundle's finding text
+ * never crosses into the record.
  */
 export function reconciliationFromReconcilerArtifact(
   artifact: string | undefined,
@@ -630,6 +634,15 @@ export function reconciliationFromReconcilerArtifact(
   if (candidateCount === undefined || keptCount === undefined || droppedCount === undefined || pickedUpCount === undefined) {
     return undefined;
   }
+  // Kept/dropped indexes with their drop reasons (failure
+  // diagnosis 2026-11-24, 対策1(a)): read back per field,
+  // fail-soft — a malformed entry is skipped, never fatal, and a
+  // block without the lists (a bundle written before this
+  // projection, or a shadow failure that judged nothing) projects
+  // exactly as before. Reasons are re-validated against the
+  // closed lowercase shape; anything else is dropped.
+  const keptIndexes = reconciliationIndexList(record.keptIndexes);
+  const droppedIndexes = reconciliationDroppedList(record.droppedIndexes);
   return {
     mode,
     candidateCount,
@@ -637,7 +650,144 @@ export function reconciliationFromReconcilerArtifact(
     droppedCount,
     pickedUpCount,
     ...(record.failed === true ? { failed: true } : {}),
+    ...(keptIndexes !== undefined ? { keptIndexes } : {}),
+    ...(droppedIndexes !== undefined ? { droppedIndexes } : {}),
   };
+}
+
+/** Cap on the kept/dropped index lists read back from a bundle —
+ * the same bound the record layer enforces. */
+const RECONCILIATION_INDEX_LIST_CAP = 200;
+
+function reconciliationIndexList(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const indexes: number[] = [];
+  for (const entry of raw) {
+    if (indexes.length >= RECONCILIATION_INDEX_LIST_CAP) break;
+    if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 1_000_000) continue;
+    indexes.push(entry);
+  }
+  return indexes;
+}
+
+function reconciliationDroppedList(raw: unknown): { index: number; reason: string }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const dropped: { index: number; reason: string }[] = [];
+  for (const entry of raw) {
+    if (dropped.length >= RECONCILIATION_INDEX_LIST_CAP) break;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const item = entry as Record<string, unknown>;
+    if (typeof item.index !== 'number' || !Number.isInteger(item.index) || item.index < 0 || item.index > 1_000_000) continue;
+    if (typeof item.reason !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(item.reason)) continue;
+    dropped.push({ index: item.index, reason: item.reason });
+  }
+  return dropped;
+}
+
+/**
+ * The rows bundle's column set, read back from a FINAL analyzer
+ * bundle (failure diagnosis 2026-11-24, 対策1(c)). Finality is
+ * proven from the bundle itself — its coverage block must show
+ * the whole set processed (offset + count reaching the total) —
+ * so an intermediate bundle's partial columns never masquerade
+ * as the deliverable's. Columns are the union of the rows' keys
+ * in first-seen order, capped like the record layer's; a bundle
+ * that is not a completed rows bundle contributes nothing.
+ */
+export function rowsOutputFromAnalyzerArtifact(
+  artifact: string | undefined,
+): AgentRunStepRowsOutput | undefined {
+  if (!artifact) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const bundle = parsed as Record<string, unknown>;
+  if (bundle.kind !== 'data-analysis' || bundle.outputKind !== 'rows') return undefined;
+  if (!Array.isArray(bundle.rows)) return undefined;
+  const coverage = bundle.coverage;
+  if (typeof coverage !== 'object' || coverage === null || Array.isArray(coverage)) return undefined;
+  const coverageRecord = coverage as Record<string, unknown>;
+  const range = coverageRecord.chunkRange;
+  if (typeof range !== 'object' || range === null || Array.isArray(range)) return undefined;
+  const rangeRecord = range as Record<string, unknown>;
+  const total = coverageRecord.totalChunks;
+  const offset = rangeRecord.offset;
+  const count = rangeRecord.count;
+  if (typeof total !== 'number' || !Number.isInteger(total) || total < 1) return undefined;
+  if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) return undefined;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return undefined;
+  if (offset + count < total) return undefined;
+  const columns: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of bundle.rows) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue;
+    for (const key of Object.keys(raw)) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (key.length === 0 || key.length > 200) continue;
+      if (columns.length >= 64) break;
+      columns.push(key);
+    }
+    if (columns.length >= 64) break;
+  }
+  if (columns.length === 0) return undefined;
+  return { columns, rowCount: bundle.rows.length };
+}
+
+/**
+ * The final audit bundle's value-table summary, read back into
+ * the step's live detail (failure diagnosis 2026-11-24,
+ * 対策1(d)). The bundle carries the summary the tool computed
+ * from the merged table (`valueTable`); the reader re-validates
+ * every field fail-soft, mirroring the record normalizer's caps,
+ * and a bundle without the block (non-audit, intermediate, or
+ * older) contributes nothing. Group keys are truncated to the
+ * record cap here; counts are range-checked, never trusted.
+ */
+export function valueTableFromAnalyzerArtifact(
+  artifact: string | undefined,
+): AgentRunStepValueTableSummary | undefined {
+  if (!artifact) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const block = (parsed as { valueTable?: unknown }).valueTable;
+  if (typeof block !== 'object' || block === null || Array.isArray(block)) return undefined;
+  const record = block as Record<string, unknown>;
+  const count = (raw: unknown): number | undefined => {
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > 1_000_000) return undefined;
+    return raw;
+  };
+  const entryCount = count(record.entryCount);
+  const groupCount = count(record.groupCount);
+  if (entryCount === undefined || groupCount === undefined) return undefined;
+  if (!Array.isArray(record.groups)) return undefined;
+  const groups: AgentRunStepValueTableSummary['groups'] = [];
+  for (const raw of record.groups) {
+    if (groups.length >= 200) break;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue;
+    const group = raw as Record<string, unknown>;
+    if (typeof group.entity !== 'string' || group.entity.trim().length === 0) continue;
+    if (typeof group.attribute !== 'string' || group.attribute.trim().length === 0) continue;
+    const entries = count(group.entries);
+    const distinctValues = count(group.distinctValues);
+    if (entries === undefined || distinctValues === undefined) continue;
+    groups.push({
+      entity: group.entity.slice(0, 120),
+      attribute: group.attribute.slice(0, 120),
+      entries,
+      distinctValues,
+    });
+  }
+  return { entryCount, groupCount, groups };
 }
 
 export function buildStepLiveDetail(input: {
@@ -667,6 +817,10 @@ export function buildStepLiveDetail(input: {
       const analyzerExecution = analyzerExecutionFromAnalyzerMessage(input.failureMessage)
         ?? analyzerExecutionFromArtifact(input.artifact);
       if (analyzerExecution) detail.analyzerExecution = analyzerExecution;
+      const rowsOutput = rowsOutputFromAnalyzerArtifact(input.artifact);
+      if (rowsOutput) detail.rowsOutput = rowsOutput;
+      const valueTable = valueTableFromAnalyzerArtifact(input.artifact);
+      if (valueTable) detail.valueTable = valueTable;
     }
     if (input.toolName === 'attachment_reconciler') {
       const reconciliation = reconciliationFromReconcilerArtifact(input.artifact);
