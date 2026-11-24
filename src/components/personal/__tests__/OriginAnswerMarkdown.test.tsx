@@ -180,4 +180,51 @@ describe('Japanese line-breaking rules (P6) and the chat scroller anchor (P5)', 
   it('disables browser scroll anchoring on the chat scroller (P5)', () => {
     expect(css).toContain('.origin-chat-scroll { overflow-anchor: none; }');
   });
+
+  // K-15（2026-11-24）：モデル出力の生 <br> が文字列として見えた
+  // 実働欠陥（LIVE-3、企画回答の表セル内）。許可するのは br のみ：
+  // 本文では hard break に、表セルでは実際の改行要素に変える。
+  // コードの中の <br> は文字列として残す。
+  it('renders <br> in table cells as real line breaks, not literal text (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'| 項目 | 内容 |\n| --- | --- |\n| 未確認点 | 理由A<br>理由B |'} />);
+    const cell = container.querySelectorAll('td')[1];
+    expect(cell.querySelector('br')).toBeTruthy();
+    expect(cell.textContent).toBe('理由A理由B');
+    expect(container.textContent).not.toContain('<br>');
+  });
+
+  it('renders escaped and variant break tags in table cells as breaks (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'| 項目 | 内容 |\n| --- | --- |\n| x | A&lt;br&gt;B<br/>C<br />D<BR>E |'} />);
+    const cell = container.querySelectorAll('td')[1];
+    expect(cell.querySelectorAll('br')).toHaveLength(4);
+    expect(container.textContent).not.toContain('<br');
+  });
+
+  it('keeps emphasis and breaks together in table cells (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'| 項目 | 内容 |\n| --- | --- |\n| x | **太字**の前<br>後 |'} />);
+    const cell = container.querySelectorAll('td')[1];
+    expect(cell.querySelector('strong')?.textContent).toBe('太字');
+    expect(cell.querySelector('br')).toBeTruthy();
+  });
+
+  it('keeps <br> literal inside code in table cells and paragraphs (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'| 項目 | 内容 |\n| --- | --- |\n| x | `<br>` タグ |'} />);
+    expect(container.querySelector('td code')?.textContent).toBe('<br>');
+
+    const { container: para } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'タグは `<br>` です<br>次の行'} />);
+    expect(para.querySelector('p code')?.textContent).toBe('<br>');
+    expect(para.querySelector('p > br')).toBeTruthy();
+  });
+
+  it('renders <br> in paragraphs and list items as hard breaks (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'1行目<br>2行目\n\n- 項目A<br>続き'} />);
+    expect(container.querySelector('p > br')).toBeTruthy();
+    expect(container.querySelector('li br')).toBeTruthy();
+    expect(container.textContent).not.toContain('<br>');
+  });
+
+  it('keeps <br> literal inside fenced code blocks (K-15)', () => {
+    const { container } = render(<OriginAnswerMarkdown language="ja" showActions={false} content={'```html\n<p>a<br>b</p>\n```'} />);
+    expect(container.querySelector('code')?.textContent).toContain('<br>');
+  });
 });

@@ -947,6 +947,45 @@
    (Tailwind p-2 / sm:p-4) insets it like any other content. */
 .origin-chat-scroll {
   scroll-padding-top: 16px;
+  /* K-16 (2026-11-24): bottom counterpart of the top escape.
+     When the last answer (or any element inside the log) is
+     scrolled into view, it stops this far above the scroller's
+     bottom edge instead of flush against it, so the refinement
+     pills below an answer never sit half under the composer
+     area. The value matches the conversation log's end padding
+     below: composer height + the answer action rows. */
+  scroll-padding-bottom: 168px;
+}
+
+/* K-16 (2026-11-24): deterministic end clearance for the
+   conversation log. After an answer completes, its action rows
+   (copy row + refinement pills, and the speak button) appear
+   and the content keeps growing for a while (fonts, images);
+   when the follow-scroll's last settle lands on a stale height,
+   the pills used to stay half hidden below the visible area,
+   behind the composer (weekly inspection defect #5, P5
+   residual). The shell rule above gives the log a symmetric
+   padding-block of at most 24px, which cannot absorb that
+   growth. Guarantee the tail space here instead: composer
+   height (60px) + the action rows (copy 44px + pills 44px +
+   their gaps/border ~20px) = 168px, so at the final scroll
+   position the whole pill row is inside the visible area with
+   room to spare. On narrow screens the pills wrap to two rows
+   (see .origin-answer-refinements at 639px), so the action
+   allowance grows by one more row: 224px. The home layout is
+   not targeted — it owns its own bottom anchoring. */
+.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-conversation-log,
+.origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-conversation-log {
+  padding-bottom: 168px !important;
+}
+@media (max-width: 639px) {
+  .origin-chat-scroll {
+    scroll-padding-bottom: 224px;
+  }
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-conversation-log,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-conversation-log {
+    padding-bottom: 224px !important;
+  }
 }
 
 /* Orin panel (owner request 2026-11-24, panel design

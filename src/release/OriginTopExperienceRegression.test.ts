@@ -247,6 +247,23 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(app).toContain('data-testid="queue-send-button"');
   });
 
+  it('guarantees the conversation log end clearance so answer pills stay visible (K-16)', () => {
+    // K-16（2026-11-24）：完了後に操作行（コピー＋調整ピル）が
+    // 出現して本文が伸び、最終スクロール位置が古い高さに止まる
+    // とピルが入力欄の裏に半分隠れた（欠陥#5 の残件）。会話ログ
+    // の末尾余白を、入力欄の高さ＋操作行分として決定的に確保
+    // する。骨格ルールの padding-block（最大24px）では吸収
+    // できないため、末尾だけを同詳細度・後段で上書きする。
+    expect(topUi).toContain('padding-bottom: 168px !important;');
+    expect(topUi).toContain('padding-bottom: 224px !important;');
+    expect(topUi).toContain('scroll-padding-bottom: 168px;');
+    expect(topUi).toContain('scroll-padding-bottom: 224px;');
+    // 上書きの対象は会話ログだけで、ホームの末尾固定には触らない。
+    const k16Block = topUi.slice(topUi.indexOf('K-16 (2026-11-24): deterministic end clearance'));
+    expect(k16Block).toContain('.origin-conversation-log');
+    expect(k16Block.slice(0, k16Block.indexOf('}\n'))).not.toContain('.origin-home-layout');
+  });
+
   it('keeps retired glass shell tokens out of standalone Release 2 primitives', () => {
     expect(ultraOptics).not.toContain('.origin-ultra-panel,');
     expect(ultraOptics).not.toContain('.origin-glass-control {');
