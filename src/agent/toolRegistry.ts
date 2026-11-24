@@ -20,6 +20,12 @@ import {
   parseAgentDataResources,
   AGENT_FINDING_SEVERITIES,
 } from './agentAttachmentTools.js';
+import { computeBaselBia, assembleCapitalCalculationJson, type BaselBiaInputs } from './agentBaselBia.js';
+import {
+  renderExecutionLog,
+  renderRowsCsvWithColumns,
+  type ExecutionLogFileProfile,
+} from './agentMultiFileSpec.js';
 
 export type ToolName = 'code_interpreter' | 'document_generator' | 'web_search_grounding' | 'image_prompt_compiler' | 'repository_explorer' | 'file_reader' | 'file_writer' | 'verification_runner' | 'attachment_reader' | 'attachment_analyzer' | 'attachment_reconciler';
 export type ToolParams = Record<string, unknown>;
@@ -228,6 +234,10 @@ const DOCUMENT_FORMAT_EXTENSIONS: Record<string, string> = {
   docx: 'docx',
   xlsx: 'xlsx',
   pptx: 'pptx',
+  // Not V12 formats: the deterministic role assembly (対策6) names
+  // its files through the same override check.
+  json: 'json',
+  txt: 'txt',
 };
 
 /**
@@ -280,6 +290,167 @@ async function executeAgentJsonDocument(params: ToolParams): Promise<ToolResult>
     verified: true,
     verification: ['non-empty', 'utf8-text', 'json-valid', 'json-keys'],
     content: assembled.content,
+  });
+  return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${bytes.length} bytes).` };
+}
+
+/* ------------------------------------------------------------------ */
+/* Multi-file role assembly (failure diagnosis 2026-11-24, 対策6)      */
+/* ------------------------------------------------------------------ */
+
+const AGENT_OUTPUT_ROLES: readonly string[] = ['rows-csv', 'capital-json', 'execution-log'];
+const ROLE_FORMATS: Record<string, { format: string; mimeType: string }> = {
+  'rows-csv': { format: 'csv', mimeType: 'text/csv; charset=utf-8' },
+  'capital-json': { format: 'json', mimeType: 'application/json; charset=utf-8' },
+  'execution-log': { format: 'txt', mimeType: 'text/plain; charset=utf-8' },
+};
+
+function parseAnalyzerBundle(content: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** The bundle's BIA inputs, shape-checked: the capital assembly
+ * trusts nothing the bundle merely claims — a malformed block is
+ * absent inputs, and absent inputs fail the step closed. */
+function biaInputsFromBundle(bundle: Record<string, unknown>): BaselBiaInputs | null {
+  const raw = bundle.biaInputs;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  if (typeof record.alphaText !== 'string') return null;
+  const years = record.grossIncomeByYear;
+  if (!years || typeof years !== 'object' || Array.isArray(years)) return null;
+  const grossIncomeByYear: Record<string, number> = {};
+  for (const [year, value] of Object.entries(years as Record<string, unknown>)) {
+    if (!/^\d{4}$/.test(year) || typeof value !== 'number' || !Number.isFinite(value)) return null;
+    grossIncomeByYear[year] = value;
+  }
+  if (Object.keys(grossIncomeByYear).length === 0) return null;
+  return { alphaText: record.alphaText, grossIncomeByYear };
+}
+
+function stringArrayParam(params: ToolParams, key: string): string[] {
+  const value = params[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function logFilesParam(params: ToolParams): ExecutionLogFileProfile[] {
+  const value = params.logFiles;
+  if (!Array.isArray(value)) return [];
+  const files: ExecutionLogFileProfile[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    if (typeof record.name !== 'string' || typeof record.kind !== 'string') continue;
+    files.push({
+      name: record.name,
+      kind: record.kind,
+      ...(typeof record.rowCount === 'number' ? { rowCount: record.rowCount } : {}),
+      charCount: typeof record.charCount === 'number' ? record.charCount : 0,
+    });
+  }
+  return files;
+}
+
+/**
+ * Assembles one file of a multi-file deliverable from the final
+ * analyzer bundle, deterministically, by the step's role:
+ * rows-csv renders the bundle's rows in the schema's column order;
+ * capital-json computes the BIA from the bundle's parsed inputs
+ * (never from model arithmetic — missing inputs fail closed);
+ * execution-log generates the run log from the plan-time file
+ * profile and the bundle's recorded trace. The envelope follows
+ * the JSON path's discipline: bytes/sha256 are measured from the
+ * exact content string the envelope carries.
+ */
+async function executeAgentRoleDocument(params: ToolParams): Promise<ToolResult> {
+  const fail = (message: string): ToolResult => ({ ok: false, tool: 'document_generator', message });
+  const role = typeof params.outputRole === 'string' ? params.outputRole : '';
+  if (!AGENT_OUTPUT_ROLES.includes(role)) return fail('AGENT_DOCUMENT_PARAMS_INVALID');
+  const formatInfo = ROLE_FORMATS[role];
+  const filename = agentOutputFilenameOverride(params.outputFilename, formatInfo.format);
+  if (filename === null) return fail('AGENT_DOCUMENT_PARAMS_INVALID');
+  const bundleText = typeof params.content === 'string' ? params.content : '';
+  if (!bundleText.trim()) return fail('AGENT_DOCUMENT_JSON_INVALID');
+  const bundle = parseAnalyzerBundle(bundleText);
+  if (!bundle) return fail('AGENT_DOCUMENT_JSON_INVALID');
+
+  let content: string;
+  if (role === 'rows-csv') {
+    const rawRows = Array.isArray(bundle.rows) ? bundle.rows : null;
+    if (!rawRows) return fail('AGENT_DOCUMENT_JSON_INVALID');
+    const rows: Record<string, string>[] = [];
+    for (const raw of rawRows) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('AGENT_DOCUMENT_JSON_INVALID');
+      const row: Record<string, string> = {};
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === 'string') row[key] = value;
+        else if (typeof value === 'number' && Number.isFinite(value)) row[key] = String(value);
+        else if (typeof value === 'boolean') row[key] = String(value);
+      }
+      rows.push(row);
+    }
+    let columns = stringArrayParam(params, 'outputColumns');
+    if (columns.length === 0) {
+      const seen: string[] = [];
+      for (const row of rows) {
+        for (const key of Object.keys(row)) if (!seen.includes(key)) seen.push(key);
+      }
+      columns = seen;
+    }
+    if (columns.length === 0) return fail('AGENT_DOCUMENT_JSON_INVALID');
+    content = renderRowsCsvWithColumns(rows, columns);
+  } else if (role === 'capital-json') {
+    const biaInputs = biaInputsFromBundle(bundle);
+    if (!biaInputs) return fail('AGENT_DOCUMENT_JSON_INVALID');
+    content = assembleCapitalCalculationJson(computeBaselBia(biaInputs));
+  } else {
+    const biaInputs = biaInputsFromBundle(bundle);
+    const coverageRaw = bundle.coverage && typeof bundle.coverage === 'object' && !Array.isArray(bundle.coverage)
+      ? (bundle.coverage as Record<string, unknown>)
+      : null;
+    const aggregatesRaw = bundle.aggregates && typeof bundle.aggregates === 'object' && !Array.isArray(bundle.aggregates)
+      ? (bundle.aggregates as Record<string, { sum: number; count: number }>)
+      : undefined;
+    content = renderExecutionLog({
+      files: logFilesParam(params),
+      outputs: stringArrayParam(params, 'outputFileNames'),
+      ...(stringArrayParam(params, 'logRequiredColumns').length > 0
+        ? { requiredColumns: stringArrayParam(params, 'logRequiredColumns') }
+        : {}),
+      ...(coverageRaw && typeof coverageRaw.totalChunks === 'number' && typeof coverageRaw.processedChunks === 'number'
+        ? {
+            coverage: {
+              totalChunks: coverageRaw.totalChunks,
+              processedChunks: coverageRaw.processedChunks,
+              ...(typeof coverageRaw.keyCount === 'number' ? { keyCount: coverageRaw.keyCount } : {}),
+              ...(typeof coverageRaw.discardedRows === 'number' ? { discardedRows: coverageRaw.discardedRows } : {}),
+            },
+          }
+        : {}),
+      ...(aggregatesRaw ? { aggregates: aggregatesRaw } : {}),
+      ...(biaInputs ? { bia: computeBaselBia(biaInputs) } : {}),
+    });
+  }
+  if (!content.trim()) return fail('AGENT_DOCUMENT_JSON_INVALID');
+  if (containsLikelySecret(content)) return fail('AGENT_DOCUMENT_CONTENT_BLOCKED');
+  const bytes = Buffer.from(content, 'utf8');
+  const artifact = JSON.stringify({
+    kind: 'document',
+    format: formatInfo.format,
+    filename,
+    mimeType: formatInfo.mimeType,
+    bytes: bytes.length,
+    sha256: sha256(content),
+    verified: true,
+    verification: ['non-empty', 'utf8-text', 'deterministic-assembly'],
+    content,
   });
   return { ok: true, tool: 'document_generator', artifact, message: `Document generated and verified locally (${filename}, ${bytes.length} bytes).` };
 }
@@ -355,6 +526,10 @@ const registry: Record<ToolName, ToolDefinition> = {
       if (params.dataGrounded === true && !(typeof params.content === 'string' && params.content.trim())) {
         return { ok: false, tool: 'document_generator', message: 'AGENT_DOCUMENT_PARAMS_INVALID' };
       }
+      // Multi-file role deliverables (対策6) assemble from the
+      // analyzer bundle deterministically, one file per step; the
+      // role param is planner-issued only.
+      if (typeof params.outputRole === 'string') return executeAgentRoleDocument(params);
       // Structured-JSON deliverables assemble from the analyzer bundle
       // instead of going through the V12 generator (which has no JSON
       // type); the raw bundle reaches this step via contentFromStep

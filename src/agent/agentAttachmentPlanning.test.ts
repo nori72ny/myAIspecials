@@ -878,3 +878,95 @@ describe('plan instruction preserves the deliverable specification (対策2)', (
     }
   });
 });
+
+describe('multi-file deliverables (対策6)', () => {
+  const MULTI_GOAL = [
+    'Classify the operational risk loss events in the attached files.',
+    '',
+    '## Required Outputs',
+    '- `classified_events.csv`',
+    '- `capital_calculation.json`',
+    '- `execution_log.txt`',
+  ].join('\n');
+  const MULTI_FILES = ['operational_risk_events.tsv', 'loss_event_categories.tsv', 'capital_calculation_params.tsv'];
+
+  function multiView(totalChunks: number): AgentAttachmentDataView {
+    return {
+      ...viewWith(totalChunks, MULTI_FILES),
+      files: MULTI_FILES.map((name) => ({ name, kind: 'table' as const, charCount: 900, rowCount: 3 })),
+      primaryFileName: 'operational_risk_events.tsv',
+      requiredOutputColumns: ['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY'],
+    };
+  }
+
+  it('replicates the document step per deliverable file, in goal order, all grounded on the last analyzer', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '分類結果', format: 'markdown', brief: '分類' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: MULTI_GOAL,
+      ...base,
+      setId: 'att-basel-multi',
+      setDigest: 'digest-basel-multi',
+      view: multiView(8),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // reader + 4 analyzers + 3 document steps.
+    expect(result.steps).toHaveLength(8);
+    expect(result.plannedSteps).toHaveLength(8);
+    const documents = result.steps.filter((step) => step.toolName === 'document_generator');
+    expect(documents.map((step) => step.params.outputFilename)).toEqual([
+      'classified_events.csv',
+      'capital_calculation.json',
+      'execution_log.txt',
+    ]);
+    expect(documents.map((step) => step.params.outputRole)).toEqual(['rows-csv', 'capital-json', 'execution-log']);
+    for (const document of documents) {
+      expect(document.params.contentFromStep).toBe(4);
+      expect(document.params.dataGrounded).toBe(true);
+      expect(document.params.format).toBeUndefined();
+      expect(document.params.jsonTopLevelKeys).toBeUndefined();
+    }
+    expect(documents[0].params.outputColumns).toEqual(['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY']);
+    expect(documents[2].params.outputFileNames).toEqual(['classified_events.csv', 'capital_calculation.json', 'execution_log.txt']);
+    expect(documents[2].params.logRequiredColumns).toEqual(['Event_ID', 'Loss_Event_Category', 'Business_Line', 'Loss_Amount_CNY']);
+    expect(documents[2].params.logFiles).toHaveLength(3);
+  });
+
+  it('keeps the single document step for a single-file rows goal', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '分類結果', format: 'markdown' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: 'Classify the events and write classified_events.csv.',
+      ...base,
+      setId: 'att-single',
+      setDigest: 'digest-single',
+      view: multiView(2),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const documents = result.steps.filter((step) => step.toolName === 'document_generator');
+    expect(documents).toHaveLength(1);
+    expect(documents[0].params.outputRole).toBeUndefined();
+  });
+
+  it('does not engage for a findings goal naming several files', () => {
+    const base = basePlan([
+      { toolName: 'document_generator', params: { title: '監査レポート', format: 'markdown' }, reasonCode: 'document-request' },
+    ]);
+    const result = augmentPlanWithAttachments({
+      goal: '添付文書を分析して不整合を監査してください。成果物は findings.csv と summary.json と notes.txt です',
+      ...base,
+      setId: 'att-audit-multi',
+      setDigest: 'digest-audit-multi',
+      view: viewWith(4, MA_FILES),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const documents = result.steps.filter((step) => step.toolName === 'document_generator');
+    expect(documents).toHaveLength(1);
+    expect(documents[0].params.outputRole).toBeUndefined();
+  });
+});

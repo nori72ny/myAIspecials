@@ -864,6 +864,16 @@ describe('resolveStepParams raw bundle resolution (artifact format)', () => {
     );
     expect(resolved).toEqual({ error: 'AGENT_STEP_INPUT_UNAVAILABLE' });
   });
+
+  it('gives a multi-file role document step the raw analyzer bundle (対策6)', () => {
+    const resolved = resolveStepParams(
+      { toolName: 'document_generator', params: { outputRole: 'rows-csv', outputFilename: 'classified_events.csv', contentFromStep: 1 } },
+      lookup,
+    );
+    expect(resolved).toEqual({
+      params: { outputRole: 'rows-csv', outputFilename: 'classified_events.csv', content: bundle },
+    });
+  });
 });
 
 describe('advanceAgentRun rate-limit hold (design CAPACITY_RATE_LIMIT_QUANTIFICATION_2026-11-22 §2-B)', () => {

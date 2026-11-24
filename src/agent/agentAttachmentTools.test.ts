@@ -250,8 +250,12 @@ describe('attachment_analyzer tool', () => {
     // executor answers real rows for the events chunk and the empty
     // answer for the reference chunk; the step completes the range,
     // so coverage judges the merged rows against the events keys.
+    // Dispatch is by the provenance frame, not the body: since the
+    // reference co-location (対策5) the events chunk's input also
+    // CONTAINS the categories table (as its reference block), so a
+    // body-content dispatch can no longer tell the chunks apart.
     const mixedExecutor: AgentModelExecutor = async (input) => {
-      if (input.userText.includes('Category_Code')) return { ok: true, text: '{"rows":[]}' };
+      if (input.userText.startsWith('【出典: categories.tsv')) return { ok: true, text: '{"rows":[]}' };
       return {
         ok: true,
         text: JSON.stringify({ rows: [{ Event_ID: 'OR001', Amount: '100' }, { Event_ID: 'OR002', Amount: '200' }] }),
@@ -1289,8 +1293,12 @@ describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () 
       ['classified.schema.csv', SCHEMA, 'text/csv'],
       ['mapping.tsv', mapping, 'text/tab-separated-values'],
     ]);
+    // Dispatch is by the provenance frame, not the body: since the
+    // reference co-location (対策5) the events chunk's input also
+    // names mapping.tsv (its reference block's header), so a
+    // body-content dispatch would poison the primary chunk itself.
     const poisonExecutor: AgentModelExecutor = async (input) => {
-      if (input.userText.includes('classified.schema.csv')) {
+      if (input.userText.startsWith('【出典: classified.schema.csv')) {
         return {
           ok: true,
           text: JSON.stringify({
@@ -1301,7 +1309,7 @@ describe('attachment_analyzer primary-table contract (Basel segment-2 fix)', () 
           }),
         };
       }
-      if (input.userText.includes('mapping.tsv')) {
+      if (input.userText.startsWith('【出典: mapping.tsv')) {
         return { ok: true, text: JSON.stringify({ rows: [{ Event_ID: 'OR999', Amount: '1' }] }) };
       }
       return {
@@ -2190,6 +2198,133 @@ describe('failure diagnosis 2026-11-24 wave 1 (対策3・対策4・対策1(d))',
       entryCount: 2,
       groupCount: 1,
       groups: [{ entity: '买方一', attribute: '金額', entries: 2, distinctValues: 2 }],
+    });
+  });
+});
+
+describe('attachment_analyzer wave 2 (対策5 reference co-location, 対策6 BIA inputs)', () => {
+  const EVENTS = [
+    'Event_ID\tLoss_Amount_CNY',
+    'OR001\t100',
+    'OR002\t200',
+    'OR003\t300',
+    'OR004\t400',
+    'OR005\t500',
+    'OR006\t600',
+  ].join('\n');
+  const CATEGORIES = [
+    'Category_Code\tCategory_Name_EN\tDefinition\tKey_Indicators',
+    'EL1\tInternal Fraud\tA long definition sentence.\tunauthorized trading, embezzlement',
+    'EL2\tExternal Fraud\tAnother long definition.\thacking, phishing',
+  ].join('\n');
+  const MAPPING = [
+    'Department\tBusiness_Line_Code\tBusiness_Line_Name_EN',
+    'Retail Banking Operations\tBL2\tRetail Banking',
+  ].join('\n');
+  const PARAMS = [
+    '## sheet: Sheet1',
+    'Parameter\tValue\tDescription',
+    'Alpha_Coefficient\t0.15\tBasel mandated coefficient',
+    'Gross_Income_Year_1_2021_CNY\t2850000000\taudited gross income 2021',
+    'Gross_Income_Year_2_2022_CNY\t3120000000\taudited gross income 2022',
+    'Gross_Income_Year_3_2023_CNY\t-456000000\taudited gross income 2023',
+  ].join('\n');
+  const SCHEMA = [
+    'Event_ID,Loss_Event_Category,Business_Line,Loss_Amount_CNY',
+    'EXAMPLE001,EL1,BL1,1000',
+  ].join('\n');
+
+  async function storeWithBaselShape() {
+    const store = new InMemoryAgentAttachmentStore();
+    await store.createSet({
+      setId: SET_ID,
+      ownerBinding: OWNER,
+      uploadTokenDigest: 'cd'.repeat(32),
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const files: [string, string][] = [
+      ['events.tsv', EVENTS],
+      ['loss_event_categories.tsv', CATEGORIES],
+      ['business_line_mapping.tsv', MAPPING],
+      ['capital_calculation_params.tsv', PARAMS],
+      ['classified_events.schema.csv', SCHEMA],
+    ];
+    for (const [name, text] of files) {
+      const measured = validateAgentAttachmentFileText(text);
+      await store.addFile(SET_ID, OWNER, {
+        name,
+        mediaType: 'text/plain',
+        kind: 'text',
+        byteSize: measured.byteSize,
+        charCount: measured.charCount,
+        sha256: measured.sha256,
+        extractedText: text,
+      });
+    }
+    const set = await store.getSet(SET_ID, OWNER);
+    if (!set) throw new Error('fixture set missing');
+    return { store, setDigest: computeAgentAttachmentSetDigest(set.files) };
+  }
+
+  it('co-locates the definition tables with the primary chunks and carries the BIA inputs on the final bundle', async () => {
+    const { store, setDigest } = await storeWithBaselShape();
+    const seenUserTexts: string[] = [];
+    const seenInstructions: string[] = [];
+    const executor: AgentModelExecutor = async (input) => {
+      seenUserTexts.push(input.userText);
+      seenInstructions.push(input.instruction);
+      if (input.userText.startsWith('【出典: events.tsv')) {
+        return {
+          ok: true,
+          text: JSON.stringify({
+            rows: ['OR001', 'OR002', 'OR003', 'OR004', 'OR005', 'OR006'].map((id, index) => ({
+              Event_ID: id,
+              Loss_Event_Category: 'EL1',
+              Business_Line: 'BL2',
+              Loss_Amount_CNY: String((index + 1) * 100),
+            })),
+          }),
+        };
+      }
+      return { ok: true, text: '{"rows":[]}' };
+    };
+    let content: string | undefined;
+    let finalArtifact = '';
+    for (const chunkOffset of [0, 2, 4]) {
+      const result = await toolRegistry.attachment_analyzer.execute(
+        analyzerParams(setDigest, {
+          chunkOffset,
+          chunkCount: 2,
+          ...(content ? { content } : {}),
+        }),
+        contextFor(store, executor),
+      );
+      expect(result.ok).toBe(true);
+      content = result.artifact;
+      finalArtifact = result.artifact ?? '';
+    }
+    const primaryCall = seenUserTexts.find((text) => text.startsWith('【出典: events.tsv'));
+    expect(primaryCall).toBeDefined();
+    expect(primaryCall).toContain('【参照: loss_event_categories.tsv】');
+    expect(primaryCall).toContain('EL1');
+    expect(primaryCall).toContain('BL2');
+    // The parameter table is settings, not a classification
+    // definition: it is not co-located.
+    expect(primaryCall).not.toContain('Alpha_Coefficient');
+    // Reference-file chunks do not gain a reference block of their own.
+    const referenceCall = seenUserTexts.find((text) => text.startsWith('【出典: loss_event_categories.tsv'));
+    expect(referenceCall).toBeDefined();
+    expect(referenceCall).not.toContain('【参照:');
+    // The rows contract names the reference block when one is attached.
+    expect(seenInstructions[0]).toContain('参照ブロック');
+    const bundle = JSON.parse(finalArtifact) as {
+      rows: unknown[];
+      biaInputs?: { alphaText: string; grossIncomeByYear: Record<string, number> };
+    };
+    expect(bundle.rows).toHaveLength(6);
+    expect(bundle.biaInputs).toEqual({
+      alphaText: '0.15',
+      grossIncomeByYear: { '2021': 2850000000, '2022': 3120000000, '2023': -456000000 },
     });
   });
 });
