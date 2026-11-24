@@ -293,6 +293,19 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(nameRule).toContain('padding: 3px 10px;');
   });
 
+  it('caps the desktop home intro placement so the heading band does not stretch (K-22)', () => {
+    // K-22（2026-11-24）：デスクトップでは intro が flex ゾーンの
+    // 中央寄せだったため、プレゼンスと見出しの間の空白帯が画面の
+    // 高さに比例して伸びた（実測 1080px 高で約333px）。デスクトップ
+    // だけ上寄せ＋上限付き上余白に変え、空白帯を固定範囲に収める。
+    // モバイルの中央寄せ契約（max-width: 639px 群）には触らない。
+    const k22Block = topUi.slice(topUi.indexOf('Desktop home intro placement (K-22'));
+    expect(k22Block).toContain('@media (min-width: 640px)');
+    expect(k22Block).toContain('.origin-app main .origin-home-intro');
+    expect(k22Block).toContain('justify-content: flex-start !important;');
+    expect(k22Block).toContain('padding-top: clamp(32px, 7vh, 96px) !important;');
+  });
+
   it('keeps the assistant reading surface under a single transparent canon (K-19)', () => {
     const indexCss = readFileSync(resolve(root, 'index.css'), 'utf8');
     expect(indexCss).not.toContain('.origin-chat-assistant {');

@@ -532,6 +532,27 @@
   }
 }
 
+/* Desktop home intro placement (K-22, 2026-11-24): the intro section
+   is the home layout's only flexible zone and used to centre the
+   heading block inside it, so the blank band between the Orin
+   presence row and the heading grew with viewport height (measured
+   presence-bottom to heading-top: 193px at 1280x800, 243px at
+   1440x900, 333px at 1920x1080 — the ~300px band of the first
+   inspection). On desktop the intro now starts at the top of its
+   zone with a capped top padding: the gap stays in a fixed calm
+   range (measured 72–92px across the same viewports) and the
+   heading sits in the upper band (23–29% of viewport height). The
+   zone still flexes, so the chips and the bottom-pinned composer
+   keep their positions; the remaining whitespace collects below
+   the description, next to the chips. Mobile keeps the centred
+   geometry contracts above (max-width: 639px blocks). */
+@media (min-width: 640px) {
+  .origin-app main .origin-home-intro {
+    justify-content: flex-start !important;
+    padding-top: clamp(32px, 7vh, 96px) !important;
+  }
+}
+
 /* Short-viewport home compaction: below 760px the top breathing room
    matches the full-height value (12px); below 640px it tightens to 6px
    and the intro shrinks as well (tighter heading, description clamped
