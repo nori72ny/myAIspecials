@@ -164,7 +164,11 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).toContain('[data-testid="settings-modal"],');
     expect(topUi).toContain('[data-testid="history-drawer"] {');
     expect(topUi).toContain('background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;');
-    expect(topUi).toContain('box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent) !important;');
+    // K-11 (2026-11-24): the modal / drawer elevation is the --shadow-3
+    // token (the token canon reserves it for modals and drawers), not a
+    // per-surface custom mix.
+    expect(topUi).toContain('box-shadow: var(--shadow-3) !important;');
+    expect(topUi).not.toContain('0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent)');
     expect(topUi).not.toContain('box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 30%, transparent) !important;');
     expect(topUi).not.toContain('box-shadow: 0 24px 70px');
   });

@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ConversationMessage, ConversationSession } from './App';
+import { historySessionTitle, type ConversationMessage, type ConversationSession } from './App';
 import SettingsModal from './components/SettingsModal';
 import SettingsErrorBoundary from './components/SettingsErrorBoundary';
 import SplashScreen from './components/SplashScreen';
@@ -202,12 +202,12 @@ function loadLegacySnapshot(): OriginPersistedSnapshot | null {
  */
 export function startupArchivedSession(source: readonly ConversationMessage[], createdAt: number): ConversationSession | null {
   if (!source.length) return null;
-  const firstUserSource = source.find((message) => message.role === 'user') ?? source[0];
-  const firstUser = (firstUserSource ? (firstUserSource.displayContent ?? firstUserSource.content) : '') || 'ORIGIN セッション';
   const firstId = typeof source[0]?.id === 'string' && source[0].id ? source[0].id : String(createdAt);
   return {
     id: `session-startup-${firstId}`.slice(0, 128),
-    title: firstUser.replace(/\s+/g, ' ').slice(0, 72),
+    // タイトル付けは App 側の表示用変換と共通化した（P7 A-3）。
+    // 利用者メッセージだけを源にし、生成時点で表示と同じ整形を掛ける。
+    title: historySessionTitle(source),
     createdAt,
     messages: persistableConversationMessages(source),
   };
@@ -277,7 +277,7 @@ function PersonalReleaseRoot() {
         if (!dirtyDuringHydration.current.artifacts) setArtifacts(parseStoredArtifacts(result.snapshot.artifacts)); } setStorageReadFailed(result.readFailed === true); setStorageHealth(result.writeResult && result.writeResult !== 'saved' ? result.writeResult : 'ready'); setIsHydrated(true); }); }); return () => { active = false; cancelIdle(); }; }, []);
   useEffect(() => { if (!isHydrated || storageReadFailed) return; const snapshot = snapshotFromState(messages, sessions, artifacts); const timer = window.setTimeout(() => { void originIndexedDbAdapter.save(snapshot).then((result) => setStorageHealth(result === 'saved' ? 'ready' : result)); }, 180); return () => window.clearTimeout(timer); }, [artifacts, isHydrated, messages, sessions, storageReadFailed]);
 
-  const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const firstUserSource = source.find((message) => message.role === 'user') ?? source[0]; const firstUser = (firstUserSource ? (firstUserSource.displayContent ?? firstUserSource.content) : '') || 'ORIGIN セッション'; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: firstUser.replace(/\s+/g, ' ').slice(0, 72), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
+  const archiveSession = (source: readonly ConversationMessage[]) => { if (!source.length) return; dirtyDuringHydration.current.sessions = true; const snapshot: ConversationSession = { id: `session-${Date.now()}`, title: historySessionTitle(source), createdAt: Date.now(), messages: persistableConversationMessages(source) }; setSessions((current) => [snapshot, ...current.filter((session) => session.title !== snapshot.title)].slice(0, 24)); };
   const exportHistory = () => { const payload = JSON.stringify({ version: HISTORY_EXPORT_VERSION, exportedAt: new Date().toISOString(), messages: persistableConversationMessages(messages) }, null, 2); const anchor = document.createElement('a'); const url = URL.createObjectURL(new Blob([payload], { type: 'application/json;charset=utf-8' })); anchor.href = url; anchor.download = `origin-personal-history-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url); };
   const importHistory = async (file: File) => { if (file.size > 1_500_000) throw new Error(t.historyImportFailed); try { dirtyDuringHydration.current.messages = true; setMessages(parseImportedHistory(JSON.parse(await file.text()))); } catch { throw new Error(t.historyImportFailed); } };
   const resetConversation = () => { archiveSession(messages); dirtyDuringHydration.current.messages = true; setMessages([]); setResetSignal((value) => value + 1); };

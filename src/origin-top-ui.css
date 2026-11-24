@@ -236,7 +236,7 @@
 [data-testid="history-drawer"] {
   border-color: var(--border-default) !important;
   background: color-mix(in oklch, var(--bg-surface) 98%, var(--bg-primary)) !important;
-  box-shadow: 0 6px 18px color-mix(in oklch, var(--shadow-color) 24%, transparent) !important;
+  box-shadow: var(--shadow-3) !important;
 }
 .origin-personal-shell > section[aria-label="Workspace tool header"] {
   min-height: 58px;

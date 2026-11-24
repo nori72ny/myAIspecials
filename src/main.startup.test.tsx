@@ -46,6 +46,22 @@ describe('startup archive of the previous in-progress conversation', () => {
     expect(archived?.title).toBe('要点だけ');
   });
 
+  it('uses the fixed title when the stored conversation has no user message', () => {
+    // P7 A-3: the shared title recipe never borrows an answer heading.
+    const assistantOnly: ConversationMessage[] = [
+      { id: 'm-1', role: 'assistant', content: 'Version 1（仮設計）\n回答だけの会話' },
+    ];
+    expect(startupArchivedSession(assistantOnly, 456)?.title).toBe('ORIGIN セッション');
+  });
+
+  it('strips table syntax from the archived title at creation time', () => {
+    const withTable: ConversationMessage[] = [
+      { id: 'm-1', role: 'user', content: '| 日 | 場所 |\n| --- | --- |\n| 1日目 | 東京 |' },
+      { id: 'm-2', role: 'assistant', content: '回答です' },
+    ];
+    expect(startupArchivedSession(withTable, 456)?.title).toBe('日 場所 1日目 東京');
+  });
+
   it('prepends the archived conversation without dropping existing sessions', () => {
     const next = withStartupArchivedSession([existingSession], previousConversation, 456);
     expect(next).toHaveLength(2);

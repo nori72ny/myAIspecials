@@ -403,7 +403,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       <p className="origin-muted text-[13px] leading-5">{p.description}</p>
       <p className="origin-muted text-[13px] leading-5">{p.groundedNote}</p>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex min-h-14 items-center justify-between gap-3">
         <span id="personal-toggle-label" className="text-sm font-semibold">{p.toggleLabel}</span>
         <ToggleSwitch checked={enabled} ariaLabel={p.toggleLabel} onChange={onToggleEnabled} />
       </div>

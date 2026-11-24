@@ -86,6 +86,32 @@ describe('SettingsModalLegacy focus trap', () => {
     expect(personalIndex).toBe(historyIndex + 1);
   });
 
+  it('gives the visual-theme row the same selection-button recipe as the appearance row', () => {
+    // P7 C-2 / K-11: one recipe for selection rows — rounded-xl, an
+    // explicit border, 48px min height, and the same selected treatment
+    // (primary with a transparent border). The design-theme row used to
+    // be rounded-[10px] with no border utility, so unselected options
+    // read as bare text next to the selected pill.
+    render(
+      <SettingsModalLegacy
+        isOpen
+        onClose={() => undefined}
+        settings={settings}
+        updateSettings={() => undefined}
+      />,
+    );
+    for (const id of ['minimal', 'luxury', 'glass']) {
+      const button = screen.getByTestId(`design-theme-${id}`);
+      expect(button.className).toContain('rounded-xl');
+      expect(button.className).toContain('border');
+      expect(button.className).toContain('min-h-12');
+      expect(button.className).not.toContain('rounded-[10px]');
+    }
+    expect(screen.getByTestId('design-theme-minimal').className).toContain('origin-primary-button');
+    expect(screen.getByTestId('design-theme-minimal').className).toContain('border-transparent');
+    expect(screen.getByTestId('design-theme-luxury').className).toContain('origin-secondary-button');
+  });
+
   it('focuses the coding key input when opened with focusSection="coding"', async () => {
     render(
       <SettingsModalLegacy
