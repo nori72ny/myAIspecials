@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_ORIGIN_FREE_MODEL_CATALOG } from "../lib/orchestration/OriginFreeModelCatalog";
 import { createOriginStreamingChatRouter } from "./originStreamingChatRouter";
 import { originGroqRouteSystemInstruction } from "./originChatResponsePolicy";
+import { PROPOSAL_DECK_SKELETON_INSTRUCTION } from "../artifacts/proposalDeckSkeletonV1";
 import type { OriginProviderExecutionResult } from "./originProviderClient";
 import type { OriginProviderStreamExecutor } from "./originProviderStreamClient";
 
@@ -105,11 +106,17 @@ describe("createOriginStreamingChatRouter proposal deck (PR-3a)", () => {
       .send({ messages: [{ role: "user", content: DECK_PROMPT }] });
 
     expect(response.status).toBe(200);
-    // The skeleton instruction rides only on the standard instruction; the
-    // compact Groq instruction keeps its hard character budget untouched.
+    // The skeleton instruction rides on the standard instruction, and —
+    // since 資料第1波 (2026-11-25) — also on the compact Groq instruction
+    // as a dynamic addendum, so a route-3 answer can match the skeleton
+    // too (before this, a route-3 answer never matched and produced no
+    // file). The compact base itself stays byte-identical: the addendum
+    // is not part of its character-budget contract, the same carriage as
+    // the premise-guard block and the deck-records suffix.
     expect(seenInstruction).toContain("提案資料の作成形式（この依頼専用の追加ルール）");
-    expect(seenGroqInstruction).toBe(originGroqRouteSystemInstruction());
-    expect(seenGroqInstruction!.length).toBeLessThanOrEqual(5_600); // I-4: compact budget 3,800 (INTENT_I4_DESIGN_2026-11-21); CB-4: raised to 4,800 (CODEBENCH_CB4_DESIGN_2026-11-23); CB-5: raised to 5,600 (CODEBENCH_CB5_DESIGN_2026-11-23)
+    expect(seenGroqInstruction).toBe(
+      `${originGroqRouteSystemInstruction()}\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}`,
+    );
 
     const complete = completeEvent(response.text);
     expect(complete.modelId).toBe(evidence.modelId);
@@ -176,10 +183,40 @@ describe("createOriginStreamingChatRouter proposal deck (PR-3a)", () => {
     expect(response.text).toMatch(/data: \[DONE\]\s*$/);
   });
 
-  it("leaves ordinary chat completely unchanged (no skeleton instruction, no artifacts key)", async () => {
+  it("fires for a report-material request without 提案/企画 wording (DG-1 S-6, switch OFF)", async () => {
     let seenInstruction = "";
+    let seenGroqInstruction: string | undefined;
     const streamExecute = vi.fn(async (providerRequest, handlers) => {
       seenInstruction = providerRequest.systemInstruction;
+      seenGroqInstruction = providerRequest.groqSystemInstruction;
+      handlers.onDelta(SKELETON_ANSWER);
+      return result(SKELETON_ANSWER);
+    }) as unknown as OriginProviderStreamExecutor;
+
+    const response = await request(appWith(streamExecute))
+      .post("/api/chat")
+      .set("Accept", "text/event-stream")
+      .send({ messages: [{ role: "user", content: "四半期の経営レポート資料を作ってください" }] });
+
+    expect(response.status).toBe(200);
+    expect(seenInstruction).toContain("提案資料の作成形式（この依頼専用の追加ルール）");
+    expect(seenGroqInstruction).toBe(
+      `${originGroqRouteSystemInstruction()}\n\n${PROPOSAL_DECK_SKELETON_INSTRUCTION}`,
+    );
+    const complete = completeEvent(response.text);
+    const artifacts = complete.artifacts as Array<Record<string, unknown>>;
+    expect(Array.isArray(artifacts)).toBe(true);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].artifactType).toBe("pptx");
+    expect(response.text).not.toContain("資料ファイルの作成はできませんでした");
+  });
+
+  it("leaves ordinary chat completely unchanged (no skeleton instruction, no artifacts key)", async () => {
+    let seenInstruction = "";
+    let seenGroqInstruction: string | undefined;
+    const streamExecute = vi.fn(async (providerRequest, handlers) => {
+      seenInstruction = providerRequest.systemInstruction;
+      seenGroqInstruction = providerRequest.groqSystemInstruction;
       handlers.onDelta("短い案内文です。");
       return result("短い案内文です。");
     }) as unknown as OriginProviderStreamExecutor;
@@ -191,6 +228,9 @@ describe("createOriginStreamingChatRouter proposal deck (PR-3a)", () => {
 
     expect(response.status).toBe(200);
     expect(seenInstruction).not.toContain("提案資料の作成形式");
+    // Non-deck requests keep the compact Groq instruction byte-identical
+    // (no deck addendum) — the 資料第1波 carriage is deck-only.
+    expect(seenGroqInstruction).toBe(originGroqRouteSystemInstruction());
     expect(response.text).not.toContain('"artifacts"');
     expect(response.text).not.toContain("資料ファイルの作成はできませんでした");
     expect(response.text).toContain(`data: {"type":"complete","modelId":"${evidence.modelId}","servedModel":"${evidence.modelId}","costEvidenceStatus":"NOT_MEASURED","fallbackUsed":false}`);
