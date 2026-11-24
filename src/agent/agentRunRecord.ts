@@ -141,8 +141,9 @@ export const ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED_ENV = 'ORIGIN_AGENT_RATE_LIMIT
  * 2026-11-22 §2, measure B), in the same style as the step-artifact
  * switch above: only the exact string "true" enables it; anything else
  * — including the variable being unregistered — is OFF, and OFF keeps
- * the pre-measure behavior exactly (a rate-limited analyzer step fails
- * its run, terminally, with the provider's own code).
+ * the pre-measure behavior exactly (a rate-limited model step —
+ * analyzer or, since wave 4, reconciler — fails its run, terminally,
+ * with the provider's own code).
  */
 export function agentRateLimitHoldEnabled(env: NodeJS.ProcessEnv): boolean {
   return env[ORIGIN_AGENT_RATE_LIMIT_HOLD_ENABLED_ENV] === 'true';
@@ -168,6 +169,20 @@ export const AGENT_RUN_RATE_LIMIT_HOLD_MAX_RUN_ELAPSED_MS = 60 * 60 * 1000;
  * the floor is what the hold records (design §2-B).
  */
 export const AGENT_RUN_RATE_LIMIT_HOLD_MIN_WAIT_MS = 60_000;
+/**
+ * The maximum wait a rate-limit hold may record (multitask wave 4,
+ * design AGENT_QUOTA_HOLD_WAVE4_2026-11-25). Since wave 4 the
+ * provider's own stated recovery (Retry-After / rate-limit reset)
+ * is observable on the model-call path and replaces the floor
+ * above — but only up to this cap: every confirmed free window is
+ * at most a day long (Cloudflare's UTC-day Neurons budget, Groq's
+ * daily and rolling windows), so a stated recovery beyond a day is
+ * not a window this hold can trust, and the hold never promises a
+ * resume instant further out than the longest real window. The
+ * floor still applies underneath: an observed recovery shorter
+ * than the per-minute floor never shortens the wait.
+ */
+export const AGENT_RUN_RATE_LIMIT_HOLD_MAX_WAIT_MS = 24 * 60 * 60 * 1000;
 export const MIN_AGENT_RUN_TTL_MS = 60_000;
 export const MAX_AGENT_RUN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**

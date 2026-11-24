@@ -995,7 +995,10 @@ export function parseFailureRepairGuidance(
  * the strict shapes below are encoded at all (the values arrive
  * pre-whitelisted from the provider layer; this is defense in depth
  * so a malformed value can never smuggle free text into the record
- * through the message), and at most six attempts are carried. */
+ * through the message), and at most six attempts are carried. A
+ * provider-stated quota recovery, when the dispatch reported one,
+ * rides as a second fixed parenthetical after the attempts (wave 4;
+ * see the encoder below). */
 const ANALYZER_ATTEMPT_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 const ANALYZER_ATTEMPT_MODEL_ID_PATTERN = /^[A-Za-z0-9@][A-Za-z0-9@/_:.+-]{0,127}$/;
 const ANALYZER_ATTEMPT_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,119}$/;
@@ -1038,7 +1041,21 @@ export function analyzerProviderFailureMessage(
       : '-';
     encoded.push([attempt.providerId, modelId, attempt.outcome, errorCode, durationMs, transport].join('|'));
   }
-  return encoded.length > 0 ? `${result.code} (attempts: ${encoded.join('; ')})` : result.code;
+  let message = encoded.length > 0 ? `${result.code} (attempts: ${encoded.join('; ')})` : result.code;
+  // Provider-stated quota recovery (multitask wave 4, design
+  // AGENT_QUOTA_HOLD_WAVE4_2026-11-25): when the failing dispatch
+  // reported how long the exhausted window takes to refill, the
+  // seconds ride the message in the same fixed shape, after the
+  // attempts parenthetical — the advancer's rate-limit hold reads
+  // them back to time the hold's resume instant. Only a positive
+  // whole-second value is encoded; anything else (absent, zero,
+  // fractional, non-finite) contributes nothing, exactly as a
+  // malformed attempt field contributes nothing above.
+  const recoverySeconds = result.quotaRecoverySeconds;
+  if (typeof recoverySeconds === 'number' && Number.isInteger(recoverySeconds) && recoverySeconds > 0) {
+    message += ` (quota-recovery: ${recoverySeconds})`;
+  }
+  return message;
 }
 
 /**

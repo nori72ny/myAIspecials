@@ -5,6 +5,7 @@ import {
   OriginProviderError,
   type OriginGroqCapacityAllocation,
   type OriginProviderAttemptDiagnostic,
+  type OriginRateLimitSnapshot,
 } from '../legacy/originProviderClient.js';
 
 /**
@@ -68,6 +69,17 @@ import {
  * (buildOriginProviderFailureDiagnostic) — route and model
  * identifiers, outcome, error code, duration, transport count —
  * never a request or response body.
+ *
+ * A rate-limited failure also carries the provider-stated recovery
+ * time (multitask wave 4, design AGENT_QUOTA_HOLD_WAVE4_2026-11-25):
+ * the provider layer already observes it — the `Retry-After` header
+ * on the error itself and the `x-ratelimit-*` reset seconds in the
+ * rate-limit snapshots (the same observations the D-0 capacity
+ * ledger records) — but this adapter used to return only the
+ * failure code, so the run advancer's rate-limit hold could record
+ * nothing but its per-minute floor. `quotaRecoverySeconds` below is
+ * that observation, carried through unchanged: a number the
+ * provider stated, never one this layer invents.
  */
 
 export const ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED_ENV = 'ORIGIN_AGENT_ANALYZER_ALTERNATING_ALLOCATION_ENABLED' as const;
@@ -187,6 +199,13 @@ export type AgentModelCallResult =
        * attempts; a plan-level refusal (no transport happened)
        * carries none. */
       providerAttempts?: readonly OriginProviderAttemptDiagnostic[];
+      /** Seconds until the exhausted provider window refills, as
+       * stated by the provider itself (Retry-After / rate-limit
+       * reset headers), reduced by
+       * `quotaRecoverySecondsFromProviderError`. Present only when
+       * the failing dispatch actually reported a recovery; absent
+       * means "not observed", never "recovers immediately". */
+      quotaRecoverySeconds?: number;
     };
 
 /**
@@ -202,6 +221,63 @@ export function failoverAttemptsFromProviderError(
   if (!(error instanceof OriginProviderError)) return undefined;
   const { failoverAttempts } = buildOriginProviderFailureDiagnostic(error);
   return failoverAttempts.length > 0 ? failoverAttempts : undefined;
+}
+
+/**
+ * The reset seconds of one rate-limit snapshot's EXHAUSTED
+ * dimensions: a dimension's reset counts only when the same
+ * snapshot reports that dimension's remaining amount as exactly 0.
+ * A reset for a dimension that still has room describes a window
+ * that is not the binding one, and a snapshot that reports no
+ * remaining amount proves no exhaustion — neither may stand in for
+ * the recovery of a quota that actually ran out.
+ */
+function exhaustedDimensionResetSeconds(snapshot: OriginRateLimitSnapshot | undefined): number | undefined {
+  if (!snapshot) return undefined;
+  let recovery: number | undefined;
+  const consider = (seconds: number | undefined) => {
+    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
+      recovery = recovery === undefined ? seconds : Math.max(recovery, seconds);
+    }
+  };
+  if (snapshot.remainingRequests === 0) consider(snapshot.resetRequestsSeconds);
+  if (snapshot.remainingTokens === 0) consider(snapshot.resetTokensSeconds);
+  return recovery;
+}
+
+/**
+ * The provider-stated recovery time of a failed dispatch, in whole
+ * seconds (rounded up: a fractional statement still means the
+ * window is closed for that fraction). Sources, all observed by
+ * the provider layer on this very dispatch — nothing is estimated
+ * here:
+ * - the error's own `Retry-After` (`retryAfterSeconds`);
+ * - the failure diagnostic's own rate-limit snapshot, for its
+ *   exhausted dimensions;
+ * - each failover attempt that hit a rate limit (flagged
+ *   `rateLimitHit` or coded PROVIDER_RATE_LIMITED), for its
+ *   exhausted dimensions.
+ * The recovery of a multi-route dispatch is the LONGEST of these:
+ * the dispatch failed because every route was unavailable, so the
+ * quota is usable again only when the last of the exhausted
+ * windows refills. Returns undefined when nothing was observed.
+ */
+export function quotaRecoverySecondsFromProviderError(error: unknown): number | undefined {
+  if (!(error instanceof OriginProviderError)) return undefined;
+  let recovery: number | undefined;
+  const consider = (seconds: number | undefined) => {
+    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
+      recovery = recovery === undefined ? seconds : Math.max(recovery, seconds);
+    }
+  };
+  consider(error.retryAfterSeconds);
+  const diagnostic = buildOriginProviderFailureDiagnostic(error);
+  consider(exhaustedDimensionResetSeconds(diagnostic.rateLimit));
+  for (const attempt of diagnostic.failoverAttempts) {
+    if (attempt.rateLimitHit !== true && attempt.errorCode !== 'PROVIDER_RATE_LIMITED') continue;
+    consider(exhaustedDimensionResetSeconds(attempt.rateLimit));
+  }
+  return recovery === undefined ? undefined : Math.ceil(recovery);
 }
 
 /** The injectable seam the tools consume; production wiring leaves it
@@ -232,7 +308,13 @@ export function createAgentModelExecutor(env: NodeJS.ProcessEnv): AgentModelExec
     } catch (error) {
       if (error instanceof OriginProviderError) {
         const providerAttempts = failoverAttemptsFromProviderError(error);
-        return { ok: false, code: error.code, ...(providerAttempts ? { providerAttempts } : {}) };
+        const quotaRecoverySeconds = quotaRecoverySecondsFromProviderError(error);
+        return {
+          ok: false,
+          code: error.code,
+          ...(providerAttempts ? { providerAttempts } : {}),
+          ...(quotaRecoverySeconds !== undefined ? { quotaRecoverySeconds } : {}),
+        };
       }
       return { ok: false, code: 'PROVIDER_INTERNAL_ERROR' };
     }
