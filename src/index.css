@@ -444,7 +444,17 @@
   color: var(--text-primary);
   box-shadow: 0 8px 24px color-mix(in oklch, var(--shadow-color) 42%, transparent), inset 0 1px 0 color-mix(in oklch, white 42%, transparent);
 }
-.origin-answer-markdown { min-width: 0; max-width: 45rem; margin-inline: auto; overflow-wrap: anywhere; color: var(--text-primary); }
+.origin-answer-markdown { min-width: 0; max-width: 45rem; margin-inline: auto; color: var(--text-primary); }
+/* 日本語の改行規則（P6、2026-11-24、週次品質検査の欠陥#6）：
+   以前は overflow-wrap: anywhere で、行末に来た文字が何でも
+   割れた（「12:00〜1 3:30」の数字途中、「シーパ／ラダイス」の
+   単語途中）。body の正本（line-break: strict ＋ overflow-wrap:
+   break-word）を回答にも適用する：禁則処理で小書き仮名や
+   閉じ括弧が行頭に来ず、break-word は1つの語が行に収まらない
+   ときだけ割るため、数値・英単語・日本語の語は途中で割れない。
+   あわせて word-break: keep-all で、日本語は文節（句読点）の
+   区切りでだけ折り返す（ホームの説明文と同じ規則）。 */
+.origin-answer-markdown { line-break: strict; word-break: keep-all; overflow-wrap: break-word; }
 .origin-answer-markdown > :first-child { margin-top: 0; }
 .origin-answer-markdown > :last-child { margin-bottom: 0; }
 .origin-answer-markdown h1,
@@ -470,6 +480,15 @@
 .origin-answer-table-scroll table { width: 100%; min-width: 34rem; border-collapse: collapse; }
 .origin-answer-table-scroll th,
 .origin-answer-table-scroll td { border-bottom: 1px solid var(--border-default); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
+/* 表セルの折り返し規則（P6、2026-11-24）：セル内では一切
+   折り返さない（nowrap）。keep-all だけでは、列幅の配分で
+   セルが語の最小幅より狭くなったときに break-word の緊急避難が
+   先に働き、「12:00〜13:30」が割れる実測があったため。nowrap
+   ではセルの最小幅＝内容幅になり、表が広くなれば外側の
+   .origin-answer-table-scroll が横スクロールで受ける
+   （現行仕様どおり）。 */
+.origin-answer-table-scroll th,
+.origin-answer-table-scroll td { white-space: nowrap; }
 .origin-answer-table-scroll th { background: var(--bg-surface-muted); font-size: 0.875rem; }
 .origin-external-image-note { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface-muted); padding: 0.35rem 0.55rem; color: var(--text-secondary); font-size: 0.8125rem; }
 .origin-dialog-overlay { background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
@@ -535,6 +554,13 @@
   .origin-header > div:last-child { gap: 0; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; } }
+
+/* 会話スクローラのスクロールアンカリング無効化（P5、2026-11-24）：
+   Chromium のスクロールアンカリングは、表示中の要素を基準に
+   スクロール位置を保持しようとして、最下部への追随と競合し、
+   完了直後に数十px手前で止まる原因になりうる。追随は App 側の
+   制御（最下部固定）で行うため、ブラウザ側の補正は切る。 */
+.origin-chat-scroll { overflow-anchor: none; }
 
 /* Skip link: visually hidden until keyboard focus, then pinned to the
    top-left above the shell so keyboard users can bypass the header. */

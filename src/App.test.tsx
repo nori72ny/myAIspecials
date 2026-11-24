@@ -3043,6 +3043,38 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect(disc.classList.contains('is-scrolling')).toBe(false);
   });
 
+  it('re-scrolls to the bottom after completion when the content grows late (P5 settle passes, 2026-11-24)', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestPath(input) === '/api/chat') {
+        return new Response(JSON.stringify({
+          content: '完了後の追随を確認する回答',
+          routing: { modelId: model, freeOnly: true, cost: 0, actualCostUsd: 0, estimatedCostUsd: 0, usage: { costUsd: 0 }, providerRouting: { requestedModel: model, servedModel: model, fallbackUsed: false } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(<App language="ja" />);
+    const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    // jsdom にはレイアウトが無いため、スクローラの寸法を手で与える。
+    let scrollHeight = 600;
+    let scrollTop = 0;
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 200 });
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } });
+    fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '完了後の追随確認' } });
+    fireEvent.click(screen.getByTestId('start-request-button'));
+    expect(await screen.findByText('完了後の追随を確認する回答')).toBeTruthy();
+    // 完了直後、操作行の出現や遅延レイアウトで本文がさらに伸びたとする。
+    scrollHeight = 1400;
+    // 寄せ直し（約300ms後）が新しい最下部まで届くこと。寄せ直しが
+    // 無いと伸びる前の高さ（600）で止まり、操作行が入力欄の裏に
+    // 半分隠れたままになる（週次品質検査の欠陥#5）。
+    await waitFor(() => expect(scrollTop).toBe(1400), { timeout: 3000 });
+  });
+
   it('shows the existing failure text in the presence pill when the send fails', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('network down'); });
     vi.stubGlobal('fetch', fetchMock);

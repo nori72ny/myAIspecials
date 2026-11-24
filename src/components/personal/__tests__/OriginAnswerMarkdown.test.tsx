@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OriginAnswerMarkdown from '../OriginAnswerMarkdown';
@@ -151,5 +153,31 @@ describe('partial-answer source cards', () => {
     const { container } = render(<OriginAnswerMarkdown language="ja" content={'回答です。\n\n## 出典\n\n- S1: example.com'} />);
     expect(container.querySelectorAll('article')).toHaveLength(0);
     expect(screen.getByRole('heading', { name: '出典', level: 2 })).toBeTruthy();
+  });
+});
+
+describe('Japanese line-breaking rules (P6) and the chat scroller anchor (P5)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+
+  it('does not break answer text at arbitrary characters', () => {
+    // 以前の overflow-wrap: anywhere は行末の文字が何でも割れ、
+    // 「12:00〜1 3:30」の数字途中・「シーパ／ラダイス」の単語途中
+    // の改行を起こした（週次品質検査の欠陥#6）。
+    const baseRule = css.match(/\.origin-answer-markdown \{[^}]*\}/)?.[0] ?? '';
+    expect(baseRule).not.toContain('overflow-wrap: anywhere');
+    expect(css).toContain('.origin-answer-markdown { line-break: strict; word-break: keep-all; overflow-wrap: break-word; }');
+  });
+
+  it('keeps table cell tokens whole and lets the wrapper scroll horizontally', () => {
+    // 表は枠内で横スクロールする現行仕様を維持する。
+    expect(css).toContain('.origin-answer-table-scroll { max-width: 100%; overflow-x: auto;');
+    // セル内では一切折り返さない（nowrap）。keep-all だけでは
+    // 列幅の配分でセルが狭くなったときに語が割れる実測があった。
+    const cellRules = css.match(/\.origin-answer-table-scroll td \{[^}]*\}/g) ?? [];
+    expect(cellRules.some((rule) => rule.includes('white-space: nowrap'))).toBe(true);
+  });
+
+  it('disables browser scroll anchoring on the chat scroller (P5)', () => {
+    expect(css).toContain('.origin-chat-scroll { overflow-anchor: none; }');
   });
 });
