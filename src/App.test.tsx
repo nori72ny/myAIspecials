@@ -3013,7 +3013,7 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect((within(presence).getByTestId('origin-cat-state') as HTMLElement).style.width).toBe('72px');
   });
 
-  it('keeps Orin at full size in its own row while the conversation is scrolled (P4, 2026-11-23)', async () => {
+  it('places Orin at the head of the scroll content so it scrolls away with the conversation (K-01, 2026-11-24)', async () => {
     const { container } = render(<App language="ja" />);
     const presence = await screen.findByTestId('origin-orin-presence');
     const cat = within(presence).getByTestId('origin-cat-state') as HTMLElement;
@@ -3023,17 +3023,20 @@ describe('Orin floating presence (owner request 2026-11-14, revised 08:59)', () 
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     const scroller = container.querySelector('.origin-chat-scroll') as HTMLElement;
     expect(scroller).toBeTruthy();
-    // P4 の構造条件：プレゼンスはスクローラの中にも上にもなく、
-    // メイン列の中でスクローラより前に置かれた独立の行。本文が
-    // 円盤の下に潜る余地がないことを構造で固定する。
-    expect(scroller.contains(presence)).toBe(false);
-    expect(presence.parentElement).toBe(scroller.parentElement);
-    expect(presence.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // K-01 の構造条件（是正リスト K-01、選択肢 C）：プレゼンスは
+    // スクローラの外の行（P4 形）でも浮遊でもなく、スクロール
+    // 内容の先頭の子として置かれる。本文と一緒に流れ去るため、
+    // どのスクロール位置でも本文が円盤の下に来ることは構造的
+    // に起きない。ホーム／会話の条件分岐より前に描かれるため、
+    // どちらの表示でも常に先頭になる（ここではホーム表示で固定）。
+    expect(scroller.contains(presence)).toBe(true);
+    expect(presence.parentElement).toBe(scroller);
+    expect(scroller.firstElementChild).toBe(presence);
     let scrollTop = 120;
     Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => scrollTop });
     fireEvent.scroll(scroller);
-    // 閾値を超えてスクロールしても、絵は縮まず薄くもならない
-    // （浮遊前提の自動縮小・フェードは P4 で廃止）。
+    // スクロールしても、絵は縮まず薄くもならない（浮遊前提の
+    // 自動縮小・フェードは P4 で廃止済み。K-01 でも維持する）。
     await waitFor(() => expect(cat.style.width).toBe('72px'));
     expect(disc.classList.contains('is-scrolling')).toBe(false);
     // 先頭に戻っても同じ大きさのまま。

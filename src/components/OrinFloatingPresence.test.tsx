@@ -361,7 +361,7 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(onOpenWorkSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('pins the presence CSS: frameless fully visible disc over the scroller, auto-shrink transition, scroller top clearance', () => {
+  it('pins the presence CSS: frameless fully visible disc at the head of the scroll content, auto-shrink transition, scroller top clearance', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/origin-top-ui.css'), 'utf8');
     expect(css).not.toContain('.origin-orin-bubble');
     expect(css).not.toContain('.origin-orin-overlay');
@@ -377,14 +377,16 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     expect(nameRule).toContain('background: var(--bg-surface);');
     // 旧・濃色ピル（白文字＋強い影＋backdrop blur）は窓方式で廃止した。
     expect(css).not.toContain('.origin-orin-presence__pill');
-    // 配置（P4 改訂、2026-11-23）：プレゼンスは浮遊（absolute）
-    // ではなく、メイン列の通常フロー内の行。ヘッダー直下に
-    // 自分の高さを確保し、会話スクローラはその下から始まる
-    // ため、本文が円盤の下に潜ることは物理的に起きない。
-    // 列全体に広がる容器はタップを通し、タップ対象だけが
-    // タップを受ける（従来どおり）。
+    // 配置（K-01 改訂、2026-11-24。是正リスト K-01 の選択肢 C）：
+    // プレゼンスは浮遊（absolute）でもメイン列の行（P4 形）でも
+    // なく、会話スクローラの中の通常フローの行（スクロール内容
+    // の先頭）。本文と一緒に流れ去るため、どのスクロール位置
+    // でも本文が円盤の下に潜ることは物理的に起きない。列の
+    // flex 子ではなくなったため flex: none は持たない。行全体に
+    // 広がる容器はタップを通し、タップ対象だけがタップを受け
+    // る（従来どおり）。
     const floatRule = css.match(/\.origin-orin-presence \{[^}]*\}/)?.[0] ?? '';
-    expect(floatRule).toContain('flex: none;');
+    expect(floatRule).not.toContain('flex: none;');
     expect(floatRule).toContain('display: flex;');
     expect(floatRule).toContain('justify-content: center;');
     expect(floatRule).toContain('pointer-events: none;');
@@ -452,11 +454,12 @@ describe('Orin presence (2026-11-14 08:59 revision, frameless form + floating au
     const dotsRules = css.match(/\.origin-orin-presence__dots > span \{[^}]*\}/g) ?? [];
     expect(dotsRules.some((rule) => rule.includes('animation: origin-orin-dots'))).toBe(true);
     expect(dotsRules.some((rule) => rule.includes('animation: none;'))).toBe(true);
-    // 会話スクローラ（P4 改訂、2026-11-23）：プレゼンスが
-    // フロー内の行になったため、円盤を避けるクリアランスは
-    // 不要。浮遊前提の padding-top 88px／scroll-padding-top
-    // 84px は撤去し、scrollIntoView の停止位置に少しだけ
-    // 余白を残す scroll-padding-top 16px のみ。
+    // 会話スクローラ（P4 改訂、2026-11-23／K-01 改訂、
+    // 2026-11-24）：プレゼンスがスクロール内容の先頭の行に
+    // なったため、円盤を避けるクリアランスは不要。浮遊前提の
+    // padding-top 88px／scroll-padding-top 84px は撤去し、
+    // scrollIntoView の停止位置に少しだけ余白を残す
+    // scroll-padding-top 16px のみ。
     expect(css).toContain('.origin-chat-scroll {');
     expect(css).toContain('scroll-padding-top: 16px;');
     expect(css).not.toContain('padding-top: 88px;');

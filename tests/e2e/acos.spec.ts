@@ -77,42 +77,39 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     expect(await page.locator('script[src]').evaluateAll((scripts) => scripts.every((script) => new URL((script as HTMLScriptElement).src).origin === window.location.origin))).toBe(true);
   });
 
-  test('shows the Orin floating presence at the top center while waiting for an answer (2026-11-14 revision)', async ({ page }) => {
+  test('shows the Orin presence as the first row of the conversation scroller while waiting for an answer (K-01 revision 2026-11-24)', async ({ page }) => {
     await page.route('**/api/chat', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '完了しました。' });
     });
     await page.goto('/');
-    // 待機中からプレゼンスはヘッダー直下に上部中央で出ている
-    // （姿のみ、状態ピルは作業中だけ）。配置の履歴：2026-11-17
-    // に帯方式（通常フロー）へ移し、2026-11-20 10:10 の
-    // オーナー refine で浮遊配置（メイン列内 absolute）へ戻し、
-    // 同日 12:06 に窓の枠は撤去されて枠なしになり、同日 15:36
-    // の実機判定（頭が切れて見える）を受けて全体表示にした。
-    // その後、週次品質検査（2026-11-23）の欠陥 #4（スクロール
-    // した回答文の上にオリンが重なって文字が隠れる）への対策
-    // として、通常フロー内の専用行へ戻した（P4）。浮遊前提の
-    // 緩和策（スクロール中のフェードと自動縮小）は廃止し、
-    // 本文が円盤の下に潜る余地自体を無くした。
+    // プレゼンスの配置契約は K-01（2026-11-24、是正リスト
+    // K-01 の選択肢 C）で確定した：オリンは会話スクローラの
+    // 最初の通常フローの行として出る（姿＋名前タグのみ、状態
+    // ピルは作業中だけ）。浮遊配置（メイン列内 absolute）は
+    // 2026-11-20 10:10 の refine で採用されたが、スクロール
+    // した本文が円盤の下を通り、止まると文字が隠れる問題が
+    // 本番で再確認されたため廃止した。行としてスクローラの
+    // 中にいる限り、オリンは本文と一緒に流れ、どのスクロール
+    // 位置でも本文に重ならない。円盤の全体がヘッダー下端より
+    // 下に見える形（2026-11-20 15:36 実機判定）も、行が
+    // ヘッダーの下のスクローラ内にあるためそのまま保たれる。
     // ヘッダーにオリンは置かない。
-    // 名前は円盤の横の吹き出しタグ「Orin」に出す（2026-11-24
-    // オーナー指示。2026-11-15 の削除指示は撤回された）。
+    // 名前は 2026-11-24 のオーナー指示で、円盤の横の吹き出し
+    // 型タグ「Orin」として常時出す（2026-11-15 の「名前
+    // テキストは出さない」は撤回された。カード内表示も残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
+    await expect(page.getByTestId('origin-orin-presence-name')).toBeVisible();
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('Orin');
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0);
     await expect(presence).toHaveCSS('position', 'static');
-    // 専用行の位置（P4）：行はヘッダーの直下にあり、会話
-    // スクローラは行の直下から始まる。行とスクローラが
-    // 重なることはない。
-    const presenceBoxAcos = await presence.boundingBox();
-    const headerBoxAcos = await page.locator('.origin-header').boundingBox();
-    const scrollerBoxAcos = await page.locator('.origin-chat-scroll').boundingBox();
-    expect(presenceBoxAcos).not.toBeNull();
-    expect(headerBoxAcos).not.toBeNull();
-    expect(scrollerBoxAcos).not.toBeNull();
-    expect(presenceBoxAcos!.y).toBeGreaterThanOrEqual(headerBoxAcos!.y + headerBoxAcos!.height - 1);
-    expect(presenceBoxAcos!.y + presenceBoxAcos!.height).toBeLessThanOrEqual(scrollerBoxAcos!.y + 1);
+    // スクローラの最初の要素子であること（行の位置の固定）。
+    const presenceIsFirstRow = await presence.evaluate((element) => {
+      const scroller = element.closest('.origin-chat-scroll');
+      return Boolean(scroller && scroller.firstElementChild === element);
+    });
+    expect(presenceIsFirstRow).toBe(true);
     await expect(page.locator('.origin-header [data-testid="origin-cat-state"]')).toHaveCount(0);
     await page.getByTestId('origin-home-request').fill('考えてください');
     await page.getByTestId('start-request-button').click();
@@ -128,6 +125,14 @@ test.describe('ORIGIN Personal 2.0 critical journey', () => {
     // 残る。作業中は自動縮小で小さくなる（2026-11-20 10:10）。
     await expect(page.getByTestId('origin-orin-presence-status')).toHaveCount(0, { timeout: 15_000 });
     await expect(presence).toBeVisible();
+    // 行は会話ログより前に積まれ、メッセージと重ならない
+    // （重なりゼロの構造確認：プレゼンスの下端は最初の
+    // ユーザーメッセージの上端以下）。
+    const presenceBox = await presence.boundingBox();
+    const firstMessageBox = await page.locator('.origin-chat-user').first().boundingBox();
+    expect(presenceBox).not.toBeNull();
+    expect(firstMessageBox).not.toBeNull();
+    expect(presenceBox!.y + presenceBox!.height).toBeLessThanOrEqual(firstMessageBox!.y + 1);
   });
 
   test('protects Japanese IME composition and keeps the composer available after answering', async ({ page }) => {

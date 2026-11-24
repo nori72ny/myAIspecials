@@ -216,6 +216,33 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(indexCss).toContain('.origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }');
   });
 
+  it('canonises the secondary-button frame in the class itself (K-02, 2026-11-24)', () => {
+    // K-02 (correction list; design fine audit D-01/D-10/D-11): the
+    // frame belongs to the canon class, never to a per-site `border`
+    // utility. Before this the class named only a border colour, so
+    // the frame showed at barely half the call sites and the same
+    // button changed its look by screen and by theme (the home
+    // starter chips rendered as bare bold text on the light theme).
+    expect(indexCss).toContain('.origin-secondary-button { background: var(--bg-surface); border: 1px solid var(--border-strong); color: var(--text-primary); }');
+    expect(indexCss).not.toContain('.origin-secondary-button { background: var(--bg-surface); border-color: var(--border-strong); color: var(--text-primary); }');
+    // The badge takes the same canonisation (frame in the class).
+    expect(indexCss).toContain('.origin-badge { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }');
+    // Call-site inventory: pure secondary buttons no longer carry the
+    // compensating `border` utility, and outside the documented
+    // settings-row exception they no longer carry rounded-xl either
+    // (radius canon: control 8px by default, or the pill). The
+    // settings selection-row bases are shared with the primary state
+    // and stay with the settings surface (correction list K-11).
+    const personalization = readFileSync(resolve(root, 'components/PersonalizationSettings.tsx'), 'utf8');
+    expect(personalization).not.toContain('origin-secondary-button min-h-11 rounded-xl border');
+    expect(personalization).toContain('origin-secondary-button min-h-11 px-3 text-sm font-semibold');
+    const taskBoard = readFileSync(resolve(root, 'components/AgentTaskBoard.tsx'), 'utf8');
+    expect(taskBoard).not.toContain('origin-secondary-button min-h-11 rounded-xl');
+    // The queue-send button (D-11) keeps its pill shape and takes the
+    // frame from the canon class like every other call site.
+    expect(app).toContain('data-testid="queue-send-button"');
+  });
+
   it('keeps retired glass shell tokens out of standalone Release 2 primitives', () => {
     expect(ultraOptics).not.toContain('.origin-ultra-panel,');
     expect(ultraOptics).not.toContain('.origin-glass-control {');

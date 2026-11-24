@@ -89,9 +89,11 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
         borderRadius: style.borderRadius,
       };
     });
-    // 円盤の中の猫は72pxの円形（待機・未スクロール。2026-11-20
-    // 18:17 の実機判定で、顔が読める大きさへ拡大）。作業中と
-    // スクロール中は48pxに自動で縮む（2026-11-20 10:10）。
+    // 円盤の中の猫は72pxの円形（待機時。2026-11-20
+    // 18:17 の実機判定で、顔が読める大きさへ拡大）。作業中は
+    // 48pxに自動で縮む（2026-11-20 10:10）。スクロール中の
+    // 縮小は P4（2026-11-23）で廃止済み（K-01 では行が本文と
+    // 一緒に流れるため、縮める理由自体がない）。
     expect(presenceCatStyle.width).toBe('72px');
     expect(presenceCatStyle.height).toBe('72px');
     expect(presenceCatStyle.borderRadius).toBe('999px');
@@ -129,36 +131,50 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(discTexture.drop).toBe('none');
     expect(discTexture.inset).toBe('none');
     expect(discTexture.ground).toBe('radial-gradient(rgba(24, 35, 59, 0.2), rgba(24, 35, 59, 0) 68%)');
-    // 全体表示の幾何（P4、2026-11-24。旧浮遊方式の幾何は
-    // 2026-11-20 15:36 のもの）：プレゼンスは通常フロー内の
-    // 専用行で、円盤の上端はヘッダーの下端より下にあり、円盤が
-    // ヘッダーに隠れる量は 0（猫の頭が切れない）。行はヘッダー
-    // 直下に寄せた配置で、円盤までの隙間は 12px 以内。行の下端
-    // ＝スクローラの上端で、円盤はスクロール領域に一切入ら
-    // ないため、スクロールした本文が円盤の下に隠れることは
-    // 物理的に起きない。浮遊前提だったスクローラの余白
-    // （padding-top 88px／scroll-padding-top 84px）は廃止し、
-    // 通常のパディングと scroll-padding-top 16px のみ。
+    // 全体表示の幾何（K-01 契約、2026-11-24）：プレゼンスは
+    // 会話スクローラの最初の通常フローの行である（position
+    // は static、配置は持たない）。円盤の上端はヘッダーの
+    // 下端より下にあり、円盤がヘッダーに隠れる量は 0（猫の
+    // 頭が切れない、2026-11-20 15:36 の実機判定は維持）。
+    // ヘッダー下端から円盤上端までの距離は、スクローラの
+    // padding-top（モバイル p-2 = 8px）とタップ対象の
+    // padding-top（6px）の合計 14px が設計値（旧浮遊形の
+    // 12px は top 配置由来で、行の積み重ねではこの 14px が
+    // 正本）。行の高さは待機時 84px（円盤72px＋タップの
+    // 上下パディング6px×2）で、行の下端はホームレイアウト
+    // の上端に接する（本文は円盤の下ではなく行の下から
+    // 始まるため、先頭行が隠れる余地自体がない）。
+    // スクローラの padding-top は通常のパディング（モバイル
+    // 8px）、scroll-padding-top は 16px（アンカー位置の
+    // 小さな逃がしのみ。旧浮遊形の 88px/84px クリアランスは
+    // 廃止済み）。
     await expect(presence).toHaveCSS('position', 'static');
     const headerBox = await page.locator('.origin-header').boundingBox();
     const discBox = await presenceCatImage.boundingBox();
-    const presenceBox = await presence.boundingBox();
     const scroller = page.locator('.origin-chat-scroll');
     const scrollerBox = await scroller.boundingBox();
     expect(headerBox).not.toBeNull();
     expect(discBox).not.toBeNull();
-    expect(presenceBox).not.toBeNull();
     expect(scrollerBox).not.toBeNull();
     const headerBottom = headerBox!.y + headerBox!.height;
     const hiddenByHeader = headerBottom - discBox!.y;
     // 隠れる量は 0 が正本。 boundingBox の端数で 1px まで許容。
     expect(hiddenByHeader).toBeLessThanOrEqual(1);
-    expect(discBox!.y - headerBottom).toBeLessThanOrEqual(12);
-    // 行はヘッダー直下からスクローラ直上までを占める。
-    expect(presenceBox!.y).toBeGreaterThanOrEqual(headerBottom - 1);
-    expect(presenceBox!.y + presenceBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 1);
-    // 円盤の下端はスクロール領域に入らない。
-    expect(discBox!.y + discBox!.height).toBeLessThanOrEqual(scrollerBox!.y + 1);
+    expect(discBox!.y - headerBottom).toBeLessThanOrEqual(14 + 1);
+    // 行の位置と高さ：スクローラの最初の要素子で、高さは
+    // 待機行の 84px。下端はホームレイアウトの上端に接する。
+    const presenceBox = await presence.boundingBox();
+    const homeBox = await page.locator('.origin-home-layout').boundingBox();
+    expect(presenceBox).not.toBeNull();
+    expect(homeBox).not.toBeNull();
+    const presenceIsFirstRow = await presence.evaluate((element) => {
+      const parent = element.closest('.origin-chat-scroll');
+      return Boolean(parent && parent.firstElementChild === element);
+    });
+    expect(presenceIsFirstRow).toBe(true);
+    expect(presenceBox!.height).toBeGreaterThanOrEqual(84 - 1);
+    expect(presenceBox!.height).toBeLessThanOrEqual(84 + 1);
+    expect(Math.abs(presenceBox!.y + presenceBox!.height - homeBox!.y)).toBeLessThanOrEqual(1);
     await expect(scroller).toHaveCSS('padding-top', '8px');
     await expect(scroller).toHaveCSS('scroll-padding-top', '16px');
     // タップの的（2026-11-20 15:36）：待機状態でも的は44px以上
@@ -168,8 +184,8 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(tapBox!.width).toBeGreaterThanOrEqual(44);
     expect(tapBox!.height).toBeGreaterThanOrEqual(44);
     console.log(`[orin-geometry] headerBottom=${headerBottom} discY=${discBox!.y} discH=${discBox!.height} hiddenByHeader=${hiddenByHeader} tap=${tapBox!.width}x${tapBox!.height}`);
-    // 円盤がヘッダー下端に重なっても、ヘッダーの操作要素は
-    // 円盤に隠れて押せなくならない（当たり判定で確認する）。
+    // ヘッダーの操作要素は円盤に隠れて押せなくならない
+    // （当たり判定で確認する）。
     const settingsButton = page.getByTestId('history-drawer-toggle');
     const settingsHit = await settingsButton.evaluate((element) => {
       const rect = element.getBoundingClientRect();
@@ -211,7 +227,7 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(historyOnTop).toBe(true);
   });
 
-  test('captures the Orin floating presence shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
+  test('captures the Orin presence shown while waiting, without changing the normal answer surface', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.route('**/api/chat', async (route) => {
@@ -224,9 +240,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await page.getByTestId('start-request-button').click();
     // 作業中表示（2026-11-14、枠なし方式 2026-11-20 12:06）：
     // 待ちの主表示は上部中央のオリン＋状態テキスト（reduced-motion では
-    // フェードなしで出る）。全体画面ステージは出ない。常駐の
-    // 名前テキストは2026-11-15 のオーナー指示で削除済み
-    // （カード内表示は残る）。
+    // フェードなしで出る）。全体画面ステージは出ない。名前は
+    // 2026-11-24 のオーナー指示で吹き出し型タグ「Orin」として
+    // 円盤の横に常時出す（2026-11-15 の削除指示は撤回された。
+    // カード内表示も残る）。
     const presence = page.getByTestId('origin-orin-presence');
     await expect(presence).toBeVisible();
     await expect(presence).toContainText('回答を準備しています');
@@ -244,8 +261,9 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     expect(tapDuringBox).not.toBeNull();
     expect(tapDuringBox!.height).toBeGreaterThanOrEqual(44);
     console.log(`[orin-geometry] working tap height=${tapDuringBox!.height}`);
-    // 名前タグ「Orin」は作業中も円盤の横に出続ける
+    // 名前タグは作業中（48px の縮小状態）でも常時出る
     // （2026-11-24 オーナー指示）。
+    await expect(page.getByTestId('origin-orin-presence-name')).toBeVisible();
     await expect(page.getByTestId('origin-orin-presence-name')).toHaveText('Orin');
     await expect(page.getByTestId('origin-stage')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('surface-thinking-mobile-390.png'), fullPage: true });
@@ -258,8 +276,10 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expect(page.locator('.origin-chat-assistant').last()).toContainText('処理が完了しました。');
   });
 
-  test('keeps Orin in its own row while scrolling so the answer text is never covered (P4, 2026-11-24)', async ({ page }) => {
-    const longBody = Array.from({ length: 24 }, (_, index) => `第${index + 1}段落です。これはスクロールの確認のための長い回答です。読み手が下へ読み進めても、オリンが本文の上に重ならないことを確認します。`).join('\n\n');
+  test('Orin scrolls away with the content and never covers the conversation text (K-01 revision 2026-11-24)', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const longBody = Array.from({ length: 24 }, (_, i) => `第${i + 1}段落です。スクロールしてもオリンが文字の上に残らないことを確認するための長い回答です。`).join('\n\n');
     await page.route('**/api/chat', async (route) => route.fulfill({
       status: 200,
       contentType: 'text/plain; charset=utf-8',
@@ -274,46 +294,52 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
 
     const presence = page.getByTestId('origin-orin-presence');
     const disc = presence.locator('.origin-orin-presence__disc');
-    const catImage = presence.locator('img[data-testid="origin-cat-state"]');
-    await expect(disc).toBeVisible();
-    // フェードは廃止した（P4）：円盤は常時不透明度 1。
-    await expect.poll(async () => disc.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
-
     const scroller = page.locator('.origin-chat-scroll');
-    const intersects = async () => {
+    const firstArticle = page.locator('.origin-conversation-log article').first();
+    // 旧契約（浮遊＋スクロール中フェード 0.35、2026-11-20
+    // 15:36）は K-01 で廃止した：プレゼンスはスクローラ内の
+    // 通常フローの行であり、本文の下を何かが通る構造自体が
+    // ないため、薄くする必要がない。不透明度は常時 1。
+    await expect.poll(async () => disc.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    // どのスクロール位置でも、行は会話ログの前に積まれた
+    // ままで本文と重ならない（プレゼンスの下端 ≤ 最初の
+    // メッセージの上端）。矩形はスクロールと一緒に平行移動
+    // するため、この積み重なりは位置によらず保たれる。
+    const expectNoOverlap = async () => {
       const presenceBox = await presence.boundingBox();
-      const scrollerBox = await scroller.boundingBox();
-      if (!presenceBox || !scrollerBox) return true;
-      // プレゼンスの行とスクロール領域は重ならない（行の下端が
-      // 領域の上端以下）。本文はスクローラ内部でクリップされる
-      // ため、オリンが本文に重なることは物理的に起きない。
-      return presenceBox.y + presenceBox.height > scrollerBox.y + 1;
+      const articleBox = await firstArticle.boundingBox();
+      expect(presenceBox).not.toBeNull();
+      expect(articleBox).not.toBeNull();
+      expect(presenceBox!.y + presenceBox!.height).toBeLessThanOrEqual(articleBox!.y + 1);
     };
-    expect(await intersects()).toBe(false);
-    // スクロールを続けても、重なりは生じず、円盤は薄くも
-    // 縮みもしない（浮遊前提の緩和策はどちらも廃止済み）。
-    // 待機中の猫は 72px のまま。
-    await expect.poll(async () => {
-      await scroller.evaluate((el) => {
-        const holder = el as unknown as { __orinFlip?: boolean };
-        holder.__orinFlip = !holder.__orinFlip;
-        el.scrollTop = holder.__orinFlip ? 240 : 300;
-      });
-      const overlapped = await intersects();
-      const opacity = await disc.evaluate((el) => getComputedStyle(el).opacity);
-      const catWidth = await catImage.evaluate((el) => getComputedStyle(el).width);
-      return !overlapped && opacity === '1' && catWidth === '72px';
-    }, { timeout: 10_000 }).toBe(true);
-    // スクロール中でもタップの的は44px以上（72px＋パディング
-    // 6px×2＝84px）。
-    const tapScrolledBox = await presence.locator('button').boundingBox();
-    expect(tapScrolledBox).not.toBeNull();
-    expect(tapScrolledBox!.width).toBeGreaterThanOrEqual(44);
-    expect(tapScrolledBox!.height).toBeGreaterThanOrEqual(44);
-    console.log(`[orin-geometry] in-row tap=${tapScrolledBox!.width}x${tapScrolledBox!.height}`);
-    // スクロールを止めても同じ（戻る遷移自体が無い）。
-    await expect.poll(async () => disc.evaluate((el) => getComputedStyle(el).opacity), { timeout: 10_000 }).toBe('1');
-    expect(await intersects()).toBe(false);
+    // 最下部までスクロールすると、行はスクローラの可視領域
+    // から完全に流れ去っている（本文の上に残らない）。
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    const scrollerBox = await scroller.boundingBox();
+    const presenceAtBottom = await presence.boundingBox();
+    expect(scrollerBox).not.toBeNull();
+    expect(presenceAtBottom).not.toBeNull();
+    expect(presenceAtBottom!.y + presenceAtBottom!.height).toBeLessThanOrEqual(scrollerBox!.y + 1);
+    await expectNoOverlap();
+    // 先頭へ戻すと行が会話の入口に現れる。タップの的は
+    // 44px以上（待機行は絵72px＋パディング6px×2＝84px）。
+    await scroller.evaluate((el) => { el.scrollTop = 0; });
+    await expect(disc).toBeVisible();
+    const tapBox = await presence.locator('button').boundingBox();
+    expect(tapBox).not.toBeNull();
+    expect(tapBox!.width).toBeGreaterThanOrEqual(44);
+    expect(tapBox!.height).toBeGreaterThanOrEqual(44);
+    console.log(`[orin-geometry] top tap=${tapBox!.width}x${tapBox!.height}`);
+    // 途中までスクロールすると、行はスクロール量と同じだけ
+    // 上へ流れる（固定表示ではないことの確認）。
+    const beforeScroll = await presence.boundingBox();
+    await scroller.evaluate((el) => { el.scrollTop = 120; });
+    const afterScroll = await presence.boundingBox();
+    expect(beforeScroll).not.toBeNull();
+    expect(afterScroll).not.toBeNull();
+    expect(beforeScroll!.y - afterScroll!.y).toBeGreaterThanOrEqual(120 - 1);
+    expect(beforeScroll!.y - afterScroll!.y).toBeLessThanOrEqual(120 + 1);
+    await expectNoOverlap();
   });
 
   test('captures the fail-closed unverified-cost waiting state without leaking paid content', async ({ page }, testInfo) => {

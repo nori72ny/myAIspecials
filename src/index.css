@@ -401,7 +401,23 @@
    unmistakable (accent background with on-accent glyph). Do not re-add a
    blanket opacity here; it dropped the send glyph to ~1.5:1 effective. */
 .origin-primary-button:disabled { background: var(--bg-surface-muted); color: var(--text-secondary); }
-.origin-secondary-button { background: var(--bg-surface); border-color: var(--border-strong); color: var(--text-primary); }
+/* The single secondary-button spec (K-02 canonisation, 2026-11-24;
+   the close-button principle below applied to the whole class): the
+   frame is declared HERE — 1px solid var(--border-strong) — and is
+   never left to a per-site `border` utility. Before this the class
+   named only a border colour, so the frame showed at barely half
+   the call sites: the same button changed its look by screen, and
+   on the light theme the home starter chips rendered as bare bold
+   text (design fine audit D-01, fatal). Shape canon: height 44px
+   (the shared min-height rule above), radius is the control radius
+   (8px, the shared rule) by default or the pill (rounded-full at
+   the call site) — no other radius on this class. Documented
+   exception: settings row buttons keep 48px and rounded-xl as the
+   settings-row recipe (correction list K-11 owns that surface);
+   close buttons carry their own spec (.origin-close-button). The
+   queue-send button next to the stop button (D-11) takes its frame
+   from this declaration like every other call site. */
+.origin-secondary-button { background: var(--bg-surface); border: 1px solid var(--border-strong); color: var(--text-primary); }
 .origin-secondary-button:hover:not(:disabled) { background: var(--bg-surface-muted); border-color: var(--border-strong); }
 /* The single close-button spec for every dialog / sheet (external
    design evaluation fix PR-A1, 2026-11-20): 44x44px, a Lucide X icon
@@ -416,7 +432,9 @@
    rendered as bare glyphs (measured border-width 0px). */
 .origin-close-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-primary); flex-shrink: 0; }
 .origin-danger-button { background: var(--bg-surface); border-color: color-mix(in oklch, var(--danger) 40%, var(--border-default)); color: var(--danger); }
-.origin-badge { background: var(--accent-soft); border-color: var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
+/* Same canonisation as .origin-secondary-button (K-02, 2026-11-24):
+   the frame is declared here, not left to a per-site utility. */
+.origin-badge { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius-control); color: var(--accent-strong); }
 .origin-chat-user {
   background-color: var(--bubble-from);
   color: var(--bubble-text, var(--text-primary));

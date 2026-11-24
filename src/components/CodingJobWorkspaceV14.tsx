@@ -362,7 +362,7 @@ export default function CodingJobWorkspaceV14({ initialGoal, onOpenSettings }: C
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] leading-5">
             <span className="text-origin-muted">実行キーは、設定の「コード実行」で入力します。</span>
             <span className="text-origin-muted">コードの相談や短いコードは、チャットでもそのまま頼めます。</span>
-            <button type="button" onClick={() => onOpenSettings?.('coding')} className="origin-secondary-button inline-flex min-h-11 items-center rounded-xl border px-3 text-sm font-semibold">設定を開く</button>
+            <button type="button" onClick={() => onOpenSettings?.('coding')} className="origin-secondary-button inline-flex min-h-11 items-center px-3 text-sm font-semibold">設定を開く</button>
           </div>
         )}
 

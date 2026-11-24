@@ -672,7 +672,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
           {session.busy ? '承認中…' : '承認して再開する'}
         </button>
         <button type="button" onClick={() => setResumeSession(null)} disabled={session.busy}
-          className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold">やめる</button>
+          className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">やめる</button>
       </div>
     </div>;
   };
@@ -698,7 +698,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" onClick={() => setExpandedRunId(expanded ? null : run.runId)}
-          className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">
+          className="origin-secondary-button min-h-11 px-3 text-[13px] font-semibold">
           {expanded ? '詳細を閉じる' : '詳細'}
         </button>
         {(run.status === 'held' || run.status === 'awaiting_approval') && !session && (
@@ -714,11 +714,11 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
               {busyRunId === run.runId ? '取り消し中…' : '本当に取り消す'}
             </button>
             <button type="button" onClick={() => setConfirmingCancelRunId(null)}
-              className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">やめる</button>
+              className="origin-secondary-button min-h-11 px-3 text-[13px] font-semibold">やめる</button>
           </>
         ) : (
           <button type="button" onClick={() => setConfirmingCancelRunId(run.runId)}
-            className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold">取り消す</button>
+            className="origin-secondary-button min-h-11 px-3 text-[13px] font-semibold">取り消す</button>
         ))}
       </div>
       {expanded && renderRunDetail(run)}
@@ -737,7 +737,7 @@ export default function AgentTaskBoard({ browserPlanToken }: { browserPlanToken?
         <h2 className="text-base font-black">これまでの作業</h2>
       </div>
       <button type="button" onClick={() => void load()} disabled={loadState === 'loading'}
-        className="origin-secondary-button min-h-11 rounded-xl px-3 text-[13px] font-semibold disabled:opacity-50">
+        className="origin-secondary-button min-h-11 px-3 text-[13px] font-semibold disabled:opacity-50">
         {loadState === 'loading' ? '読み込み中…' : runs ? '更新' : '作業を表示'}
       </button>
     </div>

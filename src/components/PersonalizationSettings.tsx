@@ -319,7 +319,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
           />
           <div className="flex gap-2">
             <button type="button" onClick={(event) => { event.stopPropagation(); void saveMemoryEdit(item); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.saveEdit}</button>
-            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingMemoryId(null); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.cancelEdit}</button>
+            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingMemoryId(null); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.cancelEdit}</button>
           </div>
         </div>
       ) : (
@@ -336,7 +336,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             {inNeedsCheckGroup ? (
               <button type="button" onClick={(event) => { event.stopPropagation(); void resolveNeedsCheck(item, group); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.useThis}</button>
             ) : (
-              <button type="button" onClick={(event) => { event.stopPropagation(); setEditingMemoryId(item.id); setEditDraft(item.text); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.edit}</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); setEditingMemoryId(item.id); setEditDraft(item.text); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.edit}</button>
             )}
             <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteMemoryItem(userId(), item.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
           </div>
@@ -369,7 +369,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             </ul>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'approved'); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.proposalNeedsCheckApprove}</button>
-              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.proposalNeedsCheckDismiss}</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.proposalNeedsCheckDismiss}</button>
             </div>
           </>
         ) : (
@@ -389,7 +389,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             </ul>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'approved'); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.proposalApproveCombination}</button>
-              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.proposalDismiss}</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); void resolveProposal(proposal, 'dismissed'); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.proposalDismiss}</button>
             </div>
           </>
         )}
@@ -436,7 +436,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
                       />
                       <div className="flex gap-2">
                         <button type="button" onClick={(event) => { event.stopPropagation(); void saveProfileEdit(item); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.saveEdit}</button>
-                        <button type="button" onClick={(event) => { event.stopPropagation(); setEditingProfileId(null); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.cancelEdit}</button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); setEditingProfileId(null); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.cancelEdit}</button>
                       </div>
                     </div>
                   ) : (
@@ -450,7 +450,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
                           ariaLabel={`${p.sendToModel}: ${item.text}`}
                           onChange={(next) => { void runMutation(async () => { await upsertProfileItem(userId(), { ...item, sendToModel: next }); }); }}
                         />
-                        <button type="button" onClick={(event) => { event.stopPropagation(); setEditingProfileId(item.id); setEditDraft(item.text); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.edit}</button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); setEditingProfileId(item.id); setEditDraft(item.text); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.edit}</button>
                         <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteProfileItem(userId(), item.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
                       </div>
                       {!item.sendToModel && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
@@ -513,7 +513,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
               </li>
             ))}
           </ul>
-          <button type="button" onClick={(event) => { event.stopPropagation(); void dismissBlockNotices(); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.blockNoticesDismiss}</button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); void dismissBlockNotices(); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.blockNoticesDismiss}</button>
         </div>
       )}
 
@@ -579,7 +579,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
               </label>
               <div className="flex gap-2">
                 <button type="button" onClick={(event) => { event.stopPropagation(); void confirmClearAll(); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.clearAllConfirm}</button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); setClearConfirmOpen(false); }} className="origin-secondary-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.clearAllCancel}</button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); setClearConfirmOpen(false); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.clearAllCancel}</button>
               </div>
             </div>
           )}

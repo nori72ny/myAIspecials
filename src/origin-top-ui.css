@@ -276,14 +276,23 @@
     height: 44px !important;
     padding-inline: 0 !important;
   }
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child {
+  /* K-01 revision (2026-11-24): this shell rule addressed the
+     scroller's first child, which used to be the home layout or
+     the conversation log. The Orin presence row is the first
+     child now, so the rule names its real targets instead of
+     handing the presence the content shell's centring/padding. */
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-conversation-log,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-conversation-log {
     justify-content: center !important;
     padding-block: clamp(16px, 2.5dvh, 24px) !important;
     padding-inline: 0 !important;
   }
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div:first-child > div:nth-of-type(2),
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div:first-child > div:nth-of-type(2) {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout > div:nth-of-type(2),
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout > div:nth-of-type(2),
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-conversation-log > div:nth-of-type(2),
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-conversation-log > div:nth-of-type(2) {
     margin-top: 0 !important;
   }
   [data-testid="origin-core-logo"] {
@@ -379,8 +388,14 @@
 @media (max-width: 639px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
-    height: 100% !important;
-    min-height: 100% !important;
+    /* K-01 revision (2026-11-24): 100% used to be the whole
+       scroller content height because the home layout was its
+       only child. The Orin presence row (84px at idle) now shares
+       the scroller, so the home owns the remainder; presence +
+       home again add up to exactly the scroller's height, which
+       is the pre-K-01 geometry the composer contracts pin. */
+    height: calc(100% - 84px) !important;
+    min-height: calc(100% - 84px) !important;
     box-sizing: border-box !important;
     justify-content: flex-start !important;
   }
@@ -402,10 +417,14 @@
 /* The home layout owns vertical placement. Do not apply the chat composer’s
    sticky bottom offset a second time inside the home flex layout. */
 @media (max-width: 639px) {
-  /* Override the older first-child shell rule, whose 2.5dvh bottom padding
-     was leaving 16–24px below the home composer. */
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+  /* Override the older shell rule, whose 2.5dvh bottom padding
+     was leaving 16–24px below the home composer. K-01 revision
+     (2026-11-24): the home layout is no longer the scroller's
+     first child (the Orin presence row is), so :first-child is
+     gone from these home selectors; the class alone is the
+     address, here and in the padding-block blocks below. */
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout {
     padding-bottom: 0 !important;
   }
   .origin-app main .origin-home-composer {
@@ -435,7 +454,9 @@
   }
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
-    min-height: 100% !important;
+    /* K-01 revision (2026-11-24): minus the 84px presence row,
+       as in the height rule above. */
+    min-height: calc(100% - 84px) !important;
     padding-block: 16px 0 !important;
     justify-content: flex-start !important;
   }
@@ -484,8 +505,8 @@
    390x844 (limit 253.2). Home layout only; the generic first-child rule
    above also covers the conversation view. */
 @media (max-width: 639px) {
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout {
     padding-block: 12px 0 !important;
   }
   .origin-app main .origin-home-intro > p {
@@ -512,15 +533,17 @@
   padding-top: env(safe-area-inset-top, 0px) !important;
 }
 
-/* Home fit: the home layout is exactly the scroll viewport's height,
-   never a minimum that taller content can stretch. The intro is the only
+/* Home fit: the home layout is exactly the scroll viewport's height
+   minus the Orin presence row (84px at idle, K-01 revision
+   2026-11-24) — never a minimum that taller content can stretch.
+   The intro is the only
    flexible part (flex + min-height 0 above), so the suggestion chips and
    the bottom-pinned composer always stay on the first screen and the
    conversation region does not scroll on the home screen. */
 @media (max-width: 639px) {
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > .origin-home-layout,
   .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > .origin-home-layout {
-    height: 100% !important;
+    height: calc(100% - 84px) !important;
     min-height: 0 !important;
   }
   /* Bound the intro's text growth (system font scaling / text zoom):
@@ -551,15 +574,15 @@
    ~205px) while staying inside the 40% band. Full-height phones keep
    the layout above unchanged. */
 @media (max-width: 639px) and (max-height: 760px) {
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout {
     padding-block: 12px 0 !important;
   }
 }
 
 @media (max-width: 639px) and (max-height: 640px) {
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout:first-child,
-  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout:first-child {
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-2 > div.origin-home-layout,
+  .origin-app main > div.min-h-0.flex-1.overflow-y-auto.p-4 > div.origin-home-layout {
     padding-block: 6px 0 !important;
   }
   .origin-app main .origin-home-intro {
@@ -663,14 +686,48 @@
    change takes ~200ms; prefers-reduced-motion removes both.
    No name text sits under the art (removed by owner request,
    2026-11-15; the name appears inside the profile card
-   instead). */
+   instead — superseded 2026-11-24: the speech-bubble name tag
+   beside the disc is back, by owner request; see the __name
+   rule below).
+   K-01 revision (2026-11-24, correction list K-01, option C):
+   the P4 column row still kept Orin permanently parked over
+   the reading area's top edge — in the 2026-11-24 live
+   inspection the first line under the row read as covered by
+   Orin while scrolling, and the row's height was taken from
+   the conversation at every scroll position. The row now
+   lives INSIDE the conversation scroller as its first
+   in-flow child (App.tsx renders the presence as the
+   scroller's first child, ahead of the home layout and the
+   conversation log), so Orin greets the user at the head of
+   the conversation and then scrolls away together with the
+   content. Nothing is positioned over the scroller at all,
+   so at every scroll position the overlap is structurally
+   zero — not merely mitigated. The working-state linkage
+   while Orin is scrolled out of view is carried by the
+   in-conversation work display, as the correction list
+   prescribes. Sizes, the name tag, the status pill and the
+   tap behaviour are unchanged. */
 .origin-orin-presence {
-  /* P4 (2026-11-23): a row in the main column's flow, not an
-     overlay — the column is a flex column (header, this row,
-     the flex-1 scroller, the composer), so the row reserves
-     its own height and the scroller's viewport starts below
-     it. flex: none keeps the row from being compressed. */
-  flex: none;
+  /* K-01 (2026-11-24): the first in-flow child of the
+     conversation scroller — a block-level row at the head of
+     the scroll content, centred on the column. It is not a
+     flex item of the main column any more (the P4 form), and
+     it carries no positioning of any kind: it scrolls with
+     the content, so the disc can never cover a message.
+     Row height at idle is exactly 84px (the 72px disc plus
+     the tap target's 6px top/bottom padding; the name tag is
+     shorter than the disc and the status line is absent).
+     The home layout and the conversation log size themselves
+     as calc(100% - 84px) against the scroller (App.tsx and
+     the mobile shell rules), so presence + content restore
+     the pre-K-01 full-height geometry exactly. In the
+     working state the row can grow (48px disc + status
+     line); that state belongs to the conversation surface,
+     whose log simply starts below the taller row — no
+     fixed-height contract applies there. On the home screen
+     the row is idle-sized except while a background job's
+     status pill is up, in which case the home scrolls by
+     the difference instead of shrinking the reading area. */
   display: flex;
   justify-content: center;
   box-sizing: border-box;
@@ -876,7 +933,14 @@
    is gone; a small scroll-padding-top remains so messages
    scrolled into view (scrollIntoView, anchor jumps) stop a
    breath below the scroller's top edge instead of flush
-   against it. */
+   against it.
+   K-01 revision (2026-11-24): the presence row moved once
+   more — from the column row above the scroller into the
+   scroller itself, as its first in-flow child — so Orin
+   scrolls away with the content and the full viewport height
+   returns to reading. Still no clearance is needed: the row
+   is ordinary scroll content, and the scroller's own padding
+   (Tailwind p-2 / sm:p-4) insets it like any other content. */
 .origin-chat-scroll {
   scroll-padding-top: 16px;
 }
@@ -941,10 +1005,17 @@
      in the normal flow since the P4 revision, 2026-11-23,
      which lands on the same 144px) — with an 8px gap. The card
      keeps one hairline border and a single soft shadow layer,
-     and the backdrop drops its dim and blur entirely. */
+     and the backdrop drops its dim and blur entirely.
+     K-01 revision (2026-11-24): the presence row now sits
+     inside the conversation scroller, whose top padding
+     (sm:p-4 = 16px at this breakpoint) pushes the tap
+     target's bottom edge to 160px when the conversation is
+     scrolled to the top — the only position from which Orin
+     can be tapped at the head of the content — so the top
+     padding grows by the same 16px to keep the 8px gap. */
   .origin-orin-profile {
     align-items: flex-start;
-    padding: 152px 24px 24px;
+    padding: 168px 24px 24px;
   }
   .origin-orin-profile__backdrop {
     background: transparent;
@@ -954,7 +1025,7 @@
   .origin-orin-profile__card {
     width: 320px;
     max-width: calc(100vw - 48px);
-    max-height: calc(100dvh - 176px);
+    max-height: calc(100dvh - 192px);
     border-bottom: 1px solid var(--border-default);
     border-radius: 12px;
     box-shadow: 0 12px 32px rgb(15 23 42 / 16%);

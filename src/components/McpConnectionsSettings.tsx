@@ -189,7 +189,7 @@ export default function McpConnectionsSettings({ language }: { language: 'ja' | 
   const connections = overview?.connections ?? [];
   const selectedServer = choices.find(server => server.id === selected);
   const ready = overview?.configured && overview.authenticated;
-  const button = 'origin-secondary-button min-h-12 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50';
+  const button = 'origin-secondary-button min-h-12 rounded-xl px-3 text-sm font-semibold disabled:opacity-50';
   const input = 'origin-surface min-h-11 w-full rounded-xl border px-3 text-sm';
 
   return <section className="space-y-3 border-t border-[var(--border-default)] pt-5" onPointerDown={event => event.stopPropagation()}>

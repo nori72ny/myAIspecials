@@ -179,7 +179,7 @@ describe('OriginWorkSheet', () => {
     const mediaStart = css.indexOf('@media (min-width: 640px)', css.indexOf('.origin-orin-profile {'));
     const wide = css.slice(mediaStart, css.indexOf('@keyframes origin-orin-profile-in', mediaStart));
     expect(wide).toContain('align-items: flex-start;');
-    expect(wide).toContain('padding: 152px 24px 24px;');
+    expect(wide).toContain('padding: 168px 24px 24px;');
     expect(wide).toContain('.origin-orin-profile__backdrop');
     expect(wide).toContain('background: transparent;');
     expect(wide).toContain('.origin-orin-profile__card');
