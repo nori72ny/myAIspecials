@@ -47,7 +47,7 @@ import {
   ORIGIN_TIER_WEIGHT,
   searchGdeltHeadlines,
   searchTavilySources,
-  searchWikipediaSources,
+  searchWikipediaSourcesObserved,
   STOOQ_SOURCE_URL,
   type OriginMarketQuote,
   type OriginSearchFetch,
@@ -110,6 +110,36 @@ export interface OriginSearchGroundingFreshnessStats {
 }
 
 /**
+ * Domain / tier tallies of the freshness gate's drops, split by drop
+ * reason (observation completion, SEARCH_RELIABILITY_95_PLAN_2026-11-24
+ * 案1). The aggregate stats above say HOW MANY candidates the gate
+ * dropped as stale vs undated; these tallies say WHOSE candidates they
+ * were, so a refusal can be attributed after the fact — e.g. whether
+ * the official-domain candidates a routing measure steered in actually
+ * reached the gate and were dropped as undated, or never arrived at
+ * all. Tallies only — no titles, excerpts, or URLs.
+ */
+export interface OriginSearchFreshnessDropTallies {
+  staleDomainCounts: Readonly<Record<string, number>>;
+  staleTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+  undatedDomainCounts: Readonly<Record<string, number>>;
+  undatedTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+}
+
+function emptyTierCounts(): Record<OriginSourceAuthorityTier, number> {
+  return { official: 0, "major-news": 0, specialist: 0, general: 0 };
+}
+
+export function emptyOriginSearchFreshnessDropTallies(): OriginSearchFreshnessDropTallies {
+  return {
+    staleDomainCounts: {},
+    staleTierCounts: emptyTierCounts(),
+    undatedDomainCounts: {},
+    undatedTierCounts: emptyTierCounts(),
+  };
+}
+
+/**
  * Observation of the pre-gate candidate set (recon 2026-11-15, I-8).
  * Counts and codes only — no titles, excerpts, or URLs — in the same
  * style as the freshness stats above, so a thin or off-topic packet can
@@ -124,17 +154,61 @@ export interface OriginSearchCandidateStats {
   totalCount: number;
   domainCounts: Readonly<Record<string, number>>;
   tierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
-  /** Dropped by the relevance screen before the gate (Tavily route). */
+  /** Dropped by the relevance screen before the gate (screened routes). */
   droppedByScreenCount: number;
   /** Dropped by the freshness gate (stale + undated). */
   droppedByFreshnessCount: number;
+  /**
+   * Candidates that passed the freshness gate (observation completion,
+   * SEARCH_RELIABILITY_95_PLAN_2026-11-24 案1). Together with
+   * totalCount and droppedByFreshnessCount this closes the gate's
+   * arithmetic: totalCount = keptCount + droppedByFreshnessCount.
+   */
+  keptCount: number;
+  /**
+   * Candidates adopted into the evidence packet by source selection.
+   * keptCount = selectedCount + droppedBySelectionCount.
+   */
+  selectedCount: number;
+  /** Dropped at source selection (post gate), total and by reason. */
+  droppedBySelectionCount: number;
+  selectionDropReasonCounts: Readonly<{
+    missingIdentity: number;
+    duplicateUrl: number;
+    duplicateDomain: number;
+    overLimit: number;
+  }>;
+  /** Freshness-gate drops by reason, with domain / tier tallies. */
+  freshnessDropTallies: OriginSearchFreshnessDropTallies;
+  /**
+   * Domain / tier tallies of the relevance-screen drops across routes
+   * (Tavily and Wikipedia). Absent contributions on a cache hit: the
+   * cached set is already the post-screen candidate set, so — exactly
+   * like the screen count above — a cached route reports nothing new.
+   */
+  screenDropDomainCounts: Readonly<Record<string, number>>;
+  screenDropTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
 }
 
-function summarizeCandidateStats(
-  candidates: readonly OriginSearchSource[],
-  droppedByScreenCount: number,
-  freshness: OriginSearchGroundingFreshnessStats,
-): OriginSearchCandidateStats {
+interface CandidateStatsInputs {
+  /** Candidates that reached the freshness gate (post relevance screen). */
+  candidates: readonly OriginSearchSource[];
+  droppedByScreenCount: number;
+  screenDropDomainCounts: Readonly<Record<string, number>>;
+  screenDropTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+  freshness: OriginSearchGroundingFreshnessStats;
+  freshnessDropTallies: OriginSearchFreshnessDropTallies;
+  /** Candidates that passed the freshness gate. */
+  keptCount: number;
+  /**
+   * Selection observation, or null when selection never ran (no
+   * candidate reached the gate, or none survived it): the selection
+   * fields then report zeroes rather than a fabricated disposition.
+   */
+  selection: OriginSearchSelectionObservation | null;
+}
+
+function summarizeCandidateStats(inputs: CandidateStatsInputs): OriginSearchCandidateStats {
   const domainCounts: Record<string, number> = {};
   const tierCounts: Record<OriginSourceAuthorityTier, number> = {
     official: 0,
@@ -142,16 +216,34 @@ function summarizeCandidateStats(
     specialist: 0,
     general: 0,
   };
-  for (const candidate of candidates) {
+  for (const candidate of inputs.candidates) {
     if (candidate.domain) domainCounts[candidate.domain] = (domainCounts[candidate.domain] ?? 0) + 1;
     tierCounts[candidate.authorityTier] += 1;
   }
+  const selection = inputs.selection;
   return {
-    totalCount: candidates.length,
+    totalCount: inputs.candidates.length,
     domainCounts,
     tierCounts,
-    droppedByScreenCount,
-    droppedByFreshnessCount: freshness.droppedStaleCount + freshness.droppedUndatedCount,
+    droppedByScreenCount: inputs.droppedByScreenCount,
+    droppedByFreshnessCount: inputs.freshness.droppedStaleCount + inputs.freshness.droppedUndatedCount,
+    keptCount: inputs.keptCount,
+    selectedCount: selection?.selectedCount ?? 0,
+    droppedBySelectionCount: selection
+      ? selection.droppedMissingIdentityCount
+        + selection.droppedDuplicateUrlCount
+        + selection.droppedDuplicateDomainCount
+        + selection.droppedOverLimitCount
+      : 0,
+    selectionDropReasonCounts: {
+      missingIdentity: selection?.droppedMissingIdentityCount ?? 0,
+      duplicateUrl: selection?.droppedDuplicateUrlCount ?? 0,
+      duplicateDomain: selection?.droppedDuplicateDomainCount ?? 0,
+      overLimit: selection?.droppedOverLimitCount ?? 0,
+    },
+    freshnessDropTallies: inputs.freshnessDropTallies,
+    screenDropDomainCounts: inputs.screenDropDomainCounts,
+    screenDropTierCounts: inputs.screenDropTierCounts,
   };
 }
 
@@ -261,12 +353,29 @@ export function evaluateOriginSourceFreshness(
      */
     officialUndatedExempt?: boolean;
   },
-): { kept: OriginGroundedSource[]; stats: OriginSearchGroundingFreshnessStats } {
+): { kept: OriginGroundedSource[]; stats: OriginSearchGroundingFreshnessStats; dropTallies: OriginSearchFreshnessDropTallies } {
   const stats: OriginSearchGroundingFreshnessStats = {
     verifiedFreshCount: 0,
     unknownDateCount: 0,
     droppedStaleCount: 0,
     droppedUndatedCount: 0,
+  };
+  // Observation only (案1): every drop below also tallies the dropped
+  // candidate's domain and tier under its reason, in step with the
+  // aggregate counts, so the two can never drift apart.
+  const staleDomainCounts: Record<string, number> = {};
+  const staleTierCounts = emptyTierCounts();
+  const undatedDomainCounts: Record<string, number> = {};
+  const undatedTierCounts = emptyTierCounts();
+  const tallyUndatedDrop = (source: OriginSearchSource) => {
+    if (source.domain) undatedDomainCounts[source.domain] = (undatedDomainCounts[source.domain] ?? 0) + 1;
+    undatedTierCounts[source.authorityTier] += 1;
+  };
+  const dropTallies: OriginSearchFreshnessDropTallies = {
+    staleDomainCounts,
+    staleTierCounts,
+    undatedDomainCounts,
+    undatedTierCounts,
   };
   const kept: OriginGroundedSource[] = [];
   for (const source of sources) {
@@ -275,6 +384,8 @@ export function evaluateOriginSourceFreshness(
       const ageMs = retrievedAtMs - publishedMs;
       if (requirement.maxSourceAgeMs !== null && (ageMs > requirement.maxSourceAgeMs || ageMs < 0)) {
         stats.droppedStaleCount += 1;
+        if (source.domain) staleDomainCounts[source.domain] = (staleDomainCounts[source.domain] ?? 0) + 1;
+        staleTierCounts[source.authorityTier] += 1;
         continue;
       }
       stats.verifiedFreshCount += 1;
@@ -289,6 +400,7 @@ export function evaluateOriginSourceFreshness(
         continue;
       }
       stats.droppedUndatedCount += 1;
+      tallyUndatedDrop(source);
       continue;
     }
     stats.unknownDateCount += 1;
@@ -308,29 +420,68 @@ export function evaluateOriginSourceFreshness(
       if (droppedHere > 0) {
         stats.droppedUndatedCount += droppedHere;
         stats.unknownDateCount -= droppedHere;
+        for (const source of kept) {
+          if (source.authorityTier !== "official") tallyUndatedDrop(source);
+        }
       }
-      return { kept: officialKept, stats };
+      return { kept: officialKept, stats, dropTallies };
     }
     stats.droppedUndatedCount += stats.unknownDateCount;
-    return { kept: [], stats };
+    for (const source of kept) tallyUndatedDrop(source);
+    return { kept: [], stats, dropTallies };
   }
-  return { kept, stats };
+  return { kept, stats, dropTallies };
 }
 
 /* ------------------------------------------------------------------ */
 /* Source selection (§2.3: dedupe domains, official first, top 3-5)    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Disposition of the candidates source selection did not adopt
+ * (observation completion, SEARCH_RELIABILITY_95_PLAN_2026-11-24 案1).
+ * Selection was the one pipeline stage with no record at all: a
+ * candidate that passed the freshness gate could vanish here — a
+ * duplicate of an adopted URL, a second hit from an adopted domain,
+ * or simply beyond the packet limit — indistinguishable from never
+ * having arrived. The reasons are counted in the order the selection
+ * applies them; once the packet is full, every remaining candidate
+ * counts as overLimit (the binding constraint, exactly where the
+ * selection loop stops).
+ */
+export interface OriginSearchSelectionObservation {
+  selectedCount: number;
+  droppedMissingIdentityCount: number;
+  droppedDuplicateUrlCount: number;
+  droppedDuplicateDomainCount: number;
+  droppedOverLimitCount: number;
+}
+
 export function selectOriginSearchSources<T extends OriginSearchSource>(
   candidates: readonly T[],
   limit = MAX_SELECTED_SOURCES,
 ): T[] {
+  return selectOriginSearchSourcesWithObservation(candidates, limit).selected;
+}
+
+export function selectOriginSearchSourcesWithObservation<T extends OriginSearchSource>(
+  candidates: readonly T[],
+  limit = MAX_SELECTED_SOURCES,
+): { selected: T[]; observation: OriginSearchSelectionObservation } {
   const seenUrls = new Set<string>();
   const unique: T[] = [];
+  let droppedMissingIdentityCount = 0;
+  let droppedDuplicateUrlCount = 0;
   for (const source of candidates) {
-    if (!source.title || !source.url) continue;
+    if (!source.title || !source.url) {
+      droppedMissingIdentityCount += 1;
+      continue;
+    }
     const key = source.url.split("#")[0];
-    if (seenUrls.has(key)) continue;
+    if (seenUrls.has(key)) {
+      droppedDuplicateUrlCount += 1;
+      continue;
+    }
     seenUrls.add(key);
     unique.push(source);
   }
@@ -344,13 +495,31 @@ export function selectOriginSearchSources<T extends OriginSearchSource>(
   });
   const seenDomains = new Set<string>();
   const selected: T[] = [];
-  for (const source of sorted) {
-    if (source.domain && seenDomains.has(source.domain)) continue;
+  let droppedDuplicateDomainCount = 0;
+  let droppedOverLimitCount = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const source = sorted[index];
+    if (source.domain && seenDomains.has(source.domain)) {
+      droppedDuplicateDomainCount += 1;
+      continue;
+    }
     if (source.domain) seenDomains.add(source.domain);
     selected.push(source);
-    if (selected.length >= limit) break;
+    if (selected.length >= limit) {
+      droppedOverLimitCount = sorted.length - index - 1;
+      break;
+    }
   }
-  return selected;
+  return {
+    selected,
+    observation: {
+      selectedCount: selected.length,
+      droppedMissingIdentityCount,
+      droppedDuplicateUrlCount,
+      droppedDuplicateDomainCount,
+      droppedOverLimitCount,
+    },
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -362,11 +531,18 @@ interface RouteResult {
   errored: boolean;
   /**
    * Candidates the route's relevance screen dropped before the gate
-   * (Tavily route only). Absent on a cache hit: the cached set is
-   * already the post-screen candidate set, so there is nothing new
-   * to count.
+   * (the routes whose providers run a screen: Tavily and Wikipedia).
+   * Absent on a cache hit: the cached set is already the post-screen
+   * candidate set, so there is nothing new to count.
    */
   screenedOutCount?: number;
+  /**
+   * Domain / tier tallies of the screen drops (routes whose providers
+   * report them: Tavily and Wikipedia). Same cache-hit absence as the
+   * count above.
+   */
+  screenedOutDomainCounts?: Readonly<Record<string, number>>;
+  screenedOutTierCounts?: Readonly<Record<OriginSourceAuthorityTier, number>>;
 }
 
 /**
@@ -417,6 +593,8 @@ async function runTavilyRoute(
     : "";
   const cacheKey = `cand:tavily:${topic}:${timeRange ?? "none"}${domainKey}:${query.toLowerCase()}`;
   let screenedOutCount = 0;
+  let screenedOutDomainCounts: Readonly<Record<string, number>> | undefined;
+  let screenedOutTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>> | undefined;
   const result = await cachedCandidates(
     deps,
     cacheKey,
@@ -432,11 +610,18 @@ async function runTavilyRoute(
       });
       deps.counter.record("tavily", outcome.creditsUsed, deps.now());
       screenedOutCount = outcome.screenedOutCount;
+      screenedOutDomainCounts = outcome.screenedOutDomainCounts;
+      screenedOutTierCounts = outcome.screenedOutTierCounts;
       return outcome.sources;
     },
     cacheableCandidateSet,
   );
-  return { ...result, screenedOutCount };
+  return {
+    ...result,
+    screenedOutCount,
+    ...(screenedOutDomainCounts ? { screenedOutDomainCounts } : {}),
+    ...(screenedOutTierCounts ? { screenedOutTierCounts } : {}),
+  };
 }
 
 async function runGdeltRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
@@ -450,13 +635,28 @@ async function runGdeltRoute(deps: ResolvedDeps, query: string, timeoutMs: numbe
 }
 
 async function runWikipediaRoute(deps: ResolvedDeps, query: string, timeoutMs: number): Promise<RouteResult> {
-  return cachedCandidates(
+  let screenedOutCount = 0;
+  let screenedOutDomainCounts: Readonly<Record<string, number>> | undefined;
+  let screenedOutTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>> | undefined;
+  const result = await cachedCandidates(
     deps,
     `cand:wikipedia:${query.toLowerCase()}`,
     ORIGIN_SEARCH_CACHE_TTL_MS.search,
-    () => searchWikipediaSources(query, { fetchImpl: deps.fetchImpl, timeoutMs }),
+    async () => {
+      const outcome = await searchWikipediaSourcesObserved(query, { fetchImpl: deps.fetchImpl, timeoutMs });
+      screenedOutCount = outcome.screenedOutCount;
+      screenedOutDomainCounts = outcome.screenedOutDomainCounts;
+      screenedOutTierCounts = outcome.screenedOutTierCounts;
+      return outcome.sources;
+    },
     cacheableCandidateSet,
   );
+  return {
+    ...result,
+    screenedOutCount,
+    ...(screenedOutDomainCounts ? { screenedOutDomainCounts } : {}),
+    ...(screenedOutTierCounts ? { screenedOutTierCounts } : {}),
+  };
 }
 
 export async function executeOriginSearchGrounding(
@@ -664,6 +864,23 @@ export async function executeOriginSearchGrounding(
   }
 
   const droppedByScreenCount = results.reduce((sum, result) => sum + (result.screenedOutCount ?? 0), 0);
+  // Screen-drop tallies across routes (案1): summed over whichever
+  // routes reported them; a cache-hit route reports nothing new, in
+  // step with the count above.
+  const screenDropDomainCounts: Record<string, number> = {};
+  const screenDropTierCounts = emptyTierCounts();
+  for (const result of results) {
+    if (result.screenedOutDomainCounts) {
+      for (const [domain, count] of Object.entries(result.screenedOutDomainCounts)) {
+        screenDropDomainCounts[domain] = (screenDropDomainCounts[domain] ?? 0) + count;
+      }
+    }
+    if (result.screenedOutTierCounts) {
+      for (const tier of Object.keys(result.screenedOutTierCounts) as OriginSourceAuthorityTier[]) {
+        screenDropTierCounts[tier] += result.screenedOutTierCounts[tier];
+      }
+    }
+  }
 
   if (candidates.length === 0) {
     const allErrored = results.every((result) => result.errored);
@@ -672,11 +889,20 @@ export async function executeOriginSearchGrounding(
       questionType,
       reason: allErrored ? "provider-error" : "no-sources",
       freshness: emptyStats,
-      candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, emptyStats),
+      candidateStats: summarizeCandidateStats({
+        candidates,
+        droppedByScreenCount,
+        screenDropDomainCounts,
+        screenDropTierCounts,
+        freshness: emptyStats,
+        freshnessDropTallies: emptyOriginSearchFreshnessDropTallies(),
+        keptCount: 0,
+        selection: null,
+      }),
     };
   }
 
-  const { kept, stats } = evaluateOriginSourceFreshness(
+  const { kept, stats, dropTallies } = evaluateOriginSourceFreshness(
     candidates,
     requirement,
     questionType,
@@ -691,14 +917,24 @@ export async function executeOriginSearchGrounding(
       questionType,
       reason: "no-fresh-sources",
       freshness: stats,
-      candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, stats),
+      candidateStats: summarizeCandidateStats({
+        candidates,
+        droppedByScreenCount,
+        screenDropDomainCounts,
+        screenDropTierCounts,
+        freshness: stats,
+        freshnessDropTallies: dropTallies,
+        keptCount: 0,
+        selection: null,
+      }),
       // PR-4: every candidate here reached the freshness gate and was
       // dropped by it; carry the first five for the template fallback.
       droppedSources: candidates.slice(0, 5),
     };
   }
 
-  let selected = selectOriginSearchSources(kept);
+  const selection = selectOriginSearchSourcesWithObservation(kept);
+  let selected = selection.selected;
 
   // Extract (§2.3): only when snippets are thin or the type is number-critical
   // (price_spec / policy), only the top 2, and only inside the total budget.
@@ -736,7 +972,16 @@ export async function executeOriginSearchGrounding(
     retrievedAt,
     freshness: stats,
     freshnessVerified: stats.verifiedFreshCount > 0,
-    candidateStats: summarizeCandidateStats(candidates, droppedByScreenCount, stats),
+    candidateStats: summarizeCandidateStats({
+      candidates,
+      droppedByScreenCount,
+      screenDropDomainCounts,
+      screenDropTierCounts,
+      freshness: stats,
+      freshnessDropTallies: dropTallies,
+      keptCount: kept.length,
+      selection: selection.observation,
+    }),
   };
 }
 
@@ -868,6 +1113,16 @@ function groundingMetadataFromOutcome(
             tierCounts: candidateStats.tierCounts,
             droppedByScreenCount: candidateStats.droppedByScreenCount,
             droppedByFreshnessCount: candidateStats.droppedByFreshnessCount,
+            // Full disposition chain (案1): gate survivors, packet
+            // adoptions, and every drop stage with its reasons, so the
+            // per-request record closes arithmetically at each stage.
+            keptCount: candidateStats.keptCount,
+            selectedCount: candidateStats.selectedCount,
+            droppedBySelectionCount: candidateStats.droppedBySelectionCount,
+            selectionDropReasonCounts: candidateStats.selectionDropReasonCounts,
+            freshnessDropTallies: candidateStats.freshnessDropTallies,
+            screenDropDomainCounts: candidateStats.screenDropDomainCounts,
+            screenDropTierCounts: candidateStats.screenDropTierCounts,
           },
         }
       : {}),

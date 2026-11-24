@@ -617,10 +617,34 @@ interface WikipediaBareResponse {
   latest?: { timestamp?: string };
 }
 
+export interface WikipediaSearchOutcome {
+  sources: OriginSearchSource[];
+  /**
+   * Candidates dropped by the relevance screen before their metadata
+   * fetch (observation completion, SEARCH_RELIABILITY_95_PLAN_2026-11-24
+   * 案1): this route's screen drops were previously invisible — unlike
+   * the Tavily route, which has always reported its count — so a pool
+   * emptied here could not be told apart from the provider returning
+   * nothing. Tallies only; this route's domain is the Wikipedia host
+   * and its tier is always "specialist", matching the source records.
+   */
+  screenedOutCount: number;
+  screenedOutDomainCounts: Readonly<Record<string, number>>;
+  screenedOutTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
+}
+
 export async function searchWikipediaSources(
   query: string,
   deps: OriginSearchProviderDeps & { language?: "ja" | "en" } = {},
 ): Promise<OriginSearchSource[]> {
+  const outcome = await searchWikipediaSourcesObserved(query, deps);
+  return outcome.sources;
+}
+
+export async function searchWikipediaSourcesObserved(
+  query: string,
+  deps: OriginSearchProviderDeps & { language?: "ja" | "en" } = {},
+): Promise<WikipediaSearchOutcome> {
   const language = deps.language ?? (/[ぁ-んァ-ヶ一-龠]/.test(query) ? "ja" : "en");
   const origin = `https://${language}.wikipedia.org`;
   const headers = { "User-Agent": USER_AGENT };
@@ -633,6 +657,14 @@ export async function searchWikipediaSources(
   const payload = await requestJson<WikipediaSearchResponse>("wikipedia", deps, searchUrl, { headers });
   const pages = Array.isArray(payload.pages) ? payload.pages.slice(0, 3) : [];
   const sources: OriginSearchSource[] = [];
+  let screenedOutCount = 0;
+  const screenedOutDomainCounts: Record<string, number> = {};
+  const screenedOutTierCounts: Record<OriginSourceAuthorityTier, number> = {
+    official: 0,
+    "major-news": 0,
+    specialist: 0,
+    general: 0,
+  };
   for (const [index, page] of pages.entries()) {
     const key = typeof page.key === "string" ? page.key : "";
     const title = stripHtml(page.title) || key;
@@ -641,7 +673,13 @@ export async function searchWikipediaSources(
     // Relevance screen: an off-topic hit is dropped before its metadata
     // fetch, so it can neither win source selection nor consume the
     // route's one same-domain slot.
-    if (!searchCandidateMatchesTopic(title, excerpt, topicTerms)) continue;
+    if (!searchCandidateMatchesTopic(title, excerpt, topicTerms)) {
+      screenedOutCount += 1;
+      const screenedDomain = `${language}.wikipedia.org`;
+      screenedOutDomainCounts[screenedDomain] = (screenedOutDomainCounts[screenedDomain] ?? 0) + 1;
+      screenedOutTierCounts.specialist += 1;
+      continue;
+    }
     let url = `${origin}/wiki/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
     let publishedAt: string | undefined;
     try {
@@ -674,7 +712,7 @@ export async function searchWikipediaSources(
       providerScore: (pages.length - index) / pages.length,
     });
   }
-  return sources;
+  return { sources, screenedOutCount, screenedOutDomainCounts, screenedOutTierCounts };
 }
 
 /* ------------------------------------------------------------------ */
@@ -706,6 +744,15 @@ export interface TavilySearchOutcome {
    * the dropped titles / excerpts are never retained.
    */
   screenedOutCount: number;
+  /**
+   * Domain / tier tallies of the screened-out candidates (observation
+   * completion, SEARCH_RELIABILITY_95_PLAN_2026-11-24 案1): which
+   * outlets the screen is dropping is part of attributing a thin or
+   * empty candidate pool after the fact. Tallies only, in the same
+   * discipline as the count above — no titles, excerpts, or URLs.
+   */
+  screenedOutDomainCounts: Readonly<Record<string, number>>;
+  screenedOutTierCounts: Readonly<Record<OriginSourceAuthorityTier, number>>;
 }
 
 export async function searchTavilySources(
@@ -764,6 +811,13 @@ export async function searchTavilySources(
   const topicTerms = searchTopicTerms(query);
   const sources: OriginSearchSource[] = [];
   let screenedOutCount = 0;
+  const screenedOutDomainCounts: Record<string, number> = {};
+  const screenedOutTierCounts: Record<OriginSourceAuthorityTier, number> = {
+    official: 0,
+    "major-news": 0,
+    specialist: 0,
+    general: 0,
+  };
   for (const result of results) {
     const url = typeof result.url === "string" ? result.url : "";
     const title = stripHtml(result.title);
@@ -771,6 +825,11 @@ export async function searchTavilySources(
     const excerpt = stripHtml(result.content).slice(0, 1500);
     if (!searchCandidateMatchesTopic(title, excerpt, topicTerms)) {
       screenedOutCount += 1;
+      const screenedDomain = originDomainOf(url);
+      if (screenedDomain) {
+        screenedOutDomainCounts[screenedDomain] = (screenedOutDomainCounts[screenedDomain] ?? 0) + 1;
+        screenedOutTierCounts[classifyOriginDomainTier(screenedDomain)] += 1;
+      }
       continue;
     }
     const publishedAt = typeof result.published_date === "string" && Number.isFinite(Date.parse(result.published_date))
@@ -788,7 +847,7 @@ export async function searchTavilySources(
       providerScore: typeof result.score === "number" ? result.score : undefined,
     });
   }
-  return { sources, creditsUsed: 1, screenedOutCount };
+  return { sources, creditsUsed: 1, screenedOutCount, screenedOutDomainCounts, screenedOutTierCounts };
 }
 
 export interface TavilyExtractOutcome {

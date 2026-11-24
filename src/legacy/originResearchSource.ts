@@ -57,6 +57,29 @@ export interface OriginResearchGroundingCandidateStats {
   droppedByScreenCount: number;
   /** Dropped by the freshness gate (stale + undated). */
   droppedByFreshnessCount: number;
+  /**
+   * Full per-stage disposition (observation completion,
+   * SEARCH_RELIABILITY_95_PLAN_2026-11-24 案1): candidates that passed
+   * the gate, candidates adopted into the packet, and the drops at
+   * selection with their reasons, so the chain closes arithmetically
+   * (total = kept + freshness drops; kept = selected + selection
+   * drops). Optional because the search layer is the only producer;
+   * results assembled elsewhere simply omit them.
+   */
+  keptCount?: number;
+  selectedCount?: number;
+  droppedBySelectionCount?: number;
+  selectionDropReasonCounts?: Readonly<Record<string, number>>;
+  /** Freshness-gate drops by reason, with domain / tier tallies. */
+  freshnessDropTallies?: {
+    staleDomainCounts: Readonly<Record<string, number>>;
+    staleTierCounts: Readonly<Record<string, number>>;
+    undatedDomainCounts: Readonly<Record<string, number>>;
+    undatedTierCounts: Readonly<Record<string, number>>;
+  };
+  /** Relevance-screen drops across routes, with domain / tier tallies. */
+  screenDropDomainCounts?: Readonly<Record<string, number>>;
+  screenDropTierCounts?: Readonly<Record<string, number>>;
 }
 
 export interface OriginResearchGroundingMetadata {

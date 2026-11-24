@@ -13,6 +13,7 @@ import {
   searchGdeltHeadlines,
   searchTavilySources,
   searchWikipediaSources,
+  searchWikipediaSourcesObserved,
   type OriginMarketQuoteRequest,
   type OriginSearchFetch,
 } from "./originSearchProviders";
@@ -404,6 +405,29 @@ describe("searchWikipediaSources", () => {
     expect(bareCalls).toHaveLength(1);
   });
 
+  it("reports the screen drop with domain / tier tallies in the observed variant (案1)", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "/w/rest.php/v1/search/page",
+        respond: () => ({
+          pages: [
+            { key: "富士山", title: "富士山", excerpt: "富士山は日本の活火山で、標高は3,775.51メートルである。" },
+            { key: "ゆるキャン△", title: "ゆるキャン△", excerpt: "ゆるキャン△は、あfろによる日本の漫画作品。女子高生が野外活動でキャンプを楽しむ物語。" },
+          ],
+        }),
+      },
+      {
+        match: "/w/rest.php/v1/page/",
+        respond: () => ({ latest: { timestamp: "2026-10-01T00:00:00Z" } }),
+      },
+    ]);
+    const outcome = await searchWikipediaSourcesObserved("富士山 標高", { fetchImpl });
+    expect(outcome.sources.map((source) => source.title)).toEqual(["富士山"]);
+    expect(outcome.screenedOutCount).toBe(1);
+    expect(outcome.screenedOutDomainCounts).toEqual({ "ja.wikipedia.org": 1 });
+    expect(outcome.screenedOutTierCounts).toEqual({ official: 0, "major-news": 0, specialist: 1, general: 0 });
+  });
+
   it("returns no sources when every candidate misses the query topic", async () => {
     const { fetchImpl, calls } = routedFetch([
       {
@@ -716,6 +740,24 @@ describe("searchTavilySources", () => {
     expect(outcome.sources[1]?.domain).toBe("kakaku.com");
     expect(outcome.screenedOutCount).toBe(2);
     expect(outcome.creditsUsed).toBe(1);
+  });
+
+  it("tallies the screened-out candidates by domain and tier (案1)", async () => {
+    const { fetchImpl } = routedFetch([
+      {
+        match: "api.tavily.com/search",
+        respond: () => ({ results: [...PIXEL_OFF_TOPIC_RESULTS, ...PIXEL_ON_TOPIC_RESULTS] }),
+      },
+    ]);
+    const outcome = await searchTavilySources("Google Pixel 10の価格", {
+      fetchImpl,
+      apiKey: "tvly-test-key",
+      topic: "general",
+      timeRange: "month",
+    });
+    expect(outcome.screenedOutCount).toBe(2);
+    expect(outcome.screenedOutDomainCounts).toEqual({ "developers.google.com": 1, "cloud.google.com": 1 });
+    expect(outcome.screenedOutTierCounts).toEqual({ official: 0, "major-news": 0, specialist: 0, general: 2 });
   });
 
   it("returns zero sources and counts every drop when all candidates are off-topic (I-1)", async () => {

@@ -16,6 +16,7 @@ import {
   fetchOriginMarketAnswer,
   originSearchGroundingToResearchResult,
   selectOriginSearchSources,
+  selectOriginSearchSourcesWithObservation,
   type OriginSearchGroundingDeps,
   type OriginSearchGroundingOutcome,
 } from "./originSearchGrounding";
@@ -764,6 +765,131 @@ describe("selectOriginSearchSources", () => {
   });
 });
 
+describe("selectOriginSearchSourcesWithObservation (案1: selection disposition)", () => {
+  function candidate(overrides: Partial<OriginSearchSource>): OriginSearchSource {
+    return {
+      title: "候補",
+      url: "https://example.com/a",
+      excerpt: "抜粋",
+      providerId: "tavily",
+      domain: "example.com",
+      authorityTier: "general",
+      evidenceLevel: "snippet",
+      ...overrides,
+    };
+  }
+
+  it("counts every non-adoption reason and selects exactly what the plain selection selects", () => {
+    const candidates = [
+      candidate({ url: "https://example.com/a", domain: "example.com" }),
+      // Same URL behind a fragment: duplicate URL.
+      candidate({ url: "https://example.com/a#section", domain: "example.com" }),
+      // Same domain as the adopted first hit: duplicate domain.
+      candidate({ url: "https://example.com/b", domain: "example.com" }),
+      // No title: missing identity.
+      candidate({ title: "", url: "https://other.example.org/c", domain: "other.example.org" }),
+      candidate({ url: "https://one.example.net/1", domain: "one.example.net" }),
+      candidate({ url: "https://two.example.net/2", domain: "two.example.net" }),
+      candidate({ url: "https://three.example.net/3", domain: "three.example.net" }),
+      candidate({ url: "https://four.example.net/4", domain: "four.example.net" }),
+      // Packet limit is 5: the sixth distinct domain is over the limit.
+      candidate({ url: "https://five.example.net/5", domain: "five.example.net" }),
+    ];
+    const { selected, observation } = selectOriginSearchSourcesWithObservation(candidates);
+    expect(selected).toEqual(selectOriginSearchSources(candidates));
+    expect(selected).toHaveLength(5);
+    expect(observation).toEqual({
+      selectedCount: 5,
+      droppedMissingIdentityCount: 1,
+      droppedDuplicateUrlCount: 1,
+      droppedDuplicateDomainCount: 1,
+      droppedOverLimitCount: 1,
+    });
+  });
+});
+
+describe("evaluateOriginSourceFreshness drop tallies (案1)", () => {
+  // news: strict publication date + a 3-day window, so a dated-old
+  // candidate drops as stale and an undated one drops as undated.
+  const requirement = ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS.news;
+
+  function candidate(overrides: Partial<OriginSearchSource>): OriginSearchSource {
+    return {
+      title: "候補",
+      url: "https://example.com/a",
+      excerpt: "抜粋",
+      providerId: "tavily",
+      domain: "example.com",
+      authorityTier: "general",
+      evidenceLevel: "snippet",
+      ...overrides,
+    };
+  }
+
+  it("tallies stale and undated drops by domain and tier, in step with the aggregate counts", () => {
+    const stale = candidate({
+      url: "https://www3.nhk.or.jp/news/old",
+      domain: "www3.nhk.or.jp",
+      authorityTier: "major-news",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const undated = candidate({
+      url: "https://example.com/undated",
+      domain: "example.com",
+      authorityTier: "general",
+      publishedAt: undefined,
+    });
+    const fresh = candidate({
+      url: "https://example.com/fresh",
+      domain: "example.com",
+      authorityTier: "general",
+      publishedAt: "2026-11-06T00:00:00.000Z",
+    });
+    const { kept, stats, dropTallies } = evaluateOriginSourceFreshness(
+      [stale, undated, fresh],
+      requirement,
+      "news",
+      NOW,
+    );
+    expect(kept).toHaveLength(1);
+    expect(stats.droppedStaleCount).toBe(1);
+    expect(stats.droppedUndatedCount).toBe(1);
+    expect(dropTallies.staleDomainCounts).toEqual({ "www3.nhk.or.jp": 1 });
+    expect(dropTallies.staleTierCounts).toEqual({ official: 0, "major-news": 1, specialist: 0, general: 0 });
+    expect(dropTallies.undatedDomainCounts).toEqual({ "example.com": 1 });
+    expect(dropTallies.undatedTierCounts).toEqual({ official: 0, "major-news": 0, specialist: 0, general: 1 });
+  });
+
+  it("tallies the fresh_general undated wipe as undated drops, sparing exempt official sources", () => {
+    const freshRequirement = ORIGIN_SEARCH_FRESHNESS_REQUIREMENTS.fresh_general;
+    const officialUndated = candidate({
+      url: "https://www.mhlw.go.jp/stf/policy",
+      domain: "mhlw.go.jp",
+      authorityTier: "official",
+      publishedAt: undefined,
+    });
+    const generalUndated = candidate({
+      url: "https://example.com/blog",
+      domain: "example.com",
+      authorityTier: "general",
+      publishedAt: undefined,
+    });
+    const { kept, stats, dropTallies } = evaluateOriginSourceFreshness(
+      [officialUndated, generalUndated],
+      freshRequirement,
+      "fresh_general",
+      NOW,
+      { officialUndatedExempt: true },
+    );
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.domain).toBe("mhlw.go.jp");
+    expect(stats.droppedUndatedCount).toBe(1);
+    expect(dropTallies.undatedDomainCounts).toEqual({ "example.com": 1 });
+    expect(dropTallies.undatedTierCounts.general).toBe(1);
+    expect(dropTallies.undatedTierCounts.official).toBe(0);
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Search packet relevance (recon 2026-11-15: I-1 / I-6 / I-8)         */
 /* ------------------------------------------------------------------ */
@@ -818,6 +944,77 @@ describe("search packet relevance", () => {
       tierCounts: { official: 1, "major-news": 0, specialist: 0, general: 1 },
       droppedByScreenCount: 2,
       droppedByFreshnessCount: 0,
+      keptCount: 2,
+      selectedCount: 2,
+      droppedBySelectionCount: 0,
+      selectionDropReasonCounts: { missingIdentity: 0, duplicateUrl: 0, duplicateDomain: 0, overLimit: 0 },
+      freshnessDropTallies: {
+        staleDomainCounts: {},
+        staleTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 0 },
+        undatedDomainCounts: {},
+        undatedTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 0 },
+      },
+      screenDropDomainCounts: { "developers.google.com": 1, "cloud.google.com": 1 },
+      screenDropTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 2 },
+    });
+  });
+
+  it("closes the disposition chain when selection drops candidates (案1)", async () => {
+    const moreOnTopic = [
+      {
+        title: "Google Pixel 10 の価格・スペック比較（別ページ）",
+        url: "https://kakaku.com/item/google-pixel-10/other/",
+        content: "Google Pixel 10 の価格情報を掲載しています。",
+        score: 0.8,
+        published_date: "2026-11-02T00:00:00.000Z",
+      },
+      {
+        title: "Google Pixel 10 価格まとめ",
+        url: "https://example-a.jp/pixel10",
+        content: "Google Pixel 10 の価格は124,800円からです。",
+        score: 0.7,
+        published_date: "2026-11-02T00:00:00.000Z",
+      },
+      {
+        title: "Google Pixel 10 の価格と発売日",
+        url: "https://example-b.jp/pixel10",
+        content: "Google Pixel 10 の価格と発売日をまとめました。",
+        score: 0.65,
+        published_date: "2026-11-02T00:00:00.000Z",
+      },
+      {
+        title: "Google Pixel 10 価格速報",
+        url: "https://example-c.jp/pixel10",
+        content: "Google Pixel 10 の価格速報です。",
+        score: 0.6,
+        published_date: "2026-11-02T00:00:00.000Z",
+      },
+      {
+        title: "Google Pixel 10 の価格比較",
+        url: "https://example-d.jp/pixel10",
+        content: "Google Pixel 10 の価格を比較しました。",
+        score: 0.55,
+        published_date: "2026-11-02T00:00:00.000Z",
+      },
+    ];
+    const { fetchImpl } = routedFetch(tavilyRoute([...ON_TOPIC_RESULTS, ...moreOnTopic]));
+    const outcome = groundedOf(await executeOriginSearchGrounding(PIXEL_QUESTION, makeDeps({ fetchImpl })));
+    expect(outcome.sources).toHaveLength(5);
+    const stats = outcome.candidateStats;
+    expect(stats?.totalCount).toBe(7);
+    expect(stats?.droppedByScreenCount).toBe(0);
+    expect(stats?.droppedByFreshnessCount).toBe(0);
+    // The chain closes at every stage: total = kept + freshness drops,
+    // kept = selected + selection drops, with the selection reasons
+    // naming the duplicate-domain hit and the over-limit hit.
+    expect(stats?.keptCount).toBe(7);
+    expect(stats?.selectedCount).toBe(5);
+    expect(stats?.droppedBySelectionCount).toBe(2);
+    expect(stats?.selectionDropReasonCounts).toEqual({
+      missingIdentity: 0,
+      duplicateUrl: 0,
+      duplicateDomain: 1,
+      overLimit: 1,
     });
   });
 
@@ -897,6 +1094,18 @@ describe("search packet relevance", () => {
         tierCounts: { official: 0, "major-news": 1, specialist: 0, general: 0 },
         droppedByScreenCount: 0,
         droppedByFreshnessCount: 1,
+        keptCount: 0,
+        selectedCount: 0,
+        droppedBySelectionCount: 0,
+        selectionDropReasonCounts: { missingIdentity: 0, duplicateUrl: 0, duplicateDomain: 0, overLimit: 0 },
+        freshnessDropTallies: {
+          staleDomainCounts: { "www3.nhk.or.jp": 1 },
+          staleTierCounts: { official: 0, "major-news": 1, specialist: 0, general: 0 },
+          undatedDomainCounts: {},
+          undatedTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 0 },
+        },
+        screenDropDomainCounts: {},
+        screenDropTierCounts: { official: 0, "major-news": 0, specialist: 0, general: 0 },
       });
     }
   });
