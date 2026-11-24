@@ -53,7 +53,7 @@ vi.mock('./creative/rasterReferenceEditClientV15', async (importOriginal) => {
   };
 });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, historyExcerptText, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
+import { StreamArtifactParser, analyzeArtifactSyntax, applyDirectTouchEdits, App, ArtifactWorkspace, buildImagePhaseText, buildRasterGuidedEditPrompt, buildRasterVariationPrompt, chatSendFailureKind, chatSendFailureMessage, completeArtifactClosingTag, createArtifactExportPayload, createArtifactHtmlExportPayload, createArtifactIntegrityManifest, createArtifactVisualDiff, createOfflineArtifactBundle, createOriginAnswerReplay, createOriginStreamRenderBatcher, countOriginGraphemes, excerptAtBoundary, getOriginSystemPrompt, dedupeHistorySessions, historyExcerptText, historySessionTitle, isDirectCodingWorkspaceRequest, isDirectCreativeWorkspaceRequest, isDirectImageGenerationRequest, isVerifiedRasterProviderId, isExplicitLocalProceduralImageRequest, isFreeOnlyPolicyCompliantChatPayload, originAnswerReplayDurationSeconds, originGraphemePrefix, rasterGenerationFailureMessage, rasterSizeForRequest, sanitizeArtifactPreviewMarkup, searchOriginLocalSnapshot, shouldStartOriginAnswerReplay, splitOriginGraphemes, stripMarkdownForDisplay, TRUNCATED_ANSWER_NOTICE, TRUNCATED_ANSWER_NOTICE_EN, type ArtifactBlock, type ConversationMessage, type ConversationSession } from './App';
 
 const artifact: ArtifactBlock = {
   id: 'artifact-1', type: 'html', language: 'html', title: 'Safe preview',
@@ -1663,6 +1663,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     for (const phrase of ['executive-grade', 'trade-offs', 'risks', 'next action', 'verified facts', 'never invent sources', 'material unknowns', 'do not stop at a terse overview', 'production-ready', 'never substitute an image-generation prompt', 'never spend the first turn asking only questions', 'usable Version 1 draft', 'at most one or two high-impact refinement questions']) expect(request.systemPrompt).toContain(phrase);
     const japanesePrompt = getOriginSystemPrompt('ja');
     for (const phrase of ['結論を1文で先に', '確認済みの事実と推論・仮定を区別', '出典や完了実績を創作せず', '重要な未確認点は明示', '短い概要だけで打ち切らず', '汎用デモを勝手に題材へ選ばず', '指定された形式は守り', '画像生成プロンプト・SVG・HTML・文章説明を代用品として返さない', 'Artifact-1のような機械的な名前', '端末内保存', '質問だけで最初の1ターンを使い切らない', 'Version 1のたたき台', '最大1〜2個だけ']) expect(japanesePrompt).toContain(phrase);
+    // K-03 (2026-11-24): the internal production label itself is gone
+    // from the Japanese instruction, so the model no longer echoes it
+    // into answer headings.
     vi.unstubAllGlobals();
   });
 
@@ -1714,6 +1717,41 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     expect(stripMarkdownForDisplay('ただの文章です。')).toBe('ただの文章です。');
   });
 
+  it('removes Markdown table syntax from history display text', () => {
+    // P7 A-3: separator rows vanish and cell rows lose their pipes, so
+    // a pasted table never leaks "|" into a history title or excerpt.
+    expect(stripMarkdownForDisplay('| 項目 | 値 |\n| --- | --- |\n| 首都 | 東京 |')).toBe('項目 値\n首都 東京');
+    expect(historyExcerptText('| a | b |', 160)).toBe('a b');
+  });
+
+  it('builds history titles from the first user message only, formatted at creation time', () => {
+    // P7 A-3: assistant-first sessions no longer borrow the answer's
+    // heading (the "Version 1（仮設計）" title pollution path).
+    expect(historySessionTitle([])).toBe('ORIGIN セッション');
+    expect(historySessionTitle([{ id: 'a1', role: 'assistant', content: 'Version 1（仮設計）\n回答本文' }])).toBe('ORIGIN セッション');
+    // Markdown and tables are stripped before the boundary cut, so the
+    // stored title matches what the drawer displays.
+    expect(historySessionTitle([{ id: 'u1', role: 'user', content: '**旅行**の相談\n| 日 | 場所 |\n| --- | --- |\n| 1日目 | 東京 |' }])).toBe('旅行の相談 日 場所 1日目 東京');
+    // A leading internal-label line is dropped; the next line is used.
+    expect(historySessionTitle([{ id: 'u1', role: 'user', content: 'Version 1（仮設計）\n鎌倉の行程を相談' }])).toBe('鎌倉の行程を相談');
+    // displayContent wins over content, matching the drawer display.
+    expect(historySessionTitle([{ id: 'u1', role: 'user', content: '内部指示文', displayContent: '要点だけ' }])).toBe('要点だけ');
+  });
+
+  it('collapses content-identical history sessions keeping the newest copy', () => {
+    // P7 B-2: the same conversation archived through a different id
+    // path is folded by content (first user text + last message id).
+    const older: ConversationSession = { id: 'session-startup-m1', title: '相談', createdAt: 1, messages: [{ id: 'm1', role: 'user', content: '相談です' }, { id: 'm2', role: 'assistant', content: '回答です' }] };
+    const newer: ConversationSession = { id: 'session-other-m1', title: '相談', createdAt: 5, messages: [{ id: 'm1', role: 'user', content: '相談です' }, { id: 'm2', role: 'assistant', content: '回答です' }] };
+    const distinct: ConversationSession = { id: 'session-distinct', title: '別の相談', createdAt: 3, messages: [{ id: 'x1', role: 'user', content: '別の相談です' }, { id: 'x2', role: 'assistant', content: '別の回答です' }] };
+    expect(dedupeHistorySessions([older, distinct, newer]).map((session) => session.id)).toEqual(['session-distinct', 'session-other-m1']);
+    // Same opening but a different last message is a different conversation.
+    const continued: ConversationSession = { id: 'session-continued', title: '相談', createdAt: 9, messages: [{ id: 'm1', role: 'user', content: '相談です' }, { id: 'm3', role: 'assistant', content: '続きの回答です' }] };
+    expect(dedupeHistorySessions([older, continued])).toHaveLength(2);
+    // Sessions without messages are never folded together.
+    expect(dedupeHistorySessions([{ id: 'e1', title: '', createdAt: 1, messages: [] }, { id: 'e2', title: '', createdAt: 2, messages: [] }])).toHaveLength(2);
+  });
+
   it('formats history titles and excerpts through the same Markdown-free boundary cut', () => {
     expect(historyExcerptText('短い文です。', 160)).toBe('短い文です。');
     expect(historyExcerptText('**2026年の日本の祝日一覧（振替休日含む）** - 1月1日は元日です', 160)).toBe('2026年の日本の祝日一覧（振替休日含む） - 1月1日は元日です');
@@ -1731,6 +1769,9 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const built = currentConversationSession(current, 10);
     expect(built).toMatchObject({ id: 'session-current-live-1', title: '今まさに話している会話', createdAt: 10 });
     expect(built?.messages.map((message) => message.id)).toEqual(['live-1', 'live-2']);
+    // P7 A-3: a session with no user message gets the fixed title
+    // instead of borrowing the first answer's heading.
+    expect(currentConversationSession([{ id: 'a1', role: 'assistant', content: '回答の見出し' }], 10)?.title).toBe('ORIGIN セッション');
 
     const past: ConversationSession = { id: 'session-past', title: 'Past session', createdAt: 1, messages: [{ id: 'past-1', role: 'user', content: 'Past question' }] };
     const merged = withCurrentConversationSession([past], current, 10);
@@ -1780,6 +1821,23 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     fireEvent.click(screen.getByTestId('history-search-result-0'));
     await waitFor(() => expect(screen.queryByTestId('history-drawer')).toBeNull());
     expect(restore).toHaveBeenCalledTimes(1);
+    frame.mockRestore();
+  });
+
+  it('distinguishes same-title history sessions by creation time and folds content duplicates in the drawer', () => {
+    // P7 B-2: identical titles get a creation-time label, and the same
+    // conversation archived under a different id is folded into one row.
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => window.setTimeout(() => callback(0), 0));
+    const now = Date.now();
+    const first: ConversationSession = { id: 'session-a', title: '日本の首都はどこですか？', createdAt: now - 60_000, messages: [{ id: 'a-1', role: 'user', content: '日本の首都はどこですか？' }, { id: 'a-2', role: 'assistant', content: '東京です。' }] };
+    const second: ConversationSession = { id: 'session-b', title: '日本の首都はどこですか？', createdAt: now, messages: [{ id: 'b-1', role: 'user', content: '日本の首都はどこですか？' }, { id: 'b-2', role: 'assistant', content: '東京です。' }] };
+    const duplicate: ConversationSession = { id: 'session-b-copy', title: '日本の首都はどこですか？', createdAt: now - 30_000, messages: second.messages };
+    render(<App messages={[]} sessions={[first, second, duplicate]} language="ja" />);
+    fireEvent.click(screen.getByTestId('history-drawer-toggle'));
+    const list = screen.getByTestId('history-session-list');
+    const items = within(list).getAllByTestId(/history-session-item-/);
+    expect(items).toHaveLength(2);
+    for (const item of items) expect(item.textContent).toMatch(/· \d{2}:\d{2}/);
     frame.mockRestore();
   });
 

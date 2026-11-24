@@ -312,10 +312,22 @@ export type OriginLocalSearchResult = { kind: 'session' | 'artifact'; id: string
 // 画像は代替文、リンクは表示文、太字・斜体・打ち消し・インライン
 // コードは中身だけを残す。対にならず残った太字記号とバック
 // クォートも落とす。
+// P7 A-3 (2026-11-24): Markdown 表の区切り行（| --- | --- |）は
+// 行ごと落とし、セル行は縦線を外して空白でつなぐ。貼り付けた表が
+// 履歴のタイトルや抜粋に「|」をそのまま漏らさないため。
+const isMarkdownTableSeparatorLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  return trimmed.includes('|') && trimmed.includes('-') && /^[\s|:-]+$/.test(trimmed);
+};
+const flattenMarkdownTableRow = (line: string): string => (line.includes('|')
+  ? line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').replace(/\s*\|\s*/g, ' ').trim()
+  : line);
+
 export const stripMarkdownForDisplay = (text: string): string => text
   .split('\n')
-  .filter((line) => !/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
-  .map((line) => line
+  .filter((line) => !/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line) && !isMarkdownTableSeparatorLine(line))
+  .map((line) => flattenMarkdownTableRow(line)
+    .replace(/^\s*```.*$/, '')
     .replace(/^\s*```.*$/, '')
     .replace(/^#{1,6}\s+/, '')
     .replace(/^>\s?/, '')
@@ -1220,6 +1232,59 @@ const readAttachment = async (file: File): Promise<Attachment> => {
   throw new Error('unsupported');
 };
 
+// P7 A-3 (2026-11-24): 履歴タイトルの作り方はここを正本とし、
+// currentConversationSession と main.tsx の退避（startupArchivedSession
+// ／archiveSession）が共有する。タイトルは最初の利用者メッセージだけ
+// から作り、Markdown は表示時と同じ整形（stripMarkdownForDisplay）
+// を通してから72字で切るため、作成時点で表示と一致する。回答の
+// 見出しを借りることはしない（「Version 1（仮設計）」のような内部
+// ラベルがタイトルへ混入した経路）。利用者メッセージが無い場合の
+// 固定タイトルは「ORIGIN セッション」。
+const HISTORY_TITLE_INTERNAL_LABEL = /^(?:version\s*\d|ver\.\s*\d|仮設計|たたき台)/i;
+export const historySessionTitle = (source: readonly ConversationMessage[]): string => {
+  const firstUser = source.find((message) => message.role === 'user');
+  if (!firstUser) return 'ORIGIN セッション';
+  const lines = stripMarkdownForDisplay(conversationMessageDisplayText(firstUser))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  while (lines.length && HISTORY_TITLE_INTERNAL_LABEL.test(lines[0])) lines.shift();
+  return historyExcerptText(lines.join(' '), 72);
+};
+
+// P7 B-2 (2026-11-24): 内容が同一のセッション（別のID経路で退避
+// された同じ会話）を、表示側で畳むための照合キー。先頭の利用者
+// 本文（72字）と最後のメッセージIDで判定し、続きが付いた会話は
+// 別物として残す。メッセージが無いセッションは畳まない。
+export const historySessionDedupeKey = (session: ConversationSession): string => {
+  const firstUser = session.messages.find((message) => message.role === 'user');
+  if (!firstUser) return `id:${session.id}`;
+  const lastMessageId = session.messages[session.messages.length - 1]?.id ?? '';
+  return `${historyExcerptText(stripMarkdownForDisplay(conversationMessageDisplayText(firstUser)), 72)}\n${lastMessageId}`;
+};
+
+export const dedupeHistorySessions = (sessions: readonly ConversationSession[]): ConversationSession[] => {
+  const keeperByKey = new Map<string, ConversationSession>();
+  for (const session of sessions) {
+    const key = historySessionDedupeKey(session);
+    const keeper = keeperByKey.get(key);
+    if (!keeper || session.createdAt > keeper.createdAt) keeperByKey.set(key, session);
+  }
+  return sessions.filter((session) => keeperByKey.get(historySessionDedupeKey(session)) === session);
+};
+
+// P7 B-2: 同名タイトルが複数あるときだけ付ける作成時刻のラベル。
+// 同日は HH:mm、それ以外は YYYY/MM/DD。
+export const historySessionTimeLabel = (createdAt: number): string => {
+  const date = new Date(createdAt);
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+};
+
 /**
  * 進行中の会話を、履歴ドロワーの表示・検索専用にセッションの形へ変換する。
  * 永続化はしない（保存されるのは従来どおり「新規対話を開始」を押したときと
@@ -1228,12 +1293,10 @@ const readAttachment = async (file: File): Promise<Attachment> => {
  */
 export const currentConversationSession = (source: readonly ConversationMessage[], createdAt: number): ConversationSession | null => {
   if (!source.length) return null;
-  const firstUserSource = source.find((message) => message.role === 'user') ?? source[0];
-  const firstUser = (firstUserSource ? conversationMessageDisplayText(firstUserSource) : '') || 'ORIGIN セッション';
   const firstId = typeof source[0]?.id === 'string' && source[0].id ? source[0].id : 'current';
   return {
     id: `session-current-${firstId}`.slice(0, 128),
-    title: firstUser.replace(/\s+/g, ' ').slice(0, 72),
+    title: historySessionTitle(source),
     createdAt,
     messages: source.map((message) => ({ ...message })),
   };
@@ -1303,7 +1366,14 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
     artifacts.forEach((artifact) => merged.set(artifact.id, artifact));
     return Array.from(merged.values());
   }, [artifacts, storedArtifacts]);
-  const { sessions: displaySessions, currentSessionId } = useMemo(() => withCurrentConversationSession(searchableSessions, currentMessages, Date.now()), [currentMessages, searchableSessions]);
+  // P7 B-2: 内容が同一のセッションは表示・検索の前に畳む（保存側は
+  // 触らない）。同名タイトルの件数は、行に作成時刻を添えるかの判定に使う。
+  const { sessions: displaySessions, currentSessionId } = useMemo(() => withCurrentConversationSession(dedupeHistorySessions(searchableSessions), currentMessages, Date.now()), [currentMessages, searchableSessions]);
+  const titleCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    displaySessions.forEach((session) => counts.set(session.title, (counts.get(session.title) ?? 0) + 1));
+    return counts;
+  }, [displaySessions]);
   const results = useMemo(() => searchOriginLocalSnapshot(deferredQuery, displaySessions, searchableArtifacts), [deferredQuery, displaySessions, searchableArtifacts]);
   // 日付グループ（今日／昨日／それ以前）の見出しで一覧に情報階層を持たせ、
   // 「内容の不在」に読める空白を減らす（デザイン評価 2026-11-17、構成軸）。
@@ -1326,7 +1396,7 @@ const HistoryDrawer: React.FC<{ sessions: readonly ConversationSession[]; curren
   }, [displaySessions]);
   return <>
     <button type="button" data-testid="history-drawer-toggle" aria-label="履歴を開く" aria-pressed={isOpen} onClick={() => setIsOpen((value) => !value)} className="origin-secondary-button inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center whitespace-nowrap px-0 text-sm font-semibold sm:w-auto sm:min-w-11 sm:px-3"><Menu aria-hidden="true" size={17} strokeWidth={2.1} /><span className="hidden sm:ml-1.5 sm:inline">履歴</span></button>
-    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid max-h-72 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid max-h-72 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historyExcerptText(session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '', 160) || '会話'}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
+    {isOpen && <section data-testid="history-drawer" aria-label="端末内の会話と成果物履歴" className="origin-surface flex max-h-[calc(100dvh-5rem)] flex-col absolute right-3 top-16 z-40 w-[min(calc(100vw-1.5rem),460px)] rounded-2xl p-3 shadow-2xl sm:right-4 sm:top-20 sm:p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="m-0 text-base font-semibold">履歴</h2><p className="origin-muted m-0 mt-1 text-[13px]">会話や成果物をすぐ探せます。</p></div><button type="button" data-testid="history-drawer-close" aria-label="履歴を閉じる" onClick={() => setIsOpen(false)} className="origin-secondary-button origin-close-button"><X aria-hidden="true" size={18} /></button></div><label className="sr-only" htmlFor="origin-history-search">履歴を検索</label><input id="origin-history-search" data-testid="history-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="履歴を検索" autoFocus className="origin-input mt-3 min-h-11 w-full rounded-[var(--radius-control)] border bg-transparent px-3 text-base" />{deferredQuery.trim() ? <div data-testid="history-search-results" role="status" aria-live="polite" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{results.length ? results.map((result, index) => <button key={`${result.kind}-${result.id}`} type="button" data-testid={`history-search-result-${index}`} onClick={() => schedule(() => { if (result.session && result.session.id !== currentSessionId) onRestoreSession?.(result.session); if (result.artifact) onOpenArtifact?.(result.artifact); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{result.kind === 'session' ? (result.session?.id === currentSessionId ? '現在の会話 · ' : '') : '成果物 · '}{result.kind === 'session' ? historyExcerptText(result.title, 72) : result.title}</span><span className="origin-muted mt-1 block truncate text-[13px]">{result.detail}</span></button>) : <p className="origin-muted m-0 py-4 text-center text-base">一致する履歴はありません。</p>}</div> : <><div data-testid="history-session-list" className="mt-3 grid min-h-0 flex-1 gap-2 overflow-auto">{displaySessions.length ? sessionGroups.map((group) => <div key={group.key} className="grid gap-2"><h3 className="origin-muted m-0 px-1 pt-1 text-sm font-semibold">{group.label}</h3>{group.entries.map(({ session, index }) => <button key={session.id} type="button" data-testid={`history-session-item-${index}`} onClick={() => schedule(() => { if (session.id !== currentSessionId) onRestoreSession?.(session); setIsOpen(false); })} className="origin-secondary-button min-h-11 min-w-11 px-3 py-2 text-left"><span className="block truncate text-sm font-semibold">{session.id === currentSessionId ? '現在の会話 · ' : ''}{historyExcerptText(session.title, 72)}</span><span className="origin-muted mt-1 block truncate text-[13px]">{historyExcerptText(session.messages.at(-1) ? conversationMessageDisplayText(session.messages.at(-1)!) : '', 160) || '会話'}{(titleCounts.get(session.title) ?? 0) > 1 ? ` · ${historySessionTimeLabel(session.createdAt)}` : ''}</span></button>)}</div>) : <p className="origin-muted m-0 py-4 text-center text-base">戻せる過去の会話はまだありません。</p>}</div><p className="origin-muted mt-3 text-[13px]">キーワードを入れると、この端末の履歴から探します。</p></>}</section>}
   </>;
 };
 
