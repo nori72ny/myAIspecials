@@ -17,15 +17,6 @@
   flex: 1 1 auto;
   resize: none;
 }
-.origin-composer__action {
-  display: inline-flex;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-  align-items: center;
-  justify-content: center;
-}
 /* Single-row composer contract (owner-approved compact redesign,
    2026-11-09): the add menu leads the row, the input flexes in the
    middle, and the send/stop actions trail — the familiar chat composer

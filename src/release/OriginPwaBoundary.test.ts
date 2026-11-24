@@ -53,11 +53,12 @@ describe('ORIGIN PWA boundary', () => {
     expect(worker).toContain("'/brand/origin-cat-thinking.webp'");
     expect(worker).not.toContain('origin-sunrise-mark');
     expect(worker).not.toContain("'/brand/origin-cat-working.mp4'");
-    // アプリ内（ヒーロー／ヘッダー）の顔は猫（オーナー指示 2026-11-09 で
-    // リボンOマークから変更）。台座スタイルが配線されていることと、猫の
-    // 素材が実在の WEBP であることを固定する。ブラウザ／PWA 側のリボン
-    // 同一性は、上の index.html と sw.js の表明で引き続き固定される。
-    expect(topUi).toContain('.origin-cat-pedestal');
+    // アプリ内の顔は猫（オーナー指示 2026-11-09 でリボンOマークから
+    // 変更）。猫の素材が実在の WEBP であることを固定する。台座スタイルは
+    // 現行の表示経路では描画されず、K-19（2026-11-24）で死に CSS として
+    // 削除したため不在を固定する。ブラウザ／PWA 側のリボン同一性は、
+    // 上の index.html と sw.js の表明で引き続き固定される。
+    expect(topUi).not.toContain('.origin-cat-pedestal');
     const cat = readFileSync(resolve(process.cwd(), 'public/brand/origin-cat.webp'));
     expect(cat.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(cat.subarray(8, 12).toString('ascii')).toBe('WEBP');

@@ -31,8 +31,10 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).toContain('Functional responsive rules preserved from the pre-Release-2 shell');
     expect(functionalUi).toContain('.artifact-workspace__header');
     expect(functionalUi).toContain('.artifact-workspace__actions');
-    expect(functionalUi).toContain('.origin-composer__action');
-    expect(functionalUi).toContain('min-width: 44px;');
+    // K-19 (2026-11-24): the composer action-class geometry contract had
+    // no rendered element and was removed as dead CSS.
+    expect(functionalUi).not.toContain('.origin-composer__action');
+    expect(functionalUi).toContain('min-height: 44px !important;');
     expect(functionalUi).toContain('minmax(44px, 1fr)');
     expect(topUi).not.toContain('.artifact-workspace__header');
     expect(topUi).not.toContain('.artifact-workspace__actions > [role="group"]');
@@ -47,7 +49,12 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).not.toContain('background: rgba(15, 23, 42, 0.18);');
     expect(functionalUi).not.toContain('box-shadow: 0 24px 70px');
     expect(topUi).toContain('background: var(--scrim);');
-    expect(topUi).toContain('box-shadow: 0 16px 40px color-mix(in oklch, var(--shadow-color) 48%, transparent) !important;');
+    // K-20 (2026-11-24): the add-menu panel takes the panel radius (16px)
+    // and the popover shadow token at every width.
+    const addMenuPanelRule = topUi.match(/\.origin-add-menu__panel \{[^}]*\}/)?.[0] ?? '';
+    expect(addMenuPanelRule).toContain('border-radius: 16px;');
+    expect(addMenuPanelRule).toContain('box-shadow: var(--shadow-2);');
+    expect(topUi).toContain('box-shadow: var(--shadow-2) !important;');
     expect(topUi).not.toContain('left: 0 !important;');
     expect(topUi).not.toContain('max-height: min(46dvh, 400px) !important;');
   });
@@ -102,9 +109,9 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(topUi).not.toContain('min-height: 96px !important;');
     expect(topUi).toContain('background: var(--bg-surface) !important;');
     expect(topUi).toContain('color: var(--text-primary) !important;');
-    expect(topUi).toContain('.origin-composer__action.is-ready');
-    expect(topUi).toContain('background: var(--accent-primary);');
-    expect(topUi).toContain('color: var(--text-on-accent);');
+    // K-19 (2026-11-24): the composer action-class color rules had no
+    // rendered element and were removed as dead CSS.
+    expect(topUi).not.toContain('.origin-composer__action');
     expect(topUi).toContain('font-size: 16px !important;');
     expect(functionalUi).toContain('order: -1;');
     expect(functionalUi).not.toContain('grid-template-rows: auto 44px;');
@@ -129,8 +136,10 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(functionalUi).toContain('align-items: flex-end !important;');
     expect(functionalUi).not.toContain('grid-template-columns: minmax(0, 1fr) 44px;');
     expect(functionalUi).not.toContain('grid-template-rows: auto 44px;');
-    expect(functionalUi).toContain('width: 44px;');
-    expect(functionalUi).toContain('height: 44px;');
+    // K-19 (2026-11-24): the 44px width/height pair belonged to the
+    // removed dead action-class rule; live touch targets stay pinned by
+    // the min-height rules here and in the canonical shell above.
+    expect(functionalUi).toContain('min-height: 44px !important;');
     expect(topUi).not.toContain('max-height: 144px !important;');
     expect(functionalUi).not.toContain('bottom: max(10px, env(safe-area-inset-bottom));');
   });
@@ -178,11 +187,10 @@ describe('ORIGIN top experience regression boundary', () => {
     // コンポーザー新契約（自動伸縮）：入力欄のフロア44pxとモバイル上限。
     expect(topUi).toContain('min-height: 44px !important;');
     expect(topUi).toContain('max-height: min(158px, 30dvh) !important;');
-    // ヒーローは猫＋明るい台座（#1170、オーナー指示 2026-11-09）。大きさは台座
-    // コンポーネント側で持ち、CSS 側では短い画面向けの台座圧縮だけを固定
-    // する（旧リボンOマークの固定サイズは廃止）。
-    expect(topUi).toContain('.origin-cat-pedestal {');
-    expect(topUi).toContain('width: 62px !important;');
+    // ヒーローの明るい台座（#1170）は現行の表示経路では描画されず
+    // （プレゼンス行が正本）、台座の CSS は K-19（2026-11-24）で死に
+    // CSS として削除した（旧リボンOマークの固定サイズも廃止済み）。
+    expect(topUi).not.toContain('.origin-cat-pedestal');
     expect(topUi).not.toContain('origin-ribbon-o-light.webp');
     expect(topUi).not.toContain('origin-ribbon-o-small.webp');
     expect(topUi).toContain('min-height: 60px !important;');
@@ -270,8 +278,28 @@ describe('ORIGIN top experience regression boundary', () => {
     expect(ultraOptics).not.toContain('.origin-chat > div:last-child > div > div {');
     expect(ultraOptics).not.toContain('var(--glass-border)');
     expect(ultraOptics).not.toContain('var(--accent-primary-v2)');
-    expect(ultraOptics).toContain('border: 1px dashed var(--border-default);');
-    expect(ultraOptics).toContain('background: linear-gradient(var(--accent-primary), transparent);');
-    expect(ultraOptics).toContain('color: var(--accent-primary);');
+    // K-19 (2026-11-24): the standalone primitives (skeleton, zero-state,
+    // dag) had no rendered element and were removed as dead CSS.
+    expect(ultraOptics).not.toContain('.origin-skeleton');
+    expect(ultraOptics).not.toContain('.origin-zero-state');
+    expect(ultraOptics).not.toContain('.origin-dag');
+  });
+
+  it('keeps secondary text at the 13px floor in the add menu and the Orin name tag (K-18)', () => {
+    const descriptionRule = topUi.match(/\.origin-add-menu__description \{[^}]*\}/)?.[0] ?? '';
+    expect(descriptionRule).toContain('font-size: 13px;');
+    const nameRule = topUi.match(/\.origin-orin-presence__name \{[^}]*\}/)?.[0] ?? '';
+    expect(nameRule).toContain('font-size: 13px;');
+    expect(nameRule).toContain('padding: 3px 10px;');
+  });
+
+  it('keeps the assistant reading surface under a single transparent canon (K-19)', () => {
+    const indexCss = readFileSync(resolve(root, 'index.css'), 'utf8');
+    expect(indexCss).not.toContain('.origin-chat-assistant {');
+    const assistantRule = topUi.match(/\.origin-chat-assistant \{[^}]*\}/)?.[0] ?? '';
+    expect(assistantRule).toContain('max-width: 45rem;');
+    expect(assistantRule).toContain('margin-inline: auto;');
+    expect(assistantRule).toContain('background: transparent !important;');
+    expect(assistantRule).toContain('box-shadow: none !important;');
   });
 });
