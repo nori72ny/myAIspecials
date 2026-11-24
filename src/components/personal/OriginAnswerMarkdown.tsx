@@ -1,4 +1,4 @@
-import { Children, isValidElement, useMemo, useState, type ReactNode } from 'react';
+import { Children, cloneElement, Fragment, isValidElement, useMemo, useState, type ReactNode } from 'react';
 import { Copy, WrapText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -70,6 +70,95 @@ const refinementPrompt = (language: OriginLanguage, kind: AnswerRefinementKind) 
 };
 
 /**
+ * K-15（2026-11-24）：モデル出力に混ざる生の改行タグ対策。
+ * ReactMarkdown は raw HTML を描画しないため、モデルが意図した
+ * 改行の `<br>` がそのまま文字列として表示されていた（実働検査
+ * LIVE-3：企画回答の表セル内）。許可するのは br のみ、という
+ * 安全側で2段に分けて扱う。
+ *
+ * (1) 本文側（この前処理）：フェンスコード・表ブロック・コード
+ * スパンの外側にある `<br>` 系（エスケープ形 `&lt;br&gt;` を含む）
+ * を Markdown の hard break（行末バックスラッシュ）に変える。
+ * 表ブロックは行を割ると表自体が壊れるため触らない。
+ * (2) 表セル側（下の splitCellBreaks）：td/th のテキストに残った
+ * `<br>` リテラルを実際の改行要素に分割して描く。
+ * コピー操作は従来どおり原文を使う（表示だけを整える）。
+ */
+const BREAK_TAG_PATTERN = /<br\s*\/?>|&lt;br\s*\/?&gt;/gi;
+const BREAK_PLACEHOLDER = '\u0001';
+
+function convertBreaksOnLine(line: string): string {
+  // コードスパン（バッククォート列で囲まれた範囲）の中は
+  // 文字列として見せるのが正しいので変換しない。開いた列と
+  // 同じ長さの列で閉じる、という CommonMark の規則で追う。
+  let result = '';
+  let rest = line;
+  let openTicks = 0;
+  while (rest) {
+    const tickMatch = rest.match(/`+/);
+    if (!tickMatch || tickMatch.index === undefined) {
+      result += openTicks ? rest : rest.replace(BREAK_TAG_PATTERN, BREAK_PLACEHOLDER);
+      break;
+    }
+    const before = rest.slice(0, tickMatch.index);
+    result += openTicks ? before : before.replace(BREAK_TAG_PATTERN, BREAK_PLACEHOLDER);
+    const ticks = tickMatch[0];
+    result += ticks;
+    rest = rest.slice(tickMatch.index + ticks.length);
+    if (!openTicks) openTicks = ticks.length;
+    else if (ticks.length === openTicks) openTicks = 0;
+  }
+  return result;
+}
+
+function normalizeAnswerBreaks(text: string): string {
+  const lines = text.split('\n');
+  // 表ブロックの範囲を先に確定する：区切り行（--- を含む行）が
+  // 見つかったら、その前行（見出し行）から、パイプを含む行が
+  // 続く間を表ブロックとして保護する。
+  const protectedLine = new Array<boolean>(lines.length).fill(false);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const isSeparator = /^[|\s:-]+$/.test(line) && /-{3,}/.test(line);
+    if (!isSeparator) continue;
+    let start = i;
+    if (start > 0 && lines[start - 1].includes('|')) start -= 1;
+    let end = i;
+    while (end + 1 < lines.length && lines[end + 1].includes('|')) end += 1;
+    for (let j = start; j <= end; j += 1) protectedLine[j] = true;
+  }
+  let inFence = false;
+  const converted = lines.map((line, index) => {
+    if (/^\s{0,3}(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence || protectedLine[index]) return line;
+    return convertBreaksOnLine(line);
+  });
+  // プレースホルダを hard break に戻す。直後の改行は吸収し、
+  // 段落分離（二重改行）にはしない。
+  return converted.join('\n').replace(new RegExp(`${BREAK_PLACEHOLDER}\\n?`, 'g'), '\\\n');
+}
+
+function splitCellBreaks(node: ReactNode): ReactNode {
+  if (typeof node === 'string') {
+    const parts = node.split(/(<br\s*\/?>|&lt;br\s*\/?&gt;)/gi);
+    if (parts.length === 1) return node;
+    return parts.map((part, index) => (index % 2 === 1 ? <br key={index} /> : part));
+  }
+  if (Array.isArray(node)) {
+    return node.map((child, index) => <Fragment key={index}>{splitCellBreaks(child)}</Fragment>);
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    // コードの中の <br> は文字列として見せるのが正しい。
+    if (node.type === 'code' || !node.props.children) return node;
+    return cloneElement(node, undefined, splitCellBreaks(node.props.children));
+  }
+  return node;
+}
+
+/**
  * 調査フォールバック（部分回答）の出典カード。通常経路（詳しく調べる
  * モードの ResearchSourcesSection）と見た目を揃える：出典ID・ドメイン、
  * タイトル、短い引用（要旨）、「原文を開く」。部分回答の本文は生成側が
@@ -131,9 +220,11 @@ export default function OriginAnswerMarkdown({ content, language, onRefine, show
             : <span role="note" className="origin-external-image-note">{language === 'en' ? `External images are not shown automatically${alt ? `: ${alt}` : ''}` : `外部画像は自動では表示しません${alt ? `：${alt}` : ''}`}</span>;
         },
         table: ({ children }) => <MarkdownTableV12 language={language}>{children}</MarkdownTableV12>,
+        td: ({ children }) => <td>{splitCellBreaks(children)}</td>,
+        th: ({ children }) => <th>{splitCellBreaks(children)}</th>,
       }}
     >
-      {text}
+      {normalizeAnswerBreaks(text)}
     </ReactMarkdown>
   );
   return (

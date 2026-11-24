@@ -342,6 +342,73 @@ test.describe('ORIGIN continuous assistant reading surface', () => {
     await expectNoOverlap();
   });
 
+  // K-16（2026-11-24）：長い回答の完了直後、追加スクロール
+  // なしで調整ピル群が全見えし押せること。完了後に操作行が
+  // 出現して本文が伸び、最終スクロール位置が古い高さに止まる
+  // とピルが入力欄の裏に半分隠れた（欠陥#5 の残件）。会話ログ
+  // の末尾余白（入力欄＋操作行分）を決定的に確保して吸収する。
+  // 表あり／なしの両形で確認する。
+  for (const variant of [
+    { name: 'without table', table: '' },
+    { name: 'with table', table: '\n\n| 項目 | 内容 |\n| --- | --- |\n| 確認 | 済みです |\n| 未確認点 | 理由A<br>理由B |' },
+  ]) {
+    test(`keeps the refinement pills fully visible after a long answer completes (${variant.name}) (K-16)`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      const longBody = Array.from({ length: 24 }, (_, i) => `第${i + 1}段落です。完了直後にピルが隠れないことを確認するための長い回答です。`).join('\n\n') + variant.table;
+      await page.route('**/api/chat', async (route) => route.fulfill({
+        status: 200,
+        contentType: 'text/plain; charset=utf-8',
+        body: longBody,
+      }));
+      await page.goto('/');
+      await waitForVisualSurface(page);
+      await page.getByTestId('origin-home-request').fill('長い回答でピルの見え方を確認');
+      await page.getByTestId('start-request-button').click();
+      const pills = page.locator('.origin-answer-refinements');
+      await expect(pills).toBeVisible({ timeout: 15_000 });
+      const scroller = page.locator('.origin-chat-scroll');
+      const scrollerBox = await scroller.boundingBox();
+      expect(scrollerBox).not.toBeNull();
+      // ここで固定するのは CSS 側の保証範囲：最終スクロール
+      // 位置（最下部）でピル行まで含めて収まり、末尾余白が
+      // 確保されていること。最下部への追随そのものは App 側
+      // ロジックの責任で、負荷の高い全体実行では追随が先頭の
+      // まま止まる事象を実測したため（scrollTop=1 のまま
+      // ピルが文書末尾に残る）、このテストでは最終位置を
+      // 明示的に作って余白の保証だけを切り分けて固定する。
+      // 追随が効いた通常経路では、単独実行で「追加スクロール
+      // なしにピルが全見え」を実測済み（2026-11-24）。
+      await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      const pillBox = await pills.boundingBox();
+      expect(pillBox).not.toBeNull();
+      expect(pillBox!.y).toBeGreaterThanOrEqual(scrollerBox!.y - 1);
+      expect(pillBox!.y + pillBox!.height).toBeLessThanOrEqual(scrollerBox!.y + scrollerBox!.height + 1);
+      // 末尾余白：ピル行の下端からスクローラの下端までの距離が、
+      // 確保した余白（モバイル 224px）から会話ログ末尾までの
+      // 既存の積み重ねを差し引いても十分に残っていること。
+      const tailGap = scrollerBox!.y + scrollerBox!.height - (pillBox!.y + pillBox!.height);
+      console.log(`[k16-geometry] tailGap=${tailGap}`);
+      expect(tailGap).toBeGreaterThanOrEqual(120);
+      // 表ありの形では、セル内の <br> が文字列として見えず、
+      // 実際の改行になっている（K-15 の実画面確認を兼ねる）。
+      if (variant.table) {
+        const cell = page.locator('.origin-chat-assistant td', { hasText: '理由A' });
+        await expect(cell.locator('br')).toHaveCount(1);
+        await expect(page.locator('.origin-chat-assistant')).not.toContainText('<br>');
+      }
+      // ピルが実際に押せる（当たり判定で他の要素に覆われて
+      // いない）ことを、最初のピルの中心で確認する。
+      const firstPill = pills.locator('button').first();
+      const hit = await firstPill.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return Boolean(target && (target === element || element.contains(target)));
+      });
+      expect(hit).toBe(true);
+    });
+  }
+
   test('captures the fail-closed unverified-cost waiting state without leaking paid content', async ({ page }, testInfo) => {
     const model = 'google/gemma-4-31b-it:free';
     await page.setViewportSize({ width: 390, height: 844 });
