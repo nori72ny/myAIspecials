@@ -6,7 +6,7 @@ import {
   computeAgentAttachmentSetDigest,
   validateAgentAttachmentFileText,
 } from './agentAttachmentRecord.js';
-import type { AgentModelExecutor } from './agentModelCall.js';
+import { servingFromRoutingEvidence, type AgentModelExecutor } from './agentModelCall.js';
 import {
   AGENT_ANALYZER_CHUNK_INTERVAL_MS,
   agentGoalUsesCjk,
@@ -819,37 +819,63 @@ describe('attachment_analyzer coverage observability (numeric details + executio
     };
   }
 
-  it('carries the exact sum difference in the coverage failure message when a digit is dropped', async () => {
+  /** Stand-in that omits OR001's row entirely, optionally
+   * reporting a serving. A dropped row is the coverage failure
+   * shape the deterministic numeric copy does not repair: the
+   * value never reaches the output at all. */
+  function omittingExecutor(serving?: { providerId: string; modelId: string }): AgentModelExecutor {
+    return async ({ userText }) => {
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
+      const rows = lines.slice(1)
+        .filter((line) => !line.startsWith('OR001,'))
+        .map((line) => {
+          const [id, amount] = line.split(',');
+          return { Event_ID: id, Loss_Amount_CNY: amount };
+        });
+      return { ok: true, text: JSON.stringify({ rows }), ...(serving ? { serving } : {}) };
+    };
+  }
+
+  it('carries the exact sum difference in the coverage failure message when a row is dropped', async () => {
     const { store, setDigest } = await storeWithEvents();
-    // OR001's 11,000,000 transcribed as 1,000,000 — a dropped digit.
-    const dropping = echoExecutor((id, amount) => (id === 'OR001' ? '1000000' : amount));
     const result = await toolRegistry.attachment_analyzer.execute(
       analyzerParams(setDigest),
-      contextFor(store, dropping),
+      contextFor(store, omittingExecutor()),
     );
     expect(result.ok).toBe(false);
     expect(result.message).toContain('AGENT_DATA_COVERAGE_INSUFFICIENT');
     // The record-bound segment names the column and reads the whole
-    // failure off the sums: expected 16,000,000, output 6,000,000,
-    // difference exactly -10,000,000, nothing unreadable.
+    // failure off the sums: expected 16,000,000, output 5,000,000,
+    // difference exactly -11,000,000, nothing unreadable. (A
+    // mistranscribed value on a present row no longer reaches this
+    // message: the deterministic copy restores the input's cell
+    // before the gate runs — see the numeric copy tests below.)
     expect(result.message).toContain(
-      'numericMismatch=Loss_Amount_CNY, numeric=Loss_Amount_CNY:16000000:6000000:-10000000:0',
+      'numericMismatch=Loss_Amount_CNY, numeric=Loss_Amount_CNY:16000000:5000000:-11000000:0',
     );
   });
 
   it('counts an unreadable notation in the coverage failure message, apart from the difference', async () => {
     const { store, setDigest } = await storeWithEvents();
-    // OR002's value written as 500万円 — a notation the numeric
+    // A fabricated row carries 500万円 — a notation the numeric
     // parser rejects (the 万 survives its cleaning), so the value
-    // drops out of the output sum and is counted instead.
-    const notating = echoExecutor((id, amount) => (id === 'OR002' ? '500万円' : amount));
+    // drops out of the output sum and is counted instead. (On a
+    // matched row the notation never survives to be counted: the
+    // deterministic copy restores the input's cell first.)
+    const notating: AgentModelExecutor = async (input) => {
+      const base = await echoExecutor()(input);
+      if (!base.ok) return base;
+      const parsed = JSON.parse(base.text) as { rows: Array<Record<string, string>> };
+      parsed.rows.push({ Event_ID: 'OR999', Loss_Amount_CNY: '500万円' });
+      return { ok: true, text: JSON.stringify(parsed) };
+    };
     const result = await toolRegistry.attachment_analyzer.execute(
       analyzerParams(setDigest),
       contextFor(store, notating),
     );
     expect(result.ok).toBe(false);
     expect(result.message).toContain(
-      'numeric=Loss_Amount_CNY:16000000:11000000:-5000000:1',
+      'numeric=Loss_Amount_CNY:16000000:16000000:0:1',
     );
   });
 
@@ -866,13 +892,91 @@ describe('attachment_analyzer coverage observability (numeric details + executio
 
   it('appends the execution trace to a coverage failure when a serving was recorded', async () => {
     const { store, setDigest } = await storeWithEvents();
-    const dropping = echoExecutor((id, amount) => (id === 'OR001' ? '1000000' : amount), SERVING);
     const result = await toolRegistry.attachment_analyzer.execute(
       analyzerParams(setDigest),
-      contextFor(store, dropping),
+      contextFor(store, omittingExecutor(SERVING)),
     );
     expect(result.ok).toBe(false);
     expect(result.message).toContain('(execution: servings=groq-free|openai/gpt-oss-120b; repair=0)');
+  });
+
+  it('repairs a compounded transcription failure deterministically: numeric cells become the input\u2019s own (numeric copy 案1)', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    // Both amounts mistranscribed at once — the production shape
+    // (an output sum far below the input's, every value still
+    // parseable). The generated classification column is the
+    // model's own and must survive untouched.
+    const mistranscribing: AgentModelExecutor = async ({ userText }) => {
+      const lines = userText.split('\n').filter((line) => line.length > 0 && !line.startsWith('【出典:'));
+      const rows = lines.slice(1).map((line) => {
+        const [id] = line.split(',');
+        return {
+          Event_ID: id,
+          Loss_Amount_CNY: id === 'OR001' ? '1000000' : '5500000',
+          Basel_Category: id === 'OR001' ? '内部詐欺' : '外部詐欺',
+        };
+      });
+      return { ok: true, text: JSON.stringify({ rows }) };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, mistranscribing),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as {
+      rows: Array<Record<string, string>>;
+      content: string;
+    };
+    expect(bundle.rows).toEqual([
+      { Event_ID: 'OR001', Loss_Amount_CNY: '11000000', Basel_Category: '内部詐欺' },
+      { Event_ID: 'OR002', Loss_Amount_CNY: '5000000', Basel_Category: '外部詐欺' },
+    ]);
+    expect(bundle.content).toContain('OR001,11000000');
+    expect(bundle.content).toContain('OR002,5000000');
+  });
+
+  it('records a serving reduced from production-shaped routing evidence in the execution block', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    // The production composition: the executor's serving is
+    // servingFromRoutingEvidence over display-name evidence
+    // ("Cloudflare"), which the slug normalization now reduces to
+    // the identifier the trace entrance accepts.
+    const executor: AgentModelExecutor = async (input) => {
+      const base = await echoExecutor()(input);
+      if (!base.ok) return base;
+      return {
+        ...base,
+        serving: servingFromRoutingEvidence({ provider: 'Cloudflare', servedModel: '@cf/openai/gpt-oss-120b' }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(true);
+    const bundle = JSON.parse(result.artifact ?? '{}') as { execution?: unknown };
+    expect(bundle.execution).toEqual({
+      servings: [{ providerId: 'cloudflare', modelId: '@cf/openai/gpt-oss-120b' }],
+      repairRetried: false,
+    });
+  });
+
+  it('carries a production-shaped serving into the coverage failure execution segment', async () => {
+    const { store, setDigest } = await storeWithEvents();
+    const executor: AgentModelExecutor = async (input) => {
+      const base = await omittingExecutor()(input);
+      if (!base.ok) return base;
+      return {
+        ...base,
+        serving: servingFromRoutingEvidence({ provider: 'Groq', servedModel: 'openai/gpt-oss-120b' }),
+      };
+    };
+    const result = await toolRegistry.attachment_analyzer.execute(
+      analyzerParams(setDigest),
+      contextFor(store, executor),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('(execution: servings=groq|openai/gpt-oss-120b; repair=0)');
   });
 
   it('records repairRetried when the first response fails parsing and the repair succeeds', async () => {

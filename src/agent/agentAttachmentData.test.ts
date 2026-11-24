@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agentDataUsesFileNameKeys,
+  applyAgentDataNumericCopy,
   buildAgentAttachmentDataView,
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
@@ -173,6 +174,71 @@ describe('agentAttachmentData coverage verification', () => {
   it('ignores formatting differences in numeric values (commas, currency marks)', () => {
     const formatted = fullRows.map((row) => ({ ...row, amount: `${row.amount}円` }));
     expect(verifyAgentDataCoverage(view, formatted).ok).toBe(true);
+  });
+});
+
+describe('agentAttachmentData deterministic numeric copy (Basel coverage diagnosis 案1)', () => {
+  const view = buildAgentAttachmentDataView([{ name: 'fruits.csv', text: FRUITS }]);
+
+  it('indexes the primary table numeric cells by key in the view', () => {
+    expect(view.primaryNumericCellsByKey).toEqual({
+      'A-1': { amount: '120' },
+      'A-2': { amount: '80' },
+      'A-3': { amount: '300' },
+    });
+  });
+
+  it('replaces transcribed numeric cells with the input values, exactly', () => {
+    // The production failure shape: several cells mistranscribed
+    // at once (a dropped digit here, a swapped value there), every
+    // value still parseable — the class no repair retry converges
+    // on. After the copy the numeric column is the input's own.
+    const rows = [
+      { id: 'A-1', item: 'りんご', amount: '12', category: '通常' },
+      { id: 'A-2', item: 'みかん', amount: '800', category: '通常' },
+      { id: 'A-3', item: 'ぶどう', amount: '30', category: '高額' },
+    ];
+    expect(applyAgentDataNumericCopy(view, rows)).toBe(3);
+    expect(rows.map((row) => row.amount)).toEqual(['120', '80', '300']);
+    // Coverage over the copied rows passes: the gate now judges
+    // key coverage and the generated columns, not transcription.
+    expect(verifyAgentDataCoverage(view, rows)).toEqual({ ok: true, coveredKeys: 3 });
+  });
+
+  it('never touches non-numeric cells or model-generated columns', () => {
+    const rows = [
+      { id: 'A-1', item: '林檎（モデルの表記）', amount: '999', category: '高額' },
+      { id: 'A-2', item: '蜜柑（モデルの表記）', amount: '999', category: '高額' },
+      { id: 'A-3', item: '葡萄（モデルの表記）', amount: '999', category: '通常' },
+    ];
+    applyAgentDataNumericCopy(view, rows);
+    expect(rows.map((row) => row.item)).toEqual(['林檎（モデルの表記）', '蜜柑（モデルの表記）', '葡萄（モデルの表記）']);
+    expect(rows.map((row) => row.category)).toEqual(['高額', '高額', '通常']);
+    expect(rows.map((row) => row.amount)).toEqual(['120', '80', '300']);
+  });
+
+  it('fills a numeric cell the model omitted on a matched row', () => {
+    const rows = [{ id: 'A-1', item: 'りんご' } as Record<string, string>];
+    expect(applyAgentDataNumericCopy(view, rows)).toBe(1);
+    expect(rows[0].amount).toBe('120');
+  });
+
+  it('leaves rows whose key matches no input row untouched (fail-safe)', () => {
+    const rows = [
+      { id: 'X-9', item: '不明', amount: '777' },
+      { item: 'キーなし', amount: '555' },
+    ];
+    expect(applyAgentDataNumericCopy(view, rows)).toBe(0);
+    expect(rows[0].amount).toBe('777');
+    expect(rows[1].amount).toBe('555');
+  });
+
+  it('is a no-op for a set without a keyed primary table', () => {
+    const proseView = buildAgentAttachmentDataView([{ name: 'notes.txt', text: 'ただの文章です。\n\n表ではありません。' }]);
+    expect(proseView.primaryNumericCellsByKey).toBeUndefined();
+    const rows = [{ file: 'notes.txt', amount: '42' }];
+    expect(applyAgentDataNumericCopy(proseView, rows)).toBe(0);
+    expect(rows[0].amount).toBe('42');
   });
 });
 
