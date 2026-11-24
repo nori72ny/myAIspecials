@@ -5,6 +5,7 @@ import {
 } from './agentAttachmentRecord.js';
 import {
   agentDataUsesFileNameKeys,
+  applyAgentDataNumericCopy,
   buildAgentAttachmentDataView,
   renderAgentDataRowsCsv,
   verifyAgentDataChunkCoverage,
@@ -1401,6 +1402,15 @@ export async function executeAttachmentAnalyzer(
   // The final whole-set verification below remains the last gate,
   // unchanged in meaning.
   if (outputKind === 'rows' && primaryFileName !== undefined) {
+    // Deterministic numeric copy (Basel coverage diagnosis
+    // 2026-11-24, 案1): this step's primary rows take their
+    // declared numeric columns from the input itself, by key —
+    // never from the model's transcription — before the local
+    // gate below verifies them. The step's rows are the same
+    // objects the merge holds, so the final gate and the
+    // rendered artifact inherit the copied values; the final
+    // step re-applies the copy to the whole merge regardless.
+    applyAgentDataNumericCopy(view, stepPrimaryRows);
     const primaryChunksInRange = range.filter((chunk) => chunk.fileName === primaryFileName);
     if (primaryChunksInRange.length > 0) {
       const localCoverage = verifyAgentDataLocalCoverage(view, primaryChunksInRange, stepPrimaryRows);
@@ -1425,6 +1435,11 @@ export async function executeAttachmentAnalyzer(
         return fail(`AGENT_DATA_COVERAGE_INSUFFICIENT (対象${chunkCoverage.expectedChunks}チャンク中${Math.max(0, chunkCoverage.processedChunks)}チャンクを処理、行${chunkCoverage.rowCount}件)${executionParenthetical()}`);
       }
     } else {
+      // Deterministic numeric copy (diagnosis 案1) over the
+      // whole merge, before the final gate: this step's own rows
+      // were already copied above and re-applying is idempotent;
+      // rows a predecessor bundle carried in are covered here.
+      applyAgentDataNumericCopy(view, merged.rows);
       const coverage = verifyAgentDataCoverage(view, merged.rows);
       if (coverage.ok === false) {
         return fail(agentDataCoverageFailureMessage('final', coverage) + executionParenthetical());
