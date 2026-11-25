@@ -298,6 +298,77 @@ describe("code-handling rules (CB-5)", () => {
     expect(compact).toContain("check each claim against the trace and the code");
     expect(compact).toContain(API_CONVENTIONS);
     expect(compact).toContain("do not switch dialects");
-    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+  });
+});
+
+describe("code-review finding discipline (CB-6)", () => {
+  // CODEBENCH_CB6_DESIGN_2026-11-25: the E-03 failure was a finding-
+  // selection failure, not a tracing failure - the answer justified
+  // its headline defect with a generic weakness that does not apply
+  // to the code's use, padded the review with generic checklist
+  // items the supplied code does not exhibit, and presented a
+  // replacement carrying unused imports. CB-3 through CB-5 governed
+  // tracing and equivalence only; these pins lock the discipline
+  // that governs which problems a review may report, the operative
+  // reason it must give, and the nothing-unused self-check, on every
+  // instruction variant a code task can be served with.
+  const FINDING_DISCIPLINE = "lead with the most consequential problem in that code";
+  const TRACEABLE = "every point must be traceable to a specific line or behavior of that code";
+  const NO_OMISSION = "no problem actually present may be omitted to keep the list short";
+  const NO_PADDING = "Do not pad the review with generic checklist items";
+  const ALREADY_CORRECT = "where part of the supplied code is already correct, say so in one line";
+  const OPERATIVE_REASON = "state the operative reason it is a problem for this code's purpose";
+  const NOTHING_UNUSED = "Leave nothing unused";
+  const REMOVE_CARRIED_IMPORTS = "remove imports or names carried over from the original";
+
+  it("states the finding discipline and the nothing-unused rule in the full base instruction", () => {
+    const instruction = originChatSystemInstruction();
+    expect(instruction).toContain(FINDING_DISCIPLINE);
+    expect(instruction).toContain(TRACEABLE);
+    expect(instruction).toContain(NO_OMISSION);
+    expect(instruction).toContain(NO_PADDING);
+    expect(instruction).toContain(ALREADY_CORRECT);
+    expect(instruction).toContain(OPERATIVE_REASON);
+    expect(instruction).toContain("not a generic weakness of the construct that does not apply to this use");
+    expect(instruction).toContain(NOTHING_UNUSED);
+    expect(instruction).toContain(REMOVE_CARRIED_IMPORTS);
+    // The discipline bullet appears exactly once: it is a base rule,
+    // not a per-section restatement.
+    expect(instruction.split(FINDING_DISCIPLINE).length - 1).toBe(1);
+  });
+
+  it("keeps the rules for a plain conversational question (they are not creation-gated)", () => {
+    const intent = classifyOriginRequestIntent("日本の首都はどこですか？", "review");
+    expect(intent.interactionMode).toBe("conversation");
+    const instruction = originChatSystemInstruction(intent);
+    expect(instruction).toContain(FINDING_DISCIPLINE);
+    expect(instruction).toContain(NO_PADDING);
+    expect(instruction).toContain(OPERATIVE_REASON);
+    expect(instruction).toContain(NOTHING_UNUSED);
+  });
+
+  it("carries the rules in the route-2 compact variant (registered in the compact base)", () => {
+    const variant = originCloudflareRouteSystemInstruction(originChatSystemInstruction());
+    expect(variant).toContain(FINDING_DISCIPLINE);
+    expect(variant).toContain(TRACEABLE);
+    expect(variant).toContain(NO_OMISSION);
+    expect(variant).toContain(NO_PADDING);
+    expect(variant).toContain(OPERATIVE_REASON);
+    expect(variant).toContain(NOTHING_UNUSED);
+    expect(variant).toContain(REMOVE_CARRIED_IMPORTS);
+  });
+
+  it("carries the condensed rules on the route-3 compact instruction within its budget", () => {
+    const compact = originGroqRouteSystemInstruction();
+    expect(compact).toContain("lead with the supplied code's most consequential problem");
+    expect(compact).toContain("report every problem actually present in it");
+    expect(compact).toContain("never pad with generic checklist items");
+    expect(compact).toContain("say in one line when a part is already correct");
+    expect(compact).toContain("State the operative reason each problem fails here");
+    expect(compact).toContain("not a generic weakness of the construct");
+    expect(compact).toContain(NOTHING_UNUSED);
+    expect(compact).toContain("remove imports the replacement no longer uses");
+    expect(compact.length).toBeLessThanOrEqual(6_000);
   });
 });
