@@ -223,6 +223,13 @@ describe("createOriginChatRouter with search grounding (default research composi
   // values reach the answer body only through a citation-validated
   // synthesis (see the GPT-5.1 case above). What this regression pins is
   // the routing: research path, official evidence, no model execution.
+  // K-06 案A revision (SOURCES_ONLY_FALLBACK_DIAGNOSIS_2026-11-25): the
+  // deterministic reconstruction now stands between the non-adopted
+  // synthesis and the sources-only template, so the official source's
+  // own sentence reaches the body as a quoted, cited source statement
+  // (「…」 [S1](url)) under a lead that says these are the sources'
+  // statements — still never as the answer's own voice, which is the
+  // PKG-9 substance. The failure lead no longer appears here.
   it("grounds the minimum-wage policy question instead of answering from memory", async () => {
     const { fetchImpl } = routedFetch([
       {
@@ -249,13 +256,14 @@ describe("createOriginChatRouter with search grounding (default research composi
     expect(response.body.routing.searchGrounding).toEqual(expect.objectContaining({
       questionType: "policy",
     }));
-    expect(response.body.content).toContain("確認できた範囲と出典の一覧をお伝えします");
+    expect(response.body.content).not.toContain("確認できた範囲と出典の一覧をお伝えします");
+    expect(response.body.routing.researchReconstruction).toBe("packet-sentences");
     expect(response.body.content).toContain("mhlw.go.jp");
-    // R-1 (RESEARCH_FLOOR_DESIGN_2026-11-17 §3): the retrieved figures
-    // reach the user only as a verbatim quote inside the source's
-    // attribution line — the answer still does not state them from
-    // memory or in its own voice.
-    expect(response.body.content).toContain("『令和8年度の地域別最低賃金は、全国加重平均1,177円、東京都は1,280円となり、2026年10月1日から発効しました。』");
+    // K-06 案A: the retrieved figures reach the user as the official
+    // source's own verbatim statement, quoted and cited to that
+    // source — the answer still does not state them from memory or
+    // in its own voice (the R-1 / PKG-9 substance, preserved).
+    expect(response.body.content).toContain("「令和8年度の地域別最低賃金は、全国加重平均1,177円、東京都は1,280円となり、2026年10月1日から発効しました。」 [S1](https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/minimumichiran/)");
     expect(response.body.answer.evidence).toHaveLength(1);
     expect(executeMock).not.toHaveBeenCalled();
   });

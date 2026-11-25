@@ -220,6 +220,20 @@ const ANSWER_BEARING_TERM_PATTERN =
   /円|％|%|パーセント|期間|対象|条件|ただし|例外|以降|以前|以上|以下|未満|上限|下限|最大|最小|ドル|ユーロ|usd|jpy/i;
 const ANSWER_BEARING_NUMBER_PATTERN = /[0-9０-９]/;
 
+/**
+ * Whether a sentence carries an answer-bearing signal of its own —
+ * a number or an answer-bearing term — beyond any question-key
+ * overlap. Exported for the deterministic reconstruction
+ * (groundedResearchReconstruction.ts), whose establishment gate
+ * requires this signal (or two distinct key matches) so a sentence
+ * that merely restates the question's framing ("現在確認できた
+ * 公開情報です" for "今日の公開情報を調査してください") is never
+ * presented as an answer.
+ */
+export function packetSentenceHasAnswerBearingSignal(text: string): boolean {
+  return ANSWER_BEARING_NUMBER_PATTERN.test(text) || ANSWER_BEARING_TERM_PATTERN.test(text);
+}
+
 function packetSentenceScore(sentence: string, keys: readonly PacketQuestionKey[]): number {
   let score = 0;
   let matchedKeys = 0;

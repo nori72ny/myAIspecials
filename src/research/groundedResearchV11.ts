@@ -79,14 +79,28 @@ const PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS = 120;
  * marked with an ellipsis so the omission is visible instead of
  * silent. Returns "" when nothing quotable remains.
  */
-function neutralizePartialAnswerQuote(text: string): string {
+/**
+ * The R-1 neutralization itself, without the partial answer's
+ * character bound: Markdown link syntax flattens to its label text,
+ * bare URLs are dropped, and quote marks, heading markers, and code
+ * fences are stripped, with whitespace collapsed. Shared by the
+ * bounded card quote below and by the deterministic reconstruction
+ * (groundedResearchReconstruction.ts), which presents whole source
+ * sentences and therefore must not truncate — a truncated sentence
+ * is no longer the verbatim statement it claims to quote.
+ */
+function neutralizeQuoteText(text: string): string {
   const flattened = text
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/[^\s)]+/g, " ");
-  const neutralized = flattened
+  return flattened
     .replace(/[『』「」“”"‘’'#`]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function neutralizePartialAnswerQuote(text: string): string {
+  const neutralized = neutralizeQuoteText(text);
   if (neutralized.length <= PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS) return neutralized;
   const bounded = neutralized.slice(0, PARTIAL_ANSWER_EXCERPT_QUOTE_CHARS);
   const sentenceEnd = Math.max(
@@ -205,6 +219,24 @@ function cleanPartialAnswerQuoteText(text: string): string {
     return true;
   });
   return kept.join(" ");
+}
+
+/**
+ * One source sentence prepared for presentation as a verbatim
+ * statement (K-06 案A, SOURCES_ONLY_FALLBACK_DIAGNOSIS_2026-11-25):
+ * the same hygiene the partial answer's card quotes apply — chrome
+ * and caption-credit sentences are dropped by the cleaner, and the
+ * R-1 neutralization keeps the quoted text data, never presentation
+ * — but WITHOUT the card quote's 120-character bound, because the
+ * reconstruction presents the sentence as the source's own complete
+ * statement and a truncated sentence is no longer verbatim. Callers
+ * skip (never truncate) a sentence whose prepared form exceeds
+ * their own length bound. Returns "" when nothing quotable remains.
+ */
+export function prepareGroundedResearchVerbatimSentence(text: string): string {
+  const cleaned = cleanPartialAnswerQuoteText(text);
+  if (!cleaned) return "";
+  return neutralizeQuoteText(cleaned);
 }
 
 /**

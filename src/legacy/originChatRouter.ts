@@ -18,7 +18,7 @@ import { resolveOriginAgentWorkPlan, type OriginResolvedWorkPlan } from "../lib/
 import { generateOriginSupervisorArtifactsV2, ORIGIN_SUPERVISOR_VERSION_V2 } from "../lib/orchestration/OriginSupervisorV2.js";
 import { buildOriginProviderFailureDiagnostic, OriginProviderError, type OriginProviderExecutionRequest, type OriginProviderExecutionResult } from "./originProviderClient.js";
 import { assertOriginZeroCostExecutionResultWithFailover, executeOriginProviderWithFailover } from "./originProviderFailover.js";
-import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail } from "./originRecordsRetryRoute.js";
+import { assertGroundedResearchRecordsZeroCost, createGroundedResearchRecordsRetryExecutorWithDetail, createGroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryExecutor, type GroundedResearchSynthesisProviderRetryOutcome } from "./originRecordsRetryRoute.js";
 import { researchCurrentInformation, type OriginResearchResult, type OriginResearchSource } from "./originResearchSource.js";
 import {
   createDefaultOriginResearchExecutor,
@@ -43,6 +43,7 @@ import { planOriginPremiseGuard, resolveOriginIntentPremiseGuardEffectiveMode, r
 import { executeGroundedResearchRecordsSynthesis, isGroundedResearchRecordsEnabled } from "../research/groundedResearchRecordsV13.js";
 import { logRecoveryValueVoteShadow, resolveRecoveryValueVoteMode } from "../research/groundedResearchValueExtraction.js";
 import { resolveRecoveryTemplateFallbackMode, tryRecoveryTemplateFallback, type RecoveryTemplateFallbackResult } from "../research/groundedResearchTemplateFallback.js";
+import { tryGroundedResearchReconstruction } from "../research/groundedResearchReconstruction.js";
 import { logResearchDirectAnswerShadow, resolveResearchDirectAnswerMode, tryResearchDirectAnswer } from "../research/groundedResearchDirectAnswer.js";
 import {
   analyzeRefusalLikeOutput,
@@ -61,7 +62,7 @@ import { hasOriginWeatherLocation, isOriginWeatherRequest, isRefinementOfPreviou
 
 export type OriginChatExecutor = (request: OriginProviderExecutionRequest) => Promise<OriginProviderExecutionResult>;
 export type OriginResearchExecutor = (query: string) => Promise<OriginResearchResult>;
-export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader }; }
+export interface OriginChatRouterOptions { env?: NodeJS.ProcessEnv; execute?: OriginChatExecutor; research?: OriginResearchExecutor; researchSynthesis?: OriginChatExecutor | null; researchSynthesisProviderRetry?: GroundedResearchSynthesisProviderRetryExecutor; now?: () => number; catalogNow?: () => number; freeModelCatalog?: readonly OriginFreeModelEvidence[]; contextPolicy?: OriginContextPolicy; createRequestId?: () => string; searchGrounding?: OriginSearchGroundingDeps; answerVerification?: { verify?: typeof verifyOriginAnswerCrossRoute; readDailyNeuronsUsed?: OriginAnswerVerificationDailyUsageReader }; }
 const MAX_PROVIDER_ATTEMPT_TIMEOUT_MS = 52_000;
 /** Honest executed-route count: 1 unless the failover dispatcher actually executed a second verified free route. */
 function providerAttemptCount(result: OriginProviderExecutionResult): number { return result.attempts?.length ?? 1; }
@@ -712,6 +713,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       // execute (records path, disabled, plan unavailable).
       let synthesisExecutionResult: OriginProviderExecutionResult | null = null;
       let synthesisExecutionPlan: OriginExecutionPlan | null = null;
+      // Provider-failure retry observability (K-06 案A): set when the
+      // text path's initial execution threw a provider failure and
+      // the different-route retry ran (the route it executed on), was
+      // skipped (the stage detail), or itself failed (the flag).
+      // Codes and counts only, like every synthesis record here.
+      let synthesisProviderRetryRoute: 2 | 3 | null = null;
+      let synthesisProviderRetrySkipDetail: string | null = null;
+      let synthesisProviderRetryFailed = false;
 
       if (researchSynthesis && grounded.sources.length > 0) {
         const synthesisPlan = buildOriginExecutionPlan(
@@ -988,8 +997,67 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                 + "\n\n"
                 + originCurrentDateInstruction(now(), grounded.language),
             };
-            const initialSynthesisResult = await researchSynthesis(synthesisRequest);
-            assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
+            // Provider-failure retry (K-06 案A, diagnosis §案A-2):
+            // when the initial execution throws a provider failure
+            // (429 / timeout / unavailable / invalid response), the
+            // request is executed once more on a route the failed
+            // dispatch did not already execute — the records path's
+            // fresh-retry shape, inside the standing 50-second
+            // synthesis time gate. Validation rejections never reach
+            // this layer (they do not throw), integrity failures are
+            // not eligible, and any retry failure rethrows the
+            // ORIGINAL error, so the standing provider-failed
+            // handling below records the first failure exactly as
+            // before this layer existed.
+            const synthesisProviderRetryExecutor: GroundedResearchSynthesisProviderRetryExecutor =
+              options.researchSynthesisProviderRetry
+              ?? createGroundedResearchSynthesisProviderRetryExecutor({ env, nowMs: catalogNow() });
+            let initialSynthesisResult: OriginProviderExecutionResult;
+            try {
+              initialSynthesisResult = await researchSynthesis(synthesisRequest);
+              assertOriginZeroCostExecutionResultWithFailover(initialSynthesisResult, synthesisPlan.plan.modelId);
+            } catch (initialSynthesisError) {
+              let retryOutcome: GroundedResearchSynthesisProviderRetryOutcome | null = null;
+              try {
+                retryOutcome = await synthesisProviderRetryExecutor(
+                  synthesisRequest,
+                  initialSynthesisError,
+                  Math.max(0, now() - groundedStartedAt),
+                );
+                if (retryOutcome.kind === "executed") {
+                  // The retry's bare route-2/route-3 results are
+                  // verified by the records assertion, which
+                  // dispatches per result shape (R-PR-5).
+                  assertGroundedResearchRecordsZeroCost(retryOutcome.result, synthesisPlan.plan.modelId);
+                }
+              } catch {
+                retryOutcome = null;
+                synthesisProviderRetryFailed = true;
+              }
+              if (!retryOutcome) {
+                console.warn("[origin-chat] research synthesis provider retry failed", {
+                  requestId,
+                  code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+                });
+                throw initialSynthesisError;
+              }
+              if (retryOutcome.kind === "skipped") {
+                synthesisProviderRetrySkipDetail = retryOutcome.skipDetail;
+                console.info("[origin-chat] research synthesis provider retry skipped", {
+                  requestId,
+                  synthesisProviderRetrySkipDetail: retryOutcome.skipDetail,
+                  code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+                });
+                throw initialSynthesisError;
+              }
+              synthesisProviderRetryRoute = retryOutcome.route;
+              console.info("[origin-chat] research synthesis provider retry executed", {
+                requestId,
+                synthesisProviderRetryRoute: retryOutcome.route,
+                code: initialSynthesisError instanceof OriginProviderError ? initialSynthesisError.code : "PROVIDER_INTERNAL_ERROR",
+              });
+              initialSynthesisResult = retryOutcome.result;
+            }
             // Adoption gate (synthesis salvage, §3; generalized to all
             // line-local failures 2026-11-16): the unchanged citation
             // validator decides; on a line-local failure the salvage helper
@@ -1248,6 +1316,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
                   synthesisSourceCount: adoption.usedSourceIds.length,
                   ...(adoption.salvaged ? { synthesisSalvaged: true, synthesisSalvageRemovedUnits: adoption.removedUnits } : {}),
                   ...(retryOutcome.retried ? { synthesisRetried: true } : {}),
+                  ...(synthesisProviderRetryRoute ? { synthesisProviderRetried: true, synthesisProviderRetryRoute } : {}),
                   providerDataPolicy: synthesisResult.providerDataPolicy,
                   providerRouting: synthesisResult.routingEvidence,
                   usage: synthesisResult.usage,
@@ -1401,6 +1470,57 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           );
         }
       }
+      // K-06 案A (SOURCES_ONLY_FALLBACK_DIAGNOSIS_2026-11-25): the
+      // deterministic reconstruction. Reaching this assembly means
+      // the synthesis was not adopted, so the body would be the
+      // sources-only partial answer; before settling there, assemble
+      // an answer from the retrieved evidence itself — the value
+      // vote's confirmed scalar and/or the evidence packet's
+      // verbatim, question-keyed source sentences — with no new
+      // generation. Only the cases that land on the partial answer
+      // today are eligible (an adopted synthesis returned earlier;
+      // the PR-4 template and the PR-5 conditionals keep their
+      // precedence), the publication gate still applies, and when
+      // the reconstruction does not establish — or the gate holds
+      // it — the partial answer below stands unchanged.
+      let researchReconstruction: { content: string; via: "value-vote" | "packet-sentences" } | null = null;
+      if (!recoveryTemplate && !recoveryConditional && !recoveryProcedureConditional && grounded.sourceCount > 0) {
+        const reconstructionAttempt = tryGroundedResearchReconstruction({
+          question: lastUserMessage,
+          sources: grounded.sources,
+          language: grounded.language,
+          nowMs: now(),
+        });
+        console.info("[origin-chat] research reconstruction", {
+          requestId,
+          reconstructionEstablished: reconstructionAttempt.established,
+          ...(reconstructionAttempt.via ? { reconstructionVia: reconstructionAttempt.via } : {}),
+          reconstructionSentenceCount: reconstructionAttempt.sentenceCount,
+          reconstructionVoteFired: reconstructionAttempt.voteFired,
+          reconstructionVoteType: reconstructionAttempt.voteType,
+          ...(reconstructionAttempt.voteReason ? { reconstructionVoteReason: reconstructionAttempt.voteReason } : {}),
+          synthesisStatus,
+          ...(synthesisFailureCode ? { synthesisFailureCode } : {}),
+          researchTier: grounded.landing.tier,
+        });
+        if (reconstructionAttempt.established && reconstructionAttempt.text && reconstructionAttempt.via) {
+          const reconstructionGate = applyOriginPublicationGate({
+            requestId,
+            answerText: reconstructionAttempt.text,
+            query: lastUserMessage,
+            language: grounded.language,
+            env,
+          });
+          if (reconstructionGate.held) {
+            console.warn("[origin-chat] research reconstruction held by publication gate", {
+              requestId,
+              publicationGateFiringKinds: reconstructionGate.firingKinds,
+            });
+          } else {
+            researchReconstruction = { content: reconstructionAttempt.text, via: reconstructionAttempt.via };
+          }
+        }
+      }
       const digestReason = recoveryTemplate
         ? (grounded.language === "en"
           ? "Answered directly with the latest published value confirmed across multiple independent sources, with the sources shown."
@@ -1413,6 +1533,14 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             : (grounded.language === "en"
               ? "The outcome is not decided yet, so the answer states that no confirmed information exists."
               : "結果がまだ確定していない事柄のため、確定情報は存在しない旨を明示しました。")
+          : researchReconstruction
+            ? researchReconstruction.via === "value-vote"
+              ? (grounded.language === "en"
+                ? `${grounded.reason} AI synthesis was not adopted; the answer was assembled deterministically from the retrieved sources' own statements and a published value confirmed across multiple sources.`
+                : `${grounded.reason} AI統合は採用せず、取得した出典の記述と、複数の出典で一致した公表値から決定的に組み立てて回答しました。`)
+              : (grounded.language === "en"
+                ? `${grounded.reason} AI synthesis was not adopted; the answer was assembled deterministically from the retrieved sources' own statements.`
+                : `${grounded.reason} AI統合は採用せず、取得した出典の記述そのものから決定的に組み立てて回答しました。`)
           : synthesisStatus === "not-run"
             ? grounded.reason
             : grounded.language === "en"
@@ -1430,6 +1558,13 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
             : (grounded.language === "en"
               ? "Please check the official announcement once the result is final."
               : "結果が確定した後は、公式の発表でご確認ください。")]
+          : researchReconstruction
+          ? [grounded.language === "en"
+            ? "AI synthesis was not adopted, so this answer is assembled only from the retrieved sources' own verbatim statements and values confirmed across multiple sources; claim truth, completeness, and publisher authority were not independently verified."
+            : "AI統合が採用できなかったため、この回答は取得した出典の記述（原文のまま）と、複数の出典で一致した値だけで組み立てています。主張の真偽・網羅性・媒体の権威性は独立検証していません。",
+            ...(researchNeedsDownstreamDeliverable ? [grounded.language === "en"
+              ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
+              : "要求された後段成果物は、範囲限定の統合ステージを利用できなかったため生成しておらず、取得済み証拠だけを表示しています。"] : [])]
           : researchNeedsDownstreamDeliverable
           ? [...grounded.limitations, grounded.language === "en"
             ? "The requested downstream deliverable was not generated because the bounded synthesis stage was unavailable; only retrieved evidence is shown."
@@ -1465,6 +1600,7 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
       const recoveryBody =
         recoveryTemplate?.content ??
         recoveryConditional?.content ??
+        researchReconstruction?.content ??
         (recoveryProcedureConditional
           ? buildProcedureConditionalAnswer({ baseText: grounded.content, language: grounded.language })
           : grounded.content);
@@ -1515,6 +1651,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         ...(recoveryTemplate ? { recoveryTemplate: true } : {}),
         ...(recoveryConditional ? { recoveryRefusalKind: recoveryConditional.kind } : {}),
         ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
+        ...(researchReconstruction ? { researchReconstruction: researchReconstruction.via } : {}),
+        ...(synthesisProviderRetrySkipDetail ? { synthesisProviderRetrySkipDetail } : {}),
+        ...(synthesisProviderRetryFailed ? { synthesisProviderRetryFailed: true } : {}),
       });
       // Answer verification (V-PR-2, shadow): the tier-T3 extractive
       // partial answer is a class-A target when it carries N-2b claim
@@ -1532,6 +1671,11 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
         const verificationTarget = classifyResearchAnswerVerificationTarget({
           site: "final",
           tier: landing.tier,
+          // The reconstruction is NOT a deterministic-text exemption:
+          // like the partial answer it replaces, its body carries
+          // claim sentences taken from the sources, so it stays a
+          // class-A verification target exactly as the T3 partial
+          // answer was (V-PR-2 coverage is preserved, not narrowed).
           deterministicLanding: terminalGuardFired || Boolean(recoveryTemplate) || Boolean(recoveryConditional) || recoveryProcedureConditional,
           hasClaimSentences,
           hasGenerationResult: synthesisExecutionResult !== null,
@@ -1607,6 +1751,9 @@ export function createOriginChatRouter(options: OriginChatRouterOptions = {}) {
           ...(recoveryConditional?.kind === "nonexistence" ? { recoveryNonexistence: true } : {}),
           ...(recoveryConditional?.kind === "undetermined" ? { recoveryUndetermined: true } : {}),
           ...(recoveryProcedureConditional ? { recoveryProcedureConditional: true } : {}),
+          ...(researchReconstruction ? { researchReconstruction: researchReconstruction.via } : {}),
+          ...(synthesisProviderRetrySkipDetail ? { synthesisProviderRetrySkipDetail } : {}),
+          ...(synthesisProviderRetryFailed ? { synthesisProviderRetryFailed: true } : {}),
           requestedOutputs: researchRequestedOutputs,
           supervisorMode: researchRequestedOutputs.length > 0 ? "research-output-contract-v1" : "research-only",
           downstreamDeliverablePending: researchNeedsDownstreamDeliverable,
