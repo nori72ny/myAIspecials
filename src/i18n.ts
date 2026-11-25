@@ -206,6 +206,14 @@ type Translation = {
       'medical-information': string;
     };
     blockNoticesDismiss: string;
+    styleHeading: string;
+    styleIntro: string;
+    styleEmpty: string;
+    styleScopes: { general: string; work: string; private: string };
+    styleForming: string;
+    styleEstablished: string;
+    styleEvidence: (turns: number) => string;
+    styleOwnerSet: string;
     clearAll: string;
     clearAllConfirmTitle: string;
     clearAllConfirmBody: string;
@@ -436,6 +444,14 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
         'medical-information': '医療に関する情報',
       },
       blockNoticesDismiss: '分かりました',
+      styleHeading: '話し方・答え方の特徴',
+      styleIntro: '会話の中での言い方から、ORIGINが感じ取った特徴です。代理で答えるときや、声で答えるときの言い方に使います。違っていたら、短く直せます。',
+      styleEmpty: 'まだ特徴は記録されていません。会話を重ねると、ここに少しずつ出てきます。',
+      styleScopes: { general: 'いつも', work: '仕事のとき', private: 'プライベートのとき' },
+      styleForming: '観察中',
+      styleEstablished: '特徴として記録',
+      styleEvidence: (turns) => `${turns} 回の会話から`,
+      styleOwnerSet: 'あなたが書いた内容',
       clearAll: '覚えていることを全て消す',
       clearAllConfirmTitle: '覚えていることを全て消しますか',
       clearAllConfirmBody: '会話の履歴は消えません。覚えていることだけが消えます。',
@@ -664,6 +680,14 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
         'medical-information': 'medical information',
       },
       blockNoticesDismiss: 'Got it',
+      styleHeading: 'How you talk and answer',
+      styleIntro: 'Traits ORIGIN has picked up from the way you phrase things in conversation. They shape how it answers in your stead and how spoken answers are phrased. If one feels wrong, a short edit is enough.',
+      styleEmpty: 'No traits recorded yet. They will appear here little by little as you keep talking.',
+      styleScopes: { general: 'In general', work: 'At work', private: 'In private' },
+      styleForming: 'Still observing',
+      styleEstablished: 'Recorded as a trait',
+      styleEvidence: (turns) => `From ${turns} conversations`,
+      styleOwnerSet: 'Written by you',
       clearAll: 'Delete everything ORIGIN remembers',
       clearAllConfirmTitle: 'Delete everything ORIGIN remembers?',
       clearAllConfirmBody: 'Your conversation history is not deleted. Only what ORIGIN remembers is removed.',

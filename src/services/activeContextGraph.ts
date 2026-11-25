@@ -108,6 +108,7 @@ interface PersonalMemoryStore {
   memory: OriginMemoryItem[];
   proposals: OriginProposal[];
   blockNotices: OriginBlockNotice[];
+  styleTraits: OriginStyleTrait[];
 }
 
 // --- Block notices (design §5.3) --------------------------------------------
@@ -134,6 +135,58 @@ export interface OriginBlockNotice {
   /** Guard categories that matched (§9.2) — the reasons shown to the owner. */
   categories: PersonalMemoryBlockCategory[];
   at: number;
+}
+
+// --- Speaking-style traits (owner persona follow-up, 2026-11-25) ------------
+//
+// The owner's manner of speaking — politeness, sentence length, whether he
+// leads with the conclusion, and the phrases he reaches for — is a third
+// layer beside profile (explicit) and memory (statements): it is a
+// *tendency* distilled from how he actually talks in ORIGIN, chat input
+// and voice transcripts alike (both arrive as the same user text). The
+// per-turn analysis lives in activeContextStyle.ts; this layer only
+// accumulates its counters and derives the trait records.
+//
+// A trait is never asserted from a single utterance: each record carries
+// the counters it was derived from and stays `forming` until the
+// dimension's evidence threshold is met (see deriveStyleStatus). Only
+// `established` traits enter the assembled chat context. The owner can
+// rewrite a trait's summary in the management UI (ownerEdited): from then
+// on accumulation keeps updating the evidence but never the wording, and
+// the trait counts as established — his own word about his manner is
+// definitive, and correcting it stays a last resort of a few words, as he
+// asked (2026-11-25). No free text from his messages is ever copied into
+// a trait: values are closed enums, derived labels, or phrases from the
+// analyzer's curated list, so nothing sensitive can ride along — and the
+// owner's own summary text passes the §9.2 guard on save like any item.
+
+export type OriginStyleDimension = 'politeness' | 'sentence-length' | 'conclusion-order' | 'frequent-phrase';
+export type OriginStyleScope = 'general' | 'work' | 'private';
+export type OriginStyleStatus = 'forming' | 'established';
+
+export interface OriginStyleTrait {
+  id: string;
+  dimension: OriginStyleDimension;
+  scope: OriginStyleScope;
+  /** The leading value of the dimension, derived from `stats`:
+   * politeness: 'polite' | 'plain' | 'mixed';
+   * sentence-length: 'short' | 'medium' | 'long';
+   * conclusion-order: 'conclusion-first' | 'reason-first' | 'mixed';
+   * frequent-phrase: the phrase itself. */
+  value: string;
+  /** Dimension counters the value is derived from (sentence counts,
+   * votes, phrase turn counts). Numbers only — never message text. */
+  stats: Record<string, number>;
+  /** User turns that contributed evidence to this trait. */
+  evidenceTurns: number;
+  status: OriginStyleStatus;
+  /** True once the owner rewrote the summary by hand. */
+  ownerEdited: boolean;
+  /** The owner's own wording, present when ownerEdited. */
+  customSummary?: string;
+  sendToModel: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // --- Combination proposals (design §6.4, PR P1-6) ---------------------------
@@ -175,6 +228,7 @@ export interface OriginProposal {
 export interface PersonalMemoryUsage {
   profileCount: number;
   memoryCount: number;
+  styleCount: number;
   itemCount: number;
   byteSize: number;
   maxItems: number;
@@ -389,8 +443,27 @@ function isBlockNotice(value: unknown): value is OriginBlockNotice {
   return typeof notice.at === "number";
 }
 
+const STYLE_DIMENSIONS: ReadonlySet<string> = new Set(['politeness', 'sentence-length', 'conclusion-order', 'frequent-phrase']);
+const STYLE_SCOPES: ReadonlySet<string> = new Set(['general', 'work', 'private']);
+const STYLE_STATUSES: ReadonlySet<string> = new Set(['forming', 'established']);
+
+function isStyleTrait(value: unknown): value is OriginStyleTrait {
+  if (!value || typeof value !== "object") return false;
+  const trait = value as Partial<OriginStyleTrait>;
+  if (typeof trait.id !== "string" || trait.id.length === 0) return false;
+  if (typeof trait.dimension !== "string" || !STYLE_DIMENSIONS.has(trait.dimension)) return false;
+  if (typeof trait.scope !== "string" || !STYLE_SCOPES.has(trait.scope)) return false;
+  if (typeof trait.value !== "string") return false;
+  if (!trait.stats || typeof trait.stats !== "object" || Array.isArray(trait.stats)) return false;
+  if (!Object.values(trait.stats).every((count) => typeof count === "number" && Number.isFinite(count))) return false;
+  if (typeof trait.evidenceTurns !== "number" || typeof trait.status !== "string" || !STYLE_STATUSES.has(trait.status)) return false;
+  if (typeof trait.ownerEdited !== "boolean" || typeof trait.sendToModel !== "boolean") return false;
+  if (trait.customSummary !== undefined && typeof trait.customSummary !== "string") return false;
+  return typeof trait.createdAt === "number" && typeof trait.updatedAt === "number";
+}
+
 function emptyStore(): PersonalMemoryStore {
-  return { version: 1, profile: [], memory: [], proposals: [], blockNotices: [] };
+  return { version: 1, profile: [], memory: [], proposals: [], blockNotices: [], styleTraits: [] };
 }
 
 async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemoryStore> {
@@ -407,6 +480,9 @@ async function decryptStore(payload: EncryptedPayload): Promise<PersonalMemorySt
     // Payloads written before the §5.3 block-notice accumulation have no
     // blockNotices field; they simply have no notices yet.
     blockNotices: Array.isArray(store.blockNotices) ? store.blockNotices.filter(isBlockNotice) : [],
+    // Payloads written before the speaking-style layer have no
+    // styleTraits field; they simply have no traits yet.
+    styleTraits: Array.isArray(store.styleTraits) ? store.styleTraits.filter(isStyleTrait) : [],
   };
 }
 
@@ -482,6 +558,7 @@ async function migrateLegacyStore(userId: string): Promise<PersonalMemoryStore> 
       memory: nodes.map(legacyNodeToMemoryItem),
       proposals: [],
       blockNotices: [],
+      styleTraits: [],
     };
     await writeStore(userId, store);
     window.localStorage.removeItem(storageKey(userId));
@@ -523,6 +600,7 @@ function computeUsage(store: PersonalMemoryStore): PersonalMemoryUsage {
   return {
     profileCount: store.profile.length,
     memoryCount: store.memory.length,
+    styleCount: store.styleTraits.length,
     itemCount,
     byteSize,
     maxItems: MAX_ITEMS,
@@ -639,6 +717,9 @@ export async function clearAll(userId: string, scope: 'memory' | 'all' = 'memory
   // Block notices report on memory accumulation (§5.3), so they are
   // cleared with the memory in both scopes as well.
   store.blockNotices = [];
+  // Style traits are distilled from the remembered conversations, so
+  // they are cleared with the memory in both scopes as well.
+  store.styleTraits = [];
   if (scope === 'all') store.profile = [];
   await writeStore(safeUserId, store);
 }
@@ -697,6 +778,293 @@ export async function clearBlockNotices(userId: string): Promise<number> {
   store.blockNotices = [];
   await writeStore(safeUserId, store);
   return count;
+}
+
+// --- Speaking-style traits: scope, description, accumulation, CRUD ----------
+//
+// The scope of a text is a soft, deterministic signal: curated work /
+// private cue words are counted and the side with more hits wins; a tie
+// (or no hits) is 'general'. Evidence from every turn feeds the general
+// bucket, and a classified turn additionally feeds its own bucket, so a
+// work-flavoured trait can diverge from the owner's private manner
+// without either polluting the other. At assembly time the bucket
+// matching the current prompt wins per dimension, with general as the
+// fallback; the other specific bucket never leaks across.
+
+const STYLE_WORK_CUES: readonly string[] = [
+  '仕事', '会社', '会議', '打ち合わせ', '取引先', '顧客', 'お客様', '見積', '納期', '案件',
+  'プロジェクト', '営業', '上司', '部下', '同僚', '社内', '契約', '請求', '売上', '面談',
+  'work', 'meeting', 'client', 'project', 'deadline', 'office', 'customer', 'business',
+];
+const STYLE_PRIVATE_CUES: readonly string[] = [
+  '家族', '息子', '娘', '妻', '夫', '子供', '子ども', '実家', '自宅', '休み', '旅行',
+  '趣味', '友達', '友人', '買い物', '散歩', '家内',
+  'family', 'vacation', 'hobby', 'friend', 'wife', 'husband', 'daughter', 'son',
+];
+
+export function classifyStyleScope(text: string): OriginStyleScope {
+  const lowered = text.toLocaleLowerCase();
+  const count = (cues: readonly string[]): number =>
+    cues.reduce((total, cue) => total + (lowered.includes(cue.toLocaleLowerCase()) ? 1 : 0), 0);
+  const work = count(STYLE_WORK_CUES);
+  const priv = count(STYLE_PRIVATE_CUES);
+  if (work > priv) return 'work';
+  if (priv > work) return 'private';
+  return 'general';
+}
+
+const STYLE_DIMENSION_ORDER: readonly OriginStyleDimension[] = ['politeness', 'conclusion-order', 'sentence-length', 'frequent-phrase'];
+
+/** The owner-readable summary of a trait. An owner-edited summary is
+ * returned verbatim; otherwise the wording is derived deterministically
+ * from the trait's value, in the language of the reader. */
+export function describeStyleTrait(trait: OriginStyleTrait, language: PersonalContextLanguage): string {
+  if (trait.ownerEdited && trait.customSummary) return trait.customSummary;
+  const ja = language === 'ja';
+  switch (trait.dimension) {
+    case 'politeness':
+      return trait.value === 'polite'
+        ? (ja ? '丁寧な言い方（です・ます調）が中心' : 'Mostly polite phrasing (desu/masu style)')
+        : trait.value === 'plain'
+          ? (ja ? '常体の言い方（だ・である調）が中心' : 'Mostly plain phrasing (da/dearu style)')
+          : (ja ? '丁寧な言い方と常体が混ざる' : 'A mix of polite and plain phrasing');
+    case 'sentence-length':
+      return trait.value === 'short'
+        ? (ja ? '一文は短め' : 'Short sentences')
+        : trait.value === 'long'
+          ? (ja ? '一文は長めで、説明を一文に収める' : 'Longer sentences that carry the explanation in one sentence')
+          : (ja ? '一文の長さはふつう' : 'Medium-length sentences');
+    case 'conclusion-order':
+      return trait.value === 'conclusion-first'
+        ? (ja ? '結論から先に言う' : 'Leads with the conclusion')
+        : trait.value === 'reason-first'
+          ? (ja ? '理由から順に説明する' : 'Explains the reasons first, then the conclusion')
+          : (ja ? '結論と理由の順序は決まっていない' : 'No fixed order of conclusion and reasons');
+    case 'frequent-phrase':
+      return ja ? `「${trait.value}」をよく使う` : `Often says "${trait.value}"`;
+  }
+}
+
+export async function listStyleTraits(userId: string): Promise<OriginStyleTrait[]> {
+  const store = await readStore(sanitizeUserId(userId));
+  return store.styleTraits;
+}
+
+/**
+ * The owner's own save path for a style trait (the management UI's edit,
+ * "do not use for answers" toggle and restore). The free-text fields —
+ * the owner's summary, and the phrase of a frequent-phrase trait — pass
+ * the §9.2 pre-save guard exactly like profile and memory items: a card
+ * number or a password can never become a "trait" (owner instruction
+ * 2026-11-25: tier-③ values are not stored even as speaking style).
+ */
+export async function upsertStyleTrait(userId: string, trait: OriginStyleTrait): Promise<UpsertResult> {
+  const safeUserId = sanitizeUserId(userId);
+  if (!isStyleTrait(trait)) throw new Error("Invalid style trait.");
+  const store = await readStore(safeUserId);
+  if (checkPersonalMemoryTexts([trait.customSummary ?? '', trait.dimension === 'frequent-phrase' ? trait.value : '']).blocked) {
+    return { saved: false, reason: 'blocked-sensitive-content', usage: computeUsage(store) };
+  }
+  const index = store.styleTraits.findIndex((existing) => existing.id === trait.id);
+  if (index >= 0) store.styleTraits[index] = trait;
+  else store.styleTraits.push(trait);
+  await writeStore(safeUserId, store);
+  return { saved: true, usage: computeUsage(store) };
+}
+
+export async function deleteStyleTrait(userId: string, traitId: string): Promise<boolean> {
+  const safeUserId = sanitizeUserId(userId);
+  const store = await readStore(safeUserId);
+  const next = store.styleTraits.filter((trait) => trait.id !== traitId);
+  if (next.length === store.styleTraits.length) return false;
+  store.styleTraits = next;
+  await writeStore(safeUserId, store);
+  return true;
+}
+
+// Evidence thresholds: a tendency is only *established* — and therefore
+// only ever shown to the model — once several turns agree. Below the
+// threshold the record exists for the owner to see as "still observing"
+// and never influences an answer. The thresholds deliberately sit on the
+// non-assertion side, like the §8 matching: one utterance, or two, prove
+// nothing about how a person talks.
+const MAX_STYLE_TRAITS = 80;
+const STYLE_MIN_TURNS = 3;
+const STYLE_MIN_SENTENCES = 8;
+const STYLE_ORDER_MIN_VOTES = 3;
+const STYLE_ORDER_MIN_SHARE = 0.65;
+const STYLE_PHRASE_ESTABLISHED_TURNS = 4;
+
+/** One turn's worth of style evidence, as computed by the deterministic
+ * analyzer in activeContextStyle.ts. Counts only — never message text. */
+export interface StyleTurnDelta {
+  /** The turn's own scope; evidence also feeds the general bucket. */
+  scope: OriginStyleScope;
+  politeness?: { polite: number; plain: number; other: number };
+  length?: { sentences: number; chars: number };
+  order?: { conclusionFirst: number; reasonFirst: number };
+  /** Curated phrases observed in this turn (already deduplicated). */
+  phrases?: readonly string[];
+}
+
+function styleTraitId(dimension: OriginStyleDimension, scope: OriginStyleScope, phrase = ''): string {
+  return dimension === 'frequent-phrase' ? `style:phrase:${scope}:${phrase}` : `style:${dimension}:${scope}`;
+}
+
+function derivePolitenessValue(stats: Record<string, number>): string {
+  const polite = stats.polite ?? 0;
+  const plain = stats.plain ?? 0;
+  if (polite + plain === 0) return 'mixed';
+  const share = polite / (polite + plain);
+  return share >= 0.65 ? 'polite' : share <= 0.35 ? 'plain' : 'mixed';
+}
+
+function deriveLengthValue(stats: Record<string, number>): string {
+  const sentences = stats.sentences ?? 0;
+  if (sentences === 0) return 'medium';
+  const average = (stats.chars ?? 0) / sentences;
+  return average < 28 ? 'short' : average > 65 ? 'long' : 'medium';
+}
+
+function deriveOrderValue(stats: Record<string, number>): string {
+  const conclusionFirst = stats.conclusionFirst ?? 0;
+  const reasonFirst = stats.reasonFirst ?? 0;
+  const votes = conclusionFirst + reasonFirst;
+  if (votes === 0) return 'mixed';
+  if (conclusionFirst / votes >= STYLE_ORDER_MIN_SHARE) return 'conclusion-first';
+  if (reasonFirst / votes >= STYLE_ORDER_MIN_SHARE) return 'reason-first';
+  return 'mixed';
+}
+
+/**
+ * Accumulates one turn of style evidence into the store. Existing traits
+ * always absorb new evidence; creating a NEW trait pauses at the §4.3
+ * management limit and at the trait cap, exactly as new inferred memory
+ * items pause. An owner-edited trait keeps its status established and
+ * its summary untouched — only its evidence counters move.
+ */
+export async function recordStyleEvidence(
+  userId: string,
+  delta: StyleTurnDelta,
+  options: { now?: number } = {},
+): Promise<void> {
+  const safeUserId = sanitizeUserId(userId);
+  const now = options.now ?? Date.now();
+  const store = await readStore(safeUserId);
+  const limitReached = computeUsage(store).limitReached;
+  let changed = false;
+
+  const buckets: OriginStyleScope[] = delta.scope === 'general' ? ['general'] : ['general', delta.scope];
+
+  const findOrCreate = (dimension: OriginStyleDimension, scope: OriginStyleScope, phrase = ''): OriginStyleTrait | null => {
+    const id = styleTraitId(dimension, scope, phrase);
+    const existing = store.styleTraits.find((trait) => trait.id === id);
+    if (existing) return existing;
+    if (limitReached || store.styleTraits.length >= MAX_STYLE_TRAITS) return null;
+    const trait: OriginStyleTrait = {
+      id,
+      dimension,
+      scope,
+      value: dimension === 'frequent-phrase' ? phrase : '',
+      stats: {},
+      evidenceTurns: 0,
+      status: 'forming',
+      ownerEdited: false,
+      sendToModel: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.styleTraits.push(trait);
+    changed = true;
+    return trait;
+  };
+
+  for (const scope of buckets) {
+    if (delta.politeness) {
+      const total = delta.politeness.polite + delta.politeness.plain + delta.politeness.other;
+      if (total > 0) {
+        const trait = findOrCreate('politeness', scope);
+        if (trait) {
+          trait.stats.polite = (trait.stats.polite ?? 0) + delta.politeness.polite;
+          trait.stats.plain = (trait.stats.plain ?? 0) + delta.politeness.plain;
+          trait.stats.other = (trait.stats.other ?? 0) + delta.politeness.other;
+          trait.evidenceTurns += 1;
+          trait.value = derivePolitenessValue(trait.stats);
+          const sentences = trait.stats.polite + trait.stats.plain + trait.stats.other;
+          trait.status = trait.ownerEdited || (trait.evidenceTurns >= STYLE_MIN_TURNS && sentences >= STYLE_MIN_SENTENCES)
+            ? 'established' : 'forming';
+          trait.updatedAt = now;
+          changed = true;
+        }
+      }
+    }
+    if (delta.length && delta.length.sentences > 0) {
+      const trait = findOrCreate('sentence-length', scope);
+      if (trait) {
+        trait.stats.sentences = (trait.stats.sentences ?? 0) + delta.length.sentences;
+        trait.stats.chars = (trait.stats.chars ?? 0) + delta.length.chars;
+        trait.evidenceTurns += 1;
+        trait.value = deriveLengthValue(trait.stats);
+        trait.status = trait.ownerEdited || (trait.evidenceTurns >= STYLE_MIN_TURNS && trait.stats.sentences >= STYLE_MIN_SENTENCES)
+          ? 'established' : 'forming';
+        trait.updatedAt = now;
+        changed = true;
+      }
+    }
+    if (delta.order) {
+      const votes = delta.order.conclusionFirst + delta.order.reasonFirst;
+      if (votes > 0) {
+        const trait = findOrCreate('conclusion-order', scope);
+        if (trait) {
+          trait.stats.conclusionFirst = (trait.stats.conclusionFirst ?? 0) + delta.order.conclusionFirst;
+          trait.stats.reasonFirst = (trait.stats.reasonFirst ?? 0) + delta.order.reasonFirst;
+          trait.evidenceTurns += 1;
+          trait.value = deriveOrderValue(trait.stats);
+          const totalVotes = trait.stats.conclusionFirst + trait.stats.reasonFirst;
+          trait.status = trait.ownerEdited || (totalVotes >= STYLE_ORDER_MIN_VOTES && trait.value !== 'mixed')
+            ? 'established' : 'forming';
+          trait.updatedAt = now;
+          changed = true;
+        }
+      }
+    }
+    for (const phrase of delta.phrases ?? []) {
+      const trait = findOrCreate('frequent-phrase', scope, phrase);
+      if (!trait) continue;
+      trait.stats.turns = (trait.stats.turns ?? 0) + 1;
+      trait.evidenceTurns = trait.stats.turns;
+      trait.status = trait.ownerEdited || trait.stats.turns >= STYLE_PHRASE_ESTABLISHED_TURNS
+        ? 'established' : 'forming';
+      trait.updatedAt = now;
+      changed = true;
+    }
+  }
+
+  if (changed) await writeStore(safeUserId, store);
+}
+
+/**
+ * The established, model-shared traits that apply to a prompt: the
+ * prompt's own scope bucket wins per dimension (and per phrase), the
+ * general bucket is the fallback, and the other specific bucket is never
+ * used. Ordered scope-first, then by dimension, phrases last by recency.
+ */
+function selectStyleTraitsForContext(store: PersonalMemoryStore, promptScope: OriginStyleScope): OriginStyleTrait[] {
+  const eligible = store.styleTraits.filter((trait) => trait.status === 'established'
+    && trait.sendToModel
+    && (trait.scope === 'general' || trait.scope === promptScope));
+  const chosen = new Map<string, OriginStyleTrait>();
+  for (const trait of eligible) {
+    const key = trait.dimension === 'frequent-phrase' ? `phrase:${trait.value}` : trait.dimension;
+    const current = chosen.get(key);
+    if (!current || (trait.scope === promptScope && current.scope !== promptScope)) {
+      chosen.set(key, trait);
+    }
+  }
+  const scopeRank = (trait: OriginStyleTrait): number => (trait.scope === promptScope && promptScope !== 'general' ? 0 : 1);
+  return [...chosen.values()].sort((a, b) => scopeRank(a) - scopeRank(b)
+    || STYLE_DIMENSION_ORDER.indexOf(a.dimension) - STYLE_DIMENSION_ORDER.indexOf(b.dimension)
+    || b.updatedAt - a.updatedAt);
 }
 
 // --- Save-time matching: duplicates and contradiction candidates (design §8) --
@@ -940,6 +1308,11 @@ export type PersonalContextLanguage = 'ja' | 'en';
 // context, of which the top 3 form the proposal tier (used by PR P1-6).
 const MAX_PERSONAL_CONTEXT_CHARS = 2_000;
 const MAX_PROFILE_CONTEXT_CHARS = 800;
+// The speaking-style section gets its own small allocation inside the
+// total budget, taken before memories: how the owner talks is standing
+// context for every answer (and the only manner ground for proxy and
+// spoken answers), while memories remain relevance-gated below.
+const MAX_STYLE_CONTEXT_CHARS = 320;
 const MAX_MEMORY_CONTEXT_ITEMS = 5;
 export const MAX_PROPOSAL_MEMORY_ITEMS = 3;
 // Relevance gate (§6.1): a memory needs at least two character 2-grams
@@ -963,6 +1336,10 @@ const PROFILE_CATEGORY_LABELS: Record<PersonalContextLanguage, Record<OriginProf
 const MEMORY_KIND_LABELS: Record<PersonalContextLanguage, Record<OriginMemoryKind, string>> = {
   ja: { request: '頼まれごと', decision: '決めたこと', preference: '好み', fact: 'あなたのこと', commitment: 'ORIGINの約束' },
   en: { request: 'Requests', decision: 'Decisions', preference: 'Preferences', fact: 'About you', commitment: "ORIGIN's promises" },
+};
+const STYLE_SCOPE_LABELS: Record<PersonalContextLanguage, Record<OriginStyleScope, string>> = {
+  ja: { general: '話し方', work: '話し方（仕事）', private: '話し方（私生活）' },
+  en: { general: 'Speaking style', work: 'Speaking style (work)', private: 'Speaking style (private)' },
 };
 
 function normalizeForMatching(value: string): string {
@@ -1215,9 +1592,26 @@ export async function retrieveRelevantContext(
     }
   }
 
+  // (1.5) Speaking style: established, model-shared traits only, the
+  // prompt's scope bucket first with general as fallback (see
+  // selectStyleTraitsForContext). Like the profile, style is standing
+  // context and is not relevance-gated — it describes HOW to answer,
+  // which matters most exactly where the lexical gate is weakest:
+  // proxy answers and answers that will be read aloud.
+  const styleHeader = language === 'ja' ? '話し方・答え方の特徴:' : "The owner's speaking style:";
+  const styleLines: string[] = [];
+  let styleChars = styleHeader.length + 1;
+  for (const trait of selectStyleTraitsForContext(store, classifyStyleScope(prompt))) {
+    const line = formatContextLine(STYLE_SCOPE_LABELS[language][trait.scope], describeStyleTrait(trait, language), trait.updatedAt, language);
+    if (styleChars + line.length + 1 > MAX_STYLE_CONTEXT_CHARS) continue;
+    styleLines.push(line);
+    styleChars += line.length + 1;
+  }
+
   const memoryHeader = language === 'ja' ? 'ORIGINが覚えていること:' : 'What ORIGIN remembers:';
   const memoryLines: string[] = [];
   let totalChars = profileLines.length ? profileChars : 0;
+  if (styleLines.length) totalChars += styleChars;
   if (ranked.length) totalChars += memoryHeader.length + 1;
   for (const { item } of ranked) {
     const line = formatContextLine(MEMORY_KIND_LABELS[language][item.kind], item.text, item.source.at, language);
@@ -1228,6 +1622,7 @@ export async function retrieveRelevantContext(
 
   const sections: string[] = [];
   if (profileLines.length) sections.push([profileHeader, ...profileLines].join('\n'));
+  if (styleLines.length) sections.push([styleHeader, ...styleLines].join('\n'));
   if (memoryLines.length) sections.push([memoryHeader, ...memoryLines].join('\n'));
   return sections.join('\n');
 }
@@ -1257,6 +1652,13 @@ export function buildActiveContextInstruction(context: string): string {
     // confirmation.
     "- Proxy answering: when the request asks about the owner, or asks you to answer for the owner, you are the owner's representative — his alter ego, not the owner himself. Answer on his behalf, in his manner and tone, only from these records, and convey his views as his own. Never claim to be the owner himself; if asked who you are, say you are Orin, answering as his representative. If the records do not cover the point, say plainly that you do not know it instead of guessing at the owner's position, and never present general knowledge as something the owner said or decided.",
     "- Never finalize anything that affects other people on the owner's behalf — promises, prices or other amounts of money, dates or schedules. Phrase such answers as subject to the owner's own confirmation.",
+    // Speaking style (owner instruction 2026-11-25): the style lines in
+    // the records are tendencies distilled from the owner's own turns,
+    // thresholds-gated before they ever reach this block. They govern
+    // manner only — never content — and matter most for proxy answers
+    // and for answers that will be read aloud, where the owner asked
+    // for the reply to feel like talking with him.
+    "- Speaking style: lines labelled as the owner's speaking style describe how the owner himself talks — his politeness, sentence length, characteristic phrases, and whether he leads with the conclusion. When you answer in his stead, and when you phrase an answer that will be read aloud, mirror that manner naturally. Never exaggerate it into caricature, and never let the manner change the facts of the answer.",
     context,
   ].join("\n");
 }

@@ -11,6 +11,7 @@ import {
   type PersonalMemoryBlockCategory,
 } from './personalMemoryGuard';
 import { readPersonalizationEnabled } from '../hooks/usePersonalSettings';
+import { observeSpeakingStyle } from './activeContextStyle';
 
 // ---------------------------------------------------------------------------
 // Conversation memory ingestion (Personalization Stage 1, PR P1-2).
@@ -566,6 +567,14 @@ export async function ingestCompletedChatTurn(turn: CompletedChatTurn): Promise<
         resolveActiveContextUserId(),
         guardBlocks.map((block) => ({ ...block, at: now })),
       ).catch(() => undefined);
+    }
+    // Speaking-style observation (owner persona follow-up, 2026-11-25):
+    // the same user text — typed or spoken and transcribed — also feeds
+    // the style-trait accumulation, under the same master toggle that
+    // gated this whole entry point. Counts only; no message text is
+    // stored as style. Best-effort like everything else here.
+    if (userText) {
+      await observeSpeakingStyle(resolveActiveContextUserId(), userText).catch(() => undefined);
     }
     return {
       savedCount,

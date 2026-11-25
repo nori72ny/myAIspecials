@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OriginMemoryItem, OriginProfileItem } from '../services/activeContextGraph';
+import type { OriginMemoryItem, OriginProfileItem, OriginStyleTrait } from '../services/activeContextGraph';
 
 // The passkey layer is mocked: WebAuthn cannot run in jsdom, and these
 // tests pin the settings wiring (which function runs, what the owner is
@@ -644,5 +644,86 @@ describe('PersonalizationSettings passkey protection', () => {
 
     await screen.findByText('この端末・ブラウザではパスキーを使えませんでした。');
     expect(passkeyMocks.migrateToPasskeyEncryption).not.toHaveBeenCalled();
+  });
+});
+
+// --- Style traits --------------------------------------------------------------
+
+function styleTrait(overrides: Partial<OriginStyleTrait> = {}): OriginStyleTrait {
+  return {
+    id: 'style:politeness:general',
+    dimension: 'politeness',
+    scope: 'general',
+    value: 'polite',
+    stats: { polite: 20, plain: 2, other: 0 },
+    evidenceTurns: 5,
+    status: 'established',
+    ownerEdited: false,
+    sendToModel: true,
+    createdAt: AT,
+    updatedAt: AT,
+    ...overrides,
+  };
+}
+
+describe('PersonalizationSettings style traits', () => {
+  it('shows the empty note when no trait has been observed yet', async () => {
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+    await screen.findByText('話し方・答え方の特徴');
+    await screen.findByText('まだ特徴は記録されていません。会話を重ねると、ここに少しずつ出てきます。');
+  });
+
+  it('lists traits with scope, status and evidence, and edits, unshares and deletes', async () => {
+    const { graph, PersonalizationSettings } = await loadModules();
+    const userId = graph.resolveActiveContextUserId();
+    await graph.upsertStyleTrait(userId, styleTrait());
+    await graph.upsertStyleTrait(userId, styleTrait({
+      id: 'style:phrase:general:ですね',
+      dimension: 'frequent-phrase',
+      value: 'ですね',
+      stats: { turns: 2 },
+      evidenceTurns: 2,
+      status: 'forming',
+    }));
+
+    renderSection(PersonalizationSettings);
+    await screen.findByText('丁寧な言い方（です・ます調）が中心');
+    const row = screen.getByTestId('style-trait-style:politeness:general');
+    expect(row.textContent).toContain('いつも');
+    expect(row.textContent).toContain('特徴として記録');
+    expect(row.textContent).toContain('5 回の会話から');
+    const phraseRow = screen.getByTestId('style-trait-style:phrase:general:ですね');
+    expect(phraseRow.textContent).toContain('「ですね」をよく使う');
+    expect(phraseRow.textContent).toContain('観察中');
+
+    // Unshare: sendToModel off, with the device-only note.
+    fireEvent.click(within(row).getByRole('switch', { name: /チャットのAIに渡す/ }));
+    await waitFor(async () => {
+      const traits = await graph.listStyleTraits(userId);
+      expect(traits.find((trait) => trait.id === 'style:politeness:general')?.sendToModel).toBe(false);
+    });
+    await within(screen.getByTestId('style-trait-style:politeness:general')).findByText('この端末の中だけで使います');
+
+    // Edit: the owner's own wording becomes the summary, marked as his.
+    const rowForEdit = screen.getByTestId('style-trait-style:politeness:general');
+    fireEvent.click(within(rowForEdit).getByRole('button', { name: '編集' }));
+    fireEvent.change(within(rowForEdit).getByRole('textbox'), { target: { value: '短く、はっきり話す' } });
+    fireEvent.click(within(rowForEdit).getByRole('button', { name: '保存' }));
+    await waitFor(async () => {
+      const edited = (await graph.listStyleTraits(userId)).find((trait) => trait.id === 'style:politeness:general');
+      expect(edited?.customSummary).toBe('短く、はっきり話す');
+      expect(edited?.ownerEdited).toBe(true);
+      expect(edited?.sendToModel).toBe(false);
+    });
+    await screen.findByText('短く、はっきり話す');
+    expect(screen.getByTestId('style-trait-style:politeness:general').textContent).toContain('あなたが書いた内容');
+
+    // Delete: gone from the store; the other trait stays.
+    fireEvent.click(within(screen.getByTestId('style-trait-style:politeness:general')).getByRole('button', { name: '消す' }));
+    await waitFor(async () => {
+      const traits = await graph.listStyleTraits(userId);
+      expect(traits.map((trait) => trait.id)).toEqual(['style:phrase:general:ですね']);
+    });
   });
 });

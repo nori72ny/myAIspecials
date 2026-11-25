@@ -13,21 +13,26 @@ import {
   clearBlockNotices,
   deleteMemoryItem,
   deleteProfileItem,
+  deleteStyleTrait,
+  describeStyleTrait,
   getPersonalMemoryMigrationNotice,
   getPersonalMemoryUsage,
   listBlockNotices,
   listItems,
   listProposals,
+  listStyleTraits,
   resolveActiveContextUserId,
   setProposalStatus,
   upsertMemoryItem,
   upsertProfileItem,
+  upsertStyleTrait,
   type OriginBlockNotice,
   type OriginMemoryItem,
   type OriginMemoryKind,
   type OriginProfileCategory,
   type OriginProfileItem,
   type OriginProposal,
+  type OriginStyleTrait,
   type PersonalMemoryUsage,
 } from '../services/activeContextGraph';
 
@@ -87,6 +92,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const userIdRef = useRef<string | null>(null);
   const [profileItems, setProfileItems] = useState<OriginProfileItem[]>([]);
   const [memoryItems, setMemoryItems] = useState<OriginMemoryItem[]>([]);
+  const [styleTraits, setStyleTraits] = useState<OriginStyleTrait[]>([]);
   const [proposals, setProposals] = useState<OriginProposal[]>([]);
   const [blockNotices, setBlockNotices] = useState<OriginBlockNotice[]>([]);
   const [usage, setUsage] = useState<PersonalMemoryUsage | null>(null);
@@ -97,6 +103,7 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const [newText, setNewText] = useState('');
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editingStyleId, setEditingStyleId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearIncludeProfile, setClearIncludeProfile] = useState(false);
@@ -111,12 +118,13 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
 
   const reload = useCallback(async () => {
     const id = userId();
-    const [items, nextUsage, nextProposals, nextBlockNotices] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id), listBlockNotices(id)]);
+    const [items, nextUsage, nextProposals, nextBlockNotices, nextStyleTraits] = await Promise.all([listItems(id), getPersonalMemoryUsage(id), listProposals(id), listBlockNotices(id), listStyleTraits(id)]);
     setProfileItems(items.profile);
     setMemoryItems(items.memory);
     setUsage(nextUsage);
     setProposals(nextProposals);
     setBlockNotices(nextBlockNotices);
+    setStyleTraits(nextStyleTraits);
   }, []);
 
   useEffect(() => {
@@ -252,6 +260,39 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
     }
   };
 
+  // --- Style trait actions ----------------------------------------------------
+  //
+  // A trait's summary is what the owner sees and what answers mirror.
+  // Editing it is the owner's last-resort correction — a few words, not
+  // a rewrite — and marks the trait ownerEdited: accumulation keeps
+  // gathering evidence afterwards but never replaces his wording, and
+  // the trait counts as established (his own word about his manner is
+  // definitive). The sendToModel toggle is the "do not use for answers"
+  // switch, labelled exactly as on profile and memory items.
+
+  const saveStyleEdit = async (trait: OriginStyleTrait) => {
+    const text = editDraft.trim();
+    if (!text) return;
+    try {
+      const result = await upsertStyleTrait(userId(), {
+        ...trait,
+        customSummary: text,
+        ownerEdited: true,
+        status: 'established',
+        updatedAt: Date.now(),
+      });
+      if (!result.saved) {
+        setNotice({ kind: 'error', message: p.blockedSave });
+        return;
+      }
+      setEditingStyleId(null);
+      setNotice({ kind: 'idle' });
+      await reload();
+    } catch {
+      setNotice({ kind: 'error', message: p.loadFailed });
+    }
+  };
+
   const resolveNeedsCheck = async (chosen: OriginMemoryItem, group: OriginMemoryItem[]) => {
     await runMutation(async () => {
       const now = Date.now();
@@ -309,6 +350,8 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
 
   // --- Derived groupings ------------------------------------------------------
 
+  const sortedStyleTraits = [...styleTraits].sort((a, b) => (a.status === b.status ? 0 : a.status === 'established' ? -1 : 1)
+    || b.updatedAt - a.updatedAt);
   const activeMemory = memoryItems.filter((item) => item.status === 'active');
   const needsCheckGroups = MEMORY_KIND_ORDER
     .map((kind) => ({ kind, items: memoryItems.filter((item) => item.status === 'needs-check' && item.kind === kind) }))
@@ -387,6 +430,45 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteMemoryItem(userId(), item.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
           </div>
           {!item.sendToModel && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
+        </>
+      )}
+    </li>
+  );
+
+  const renderStyleTrait = (trait: OriginStyleTrait) => (
+    <li key={trait.id} data-testid={`style-trait-${trait.id}`} className="origin-surface-muted space-y-2 rounded-xl border p-3">
+      {editingStyleId === trait.id ? (
+        <div className="space-y-2">
+          <textarea
+            aria-label={p.edit}
+            value={editDraft}
+            onChange={(event) => setEditDraft(event.target.value)}
+            rows={2}
+            className="w-full rounded-xl border bg-transparent px-3 py-2 text-sm leading-6"
+          />
+          <div className="flex gap-2">
+            <button type="button" onClick={(event) => { event.stopPropagation(); void saveStyleEdit(trait); }} className="origin-primary-button min-h-11 rounded-xl px-3 text-sm font-semibold">{p.saveEdit}</button>
+            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingStyleId(null); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.cancelEdit}</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm leading-6">{describeStyleTrait(trait, language)}</p>
+          <p className="origin-muted text-[13px] leading-5">
+            {p.styleScopes[trait.scope]} ・ {trait.status === 'established' ? p.styleEstablished : p.styleForming} ・ {p.styleEvidence(trait.evidenceTurns)} ・ {p.updatedOn(formatMonthDay(trait.updatedAt, language))}
+            {trait.ownerEdited ? ` ・ ${p.styleOwnerSet}` : ''}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="origin-muted text-[13px]">{p.sendToModel}</span>
+            <ToggleSwitch
+              checked={trait.sendToModel}
+              ariaLabel={`${p.sendToModel}: ${describeStyleTrait(trait, language)}`}
+              onChange={(next) => { void runMutation(async () => { await upsertStyleTrait(userId(), { ...trait, sendToModel: next }); }); }}
+            />
+            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingStyleId(trait.id); setEditDraft(describeStyleTrait(trait, language)); }} className="origin-secondary-button min-h-11 px-3 text-sm font-semibold">{p.edit}</button>
+            <button type="button" onClick={(event) => { event.stopPropagation(); void runMutation(async () => { await deleteStyleTrait(userId(), trait.id); }); }} className="origin-danger-button min-h-11 rounded-xl border px-3 text-sm font-semibold">{p.delete}</button>
+          </div>
+          {!trait.sendToModel && <p className="origin-muted text-[13px] leading-5">{p.deviceOnlyNote}</p>}
         </>
       )}
     </li>
@@ -645,6 +727,18 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
             </div>
           )}
         </div>
+      </div>
+
+      <div className="space-y-3 pt-2">
+        <h4 className="text-sm font-bold">{p.styleHeading}</h4>
+        <p className="origin-muted text-[13px] leading-5">{p.styleIntro}</p>
+        {sortedStyleTraits.length === 0
+          ? <p className="origin-muted text-[13px] leading-5">{p.styleEmpty}</p>
+          : (
+            <ul className="space-y-2">
+              {sortedStyleTraits.map((trait) => renderStyleTrait(trait))}
+            </ul>
+          )}
       </div>
     </section>
   );
