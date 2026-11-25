@@ -316,6 +316,15 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
       "do not substitute an image-generation prompt",
       "real image request is complete only when the image-generation runtime actually returns verified image bytes",
       "Name created items descriptively",
+      // CB-6 (CODEBENCH_CB6_DESIGN_2026-11-25): the code-review
+      // finding discipline and the leave-nothing-unused rule.
+      "lead with the most consequential problem in that code",
+      "every point must be traceable to a specific line or behavior of that code",
+      "no problem actually present may be omitted to keep the list short",
+      "Do not pad the review with generic checklist items",
+      "state the operative reason it is a problem for this code's purpose",
+      "Leave nothing unused",
+      "remove imports or names carried over from the original",
     ]) expect(instruction).toContain(phrase);
   });
 });
@@ -323,9 +332,9 @@ describe("ungrounded current-assertion gate (S-PR-1)", () => {
 describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () => {
   const compact = originGroqRouteSystemInstruction();
 
-  it("stays within the 2,000-5,600 character budget the Groq TPM gate can carry", () => {
+  it("stays within the 2,000-6,000 character budget the Groq TPM gate can carry", () => {
     expect(compact.length).toBeGreaterThanOrEqual(2_000);
-    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
     // The full standard instruction is several times larger; the compact variant
     // must remain a small fraction of it.
     expect(compact.length * 3).toBeLessThan(originChatSystemInstruction().length);
@@ -371,6 +380,16 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
       "govern every description of the original",
       "keep the API conventions the given code shows",
       "do not switch dialects",
+      // CB-6 (CODEBENCH_CB6_DESIGN_2026-11-25): the code-review
+      // finding discipline and the leave-nothing-unused rule, in
+      // condensed form.
+      "lead with the supplied code's most consequential problem",
+      "report every problem actually present in it",
+      "never pad with generic checklist items",
+      "say in one line when a part is already correct",
+      "State the operative reason each problem fails here",
+      "Leave nothing unused",
+      "remove imports the replacement no longer uses",
     ]) {
       expect(compact).toContain(phrase);
     }
@@ -401,10 +420,17 @@ describe("originGroqRouteSystemInstruction (route-3 compact instruction)", () =>
     // instruction alone and about 2,814 with this shortest question, so
     // the pin sits at 2,900 - and even cap + question + a 256-token
     // completion (~3,070) stays far under the ceiling below.
+    // CB-6 (CODEBENCH_CB6_DESIGN_2026-11-25) raised the base budget to
+    // 6,000 so this route could carry the code-review finding
+    // discipline and the leave-nothing-unused rule; at that cap the
+    // estimator reads ceil(6000/2)+4 = 3,004 tokens for the instruction
+    // alone and about 3,014 with this shortest question, so the pin
+    // sits at 3,100 - and even cap + question + a 256-token completion
+    // (~3,270) stays far under the ceiling below.
     const productionAssembledEstimate = estimateOriginGroqInputTokens(["x".repeat(15_713), "日本の首都はどこですか？"]);
     expect(productionAssembledEstimate + 256).toBeGreaterThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
     const compactEstimate = estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"]);
-    expect(compactEstimate).toBeLessThanOrEqual(2_900);
+    expect(compactEstimate).toBeLessThanOrEqual(3_100);
     expect(compactEstimate + 256).toBeLessThan(ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT);
   });
 });
@@ -583,8 +609,8 @@ describe("answer-quality follow-ups (PKG-9 batch 1: safety standards and form/le
       "Specified form or length (brief, items only, one line) is strict",
       "no added versions, premises, or follow-up questions; otherwise one version only",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(5_600);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
   });
 });
 
@@ -673,8 +699,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "once per topic, never repeat",
       "If unclear, keep the neutral style",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(5_600);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
   });
 
   it("pins false-premise correction: correct first at the start, then answer under the corrected premise (I-2)", () => {
@@ -794,8 +820,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "Assumptions stand as posed only when explicitly framed as an assumption or hypothetical",
       "Corrections replace the old premise: rebuild on the new one alone",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(5_600);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
   });
 
   // The I-1 measurement's REP-02 was fatal: the turn-2 correction
@@ -878,8 +904,8 @@ describe("intent awareness (request-context adaptation)", () => {
       "a hypothetical framed as one may be answered as one",
       "Stated backgrounds and form preferences persist across topics",
     ]) expect(compact).toContain(phrase);
-    expect(compact.length).toBeLessThanOrEqual(5_600);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
   });
 
   // The I-1 R2 re-measurement (production bc1c1918, I-3 live) found the
@@ -938,8 +964,8 @@ describe("intent awareness (request-context adaptation)", () => {
     expect(compact).toContain("\n- Corrections replace the old premise");
     // The unbounded exception form is gone.
     expect(compact).not.toContain("Hypotheticals and assumptions stand as posed");
-    expect(compact.length).toBeLessThanOrEqual(5_600);
-    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(2_900);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
+    expect(estimateOriginGroqInputTokens([compact, "日本の首都はどこですか？"])).toBeLessThanOrEqual(3_100);
   });
 
   it("pins the attribute/topic split and the vacuum rule on the route-3 compact instruction (I-4, D-1/D-2/D-3)", () => {
@@ -953,7 +979,7 @@ describe("intent awareness (request-context adaptation)", () => {
     ]) expect(compact).toContain(phrase);
     // The general negative form measured too weak in R2 is gone.
     expect(compact).not.toContain("never drag them in when they do not");
-    expect(compact.length).toBeLessThanOrEqual(5_600);
+    expect(compact.length).toBeLessThanOrEqual(6_000);
   });
 });
 
@@ -1051,7 +1077,7 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
     expect(originGroqRouteSystemInstruction(null)).toBe(base);
     expect(originGroqRouteSystemInstruction(undefined)).toBe(base);
     expect(base.length).toBeGreaterThanOrEqual(2_000);
-    expect(base.length).toBeLessThanOrEqual(5_600);
+    expect(base.length).toBeLessThanOrEqual(6_000);
     expect(base).not.toContain("Business planning rules for this request");
   });
 
@@ -1107,9 +1133,18 @@ describe("originGroqRouteSystemInstruction planning augmentation (round-2 adjudi
       // 7,742 characters and an estimated 3,911 input tokens - still
       // about sixty-five percent of the route's 6,000-token input
       // budget.
+      // CB-6 (CODEBENCH_CB6_DESIGN_2026-11-25) raised the base
+      // substitute's budget from 5,600 to 6,000 characters (base
+      // measured 5,912 after the change) to carry the code-review
+      // finding discipline and the leave-nothing-unused rule on
+      // route 3, so the combined and estimate pins rose with it:
+      // measured maxima are now combined 8,302 characters and an
+      // estimated 4,191 input tokens - still about seventy percent
+      // of the route's 6,000-token input budget. The addendum bound
+      // is unchanged (measured maximum 2,390).
       expect(augmented.length - base.length, brief.id).toBeLessThanOrEqual(2_400);
-      expect(augmented.length, brief.id).toBeLessThanOrEqual(7_900);
-      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(4_000);
+      expect(augmented.length, brief.id).toBeLessThanOrEqual(8_450);
+      expect(estimateOriginGroqInputTokens([augmented, brief.prompt]), brief.id).toBeLessThanOrEqual(4_300);
     }
   });
 });
@@ -1255,6 +1290,16 @@ describe("originCloudflareRouteSystemInstruction (route-2 compressed instruction
       "govern every description of the original",
       "keep the API conventions the given code shows",
       "do not switch dialects",
+      // CB-6 (CODEBENCH_CB6_DESIGN_2026-11-25): the code-review
+      // finding discipline and the leave-nothing-unused rule,
+      // carried verbatim from the full base.
+      "lead with the most consequential problem in that code",
+      "every point must be traceable to a specific line or behavior of that code",
+      "no problem actually present may be omitted to keep the list short",
+      "Do not pad the review with generic checklist items",
+      "state the operative reason it is a problem for this code's purpose",
+      "Leave nothing unused",
+      "remove imports or names carried over from the original",
       "state that basis compactly when it helps the user inspect the reasoning",
       "never introduce case studies, competitive superiority, adoption results, benchmarks, customer outcomes, certifications",
       "do not turn a possible rule into a universal rule without verified jurisdiction/context",
