@@ -129,10 +129,11 @@ describe('PersonalEditionApp single-surface wrapper', () => {
     expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
   });
 
-  it('restores the workspace from the URL on a fresh load (a reload keeps the open page)', async () => {
+  it('restores only the sidebar pages from the URL on a fresh load (a reload keeps the open page)', async () => {
     // 再読み込みで URL の ?workspace= と表示が食い違う欠陥の固定
-    // （2026-11-25 本番チェック）。有効な値は全ワークスペース共通で
-    // 初期表示に復元される。
+    // （2026-11-25 本番チェック）。復元するのはサイドバーの専用
+    // ページ（ai-news / remaining）だけ。作業画面（agent / coding）は
+    // オーナー指示 2026-11-09 のとおりチャットから始める。
     window.history.replaceState(null, '', '/?workspace=ai-news');
     render(<PersonalEditionApp />);
     expect(await screen.findByTestId('origin-ai-news-page')).toBeTruthy();
@@ -147,8 +148,8 @@ describe('PersonalEditionApp single-surface wrapper', () => {
 
     window.history.replaceState(null, '', '/?workspace=agent');
     render(<PersonalEditionApp />);
-    expect(await screen.findByRole('region', { name: 'Agent Workspace' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Workspace tool header' }).textContent).toContain('エージェント');
+    expect(screen.getByTestId('mock-origin-app')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Workspace tool header' })).toBeNull();
   });
 
   it('starts on chat at load for a retired value and follows browser history without restoring a permanent mode bar', async () => {
