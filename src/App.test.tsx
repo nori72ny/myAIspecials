@@ -160,6 +160,12 @@ describe('ArtifactWorkspace action bar and sandbox runtime boundary', () => {
     const historyControl = screen.getByTestId('history-drawer-toggle');
     expect(historyControl.querySelector('svg.lucide-menu')).toBeTruthy();
     expect(historyControl.textContent).not.toContain('☰');
+    // V-04: モバイルでも「履歴」の文字ラベルを併記する（アイコンのみでは
+    // 意味が伝わらない欠陥の再発防止）。ラベルは全幅で表示される。
+    expect(historyControl.textContent).toContain('履歴');
+    const historyLabel = Array.from(historyControl.querySelectorAll('span')).find((span) => span.textContent === '履歴');
+    expect(historyLabel).toBeTruthy();
+    expect(historyLabel!.className).not.toContain('hidden');
     // 設定ボタンはヘッダーに無い（サイドバーへ集約、PR-D）。
     expect(screen.queryByRole('button', { name: '設定を開く' })).toBeNull();
 
