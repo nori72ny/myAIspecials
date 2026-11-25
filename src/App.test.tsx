@@ -3556,7 +3556,7 @@ describe('image phase pill text (2026-11-20 detail pass, summarised 18:17)', () 
   });
 });
 
-describe('answer replay for bulk-delivered finalized text (display stage 1)', () => {
+describe('answer replay for finalized text (display stage 2)', () => {
   afterEach(cleanup);
 
   it('splits text into grapheme clusters without breaking surrogate pairs or combining marks', () => {
@@ -3582,12 +3582,18 @@ describe('answer replay for bulk-delivered finalized text (display stage 1)', ()
     expect(originAnswerReplayDurationSeconds(12000)).toBe(5);
   });
 
-  it('starts replay only for bulk arrivals of long answers without reduced motion', () => {
+  it('starts replay whenever a long answer has unrevealed finalized text, regardless of arrival chunking', () => {
     expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 1200, reducedMotion: false })).toBe(true);
     expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 1200, reducedMotion: true })).toBe(false);
     expect(shouldStartOriginAnswerReplay({ totalGraphemes: 48, addedGraphemes: 48, reducedMotion: false })).toBe(false);
-    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 159, reducedMotion: false })).toBe(false);
-    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 160, reducedMotion: false })).toBe(true);
+    // Stage 2: a bulk release split across frames (each frame adding far
+    // less than the stage-1 bulk threshold) still starts the replay, as
+    // does a gradually streamed answer once it grows past the skip size.
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 159, reducedMotion: false })).toBe(true);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 1, reducedMotion: false })).toBe(true);
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 49, addedGraphemes: 1, reducedMotion: false })).toBe(true);
+    // Nothing new arrived: nothing to reveal, so no replay starts.
+    expect(shouldStartOriginAnswerReplay({ totalGraphemes: 1200, addedGraphemes: 0, reducedMotion: false })).toBe(false);
   });
 
   const manualScheduler = () => {
@@ -3735,6 +3741,155 @@ describe('answer replay for bulk-delivered finalized text (display stage 1)', ()
       expect(container.textContent).not.toContain('最後の文です');
       fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
       await waitFor(() => expect(container.textContent).toContain('最後の文です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('replays a long phased (research) answer progressively and finishes it on tap', async () => {
+    const answerText = `${'調'.repeat(300)}調査の結論です。`;
+    // The server ships the finished, verified answer in ≤48-char chunks
+    // every 15ms (≈3,200 chars/sec — too fast to read as a stream), so
+    // stage 2 paces the rendering on the client for this path too.
+    const chunks = answerText.match(/.{1,48}/gs) ?? [];
+    const body = [
+      `data: ${JSON.stringify({ type: 'phase', phase: 'searching' })}`,
+      ...chunks.map((text) => `data: ${JSON.stringify({ type: 'delta', text })}`),
+      `data: ${JSON.stringify({ type: 'complete' })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n');
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'phased', 'X-Origin-Stream-Protocol': 'origin-phased-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '最新の料金を調べて' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      expect(container.textContent).not.toContain('調査の結論です');
+      fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
+      await waitFor(() => expect(container.textContent).toContain('調査の結論です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('replays a long plain-text stream answer progressively and finishes it on tap', async () => {
+    const answerText = `${'説'.repeat(300)}締めの文です。`;
+    const fetchMock = vi.fn(async () => new Response(answerText, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      expect(container.textContent).not.toContain('締めの文です');
+      fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
+      await waitFor(() => expect(container.textContent).toContain('締めの文です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('starts the replay even when a verified SSE answer arrives split into small deltas', async () => {
+    const model = 'google/gemma-4-31b-it:free';
+    const encoder = new TextEncoder();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start: (controller) => { streamController = controller; } });
+    const fetchMock = vi.fn(async () => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'X-Origin-Stream-Source': 'upstream', 'X-Origin-Stream-Protocol': 'origin-verified-sse-v1' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    // Capture animation frames instead of freezing them outright: the
+    // test runs frames manually so the render batcher flushes one delta
+    // at a time (a genuinely split arrival), while the replay player is
+    // kept from advancing by re-running frames at the same timestamp.
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameHandle = 1;
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const handle = nextFrameHandle++;
+      pendingFrames.set(handle, callback);
+      return handle;
+    });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((handle) => { pendingFrames.delete(handle as number); });
+    const runFrames = (timestamp: number) => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      callbacks.forEach((callback) => callback(timestamp));
+    };
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      const push = (event: unknown) => streamController.enqueue(encoder.encode(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`));
+      // The first delta alone is past the skip size but far below the
+      // stage-1 bulk threshold (160 graphemes in one update): stage 1
+      // never started a replay for an arrival split like this.
+      push({ type: 'delta', text: '分'.repeat(100) });
+      await waitFor(() => {
+        runFrames(0);
+        expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy();
+      });
+      push({ type: 'delta', text: '割'.repeat(100) });
+      push({ type: 'delta', text: '到'.repeat(100) });
+      push({ type: 'delta', text: '着'.repeat(100) });
+      push({ type: 'delta', text: '最後の文です。' });
+      push({ type: 'complete', modelId: model, servedModel: model, costEvidenceStatus: 'NOT_MEASURED', fallbackUsed: false });
+      push('[DONE]');
+      streamController.close();
+      // The stream has completed and the full text is in state, but the
+      // engaged replay has not advanced, so the tail stays hidden until
+      // the reader taps (or the replay finishes on its own).
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      runFrames(0);
+      expect(container.textContent).not.toContain('最後の文です');
+      fireEvent.click(container.querySelector('[data-answer-replaying="true"]')!);
+      await waitFor(() => expect(container.textContent).toContain('最後の文です'));
+      expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
+    } finally {
+      frame.mockRestore();
+      cancelFrame.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('finishes the replay of the previous answer when a new message is sent', async () => {
+    const shortPayload = { ...longJsonPayload(), content: '短い回答です。' };
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      return new Response(JSON.stringify(call === 1 ? longJsonPayload() : shortPayload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    try {
+      const { container } = render(<App language="ja" />);
+      fireEvent.change(screen.getByTestId('origin-home-request'), { target: { value: '長く説明してください' } });
+      fireEvent.click(screen.getByTestId('start-request-button'));
+      await waitFor(() => expect(container.querySelector('[data-answer-replaying="true"]')).toBeTruthy());
+      expect(container.textContent).not.toContain('終わりの文です');
+      fireEvent.change(screen.getByTestId('origin-chat-request'), { target: { value: '短く答えて' } });
+      fireEvent.click(screen.getByTestId('send-request-button'));
+      // Sending finishes the previous replay at once: the first answer
+      // lands in the history as the full finalized text, and nothing is
+      // left in the replaying state.
+      await waitFor(() => expect(container.textContent).toContain('終わりの文です'));
+      await waitFor(() => expect(container.textContent).toContain('短い回答です。'));
       expect(container.querySelector('[data-answer-replaying="true"]')).toBeNull();
     } finally {
       frame.mockRestore();

@@ -725,7 +725,7 @@ export function createOriginStreamRenderBatcher(
 }
 
 /**
- * 確定文の「再生表示」層（2026-11-23、表示まわり設計メモ段階1）。
+ * 確定文の「再生表示」層（2026-11-23 段階1、2026-11-25 段階2で全経路化）。
  *
  * サーバー側の順序は一切変えない：回答文はゲート・検証が全て終わって
  * から確定文として届く。ゲートが武装した直接経路と JSON 一括応答では
@@ -733,15 +733,25 @@ export function createOriginStreamRenderBatcher(
  * ここではクライアント側で「描画だけ」を書記素クラスタ単位で少しずつ
  * 広げる。状態（message.content）には最初から全文が入っており、絞る
  * のは描画だけなので、コピー・読み上げ・アクセシビリティは全文で
- * 正しく動く。逐次に流れている経路（ゲートなし）と調査経路は対象外。
+ * 正しく動く。
+ *
+ * 段階2（オーナー指示 2026-11-25：回答を ChatGPT／Claude のように
+ * 少しずつ流れ出る表示にする）：対象を全経路に広げ、開始条件を
+ * 到着の刻みに依存しない形にした。調査経路（phased）と素のテキスト
+ * 経路は、サーバーが確定文を48字／15ms（≒3,200字/秒）で刻んで送る
+ * ため知覚できる逐次表示にならず、段階1では対象外だった。表示の
+ * 速さはこの層が一元的に決め、サーバーの刻みは輸送として受ける。
+ * また段階1の開始条件（1回の更新で160書記素以上）は、一括放出が
+ * 複数フレームに分かれて届くと永遠に始まらない弱さがあったため、
+ * 「長い回答に未表示の確定文が1書記素でもあれば始める」に改めた。
+ * 逐次に届く経路でも、表示が到着に追いつくまではこの層が速さを
+ * 決める（追いつけば即座に完了し、全文表示に戻る）。
  */
 export const ORIGIN_ANSWER_REPLAY_RATE_PER_SECOND = 1200;
 export const ORIGIN_ANSWER_REPLAY_MIN_SECONDS = 0.6;
 export const ORIGIN_ANSWER_REPLAY_MAX_SECONDS = 5;
 /** これ以下の短い回答は再生せず即時に全文表示する。 */
 export const ORIGIN_ANSWER_REPLAY_SKIP_MAX_GRAPHEMES = 48;
-/** 1回の表示更新でこれ以上増えたら「一括で届いた」とみなして再生を始める。 */
-export const ORIGIN_ANSWER_REPLAY_BULK_MIN_GRAPHEMES = 160;
 
 let graphemeSegmenter: Intl.Segmenter | null | undefined;
 const getGraphemeSegmenter = (): Intl.Segmenter | null => {
@@ -786,7 +796,7 @@ export const shouldStartOriginAnswerReplay = (input: {
   reducedMotion: boolean;
 }): boolean => !input.reducedMotion
   && input.totalGraphemes > ORIGIN_ANSWER_REPLAY_SKIP_MAX_GRAPHEMES
-  && input.addedGraphemes >= ORIGIN_ANSWER_REPLAY_BULK_MIN_GRAPHEMES;
+  && input.addedGraphemes > 0;
 
 const originPrefersReducedMotion = (): boolean => typeof window !== 'undefined'
   && typeof window.matchMedia === 'function'
@@ -1909,7 +1919,7 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     }
     committedMessagesRef.current = messages;
   }, [messages]);
-  // 確定文の再生表示（段階1）：状態の content は全文のまま、描画だけを
+  // 確定文の再生表示（段階2）：状態の content は全文のまま、描画だけを
   // 絞るための「いま何書記素まで見せているか」。再生が終われば null に
   // 戻り、全文がそのまま描かれる。対象メッセージが会話から消えたら
   // （履歴の切替・新規会話）再生は取り消す。
@@ -2878,15 +2888,13 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
       }
       const reader = verifiedResponseText === undefined ? response.body?.getReader() : undefined; const decoder = new TextDecoder(); let fullText = ''; const assistantId = nextMessageId('a');
       updateMessages((current) => [...current, { id: assistantId, role: 'assistant', content: '' }]);
-      // 再生表示の追跡（段階1）：対象は直接経路（検証済みSSE）と JSON
-      // 一括応答だけ。調査経路（phased）はサーバー側の再生が既にある
-      // ため対象外にし、二重に間引かない。状態の content は従来どおり
-      // 全文が入り、ここでは描画の広げ方だけを決める。
-      let answerReplayEligible = verifiedResponseText !== undefined;
+      // 再生表示の追跡（段階2）：この関門を通る本文は全経路とも確定文
+      // （JSON 一括応答、検証済みSSE、調査経路の phased、素のテキスト
+      // 経路）であり、経路を問わず描画の広げ方をここで一元的に決める。
+      // 状態の content は従来どおり全文が入り、ここでは描画だけを絞る。
       let replayPrevGraphemes = 0;
       let replayEngaged = false;
       const trackAnswerReplay = (conversationalText: string) => {
-        if (!answerReplayEligible) return;
         const nextGraphemes = countOriginGraphemes(conversationalText);
         const previousGraphemes = replayPrevGraphemes;
         replayPrevGraphemes = nextGraphemes;
@@ -2961,7 +2969,6 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
           streamRenderBatcher.flush();
           if (streamFailed || !complete || !doneSeen || !fullText.trim()) throw new Error('incomplete-stream');
         } else if (protocol === 'origin-verified-sse-v1') {
-          answerReplayEligible = true;
           let buffer = ''; let complete = false; let doneSeen = false;
           const consumeLine = (line: string) => {
             if (!line.startsWith('data:')) return;
