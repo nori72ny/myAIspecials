@@ -17,6 +17,14 @@
 export type OrinFeatureStatus = 'ready' | 'partial' | 'preparing';
 export type OrinFeatureAction = 'chat' | 'agent' | 'coding' | 'creative';
 
+/**
+ * 行のアイコン（拡張設計 §6.2：Lucide の単一体系、項目ごとに1つ）。
+ * 描画側（OrinPanel）がこのキーから Lucide コンポーネントへ引く。
+ */
+export type OrinFeatureIcon =
+  | 'message-circle' | 'search' | 'newspaper' | 'bot' | 'code'
+  | 'image' | 'file-text' | 'volume' | 'mic' | 'blocks';
+
 export interface OrinFeatureHealth {
   /** 音声読み上げが使えるか（ヘルス表示の voiceOutputEnabled）。 */
   voiceOutput: boolean;
@@ -26,6 +34,7 @@ export interface OrinFeatureHealth {
 
 export interface OrinFeatureItem {
   id: string;
+  icon: OrinFeatureIcon;
   name: { ja: string; en: string };
   description: { ja: string; en: string };
   status: OrinFeatureStatus;
@@ -57,6 +66,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
       items: [
         {
           id: 'chat',
+          icon: 'message-circle',
           name: { ja: 'チャットで質問する', en: 'Ask in chat' },
           description: {
             ja: '日常の質問・相談に、その場で答えます。',
@@ -67,6 +77,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
         },
         {
           id: 'research',
+          icon: 'search',
           name: { ja: '詳しく調べる', en: 'Research in depth' },
           description: {
             ja: '出典つきで、複数の情報源を確かめて調べます。',
@@ -77,6 +88,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
         },
         {
           id: 'fresh',
+          icon: 'newspaper',
           name: { ja: '最新情報を確認する', en: 'Check the latest' },
           description: {
             ja: 'ニュース・天気・相場など、新しい情報を確認します。',
@@ -93,6 +105,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
       items: [
         {
           id: 'agent',
+          icon: 'bot',
           name: { ja: 'エージェントに任せる', en: 'Delegate to the agent' },
           description: health.attachments
             ? {
@@ -114,6 +127,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
       items: [
         {
           id: 'coding',
+          icon: 'code',
           name: { ja: 'コードを書く・直す', en: 'Write or fix code' },
           description: {
             ja: 'プログラムの作成と説明ができます。',
@@ -124,6 +138,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
         },
         {
           id: 'image',
+          icon: 'image',
           name: { ja: '画像を作る', en: 'Create images' },
           description: {
             ja: 'イラスト・画像の生成ができます。編集・別案・動画化もできます。',
@@ -134,6 +149,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
         },
         {
           id: 'documents',
+          icon: 'file-text',
           name: { ja: '資料を作る', en: 'Make documents' },
           description: {
             ja: '企画・構成の相談はチャットで使えます。文書の自動生成は有効化待ちです。',
@@ -150,6 +166,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
       items: [
         {
           id: 'read-aloud',
+          icon: 'volume',
           name: { ja: '回答を読み上げる', en: 'Read answers aloud' },
           description: health.voiceOutput
             ? {
@@ -164,6 +181,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
         },
         {
           id: 'voice-talk',
+          icon: 'mic',
           name: { ja: '声で話しかける・会話する', en: 'Talk by voice' },
           description: {
             ja: '日本語の聞き取り確認のあとに使えるようになります。',
@@ -179,6 +197,7 @@ export function buildOrinFeatureCatalog(health: OrinFeatureHealth): OrinFeatureG
       items: [
         {
           id: 'external',
+          icon: 'blocks',
           name: { ja: '外部のサービスとつなぐ', en: 'Connect outside services' },
           description: {
             ja: 'メール・予定表などとの連携は、土台の準備までで本番ではまだ動いていません。',

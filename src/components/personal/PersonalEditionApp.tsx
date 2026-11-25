@@ -2,6 +2,9 @@ import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { PanelLeft } from 'lucide-react';
 import App from '../../App';
 import OriginSidebar from './OriginSidebar';
+import OrinAiNewsPage from '../OrinAiNewsPage';
+import OrinRemainingPage from '../OrinRemainingPage';
+import type { OrinPanelWorkState } from '../OrinPanel';
 import { ArtifactWorkspace } from '../../App';
 import type { ArtifactBlock, ConversationMessage, ConversationSession } from '../../App';
 import type { Settings } from '../../types';
@@ -15,9 +18,16 @@ type MobileChatSurface = 'conversation' | 'artifact';
 
 function workspaceLocation(): OriginWorkspaceModeV31 {
   const workspace = new URLSearchParams(window.location.search).get('workspace');
-  if (workspace === 'agent' || workspace === 'coding') return workspace;
+  if (workspace === 'agent' || workspace === 'coding' || workspace === 'ai-news' || workspace === 'remaining') return workspace;
   return 'chat';
 }
+
+const WORKSPACE_TITLES: Record<Exclude<OriginWorkspaceModeV31, 'chat'>, { ja: string; en: string }> = {
+  agent: { ja: 'エージェント', en: 'Agent' },
+  coding: { ja: 'コード', en: 'Code' },
+  'ai-news': { ja: 'AIニュース', en: 'AI news' },
+  remaining: { ja: '残っている依頼', en: 'Remaining requests' },
+};
 
 type PersonalEditionAppProps = {
   settings?: Settings;
@@ -62,6 +72,15 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
   // resetSignal 経路で起動するための加算カウンタ（親からの resetSignal
   // の意味は変えず、変化したときだけ App がリセットする性質を使う）。
   const [newConversationSignal, setNewConversationSignal] = useState(0);
+  // 「残っている依頼」ページの材料（前景の作業・送信キュー）は
+  // チャット側（App）が持つため、変化した時だけ受け取って保持する。
+  // App はチャット以外の画面でも hidden でマウントされたままなので、
+  // ページを開いた時も最新の材料が揃っている。
+  const [orinWorkState, setOrinWorkState] = useState<OrinPanelWorkState>({
+    foregroundItems: [],
+    agentFallbackItem: null,
+    queuedRequests: [],
+  });
   const isEn = settings?.language === 'en';
 
   useEffect(() => {
@@ -157,7 +176,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
     {workspace !== 'chat' && <section aria-label="Workspace tool header" className="origin-surface shrink-0 border-b border-origin-border px-3 sm:px-4">
       <div className="mx-auto flex min-h-14 w-full max-w-[var(--content-wide)] items-center gap-3">
         <button type="button" data-testid="sidebar-toggle" aria-label={sidebarOpen ? (isEn ? 'Close sidebar' : 'サイドバーを閉じる') : (isEn ? 'Open sidebar' : 'サイドバーを開く')} aria-expanded={sidebarOpen} onClick={toggleSidebar} className="origin-secondary-button inline-flex min-h-11 w-11 shrink-0 items-center justify-center px-0"><PanelLeft aria-hidden="true" size={18} strokeWidth={1.9} /></button>
-        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{workspace === 'agent' ? (isEn ? 'Agent' : 'エージェント') : (isEn ? 'Code' : 'コード')}</span>
+        <span className="min-w-0 flex-1 truncate text-center text-sm font-bold">{isEn ? WORKSPACE_TITLES[workspace].en : WORKSPACE_TITLES[workspace].ja}</span>
         <span aria-hidden="true" className="min-w-11 shrink-0" />
       </div>
     </section>}
@@ -183,6 +202,7 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
           onMessagesChange={handleMessagesChange}
           onArtifactsChange={handleArtifactsChange}
           resetSignal={resetSignal + newConversationSignal}
+          onOrinWorkStateChange={setOrinWorkState}
           onToggleSidebar={toggleSidebar}
           sidebarOpen={sidebarOpen}
           language={settings?.language ?? 'ja'}
@@ -204,6 +224,8 @@ const PersonalEditionApp = React.memo(function PersonalEditionApp({
 
       {workspace === 'agent' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">エージェントを読み込んでいます…</p>}><AgentWorkspace /></Suspense></div>}
       {workspace === 'coding' && <div className="h-full overflow-y-auto"><Suspense fallback={<p role="status">コード画面を読み込んでいます…</p>}><CodingJobWorkspace initialGoal={codingInitialGoal} onOpenSettings={onOpenSettings} /></Suspense></div>}
+      {workspace === 'ai-news' && <div className="h-full overflow-y-auto"><OrinAiNewsPage language={settings?.language ?? 'ja'} /></div>}
+      {workspace === 'remaining' && <div className="h-full overflow-y-auto"><OrinRemainingPage language={settings?.language ?? 'ja'} foregroundItems={orinWorkState.foregroundItems} agentFallbackItem={orinWorkState.agentFallbackItem} queuedRequests={orinWorkState.queuedRequests} onOpenAgent={() => switchWorkspace('agent')} onOpenChat={() => switchWorkspace('chat')} /></div>}
     </div>
 
     {workspace === 'chat' && creativePanelRequest !== null && <Suspense fallback={null}><CreativePanel initialRequest={creativePanelRequest} onClose={() => setCreativePanelRequest(null)} onArtifactCreated={handleCreativeArtifactCreated} /></Suspense>}

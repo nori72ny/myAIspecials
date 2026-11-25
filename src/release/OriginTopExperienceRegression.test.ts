@@ -385,15 +385,21 @@ describe('ORIGIN top experience regression boundary', () => {
     // tag: both are visibility rules, so geometry contracts hold.
     expect(topUi).toContain('.origin-main--orin-panel-open .origin-orin-presence');
     expect(topUi).toContain('.origin-app main:has([data-testid="history-drawer"]) .origin-orin-presence__name');
-    // Panel tabs meet the 44px floor and the segmented control is
-    // capped at 560px; the availability chip takes the navy wash.
+    // Panel tabs meet the 44px floor. Panel expansion
+    // (2026-11-25, ORIN_PANEL_EXPANSION_DESIGN §3/§6) supersedes
+    // the pill segmented control and the per-row availability
+    // chips: the tab bar is a full-width hairline with a sliding
+    // accent underline (240ms on the designated curve), and the
+    // chip styles are gone entirely.
     const tabRule = topUi.match(/\.origin-orin-panel__tab \{[^}]*\}/)?.[0] ?? '';
     expect(tabRule).toContain('min-height: 44px;');
     const tabsRule = topUi.match(/\.origin-orin-panel__tabs \{[^}]*\}/)?.[0] ?? '';
-    expect(tabsRule).toContain('max-width: 560px;');
-    const chipRule = topUi.match(/\.origin-orin-panel__chip \{[^}]*\}/)?.[0] ?? '';
-    expect(chipRule).toContain('background: var(--accent-soft);');
-    expect(chipRule).toContain('color: var(--accent-primary);');
+    expect(tabsRule).toContain('border-bottom: 1px solid var(--border-subtle);');
+    expect(tabsRule).not.toContain('border-radius: 999px;');
+    const indicatorRule = topUi.match(/\.origin-orin-panel__tab-indicator \{[^}]*\}/)?.[0] ?? '';
+    expect(indicatorRule).toContain('background: var(--accent-primary);');
+    expect(indicatorRule).toContain('240ms cubic-bezier(0.32, 0.72, 0, 1)');
+    expect(topUi).not.toContain('.origin-orin-panel__chip');
     // The add-menu scrim covers the sidebar too (geometry in the
     // functional layer, background in the visual layer, as with the
     // app-root scrim).

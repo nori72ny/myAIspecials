@@ -1075,25 +1075,51 @@
 }
 
 /* Orin panel (owner request 2026-11-24, panel design
-   ORIN_PANEL_DESIGN_2026-11-24). Tapping the resident Orin opens
-   this panel: the profile header (art, the name "Orin", one-line
-   introduction) inherited from the old profile card, plus two
-   tabs — work status and what Orin can do. The form follows one
-   breakpoint, 1024px, aligned with the sidebar's push band:
-   below it the panel takes over the whole screen as a screen
-   transition (its own top bar carries the Back control); at or
-   above it the panel is a right rail that pushes the body —
-   App adds padding to the main column while the panel is open,
-   so the rail never floats over the conversation (the P4
-   lesson). The 640px card breakpoint is retired with the card. */
+   ORIN_PANEL_DESIGN_2026-11-24; expanded 2026-11-25 by
+   ORIN_PANEL_EXPANSION_DESIGN_2026-11-25; restructured the
+   same day on the owner's instruction: the remaining-requests
+   and AI news tabs moved out to left-sidebar items with their
+   own pages, and the two remaining tabs — work status and
+   what Orin can do — switch by icon, not text). Tapping the
+   resident Orin opens this panel: the profile header (art,
+   the name "Orin", one-line introduction) inherited from the
+   old profile card, plus the icon tab bar with its sliding
+   underline. The form follows one breakpoint, 1024px, aligned
+   with the sidebar's push band: below it the panel takes over
+   the whole screen as a screen transition (its own top bar
+   carries the Back control); at or above it the panel is a
+   right rail that pushes the body — App adds padding to the
+   main column while the panel is open, so the rail never
+   floats over the conversation (the P4 lesson). The rail's
+   background runs the full height of the screen however
+   little content it holds (owner instruction, 2026-11-25:
+   the rail must not look cut off partway down). The 640px
+   card breakpoint is retired with the card. Panel background
+   is --bg-surface with hairline borders only (expansion
+   design §4.1). */
 .origin-orin-panel {
   position: fixed;
   inset: 0;
   z-index: 70;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   color: var(--text-primary);
+  /* Entry motion in the Muse app's manner (owner instruction,
+     2026-11-25: the panel follows the Muse app's spec): the
+     surface settles in with a short slide + fade instead of
+     appearing in one frame. Closing stays immediate — the
+     panel unmounts — so no exit motion is layered on. */
+  animation: origin-orin-panel-in 200ms ease-out;
+}
+@keyframes origin-orin-panel-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-orin-panel {
+    animation: none;
+  }
 }
 .origin-orin-panel__topbar {
   display: flex;
@@ -1132,62 +1158,106 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Tab-switch stability (owner instruction, 2026-11-25): the two
-     tabs differ in content height, so the vertical scrollbar comes
-     and goes and the centred profile (Orin included) used to shift
-     sideways by half the scrollbar width on every switch. The
-     gutter is now always reserved, so the content width — and
-     Orin's position — is identical on both tabs. */
+  /* Tab-switch stability (owner instruction, 2026-11-25): the
+     tabs differ in content height, so the vertical scrollbar
+     comes and goes and the centred profile (Orin included)
+     used to shift sideways by half the scrollbar width on
+     every switch. The gutter is always reserved, so the
+     content width — and Orin's position — is identical on
+     every tab. The bar itself is thinned (expansion design
+     §4.3) so the reserved gutter stays unobtrusive. */
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
   padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
 }
+.origin-orin-panel__scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.origin-orin-panel__scroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--border-strong);
+}
+
+/* Tab bar (expansion design §3, icon form since the
+   2026-11-25 restructure): a sliding underline under icon
+   tabs — the switch is by icon like the Muse app, with the
+   meaning carried by aria-label and tooltip. The bar bleeds
+   to the panel edges (the scroll padding is 16px) and its
+   bottom hairline runs the full width; the indicator is
+   positioned by measured transform / width from the component
+   (the selected button's inner width). */
 .origin-orin-panel__tabs {
+  margin: 20px -16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.origin-orin-panel__tabs::-webkit-scrollbar {
+  display: none;
+}
+.origin-orin-panel__tabs-inner {
+  position: relative;
   display: flex;
-  gap: 4px;
-  /* External evaluation fix (2026-11-25): below 1024px the panel
-     is full-screen and the segmented control stretched to ~95% of
-     the width (measured 736px at 768px). It is capped at 560px and
-     centred; the desktop rail (360px) is narrower than the cap, so
-     nothing changes there. */
-  width: 100%;
-  max-width: 560px;
-  margin-top: 20px;
-  margin-inline: auto;
-  padding: 4px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  background: var(--bg-surface);
+  padding: 0 8px;
+  min-width: max-content;
 }
 .origin-orin-panel__tab {
-  flex: 1;
-  /* 44px touch-target floor (external evaluation fix, 2026-11-25;
-     measured 40px before). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
   min-height: 44px;
-  padding: 0 12px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  /* The selected pill eases between tabs instead of snapping
-     (tab-switch motion, 2026-11-25; the global reduced-motion
-     rule in index.css collapses this duration). */
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: color 150ms ease-out;
 }
-/* Tab page motion (owner instruction, 2026-11-25): switching tabs
-   remounts the page (keyed by tab in OrinPanel.tsx) and the new
-   page settles with a short directional slide + fade — from the
-   right when moving to the right-hand tab, from the left when
-   coming back. Speed, smoothness and restraint are modelled on
-   the Muse app's tab switching (owner-designated reference,
-   2026-11-25): 220ms on a soft ease-out curve, 8px of travel.
-   The profile above the tabs is outside the page element and
-   never moves. prefers-reduced-motion removes the motion
-   entirely (the global rule in index.css also collapses
-   animation durations). */
+.origin-orin-panel__tab:hover {
+  color: var(--text-primary);
+}
+.origin-orin-panel__tab.is-selected {
+  color: var(--accent-primary);
+}
+.origin-orin-panel__tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  opacity: 0;
+  transition:
+    transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.origin-orin-panel__tab-indicator.is-ready {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .origin-orin-panel__tab,
+  .origin-orin-panel__tab-indicator {
+    transition: none;
+  }
+}
+
+/* Tab page motion (owner instruction, 2026-11-25): switching
+   tabs remounts the page (keyed by tab in OrinPanel.tsx) and
+   the new page settles with a short directional slide + fade
+   — from the right when moving to a later tab, from the left
+   when coming back (direction by tab index since the
+   expansion). Speed, smoothness and restraint are modelled
+   on the Muse app's tab switching (owner-designated
+   reference, 2026-11-25): 220ms on a soft ease-out curve,
+   8px of travel. The profile above the tabs is outside the
+   page element and never moves. prefers-reduced-motion
+   removes the motion entirely (the global rule in index.css
+   also collapses animation durations). */
 .origin-orin-panel__page {
   animation: origin-orin-panel-page-from-left 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1207,34 +1277,201 @@
     animation: none;
   }
 }
-.origin-orin-panel__tab.is-selected {
-  background: var(--bg-surface-muted);
+
+/* Panel type scale (expansion design §5.2): page heading
+   16/700, section headings 12/700 secondary with 0.04em
+   tracking, row titles 15/500, sub lines 13/400 at line-height
+   1.6, progress 13/600 accent, next-step labels 12/600 accent.
+   Weight 800 (font-black) is not used anywhere in the panel. */
+.origin-orin-panel__page-title {
+  margin: 24px 0 0;
   color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
 }
-.origin-orin-panel__chip {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid transparent;
+.origin-orin-panel__section {
+  margin-top: 24px;
+}
+.origin-orin-panel__section-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+.origin-orin-panel__section-count {
+  font-weight: 500;
+}
+.origin-orin-panel__rows {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.origin-orin-panel__row {
+  padding: 10px 0;
+}
+.origin-orin-panel__row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.origin-orin-panel__row-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
   border-radius: 999px;
-  /* External evaluation fix (2026-11-25): the availability badge
-     takes the brand navy wash (--accent-soft with --accent-primary
-     text, the .origin-badge recipe) so it sits inside the brand
-     palette on every theme; the partial state is the outlined
-     variant of the same navy family. */
-  background: var(--accent-soft);
+  background: var(--border-strong);
+}
+.origin-orin-panel__row-dot.is-pulsing {
+  background: var(--accent-primary);
+  animation: origin-orin-presence-pulse 1.6s ease-in-out infinite;
+}
+.origin-orin-panel__row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.origin-orin-panel__row-meta {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.origin-orin-panel__row-sub {
+  display: block;
+  margin: 2px 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.origin-orin-panel__row-progress {
+  display: block;
+  margin: 2px 0 0 16px;
   color: var(--accent-primary);
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.6;
 }
-.origin-orin-panel__chip.is-partial {
-  background: var(--bg-surface);
-  border-color: var(--accent-border);
-  color: var(--accent-primary);
-}
-.origin-orin-panel__chip.is-preparing {
-  background: var(--bg-surface-muted);
+.origin-orin-panel__row-note {
+  display: block;
+  margin: 2px 0 0 16px;
   color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.origin-orin-panel__row-next {
+  display: block;
+  margin: 2px 0 0 16px;
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.origin-orin-panel__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0 16px;
+}
+.origin-orin-panel__steps {
+  margin: 8px 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.origin-orin-panel__step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.origin-orin-panel__step-index {
+  flex: none;
+}
+.origin-orin-panel__step-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+.origin-orin-panel__step-dot.is-running {
+  background: var(--accent-primary);
+  animation: origin-orin-presence-pulse 1.6s ease-in-out infinite;
+}
+.origin-orin-panel__step-dot.is-done {
+  background: var(--accent-primary);
+}
+.origin-orin-panel__step-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.origin-orin-panel__step-status {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+}
+
+/* Remaining-requests rows (expansion design §7): rows that
+   lead somewhere (agent runs, queued chat requests) are
+   whole-row buttons ending in a chevron; foreground rows are
+   static. Sub lines indent past the status dot, matching the
+   work tab's rows. */
+.origin-orin-panel__row-button,
+.origin-orin-panel__row-static {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.origin-orin-panel__row-button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-panel__row-main {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+.origin-orin-panel__row-button .origin-orin-panel__row-sub,
+.origin-orin-panel__row-static .origin-orin-panel__row-sub,
+.origin-orin-panel__row-button .origin-orin-panel__row-progress,
+.origin-orin-panel__row-static .origin-orin-panel__row-progress,
+.origin-orin-panel__row-button .origin-orin-panel__row-note,
+.origin-orin-panel__row-static .origin-orin-panel__row-note,
+.origin-orin-panel__row-button .origin-orin-panel__row-next,
+.origin-orin-panel__row-static .origin-orin-panel__row-next {
+  margin-left: 16px;
+}
+.origin-orin-panel__row-chevron {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+/* Empty states. The work tab's guide is a 44px text button
+   (external evaluation fix, 2026-11-25); the remaining tab
+   adds one quiet line pointing at the work tab. */
+.origin-orin-panel__empty-line {
+  margin: 24px 0 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  text-align: center;
 }
 .origin-orin-panel__empty-guide {
   display: block;
@@ -1255,6 +1492,176 @@
 .origin-orin-panel__empty-guide:hover {
   background: var(--bg-surface-muted);
 }
+.origin-orin-panel__empty-block {
+  margin-top: 24px;
+}
+.origin-orin-panel__empty-block .origin-orin-panel__empty-line {
+  margin-top: 0;
+}
+.origin-orin-panel__empty-sub {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* Features tab (expansion design §6): rows grouped by section
+   with whitespace; the only hairline is between groups.
+   Status is written into the copy — a label appears only for
+   the exceptions (partial / preparing), never as a repeated
+   chip on every row. */
+.origin-orin-panel__group {
+  padding-top: 24px;
+}
+.origin-orin-panel__group + .origin-orin-panel__group {
+  margin-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+.origin-orin-panel__feature-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+button.origin-orin-panel__feature-row {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.origin-orin-panel__feature-row.is-preparing .origin-orin-panel__feature-name,
+.origin-orin-panel__feature-row.is-preparing .origin-orin-panel__feature-desc {
+  color: var(--text-secondary);
+}
+.origin-orin-panel__feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  color: var(--text-secondary);
+}
+.origin-orin-panel__feature-icon.is-preparing {
+  opacity: 0.55;
+}
+.origin-orin-panel__feature-body {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+.origin-orin-panel__feature-name {
+  display: block;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.origin-orin-panel__feature-label {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.origin-orin-panel__feature-label.is-partial {
+  color: var(--accent-primary);
+}
+.origin-orin-panel__feature-label.is-preparing {
+  color: var(--text-secondary);
+}
+.origin-orin-panel__feature-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.origin-orin-panel__feature-chevron {
+  flex: none;
+  margin-top: 10px;
+  color: var(--text-secondary);
+}
+
+/* AI news tab (expansion design §8): both layers are plain
+   external links — title, two-line summary, source line.
+   Nothing here is generated at open time. */
+.origin-orin-panel__news-row {
+  display: block;
+  padding: 10px 0;
+  color: inherit;
+  text-decoration: none;
+}
+.origin-orin-panel__news-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.origin-orin-panel__news-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.origin-orin-panel__news-source,
+.origin-orin-panel__news-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.origin-orin-panel__news-updated {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.origin-orin-panel__news-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.origin-orin-panel__news-head .origin-orin-panel__row-meta {
+  margin-left: 0;
+}
+.origin-orin-panel__news-loading {
+  margin-top: 12px;
+}
+.origin-orin-panel__news-loading .origin-orin-panel__row-sub {
+  margin-left: 0;
+}
+.origin-orin-panel__skeleton-bar {
+  display: block;
+  height: 14px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+}
+.origin-orin-panel__skeleton-bar:nth-child(2) {
+  width: 82%;
+}
+.origin-orin-panel__skeleton-bar:nth-child(3) {
+  width: 64%;
+}
+
 /* Empty work tab below 1024px (external evaluation fix batch 3,
    2026-11-25): the full-screen form left the panel's lower half
    blank below the empty-state guide (measured 425px of 844px at
@@ -1275,7 +1682,7 @@
   }
   .origin-orin-panel--work-empty .origin-orin-panel__topbar,
   .origin-orin-panel--work-empty .origin-orin-panel__scroll {
-    background: var(--bg-primary);
+    background: var(--bg-surface);
   }
   .origin-orin-panel--work-empty .origin-orin-panel__scroll {
     flex: none;
@@ -1293,27 +1700,15 @@
     border-left: 1px solid var(--border-default);
     background: var(--bg-surface);
   }
-  /* Empty work tab (external evaluation fix batch 2, 2026-11-25):
-     the rail stretched to the full column height even when the
-     work tab held nothing, leaving ~54% of it blank below the
-     empty-state guide (measured 434px of 800px). While the work
-     tab is empty the rail hugs its content instead of stretching;
-     the full-screen forms below 1024px are the owner's screen-
-     switch spec and keep their geometry. */
-  .origin-orin-panel--work-empty {
-    bottom: auto;
-    /* Batch 3 (2026-11-25): the content-height rail ended with
-       only its left border stopping mid-screen and the surface
-       running on into the empty area below, which read as a
-       cut-off column (measured bottom edge at 382px of an 800px
-       viewport, border-bottom-width 0). A bottom border, a
-       rounded inner corner and the shared card shadow close the
-       shape, so the rail reads as a finished card at the same
-       content height. */
-    border-bottom: 1px solid var(--border-default);
-    border-bottom-left-radius: 16px;
-    box-shadow: var(--shadow-2);
-  }
+  /* The rail always spans the full height (owner instruction,
+     2026-11-25): an earlier batch made the empty-work rail hug
+     its content and closed it off as a card (bottom border,
+     rounded corner, shadow), which the owner read as the bar
+     being cut off partway down. The modifier now carries no
+     desktop geometry at all — the base inset keeps the
+     background running from the top edge to the bottom edge
+     however little content the panel holds. The sheet form
+     below 1024px keeps its content-height treatment. */
   .origin-orin-panel__topbar {
     display: none;
   }
@@ -1325,6 +1720,16 @@
   .origin-main--orin-panel-open {
     padding-right: min(360px, 33.333vw);
   }
+}
+
+/* Sidebar pages (owner instruction, 2026-11-25): the
+   remaining-requests and AI news pages reuse the panel's row
+   and news classes above (same type scale, same row grammar).
+   On the news page the digest summary is not line-clamped —
+   the page has the room, so the whole summary is shown. */
+.origin-ai-news-page__summary {
+  display: block;
+  overflow: visible;
 }
 
 /* No conversation clearance is needed any more: the Orin presence

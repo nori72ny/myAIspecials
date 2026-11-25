@@ -23,7 +23,7 @@ import KenBurnsVideoDialog from './creative/KenBurnsVideoDialog';
 import type { CreativeArtifactMetaV15 } from './creative/creativeStudioV15';
 import CreativeArtifactEditorV15 from './components/CreativeArtifactEditorV15';
 import { type OriginCatStateKind } from './components/OriginCatState';
-import OrinPanel, { type OrinPanelLocalStep } from './components/OrinPanel';
+import OrinPanel, { type OrinPanelLocalStep, type OrinPanelWorkState } from './components/OrinPanel';
 import OrinFloatingPresence, { resolveOrinAgentBubbleText, resolveOrinBubbleText, resolveOrinPillState } from './components/OrinFloatingPresence';
 import { getAgentActivitySnapshot, isAgentActivityFresh, subscribeAgentActivity } from './agent/agentActivityStore';
 import { fetchGroundedResearch, researchFailureMessage, type ResearchReportResult } from './research/researchReport';
@@ -1786,8 +1786,8 @@ export const ArtifactWorkspace: React.FC<{ artifact: ArtifactBlock | null; artif
   </aside>;
 };
 
-export type OriginPersonalAppProps = { onOpenSettings?: (section?: 'coding') => void; onOpenAgent?: () => void; onOpenCoding?: (goal?: string) => void; onOpenCreative?: (request?: string) => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean; onToggleSidebar?: () => void; sidebarOpen?: boolean };
-export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAgent, onOpenCoding, onOpenCreative, messages: controlledMessages, sessions = [], artifacts: controlledArtifacts, onArchiveSession, onRestoreSession, onMessagesChange, onArtifactsChange, resetSignal = 0, language = 'ja', designTheme = 'minimal', embedded = false, onToggleSidebar, sidebarOpen = false }) => {
+export type OriginPersonalAppProps = { onOpenSettings?: (section?: 'coding') => void; onOpenAgent?: () => void; onOpenCoding?: (goal?: string) => void; onOpenCreative?: (request?: string) => void; messages?: ConversationMessage[]; sessions?: readonly ConversationSession[]; artifacts?: readonly ArtifactBlock[]; onArchiveSession?: (messages: readonly ConversationMessage[]) => void; onRestoreSession?: (session: ConversationSession) => void; onMessagesChange?: (messages: ConversationMessage[]) => void; onArtifactsChange?: (artifacts: ArtifactBlock[]) => void; resetSignal?: number; language?: OriginLanguage; designTheme?: OriginDesignTheme; embedded?: boolean; onToggleSidebar?: () => void; sidebarOpen?: boolean; onOrinWorkStateChange?: (state: OrinPanelWorkState) => void };
+export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAgent, onOpenCoding, onOpenCreative, messages: controlledMessages, sessions = [], artifacts: controlledArtifacts, onArchiveSession, onRestoreSession, onMessagesChange, onArtifactsChange, resetSignal = 0, language = 'ja', designTheme = 'minimal', embedded = false, onToggleSidebar, sidebarOpen = false, onOrinWorkStateChange }) => {
   const t = getTranslations(language);
   const [uncontrolledMessages, setUncontrolledMessages] = useState<ConversationMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -3225,6 +3225,21 @@ export const App: React.FC<OriginPersonalAppProps> = ({ onOpenSettings, onOpenAg
     return item.attachments.map((attachment) => attachment.name).join(', ');
   };
   const orinPanelQueued = queuedRequests.map((item) => ({ id: item.id, summary: queuedRequestSummary(item) }));
+  // 「残っている依頼」ページ（シェル側）へ材料を知らせる。内容が
+  // 変わった時だけ知らせる（毎描画の新しい配列で親を再描画しない）。
+  const orinWorkStateKeyRef = useRef('');
+  useEffect(() => {
+    if (!onOrinWorkStateChange) return;
+    const state: OrinPanelWorkState = {
+      foregroundItems: panelForegroundItems,
+      agentFallbackItem: panelAgentFallback,
+      queuedRequests: orinPanelQueued,
+    };
+    const key = JSON.stringify(state);
+    if (orinWorkStateKeyRef.current === key) return;
+    orinWorkStateKeyRef.current = key;
+    onOrinWorkStateChange(state);
+  });
   const handleRetryFailedChat = () => {
     if (!failedChatRequest || isLoading || isOffline) return;
     const retryText = failedChatRequest.text;

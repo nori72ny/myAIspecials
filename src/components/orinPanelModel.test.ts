@@ -5,6 +5,7 @@ import {
   orinPanelHoldNote,
   orinPanelRunProgress,
   parseOrinPanelRun,
+  projectOrinPanelRemaining,
   type OrinPanelRun,
 } from './orinPanelModel';
 
@@ -155,6 +156,36 @@ describe('orinPanelModel grouping and the completion window (design §4.4)', () 
     const groups = groupOrinPanelRuns(runs, now);
     expect(groups.active.map((item) => item.runId)).toEqual(['run-old-active']);
     expect(groups.stopped.map((item) => item.runId)).toEqual(['run-old-held']);
+  });
+});
+
+describe('orinPanelModel remaining projection (expansion design §7)', () => {
+  const now = new Date('2026-11-25T06:00:00.000Z').getTime();
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  it('keeps only unfinished work, ordered your turn → stopped → active', () => {
+    const runs = [
+      run({ runId: 'run-active', status: 'running', updatedAt: iso(now), plan: planOf(2), stepsState: statesOf(['completed', 'running']) }),
+      run({ runId: 'run-approval', status: 'awaiting_approval', updatedAt: iso(now), plan: planOf(1), stepsState: statesOf(['queued']) }),
+      run({ runId: 'run-held', status: 'held', updatedAt: iso(now), plan: planOf(1), stepsState: statesOf(['queued']), hold: { reason: 'quota_exhausted', resumeConditionKind: 'quota_reset' } }),
+      run({ runId: 'run-failed', status: 'failed', updatedAt: iso(now), plan: planOf(2), stepsState: statesOf(['completed', 'blocked']) }),
+      run({ runId: 'run-done', status: 'completed', updatedAt: iso(now), plan: planOf(1), stepsState: statesOf(['completed']) }),
+      run({ runId: 'run-cancelled', status: 'cancelled', updatedAt: iso(now) }),
+      run({ runId: 'run-expired', status: 'expired', updatedAt: iso(now) }),
+    ];
+    const remaining = projectOrinPanelRemaining(groupOrinPanelRuns(runs, now));
+    expect(remaining.yourTurn.map((item) => item.runId)).toEqual(['run-approval']);
+    // held and failed stay; cancelled and expired are not "remaining".
+    expect(remaining.stopped.map((item) => item.runId)).toEqual(['run-held', 'run-failed']);
+    expect(remaining.active.map((item) => item.runId)).toEqual(['run-active']);
+  });
+
+  it('has no completion window: old unfinished runs stay listed', () => {
+    const runs = [
+      run({ runId: 'run-old-held', status: 'held', updatedAt: iso(now - 72 * 60 * 60 * 1000), plan: planOf(1), stepsState: statesOf(['queued']), hold: { reason: 'scheduled_time', resumeConditionKind: 'at_time' } }),
+    ];
+    const remaining = projectOrinPanelRemaining(groupOrinPanelRuns(runs, now));
+    expect(remaining.stopped.map((item) => item.runId)).toEqual(['run-old-held']);
   });
 });
 
