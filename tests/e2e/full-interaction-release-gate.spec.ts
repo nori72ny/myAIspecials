@@ -209,7 +209,21 @@ test.describe('ORIGIN full interaction and visual-consistency release gate', () 
 
       await add.click();
       await expect(menu).toBeVisible();
-      await page.locator('main').click({ position: { x: 4, y: 4 } });
+      // Outside tap closes the menu. While the menu is open the
+      // app-root scrim (.origin-app::before, z-index 15) covers the
+      // whole screen — including the header band, which drops below
+      // the scrim while the menu is open (fix batch 2, item 7) — so
+      // a locator click on main can never pass the hit-target check
+      // there: the scrim belongs to main's ancestor, not to main.
+      // A real user's tap at this same point lands on the scrim and
+      // closes the menu through the App-level outside-pointer
+      // handler, so click the point by viewport coordinates to
+      // exercise exactly that path (measured with elementFromPoint:
+      // the topmost element at main's (4,4) with the menu open is
+      // the .origin-app scrim host at both 390px and 768px).
+      const mainBox = await page.locator('main').boundingBox();
+      expect(mainBox).not.toBeNull();
+      await page.mouse.click(mainBox!.x + 4, mainBox!.y + 4);
       await expect(menu).toBeHidden();
 
       await add.click();
