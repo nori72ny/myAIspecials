@@ -143,6 +143,15 @@ type Translation = {
     limitReachedNote: string;
     migrationMigrated: (count: number) => string;
     migrationFailed: string;
+    passkeyHeading: string;
+    passkeyDescription: string;
+    passkeySetup: string;
+    passkeyUnlock: string;
+    passkeyWorking: string;
+    passkeyDone: string;
+    passkeyUnsupported: string;
+    passkeyCancelled: string;
+    passkeyFailed: string;
     profileHeading: string;
     profileCategoryLabel: string;
     profileCategories: { about: string; personality: string; preference: string; goal: string };
@@ -364,6 +373,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       limitReachedNote: '上限に達したため、会話から新しく覚えることは一時停止しています。あなたが書いた内容と、「覚えておいて」と言った内容は、これまでどおり保存されます。',
       migrationMigrated: (count) => `前の仕組みで覚えていた ${count} 件を、こちらへ引き継ぎました。`,
       migrationFailed: '前の仕組みからの移行がうまくいきませんでした。次に開いたときに、もう一度試します。',
+      passkeyHeading: '端末のカギで守る',
+      passkeyDescription: '指紋・顔認証などのパスキーでカギを作ると、覚えた内容をより強く守れます。カギはこの端末の中だけで使われ、外に送られることはありません。',
+      passkeySetup: 'パスキーを設定する',
+      passkeyUnlock: 'パスキーで守り直す',
+      passkeyWorking: '処理しています…',
+      passkeyDone: 'パスキーのカギで守るようにしました。',
+      passkeyUnsupported: 'この端末・ブラウザではパスキーを使えませんでした。',
+      passkeyCancelled: 'パスキーの確認がキャンセルされました。',
+      passkeyFailed: 'パスキーの設定に失敗しました。時間をおいて、もう一度お試しください。',
       profileHeading: 'プロフィール',
       profileCategoryLabel: 'カテゴリ',
       profileCategories: { about: 'わたしについて', personality: '性格・考え方', preference: '好み', goal: 'やりたいこと・目標' },
@@ -583,6 +601,15 @@ export const TRANSLATIONS: Record<OriginLanguage, Translation> = {
       limitReachedNote: 'The limit has been reached, so remembering new things from conversations is paused. What you write yourself, and anything you ask ORIGIN to remember, is still saved as before.',
       migrationMigrated: (count) => `${count} item(s) remembered by the previous system were carried over here.`,
       migrationFailed: 'The carry-over from the previous system did not finish. It will be tried again the next time you open this.',
+      passkeyHeading: 'Protect with a device key',
+      passkeyDescription: 'A passkey (fingerprint, face, or device PIN) creates a stronger key for what ORIGIN remembers. The key is used only on this device and is never sent anywhere.',
+      passkeySetup: 'Set up a passkey',
+      passkeyUnlock: 'Re-protect with my passkey',
+      passkeyWorking: 'Working…',
+      passkeyDone: 'What ORIGIN remembers is now protected with your passkey key.',
+      passkeyUnsupported: 'Passkeys are not available on this device or browser.',
+      passkeyCancelled: 'Passkey confirmation was cancelled.',
+      passkeyFailed: 'Passkey setup failed. Please wait a moment and try again.',
       profileHeading: 'Profile',
       profileCategoryLabel: 'Category',
       profileCategories: { about: 'About me', personality: 'Personality & outlook', preference: 'Preferences', goal: 'Goals' },

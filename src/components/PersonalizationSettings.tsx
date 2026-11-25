@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { User } from 'lucide-react';
+import { KeyRound, User } from 'lucide-react';
 import { getTranslations, type OriginLanguage } from '../i18n';
 import { cn } from '../utils';
+import {
+  isPasskeyConfigured,
+  registerPasskeyKey,
+  unlockAndSetPasskeyKey,
+} from '../security/passkeyKeyDerivation';
+import { migrateToPasskeyEncryption } from '../security/passkeyKeyMigration';
 import {
   clearAll,
   clearBlockNotices,
@@ -94,6 +100,9 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
   const [editDraft, setEditDraft] = useState('');
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearIncludeProfile, setClearIncludeProfile] = useState(false);
+  const [passkeyConfigured, setPasskeyConfigured] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyMessage, setPasskeyMessage] = useState<string | null>(null);
 
   const userId = (): string => {
     if (!userIdRef.current) userIdRef.current = resolveActiveContextUserId();
@@ -114,6 +123,11 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
     let active = true;
     void (async () => {
       try {
+        try {
+          if (active) setPasskeyConfigured(isPasskeyConfigured());
+        } catch {
+          // A corrupt stored credential id simply reads as "not set up".
+        }
         const id = userId();
         const noticeRecord = getPersonalMemoryMigrationNotice(id);
         if (active && noticeRecord) {
@@ -138,6 +152,38 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       await reload();
     } catch {
       setNotice({ kind: 'error', message: p.loadFailed });
+    }
+  };
+
+  // --- Passkey protection ---------------------------------------------------
+  //
+  // The passkey key system (WebAuthn PRF → AES-GCM) and the store
+  // migration were built with the storage layer, but until now nothing in
+  // the UI called them, so every device silently stayed on the
+  // device-local key. This section is the wiring: enroll (or unlock) and
+  // migrate the on-device stores to the passkey key. The key itself never
+  // leaves the device; a failure leaves the existing protection untouched.
+
+  const runPasskeyProtection = async () => {
+    setPasskeyBusy(true);
+    setPasskeyMessage(null);
+    try {
+      const key = passkeyConfigured ? await unlockAndSetPasskeyKey() : await registerPasskeyKey();
+      await migrateToPasskeyEncryption(key);
+      setPasskeyConfigured(true);
+      setPasskeyMessage(p.passkeyDone);
+      await reload();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      const cancelled = code.includes('CANCELLED')
+        || (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'NotAllowedError');
+      setPasskeyMessage(
+        code === 'PASSKEY_PRF_UNSUPPORTED' || code === 'PASSKEY_PRF_UNAVAILABLE' || code === 'PASSKEY_BROWSER_REQUIRED'
+          ? p.passkeyUnsupported
+          : cancelled ? p.passkeyCancelled : p.passkeyFailed,
+      );
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -416,6 +462,20 @@ export default function PersonalizationSettings({ language, enabled, onToggleEna
       <p role="status" aria-live="polite" className={cn('text-sm leading-5', notice.kind === 'error' ? 'text-[var(--danger)]' : 'origin-muted')}>
         {notice.kind !== 'idle' ? notice.message : ''}
       </p>
+
+      <div className="space-y-2 pt-2" data-testid="passkey-protection">
+        <h4 className="flex items-center gap-2 text-sm font-bold"><KeyRound className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />{p.passkeyHeading}</h4>
+        <p className="origin-muted text-[13px] leading-5">{p.passkeyDescription}</p>
+        <button
+          type="button"
+          disabled={passkeyBusy}
+          onClick={(event) => { event.stopPropagation(); void runPasskeyProtection(); }}
+          className="origin-secondary-button min-h-11 rounded-xl px-3 text-sm font-semibold"
+        >
+          {passkeyBusy ? p.passkeyWorking : passkeyConfigured ? p.passkeyUnlock : p.passkeySetup}
+        </button>
+        {passkeyMessage && <p role="status" className="origin-muted text-[13px] leading-5">{passkeyMessage}</p>}
+      </div>
 
       <div className="space-y-3 pt-2">
         <h4 className="text-sm font-bold">{p.profileHeading}</h4>

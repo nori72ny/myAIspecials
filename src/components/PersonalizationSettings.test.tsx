@@ -5,6 +5,33 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OriginMemoryItem, OriginProfileItem } from '../services/activeContextGraph';
 
+// The passkey layer is mocked: WebAuthn cannot run in jsdom, and these
+// tests pin the settings wiring (which function runs, what the owner is
+// told), not the cryptography. The storage layer keeps working against
+// the real module because the mock's getUnlockedPasskeyKey returns null
+// (no passkey unlocked), exactly like a device without a passkey.
+const passkeyMocks = vi.hoisted(() => ({
+  isPasskeyConfigured: vi.fn(() => false),
+  registerPasskeyKey: vi.fn(async () => ({} as CryptoKey)),
+  unlockAndSetPasskeyKey: vi.fn(async () => ({} as CryptoKey)),
+  migrateToPasskeyEncryption: vi.fn(async () => ({ checkpoints: false, activeContext: 0 })),
+}));
+
+vi.mock('../security/passkeyKeyDerivation', () => ({
+  getUnlockedPasskeyKey: () => null,
+  setUnlockedPasskeyKey: () => undefined,
+  isPasskeyConfigured: passkeyMocks.isPasskeyConfigured,
+  registerPasskeyKey: passkeyMocks.registerPasskeyKey,
+  unlockAndSetPasskeyKey: passkeyMocks.unlockAndSetPasskeyKey,
+}));
+
+vi.mock('../security/passkeyKeyMigration', () => ({
+  migrateToPasskeyEncryption: passkeyMocks.migrateToPasskeyEncryption,
+  isPasskeyMigrationComplete: () => false,
+  PASSKEY_MIGRATION_STATUS_KEY: 'origin-passkey-migration-v1',
+  PASSKEY_MIGRATION_STATUS_EVENT: 'origin:passkey-migration-status',
+}));
+
 // Component tests for the "About you" management section (PR P1-3, design
 // §7). They run against the real P1-1 storage layer (encrypted, on-device)
 // with the same minimal IndexedDB fake as the storage tests, so add /
@@ -566,5 +593,56 @@ describe('PersonalizationSettings block notices', () => {
     renderSection(PersonalizationSettings);
     await screen.findByText('表より文章が好き');
     expect(screen.queryByTestId('block-notices')).toBeNull();
+  });
+});
+
+// --- Passkey protection --------------------------------------------------------
+
+describe('PersonalizationSettings passkey protection', () => {
+  beforeEach(() => {
+    passkeyMocks.isPasskeyConfigured.mockReset().mockReturnValue(false);
+    passkeyMocks.registerPasskeyKey.mockReset().mockResolvedValue({} as CryptoKey);
+    passkeyMocks.unlockAndSetPasskeyKey.mockReset().mockResolvedValue({} as CryptoKey);
+    passkeyMocks.migrateToPasskeyEncryption.mockReset().mockResolvedValue({ checkpoints: false, activeContext: 0 });
+  });
+
+  it('enrolls a passkey and migrates the stores when none is configured', async () => {
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+
+    const button = await screen.findByRole('button', { name: 'パスキーを設定する' });
+    fireEvent.click(button);
+
+    await screen.findByText('パスキーのカギで守るようにしました。');
+    expect(passkeyMocks.registerPasskeyKey).toHaveBeenCalledTimes(1);
+    expect(passkeyMocks.unlockAndSetPasskeyKey).not.toHaveBeenCalled();
+    expect(passkeyMocks.migrateToPasskeyEncryption).toHaveBeenCalledTimes(1);
+    // After a successful enrollment the section offers the unlock action.
+    expect(screen.getByRole('button', { name: 'パスキーで守り直す' })).toBeTruthy();
+  });
+
+  it('unlocks and re-migrates when a passkey is already configured', async () => {
+    passkeyMocks.isPasskeyConfigured.mockReturnValue(true);
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+
+    const button = await screen.findByRole('button', { name: 'パスキーで守り直す' });
+    fireEvent.click(button);
+
+    await screen.findByText('パスキーのカギで守るようにしました。');
+    expect(passkeyMocks.unlockAndSetPasskeyKey).toHaveBeenCalledTimes(1);
+    expect(passkeyMocks.registerPasskeyKey).not.toHaveBeenCalled();
+    expect(passkeyMocks.migrateToPasskeyEncryption).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains in plain language when the device cannot use a passkey', async () => {
+    passkeyMocks.registerPasskeyKey.mockRejectedValue(new Error('PASSKEY_PRF_UNSUPPORTED'));
+    const { PersonalizationSettings } = await loadModules();
+    renderSection(PersonalizationSettings);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'パスキーを設定する' }));
+
+    await screen.findByText('この端末・ブラウザではパスキーを使えませんでした。');
+    expect(passkeyMocks.migrateToPasskeyEncryption).not.toHaveBeenCalled();
   });
 });
