@@ -10,8 +10,8 @@ import {
 
 export type OriginAnswerMode = "direct" | "decision" | "deliverable" | "research";
 export type OriginVerificationLevel = "basic" | "evidence-required" | "independent-review-required";
-export interface OriginAnswerQualityPolicy { answerMode: OriginAnswerMode; verificationLevel: OriginVerificationLevel; creativeSpecRequired: boolean; executiveReasoningRequired: boolean; businessPlanning: OriginBusinessPlanningProfile | null; }
-interface OriginAnswerQualityPolicyInput { intent: OriginRequestIntent; taskType: AITaskType; independentReviewRequired: boolean; promptText?: string; }
+export interface OriginAnswerQualityPolicy { answerMode: OriginAnswerMode; verificationLevel: OriginVerificationLevel; creativeSpecRequired: boolean; executiveReasoningRequired: boolean; businessPlanning: OriginBusinessPlanningProfile | null; deckRequest?: boolean; }
+interface OriginAnswerQualityPolicyInput { intent: OriginRequestIntent; taskType: AITaskType; independentReviewRequired: boolean; promptText?: string; deckRequest?: boolean; }
 const RESEARCH_TASKS = new Set<AITaskType>(["research", "current-information"]);
 const EXECUTIVE_TASKS = new Set<AITaskType>(["research", "current-information", "architecture", "operations", "security"]);
 const CREATIVE_ARTIFACT_OUTPUTS = new Set(["application", "website", "presentation", "dashboard"]);
@@ -30,7 +30,12 @@ export function resolveOriginAnswerQualityPolicy(input: OriginAnswerQualityPolic
   const businessPlanning = typeof input.promptText === "string" && input.promptText.trim().length > 0
     ? resolveOriginBusinessPlanning(input.promptText, input.intent)
     : null;
-  return { answerMode, verificationLevel, creativeSpecRequired, executiveReasoningRequired, businessPlanning };
+  // Deck requests (DOCUMENT_WAVE2 §4 unit 1): the flag is present on the
+  // policy only when true, so every non-deck policy object — and the
+  // instruction built from it — stays exactly as before. When set, the
+  // business-planning instruction below is built in its deck variant
+  // (number discipline only; the deck skeleton owns the structure).
+  return { answerMode, verificationLevel, creativeSpecRequired, executiveReasoningRequired, businessPlanning, ...(input.deckRequest === true ? { deckRequest: true } : {}) };
 }
 
 function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy): string {
@@ -63,7 +68,7 @@ function buildOriginAnswerQualityInstruction(policy: OriginAnswerQualityPolicy):
   ] : [];
   const businessPlanningInstruction = policy.businessPlanning ? [
     "",
-    buildOriginBusinessPlanningInstruction(policy.businessPlanning),
+    buildOriginBusinessPlanningInstruction(policy.businessPlanning, new Date(), { forDeck: policy.deckRequest === true }),
   ] : [];
   // Three directives that used to be repeated here — prefer specific
   // recommendations over generic advice, never claim execution without

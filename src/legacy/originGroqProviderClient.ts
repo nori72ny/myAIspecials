@@ -158,6 +158,23 @@ export function originGroqTokensPerMinuteLimit(modelId: OriginGroqFreeModelId): 
  * the budget nothing is trimmed away and the TPM gate below decides honestly.
  */
 export const ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET = 6_000;
+/**
+ * Deck requests (DOCUMENT_WAVE2 §4 unit 3): the completion budget is
+ * floored at this many tokens, guaranteed from the input-trim side via
+ * ORIGIN_GROQ_DECK_INPUT_TOKEN_BUDGET below. A proposal-deck draft is
+ * worthless when truncated — the skeleton cannot be assembled into a
+ * file — and the gpt-oss models spend completion tokens on reasoning
+ * first (they take no reasoning_effort setting), so the standard
+ * min(task budget, TPM − input) could leave the skeleton unfinished
+ * (remeasurement S-6, 2026-11-25: finish_reason=length, no deck).
+ * The floor never raises the tokens/minute ceiling: it only trims the
+ * input harder and lets the completion side use headroom that is
+ * actually there.
+ */
+export const ORIGIN_GROQ_DECK_COMPLETION_FLOOR_TOKENS = 4_096;
+/** Input budget for deck requests: TPM ceiling minus the completion floor. */
+export const ORIGIN_GROQ_DECK_INPUT_TOKEN_BUDGET =
+  ORIGIN_GROQ_TOKENS_PER_MINUTE_LIMIT - ORIGIN_GROQ_DECK_COMPLETION_FLOOR_TOKENS;
 export const ORIGIN_GROQ_MAX_REQUEST_TIMEOUT_MS = 52_000;
 /** Below this completion headroom the answer would be uselessly truncated; skip instead. */
 const MIN_GROQ_COMPLETION_TOKENS = 256;
@@ -222,12 +239,13 @@ export function estimateOriginGroqInputTokens(payloadTexts: readonly string[]): 
 export function trimOriginGroqRouteHistory(
   messages: readonly OriginChatMessage[],
   systemInstruction: string,
+  inputBudget: number = ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET,
 ): OriginChatMessage[] {
   let kept = [...messages];
   while (
     kept.length > 1
     && estimateOriginGroqInputTokens([systemInstruction, ...kept.map((message) => message.content)])
-      > ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET
+      > inputBudget
   ) {
     kept = kept.slice(1);
   }
@@ -469,7 +487,15 @@ function prepareGroqModelAttempt(
     ...message,
     content: sanitizePreEgress(message.content),
   }));
-  const routeMessages = trimOriginGroqRouteHistory(sanitizedHistory, effectiveSystemInstruction);
+  // Deck requests trim to the tighter deck input budget so the
+  // completion floor below is actually reachable (DOCUMENT_WAVE2 §4
+  // unit 3); every other request trims exactly as before.
+  const deckRequest = providerRequest.deckRequest === true;
+  const routeMessages = trimOriginGroqRouteHistory(
+    sanitizedHistory,
+    effectiveSystemInstruction,
+    deckRequest ? ORIGIN_GROQ_DECK_INPUT_TOKEN_BUDGET : ORIGIN_GROQ_ROUTE_INPUT_TOKEN_BUDGET,
+  );
   const messages = [
     { role: "system", content: effectiveSystemInstruction },
     ...routeMessages.map((message) => ({
@@ -483,10 +509,20 @@ function prepareGroqModelAttempt(
   // longer fits, the request would predictably hit the rate limit, so the route
   // is skipped.
   const estimatedInputTokens = estimateOriginGroqInputTokens(messages.map((message) => message.content));
-  const completionBudget = Math.min(
-    originCompletionTokenBudget(plan.taskType),
-    originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
-  );
+  // Deck floor (unit 3): the completion budget may rise up to the floor
+  // even when the task-type budget is lower, but never above the actual
+  // TPM headroom — when the final message alone overruns the deck input
+  // budget the headroom is what it is, and the preflight skip below
+  // still applies unchanged.
+  const completionBudget = deckRequest
+    ? Math.min(
+        Math.max(originCompletionTokenBudget(plan.taskType), ORIGIN_GROQ_DECK_COMPLETION_FLOOR_TOKENS),
+        originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
+      )
+    : Math.min(
+        originCompletionTokenBudget(plan.taskType),
+        originGroqTokensPerMinuteLimit(modelId) - estimatedInputTokens,
+      );
   if (completionBudget < MIN_GROQ_COMPLETION_TOKENS) {
     throw new OriginGroqPreflightError("token-budget-exceeded");
   }

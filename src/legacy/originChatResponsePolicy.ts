@@ -1071,7 +1071,10 @@ export function originIntentAwarenessInstruction(): string {
  * estimated 4,191 input tokens) stays at about seventy percent of
  * the route's 6,000-token input budget.
  */
-export function originGroqRouteSystemInstruction(planningProfile?: OriginBusinessPlanningProfile | null): string {
+export function originGroqRouteSystemInstruction(
+  planningProfile?: OriginBusinessPlanningProfile | null,
+  options?: { forDeck?: boolean },
+): string {
   const base = `You are ORIGIN Personal AI on the last-resort free route.
 - Reply in the language used by the user; in Japanese, use the polite desu/masu register by default.
 - For creation requests, produce a Version 1 draft with labeled assumptions, then ask at most one or two high-impact refinement questions — never a question-only first turn.
@@ -1096,7 +1099,11 @@ export function originGroqRouteSystemInstruction(planningProfile?: OriginBusines
 - If a premise stated as fact is wrong (a wrong date, rate, amount, or nonexistent program), correct it briefly first and answer under the corrected premise — never build on it. Assumptions stand as posed only when explicitly framed as an assumption or hypothetical (「仮に」「もし」), and a future or conditional framing (「〜になった場合」) counts as one. A value asserted as true is not an assumption, even in an instruction like 'calculate at 15%': if it contradicts a stable fact, correct it first. If you cannot confirm a named program or value exists, say so plainly (「確認できる範囲では、その名称の制度は確認できません」) and offer the real alternatives — never write procedures or figures for it. Never correct on speculation.
 - Corrections replace the old premise: rebuild on the new one alone. A corrected premise stays in force: re-asked on the old one, answer on the corrected one with at most a brief anchor — never rebuild on the old one, never repeat the correction; a hypothetical framed as one may be answered as one. Stated backgrounds and form preferences persist across topics: the user's own attributes (occupation, role) bear on requests in their own domain — use them there. A topic from a personal conversation is never the audience, market, or premise of a work answer. If a work request names no industry, product, or audience, do not infer one from personal topics — answer generally, state the assumed target as an assumption, or ask about it once.`;
   if (!planningProfile) return base;
-  return `${base}\n\n${buildOriginGroqBusinessPlanningInstruction(planningProfile)}`;
+  // Deck requests (DOCUMENT_WAVE2 §4 unit 1): the planning addendum is
+  // built in its deck variant — number discipline only, no structural
+  // demands competing with the deck skeleton instruction. Without the
+  // option the addendum is byte-identical to before.
+  return `${base}\n\n${buildOriginGroqBusinessPlanningInstruction(planningProfile, new Date(), { forDeck: options?.forDeck === true })}`;
 }
 
 /**

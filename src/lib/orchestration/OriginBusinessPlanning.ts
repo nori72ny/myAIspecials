@@ -472,20 +472,42 @@ function formatRequiredPartsLine(kind: OriginBusinessPlanningKind): string {
 const PREMISE_TABLE_LINE =
   "- Answer structure — premise table first: before the first required section, open with a premise table listing every figure the plan uses, one row per figure, under the columns 指標 / 値 / 単位 / 対象期間 / 種別 / 根拠. 種別 is exactly one of 入力事実 (supplied by the user), 仮置き（仮定） (an assumption you are making), 計算結果 (computed from other rows — its 根拠 cell shows the formula, and for a rate the numerator and denominator it divides, e.g. 受注 120件 ÷ 商談 600件), or 未確定 (cannot be fixed from what was supplied — its 値 cell states what is missing instead of a number). After the premise table, the body only references figures that appear in it: introduce no new number in the body, and never restate a figure with a different value from its premise-table row. A 計算結果 row's formula takes the premise table's own rows as its operands, referenced by row name: never embed a figure's current value as a bare literal in a formula, because the value can change while the formula must stay true — a rate the formula uses is itself a premise-table row and is referenced by name (write 商談必要数 ÷ SQL→商談 コンバージョン率, not ÷ 0.5); if you show a row's value beside its name for readability, put it in parentheses as an annotation, e.g. 商談必要数 ÷ SQL→商談 コンバージョン率 (0.5). The only literals a formula may contain are constants that are not figures of the plan (12 months in a year, 100 in a percent conversion). Compute every derived figure exactly once, in its premise-table row; everywhere else — the 要点 summary, the body, the sensitivity analysis — reuse the figure by copying its (指標名, 値) pair from the premise table: never recompute a figure outside its row, and never present one row's value under a different row's name. A sensitivity figure is the same chain recomputed with one premise varied: give it its own premise-table row, under a name that states both the figure and the varied premise (e.g. 必要商談数（成約率半減時）), so a recomputed value can never be read as another stage's count. Amounts use exactly one unit across the whole answer — 円 or 万円, chosen once — and 千円 amounts are never written (rewrite 50千円 as 50,000円, or as 5万円 in the chosen unit).";
 
-export function buildOriginBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile, now: Date = new Date()): string {
+export function buildOriginBusinessPlanningInstruction(
+  profile: OriginBusinessPlanningProfile,
+  now: Date = new Date(),
+  options?: { forDeck?: boolean },
+): string {
+  // Deck variant (DOCUMENT_WAVE2 §4 unit 1, S-5 countermeasure): when the
+  // answer is a proposal-deck draft, the deck skeleton instruction owns
+  // the document structure. The planning instruction's structural demands
+  // — premise-table-first, the fixed required parts under their exact
+  // names and order, what each part must carry, the fixed funnel
+  // presentation, ownership/deadline mandates, the KPI classes and the
+  // closing-section shape — competed head-on with that skeleton in the
+  // 2026-11-25 remeasurement (S-5 answered in the planning form and no
+  // deck could be assembled). The deck variant therefore keeps ONLY the
+  // number discipline: the number-discipline and number-sanity hard
+  // rules, the supplied figures / deterministic backcast, and the
+  // calendar anchor. Every non-deck call keeps the full instruction
+  // byte-identical.
+  const forDeck = options?.forDeck === true;
   return [
     "Business planning & marketing protocol (a planning/marketing request was detected; apply this playbook):",
-    `- Request kind: ${profile.kind}. ${KIND_EMPHASIS[profile.kind]}`,
-    formatRequiredPartsLine(profile.kind),
-    PREMISE_TABLE_LINE,
-    "- What the parts must carry: 目的とゴール states the higher purpose behind the request in one line (if you inferred it, say it is your reading) and the goal in SMART form. 対象 defines who it is for — the ICP or persona by their problem and decision conditions, not demographics alone. 提供価値 states the value against that problem and the decisive difference from alternatives. 市場・競合の見立て rests on sourced facts and labels estimates as estimates. 施策とチャネル ties every measure to the funnel stage it moves.",
-    "- Funnel vocabulary is fixed: リーチ -> リード -> MQL -> SQL -> 商談 -> 受注. Show the backcast from the goal backwards: goal -> required orders -> meetings -> SQL -> MQL -> leads -> reach, with the conversion rate written next to the stage it produces.",
+    ...(forDeck ? [] : [
+      `- Request kind: ${profile.kind}. ${KIND_EMPHASIS[profile.kind]}`,
+      formatRequiredPartsLine(profile.kind),
+      PREMISE_TABLE_LINE,
+      "- What the parts must carry: 目的とゴール states the higher purpose behind the request in one line (if you inferred it, say it is your reading) and the goal in SMART form. 対象 defines who it is for — the ICP or persona by their problem and decision conditions, not demographics alone. 提供価値 states the value against that problem and the decisive difference from alternatives. 市場・競合の見立て rests on sourced facts and labels estimates as estimates. 施策とチャネル ties every measure to the funnel stage it moves.",
+      "- Funnel vocabulary is fixed: リーチ -> リード -> MQL -> SQL -> 商談 -> 受注. Show the backcast from the goal backwards: goal -> required orders -> meetings -> SQL -> MQL -> leads -> reach, with the conversion rate written next to the stage it produces.",
+    ]),
     "- Number discipline (hard rule): every number in the plan is user-supplied, computed from user-supplied numbers by arithmetic you show, or an assumption. An assumed rate, price, or volume must be visibly labelled 「仮置き（仮定）」 at the point of use, with a note that it will be calibrated once actual results exist. Never fill a missing figure with a plausible-looking number presented as fact, and never raise a rate to make the plan appear to reach the goal — if the numbers do not close the gap, say plainly that they do not close it and show the size of the remaining gap.",
     "- Number sanity (hard rules, check before finishing): (a) A conversion rate is always result ÷ input — 成約率 = 受注数 ÷ 商談数, 商談化率 = 商談数 ÷ リード数 — never the inverse; whenever you state a rate, write the division it comes from next to it so the direction can be checked. (b) A figure presented with a formula — a market size built as 対象数 × 比率 × 単価 × 期間, a revenue forecast built from a unit price and a customer count — must equal the value that formula produces; recompute it before writing, and never let a forecast table drift away from the price model stated in the same answer. (c) Never present a statistic as fact dressed as 「業界平均」「調査によると」「統計によると」, or with an institution's name attached, when you cannot actually source it; an unsourced benchmark figure may appear only labelled 「仮置き（仮定）」. (d) The same quantity must carry the same value everywhere it appears — summary, tables, and body must agree; if two numbers for the same thing disagree, fix the inconsistency instead of shipping both.",
-    ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines (required for this kind): every measure and every next action must name its 担当 (a role name is enough — e.g. マーケティング担当, 営業責任者, 経営者) and its 期限 as a calendar date or a relative deadline (e.g. 「2週間以内」「初月末まで」「3ヶ月目の第2週」). A measure or action without an owner and a deadline does not count as part of the plan."] : []),
-    "- KPIs come in three classes — result （結果）, process （過程）, efficiency （効率） — and a vanity metric (raw PV, follower counts, impressions alone) is never the primary KPI. Fix the measurement definitions (what counts as an MQL/SQL, the period, the source of the count) inside the plan, not later.",
-    "- Beyond-the-request actions, within the plan only: (1) fill missing premises as explicit assumptions — ask at most one short question, and only when the answer would materially change the plan; otherwise proceed with a one-line stated premise. (2) Design to the higher purpose behind the request, but do not add deliverable types the user did not ask for. (3) Close with the separate final section （次の一手 / リスク / 代替案）: next actions named as who does what, by when, and how many; risks as the condition that breaks a premise and its impact; alternatives as the switch if a premise breaks, with sensitivity where you can give it. (4) If the conversation or the provided context contains relevant past plans or data, propose combining them — as a proposal only; never write as if past data exists when none was provided.",
-    "- Keep the added sections smaller than the body of the plan. The plan itself, at decision-ready specificity, is the deliverable.",
+    ...(forDeck ? [] : [
+      ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines (required for this kind): every measure and every next action must name its 担当 (a role name is enough — e.g. マーケティング担当, 営業責任者, 経営者) and its 期限 as a calendar date or a relative deadline (e.g. 「2週間以内」「初月末まで」「3ヶ月目の第2週」). A measure or action without an owner and a deadline does not count as part of the plan."] : []),
+      "- KPIs come in three classes — result （結果）, process （過程）, efficiency （効率） — and a vanity metric (raw PV, follower counts, impressions alone) is never the primary KPI. Fix the measurement definitions (what counts as an MQL/SQL, the period, the source of the count) inside the plan, not later.",
+      "- Beyond-the-request actions, within the plan only: (1) fill missing premises as explicit assumptions — ask at most one short question, and only when the answer would materially change the plan; otherwise proceed with a one-line stated premise. (2) Design to the higher purpose behind the request, but do not add deliverable types the user did not ask for. (3) Close with the separate final section （次の一手 / リスク / 代替案）: next actions named as who does what, by when, and how many; risks as the condition that breaks a premise and its impact; alternatives as the switch if a premise breaks, with sensitivity where you can give it. (4) If the conversation or the provided context contains relevant past plans or data, propose combining them — as a proposal only; never write as if past data exists when none was provided.",
+      "- Keep the added sections smaller than the body of the plan. The plan itself, at decision-ready specificity, is the deliverable.",
+    ]),
     ...formatBackcastBlock(profile),
     // Calendar anchor last (adoption item 1): the precomputed JST date
     // table sits at the end of the planning instruction — the position
@@ -574,7 +596,11 @@ function formatGroqBackcastLines(profile: OriginBusinessPlanningProfile): string
   return lines;
 }
 
-export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusinessPlanningProfile, now: Date = new Date()): string {
+export function buildOriginGroqBusinessPlanningInstruction(
+  profile: OriginBusinessPlanningProfile,
+  now: Date = new Date(),
+  options?: { forDeck?: boolean },
+): string {
   const parts = ORIGIN_BUSINESS_PLANNING_REQUIRED_PARTS[profile.kind];
   const sections = parts.filter((part) => part !== "仮置き");
   const assumptionClause = parts.includes("仮置き")
@@ -583,13 +609,25 @@ export function buildOriginGroqBusinessPlanningInstruction(profile: OriginBusine
   // One anchor computation feeds both date blocks, so the current-date
   // line and the calendar table always state the same base date.
   const anchor = computeOriginBusinessCalendarAnchor(now);
+  // Deck variant (DOCUMENT_WAVE2 §4 unit 1): same rule as the full
+  // builder — for a proposal-deck draft the skeleton instruction owns
+  // the structure, so the required-parts mandate, the premise-table
+  // line, the fixed funnel order and the ownership mandate are dropped
+  // and only the number discipline (the Numbers line, the supplied
+  // figures / backcast and the date blocks) remains. Non-deck calls are
+  // byte-identical to before.
+  const forDeck = options?.forDeck === true;
   return [
     `Business planning rules for this request (kind: ${profile.kind}) — mandatory, not optional structure advice:`,
-    `- Required parts: include EVERY part below as its own headed section, in this order, under these exact names: ${sections.join(" / ")}. Never omit or merge a part; a part with little to say still appears, with one line saying why it is small.${assumptionClause}`,
-    GROQ_PREMISE_TABLE_LINE,
+    ...(forDeck ? [] : [
+      `- Required parts: include EVERY part below as its own headed section, in this order, under these exact names: ${sections.join(" / ")}. Never omit or merge a part; a part with little to say still appears, with one line saying why it is small.${assumptionClause}`,
+      GROQ_PREMISE_TABLE_LINE,
+    ]),
     "- Numbers: use user-supplied figures, shown arithmetic from them, or assumptions labelled 「仮置き（仮定）」. A rate is result ÷ input — write the division beside the rate. A figure presented with a formula must equal that formula's result, and the same quantity must carry the same value in the summary, tables, and body. Formulas name rows, not numbers; compute once, then cite by name — never recompute or relabel. Never state an unsourced market size, competitor fact, or statistic as fact; label estimates as estimates （推定）.",
-    "- Funnel order is fixed: リーチ → リード → MQL → SQL → 商談 → 受注. Show the backcast from the goal backwards, with the conversion rate beside the stage it produces.",
-    ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines: every measure and every next action must name its 担当 (a role name is enough) and its 期限 (a calendar date or a relative deadline such as 「2週間以内」). A measure or action without both does not count as part of the plan."] : []),
+    ...(forDeck ? [] : [
+      "- Funnel order is fixed: リーチ → リード → MQL → SQL → 商談 → 受注. Show the backcast from the goal backwards, with the conversion rate beside the stage it produces.",
+      ...(EXECUTION_PLAN_KINDS.has(profile.kind) ? ["- Ownership and deadlines: every measure and every next action must name its 担当 (a role name is enough) and its 期限 (a calendar date or a relative deadline such as 「2週間以内」). A measure or action without both does not count as part of the plan."] : []),
+    ]),
     ...formatGroqBackcastLines(profile),
     // Date blocks last, mirroring the full instruction's recency
     // position for the anchor: the current-date line, then the compact

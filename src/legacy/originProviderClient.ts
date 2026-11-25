@@ -72,6 +72,18 @@ export interface OriginProviderExecutionRequest {
    */
   groqCapacityAllocation?: OriginGroqCapacityAllocation;
   /**
+   * Optional mark that this request asks for a proposal deck
+   * (DOCUMENT_WAVE2 §4 unit 3). The streaming chat router sets it on
+   * deck requests only. The Groq executor reads it to guarantee a
+   * completion-budget floor for deck drafts (a truncated skeleton can
+   * never be assembled into a file, and route 3's reasoning-first
+   * models otherwise spend the budget before the skeleton completes —
+   * remeasurement S-6, 2026-11-25). Routes 1 and 2 never read it, and
+   * callers that do not set it keep the previous route-3 behavior
+   * exactly.
+   */
+  deckRequest?: boolean;
+  /**
    * Optional last-resort-route eligibility mark for the OVHcloud AI
    * Endpoints anonymous tier (fourth route, owner-approved 2026-11-25 as
    * an auxiliary route). A caller may set this to true ONLY when the
@@ -486,7 +498,14 @@ const text = (content: unknown): string => {
   if (!Array.isArray(content)) return "";
   return content.filter((part) => part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string").map((part) => String((part as { text: string }).text).trim()).filter(Boolean).join("\n\n").trim();
 };
-function mergeContinuation(previous: string, continuation: string): string {
+/**
+ * Joins a truncated answer with its continuation, removing the overlap
+ * when the continuation repeats the tail of the partial text. Used by
+ * the segment-continuation loop below and exported for the streaming
+ * router's deck-path continuation (DOCUMENT_WAVE2 §4 unit 3), which
+ * follows the same precedent.
+ */
+export function mergeContinuation(previous: string, continuation: string): string {
   const left = previous.trimEnd();
   const right = continuation.trimStart();
   for (let length = Math.min(left.length, right.length, 500); length >= 20; length -= 1) if (left.slice(-length) === right.slice(0, length)) return `${left}${right.slice(length)}`.trim();
